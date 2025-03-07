@@ -20,7 +20,6 @@ use crate::{
     db,
     db::{
         ObjectColumnFilter,
-        dhcp_record::InstanceDhcpRecord,
         instance::Instance,
         instance_address::{InstanceAddress, UsedOverlayNetworkIpResolver},
         machine::MachineSearchConfig,
@@ -99,12 +98,6 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         .await
         .expect("Unable to create transaction on database pool");
     let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
-    assert!(
-        Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
-            .await
-            .unwrap()
-            .is_none()
-    );
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
@@ -174,7 +167,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         .await
         .expect("Unable to create transaction on database pool");
 
-    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap_or_else(|| {
@@ -207,7 +200,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
     let _ = Instance::use_custom_ipxe_on_next_boot(&host_machine_id, false, &mut txn).await;
-    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();
@@ -225,21 +218,20 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         .await
         .unwrap();
     // TODO: The MAC here doesn't matter. It's not used for lookup
-    let parsed_mac = "ff:ff:ff:ff:ff:ff".parse::<MacAddress>().unwrap();
-    let record = InstanceDhcpRecord::find_for_instance(
+    let record = InstanceAddress::find_by_instance_id_and_segment_id(
         &mut txn,
-        parsed_mac,
-        format!("vlan{}", segment.vlan_id.unwrap()),
-        fetched_instance,
+        &fetched_instance.id,
+        segment.id(),
     )
     .await
+    .unwrap()
     .unwrap();
 
     // This should the first IP. Algo does not look into machine_interface_addresses
     // table for used addresses for instance.
-    assert_eq!(record.address().to_string(), "192.0.4.3");
+    assert_eq!(record.address.to_string(), "192.0.4.3");
     assert_eq!(
-        &record.address(),
+        &record.address,
         network_config.interfaces[0]
             .ip_addrs
             .iter()
@@ -249,7 +241,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     );
 
     assert_eq!(
-        format!("{}/32", &record.address()),
+        format!("{}/32", &record.address),
         network_config.interfaces[0]
             .interface_prefixes
             .iter()
@@ -329,12 +321,6 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .await
         .expect("Unable to create transaction on database pool");
     let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
-    assert!(
-        Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
-            .await
-            .unwrap()
-            .is_none()
-    );
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
@@ -404,7 +390,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .await
         .expect("Unable to create transaction on database pool");
 
-    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap_or_else(|| {
@@ -437,7 +423,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
     let _ = Instance::use_custom_ipxe_on_next_boot(&host_machine_id, false, &mut txn).await;
-    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();
@@ -452,24 +438,23 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .expect("Unable to create transaction on database pool");
 
     // TODO: The MAC here doesn't matter. It's not used for lookup
-    let parsed_mac = "ff:ff:ff:ff:ff:ff".parse::<MacAddress>().unwrap();
     let segment = NetworkSegment::find_by_name(&mut txn, "TENANT")
         .await
         .unwrap();
-    let record = InstanceDhcpRecord::find_for_instance(
+    let record = InstanceAddress::find_by_instance_id_and_segment_id(
         &mut txn,
-        parsed_mac,
-        format!("vlan{}", segment.vlan_id.unwrap()),
-        fetched_instance,
+        &fetched_instance.id,
+        segment.id(),
     )
     .await
+    .unwrap()
     .unwrap();
 
     // This should the first IP. Algo does not look into machine_interface_addresses
     // table for used addresses for instance.
-    assert_eq!(record.address().to_string(), "192.0.4.3");
+    assert_eq!(record.address.to_string(), "192.0.4.3");
     assert_eq!(
-        &record.address(),
+        &record.address,
         network_config.interfaces[0]
             .ip_addrs
             .iter()
@@ -479,7 +464,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     );
 
     assert_eq!(
-        format!("{}/32", &record.address()),
+        format!("{}/32", &record.address),
         network_config.interfaces[0]
             .interface_prefixes
             .iter()
@@ -861,7 +846,7 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
         .expect("Unable to create transaction on database pool");
 
     let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
-    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap_or_else(|| {
@@ -999,7 +984,7 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
         .expect("Unable to create transaction on database pool");
 
     let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
-    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap_or_else(|| {
@@ -2518,7 +2503,7 @@ async fn test_allocate_instance_with_old_network_segemnt(
         .expect("Unable to create transaction on database pool");
 
     let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
-    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap_or_else(|| {
@@ -2655,12 +2640,6 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .await
         .expect("Unable to create transaction on database pool");
     let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
-    assert!(
-        Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
-            .await
-            .unwrap()
-            .is_none()
-    );
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
@@ -2743,7 +2722,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .await
         .expect("Unable to create transaction on database pool");
 
-    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap_or_else(|| {
@@ -2782,7 +2761,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
     let _ = Instance::use_custom_ipxe_on_next_boot(&host_machine_id, false, &mut txn).await;
-    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();
@@ -2796,7 +2775,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .await
         .expect("Unable to create transaction on database pool");
 
-    let ns = NetworkSegment::find_by(
+    let mut ns = NetworkSegment::find_by(
         &mut txn,
         ObjectColumnFilter::One(
             IdColumn,
@@ -2809,22 +2788,22 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     .await
     .unwrap();
 
-    // TODO: The MAC here doesn't matter. It's not used for lookup
-    let parsed_mac = "ff:ff:ff:ff:ff:ff".parse::<MacAddress>().unwrap();
-    let record = InstanceDhcpRecord::find_for_instance(
+    let ns = ns.remove(0);
+
+    let record = InstanceAddress::find_by_instance_id_and_segment_id(
         &mut txn,
-        parsed_mac,
-        format!("vlan{}", ns[0].vlan_id.unwrap_or_default()),
-        fetched_instance.clone(),
+        &fetched_instance.id,
+        ns.id(),
     )
     .await
+    .unwrap()
     .unwrap();
 
     // This should the first IP. Algo does not look into machine_interface_addresses
     // table for used addresses for instance.
-    assert_eq!(record.address().to_string(), "10.217.5.225");
+    assert_eq!(record.address.to_string(), "10.217.5.225");
     assert_eq!(
-        &record.address(),
+        &record.address,
         network_config.interfaces[0]
             .ip_addrs
             .iter()
@@ -2834,7 +2813,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     );
 
     assert_eq!(
-        format!("{}/32", &record.address()),
+        format!("{}/32", &record.address),
         network_config.interfaces[0]
             .interface_prefixes
             .iter()

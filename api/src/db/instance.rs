@@ -11,7 +11,6 @@
  */
 
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::ops::DerefMut;
 use std::str::FromStr;
 
@@ -286,8 +285,7 @@ impl Instance {
             builder.push(
                 "SELECT instances.id FROM instances
 INNER JOIN instance_addresses ON instance_addresses.instance_id = instances.id
-INNER JOIN network_prefixes ON instance_addresses.circuit_id = network_prefixes.circuit_id
-INNER JOIN network_segments ON network_prefixes.segment_id = network_segments.id
+INNER JOIN network_segments ON instance_addresses.segment_id = network_segments.id
 INNER JOIN vpcs ON network_segments.vpc_id = vpcs.id
 WHERE vpc_id = ",
             );
@@ -359,22 +357,6 @@ WHERE vpc_id = ",
         sqlx::query_as(query)
             .bind(machine_ids)
             .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-    }
-
-    pub async fn find_by_relay_ip(
-        txn: &mut Transaction<'_, Postgres>,
-        relay: IpAddr,
-    ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
-        let query = "
-SELECT row_to_json(i.*) from instances i
-INNER JOIN machine_interfaces m ON m.machine_id = i.machine_id
-INNER JOIN machines s ON s.id = m.attached_dpu_machine_id
-WHERE s.network_config->>'loopback_ip'=$1";
-        sqlx::query_as(query)
-            .bind(relay.to_string())
-            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }

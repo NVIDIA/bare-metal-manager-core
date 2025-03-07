@@ -41,7 +41,6 @@ struct NetworkSegmentRowDisplay {
     sub_domain: String,
     mtu: i32,
     prefixes: String,
-    circuit_ids: String,
     version: String,
 }
 
@@ -67,12 +66,6 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
                 .prefixes
                 .iter()
                 .map(|x| x.prefix.to_string())
-                .collect::<Vec<String>>()
-                .join(", "),
-            circuit_ids: segment
-                .prefixes
-                .iter()
-                .map(|x| x.circuit_id.clone().unwrap_or_else(|| "NA".to_owned()))
                 .collect::<Vec<String>>()
                 .join(", "),
             version: segment.version,
@@ -222,7 +215,6 @@ struct NetworkSegmentPrefix {
     prefix: String,
     gateway: String,
     reserve_first: i32,
-    circuit_id: String,
 }
 
 struct NetworkSegmentHistory {
@@ -244,7 +236,6 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
                     .unwrap_or_else(|| "Unknown".to_string())
                     .to_string(),
                 reserve_first: p.reserve_first,
-                circuit_id: p.circuit_id.unwrap_or_default(),
             });
         }
         let mut history = Vec::new();

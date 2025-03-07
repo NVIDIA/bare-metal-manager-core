@@ -203,7 +203,6 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
             reserve_first: 1,
             state: None,
             events: vec![],
-            circuit_id: None,
             free_ip_count: 0,
             svi_ip: None,
         }],
@@ -582,7 +581,6 @@ async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Repo
             reserve_first: 1,
             state: None,
             events: vec![],
-            circuit_id: None,
             free_ip_count: 0,
             svi_ip: None,
         }],
@@ -1028,13 +1026,6 @@ async fn test_update_svi_ip_post_instance_allocation(
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let dpu_loopback_ip = common::api_fixtures::dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
-    assert!(
-        db::instance::Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
-            .await
-            .unwrap()
-            .is_none()
-    );
     assert_eq!(
         db::instance_address::InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await

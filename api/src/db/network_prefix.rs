@@ -33,7 +33,6 @@ pub struct NetworkPrefix {
     pub prefix: IpNetwork,
     pub gateway: Option<IpAddr>,
     pub num_reserved: i32,
-    pub circuit_id: Option<String>,
     pub vpc_prefix_id: Option<VpcPrefixId>,
     pub vpc_prefix: Option<IpNetwork>,
     pub svi_ip: Option<IpAddr>,
@@ -72,7 +71,6 @@ impl<'r> FromRow<'r, PgRow> for NetworkPrefix {
             prefix: row.try_get("prefix")?,
             gateway: row.try_get("gateway")?,
             num_reserved: row.try_get("num_reserved")?,
-            circuit_id: row.try_get("circuit_id")?,
             svi_ip: row.try_get("svi_ip")?,
             num_free_ips: 0,
         })
@@ -109,7 +107,6 @@ impl From<NetworkPrefix> for rpc::NetworkPrefix {
             reserve_first: src.num_reserved,
             state: None,
             events: vec![],
-            circuit_id: src.circuit_id,
             free_ip_count: src.num_free_ips,
             svi_ip: src.svi_ip.map(|x| x.to_string()),
         }
@@ -205,7 +202,6 @@ impl NetworkPrefix {
     pub async fn create_for(
         txn: &mut Transaction<'_, Postgres>,
         segment_id: &NetworkSegmentId,
-        vlan_id: Option<i16>,
         prefixes: &[NewNetworkPrefix],
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
         let mut inner_transaction = txn
@@ -219,9 +215,8 @@ impl NetworkPrefix {
         // tiny amounts of time.
         //
         let mut inserted_prefixes: Vec<NetworkPrefix> = Vec::with_capacity(prefixes.len());
-        let query =
-            "INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved, circuit_id)
-            VALUES ($1::uuid, $2::cidr, $3::inet, $4::integer, $5)
+        let query = "INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved)
+            VALUES ($1::uuid, $2::cidr, $3::inet, $4::integer)
             RETURNING *";
         for prefix in prefixes {
             let new_prefix: NetworkPrefix = sqlx::query_as(query)
@@ -229,7 +224,6 @@ impl NetworkPrefix {
                 .bind(prefix.prefix)
                 .bind(prefix.gateway)
                 .bind(prefix.num_reserved)
-                .bind(vlan_id.map(|v| format!("vlan{v}")))
                 .fetch_one(&mut *inner_transaction)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

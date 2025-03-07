@@ -2,8 +2,10 @@ use dhcproto::v4::{
     Decodable, Decoder, DhcpOption, Encodable, Encoder, Flags, Message, MessageType, OptionCode,
 };
 use rpc::MachineId;
+use rpc::forge::MacOwner;
 use socket2::{Domain, Protocol, Socket, Type};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
+use std::str::FromStr as _;
 use std::sync::Arc;
 use std::{
     collections::HashMap,
@@ -227,6 +229,38 @@ impl DhcpRelayService {
         request_info: &DhcpRequestInfo,
     ) -> Result<DhcpResponseInfo, DhcpRelayError> {
         tracing::info!("requesting IP for {}", request_info.mat_id);
+
+        // First identify if it is host or DPU.
+        // Host DHCP is handled by DPU, not carbide. Fun way is to start forge-dhcp-server and ask valid
+        // value from it. Non-Fun way is to fetch managedhostnetworkconfig and generate equivalent
+        // DHCP response.
+        if let Ok(mac_identifier) = self
+            .app_context
+            .api_client()
+            .identify_mac(request_info.mac_address)
+            .await
+        {
+            if mac_identifier.object_type() == MacOwner::MachineInterface {
+                let machine_interface_id = mac_identifier.primary_key;
+                let mut mis = self
+                    .app_context
+                    .api_client()
+                    .get_machine_interface(&machine_interface_id)
+                    .await?;
+
+                let mi = mis.interfaces.remove(0);
+
+                if let Some(machine_id) = &mi.machine_id {
+                    if !machine_id.id.starts_with("fm100d") {
+                        if let Some(dpu_id) = &mi.attached_dpu_machine_id {
+                            return self
+                                .fake_dhcp_request_for_host(machine_id, dpu_id, request_info)
+                                .await;
+                        }
+                    }
+                }
+            }
+        }
 
         let dhcp_record = self
             .app_context
@@ -576,6 +610,80 @@ impl DhcpRelayService {
             .clone()
             .expect("Config error: use_dhcp_api is false but dhcp_server_address is not set")
             + ":10067"
+    }
+
+    async fn fake_dhcp_request_for_host(
+        &self,
+        host_id: &MachineId,
+        dpu_id: &MachineId,
+        request_info: &DhcpRequestInfo,
+    ) -> Result<DhcpResponseInfo, DhcpRelayError> {
+        let managed_host_config = self
+            .app_context
+            .api_client()
+            .get_managed_host_network_config(dpu_id.clone())
+            .await
+            .inspect_err(|e| {
+                tracing::warn!("discover_dhcp failed: {e}");
+            })?;
+
+        let interface = if managed_host_config.use_admin_network {
+            vec![managed_host_config.admin_interface.ok_or_else(|| {
+                DhcpRelayError::InvalidDhcpRecord("Admin interface is invalid.".to_string())
+            })?]
+        } else {
+            // TODO: As of now MAT does not support VF, so assuming that only one interface is present
+            // in tenant interface.
+            managed_host_config.tenant_interfaces
+        };
+
+        let subnet = if let IpAddr::V4(subnet) = interface[0]
+            .prefix
+            .parse::<ipnetwork::IpNetwork>()
+            .map(|x| x.mask())
+            .map_err(|x| DhcpRelayError::InvalidDhcpRecord(x.to_string()))?
+        {
+            Some(subnet)
+        } else {
+            None
+        };
+        let ip = interface[0]
+            .ip
+            .parse::<Ipv4Addr>()
+            .map_err(|x| DhcpRelayError::InvalidDhcpRecord(x.to_string()))?;
+
+        let segments = self
+            .app_context
+            .api_client()
+            .find_network_segments()
+            .await?
+            .network_segments;
+
+        let segment_id = segments
+            .iter()
+            .find(|segment| {
+                segment.prefixes.iter().any(|prefix| {
+                    match ipnetwork::IpNetwork::from_str(&prefix.prefix.clone()) {
+                        Ok(x) => x.contains(IpAddr::from(ip)),
+                        Err(_) => false,
+                    }
+                })
+            })
+            .and_then(|x| x.id.clone())
+            .and_then(|x| Uuid::from_str(&x.value).ok());
+
+        Ok(DhcpResponseInfo {
+            mat_id: request_info.mat_id,
+            interface_id: managed_host_config
+                .host_interface_id
+                .and_then(|x| Uuid::from_str(&x).ok()),
+            machine_id: Some(host_id.clone()),
+            mac_address: request_info.mac_address,
+            ip_address: ip,
+            hostname: Some(interface[0].fqdn.clone()),
+            subnet,
+            segment_id,
+        })
     }
 }
 

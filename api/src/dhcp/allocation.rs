@@ -53,14 +53,6 @@ pub enum DhcpError {
     #[error("Missing circuit id received for machine id: {0}")]
     MissingCircuitIdForMachine(String),
 
-    #[error("Invalid circuit id received for instance id: {0}, circuit_id: {1}")]
-    InvalidCircuitId(InstanceId, String),
-
-    #[error(
-        "DHCP request received for invalid or non-configured interface for instance id: {0}, circuit_id: {1}"
-    )]
-    InvalidInterface(InstanceId, String),
-
     #[error("Prefix: {0} has exhausted all address space")]
     PrefixExhausted(IpAddr),
 

@@ -15,10 +15,11 @@ use std::str::FromStr;
 use crate::CarbideError;
 use crate::db::{self, ObjectColumnFilter, dhcp_entry, dhcp_entry::DhcpEntry};
 use forge_uuid::machine::MachineInterfaceId;
+use itertools::Itertools;
 use mac_address::MacAddress;
+use rpc::forge::ManagedHostNetworkConfigRequest;
 use rpc::forge::{DhcpDiscovery, forge_server::Forge};
 
-use crate::db::network_segment::NetworkSegment;
 use crate::tests::common;
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_test_env, dpu,
@@ -205,13 +206,6 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     let (segment_id_1, segment_id_2) = env.create_vpc_and_dual_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let mut txn = pool
-        .clone()
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-    let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
-
     let network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
@@ -226,12 +220,6 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
             },
         ],
     });
-    let segment_1 = NetworkSegment::find_by_name(&mut txn, "TENANT")
-        .await
-        .unwrap();
-    let segment_2 = NetworkSegment::find_by_name(&mut txn, "TENANT2")
-        .await
-        .unwrap();
     let (_instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
@@ -242,52 +230,59 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
         vec![],
     )
     .await;
-    let mac_address = "FF:FF:FF:FF:FF:FF".to_string();
+    // Instance dhcp is not handled by carbide. Best way to find out allocated IP info is to read
+    // data from managedhostnetworkconfig.
     let response = env
         .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: mac_address.clone(),
-            relay_address: dpu_loopback_ip.to_string(),
-            link_address: None,
-            vendor_string: None,
-            circuit_id: Some(format!("vlan{}", segment_1.vlan_id.unwrap())),
-            remote_id: Some(dpu_machine_id.remote_id()),
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(rpc::MachineId {
+                id: dpu_machine_id.to_string(),
+            }),
         }))
         .await
         .unwrap()
         .into_inner();
 
-    assert_eq!(response.segment_id.unwrap(), (segment_id_1).into());
+    let tenant_data = response.tenant_interfaces;
+    assert!(
+        tenant_data
+            .iter()
+            .map(|x| x.ip.clone())
+            .contains("192.0.4.3")
+    );
+    assert!(
+        tenant_data
+            .iter()
+            .map(|x| x.ip.clone())
+            .contains("192.0.5.3")
+    );
 
-    assert_eq!(response.mac_address, mac_address);
-    assert_eq!(response.subdomain_id.unwrap(), env.domain.into());
-    assert_eq!(response.address, "192.0.4.3".to_owned());
-    assert_eq!(response.prefix, "192.0.4.0/24".to_owned());
-    assert_eq!(response.gateway.unwrap(), "192.0.4.1".to_owned());
+    assert!(
+        tenant_data
+            .iter()
+            .map(|x| x.prefix.clone())
+            .contains("192.0.4.0/24")
+    );
+    assert!(
+        tenant_data
+            .iter()
+            .map(|x| x.prefix.clone())
+            .contains("192.0.5.0/24")
+    );
 
-    let response = env
-        .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: mac_address.clone(),
-            relay_address: dpu_loopback_ip.to_string(),
-            link_address: None,
-            vendor_string: None,
-            circuit_id: Some(format!("vlan{}", segment_2.vlan_id.unwrap())),
-            remote_id: Some(dpu_machine_id.remote_id()),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
+    assert!(
+        tenant_data
+            .iter()
+            .map(|x| x.gateway.clone())
+            .contains("192.0.4.1/24")
+    );
+    assert!(
+        tenant_data
+            .iter()
+            .map(|x| x.gateway.clone())
+            .contains("192.0.5.1/24")
+    );
 
-    assert_eq!(response.segment_id.unwrap(), (segment_id_2).into());
-
-    assert!(response.machine_interface_id.is_none());
-
-    assert_eq!(response.mac_address, mac_address);
-    assert!(response.subdomain_id.is_none(),);
-    assert_eq!(response.address, "192.0.5.3".to_owned());
-    assert_eq!(response.prefix, "192.0.5.0/24".to_owned());
-    assert_eq!(response.gateway.unwrap(), "192.0.5.1".to_owned());
     Ok(())
 }
 

@@ -1056,12 +1056,7 @@ impl Forge for Api {
     ) -> Result<Response<rpc::DhcpRecord>, Status> {
         log_request_data(&request);
 
-        Ok(crate::dhcp::discover::discover_dhcp(
-            &self.database_connection,
-            request,
-            &self.runtime_config.host_health,
-        )
-        .await?)
+        Ok(crate::dhcp::discover::discover_dhcp(&self.database_connection, request).await?)
     }
 
     async fn get_machine(

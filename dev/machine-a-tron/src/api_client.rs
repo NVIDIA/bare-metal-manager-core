@@ -118,6 +118,49 @@ impl ApiClient<'_> {
         .await
     }
 
+    pub async fn get_machine_interface(
+        &self,
+        id: &str,
+    ) -> ClientApiResult<rpc::forge::InterfaceList> {
+        self.with_forge_client(|mut client| async move {
+            let interface_search_query = rpc::forge::InterfaceSearchQuery {
+                id: Some(rpc::Uuid {
+                    value: id.to_string(),
+                }),
+                ip: None,
+            };
+            //        tracing::info!("dhcp_discovery: {:?}", dhcp_discovery);
+            let out = client
+                .find_interfaces(tonic::Request::new(interface_search_query))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientApiError::InvocationError)?;
+
+            Ok(out)
+        })
+        .await
+    }
+
+    pub async fn identify_mac(
+        &self,
+        mac_address: MacAddress,
+    ) -> ClientApiResult<rpc::forge::IdentifyMacResponse> {
+        self.with_forge_client(|mut client| async move {
+            let identify_mac_req = rpc::forge::IdentifyMacRequest {
+                mac_address: mac_address.to_string(),
+            };
+            //        tracing::info!("dhcp_discovery: {:?}", dhcp_discovery);
+            let out = client
+                .identify_mac(tonic::Request::new(identify_mac_req))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientApiError::InvocationError)?;
+
+            Ok(out)
+        })
+        .await
+    }
+
     pub async fn discover_machine(
         &self,
         template_dir: &str,
@@ -533,7 +576,6 @@ impl ApiClient<'_> {
                                 reserve_first: 1,
                                 state: None,
                                 events: vec![],
-                                circuit_id: None,
                                 free_ip_count: 1022,
                                 svi_ip: None
                             }],

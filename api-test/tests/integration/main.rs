@@ -11,7 +11,6 @@
  */
 use std::future::Future;
 use std::net::TcpListener;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -31,7 +30,6 @@ use futures::future::join_all;
 use grpcurl::grpcurl;
 use host::machine_validation_completed;
 use itertools::Itertools;
-use sqlx::types::mac_address::MacAddress;
 use sqlx::{Postgres, Row};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
@@ -473,7 +471,6 @@ async fn test_machine_a_tron_zerodpu(
         bmc_mock_registry,
         admin_dhcp_relay_address,
         |machine_actor| {
-            let carbide_api_addr = test_env.carbide_api_addr;
             async move {
                 machine_actor
                     .wait_until_machine_up_with_api_state("Ready")
@@ -483,60 +480,9 @@ async fn test_machine_a_tron_zerodpu(
                     .await?
                     .expect("Machine ID should be set if host is ready")
                     .to_string();
-                tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
-                let instance_id = instance::create(
-                    carbide_api_addr,
-                    &machine_id,
-                    None, // Do not specify a segment ID, let the API server pick one
-                    None,
-                    false,
-                    false,
-                )?;
-
-                machine_actor
-                    .wait_until_machine_up_with_api_state("Assigned/Ready")
-                    .await?;
-
-                let instance_json = instance::get_instance_json_by_machine_id(
-                    carbide_api_addr,
-                    machine_actor
-                        .observed_machine_id()
-                        .await?
-                        .expect("HostMachine should have a Machine ID once it's in ready state")
-                        .to_string()
-                        .as_str(),
-                )?;
-                let serde_json::Value::Object(interface) =
-                    &instance_json["instances"][0]["status"]["network"]["interfaces"][0]
-                else {
-                    panic!("Allocated instance does not have interface configuration")
-                };
-
-                let serde_json::Value::Array(addrs) = &interface["addresses"] else {
-                    panic!("Interface does not have addresses")
-                };
-                assert_eq!(addrs.len(), 1, "Interface should have a single address");
-
-                let serde_json::Value::String(mac_address) = &interface["macAddress"] else {
-                    panic!("Interface does not have MAC address set")
-                };
-                if let Err(e) = MacAddress::from_str(mac_address.as_str()) {
-                    panic!("Invalid mac address: {mac_address}: {e}");
-                };
-                let serde_json::Value::Array(gateways) = &interface["gateways"] else {
-                    panic!("Interface does not have gateways set")
-                };
-                assert_eq!(gateways.len(), 1, "Interface should have a single gateway");
-
-                tracing::info!(
-                    "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
-                );
-                instance::release(carbide_api_addr, &machine_id, &instance_id, false)?;
-
-                machine_actor
-                    .wait_until_machine_up_with_api_state("Ready")
-                    .await?;
-                tracing::info!("Machine {machine_id} has made it to Ready again, all done");
+                tracing::info!("Machine {machine_id} has made it to Ready.");
+                // TODO: ZERO DPU's instance handling is not yet clear. Removing this code until
+                // carbide starts supporting ZERO DPUs instance creation.
                 Ok::<(), eyre::Report>(())
             }
         },
@@ -557,7 +503,6 @@ async fn test_machine_a_tron_singledpu_nic_mode(
         bmc_mock_registry,
         admin_dhcp_relay_address,
         |machine_actor| {
-            let carbide_api_addr = test_env.carbide_api_addr;
             async move {
                 machine_actor
                     .wait_until_machine_up_with_api_state("Ready")
@@ -568,59 +513,8 @@ async fn test_machine_a_tron_singledpu_nic_mode(
                     .expect("Machine ID should be set if host is ready")
                     .to_string();
                 tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
-                let instance_id = instance::create(
-                    carbide_api_addr,
-                    &machine_id,
-                    None, // Do not specify a segment ID, let the API server pick one
-                    None,
-                    false,
-                    false,
-                )?;
-
-                machine_actor
-                    .wait_until_machine_up_with_api_state("Assigned/Ready")
-                    .await?;
-
-                let instance_json = instance::get_instance_json_by_machine_id(
-                    carbide_api_addr,
-                    machine_actor
-                        .observed_machine_id()
-                        .await?
-                        .expect("HostMachine should have a Machine ID once it's in ready state")
-                        .to_string()
-                        .as_str(),
-                )?;
-                let serde_json::Value::Object(interface) =
-                    &instance_json["instances"][0]["status"]["network"]["interfaces"][0]
-                else {
-                    panic!("Allocated instance does not have interface configuration")
-                };
-
-                let serde_json::Value::Array(addrs) = &interface["addresses"] else {
-                    panic!("Interface does not have addresses")
-                };
-                assert_eq!(addrs.len(), 1, "Interface should have a single address");
-
-                let serde_json::Value::String(mac_address) = &interface["macAddress"] else {
-                    panic!("Interface does not have MAC address set")
-                };
-                if let Err(e) = MacAddress::from_str(mac_address.as_str()) {
-                    panic!("Invalid mac address: {mac_address}: {e}");
-                };
-                let serde_json::Value::Array(gateways) = &interface["gateways"] else {
-                    panic!("Interface does not have gateways set")
-                };
-                assert_eq!(gateways.len(), 1, "Interface should have a single gateway");
-
-                tracing::info!(
-                    "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
-                );
-                instance::release(carbide_api_addr, &machine_id, &instance_id, false)?;
-
-                machine_actor
-                    .wait_until_machine_up_with_api_state("Ready")
-                    .await?;
-                tracing::info!("Machine {machine_id} has made it to Ready again, all done");
+                // TODO: ZERO DPU/DPU in NIC mode's instance handling is not yet clear. Removing this code until
+                // carbide starts supporting ZERO DPUs instance creation.
                 Ok::<(), eyre::Report>(())
             }
         },

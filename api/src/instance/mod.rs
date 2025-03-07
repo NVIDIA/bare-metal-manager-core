@@ -34,15 +34,11 @@ use crate::{
         machine::MachineSearchConfig,
         managed_host::LoadSnapshotOptions,
         network_security_group,
-        network_segment::NetworkSegment,
     },
-    dhcp::allocation::DhcpError,
     model::{
         ConfigValidationError,
         instance::config::{
-            InstanceConfig,
-            infiniband::InstanceInfinibandConfig,
-            network::{InstanceNetworkConfig, InterfaceFunctionId},
+            InstanceConfig, infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
         },
         machine::{ManagedHostStateSnapshot, machine_id::try_parse_machine_id},
         metadata::Metadata,
@@ -458,32 +454,6 @@ pub async fn allocate_instance(
         .map_err(|e| DatabaseError::new(file!(), line!(), "commit allocate_instance", e))?;
 
     Ok(mh_snapshot)
-}
-
-pub async fn circuit_id_to_function_id(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    instance_id: InstanceId,
-    network_config: &InstanceNetworkConfig,
-    circuit_id: String,
-) -> CarbideResult<InterfaceFunctionId> {
-    let segment = NetworkSegment::find_by_circuit_id(&mut *txn, &circuit_id).await?;
-
-    network_config
-        .interfaces
-        .iter()
-        .find_map(|x| {
-            if let Some(network_segment_id) = x.network_segment_id {
-                if network_segment_id == segment.id {
-                    Some(x.function_id.clone())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .ok_or(DhcpError::InvalidCircuitId(instance_id, circuit_id))
-        .map_err(CarbideError::from)
 }
 
 /// check whether the tenant of instance is consistent with the tenant of the ib partition

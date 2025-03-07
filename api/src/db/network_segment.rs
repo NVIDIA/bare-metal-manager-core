@@ -501,7 +501,7 @@ impl NewNetworkSegment {
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        NetworkPrefix::create_for(txn, &segment_id, self.vlan_id, &self.prefixes).await?;
+        NetworkPrefix::create_for(txn, &segment_id, &self.prefixes).await?;
         NetworkSegmentStateHistory::persist(txn, segment_id, &initial_state, version).await?;
 
         NetworkSegment::find_by(
@@ -877,25 +877,6 @@ impl NetworkSegment {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(segment)
-    }
-
-    pub async fn find_by_circuit_id(
-        txn: &mut Transaction<'_, Postgres>,
-        circuit_id: &str,
-    ) -> Result<Self, DatabaseError> {
-        lazy_static! {
-            static ref query: String = format!(
-                r#"{}
-                INNER JOIN network_prefixes ON network_prefixes.segment_id = ns.id
-                WHERE network_prefixes.circuit_id=$1"#,
-                NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
-            );
-        }
-        sqlx::query_as(&query)
-            .bind(circuit_id)
-            .fetch_one(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
     }
 
     pub async fn find_by_name(

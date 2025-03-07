@@ -103,7 +103,6 @@ async fn convert_network_to_nice_format(
                 ),
                 ("SVI IP", prefix.svi_ip.unwrap_or_default()),
                 ("Reserve First", prefix.reserve_first.to_string()),
-                ("Circuit ID", prefix.circuit_id.unwrap_or_default()),
                 ("Free IP Count", prefix.free_ip_count.to_string()),
             ];
 
@@ -166,16 +165,7 @@ async fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -
     let mut table = Table::new();
 
     table.set_titles(row![
-        "Id",
-        "Name",
-        "Created",
-        "State",
-        "Vpc ID",
-        "MTU",
-        "Prefixes",
-        "Last IP",
-        "Circuit Ids",
-        "Version",
+        "Id", "Name", "Created", "State", "Vpc ID", "MTU", "Prefixes", "Last IP", "Version",
         "Type",
     ]);
 
@@ -200,12 +190,6 @@ async fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -
                 .collect::<Vec<String>>()
                 .join(", "),
             end_ip,
-            segment
-                .prefixes
-                .iter()
-                .map(|x| x.circuit_id.clone().unwrap_or_else(|| "NA".to_owned()))
-                .collect::<Vec<String>>()
-                .join(", "),
             segment.version,
             format!(
                 "{:?}",

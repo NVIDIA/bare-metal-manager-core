@@ -54,24 +54,10 @@ pub fn bootstrap(addr: SocketAddr) -> eyre::Result<String> {
 }
 
 pub fn discover_dhcp(addr: SocketAddr) -> eyre::Result<(String, String)> {
-    // Find the admin network segment's circuit id
-    let resp = grpcurl::<&str>(addr, "FindNetworkSegments", None)?;
-    let response: serde_json::Value = serde_json::from_str(&resp)?;
-    let mut circuit_id = None;
-    for segment in response["networkSegments"].as_array().unwrap() {
-        if segment["segmentType"] == "ADMIN" {
-            circuit_id = Some(segment["prefixes"][0]["circuitId"].as_str().unwrap());
-            break;
-        }
-    }
-    let circuit_id = circuit_id.unwrap();
-    tracing::info!("Circuit ID is {circuit_id}");
-
     // Discover DHCP
     let data = serde_json::json!({
         "mac_address": "00:11:22:33:44:66",
         "relay_address": "172.20.0.2",
-        "circuit_id": circuit_id,
     });
     let resp = grpcurl(addr, "DiscoverDhcp", Some(data))?;
     let response: serde_json::Value = serde_json::from_str(&resp)?;
