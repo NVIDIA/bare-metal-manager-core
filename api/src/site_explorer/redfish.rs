@@ -294,8 +294,13 @@ impl RedfishClient {
             .await
             .map_err(map_redfish_client_creation_error)?;
 
+        // We will be redoing machine_setup later and can worry about getting the profile right then.
         client
-            .machine_setup(boot_interface_mac)
+            .machine_setup(
+                boot_interface_mac,
+                &HashMap::default(),
+                libredfish::BiosProfileType::Performance,
+            )
             .await
             .map_err(map_redfish_error)?;
 

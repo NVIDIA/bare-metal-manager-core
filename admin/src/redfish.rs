@@ -115,8 +115,23 @@ pub async fn action(api_config: &ApiConfig<'_>, action: RedfishAction) -> color_
             redfish.clear_pending().await?;
         }
         ForgeSetup(forge_setup_args) => {
+            let bios_profiles = if let Some(profiles_string) = forge_setup_args.bios_profiles {
+                let parsed: libredfish::BiosProfileVendor =
+                    serde_json::from_str(profiles_string.as_str())?;
+                parsed
+            } else {
+                HashMap::default()
+            };
+            let selected_profile = forge_setup_args
+                .selected_profile
+                .unwrap_or(libredfish::BiosProfileType::Performance);
+
             redfish
-                .machine_setup(forge_setup_args.boot_interface_mac.clone().as_deref())
+                .machine_setup(
+                    forge_setup_args.boot_interface_mac.clone().as_deref(),
+                    &bios_profiles,
+                    selected_profile,
+                )
                 .await?;
         }
         ForgeSetupStatus => {
@@ -476,6 +491,12 @@ pub async fn action(api_config: &ApiConfig<'_>, action: RedfishAction) -> color_
             redfish.clear_nvram().await?;
         }
         Browse(_) => {}
+        SetBios(set_bios) => {
+            let attrmap: HashMap<String, serde_json::Value> =
+                serde_json::from_str(set_bios.attributes.as_str()).unwrap();
+            redfish.set_bios(attrmap).await?;
+            println!("success");
+        }
     }
     Ok(())
 }

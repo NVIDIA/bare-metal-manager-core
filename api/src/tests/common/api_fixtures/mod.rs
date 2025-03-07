@@ -774,6 +774,8 @@ pub fn get_config() -> CarbideConfig {
         },
         bypass_rbac: false,
         fnn: None,
+        bios_profiles: HashMap::default(),
+        selected_profile: libredfish::BiosProfileType::Performance,
         bom_validation: BomValidationConfig::default(),
     }
 }

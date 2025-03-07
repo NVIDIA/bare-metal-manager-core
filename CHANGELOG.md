@@ -58,6 +58,7 @@
     }
   ```
   Pass an empty json array to remove all GPU entries.
+- Added BIOS profiles.  Individual sites can be set to Performance or PowerEfficiency from their carbide-api-site-config.toml, defaulting to Performance.  Details of what this means for a particular model will typically come from the base carbide-api-config.toml.  These are set by the call to machine_setup during ingestion; currently changing a site's configuration will not affect any already ingested machines.
 
 ### Changed
 

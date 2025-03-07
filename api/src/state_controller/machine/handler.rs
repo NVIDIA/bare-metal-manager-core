@@ -36,8 +36,8 @@ use tokio::{fs::File, sync::Semaphore};
 
 use crate::{
     cfg::file::{
-        BomValidationConfig, DpuModel, Firmware, FirmwareComponentType, FirmwareConfig,
-        FirmwareEntry, MachineValidationConfig,
+        BomValidationConfig, CarbideConfig, DpuModel, Firmware, FirmwareComponentType,
+        FirmwareConfig, FirmwareEntry, MachineValidationConfig,
     },
     db,
     db::{
@@ -3734,7 +3734,7 @@ impl DpuMachineStateHandler {
                     dpu_redfish_client.as_ref(),
                     boot_interface_mac,
                     state.host_snapshot.associated_dpu_machine_ids().len(),
-                    ctx.services.site_config.site_explorer.allow_zero_dpu_hosts,
+                    &ctx.services.site_config,
                 )
                 .await
                 {
@@ -4494,7 +4494,7 @@ impl StateHandler for HostMachineStateHandler {
                         redfish_client.as_ref(),
                         boot_interface_mac.as_deref(),
                         mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
-                        ctx.services.site_config.site_explorer.allow_zero_dpu_hosts,
+                        &ctx.services.site_config,
                     )
                     .await
                     {
@@ -5493,7 +5493,7 @@ async fn lockdown_host(
         redfish_client.as_ref(),
         boot_interface_mac.as_deref(),
         state.host_snapshot.associated_dpu_machine_ids().len(),
-        services.site_config.site_explorer.allow_zero_dpu_hosts,
+        &services.site_config,
     )
     .await
     .map_err(|e| StateHandlerError::RedfishError {
@@ -5592,10 +5592,20 @@ async fn call_forge_setup_and_handle_no_dpu_error(
     redfish_client: &dyn Redfish,
     boot_interface_mac: Option<&str>,
     expected_dpu_count: usize,
-    allow_zero_dpus: bool,
+    site_config: &CarbideConfig,
 ) -> Result<(), RedfishError> {
-    let setup_result = redfish_client.machine_setup(boot_interface_mac).await;
-    match (setup_result, expected_dpu_count, allow_zero_dpus) {
+    let setup_result = redfish_client
+        .machine_setup(
+            boot_interface_mac,
+            &site_config.bios_profiles,
+            site_config.selected_profile,
+        )
+        .await;
+    match (
+        setup_result,
+        expected_dpu_count,
+        site_config.site_explorer.allow_zero_dpu_hosts,
+    ) {
         (Err(RedfishError::NoDpu), 0, true) => {
             tracing::info!(
                 "redfish forge_setup failed due to there being no DPUs on the host. This is expected as the host has no DPUs, and we are configured to allow this."

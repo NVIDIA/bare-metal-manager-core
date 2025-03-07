@@ -232,6 +232,12 @@ pub struct CarbideConfig {
 
     #[serde(default)]
     pub bom_validation: BomValidationConfig,
+
+    #[serde(default)]
+    pub bios_profiles: libredfish::BiosProfileVendor,
+
+    #[serde(default)]
+    pub selected_profile: libredfish::BiosProfileType,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -1694,6 +1700,7 @@ mod tests {
         Figment,
         providers::{Env, Format, Toml},
     };
+    use libredfish::model::service_root::RedfishVendor;
 
     use super::*;
     use crate::resource_pool;
@@ -2354,6 +2361,25 @@ mod tests {
         assert_eq!(
             config.dpu_network_monitor_pinger_type,
             Some("OobNetBind".to_string())
+        );
+        assert_eq!(
+            config.selected_profile,
+            libredfish::BiosProfileType::PowerEfficiency
+        );
+        assert_eq!(
+            config
+                .bios_profiles
+                .get(&RedfishVendor::Lenovo)
+                .unwrap()
+                .get("ThinkSystem_SR655_V3")
+                .unwrap()
+                .get(&libredfish::BiosProfileType::Performance)
+                .unwrap()
+                .get("OperatingModes_ChooseOperatingMode")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "MaximumPerformance"
         );
     }
 
