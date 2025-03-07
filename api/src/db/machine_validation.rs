@@ -181,7 +181,7 @@ impl MachineValidation {
         total: i32,
         duration_to_complete: i64,
     ) -> CarbideResult<()> {
-        let query = "UPDATE machine_validation SET duration_to_complete=$2,total=$3  WHERE id=$1 RETURNING *";
+        let query = "UPDATE machine_validation SET duration_to_complete=$2,total=$3,completed=0  WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(uuid)
             .bind(duration_to_complete)
