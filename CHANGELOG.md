@@ -91,6 +91,7 @@
   Operators can use a new `Host Update` template on the Machine Health page of the Forge Admin Web UI in order to place a simlar health override before manual DPU updates are started.  
   [Forge-4270](https://jirasw.nvidia.com/browse/FORGE-4270)
 - The carbide-web `/admin/managed-host/:machine_id` page had been removed. Links to the page have been replaced with links to `/admin/machine/:machine_id`. The reason for the removal is that the `/admin/machine` page contained a superset of the information available on the `/admin/managed-host` page.
+- [FORGE-5635](https://jirasw.nvidia.com/browse/FORGE-5635) Remove instance DHCP handling from carbide. Instance DHCP will be handled by DHCP server configured on DPU only.
 
 ### Fixed
 
