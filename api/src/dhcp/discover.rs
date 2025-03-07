@@ -18,115 +18,13 @@ use tonic::{Request, Response};
 
 use crate::db::{machine_interface, predicted_machine_interface::PredictedMachineInterface};
 use crate::{
-    CarbideError, CarbideResult,
-    cfg::file::HostHealthConfig,
-    db::{
-        self, DatabaseError,
-        dhcp_entry::DhcpEntry,
-        dhcp_record::{DhcpRecord, InstanceDhcpRecord},
-        instance::Instance,
-        managed_host::LoadSnapshotOptions,
-    },
-    dhcp::allocation::DhcpError,
+    CarbideError,
+    db::{self, DatabaseError, dhcp_entry::DhcpEntry, dhcp_record::DhcpRecord, instance::Instance},
 };
-use forge_uuid::machine::MachineId;
-
-/// dhcrelay adds remote_id to each dhcp request sent by host.
-/// In case of instance, remote_id should be matched with attached dpu_id.
-/// If remote id is not matched, it should be assumed spoofed packet and must be dropped.
-async fn validate_dhcp_request(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    remote_id: Option<String>,
-    host_machine_id: &MachineId,
-    host_health_config: &HostHealthConfig,
-) -> CarbideResult<()> {
-    let snapshot = db::managed_host::load_snapshot(
-        txn,
-        host_machine_id,
-        LoadSnapshotOptions {
-            include_history: false,
-            include_instance_data: false,
-            hardware_health: host_health_config.hardware_health_reports,
-        },
-    )
-    .await
-    .map_err(CarbideError::from)?
-    .ok_or(CarbideError::NotFoundError {
-        kind: "machine",
-        id: host_machine_id.to_string(),
-    })?;
-
-    let Some(remote_id) = remote_id else {
-        tracing::error!(
-            host_machine_id = %host_machine_id,
-            "Remote id missing for instance.",
-        );
-        return Ok(());
-    };
-
-    for dpu_snapshot in snapshot.dpu_snapshots {
-        let expected_remote_id = dpu_snapshot.id.remote_id();
-
-        if expected_remote_id == remote_id {
-            return Ok(());
-        }
-    }
-    Err(CarbideError::InvalidArgument(format!(
-        "Mismatch in remote id. Remote id: {} is not matching with any DPU.",
-        remote_id,
-    )))
-}
-
-async fn handle_dhcp_for_instance(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    relay_ip: IpAddr,
-    circuit_id: Option<String>,
-    remote_id: Option<String>,
-    parsed_mac: MacAddress,
-    host_health_config: &HostHealthConfig,
-) -> CarbideResult<Option<Response<rpc::DhcpRecord>>> {
-    if let Some(instance) = Instance::find_by_relay_ip(txn, relay_ip).await? {
-        validate_dhcp_request(txn, remote_id, &instance.machine_id, host_health_config).await?;
-        let circuit_id_parsed = circuit_id
-            .as_ref()
-            .ok_or(DhcpError::MissingCircuitId(instance.id))
-            .map_err(CarbideError::from)?;
-        let record: rpc::DhcpRecord = InstanceDhcpRecord::find_for_instance(
-            txn,
-            parsed_mac,
-            circuit_id_parsed.clone(),
-            instance.clone(),
-        )
-        .await
-        .map_err(|error| {
-            tracing::error!(
-                %instance.id,
-                ?circuit_id,
-                %error,
-                "DHCP request failed",
-            );
-            CarbideError::from(DhcpError::InvalidInterface(
-                instance.id,
-                circuit_id_parsed.clone(),
-            ))
-        })?
-        .try_into()?;
-
-        tracing::info!(
-            instance_id = %instance.id,
-            circuit_id = circuit_id_parsed,
-            ?record,
-            "Returning DHCP response for instance",
-        );
-        return Ok(Some(Response::new(record)));
-    }
-    Ok(None)
-}
 
 pub async fn discover_dhcp(
     database_connection: &sqlx::PgPool,
     request: Request<rpc::DhcpDiscovery>,
-    host_health_config: &HostHealthConfig,
 ) -> Result<Response<rpc::DhcpRecord>, CarbideError> {
     let mut txn = database_connection
         .begin()
@@ -138,8 +36,6 @@ pub async fn discover_dhcp(
         relay_address,
         link_address,
         vendor_string,
-        circuit_id,
-        remote_id,
         ..
     } = request.into_inner();
 
@@ -180,23 +76,6 @@ pub async fn discover_dhcp(
             }
         };
 
-    // Instance handling. None means no instance found matching with dhcp request.
-    if let Some(response) = handle_dhcp_for_instance(
-        &mut txn,
-        relay_ip,
-        circuit_id,
-        remote_id,
-        parsed_mac,
-        host_health_config,
-    )
-    .await?
-    {
-        txn.commit()
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "commit discover_dhcp", e))?;
-        return Ok(response);
-    }
-
     let machine_interface = db::machine_interface::find_or_create_machine_interface(
         &mut txn,
         existing_machine_id,
@@ -204,6 +83,20 @@ pub async fn discover_dhcp(
         parsed_relay,
     )
     .await?;
+
+    if let Some(machine_id) = machine_interface.machine_id {
+        // Can't block host's DHCP handling completely to support Zero-DPU.
+        if machine_id.machine_type().is_host() {
+            if let Some(instance_id) =
+                Instance::find_id_by_machine_id(&mut txn, &machine_id).await?
+            {
+                // An instance is associated with machine id. DPU must process it.
+                return Err(CarbideError::internal(format!(
+                    "DHCP request received for instance: {instance_id}. Ignoring."
+                )));
+            }
+        }
+    }
 
     // Save vendor string, this is allowed to fail due to dhcp happening more than once on the same machine/vendor string
     if let Some(vendor) = vendor_string {

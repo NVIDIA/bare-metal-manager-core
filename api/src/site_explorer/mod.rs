@@ -745,7 +745,7 @@ impl SiteExplorer {
             if nic_mode {
                 tracing::info!(
                     address = %dpu_ep.address,
-                    exploration_report = ?dpu_ep.report,
+                    // exploration_report = ?dpu_ep.report,
                     "discovered bluefield in NIC mode attached to host {}",
                     host_ep.address
                 );

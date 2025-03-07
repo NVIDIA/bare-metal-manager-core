@@ -38,9 +38,10 @@ use forge_uuid::{instance::InstanceId, network::NetworkSegmentId};
 #[derive(Debug, FromRow, Clone)]
 pub struct InstanceAddress {
     pub instance_id: InstanceId,
-    pub circuit_id: String,
+    pub segment_id: NetworkSegmentId,
     // pub id: Uuid,          // unused
-    // pub address: IpAddr,   // unused
+    #[cfg(test)]
+    pub address: IpAddr,
     // pub prefix: IpNetwork, // unused
 }
 
@@ -66,6 +67,22 @@ impl InstanceAddress {
         let query = "SELECT * FROM instance_addresses WHERE address = $1::inet";
         sqlx::query_as(query)
             .bind(address)
+            .fetch_optional(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    #[cfg(test)] // currently only used by tests
+    pub async fn find_by_instance_id_and_segment_id(
+        txn: &mut Transaction<'_, Postgres>,
+        instance_id: &InstanceId,
+        segment_id: &NetworkSegmentId,
+    ) -> Result<Option<Self>, DatabaseError> {
+        let query = "SELECT * FROM instance_addresses WHERE instance_id=$1 AND segment_id=$2";
+
+        sqlx::query_as(query)
+            .bind(instance_id)
+            .bind(segment_id)
             .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -157,7 +174,7 @@ impl InstanceAddress {
         let query = "
 SELECT count(*)
 FROM instance_addresses
-INNER JOIN network_prefixes ON network_prefixes.circuit_id = instance_addresses.circuit_id
+INNER JOIN network_prefixes ON network_prefixes.segment_id = instance_addresses.segment_id
 WHERE network_prefixes.segment_id = $1::uuid";
         let (address_count,): (i64,) = query_as(query)
             .bind(segment_id)
@@ -242,7 +259,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
             let valid_prefixes = segment
                 .prefixes
                 .iter()
-                .filter(|x| x.prefix.is_ipv4() && x.circuit_id.is_some())
+                .filter(|x| x.prefix.is_ipv4())
                 .cloned()
                 .collect_vec();
 
@@ -252,14 +269,10 @@ WHERE network_prefixes.segment_id = $1::uuid";
                 ));
             }
 
-            let Some((Some(circuit_id), Some(network_prefix))) = valid_prefixes
-                .into_iter()
-                .next()
-                .map(|p| (p.circuit_id.as_ref().cloned(), Some(p)))
-            else {
+            let Some(network_prefix) = valid_prefixes.into_iter().next() else {
                 tracing::error!(
                     segment_id = %segment.id,
-                    "Circuit id is not yet updated for segment",
+                    "No prefix is attached to segment.",
                 );
                 return Err(CarbideError::FindOneReturnedNoResultsError(
                     segment.id.into(),
@@ -304,16 +317,16 @@ WHERE network_prefixes.segment_id = $1::uuid";
                 iface.assign_ips_from(ip_allocator)?
             };
 
-            let query = "INSERT INTO instance_addresses (instance_id, circuit_id, address, prefix)
-                         VALUES ($1::uuid, $2, $3::inet, $4::cidr)";
+            let query = "INSERT INTO instance_addresses (instance_id, address, segment_id, prefix)
+                         VALUES ($1::uuid, $2, $3::uuid, $4::cidr)";
 
             for address in addresses {
                 sqlx::query(query)
                     .bind(instance_id)
-                    .bind(&circuit_id)
                     // eg. 10.3.2.1/30
                     .bind(address.ip())
                     // eg. 10.3.2.0/30
+                    .bind(*segment.id())
                     .bind(IpNetwork::new(address.network(), address.prefix())?)
                     .fetch_all(&mut *inner_txn)
                     .await
@@ -368,8 +381,7 @@ impl UsedIpResolver for UsedOverlayNetworkIpResolver {
 
         let query: &str = "
 SELECT address FROM instance_addresses
-INNER JOIN network_prefixes ON instance_addresses.circuit_id = network_prefixes.circuit_id
-INNER JOIN network_segments ON network_prefixes.segment_id = network_segments.id
+INNER JOIN network_segments ON instance_addresses.segment_id = network_segments.id
 WHERE network_segments.id = $1::uuid";
 
         let containers: Vec<IpAddrContainer> = sqlx::query_as(query)
@@ -409,8 +421,7 @@ WHERE network_segments.id = $1::uuid";
 
         let query: &str = "
 SELECT instance_addresses.prefix as prefix FROM instance_addresses
-INNER JOIN network_prefixes ON instance_addresses.circuit_id = network_prefixes.circuit_id
-INNER JOIN network_segments ON network_prefixes.segment_id = network_segments.id
+INNER JOIN network_segments ON instance_addresses.segment_id = network_segments.id
 WHERE network_segments.id = $1::uuid";
 
         let containers: Vec<IpNetworkContainer> = sqlx::query_as(query)

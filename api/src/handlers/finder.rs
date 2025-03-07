@@ -296,8 +296,8 @@ async fn search(
 
             instance_address.map(|e| {
                 let message = format!(
-                    "{ip} belongs to instance {} on circuit {}",
-                    e.instance_id, e.circuit_id
+                    "{ip} belongs to instance {} on segment {}",
+                    e.instance_id, e.segment_id
                 );
                 rpc::IpAddressMatch {
                     ip_type: rpc::IpType::InstanceAddress as i32,
@@ -362,17 +362,13 @@ async fn search(
             let out = NetworkPrefix::containing_prefix(&mut txn, &format!("{ip}/32")).await?;
             out.first().map(|prefix| {
                 let message = format!(
-                    "{ip} is in prefix {} of segment {}, gateway {}, on circuit {}",
+                    "{ip} is in prefix {} of segment {}, gateway {}",
                     prefix.prefix,
                     prefix.segment_id,
                     prefix
                         .gateway
                         .map(|g| g.to_string())
                         .unwrap_or("(no gateway)".to_string()),
-                    prefix
-                        .circuit_id
-                        .clone()
-                        .unwrap_or("(no circuit)".to_string())
                 );
                 rpc::IpAddressMatch {
                     ip_type: rpc::IpType::NetworkSegment as i32,

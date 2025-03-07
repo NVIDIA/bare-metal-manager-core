@@ -35,7 +35,6 @@ impl NetworkSegmentHelper {
             reserve_first: 1,
             state: None,
             events: vec![],
-            circuit_id: None,
             free_ip_count: 0,
             svi_ip: None,
         }];
@@ -97,7 +96,6 @@ pub async fn create_network_segment_with_api(
             reserve_first: num_reserved,
             state: None,
             events: vec![],
-            circuit_id: None,
             free_ip_count: 0,
             svi_ip: None,
         }],

@@ -3809,6 +3809,7 @@ dependencies = [
  "figment",
  "forge-tls",
  "futures",
+ "ipnetwork",
  "lazy_static",
  "libredfish",
  "mac_address",
