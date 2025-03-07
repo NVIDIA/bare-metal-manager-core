@@ -21,11 +21,9 @@ use crate::db;
 use crate::db::domain::{self, Domain};
 use crate::db::instance::Instance;
 use crate::db::instance_address::InstanceAddress;
-use crate::db::machine::MachineSearchConfig;
 use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::{DatabaseError, ObjectColumnFilter};
 use crate::ipxe::PxeInstructions;
-use crate::model::machine::ReprovisionState;
 use forge_uuid::machine::MachineInterfaceId;
 
 // The carbide pxe server makes this RPC call
@@ -137,33 +135,6 @@ pub(crate) async fn get_cloud_init_instructions(
                     None => None,
                 };
 
-            // we update DPU firmware on first boot every time (determined by a missing machine id) or during reprovisioning.
-            let update_firmware = match &machine_interface.machine_id {
-                None => {
-                    api.runtime_config
-                        .dpu_config
-                        .dpu_nic_firmware_initial_update_enabled
-                }
-                Some(machine_id) => {
-                    let machine =
-                        db::machine::find_one(&mut txn, machine_id, MachineSearchConfig::default())
-                            .await
-                            .map_err(CarbideError::from)?;
-
-                    if let Some(machine) = machine {
-                        if let Some(reprov_state) =
-                            machine.current_state().as_reprovision_state(machine_id)
-                        {
-                            matches!(reprov_state, ReprovisionState::FirmwareUpgrade,)
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                }
-            };
-
             let metadata: Option<rpc::CloudInitMetaData> = machine_interface
                 .machine_id
                 .as_ref()
@@ -178,7 +149,6 @@ pub(crate) async fn get_cloud_init_instructions(
                 discovery_instructions: Some(rpc::CloudInitDiscoveryInstructions {
                     machine_interface: Some(machine_interface.into()),
                     domain: Some(domain.into()),
-                    update_firmware,
                 }),
                 metadata,
             }

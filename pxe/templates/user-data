@@ -1,15 +1,8 @@
 cat << \ZOF > /etc/bf.cfg
 
-# update_firmware: {{ update_firmware }}
 # SFC variables
-{% if update_firmware == "true" %}
-WITH_NIC_FW_UPDATE=yes
-{% else %}
-WITH_NIC_FW_UPDATE=no
 ENABLE_BR_HBN=yes
 ENABLE_BR_SFC=yes
-
-{% endif %}
 
 # This function is called by install.sh script embedded in the BFB
 bfb_modify_os()
@@ -94,9 +87,7 @@ write_files:
       #!/bin/bash
       # When updating firmware, HBN is not installed and have no VRF.
       set -e
-{% if update_firmware == "false" %}
       CMD_PREFIX="ip vrf exec mgmt"
-{% endif %}
       count=0
       until $CMD_PREFIX curl -k {{ api_url }}
       do
@@ -122,7 +113,6 @@ write_files:
       BOOT0=NET-OOB-IPV4-HTTP
       BOOT1=DISK
       BOOT2=NET-OOB.4040-IPV4
-{% if update_firmware == "false" %}
   - path: /var/lib/hbn/etc/supervisor/conf.d/acltool.conf
     content: |
       [program: cl-acltool]
@@ -160,7 +150,6 @@ write_files:
       vm.hugetlb_shm_group = 0
       vm.nr_hugepages=2048
       vm.min_free_kbytes=67584
-{% endif %}
   - path: /etc/forge/config.toml
     encoding: b64
     permissions: '0644'
@@ -174,9 +163,7 @@ write_files:
       #!/bin/bash
       function cleanup()
       {
-{% if update_firmware == "false" %}
           CMD_PREFIX="ip vrf exec mgmt"
-{% endif %}
           if [[ ! -f "/run/cloud-init.done" ]]
           then
             ${CMD_PREFIX} /opt/forge/forge-scout --api={{ api_url }} --machine-interface-id={{ interface_id }} --mode="standalone" logerror
@@ -190,11 +177,6 @@ write_files:
       hwclock --systohc
       /usr/bin/systemctl daemon-reload
       /usr/bin/bfcfg
-{% if update_firmware == "true" %}
-      curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem {{ pxe_url }}/api/v0/tls/root_ca
-      echo "downloaded forge root cert"
-      /opt/forge/run-scout.sh
-{% else %}
       ip vrf exec mgmt curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem {{ pxe_url }}/api/v0/tls/root_ca
       echo "downloaded forge root cert"
       /usr/bin/mlxprivhost -d /dev/mst/mt*_pciconf0 r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner
@@ -216,7 +198,6 @@ write_files:
       sync
       /opt/forge/run-scout.sh
       touch /run/cloud-init.done
-{% endif %}
 
 # run these commands (last)
 runcmd:
