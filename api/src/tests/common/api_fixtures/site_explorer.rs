@@ -872,7 +872,14 @@ impl<'a> MockExploredHost<'a> {
             for run in runs.runs {
                 if run.validation_id == validation_id {
                     assert_eq!(run.status.unwrap_or_default().total, 1);
-                    assert_eq!(run.status.unwrap_or_default().completed_tests, 1);
+                    assert_eq!(
+                        run.status.unwrap_or_default().completed_tests,
+                        if machine_validation_result.exit_code != 0 {
+                            0
+                        } else {
+                            1
+                        }
+                    );
                     assert_eq!(run.duration_to_complete.unwrap_or_default().seconds, 1200);
                 }
             }
