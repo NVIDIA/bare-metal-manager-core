@@ -55,6 +55,8 @@ pub struct MachineMetrics {
     pub is_usable_as_instance: bool,
     /// is the host's bios password set
     pub is_host_bios_password_set: bool,
+    /// The last machine validation list ((machine_id, context), status)
+    pub last_machine_validation_list: HashMap<(String, String), i32>,
 }
 
 #[derive(Debug, Default)]
@@ -85,6 +87,7 @@ pub struct MachineStateControllerIterationMetrics {
     /// The amount of configured overrides by type (merge vs replace) and assignment status
     pub num_overrides: HashMap<(&'static str, IsInUseByTenant), usize>,
     pub hosts_with_bios_password_set: usize,
+    pub last_machine_validation_list: HashMap<(String, String), i32>,
 }
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
@@ -522,7 +525,34 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 })
                 .build()
         };
-
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_machine_validation_tests_on_machines")
+                .with_description(
+                    "For a given context the count of machine validation tests failed.",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for ((machine_id, context), status) in
+                            metrics.last_machine_validation_list.iter()
+                        {
+                            observer.observe(
+                                *status as u64,
+                                &[
+                                    attrs,
+                                    &[
+                                        KeyValue::new("machine_id", machine_id.clone()),
+                                        KeyValue::new("context", context.clone()),
+                                    ],
+                                ]
+                                .concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
         Self {
             machine_reboot_attempts_in_booting_with_discovery_image,
             machine_reboot_attempts_in_failed_during_discovery,
@@ -640,6 +670,13 @@ impl MetricsEmitter for MachineMetricsEmitter {
                     .or_insert(*time);
             }
         }
+
+        for ((machine_id, context), status) in object_metrics.last_machine_validation_list.iter() {
+            iteration_metrics
+                .last_machine_validation_list
+                .entry((machine_id.clone(), context.clone()))
+                .or_insert_with(|| *status);
+        }
     }
 
     fn emit_counters_and_histograms(&self, iteration_metrics: &Self::IterationMetrics) {
@@ -692,6 +729,7 @@ mod tests {
                 replace_override_enabled: false,
                 is_usable_as_instance: true,
                 is_host_bios_password_set: true,
+                last_machine_validation_list: HashMap::new(),
             },
             MachineMetrics {
                 num_gpus: 2,
@@ -739,6 +777,10 @@ mod tests {
                 replace_override_enabled: false,
                 is_usable_as_instance: true,
                 is_host_bios_password_set: true,
+                last_machine_validation_list: HashMap::from_iter([(
+                    ("machine a".to_string(), "context".to_string()),
+                    1,
+                )]),
             },
             MachineMetrics {
                 num_gpus: 3,
@@ -765,6 +807,7 @@ mod tests {
                 replace_override_enabled: true,
                 is_usable_as_instance: false,
                 is_host_bios_password_set: true,
+                last_machine_validation_list: HashMap::new(),
             },
             MachineMetrics {
                 num_gpus: 1,
@@ -801,6 +844,7 @@ mod tests {
                 replace_override_enabled: false,
                 is_usable_as_instance: true,
                 is_host_bios_password_set: true,
+                last_machine_validation_list: HashMap::new(),
             },
             MachineMetrics {
                 num_gpus: 2,
@@ -861,6 +905,7 @@ mod tests {
                 replace_override_enabled: false,
                 is_usable_as_instance: false,
                 is_host_bios_password_set: true,
+                last_machine_validation_list: HashMap::new(),
             },
             MachineMetrics {
                 num_gpus: 3,
@@ -908,6 +953,7 @@ mod tests {
                 replace_override_enabled: true,
                 is_usable_as_instance: false,
                 is_host_bios_password_set: false,
+                last_machine_validation_list: HashMap::new(),
             },
         ];
 
@@ -920,6 +966,13 @@ mod tests {
             iteration_metrics.agent_versions,
             HashMap::from_iter([("v1".to_string(), 1), ("v3".to_string(), 2)])
         );
+        assert_eq!(
+            iteration_metrics
+                .last_machine_validation_list
+                .get(&("machine a".to_string(), "context".to_string(),)),
+            Some(&1)
+        );
+
         assert_eq!(
             *iteration_metrics
                 .gpus_in_use_by_tenant
