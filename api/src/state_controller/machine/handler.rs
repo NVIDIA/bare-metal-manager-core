@@ -39,8 +39,8 @@ use crate::{
         BomValidationConfig, CarbideConfig, DpuModel, Firmware, FirmwareComponentType,
         FirmwareConfig, FirmwareEntry, MachineValidationConfig,
     },
-    db,
     db::{
+        self,
         explored_endpoints::DbExploredEndpoint,
         instance::DeleteInstance,
         machine_topology::MachineTopology,
@@ -65,8 +65,7 @@ use crate::{
         },
         site_explorer::ExploredEndpoint,
     },
-    redfish,
-    redfish::{host_power_control, poll_redfish_job, set_host_uefi_password},
+    redfish::{self, host_power_control, poll_redfish_job, set_host_uefi_password},
     resource_pool::common::CommonPools,
     state_controller::{
         machine::{
@@ -4752,6 +4751,16 @@ impl StateHandler for HostMachineStateHandler {
                             },
                         )
                         .await;
+                        let machine_validation = MachineValidation::find_by_id(txn, id)
+                            .await
+                            .map_err(|err| StateHandlerError::GenericError(err.into()))?;
+                        *ctx.metrics
+                            .last_machine_validation_list
+                            .entry((
+                                machine_validation.machine_id.to_string(),
+                                machine_validation.context.clone().unwrap_or_default(),
+                            ))
+                            .or_default() = 0_i32;
                         return Ok(StateHandlerOutcome::Transition(
                             ManagedHostState::HostInit {
                                 machine_state: MachineState::Discovered {
@@ -4772,7 +4781,18 @@ impl StateHandler for HostMachineStateHandler {
                                 "{} machine validation completed",
                                 mh_snapshot.host_snapshot.id
                             );
-
+                            let machine_validation =
+                                MachineValidation::find_by_id(txn, id)
+                                    .await
+                                    .map_err(|err| StateHandlerError::GenericError(err.into()))?;
+                            let status = machine_validation.status.clone().unwrap_or_default();
+                            *ctx.metrics
+                                .last_machine_validation_list
+                                .entry((
+                                    machine_validation.machine_id.to_string(),
+                                    machine_validation.context.clone().unwrap_or_default(),
+                                ))
+                                .or_default() = status.total - status.completed;
                             handler_host_power_control(
                                 mh_snapshot,
                                 ctx.services,

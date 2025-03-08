@@ -83,16 +83,9 @@ pub(crate) async fn mark_machine_validation_complete(
             "Validation ID does not belong to provided Machine ID",
         ));
     }
-    MachineValidation::mark_machine_validation_complete(
-        &mut txn,
-        &machine_id,
-        &uuid,
-        MachineValidationStatus {
-            state: MachineValidationState::Success,
-            ..MachineValidationStatus::default()
-        },
-    )
-    .await?;
+
+    let mut state = MachineValidationState::Success;
+
     let machine_validation_results = match req.machine_validation_error {
         Some(machine_validation_error) => {
             db::machine::update_failure_details_by_machine_id(
@@ -136,7 +129,7 @@ pub(crate) async fn mark_machine_validation_complete(
             )
             .await
             .map_err(CarbideError::from)?;
-
+            state = MachineValidationState::Failed;
             machine_validation_error
         }
         None => "Success".to_owned(),
@@ -157,10 +150,22 @@ pub(crate) async fn mark_machine_validation_complete(
             )
             .await
             .map_err(CarbideError::from)?;
+            state = MachineValidationState::Failed;
             error_message
         }
         None => "Success".to_owned(),
     };
+
+    MachineValidation::mark_machine_validation_complete(
+        &mut txn,
+        &machine_id,
+        &uuid,
+        MachineValidationStatus {
+            state,
+            ..MachineValidationStatus::default()
+        },
+    )
+    .await?;
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
             file!(),
