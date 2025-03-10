@@ -1,3 +1,4 @@
+use crate::MachineConfig;
 use base64::prelude::*;
 use mac_address::MacAddress;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
@@ -49,6 +50,16 @@ impl<'a> From<ApiConfig<'a>> for ApiClient<'a> {
     fn from(value: ApiConfig<'a>) -> Self {
         ApiClient(value)
     }
+}
+
+pub struct DpuNetworkStatusArgs<'a> {
+    pub dpu_machine_id: rpc::MachineId,
+    pub network_config_version: String,
+    pub instance_network_config_version: Option<String>,
+    pub instance_config_version: Option<String>,
+    pub instance_id: Option<rpc::Uuid>,
+    pub interfaces: Vec<rpc::forge::InstanceInterfaceStatusObservation>,
+    pub machine_config: &'a MachineConfig,
 }
 
 impl ApiClient<'_> {
@@ -361,14 +372,22 @@ impl ApiClient<'_> {
 
     pub async fn record_dpu_network_status(
         &self,
-        dpu_machine_id: rpc::MachineId,
-        network_config_version: String,
-        instance_network_config_version: Option<String>,
-        instance_config_version: Option<String>,
-        instance_id: Option<rpc::Uuid>,
-        interfaces: Vec<rpc::forge::InstanceInterfaceStatusObservation>,
+        DpuNetworkStatusArgs {
+            dpu_machine_id,
+            network_config_version,
+            instance_network_config_version,
+            instance_config_version,
+            instance_id,
+            interfaces,
+            machine_config,
+        }: DpuNetworkStatusArgs<'_>,
     ) -> ClientApiResult<()> {
         let dpu_machine_id = Some(dpu_machine_id);
+
+        let dpu_agent_version = machine_config
+            .dpu_agent_version
+            .clone()
+            .or(Some(forge_version::v!(build_version).to_string()));
 
         self.with_forge_client(|mut client| async move {
             client
@@ -387,7 +406,7 @@ impl ApiClient<'_> {
                     interfaces,
                     network_config_error: None,
                     instance_id,
-                    dpu_agent_version: None,
+                    dpu_agent_version,
                     client_certificate_expiry_unix_epoch_secs: None,
                     fabric_interfaces: vec![],
                     last_dhcp_requests: vec![],

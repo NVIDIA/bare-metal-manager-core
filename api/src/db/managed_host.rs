@@ -13,11 +13,9 @@
 //! Database access methods for manipulating the state of a ManagedHost (Host+DPUs)
 //!
 
+use crate::cfg::file::HostHealthConfig;
 use crate::db::machine::{MACHINE_SNAPSHOT_QUERY, MACHINE_SNAPSHOT_WITH_HISTORY_QUERY};
-use crate::{
-    cfg::file::HardwareHealthReportsConfig, db::DatabaseError,
-    model::machine::ManagedHostStateSnapshot,
-};
+use crate::{db::DatabaseError, model::machine::ManagedHostStateSnapshot};
 use forge_uuid::{instance::InstanceId, machine::MachineId};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
@@ -113,7 +111,7 @@ pub async fn load_by_machine_ids(
     .concat()
     .into_iter()
     .map(|mut snapshot| {
-        snapshot.derive_aggregate_health(options.hardware_health);
+        snapshot.derive_aggregate_health(options.host_health_config);
         (snapshot.host_snapshot.id, snapshot)
     })
     .collect();
@@ -186,7 +184,7 @@ pub async fn load_by_instance_ids(
         .map_err(|e| DatabaseError::new(file!(), line!(), "managed_host::load_by_instance_ids", e))?
         .into_iter()
         .map(|mut s: ManagedHostStateSnapshot| {
-            s.derive_aggregate_health(load_snapshot_options.hardware_health);
+            s.derive_aggregate_health(load_snapshot_options.host_health_config);
             s
         })
         .collect();
@@ -199,7 +197,7 @@ pub struct LoadSnapshotOptions {
     /// Whether to load instance details
     pub include_instance_data: bool,
     /// How to use hardware health for health report aggregation
-    pub hardware_health: HardwareHealthReportsConfig,
+    pub host_health_config: HostHealthConfig,
 }
 
 impl Default for LoadSnapshotOptions {
@@ -207,14 +205,14 @@ impl Default for LoadSnapshotOptions {
         Self {
             include_history: false,
             include_instance_data: true,
-            hardware_health: Default::default(),
+            host_health_config: Default::default(),
         }
     }
 }
 
 impl LoadSnapshotOptions {
-    pub fn with_hw_health(mut self, value: HardwareHealthReportsConfig) -> Self {
-        self.hardware_health = value;
+    pub fn with_host_health(mut self, value: HostHealthConfig) -> Self {
+        self.host_health_config = value;
         self
     }
 }

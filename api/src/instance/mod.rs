@@ -18,6 +18,7 @@ use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use sqlx::{PgPool, Postgres, Transaction};
 
+use crate::cfg::file::HostHealthConfig;
 use crate::db::ObjectColumnFilter;
 use crate::db::vpc_prefix::VpcPrefix;
 use crate::model::instance::config::network::NetworkDetails;
@@ -25,7 +26,6 @@ use crate::model::machine::NotAllocatableReason;
 use crate::network_segment::allocate::Ipv4PrefixAllocator;
 use crate::{
     CarbideError, CarbideResult,
-    cfg::file::HardwareHealthReportsConfig,
     db::{
         self, DatabaseError, ObjectFilter,
         ib_partition::{self, IBPartition, IBPartitionSearchConfig},
@@ -239,7 +239,7 @@ pub async fn allocate_network(
 pub async fn allocate_instance(
     mut request: InstanceAllocationRequest,
     database: &PgPool,
-    hardware_health_reports: HardwareHealthReportsConfig,
+    host_health_config: HostHealthConfig,
 ) -> Result<ManagedHostStateSnapshot, CarbideError> {
     let mut txn = database
         .begin()
@@ -333,7 +333,7 @@ pub async fn allocate_instance(
     let mut mh_snapshot = db::managed_host::load_snapshot(
         &mut txn,
         &machine_id,
-        LoadSnapshotOptions::default().with_hw_health(hardware_health_reports),
+        LoadSnapshotOptions::default().with_host_health(host_health_config),
     )
     .await
     .map_err(CarbideError::from)?

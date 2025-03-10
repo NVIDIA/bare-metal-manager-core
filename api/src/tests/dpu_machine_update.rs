@@ -65,6 +65,7 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
         observed_at: chrono::Utc::now(),
         network_config_version: None,
         client_certificate_expiry: None,
+        agent_version_superseded_at: None,
     };
 
     let health_report = health_report::HealthReport {

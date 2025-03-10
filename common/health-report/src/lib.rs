@@ -111,6 +111,26 @@ impl HealthReport {
         }
     }
 
+    /// Returns a health report that indicates that the DPU agent is on a stale version, older than
+    /// some threshold
+    pub fn stale_agent_version(
+        source: String,
+        dpu_id: String,
+        message: String,
+        prevent_allocations: bool,
+    ) -> Self {
+        Self {
+            source,
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![],
+            alerts: vec![HealthProbeAlert::stale_agent_version(
+                dpu_id,
+                message,
+                prevent_allocations,
+            )],
+        }
+    }
+
     /// Returns a health report which indicates that a machine failed SKU validation
     pub fn sku_mismatch(mismatches: Vec<String>) -> Self {
         Self {
@@ -291,6 +311,22 @@ impl HealthProbeAlert {
         }
     }
 
+    /// Creates a StaleAgentVersion alert
+    pub fn stale_agent_version(dpu_id: String, message: String, prevent_allocations: bool) -> Self {
+        Self {
+            id: HealthProbeId::stale_agent_version(),
+            target: Some(dpu_id),
+            in_alert_since: Some(chrono::Utc::now()),
+            message,
+            tenant_message: None,
+            classifications: if prevent_allocations {
+                vec![HealthAlertClassification::prevent_allocations()]
+            } else {
+                vec![]
+            },
+        }
+    }
+
     /// Creates a MissingReport alert
     pub fn missing_report() -> Self {
         Self {
@@ -383,6 +419,11 @@ impl HealthProbeId {
     /// Returns the ID of the HealthProbe that indicates that no fresh data has been received
     pub fn heartbeat_timeout() -> Self {
         HealthProbeId("HeartbeatTimeout".to_string())
+    }
+
+    /// Returns the ID of the HealthProbe that indicates that the Agent Version is outdated
+    pub fn stale_agent_version() -> Self {
+        HealthProbeId("StaleAgentVersion".to_string())
     }
 
     /// The alert indicates that no health report was received, where health report

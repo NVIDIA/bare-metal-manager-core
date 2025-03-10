@@ -79,10 +79,7 @@ use crate::{
 };
 use crate::{cfg::file::BomValidationConfig, model::machine::Machine};
 use crate::{
-    cfg::file::{
-        HardwareHealthReportsConfig, MachineValidationConfig, NetworkSecurityGroupConfig,
-        SiteExplorerConfig,
-    },
+    cfg::file::{MachineValidationConfig, NetworkSecurityGroupConfig, SiteExplorerConfig},
     site_explorer::BmcEndpointExplorer,
     state_controller::machine::handler::MachineStateHandlerBuilder,
 };
@@ -171,6 +168,8 @@ pub struct TestEnvOverrides {
     pub config: Option<CarbideConfig>,
     pub ibports: Option<HashMap<String, crate::ib::types::IBPort>>,
     pub create_network_segments: Option<bool>,
+    pub dpu_agent_version_staleness_threshold: Option<chrono::Duration>,
+    pub prevent_allocations_on_stale_dpu_agent_version: Option<bool>,
 }
 
 impl TestEnvOverrides {
@@ -825,7 +824,17 @@ pub async fn create_test_env_with_overrides(
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
     let nvmesh_sim: Arc<dyn NvmeshClientPool> = Arc::new(NvmeshSimClient::default());
-    let config = Arc::new(overrides.config.unwrap_or(get_config()));
+
+    let mut config = overrides.config.unwrap_or(get_config());
+    if let Some(threshold) = overrides.dpu_agent_version_staleness_threshold {
+        config.host_health.dpu_agent_version_staleness_threshold = threshold;
+    }
+    if let Some(prevent) = overrides.prevent_allocations_on_stale_dpu_agent_version {
+        config
+            .host_health
+            .prevent_allocations_on_stale_dpu_agent_version = prevent;
+    }
+    let config = Arc::new(config);
 
     let ib_config = config.ib_config.clone().unwrap_or_default();
     let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
@@ -959,7 +968,7 @@ pub async fn create_test_env_with_overrides(
         .site_config(config.clone())
         .state_handler(Arc::new(machine_swap.clone()))
         .io(Arc::new(MachineStateControllerIO {
-            hardware_health: HardwareHealthReportsConfig::Enabled,
+            host_health: config.host_health,
         }))
         .build_for_manual_iterations()
         .expect("Unable to build state controller");

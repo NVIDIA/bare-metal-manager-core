@@ -1,11 +1,13 @@
 use std::{net::Ipv4Addr, time::SystemTime};
 
-use chrono::{DateTime, Utc};
+use ::rpc::forge as rpc;
+use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
-use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 
+use crate::db::DatabaseError;
 use ::rpc::errors::RpcDataConversionError;
+use health_report::HealthReport;
 
 /// The network status that was last reported by the networking subsystem
 /// Stored in a Postgres JSON field so new fields have to be Option until fully deployed
@@ -16,6 +18,56 @@ pub struct MachineNetworkStatusObservation {
     pub observed_at: DateTime<Utc>,
     pub network_config_version: Option<ConfigVersion>,
     pub client_certificate_expiry: Option<i64>,
+    pub agent_version_superseded_at: Option<DateTime<Utc>>,
+}
+
+impl MachineNetworkStatusObservation {
+    pub fn expired_version_health_report(
+        &self,
+        staleness_threshold: Duration,
+        prevent_allocations: bool,
+    ) -> Result<Option<HealthReport>, DatabaseError> {
+        let Some(agent_version) = self.agent_version.as_ref() else {
+            return Ok(Some(health_report::HealthReport::stale_agent_version(
+                "forge-dpu-agent".to_string(),
+                self.machine_id.clone(),
+                "Agent version is not known".to_string(),
+                prevent_allocations,
+            )));
+        };
+
+        if agent_version == forge_version::v!(build_version) {
+            // Same version as the server, all good.
+            return Ok(None);
+        }
+
+        match self.agent_version_superseded_at {
+            Some(superseded_at) => {
+                let staleness = Utc::now().signed_duration_since(superseded_at);
+                if staleness > staleness_threshold {
+                    Ok(Some(health_report::HealthReport::stale_agent_version(
+                        "forge-dpu-agent".to_string(),
+                        self.machine_id.clone(),
+                        format!(
+                            "Agent version is {}, which is out of date for {}",
+                            agent_version,
+                            config_version::format_duration(staleness),
+                        ),
+                        prevent_allocations,
+                    )))
+                } else {
+                    Ok(None)
+                }
+            }
+            None => {
+                tracing::warn!(
+                        machine_id = %self.machine_id,
+                        agent_version = %agent_version,
+                        "DPU is on a stale agent version which we don't know about. Cannot know how stale it is, will not prevent allocations");
+                Ok(None)
+            }
+        }
+    }
 }
 
 impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
@@ -39,6 +91,7 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
             agent_version: obs.dpu_agent_version.clone(),
             network_config_version: obs.network_config_version.and_then(|n| n.parse().ok()),
             client_certificate_expiry: obs.client_certificate_expiry_unix_epoch_secs,
+            agent_version_superseded_at: None,
         })
     }
 }

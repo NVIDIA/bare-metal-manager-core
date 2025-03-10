@@ -47,6 +47,10 @@ rcgen = "0.13.1"
 rpc = { path = "../../rpc" }
 bmc-mock = { path = "../bmc-mock" }
 forge-tls = { path = "../../common/tls" }
+forge-version = { path = "../../common/version" }
 
 [dev-dependencies]
 toml = "0.8.20"
+
+[build-dependencies]
+forge-version = { path = "../../common/version" }

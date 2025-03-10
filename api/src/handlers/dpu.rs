@@ -74,8 +74,7 @@ pub(crate) async fn get_managed_host_network_config(
     let snapshot = db::managed_host::load_snapshot(
         &mut txn,
         &dpu_machine_id,
-        LoadSnapshotOptions::default()
-            .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await
     .map_err(CarbideError::from)?
@@ -608,8 +607,17 @@ pub(crate) async fn record_dpu_network_status(
         }
     };
 
-    let machine_obs =
-        MachineNetworkStatusObservation::try_from(request.clone()).map_err(CarbideError::from)?;
+    let machine_obs = {
+        let mut obs = MachineNetworkStatusObservation::try_from(request.clone())
+            .map_err(CarbideError::from)?;
+        if let Some(agent_version) = obs.agent_version.as_ref() {
+            obs.agent_version_superseded_at =
+                db::forge_version::date_superseded(&mut txn, agent_version.as_str())
+                    .await
+                    .map_err(CarbideError::from)?;
+        }
+        obs
+    };
     db::machine::update_network_status_observation(&mut txn, &dpu_machine_id, &machine_obs)
         .await
         .map_err(CarbideError::from)?;
@@ -955,7 +963,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
-            hardware_health: api.runtime_config.host_health.hardware_health_reports,
+            host_health_config: api.runtime_config.host_health,
         },
     )
     .await
