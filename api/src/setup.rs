@@ -10,8 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashSet, sync::Arc};
-
 use eyre::WrapErr;
 use figment::{
     Figment,
@@ -19,12 +17,14 @@ use figment::{
 };
 use forge_secrets::{ForgeVaultClient, credentials::CredentialProvider};
 use sqlx::{ConnectOptions, PgPool, postgres::PgSslMode};
+use std::{collections::HashSet, sync::Arc};
 
 use crate::db::expected_machine::ExpectedMachine;
 use crate::ib::DEFAULT_IB_FABRIC_NAME;
 use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
-use crate::{db::machine::update_dpu_asns, resource_pool::DefineResourcePoolError};
+use crate::{db, db::machine::update_dpu_asns, resource_pool::DefineResourcePoolError};
 
+use crate::cfg::file::HostHealthConfig;
 use crate::{
     api::Api,
     attestation,
@@ -159,6 +159,22 @@ pub async fn start_api(
     let shared_nvmesh_pool: Arc<dyn NvmeshClientPool> = Arc::new(nvmesh_pool);
 
     let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
+
+    // As soon as we get the database up, observe this version of forge so that we know when it was
+    // first deployed
+    {
+        let mut txn = db_pool
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "begin observe forge_version", e))?;
+
+        db::forge_version::observe_as_latest_version(&mut txn, forge_version::v!(build_version))
+            .await?;
+
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "commit observe forge_version", e))?;
+    }
 
     if let Some(domain_name) = &carbide_config.initial_domain_name {
         if db_init::create_initial_domain(db_pool.clone(), domain_name).await? {
@@ -418,7 +434,15 @@ pub async fn start_api(
                 .build(),
         ))
         .io(Arc::new(MachineStateControllerIO {
-            hardware_health: carbide_config.host_health.hardware_health_reports,
+            host_health: HostHealthConfig {
+                hardware_health_reports: carbide_config.host_health.hardware_health_reports,
+                dpu_agent_version_staleness_threshold: carbide_config
+                    .host_health
+                    .dpu_agent_version_staleness_threshold,
+                prevent_allocations_on_stale_dpu_agent_version: carbide_config
+                    .host_health
+                    .prevent_allocations_on_stale_dpu_agent_version,
+            },
         }))
         .ipmi_tool(ipmi_tool.clone())
         .site_config(carbide_config.clone())

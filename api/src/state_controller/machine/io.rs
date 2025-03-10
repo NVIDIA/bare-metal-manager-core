@@ -14,8 +14,8 @@
 
 use config_version::{ConfigVersion, Versioned};
 
+use crate::cfg::file::HostHealthConfig;
 use crate::{
-    cfg::file::HardwareHealthReportsConfig,
     db::{self, DatabaseError, machine::MachineSearchConfig},
     model::{
         StateSla,
@@ -38,7 +38,7 @@ pub const CURRENT_STATE_MODEL_VERSION: i16 = 2;
 /// State Controller IO implementation for Machines
 #[derive(Default, Debug)]
 pub struct MachineStateControllerIO {
-    pub hardware_health: HardwareHealthReportsConfig,
+    pub host_health: HostHealthConfig,
 }
 
 #[async_trait::async_trait]
@@ -83,7 +83,7 @@ impl StateControllerIO for MachineStateControllerIO {
             db::managed_host::LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: true,
-                hardware_health: self.hardware_health,
+                host_health_config: self.host_health,
             },
         )
         .await

@@ -127,7 +127,7 @@ impl DpuMachineUpdate {
             LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: false,
-                hardware_health: config.host_health.hardware_health_reports,
+                host_health_config: config.host_health,
             },
         )
         .await?;
@@ -348,7 +348,7 @@ impl DpuMachineUpdate {
             LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: false,
-                hardware_health: config.host_health.hardware_health_reports,
+                host_health_config: config.host_health,
             },
         )
         .await?;

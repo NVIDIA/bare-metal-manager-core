@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 use tokio::time::Instant;
 use uuid::Uuid;
 
-use crate::api_client::{ClientApiError, MockDiscoveryData};
+use crate::api_client::{ClientApiError, DpuNetworkStatusArgs, MockDiscoveryData};
 use crate::bmc_mock_wrapper::{BmcMockRegistry, BmcMockWrapper};
 use crate::config::{MachineATronContext, MachineConfig};
 use crate::dhcp_relay::{DhcpRelayClient, DhcpResponseInfo};
@@ -567,14 +567,15 @@ impl MachineStateMachine {
 
         self.app_context
             .api_client()
-            .record_dpu_network_status(
-                machine_id.clone(),
-                network_config.managed_host_config_version,
+            .record_dpu_network_status(DpuNetworkStatusArgs {
+                dpu_machine_id: machine_id.clone(),
+                network_config_version: network_config.managed_host_config_version,
                 instance_network_config_version,
                 instance_config_version,
-                network_config.instance_id.clone(),
+                instance_id: network_config.instance_id.clone(),
                 interfaces,
-            )
+                machine_config: &self.config,
+            })
             .await?;
         Ok(())
     }

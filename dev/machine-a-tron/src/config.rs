@@ -87,6 +87,9 @@ pub struct MachineConfig {
     /// What firmware versions to report for DPUs in this host
     #[serde(default)]
     pub dpu_firmware_versions: Option<DpuFirmwareVersions>,
+
+    #[serde(default)]
+    pub dpu_agent_version: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq)]

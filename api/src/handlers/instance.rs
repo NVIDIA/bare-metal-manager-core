@@ -47,7 +47,7 @@ pub(crate) async fn allocate(
     let mh_snapshot = allocate_instance(
         request,
         &api.database_connection,
-        api.runtime_config.host_health.hardware_health_reports,
+        api.runtime_config.host_health,
     )
     .await?;
 
@@ -126,8 +126,7 @@ pub(crate) async fn find_by_ids(
     let snapshots = db::managed_host::load_by_instance_ids(
         &mut txn,
         instance_ids.as_ref(),
-        LoadSnapshotOptions::default()
-            .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await
     .map_err(CarbideError::from)?;
@@ -188,8 +187,7 @@ pub(crate) async fn find(
     let snapshots = db::managed_host::load_by_instance_ids(
         &mut txn,
         &instance_ids,
-        LoadSnapshotOptions::default()
-            .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await
     .map_err(CarbideError::from)?;
@@ -224,8 +222,7 @@ pub(crate) async fn find_by_machine_id(
     let mh_snapshot = match db::managed_host::load_snapshot(
         &mut txn,
         &machine_id,
-        LoadSnapshotOptions::default()
-            .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await
     {
@@ -419,8 +416,7 @@ pub(crate) async fn invoke_power(
     let snapshot = db::managed_host::load_snapshot(
         &mut txn,
         &machine_id,
-        LoadSnapshotOptions::default()
-            .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await
     .map_err(CarbideError::from)?
@@ -609,8 +605,7 @@ pub(crate) async fn update_operating_system(
     let mh_snapshot = db::managed_host::load_snapshot(
         &mut txn,
         &instance.machine_id,
-        LoadSnapshotOptions::default()
-            .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await
     .map_err(CarbideError::from)?
@@ -719,8 +714,7 @@ pub(crate) async fn update_instance_config(
     let mh_snapshot = db::managed_host::load_snapshot(
         &mut txn,
         &instance.machine_id,
-        LoadSnapshotOptions::default()
-            .with_hw_health(api.runtime_config.host_health.hardware_health_reports),
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await
     .map_err(CarbideError::from)?

@@ -560,6 +560,7 @@ where
                 scout_run_interval: Duration::from_secs(1),
                 dpus_in_nic_mode,
                 dpu_firmware_versions: None,
+                dpu_agent_version: None,
             }),
         )]),
         carbide_api_url: format!(

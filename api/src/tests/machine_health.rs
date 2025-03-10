@@ -12,6 +12,7 @@
 
 use crate::tests::common;
 
+use crate::cfg::file::HostHealthConfig;
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::{cfg::file::HardwareHealthReportsConfig, db};
@@ -463,10 +464,15 @@ async fn load_snapshot(
     host_machine_id: &forge_uuid::machine::MachineId,
 ) -> Result<crate::model::machine::ManagedHostStateSnapshot, Box<dyn std::error::Error>> {
     let mut txn = env.pool.begin().await?;
+    let host_health_config = HostHealthConfig {
+        hardware_health_reports: HardwareHealthReportsConfig::Enabled,
+        dpu_agent_version_staleness_threshold: Default::default(),
+        prevent_allocations_on_stale_dpu_agent_version: false,
+    };
     let snapshot = db::managed_host::load_snapshot(
         &mut txn,
         host_machine_id,
-        LoadSnapshotOptions::default().with_hw_health(HardwareHealthReportsConfig::Enabled),
+        LoadSnapshotOptions::default().with_host_health(host_health_config),
     )
     .await?
     .unwrap();

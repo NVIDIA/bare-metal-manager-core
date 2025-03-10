@@ -1077,7 +1077,7 @@ impl Forge for Api {
             LoadSnapshotOptions {
                 include_history: true,
                 include_instance_data: false,
-                hardware_health: self.runtime_config.host_health.hardware_health_reports,
+                host_health_config: self.runtime_config.host_health,
             },
         )
         .await
@@ -1174,7 +1174,7 @@ impl Forge for Api {
             LoadSnapshotOptions {
                 include_history: request.include_history,
                 include_instance_data: false,
-                hardware_health: self.runtime_config.host_health.hardware_health_reports,
+                host_health_config: self.runtime_config.host_health,
             },
         )
         .await
@@ -1317,7 +1317,7 @@ impl Forge for Api {
             LoadSnapshotOptions {
                 include_history: search_config.include_history,
                 include_instance_data: false,
-                hardware_health: self.runtime_config.host_health.hardware_health_reports,
+                host_health_config: self.runtime_config.host_health,
             },
         )
         .await
@@ -2981,7 +2981,7 @@ impl Forge for Api {
             LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: false,
-                hardware_health: self.runtime_config.host_health.hardware_health_reports,
+                host_health_config: self.runtime_config.host_health,
             },
         )
         .await
@@ -3046,7 +3046,7 @@ impl Forge for Api {
             LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: false,
-                hardware_health: self.runtime_config.host_health.hardware_health_reports,
+                host_health_config: self.runtime_config.host_health,
             },
         )
         .await

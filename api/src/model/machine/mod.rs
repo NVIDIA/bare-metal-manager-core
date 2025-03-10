@@ -46,6 +46,7 @@ pub mod machine_id;
 pub mod network;
 pub mod storage;
 pub mod upgrade_policy;
+use crate::cfg::file::HostHealthConfig;
 use crate::db::instance::InstanceSnapshotPgJson;
 use crate::db::machine::MachineSnapshotPgJson;
 use crate::db::network_segment::NetworkSegmentType;
@@ -197,10 +198,7 @@ impl ManagedHostStateSnapshot {
 
     /// Derives the aggregate health of the Managed Host based on individual
     /// health reports
-    pub fn derive_aggregate_health(
-        &mut self,
-        hardware_health_reports_config: HardwareHealthReportsConfig,
-    ) {
+    pub fn derive_aggregate_health(&mut self, host_health_config: HostHealthConfig) {
         // TODO: In the future we will also take machine-validation results into consideration
 
         let source = "aggregate-host-health".to_string();
@@ -248,7 +246,7 @@ impl ManagedHostStateSnapshot {
 
         // Merge hardware health if configured.
         use HardwareHealthReportsConfig as HWConf;
-        match hardware_health_reports_config {
+        match host_health_config.hardware_health_reports {
             HWConf::Disabled => {}
             HWConf::MonitorOnly => {
                 // If MonitorOnly, clear all alert classifications.
@@ -286,6 +284,17 @@ impl ManagedHostStateSnapshot {
             } else {
                 snapshot.dpu_agent_health_report.clone()
             };
+
+            if let Some(network_status_observation) = snapshot.network_status_observation.as_ref() {
+                if let Ok(Some(health_report)) = network_status_observation
+                    .expired_version_health_report(
+                        host_health_config.dpu_agent_version_staleness_threshold,
+                        host_health_config.prevent_allocations_on_stale_dpu_agent_version,
+                    )
+                {
+                    output.merge(&health_report);
+                }
+            }
 
             merge_or_timeout(&mut output, &health_report, "forge-dpu-agent".to_string());
 

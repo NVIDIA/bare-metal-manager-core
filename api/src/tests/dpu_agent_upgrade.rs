@@ -9,15 +9,18 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
-use std::time::SystemTime;
-
+use crate::db;
+use crate::tests::common;
+use crate::tests::common::api_fixtures::{
+    TestEnv, TestEnvOverrides, create_managed_host, create_test_env_with_overrides,
+};
 use ::rpc::forge as rpc;
 use ::rpc::forge::forge_server::Forge;
-
-use crate::tests::common;
-use crate::tests::common::api_fixtures::create_managed_host;
+use chrono::{Duration, Utc};
 use common::api_fixtures::create_test_env;
+use forge_uuid::machine::MachineId;
+use health_report::{HealthAlertClassification, HealthProbeAlert, HealthProbeId};
+use std::time::SystemTime;
 
 #[crate::sqlx_test]
 async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
@@ -113,4 +116,192 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     );
 
     Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    // Set up a 1 day staleness threshold
+    let env = create_test_env_with_overrides(
+        db_pool.clone(),
+        TestEnvOverrides {
+            dpu_agent_version_staleness_threshold: Some(Duration::days(1)),
+            prevent_allocations_on_stale_dpu_agent_version: Some(true),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let stale_version = "stale_version";
+    let recently_superseded_version = "recently_superseded_version";
+    let current_version = forge_version::v!(build_version);
+
+    {
+        let mut txn = env.pool.begin().await?;
+        db::forge_version::make_mock_observation(
+            &mut txn,
+            stale_version,
+            Some(Utc::now() - Duration::hours(25)),
+        )
+        .await?;
+        db::forge_version::make_mock_observation(
+            &mut txn,
+            recently_superseded_version,
+            Some(Utc::now() - Duration::hours(23)),
+        )
+        .await?;
+        db::forge_version::make_mock_observation(&mut txn, current_version, None).await?;
+        txn.commit().await?;
+    }
+
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    // We'll need to know the current network config version in order to register our
+    // forge-dpu-agent version
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(
+            rpc::ManagedHostNetworkConfigRequest {
+                dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            },
+        ))
+        .await?
+        .into_inner();
+
+    // Report that we're on a stale version of the dpu agent
+    let alert = mock_observation_and_get_only_health_alert(
+        Some(stale_version),
+        &env,
+        dpu_machine_id,
+        host_machine_id,
+        &response.managed_host_config_version,
+    )
+    .await
+    .expect("Should have caused a health alert");
+    assert_eq!(
+        alert.message,
+        format!("Agent version is {stale_version}, which is out of date for 1 day and 1 hour")
+    );
+    assert_eq!(alert.target, Some(dpu_machine_id.to_string()),);
+    assert_eq!(
+        alert.classifications,
+        vec![HealthAlertClassification::prevent_allocations()]
+    );
+    assert_eq!(alert.id, HealthProbeId::stale_agent_version());
+
+    // Now try with the superseded-but-not-yet-stale version
+    assert!(
+        mock_observation_and_get_only_health_alert(
+            Some(recently_superseded_version),
+            &env,
+            dpu_machine_id,
+            host_machine_id,
+            &response.managed_host_config_version
+        )
+        .await
+        .is_none()
+    );
+
+    // Now try with no build number
+    let alert = mock_observation_and_get_only_health_alert(
+        None,
+        &env,
+        dpu_machine_id,
+        host_machine_id,
+        &response.managed_host_config_version,
+    )
+    .await
+    .expect("Should have caused a health alert");
+    assert_eq!(alert.message, "Agent version is not known");
+    assert_eq!(alert.target, Some(dpu_machine_id.to_string()),);
+    assert_eq!(
+        alert.classifications,
+        vec![HealthAlertClassification::prevent_allocations()]
+    );
+    assert_eq!(alert.id, HealthProbeId::stale_agent_version());
+
+    // Finally, a matching version should be fine
+    assert!(
+        mock_observation_and_get_only_health_alert(
+            Some(current_version),
+            &env,
+            dpu_machine_id,
+            host_machine_id,
+            &response.managed_host_config_version
+        )
+        .await
+        .is_none()
+    );
+
+    Ok(())
+}
+
+async fn mock_observation_and_get_only_health_alert(
+    agent_version: Option<&str>,
+    env: &TestEnv,
+    dpu_machine_id: MachineId,
+    host_machine_id: MachineId,
+    managed_host_config_version: &str,
+) -> Option<HealthProbeAlert> {
+    env.api
+        .record_dpu_network_status(tonic::Request::new(rpc::DpuNetworkStatus {
+            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            dpu_agent_version: agent_version.map(Into::into),
+            observed_at: None,
+            dpu_health: Some(::rpc::health::HealthReport {
+                source: "forge-dpu-agent".to_string(),
+                observed_at: None,
+                successes: vec![],
+                alerts: vec![],
+            }),
+            network_config_version: Some(managed_host_config_version.to_string()),
+            instance_id: None,
+            instance_config_version: None,
+            instance_network_config_version: None,
+            interfaces: vec![rpc::InstanceInterfaceStatusObservation {
+                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                virtual_function_id: None,
+                mac_address: None,
+                addresses: vec!["1.2.3.4".to_string()],
+                prefixes: vec!["1.2.3.4/32".to_string()],
+                gateways: vec!["1.2.3.1".to_string()],
+                network_security_group: None,
+            }],
+            network_config_error: None,
+            client_certificate_expiry_unix_epoch_secs: None,
+            fabric_interfaces: vec![],
+            last_dhcp_requests: vec![],
+        }))
+        .await
+        .unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let alerts = env
+        .api
+        .find_machines_by_ids(tonic::Request::new(rpc::MachinesByIdsRequest {
+            machine_ids: vec![host_machine_id.into()],
+            include_history: false,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .machines
+        .into_iter()
+        .next()
+        .expect("expected host machine to be found")
+        .health
+        .expect("expected health report")
+        .alerts;
+
+    if alerts.is_empty() {
+        None
+    } else {
+        assert_eq!(
+            alerts.len(),
+            1,
+            "Expected a single alert, got {}",
+            alerts.len()
+        );
+        Some(alerts.into_iter().next().unwrap().try_into().unwrap())
+    }
 }

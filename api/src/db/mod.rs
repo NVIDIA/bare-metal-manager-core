@@ -21,6 +21,7 @@ pub mod dpu_machine_update;
 pub mod expected_machine;
 pub mod explored_endpoints;
 pub mod explored_managed_host;
+pub mod forge_version;
 pub mod host_machine_update;
 pub mod ib_partition;
 pub mod instance;
