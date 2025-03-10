@@ -48,7 +48,6 @@ pub(crate) async fn allocate(
         request,
         &api.database_connection,
         api.runtime_config.host_health.hardware_health_reports,
-        api,
     )
     .await?;
 
