@@ -50,6 +50,7 @@ message DiscoveryInfo {
   AttestKeyInfo attest_key_info = 15;
 }
 
+// protolint:disable FIELD_NAMES_LOWER_SNAKE_CASE
 message AttestKeyInfo{
   // Endorsement Public Key
   bytes EKPub = 1;
@@ -58,6 +59,7 @@ message AttestKeyInfo{
   // Attestation Key Name
   bytes AKName = 3;
 }
+// protolint:enable FIELD_NAMES_LOWER_SNAKE_CASE
 
 message TpmDescription {
   string vendor = 1;
