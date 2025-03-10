@@ -1946,7 +1946,6 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
         request,
         &env.pool,
         env.config.host_health.hardware_health_reports,
-        &env.api,
     )
     .await;
     let error = result.expect_err("expected allocation to fail").to_string();
@@ -2590,7 +2589,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
         .await
         .expect("Unable to create transaction on database pool");
 
-    allocate_network(&mut config.network, &mut txn, &env.api)
+    allocate_network(&mut config.network, &mut txn)
         .await
         .unwrap();
 
@@ -2932,7 +2931,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     );
 
     let (ns_id, _prefix) = allocator
-        .allocate_network_segment(&mut txn, &env.api, vpc_id)
+        .allocate_network_segment(&mut txn, vpc_id)
         .await
         .unwrap();
 
@@ -2965,7 +2964,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     );
 
     let (ns_id, _prefix) = allocator
-        .allocate_network_segment(&mut txn, &env.api, vpc_id)
+        .allocate_network_segment(&mut txn, vpc_id)
         .await
         .unwrap();
 
@@ -2998,7 +2997,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     );
 
     let (ns_id, _prefix) = allocator
-        .allocate_network_segment(&mut txn, &env.api, vpc_id)
+        .allocate_network_segment(&mut txn, vpc_id)
         .await
         .unwrap();
 
@@ -3038,7 +3037,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     );
 
     let (ns_id, _prefix) = allocator
-        .allocate_network_segment(&mut txn, &env.api, vpc_id)
+        .allocate_network_segment(&mut txn, vpc_id)
         .await
         .unwrap();
 

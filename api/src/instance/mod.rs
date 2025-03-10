@@ -18,7 +18,6 @@ use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use sqlx::{PgPool, Postgres, Transaction};
 
-use crate::api::Api;
 use crate::db::ObjectColumnFilter;
 use crate::db::vpc_prefix::VpcPrefix;
 use crate::model::instance::config::network::NetworkDetails;
@@ -117,7 +116,6 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
 pub async fn allocate_network(
     network_config: &mut InstanceNetworkConfig,
     txn: &mut sqlx::Transaction<'_, Postgres>,
-    api: &Api,
 ) -> CarbideResult<()> {
     // Take ROW LEVEL lock on all the vpc_prefix taken.
     // This is needed so that last_used_prefix is not modified by multiple clients at same time.
@@ -213,7 +211,7 @@ pub async fn allocate_network(
 
                     let (ns_id, prefix) =
                         Ipv4PrefixAllocator::new(*vpc_prefix_id, vpc_prefix, last_used_prefix, 31)
-                            .allocate_network_segment(txn, api, vpc_id)
+                            .allocate_network_segment(txn, vpc_id)
                             .await?;
                     interface.network_segment_id = Some(ns_id);
                     vpc_prefixes.entry(*vpc_prefix_id).and_modify(|x| {
@@ -242,7 +240,6 @@ pub async fn allocate_instance(
     mut request: InstanceAllocationRequest,
     database: &PgPool,
     hardware_health_reports: HardwareHealthReportsConfig,
-    api: &Api,
 ) -> Result<ManagedHostStateSnapshot, CarbideError> {
     let mut txn = database
         .begin()
@@ -291,7 +288,7 @@ pub async fn allocate_instance(
     }
 
     // Allocate network segment here before validate if vpc_prefix_id is mentioned.
-    allocate_network(&mut request.config.network, &mut txn, api).await?;
+    allocate_network(&mut request.config.network, &mut txn).await?;
 
     // Validate the configuration for the instance
     // Note that this basic validation can not cross-check references

@@ -10,12 +10,10 @@ use sqlx::{Postgres, Transaction};
 
 use crate::{
     CarbideError, CarbideResult,
-    api::Api,
     db::{
         network_prefix::{NetworkPrefix, NewNetworkPrefix},
         network_segment::NewNetworkSegment,
     },
-    handlers::network_segment::{allocate_vlan_id, allocate_vni},
 };
 
 /// Ipv4PrefixAllocator to allocate a prefix of given length from given vpc_prefix field.
@@ -94,14 +92,11 @@ impl Ipv4PrefixAllocator {
     pub async fn allocate_network_segment(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-        api: &Api,
         vpc_id: VpcId,
     ) -> CarbideResult<(NetworkSegmentId, Ipv4Network)> {
         let prefix = self.next_free_prefix(txn).await?;
 
         let name = format!("vpc_prefix_{}", prefix.network());
-        let vlan_id = Some(allocate_vlan_id(api, txn, &name).await?);
-        let vni = Some(allocate_vni(api, txn, &name).await?);
         let segment_id = NetworkSegmentId(uuid::Uuid::new_v4());
 
         let ns = NewNetworkSegment {
@@ -115,8 +110,8 @@ impl Ipv4PrefixAllocator {
                 gateway: Some(prefix.network().into()),
                 num_reserved: 0,
             }],
-            vlan_id,
-            vni,
+            vlan_id: None,
+            vni: None,
             segment_type: crate::db::network_segment::NetworkSegmentType::Tenant,
             can_stretch: Some(false), // All segments allocated here are FNN linknets.
         };
