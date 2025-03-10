@@ -130,32 +130,35 @@ async fn advance_to_machine_validating(
     ))
 }
 
+async fn handle_bom_validation_disabled(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    host_handler_params: &HostHandlerParams,
+    mh_snapshot: &mut ManagedHostStateSnapshot,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    tracing::info!(bom_validation=?host_handler_params.bom_validation,
+        machine_id=%mh_snapshot.host_snapshot.id,
+        assigned_sku_id=%mh_snapshot.host_snapshot.hw_sku.as_deref().unwrap_or_default(),
+        "Skipping SKU Validation due to configuration");
+
+    let health_report = HealthReport::empty(HealthReport::SKU_VALIDATION_SOURCE.to_string());
+
+    db::machine::update_sku_validation_health_report(
+        txn,
+        &mh_snapshot.host_snapshot.id,
+        &health_report,
+    )
+    .await?;
+    advance_to_machine_validating(txn, mh_snapshot, host_handler_params).await
+}
+
 pub(crate) async fn handle_bom_validation_state(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     host_handler_params: &HostHandlerParams,
     mh_snapshot: &mut ManagedHostStateSnapshot,
     bom_validating_state: &BomValidating,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    if !host_handler_params.bom_validation.enabled
-        || (host_handler_params
-            .bom_validation
-            .ignore_unassigned_machines
-            && mh_snapshot.host_snapshot.hw_sku.is_none())
-    {
-        tracing::info!(bom_validation=?host_handler_params.bom_validation,
-            machine_id=%mh_snapshot.host_snapshot.id,
-            assigned_sku_id=%mh_snapshot.host_snapshot.hw_sku.as_deref().unwrap_or_default(),
-            "Skipping SKU Validation due to configuration");
-
-        let health_report = HealthReport::empty(HealthReport::SKU_VALIDATION_SOURCE.to_string());
-
-        db::machine::update_sku_validation_health_report(
-            txn,
-            &mh_snapshot.host_snapshot.id,
-            &health_report,
-        )
-        .await?;
-        return advance_to_machine_validating(txn, mh_snapshot, host_handler_params).await;
+    if !host_handler_params.bom_validation.enabled {
+        return handle_bom_validation_disabled(txn, host_handler_params, mh_snapshot).await;
     }
 
     match bom_validating_state {
@@ -168,6 +171,11 @@ pub(crate) async fn handle_bom_validation_state(
                         .await?;
                     // Since a matchin SKU was found, that verified that its a match so move on to machine validation
                     advance_to_machine_validating(txn, mh_snapshot, host_handler_params).await
+                } else if host_handler_params
+                    .bom_validation
+                    .ignore_unassigned_machines
+                {
+                    handle_bom_validation_disabled(txn, host_handler_params, mh_snapshot).await
                 } else {
                     let mv_context =
                         get_machine_validation_context(mh_snapshot.host_snapshot.current_state());
@@ -293,6 +301,11 @@ pub(crate) async fn handle_bom_validation_state(
         BomValidating::WaitingForSkuAssignment(_) => {
             if mh_snapshot.host_snapshot.hw_sku.is_some() {
                 advance_to_updating_inventory(txn, mh_snapshot).await
+            } else if host_handler_params
+                .bom_validation
+                .ignore_unassigned_machines
+            {
+                handle_bom_validation_disabled(txn, host_handler_params, mh_snapshot).await
             } else {
                 Ok(StateHandlerOutcome::DoNothing)
             }
