@@ -840,7 +840,7 @@ get-crane:
       when: never
     - when: always
 
-proto-lint:
+proto-police:
   stage: .pre
   image:
     name: yoheimuta/protolint
