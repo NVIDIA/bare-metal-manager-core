@@ -721,4 +721,48 @@ pub mod tests {
 
         Ok(())
     }
+
+    #[crate::sqlx_test]
+    async fn test_auto_match_sku_with_ignore(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
+        let env = create_test_env_for_sku(pool.clone(), true).await;
+
+        let (machine_id, _dpu_id) = create_managed_host(&env).await;
+
+        let mut txn = pool.begin().await?;
+        let machine = db::machine::find(
+            &mut txn,
+            ObjectFilter::One(machine_id),
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .pop()
+        .unwrap();
+
+        assert_eq!(machine.current_state(), &ManagedHostState::Ready);
+
+        let expected_sku = crate::db::sku::from_topology(&mut txn, &machine_id).await?;
+        crate::db::sku::create(&mut txn, &expected_sku).await?;
+
+        txn.commit().await?;
+
+        // A new machine with the same hardware is automatically assigned the above
+        // sku and moves on.
+
+        let (machine_id, _dpu_id) = create_managed_host(&env).await;
+
+        let mut txn = pool.begin().await?;
+
+        let machine2 = db::machine::find(
+            &mut txn,
+            ObjectFilter::One(machine_id),
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .pop()
+        .unwrap();
+
+        assert_eq!(machine2.hw_sku, Some(expected_sku.id));
+
+        Ok(())
+    }
 }
