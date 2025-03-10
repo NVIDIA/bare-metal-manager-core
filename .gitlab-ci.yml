@@ -840,6 +840,20 @@ get-crane:
       when: never
     - when: always
 
+proto-lint:
+  stage: .pre
+  image:
+    name: yoheimuta/protolint
+    entrypoint: [""]
+  script:
+    - protolint lint -config_path=.protolint.yaml --reporter ci-glab rpc/proto/
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never  
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - "**/*.proto"
+
 nspect-source-scan-x86_64:
   stage: .pre
   extends: .scan-with-report-no-fail

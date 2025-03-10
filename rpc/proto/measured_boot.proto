@@ -1,10 +1,10 @@
 syntax = "proto3";
 
+package measured_boot;
+
+import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
-import "google/protobuf/duration.proto";
-
-package measured_boot;
 
 ////////////////////////////////////////////////////////////////////////////////
 // RPC messages for Bundles
@@ -28,10 +28,10 @@ package measured_boot;
 //             bundle that is Obsolete, Retired, or Revoked.
 
 message CreateMeasurementBundleRequest {
-    UUID profile_id = 1;
-    optional string name = 2;
-    repeated PcrRegisterValuePb pcr_values = 3;
-    MeasurementBundleStatePb state = 4;
+  UUID profile_id = 1;
+  optional string name = 2;
+  repeated PcrRegisterValuePb pcr_values = 3;
+  MeasurementBundleStatePb state = 4;
 }
 
 // CreateMeasurementBundleResponse contains the resulting
@@ -42,7 +42,7 @@ message CreateMeasurementBundleRequest {
 //             for the purpose of transit.
 
 message CreateMeasurementBundleResponse {
-    MeasurementBundlePb bundle = 1;
+  MeasurementBundlePb bundle = 1;
 }
 
 // DeleteMeasurementBundleRequest allows a caller to delete a
@@ -54,10 +54,10 @@ message CreateMeasurementBundleResponse {
 //      bundle_name: The measurement bundle name to use.
 
 message DeleteMeasurementBundleRequest {
-    oneof selector {
-        UUID bundle_id = 1;
-        string bundle_name = 2;
-    }
+  oneof selector {
+    UUID bundle_id = 1;
+    string bundle_name = 2;
+  }
 }
 
 // DeleteMeasurementBundleResponse contains the complete
@@ -67,7 +67,7 @@ message DeleteMeasurementBundleRequest {
 //         from the database.
 
 message DeleteMeasurementBundleResponse {
-    MeasurementBundlePb bundle = 1;
+  MeasurementBundlePb bundle = 1;
 }
 
 // RenameMeasurementBundleRequest renames a bundle.
@@ -77,11 +77,11 @@ message DeleteMeasurementBundleResponse {
 //      bundle_name: The measurement bundle name to use.
 
 message RenameMeasurementBundleRequest {
-    oneof selector {
-        UUID bundle_id = 1;
-        string bundle_name = 2;
-    }
-    string new_bundle_name = 3;
+  oneof selector {
+    UUID bundle_id = 1;
+    string bundle_name = 2;
+  }
+  string new_bundle_name = 3;
 }
 
 // RenameMeasurementBundleResponse is the result
@@ -92,7 +92,7 @@ message RenameMeasurementBundleRequest {
 //         in the database.
 
 message RenameMeasurementBundleResponse {
-    MeasurementBundlePb bundle = 1;
+  MeasurementBundlePb bundle = 1;
 }
 
 // UpdateMeasurementBundleRequest updates the state of a MeasurementBundle
@@ -108,11 +108,11 @@ message RenameMeasurementBundleResponse {
 //           Revoked).
 
 message UpdateMeasurementBundleRequest {
-    oneof selector {
-        UUID bundle_id = 1;
-        string bundle_name = 2;
-    }
-    MeasurementBundleStatePb state = 3;
+  oneof selector {
+    UUID bundle_id = 1;
+    string bundle_name = 2;
+  }
+  MeasurementBundleStatePb state = 3;
 }
 
 // DeleteMeasurementBundleResponse contains the complete
@@ -122,7 +122,7 @@ message UpdateMeasurementBundleRequest {
 //         in the database.
 
 message UpdateMeasurementBundleResponse {
-    MeasurementBundlePb bundle = 1;
+  MeasurementBundlePb bundle = 1;
 }
 
 // ShowMeasurementBundleRequest lets you show full info about about
@@ -134,10 +134,10 @@ message UpdateMeasurementBundleResponse {
 //
 
 message ShowMeasurementBundleRequest {
-    oneof selector {
-        UUID bundle_id = 1;
-        string bundle_name = 2;
-    }
+  oneof selector {
+    UUID bundle_id = 1;
+    string bundle_name = 2;
+  }
 }
 
 // ShowMeasurementBundleResponse contains the complete
@@ -147,7 +147,7 @@ message ShowMeasurementBundleRequest {
 //         from the database.
 
 message ShowMeasurementBundleResponse {
-    MeasurementBundlePb bundle = 1;
+  MeasurementBundlePb bundle = 1;
 }
 
 // ShowMeasurementBundlesRequest gets + displays all info
@@ -162,7 +162,7 @@ message ShowMeasurementBundlesRequest {
 // bundles: All of the complete MeasurementBundle instances.
 
 message ShowMeasurementBundlesResponse {
-    repeated MeasurementBundlePb bundles = 1;
+  repeated MeasurementBundlePb bundles = 1;
 }
 
 // ListMeasurementBundlesRequest is for getting high
@@ -179,7 +179,7 @@ message ListMeasurementBundlesRequest {
 // bundles: All available MeasurementBundleRecords.
 
 message ListMeasurementBundlesResponse {
-    repeated MeasurementBundleRecordPb bundles = 1;
+  repeated MeasurementBundleRecordPb bundles = 1;
 }
 
 // ListMeasurementBundleMachinesRequest allows a caller to list
@@ -192,10 +192,10 @@ message ListMeasurementBundlesResponse {
 //
 
 message ListMeasurementBundleMachinesRequest {
-    oneof selector {
-        UUID bundle_id = 1;
-        string bundle_name = 2;
-    }
+  oneof selector {
+    UUID bundle_id = 1;
+    string bundle_name = 2;
+  }
 }
 
 // ListMeasurementBundleMachinesResponse returns all of the
@@ -204,7 +204,7 @@ message ListMeasurementBundleMachinesRequest {
 // machine_ids: The list of machine IDs.
 
 message ListMeasurementBundleMachinesResponse {
-    repeated string machine_ids = 1;
+  repeated string machine_ids = 1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -217,7 +217,7 @@ message ListMeasurementBundleMachinesResponse {
 // journal_id: The journal ID to delete.
 
 message DeleteMeasurementJournalRequest {
-    UUID journal_id = 1;
+  UUID journal_id = 1;
 }
 
 // DeleteMeasurementJournalResponse is returned upon a
@@ -227,7 +227,7 @@ message DeleteMeasurementJournalRequest {
 //          from the database.
 
 message DeleteMeasurementJournalResponse {
-    MeasurementJournalPb journal = 1;
+  MeasurementJournalPb journal = 1;
 }
 
 // ShowMeasurementJournalRequest is used to pull down a
@@ -237,9 +237,9 @@ message DeleteMeasurementJournalResponse {
 //      journal_id: The journal ID to use for selecting.
 
 message ShowMeasurementJournalRequest {
-    oneof selector {
-        UUID journal_id = 1;
-    }
+  oneof selector {
+    UUID journal_id = 1;
+  }
 }
 
 // ShowMeasurementJournalResponse contains the
@@ -248,7 +248,7 @@ message ShowMeasurementJournalRequest {
 // journal: The complete MeasurementJournal in the database.
 
 message ShowMeasurementJournalResponse {
-    MeasurementJournalPb journal = 1;
+  MeasurementJournalPb journal = 1;
 }
 
 // ShowMeasurementJournalsRequest is used to get full
@@ -263,7 +263,7 @@ message ShowMeasurementJournalsRequest {
 // journals: A list of all MeasurementJournal models.
 
 message ShowMeasurementJournalsResponse {
-    repeated MeasurementJournalPb journals = 1;
+  repeated MeasurementJournalPb journals = 1;
 }
 
 // ListMeasurementJournalRequest lists all high level
@@ -274,9 +274,9 @@ message ShowMeasurementJournalsResponse {
 //      machine_id: Only lists journals for the given machine ID.
 
 message ListMeasurementJournalRequest {
-    oneof selector {
-        string machine_id = 1; 
-    }
+  oneof selector {
+    string machine_id = 1; 
+  }
 }
 
 // ListMeasurementJournalResponse returns high-level details
@@ -285,7 +285,7 @@ message ListMeasurementJournalRequest {
 // journals: A list of MeasurementJournalRecord instances.
 
 message ListMeasurementJournalResponse {
-    repeated MeasurementJournalRecordPb journals = 1;
+  repeated MeasurementJournalRecordPb journals = 1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -300,8 +300,8 @@ message ListMeasurementJournalResponse {
 //             index + sha256 value).
 
 message AttestCandidateMachineRequest {
-    string machine_id = 1;
-    repeated PcrRegisterValuePb pcr_values = 2;
+  string machine_id = 1;
+  repeated PcrRegisterValuePb pcr_values = 2;
 }
 
 // AttestCandidateMachineResponse returns the measurement report
@@ -311,7 +311,7 @@ message AttestCandidateMachineRequest {
 //         info + received values.
 
 message AttestCandidateMachineResponse {
-    MeasurementReportPb report = 1;
+  MeasurementReportPb report = 1;
 }
 
 // ShowCandidateMachineRequest is used to show info about a
@@ -321,9 +321,9 @@ message AttestCandidateMachineResponse {
 //      machine_id: The machine ID to use.
 
 message ShowCandidateMachineRequest {
-    oneof selector {
-        string machine_id = 1;
-    }
+  oneof selector {
+    string machine_id = 1;
+  }
 }
 
 // ShowCandidateMachineResponse returns the selected CandidateMachine.
@@ -332,7 +332,7 @@ message ShowCandidateMachineRequest {
 //          + attrs) from the database.
 
 message ShowCandidateMachineResponse {
-    CandidateMachinePb machine = 1;
+  CandidateMachinePb machine = 1;
 }
 
 // ShowCandidateMachinesRequest shows all info about all
@@ -348,7 +348,7 @@ message ShowCandidateMachinesRequest {
 // machines: The list of CandidateMachine models.
 
 message ShowCandidateMachinesResponse {
-    repeated CandidateMachinePb machines = 1;
+  repeated CandidateMachinePb machines = 1;
 }
 
 // ListCandidateMachinesRequest lists all high-level details about
@@ -363,7 +363,7 @@ message ListCandidateMachinesRequest {
 // machines: The list of CandidateMachineRecords.
 
 message ListCandidateMachinesResponse {
-    repeated CandidateMachineSummaryPb machines = 1;
+  repeated CandidateMachineSummaryPb machines = 1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -377,8 +377,8 @@ message ListCandidateMachinesResponse {
 // pcr_values: The PCR values to associate with the report.
 
 message CreateMeasurementReportRequest {
-    string machine_id = 1;
-    repeated PcrRegisterValuePb pcr_values = 2;
+  string machine_id = 1;
+  repeated PcrRegisterValuePb pcr_values = 2;
 }
 
 // CreateMeasurementReportResponse returns the fully populated
@@ -388,7 +388,7 @@ message CreateMeasurementReportRequest {
 //         database.
 
 message CreateMeasurementReportResponse {
-    MeasurementReportPb report = 1;
+  MeasurementReportPb report = 1;
 }
 
 // DeleteMeasurementReportRequest is used to delete a
@@ -397,7 +397,7 @@ message CreateMeasurementReportResponse {
 // report_id: The report to delete.
 
 message DeleteMeasurementReportRequest {
-    UUID report_id = 1;
+  UUID report_id = 1;
 }
 
 // DeleteMeasurementReportResponse is returned
@@ -407,7 +407,7 @@ message DeleteMeasurementReportRequest {
 //         from the database.
 
 message DeleteMeasurementReportResponse {
-    MeasurementReportPb report = 1;
+  MeasurementReportPb report = 1;
 }
 
 // PromoteMeasurementReportRequest is used to promote a given
@@ -422,8 +422,8 @@ message DeleteMeasurementReportResponse {
 //                0,1,3-5 will result in 0,1,3,4,5.
 
 message PromoteMeasurementReportRequest {
-    UUID report_id = 1;
-    string pcr_registers = 2;
+  UUID report_id = 1;
+  string pcr_registers = 2;
 }
 
 // PromoteMeasurementReportResponse is returned upon the
@@ -432,7 +432,7 @@ message PromoteMeasurementReportRequest {
 // bundle: The resulting "active" MeasurementBundle model.
 
 message PromoteMeasurementReportResponse {
-    MeasurementBundlePb bundle = 1;
+  MeasurementBundlePb bundle = 1;
 }
 
 // RevokeMeasurementReportRequest is used to promote a given
@@ -447,8 +447,8 @@ message PromoteMeasurementReportResponse {
 //   
 
 message RevokeMeasurementReportRequest {
-    UUID report_id = 1;
-    string pcr_registers = 2;
+  UUID report_id = 1;
+  string pcr_registers = 2;
 }
 
 // RevokeMeasurementReportResponse is returned upon the
@@ -457,7 +457,7 @@ message RevokeMeasurementReportRequest {
 // bundle: The resulting "revoked" MeasurementBundle model.
 
 message RevokeMeasurementReportResponse {
-    MeasurementBundlePb bundle = 1;
+  MeasurementBundlePb bundle = 1;
 }
 
 // ShowMeasurementReportForIdRequest is used to show all details
@@ -466,7 +466,7 @@ message RevokeMeasurementReportResponse {
 // report_id: The report ID.
 
 message ShowMeasurementReportForIdRequest {
-    UUID report_id = 1;
+  UUID report_id = 1;
 }
 
 // ShowMeasurementReportForIdResponse returns the selected report.
@@ -474,7 +474,7 @@ message ShowMeasurementReportForIdRequest {
 // report: The fully populated MeasurementReport model.
 
 message ShowMeasurementReportForIdResponse {
-    MeasurementReportPb report = 1;
+  MeasurementReportPb report = 1;
 }
 
 // ShowMeasurementReportsForMachineRequest is used to show all reports
@@ -483,7 +483,7 @@ message ShowMeasurementReportForIdResponse {
 // machine_id: The machine to get reports for.
 
 message ShowMeasurementReportsForMachineRequest {
-    string machine_id = 1;
+  string machine_id = 1;
 }
 
 // ShowMeasurementReportsForMachineResponse returns the machine reports.
@@ -492,7 +492,7 @@ message ShowMeasurementReportsForMachineRequest {
 //          the requested machine.
 
 message ShowMeasurementReportsForMachineResponse {
-    repeated MeasurementReportPb reports = 1;
+  repeated MeasurementReportPb reports = 1;
 }
 
 // ShowMeasurementReportsRequest is used to get all report
@@ -507,7 +507,7 @@ message ShowMeasurementReportsRequest {
 // reports: The list of MeasurementReport models.
 
 message ShowMeasurementReportsResponse {
-    repeated MeasurementReportPb reports = 1;
+  repeated MeasurementReportPb reports = 1;
 }
 
 // ListMeasurementReportRequest lists all high level report
@@ -518,9 +518,9 @@ message ShowMeasurementReportsResponse {
 //      machine_id: Just return report details for a given machine.
 
 message ListMeasurementReportRequest {
-    oneof selector {
-        string machine_id = 1; 
-    }
+  oneof selector {
+    string machine_id = 1; 
+  }
 }
 
 // ListMeasurementReportResponse returns selected reports.
@@ -528,7 +528,7 @@ message ListMeasurementReportRequest {
 // reports: The MeasurementReportRecord instances (without values).
 
 message ListMeasurementReportResponse {
-    repeated MeasurementReportRecordPb reports = 1;
+  repeated MeasurementReportRecordPb reports = 1;
 }
 
 // MatchMeasurementReportRequest is used to find all reports
@@ -536,7 +536,7 @@ message ListMeasurementReportResponse {
 // the register index + sha256 value).
 
 message MatchMeasurementReportRequest {
-    repeated PcrRegisterValuePb pcr_values = 1;
+  repeated PcrRegisterValuePb pcr_values = 1;
 }
 
 // MatchMeasurementReportResponse returns the MeasurementReport
@@ -545,7 +545,7 @@ message MatchMeasurementReportRequest {
 // reports: The list of fully populated MeasurementReport models.
 
 message MatchMeasurementReportResponse {
-    repeated MeasurementReportRecordPb reports = 1;
+  repeated MeasurementReportRecordPb reports = 1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -567,10 +567,10 @@ message MatchMeasurementReportResponse {
 //              and others.
 
 message CreateMeasurementSystemProfileRequest {
-    optional string name = 1;
-    string vendor = 2;
-    string product = 3;
-    repeated KvPair extra_attrs = 4;
+  optional string name = 1;
+  string vendor = 2;
+  string product = 3;
+  repeated KvPair extra_attrs = 4;
 }
 
 // CreateMeasurementSystemProfileResponse is returned upon the
@@ -580,7 +580,7 @@ message CreateMeasurementSystemProfileRequest {
 //                 model from the database.
 
 message CreateMeasurementSystemProfileResponse {
-    MeasurementSystemProfilePb system_profile = 1;
+  MeasurementSystemProfilePb system_profile = 1;
 }
 
 // DeleteMeasurementSystemProfileRequest is used to delete a
@@ -591,10 +591,10 @@ message CreateMeasurementSystemProfileResponse {
 //      profile_name: The profile name to use.
 
 message DeleteMeasurementSystemProfileRequest {
-    oneof selector {
-        UUID profile_id = 1;
-        string profile_name = 2;
-    }
+  oneof selector {
+    UUID profile_id = 1;
+    string profile_name = 2;
+  }
 }
 
 // DeleteMeasurementSystemProfileResponse is returned upon the
@@ -604,7 +604,7 @@ message DeleteMeasurementSystemProfileRequest {
 //                 model that was deleted from the database.
 
 message DeleteMeasurementSystemProfileResponse {
-    MeasurementSystemProfilePb system_profile = 1;
+  MeasurementSystemProfilePb system_profile = 1;
 }
 
 // RenameMeasurementSystemProfileRequest renames a profile.
@@ -614,11 +614,11 @@ message DeleteMeasurementSystemProfileResponse {
 //      profile_name: The measurement profile name to use.
 
 message RenameMeasurementSystemProfileRequest {
-    oneof selector {
-        UUID profile_id = 1;
-        string profile_name = 2;
-    }
-    string new_profile_name = 3;
+  oneof selector {
+    UUID profile_id = 1;
+    string profile_name = 2;
+  }
+  string new_profile_name = 3;
 }
 
 // RenameMeasurementSystemProfileResponse is the result
@@ -629,7 +629,7 @@ message RenameMeasurementSystemProfileRequest {
 //          in the database.
 
 message RenameMeasurementSystemProfileResponse {
-    MeasurementSystemProfilePb profile = 1;
+  MeasurementSystemProfilePb profile = 1;
 }
 
 // ShowMeasurementSystemProfileRequest shows all info about
@@ -641,10 +641,10 @@ message RenameMeasurementSystemProfileResponse {
 //      profile_name: The profile name to use.
 
 message ShowMeasurementSystemProfileRequest {
-    oneof selector {
-        UUID profile_id = 1;
-        string profile_name = 2;
-    }
+  oneof selector {
+    UUID profile_id = 1;
+    string profile_name = 2;
+  }
 }
 
 // ShowMeasurementSystemProfileResponse returns a complete
@@ -654,7 +654,7 @@ message ShowMeasurementSystemProfileRequest {
 //                 model from the info + attrs tables in the database.
 
 message ShowMeasurementSystemProfileResponse {
-    MeasurementSystemProfilePb system_profile = 1;
+  MeasurementSystemProfilePb system_profile = 1;
 }
 
 // ShowMeasurementSystemProfilesRequest is used to get
@@ -671,7 +671,7 @@ message ShowMeasurementSystemProfilesRequest {
 // stored in the database.
 
 message ShowMeasurementSystemProfilesResponse {
-    repeated MeasurementSystemProfilePb system_profiles = 1;
+  repeated MeasurementSystemProfilePb system_profiles = 1;
 }
 
 // ListMeasurementSystemProfilesRequest returns high-level info
@@ -687,7 +687,7 @@ message ListMeasurementSystemProfilesRequest {
 //                  instances, without attributes.
 
 message ListMeasurementSystemProfilesResponse {
-    repeated MeasurementSystemProfileRecordPb system_profiles = 1;
+  repeated MeasurementSystemProfileRecordPb system_profiles = 1;
 }
 
 // ListMeasurementSystemProfileBundlesRequest is used to
@@ -699,10 +699,10 @@ message ListMeasurementSystemProfilesResponse {
 //      profile_name: Select by profile name.
 
 message ListMeasurementSystemProfileBundlesRequest {
-    oneof selector {
-        UUID profile_id = 1;
-        string profile_name = 2;
-    }
+  oneof selector {
+    UUID profile_id = 1;
+    string profile_name = 2;
+  }
 }
 
 // ListMeasurementSystemProfileBundlesResponse returns a list of
@@ -711,7 +711,7 @@ message ListMeasurementSystemProfileBundlesRequest {
 // bundle_ids: A list of MeasurementBundleIds.
 
 message ListMeasurementSystemProfileBundlesResponse {
-    repeated UUID bundle_ids = 1;
+  repeated UUID bundle_ids = 1;
 }
 
 // ListMeasurementSystemProfileMachinesRequest is used to
@@ -723,10 +723,10 @@ message ListMeasurementSystemProfileBundlesResponse {
 //   
 
 message ListMeasurementSystemProfileMachinesRequest {
-    oneof selector {
-        UUID profile_id = 1;
-        string profile_name = 2;
-    }
+  oneof selector {
+    UUID profile_id = 1;
+    string profile_name = 2;
+  }
 }
 
 // ListMeasurementSystemProfileMachinesResponse returns a list of
@@ -735,7 +735,7 @@ message ListMeasurementSystemProfileMachinesRequest {
 // machine_ids: A list of CandidateMachineId (represented as strings).
 
 message ListMeasurementSystemProfileMachinesResponse {
-    repeated string machine_ids = 1;
+  repeated string machine_ids = 1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -746,7 +746,7 @@ message ListMeasurementSystemProfileMachinesResponse {
 // model contains bundles (info + values) and profiles (info + attributes).
 
 message ImportSiteMeasurementsRequest {
-    SiteModelPb model = 1;
+  SiteModelPb model = 1;
 }
 
 // ImportSiteMeasurementsResponse returns if the import was successful
@@ -755,7 +755,7 @@ message ImportSiteMeasurementsRequest {
 // result: Was the import success or fail?
 
 message ImportSiteMeasurementsResponse {
-    ImportSiteResult result = 1;
+  ImportSiteResult result = 1;
 }
 
 // ExportSiteMeasurementsRequest is used to dump a SiteModel
@@ -770,7 +770,7 @@ message ExportSiteMeasurementsRequest {
 // bundle data.
 
 message ExportSiteMeasurementsResponse {
-    SiteModelPb model = 1;
+  SiteModelPb model = 1;
 }
 
 // AddMeasurementTrustedMachineRequest is used to add a
@@ -790,10 +790,10 @@ message ExportSiteMeasurementsResponse {
 // comments:      Optional comments for the approval.
 
 message AddMeasurementTrustedMachineRequest {
-    string machine_id = 1;
-    MeasurementApprovedTypePb approval_type = 2;
-    string pcr_registers = 3;
-    string comments = 4;
+  string machine_id = 1;
+  MeasurementApprovedTypePb approval_type = 2;
+  string pcr_registers = 3;
+  string comments = 4;
 }
 
 // AddMeasurementTrustedMachineResponse is returned upon a
@@ -803,7 +803,7 @@ message AddMeasurementTrustedMachineRequest {
 //                  the database.
 
 message AddMeasurementTrustedMachineResponse {
-    MeasurementApprovedMachineRecordPb approval_record = 1;
+  MeasurementApprovedMachineRecordPb approval_record = 1;
 }
 
 // RemoveMeasurementTrustedMachineRequest is used to remove
@@ -814,10 +814,10 @@ message AddMeasurementTrustedMachineResponse {
 //      machine_id: Remove by machine ID.
 
 message RemoveMeasurementTrustedMachineRequest {
-    oneof selector {
-        UUID approval_id = 1;
-        string machine_id = 2;
-    }
+  oneof selector {
+    UUID approval_id = 1;
+    string machine_id = 2;
+  }
 }
 
 // RemoveMeasurementTrustedMachineResponse is returned upon the
@@ -826,7 +826,7 @@ message RemoveMeasurementTrustedMachineRequest {
 // approval_record: The full approval record that was deleted.
 
 message RemoveMeasurementTrustedMachineResponse {
-    MeasurementApprovedMachineRecordPb approval_record = 1;
+  MeasurementApprovedMachineRecordPb approval_record = 1;
 }
 
 // AddMeasurementTrustedProfileRequest is used to add a
@@ -847,10 +847,10 @@ message RemoveMeasurementTrustedMachineResponse {
 // comments:      Optional comments for the approval.
 
 message AddMeasurementTrustedProfileRequest {
-    UUID profile_id = 1;
-    MeasurementApprovedTypePb approval_type = 2;
-    optional string pcr_registers = 3;
-    optional string comments = 4;
+  UUID profile_id = 1;
+  MeasurementApprovedTypePb approval_type = 2;
+  optional string pcr_registers = 3;
+  optional string comments = 4;
 }
 
 // AddMeasurementTrustedProfileResponse is returned upon a
@@ -860,7 +860,7 @@ message AddMeasurementTrustedProfileRequest {
 //                  the database.
 
 message AddMeasurementTrustedProfileResponse {
-    MeasurementApprovedProfileRecordPb approval_record = 1;
+  MeasurementApprovedProfileRecordPb approval_record = 1;
 }
 
 // RemoveMeasurementTrustedProfileRequest is used to remove
@@ -871,10 +871,10 @@ message AddMeasurementTrustedProfileResponse {
 //      profile_id: Remove by profile ID.
 
 message RemoveMeasurementTrustedProfileRequest {
-    oneof selector {
-        UUID approval_id = 1;
-        UUID profile_id = 2;
-    }
+  oneof selector {
+    UUID approval_id = 1;
+    UUID profile_id = 2;
+  }
 }
 
 // RemoveMeasurementTrustedProfileResponse is returned upon the
@@ -883,7 +883,7 @@ message RemoveMeasurementTrustedProfileRequest {
 // approval_record: The full approval record that was deleted.
 
 message RemoveMeasurementTrustedProfileResponse {
-    MeasurementApprovedProfileRecordPb approval_record = 1;
+  MeasurementApprovedProfileRecordPb approval_record = 1;
 }
 
 // ListMeasurementTrustedMachinesRequest lists all trusted
@@ -899,7 +899,7 @@ message ListMeasurementTrustedMachinesRequest {
 // approval_records: A list of all trusted machine approval records.
 
 message ListMeasurementTrustedMachinesResponse {
-    repeated MeasurementApprovedMachineRecordPb approval_records = 1;
+  repeated MeasurementApprovedMachineRecordPb approval_records = 1;
 }
 
 // ListMeasurementTrustedProfilesRequest lists all trusted
@@ -915,15 +915,15 @@ message ListMeasurementTrustedProfilesRequest {
 // approval_records: A list of all trusted profile approval records.
 
 message ListMeasurementTrustedProfilesResponse {
-    repeated MeasurementApprovedProfileRecordPb approval_records = 1;
+  repeated MeasurementApprovedProfileRecordPb approval_records = 1;
 }
 
 // ImportSiteResult is used for returning back the status
 // of a site import request.
 
 enum ImportSiteResult {
-    Success = 0;
-    Failed = 1;
+  Success = 0;
+  Failed = 1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -939,107 +939,107 @@ enum ImportSiteResult {
 // Bundles
 
 message MeasurementBundlePb {
-    UUID bundle_id = 1;
-    UUID profile_id = 2;
-    string name = 3;
-    MeasurementBundleStatePb state = 4;
-    repeated MeasurementBundleValueRecordPb values = 5;
-    google.protobuf.Timestamp ts = 6;
+  UUID bundle_id = 1;
+  UUID profile_id = 2;
+  string name = 3;
+  MeasurementBundleStatePb state = 4;
+  repeated MeasurementBundleValueRecordPb values = 5;
+  google.protobuf.Timestamp ts = 6;
 }
 
 message MeasurementBundleValueRecordPb {
-    UUID value_id = 1;
-    UUID bundle_id = 2;
-    int32 pcr_register = 3;
-    string sha256 = 4;
-    google.protobuf.Timestamp ts = 5;
+  UUID value_id = 1;
+  UUID bundle_id = 2;
+  int32 pcr_register = 3;
+  string sha256 = 4;
+  google.protobuf.Timestamp ts = 5;
 }
 
 enum MeasurementBundleStatePb {
-    Pending = 0;
-    Active = 1;
-    Obsolete = 2;
-    Retired = 3;
-    Revoked = 4;
+  Pending = 0;
+  Active = 1;
+  Obsolete = 2;
+  Retired = 3;
+  Revoked = 4;
 }
 
 message MeasurementBundleRecordPb {
-    UUID bundle_id = 1;
-    UUID profile_id = 2;
-    string name = 3;
-    MeasurementBundleStatePb state = 4;
-    google.protobuf.Timestamp ts = 5;
+  UUID bundle_id = 1;
+  UUID profile_id = 2;
+  string name = 3;
+  MeasurementBundleStatePb state = 4;
+  google.protobuf.Timestamp ts = 5;
 }
 
 ////////////////////////////////////////
 // Journals
 
 message MeasurementJournalPb {
-    UUID journal_id = 1;
-    string machine_id = 2;
-    UUID report_id = 3;
-    UUID profile_id = 4;
-    UUID bundle_id = 5;
-    MeasurementMachineStatePb state = 6;
-    google.protobuf.Timestamp ts = 7;
+  UUID journal_id = 1;
+  string machine_id = 2;
+  UUID report_id = 3;
+  UUID profile_id = 4;
+  UUID bundle_id = 5;
+  MeasurementMachineStatePb state = 6;
+  google.protobuf.Timestamp ts = 7;
 }
 
 message MeasurementJournalRecordPb {
-    UUID journal_id = 1;
-    string machine_id = 2;
-    UUID report_id = 3;
-    UUID profile_id = 4;
-    UUID bundle_id = 5;
-    MeasurementMachineStatePb state = 6;
-    google.protobuf.Timestamp ts = 7;
+  UUID journal_id = 1;
+  string machine_id = 2;
+  UUID report_id = 3;
+  UUID profile_id = 4;
+  UUID bundle_id = 5;
+  MeasurementMachineStatePb state = 6;
+  google.protobuf.Timestamp ts = 7;
 }
 
 ////////////////////////////////////////
 // Reports
 
 message MeasurementReportPb {
-    UUID report_id = 1;
-    string machine_id = 2;
-    repeated MeasurementReportValueRecordPb values = 3;
-    google.protobuf.Timestamp ts = 4;
+  UUID report_id = 1;
+  string machine_id = 2;
+  repeated MeasurementReportValueRecordPb values = 3;
+  google.protobuf.Timestamp ts = 4;
 }
 
 message MeasurementReportValueRecordPb {
-    UUID value_id = 1;
-    UUID report_id = 2;
-    int32 pcr_register = 3;
-    string sha256 = 4;
-    google.protobuf.Timestamp ts = 5;
+  UUID value_id = 1;
+  UUID report_id = 2;
+  int32 pcr_register = 3;
+  string sha256 = 4;
+  google.protobuf.Timestamp ts = 5;
 }
 
 message MeasurementReportRecordPb {
-    UUID report_id = 1;
-    string machine_id = 2;
-    google.protobuf.Timestamp ts = 3;
+  UUID report_id = 1;
+  string machine_id = 2;
+  google.protobuf.Timestamp ts = 3;
 }
 
 ////////////////////////////////////////
 // System Profiles
 
 message MeasurementSystemProfilePb {
-    UUID profile_id = 1;
-    string name = 2;
-    google.protobuf.Timestamp ts = 3;
-    repeated MeasurementSystemProfileAttrRecordPb attrs = 4;
+  UUID profile_id = 1;
+  string name = 2;
+  google.protobuf.Timestamp ts = 3;
+  repeated MeasurementSystemProfileAttrRecordPb attrs = 4;
 }
 
 message MeasurementSystemProfileRecordPb {
-    UUID profile_id = 1;
-    string name = 2;
-    google.protobuf.Timestamp ts = 3;
+  UUID profile_id = 1;
+  string name = 2;
+  google.protobuf.Timestamp ts = 3;
 }
 
 message MeasurementSystemProfileAttrRecordPb {
-    UUID attribute_id = 1;
-    UUID profile_id = 2;
-    string key = 3;
-    string value = 4;
-    google.protobuf.Timestamp ts = 5;
+  UUID attribute_id = 1;
+  UUID profile_id = 2;
+  string key = 3;
+  string value = 4;
+  google.protobuf.Timestamp ts = 5;
 }
 
 ////////////////////////////////////////
@@ -1048,59 +1048,59 @@ message MeasurementSystemProfileAttrRecordPb {
 // CandidateMachinePb is bound to the CandidateMachine model
 // in model/machine.rs.
 message CandidateMachinePb {
-    string machine_id = 1;
-    map<string, string> attrs = 2;
-    MeasurementMachineStatePb state = 3;
-    google.protobuf.Timestamp created_ts = 4;
-    google.protobuf.Timestamp updated_ts = 5;
-    MeasurementJournalPb journal = 6;
+  string machine_id = 1;
+  map<string, string> attrs = 2;
+  MeasurementMachineStatePb state = 3;
+  google.protobuf.Timestamp created_ts = 4;
+  google.protobuf.Timestamp updated_ts = 5;
+  MeasurementJournalPb journal = 6;
 }
 
 message CandidateMachineSummaryPb {
-    string machine_id = 1;
-    google.protobuf.Timestamp ts = 2;
+  string machine_id = 1;
+  google.protobuf.Timestamp ts = 2;
 }
 
 message SiteModelPb {
-    repeated MeasurementSystemProfileRecordPb measurement_system_profiles = 1;
-    repeated MeasurementSystemProfileAttrRecordPb measurement_system_profiles_attrs = 2;
-    repeated MeasurementBundleRecordPb measurement_bundles = 3;
-    repeated MeasurementBundleValueRecordPb measurement_bundles_values = 4;
+  repeated MeasurementSystemProfileRecordPb measurement_system_profiles = 1;
+  repeated MeasurementSystemProfileAttrRecordPb measurement_system_profiles_attrs = 2;
+  repeated MeasurementBundleRecordPb measurement_bundles = 3;
+  repeated MeasurementBundleValueRecordPb measurement_bundles_values = 4;
 }
 
 message MeasurementApprovedMachineRecordPb {
-    UUID approval_id = 1;
-    string machine_id = 2;
-    MeasurementApprovedTypePb approval_type = 3;
-    string pcr_registers = 4;
-    string comments = 5;
-    google.protobuf.Timestamp ts = 6;
+  UUID approval_id = 1;
+  string machine_id = 2;
+  MeasurementApprovedTypePb approval_type = 3;
+  string pcr_registers = 4;
+  string comments = 5;
+  google.protobuf.Timestamp ts = 6;
 }
 
 message MeasurementApprovedProfileRecordPb {
-    UUID approval_id = 1;
-    UUID profile_id = 2;
-    MeasurementApprovedTypePb approval_type = 3;
-    string pcr_registers = 4;
-    string comments = 5;
-    google.protobuf.Timestamp ts = 6;
+  UUID approval_id = 1;
+  UUID profile_id = 2;
+  MeasurementApprovedTypePb approval_type = 3;
+  string pcr_registers = 4;
+  string comments = 5;
+  google.protobuf.Timestamp ts = 6;
 }
 
 enum MeasurementApprovedTypePb {
-    Oneshot = 0;
-    Persist = 1;
+  Oneshot = 0;
+  Persist = 1;
 }
 
 message PcrRegisterValuePb {
-    int32 pcr_register = 1;
-    string sha256 = 2;
+  int32 pcr_register = 1;
+  string sha256 = 2;
 }
 
 enum MeasurementMachineStatePb {
-    Discovered = 0;
-    PendingBundle = 1;
-    Measured = 2;
-    MeasuringFailed = 3;
+  Discovered = 0;
+  PendingBundle = 1;
+  Measured = 2;
+  MeasuringFailed = 3;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1111,6 +1111,6 @@ message UUID {
 }
 
 message KvPair {
-    string key = 1;
-    string value = 2;
+  string key = 1;
+  string value = 2;
 }
