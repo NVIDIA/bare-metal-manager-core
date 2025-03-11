@@ -5,11 +5,13 @@ use figment::providers::{Format, Toml};
 use forge_tls::client_config::{
     get_client_cert_info, get_config_from_file, get_forge_root_ca_path, get_proxy_info,
 };
+use machine_a_tron::api_client::ApiClient;
 use machine_a_tron::{BmcMockRegistry, BmcRegistrationMode, MachineATron};
 use machine_a_tron::{
     DhcpRelayService, MachineATronArgs, MachineATronConfig, MachineATronContext, Tui, TuiHostLogs,
-    UiEvent, api_client::ApiClient, api_throttler,
+    UiEvent, api_throttler,
 };
+use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use std::collections::HashMap;
 use std::error::Error;
@@ -101,18 +103,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         BmcRegistrationMode::None(app_config.bmc_mock_port)
     };
 
+    let api_config = ApiConfig::new(&app_config.carbide_api_url, &forge_client_config);
+
+    let forge_api_client = ForgeApiClient::new(&api_config);
+
     let api_throttler = api_throttler::run(
         tokio::time::interval(Duration::from_secs(2)),
-        app_config.carbide_api_url.clone(),
-        forge_client_config.clone(),
+        forge_api_client.clone().into(),
     );
 
-    let desired_firmware = ApiClient::from(ApiConfig::new(
-        &app_config.carbide_api_url,
-        &forge_client_config,
-    ))
-    .get_desired_firmware()
-    .await?;
+    let desired_firmware = ApiClient::from(forge_api_client.clone())
+        .get_desired_firmware()
+        .await?;
 
     tracing::info!(
         "Got desired firmware versions from the server: {:?}",
@@ -121,6 +123,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let bmc_mock_port = app_config.bmc_mock_port;
     let tui_enabled = app_config.tui_enabled;
+
     let app_context = Arc::new(MachineATronContext {
         app_config,
         forge_client_config,
@@ -130,6 +133,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         bmc_registration_mode,
         api_throttler,
         desired_firmware_versions: desired_firmware,
+        forge_api_client,
     });
 
     let (mut dhcp_client, mut dhcp_service) = DhcpRelayService::new(app_context.clone());

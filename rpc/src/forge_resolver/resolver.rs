@@ -1,10 +1,9 @@
 use crate::forge_resolver::read_resolv_conf;
-use eyre::Report;
 use hickory_resolver::Name;
 use hickory_resolver::config::{NameServerConfigGroup, ResolverOpts};
 use std::io;
 use std::net::IpAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 const DEFAULT_PORT: u16 = 53;
@@ -22,8 +21,24 @@ pub struct ForgeResolveConf {
     parsed_configuration: Option<resolv_conf::Config>,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum ResolverError {
+    #[error("Could not read resolv.conf at {path}: {error}")]
+    CouldNotReadResolvConf { path: PathBuf, error: io::Error },
+    #[error("Could not parse resolv.conf at {path}: {error}")]
+    CouldNotParseResolvConf {
+        path: PathBuf,
+        error: resolv_conf::ParseError,
+    },
+    #[error("Error resolving host {string}: {error}")]
+    InvalidHostString {
+        string: String,
+        error: hickory_resolver::proto::error::ProtoError,
+    },
+}
+
 impl ForgeResolveConf {
-    pub fn new(path: &Path) -> Result<Self, Report> {
+    pub fn new(path: &Path) -> Result<Self, ResolverError> {
         let resolv_conf_file = Path::new(&path);
         let parsed_data = read_resolv_conf(resolv_conf_file)?;
 
@@ -32,7 +47,7 @@ impl ForgeResolveConf {
         })
     }
 
-    pub fn with_system_resolv_conf() -> Result<Self, Report> {
+    pub fn with_system_resolv_conf() -> Result<Self, ResolverError> {
         let resolv_conf_file = Path::new(RESOLV_CONF_PATH);
         let parsed_data = read_resolv_conf(resolv_conf_file)?;
 
@@ -59,11 +74,16 @@ impl ForgeResolverConfig {
 
 pub fn into_forge_resolver_config(
     parsed_config: resolv_conf::Config,
-) -> Result<(ForgeResolverConfig, ResolverOpts), Report> {
+) -> Result<(ForgeResolverConfig, ResolverOpts), ResolverError> {
     let mut frc = ForgeResolverConfig::new();
 
     if let Some(domain) = parsed_config.get_domain() {
-        frc.domain = Some(Name::from_str(domain.as_str())?);
+        frc.domain = Some(Name::from_str(domain.as_str()).map_err(|error| {
+            ResolverError::InvalidHostString {
+                string: domain.to_string(),
+                error,
+            }
+        })?);
     } else {
         frc.domain = None
     }
@@ -87,11 +107,11 @@ pub fn into_forge_resolver_config(
         }
 
         frc.search_domain
-            .push(Name::from_str_relaxed(search_domain).map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("Error parsing resolv.conf: {e}"),
-                )
+            .push(Name::from_str_relaxed(search_domain).map_err(|error| {
+                ResolverError::InvalidHostString {
+                    string: search_domain.to_string(),
+                    error,
+                }
             })?);
     }
 

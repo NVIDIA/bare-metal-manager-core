@@ -59,7 +59,9 @@ pub mod errors;
 pub mod forge_tls_client;
 pub mod protos;
 
+pub mod forge_api_client;
 pub mod forge_resolver;
+
 pub const REFLECTION_API_SERVICE_DESCRIPTOR: &[u8] = tonic::include_file_descriptor_set!("forge");
 pub const MAX_ERR_MSG_SIZE: i32 = 1500;
 

@@ -34,7 +34,7 @@ pub async fn certificate_loop() {
             .metrics
             .clone();
         if let Some(metrics) = metrics {
-            if let Some(client_expiry) = metrics.forge_client_config.client_cert_expiry().await {
+            if let Some(client_expiry) = metrics.forge_client_config.client_cert_expiry() {
                 metrics
                     .certificate_expiration_value
                     .store(client_expiry, Ordering::SeqCst);

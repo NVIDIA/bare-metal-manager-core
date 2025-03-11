@@ -5,7 +5,8 @@ use axum::Router;
 use clap::Parser;
 use duration_str::deserialize_duration;
 use rpc::forge::DesiredFirmwareVersionEntry;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use rpc::forge_api_client::ForgeApiClient;
+use rpc::forge_tls_client::ForgeClientConfig;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
@@ -233,11 +234,12 @@ pub struct MachineATronContext {
     /// These are the firmware versions the server wants us to be on. If not configured for other
     /// firmware, DPU's can mock that they already have this installed.
     pub desired_firmware_versions: Vec<DesiredFirmwareVersionEntry>,
+    pub forge_api_client: ForgeApiClient,
 }
 
 impl MachineATronContext {
     pub fn api_client(&self) -> ApiClient {
-        ApiConfig::new(&self.app_config.carbide_api_url, &self.forge_client_config).into()
+        self.forge_api_client.clone().into()
     }
 }
 

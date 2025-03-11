@@ -10,14 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::env;
-use std::fs;
-use std::path::PathBuf;
-
 use crate::tests::common;
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::ForgeClientConfig;
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
+use std::env;
+use std::fs;
+use std::path::PathBuf;
 
 const ROOT_CERT_PATH: &str = "dev/certs/forge_developer_local_only_root_cert_pem";
 
@@ -34,10 +34,14 @@ async fn test_upgrade_check() -> eyre::Result<()> {
 
     let marker = tempfile::NamedTempFile::new()?;
 
-    let app = axum::Router::new().route("/up", get(handle_up)).route(
-        "/forge.Forge/DpuAgentUpgradeCheck",
-        post(dpu_agent_upgrade_check),
-    );
+    let app = axum::Router::new()
+        .route("/up", get(handle_up))
+        .route(
+            "/forge.Forge/DpuAgentUpgradeCheck",
+            post(dpu_agent_upgrade_check),
+        )
+        // ForgeApiClient needs a working Version route for connection retrying
+        .route("/forge.Forge/Version", post(handle_version));
     let (addr, join_handle) = common::run_grpc_server(app).await?;
 
     let client_config =
@@ -67,7 +71,7 @@ async fn test_upgrade_check() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn dpu_agent_upgrade_check() -> impl axum::response::IntoResponse {
+async fn dpu_agent_upgrade_check() -> impl IntoResponse {
     common::respond(rpc::DpuAgentUpgradeCheckResponse {
         should_upgrade: true,
         package_version: "2024.05-rc3-0".to_string(),
@@ -78,4 +82,7 @@ async fn dpu_agent_upgrade_check() -> impl axum::response::IntoResponse {
 /// Health check. When this responds we know the mock server is ready.
 async fn handle_up() -> &'static str {
     "OK"
+}
+async fn handle_version() -> impl IntoResponse {
+    common::respond(rpc::BuildInfo::default())
 }

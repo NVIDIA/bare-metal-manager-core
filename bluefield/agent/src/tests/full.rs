@@ -189,6 +189,8 @@ async fn run_common_parts(virtualization_type: VpcVirtualizationType) -> eyre::R
             "/forge.Forge/GetDpuInfoList",
             post(handle_get_dpu_info_list),
         )
+        // ForgeApiClient needs a working Version route for connection retrying
+        .route("/forge.Forge/Version", post(handle_version))
         .fallback(handler)
         .with_state(state.clone());
     let (addr, join_handle) = common::run_grpc_server(app).await?;
@@ -268,6 +270,10 @@ async fn handle_discover(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl
         machine_certificate: None,
         attest_key_challenge: None,
     })
+}
+
+async fn handle_version() -> impl IntoResponse {
+    common::respond(rpc::forge::BuildInfo::default())
 }
 
 async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl IntoResponse {
