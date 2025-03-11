@@ -1443,12 +1443,36 @@ pub async fn update_dpu_reprovision_start_time(
     Ok(())
 }
 
+pub async fn update_host_reprovision_start_time(
+    machine_id: &MachineId,
+    txn: &mut sqlx::Transaction<'_, Postgres>,
+) -> Result<(), DatabaseError> {
+    let current_time = chrono::Utc::now();
+    let query = r#"UPDATE machines
+                        SET host_reprovisioning_requested=
+                                    jsonb_set(host_reprovisioning_requested,
+                                                '{started_at}', $2, true)
+                       WHERE id=$1 RETURNING id"#;
+    let _id = sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id.to_string())
+        .bind(sqlx::types::Json(current_time))
+        .fetch_one(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+    Ok(())
+}
+
 pub async fn trigger_host_reprovisioning_request(
     txn: &mut sqlx::Transaction<'_, Postgres>,
+    initiator: &str,
     machine_id: &MachineId,
 ) -> Result<(), DatabaseError> {
     let req = HostReprovisionRequest {
         requested_at: chrono::Utc::now(),
+        started_at: None,
+        initiator: initiator.to_string(),
+        user_approval_received: false,
     };
 
     let query = "UPDATE machines SET host_reprovisioning_requested=$2 WHERE id=$1 RETURNING id";
@@ -1527,6 +1551,25 @@ pub async fn approve_dpu_reprovision_request(
     Ok(())
 }
 
+pub async fn approve_host_reprovision_request(
+    machine_id: &MachineId,
+    txn: &mut sqlx::Transaction<'_, Postgres>,
+) -> Result<(), DatabaseError> {
+    let query = r#"UPDATE machines
+                        SET host_reprovisioning_requested=
+                                    jsonb_set(host_reprovisioning_requested,
+                                                '{user_approval_received}', $2, true)
+                       WHERE id=$1 RETURNING id"#;
+    let _id = sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id.to_string())
+        .bind(sqlx::types::Json(true))
+        .fetch_one(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+    Ok(())
+}
+
 /// This will reset the dpu_reprov request.
 pub async fn restart_dpu_reprovisioning(
     txn: &mut sqlx::Transaction<'_, Postgres>,
@@ -1587,6 +1630,21 @@ pub async fn list_machines_requested_for_reprovisioning(
     lazy_static! {
         static ref query: String = format!(
             "{} WHERE m.reprovisioning_requested IS NOT NULL",
+            JSON_MACHINE_SNAPSHOT_QUERY.deref()
+        );
+    }
+    sqlx::query_as(&query)
+        .fetch_all(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
+}
+
+pub async fn list_machines_requested_for_host_reprovisioning(
+    txn: &mut sqlx::Transaction<'_, Postgres>,
+) -> Result<Vec<Machine>, DatabaseError> {
+    lazy_static! {
+        static ref query: String = format!(
+            "{} WHERE m.host_reprovisioning_requested IS NOT NULL",
             JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }

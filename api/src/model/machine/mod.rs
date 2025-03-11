@@ -1515,6 +1515,9 @@ pub enum InstanceState {
         details: FailureDetails,
         machine_id: MachineId,
     },
+    HostReprovision {
+        reprovision_state: HostReprovisionState,
+    },
 }
 
 /// Struct to store information if Reprovision is requested.
@@ -1535,6 +1538,9 @@ pub struct ReprovisionRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostReprovisionRequest {
     pub requested_at: DateTime<Utc>,
+    pub initiator: String,
+    pub started_at: Option<DateTime<Utc>>,
+    pub user_approval_received: bool,
 }
 
 /// Should a forge-dpu-agent upgrade itself?
@@ -1860,6 +1866,7 @@ pub trait NextReprovisionState {
         &self,
         current_state: &ManagedHostState,
         dpu_id: &MachineId,
+        host_snapshot: &Machine,
     ) -> Result<ManagedHostState, StateHandlerError>;
 
     fn next_state_with_all_dpus_updated(
@@ -1940,6 +1947,7 @@ impl NextReprovisionState for MachineNextStateResolver {
         &self,
         current_state: &ManagedHostState,
         dpu_id: &MachineId,
+        _host_snapshot: &Machine,
     ) -> Result<ManagedHostState, StateHandlerError> {
         let reprovision_state = current_state
             .as_reprovision_state(dpu_id)
@@ -1964,15 +1972,26 @@ impl NextReprovisionState for InstanceNextStateResolver {
         &self,
         current_state: &ManagedHostState,
         dpu_id: &MachineId,
+        host_snapshot: &Machine,
     ) -> Result<ManagedHostState, StateHandlerError> {
         let reprovision_state = current_state
             .as_reprovision_state(dpu_id)
             .ok_or_else(|| StateHandlerError::MissingDpuFromState(*dpu_id))?;
 
         match reprovision_state {
-            ReprovisionState::RebootHost => Ok(ManagedHostState::Assigned {
-                instance_state: InstanceState::Ready,
-            }),
+            ReprovisionState::RebootHost => {
+                if host_snapshot.host_reprovision_requested.is_some() {
+                    Ok(ManagedHostState::Assigned {
+                        instance_state: InstanceState::HostReprovision {
+                            reprovision_state: HostReprovisionState::CheckingFirmware,
+                        },
+                    })
+                } else {
+                    Ok(ManagedHostState::Assigned {
+                        instance_state: InstanceState::Ready,
+                    })
+                }
+            }
             _ => Err(StateHandlerError::InvalidState(format!(
                 "Unhandled {} state for Instance handling.",
                 reprovision_state

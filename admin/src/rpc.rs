@@ -933,6 +933,46 @@ pub async fn list_dpu_pending_for_reprovisioning(
     .await
 }
 
+pub async fn trigger_host_reprovisioning(
+    id: String,
+    mode: ::rpc::forge::host_reprovisioning_request::Mode,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::HostReprovisioningRequest {
+            machine_id: Some(::rpc::common::MachineId { id }),
+            mode: mode as i32,
+            initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+        });
+        client
+            .trigger_host_reprovisioning(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
+    })
+    .await?;
+
+    Ok(())
+}
+
+pub async fn list_hosts_pending_for_reprovisioning(
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<rpc::HostReprovisioningListResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::HostReprovisioningListRequest {});
+        let data = client
+            .list_hosts_waiting_for_reprovisioning(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(data)
+    })
+    .await
+}
+
 pub async fn get_boot_override(
     api_config: &ApiConfig<'_>,
     machine_interface_id: ::rpc::common::Uuid,

@@ -358,6 +358,43 @@ pub enum HostAction {
     #[clap(about = "Generates a string that can be a site-default host UEFI password in Vault")]
     /// - the generated string will meet the uefi password requirements of all vendors
     GenerateHostUefiPassword,
+    #[clap(subcommand, about = "Host reprovisioning handling")]
+    Reprovision(HostReprovision),
+}
+
+#[derive(Parser, Debug)]
+pub enum HostReprovision {
+    #[clap(about = "Set the host in reprovisioning mode.")]
+    Set(HostReprovisionSet),
+    #[clap(about = "Clear the reprovisioning mode.")]
+    Clear(HostReprovisionClear),
+    #[clap(about = "List all hosts pending reprovisioning.")]
+    List,
+}
+
+#[derive(Parser, Debug)]
+pub struct HostReprovisionSet {
+    #[clap(short, long, help = "Machine ID for which reprovisioning is needed.")]
+    pub id: String,
+
+    #[clap(short, long, action)]
+    pub update_firmware: bool,
+
+    #[clap(short, long)]
+    pub maintenance_reference: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct HostReprovisionClear {
+    #[clap(
+        short,
+        long,
+        help = "Machine ID for which reprovisioning should be cleared."
+    )]
+    pub id: String,
+
+    #[clap(short, long, action)]
+    pub update_firmware: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -1488,7 +1525,7 @@ pub struct MaintenanceOff {
 pub enum Instance {
     #[clap(about = "Display instance information")]
     Show(ShowInstance),
-    #[clap(about = "Reboot instance")]
+    #[clap(about = "Reboot instance, potentially applying firmware updates")]
     Reboot(RebootInstance),
     #[clap(about = "De-allocate instance")]
     Release(ReleaseInstance),

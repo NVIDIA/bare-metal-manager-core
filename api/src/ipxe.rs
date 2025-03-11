@@ -335,7 +335,8 @@ exit ||
                         exit_instructions(machine.current_state())
                     }
                 }
-                InstanceState::BootingWithDiscoveryImage { .. } => {
+                InstanceState::BootingWithDiscoveryImage { .. }
+                | InstanceState::HostReprovision { .. } => {
                     PxeInstructions::get_pxe_instruction_for_arch(
                         arch,
                         interface_id,

@@ -70,7 +70,8 @@ impl MachineUpdateModule for HostFirmwareUpdate {
 
             tracing::debug!("Moving {} to host reprovision", machine_update);
 
-            db::machine::trigger_host_reprovisioning_request(txn, machine_update).await?;
+            db::machine::trigger_host_reprovisioning_request(txn, "Automated", machine_update)
+                .await?;
 
             updates_started.insert(*machine_update);
         }

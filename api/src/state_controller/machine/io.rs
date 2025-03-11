@@ -174,6 +174,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 InstanceState::WaitingForNetworkReconfig => "waitingfornetworkreconfig",
                 InstanceState::DPUReprovision { .. } => "dpureprovisioning",
                 InstanceState::Failed { .. } => "failed",
+                InstanceState::HostReprovision { .. } => "hostreprovisioning",
             }
         }
 
