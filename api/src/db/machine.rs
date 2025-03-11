@@ -1218,8 +1218,10 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
         };
     }
 
-    // Update the machine history to account for the rename
+    // Update the machine state and heatlh history to account for the rename
     db::machine_state_history::update_machine_ids(txn, current_machine_id, stable_machine_id)
+        .await?;
+    db::machine_health_history::update_machine_ids(txn, current_machine_id, stable_machine_id)
         .await?;
 
     // Table machine_interfaces has a FK ON UPDATE CASCADE so machine_interfaces.machine_id will

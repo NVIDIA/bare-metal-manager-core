@@ -376,6 +376,21 @@ impl MachineStateHandler {
             .is_some();
     }
 
+    async fn record_health_history(
+        &self,
+        mh_snapshot: &mut ManagedHostStateSnapshot,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<(), StateHandlerError> {
+        db::machine_health_history::persist(
+            txn,
+            &mh_snapshot.host_snapshot.id,
+            &mh_snapshot.aggregate_health,
+        )
+        .await?;
+
+        Ok(())
+    }
+
     async fn record_infiniband_status(
         &self,
         mh_snapshot: &mut ManagedHostStateSnapshot,
@@ -2078,6 +2093,7 @@ impl StateHandler for MachineStateHandler {
             )));
         }
         self.record_metrics(mh_snapshot, ctx);
+        self.record_health_history(mh_snapshot, txn).await?;
         self.record_infiniband_status(mh_snapshot, txn, ctx).await;
         self.attempt_state_transition(host_machine_id, mh_snapshot, txn, ctx)
             .await

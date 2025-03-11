@@ -140,6 +140,7 @@ impl InternalRBACRules {
         );
         x.perm("FindConnectedDevicesByDpuMachineIds", vec![ForgeAdminCLI]);
         x.perm("FindMachineIdsByBmcIps", vec![ForgeAdminCLI]);
+        x.perm("FindMachineHealthHistories", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("IdentifyUuid", vec![ForgeAdminCLI]);
         x.perm("IdentifyMac", vec![ForgeAdminCLI]);
         x.perm("IdentifySerial", vec![ForgeAdminCLI, Machineatron]);

@@ -2088,6 +2088,25 @@ impl From<MachineStateHistory> for rpc::MachineEvent {
     }
 }
 
+/// History of Machine health for a single Machine
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MachineHealthHistoryRecord {
+    /// The observed health of the Machine
+    pub health: health_report::HealthReport,
+
+    /// The time when the health was observed
+    pub time: DateTime<Utc>,
+}
+
+impl From<MachineHealthHistoryRecord> for rpc::forge::MachineHealthHistoryRecord {
+    fn from(record: MachineHealthHistoryRecord) -> rpc::forge::MachineHealthHistoryRecord {
+        rpc::forge::MachineHealthHistoryRecord {
+            health: Some(record.health.into()),
+            time: Some(record.time.into()),
+        }
+    }
+}
+
 /// Returns the SLA for the current state
 pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> StateSla {
     let time_in_state = chrono::Utc::now()

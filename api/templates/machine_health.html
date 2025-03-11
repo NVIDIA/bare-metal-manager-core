@@ -114,6 +114,40 @@
 {% endmatch %}
 {%endfor%}
 
+<details>
+	<summary>
+		<h2 style="display: inline-block;">History</h2>
+	</summary>
+	{% for record in history %}
+		<h3 style="display: inline-block;">Alerts at {{ record.timestamp }}</h3>
+		<table class="sortable detailsview">
+			<thead>
+				<tr>
+					<th>ID</th>
+					<th>Target</th>
+					<th>In Alert Since</th>
+					<th>Message</th>
+					<th>Tenant Message</th>
+					<th>Classifications</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for alert in record.health.alerts %}
+				<tr>
+					<td>{{ alert.id }}</td>
+					<td>{{ alert.target|option_fmt }}</td>
+					<td>{{ alert.in_alert_since|option_fmt }}</td>
+					<td>{{ alert.message }}</td>
+					<td>{{ alert.tenant_message|option_fmt }}</td>
+					<td>{{ [alert]|health_alert_classifications_fmt|safe }}</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+
+	{%endfor%}
+</details>
+
 {% endblock %}
 
 {% block script %}

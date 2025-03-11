@@ -57,6 +57,7 @@ opentelemetry = { workspace = true, features = ["logs"] }
 opentelemetry-semantic-conventions = { version = "0.27", features = ["semconv_experimental"] }
 opentelemetry-prometheus.workspace = true
 opentelemetry_sdk = { workspace = true, features = ["logs", "rt-tokio", "spec_unstable_metrics_views"] }
+rustc-hash = "2.1.1"
 toml = "0.8.8"
 prometheus = "0.13"
 pkcs1 = "0.7.5"
