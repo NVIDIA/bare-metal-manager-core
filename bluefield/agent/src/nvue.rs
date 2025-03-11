@@ -179,6 +179,11 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         (false, vec![], vec![], vec![], vec![])
     };
 
+    // The original VPC isolation would add site fabric prefixes to deny prefixes,
+    // with site_fabric_prefixes coming first.
+    // This is just an easy way to maintain the ordering of the original behavior.
+    let deny_prefix_index_offset = conf.site_fabric_prefixes.len();
+
     let params = TmplNvue {
         UseAdminNetwork: conf.use_admin_network,
         LoopbackIP: conf.loopback_ip,
@@ -189,8 +194,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         RouteServers: conf.route_servers.clone(),
         UseLocalDHCP: conf.use_local_dhcp,
         DHCPServers: conf.dhcp_servers.clone(),
-        DenyPrefixes: conf
-            .deny_prefixes
+        SiteFabricPrefixes: conf
+            .site_fabric_prefixes
             .iter()
             .enumerate()
             .map(|(i, s)| Prefix {
@@ -198,6 +203,16 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                 Prefix: s.to_string(),
             })
             .collect(),
+        DenyPrefixes: conf
+            .deny_prefixes
+            .iter()
+            .enumerate()
+            .map(|(i, s)| Prefix {
+                Index: format!("{}", 1000 + deny_prefix_index_offset + i),
+                Prefix: s.to_string(),
+            })
+            .collect(),
+        UseVpcIsolation: conf.use_vpc_isolation,
         Infrastructure: infra,
         HbnVersion: conf.hbn_version,
         ComputeTENANTs: vec![TmplComputeTenant {
@@ -522,6 +537,8 @@ pub struct NvueConfig {
     pub l3_domains: Vec<L3Domain>,
     pub use_local_dhcp: bool,
     pub deny_prefixes: Vec<String>,
+    pub site_fabric_prefixes: Vec<String>,
+    pub use_vpc_isolation: bool,
 
     // Currently we have a single tenant, hence the single ct_ prefix.
     // Later this will be Vec<ComputeTenant>.
@@ -608,6 +625,14 @@ struct TmplNvue {
 
     /// Format: CIDR of the infastructure prefixes to block. Origin is carbide-api config file.
     DenyPrefixes: Vec<Prefix>,
+
+    /// Format: CIDR of the site prefixes for tenant use.  If VPC isolation is applied,
+    /// and there is no network security group applied overriding the behavior,
+    /// these will be blocked as well.
+    SiteFabricPrefixes: Vec<Prefix>,
+
+    // Whether VPC-isolation should be applied.
+    UseVpcIsolation: bool,
 
     HbnVersion: Option<String>,
 

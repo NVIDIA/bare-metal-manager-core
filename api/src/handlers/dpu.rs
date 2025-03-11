@@ -14,12 +14,8 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
-use forge_network::virtualization::VpcVirtualizationType;
-use itertools::Itertools;
-use tonic::{Request, Response, Status};
-
 use crate::api::{Api, log_machine_id, log_request_data};
+use crate::cfg::file::VpcIsolationBehaviorType;
 use crate::db;
 use crate::db::domain::Domain;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
@@ -41,7 +37,11 @@ use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
 use crate::model::machine::{InstanceState, ManagedHostState};
 use crate::{CarbideError, ethernet_virtualization};
 use ::rpc::errors::RpcDataConversionError;
+use ::rpc::forge as rpc;
+use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::{instance::InstanceId, machine::MachineId, machine::MachineInterfaceId};
+use itertools::Itertools;
+use tonic::{Request, Response, Status};
 
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
@@ -427,6 +427,30 @@ pub(crate) async fn get_managed_host_network_config(
         api.eth_data.asn
     };
 
+    let deny_prefixes: Vec<String> = api
+        .eth_data
+        .deny_prefixes
+        .iter()
+        .map(|net| net.to_string())
+        .collect();
+
+    let site_fabric_prefixes: Vec<String> = api
+        .eth_data
+        .site_fabric_prefixes
+        .as_ref()
+        .map(|s| s.as_ip_slice())
+        .unwrap_or_default()
+        .iter()
+        .map(|net| net.to_string())
+        .collect();
+
+    let deprecated_deny_prefixes = match api.runtime_config.vpc_isolation_behavior {
+        VpcIsolationBehaviorType::MutualIsolation => {
+            [site_fabric_prefixes.as_slice(), deny_prefixes.as_slice()].concat()
+        }
+        VpcIsolationBehaviorType::Open => deny_prefixes.clone(),
+    };
+
     let resp = rpc::ManagedHostNetworkConfigResponse {
         instance_id: snapshot
             .instance
@@ -440,12 +464,13 @@ pub(crate) async fn get_managed_host_network_config(
         // exploded representation, so we either need to reconstruct the
         // original prefix from what's in the database, or find some way to
         // store it when it's added or resized.
-        deny_prefixes: api
-            .eth_data
-            .deny_prefixes
-            .iter()
-            .map(|net| net.to_string())
-            .collect(),
+        deprecated_deny_prefixes,
+        deny_prefixes,
+        site_fabric_prefixes,
+        vpc_isolation_behavior: rpc::VpcIsolationBehaviorType::from(
+            api.runtime_config.vpc_isolation_behavior,
+        )
+        .into(),
         vni_device: if use_admin_network {
             "".to_string()
         } else {
