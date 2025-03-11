@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
@@ -13,6 +14,7 @@ use crate::{
     saturating_add_duration_to_instant,
 };
 use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult};
+use rpc::MachineId;
 
 #[derive(Debug)]
 pub struct DpuMachine {
@@ -31,6 +33,8 @@ pub struct DpuMachine {
     paused: bool,
     sleep_until: Instant,
     api_refresh_interval: Interval,
+    // This will be populated with callers waiting for the DPU to be in a specific state
+    state_waiters: HashMap<String, Vec<oneshot::Sender<()>>>,
 }
 
 impl DpuMachine {
@@ -75,6 +79,7 @@ impl DpuMachine {
             paused: true,
             sleep_until: Instant::now(),
             api_refresh_interval: tokio::time::interval(Duration::from_secs(2)),
+            state_waiters: HashMap::new(),
         }
     }
 
@@ -112,6 +117,16 @@ impl DpuMachine {
         actor_message_rx: &mut mpsc::UnboundedReceiver<DpuMachineMessage>,
         actor_message_tx: &mpsc::UnboundedSender<DpuMachineMessage>,
     ) -> bool {
+        // If the dpu is up, and if anyone is waiting for the current state to be
+        // reached, notify them.
+        if self.state_machine.is_up() {
+            if let Some(waiters) = self.state_waiters.remove(&self.api_state) {
+                for waiter in waiters.into_iter() {
+                    _ = waiter.send(());
+                }
+            }
+        }
+
         tokio::select! {
             _ = tokio::time::sleep_until(self.sleep_until.into()) => {},
             _ = self.api_refresh_interval.tick() => {
@@ -191,6 +206,18 @@ impl DpuMachine {
                 self.api_state = api_state;
                 HandleMessageResult::ContinuePolling
             }
+            DpuMachineMessage::GetObservedMachineId(reply) => {
+                reply.send(self.observed_machine_id.clone()).ok();
+                HandleMessageResult::ContinuePolling
+            }
+            DpuMachineMessage::WaitUntilMachineUpWithApiState(state, reply) => {
+                if let Some(state_waiters) = self.state_waiters.get_mut(&state) {
+                    state_waiters.push(reply);
+                } else {
+                    self.state_waiters.insert(state, vec![reply]);
+                }
+                HandleMessageResult::ContinuePolling
+            }
         }
     }
 
@@ -236,6 +263,8 @@ enum DpuMachineMessage {
     },
     Stop(oneshot::Sender<()>),
     GetHostDetails(oneshot::Sender<HostDetails>),
+    GetObservedMachineId(oneshot::Sender<Option<rpc::MachineId>>),
+    WaitUntilMachineUpWithApiState(String, oneshot::Sender<()>),
     IsUp(oneshot::Sender<bool>),
     SetPaused(bool),
     SetApiState(String),
@@ -265,6 +294,23 @@ impl DpuMachineActor {
     pub async fn is_up(&self) -> eyre::Result<bool> {
         let (tx, rx) = oneshot::channel();
         self.message_tx.send(DpuMachineMessage::IsUp(tx))?;
+        Ok(rx.await?)
+    }
+
+    pub async fn observed_machine_id(&self) -> eyre::Result<Option<MachineId>> {
+        let (tx, rx) = oneshot::channel();
+        self.message_tx
+            .send(DpuMachineMessage::GetObservedMachineId(tx))?;
+        Ok(rx.await?)
+    }
+
+    pub async fn wait_until_machine_up_with_api_state(&self, state: &str) -> eyre::Result<()> {
+        let (tx, rx) = oneshot::channel();
+        self.message_tx
+            .send(DpuMachineMessage::WaitUntilMachineUpWithApiState(
+                state.to_owned(),
+                tx,
+            ))?;
         Ok(rx.await?)
     }
 

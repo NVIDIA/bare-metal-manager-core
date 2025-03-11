@@ -10,20 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use tokio::sync::oneshot::{Receiver, Sender};
 use utils::HostPortPair;
 
 const DOMAIN_NAME: &str = "forge.integrationtest";
 
 pub struct ApiServerTestConfig {
-    pub use_site_explorer: bool,
-    pub firmware_update_mode: TestFirmwareUpdateMode,
-}
-
-pub enum TestFirmwareUpdateMode {
-    Disabled,
-    Enabled { firmware_path: PathBuf },
+    pub firmware_directory: String,
 }
 
 // Use a struct for the args to start() so that callers can see argument names
@@ -46,11 +39,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         db_url,
         vault_token,
         bmc_proxy,
-        test_config:
-            ApiServerTestConfig {
-                use_site_explorer,
-                firmware_update_mode,
-            },
+        test_config: ApiServerTestConfig { firmware_directory },
         stop_channel,
         ready_channel,
     } = start_args;
@@ -64,42 +53,11 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
     }
 
     let carbide_config_str = {
-        let site_explorer_create_machines = if use_site_explorer { "true" } else { "false" };
         let bmc_proxy_cfg = if let Some(bmc_proxy) = bmc_proxy {
             format!(r#"bmc_proxy = "{bmc_proxy}""#)
         } else {
             // None is encoded by omitting the option altogether... just drop a comment
             String::from("# no bmc_proxy set")
-        };
-        let allow_proxy_to_unknown_host = if use_site_explorer {
-            // Simulate this flag not being present and getting the default,
-            // which is the case in all other carbide configs
-            "# allow_proxy_to_unknown_host is default false"
-        } else {
-            "allow_proxy_to_unknown_host = true"
-        };
-
-        let dpu_config = match firmware_update_mode {
-            TestFirmwareUpdateMode::Disabled => {
-                r#"
-                [dpu_config]
-                dpu_nic_firmware_initial_update_enabled = false
-                dpu_nic_firmware_reprovision_update_enabled = false
-                "#
-            }
-            TestFirmwareUpdateMode::Enabled { .. } => {
-                // By putting anything in dpu_config at all, we leave things like dpu_models empty,
-                // which causes carbide-api to not construct a default list. So leave the section blank,
-                // which will enable firmware updates.
-                "# leaving DPU config at default"
-            }
-        };
-
-        let firmware_directory = match firmware_update_mode {
-            TestFirmwareUpdateMode::Disabled => String::new(),
-            TestFirmwareUpdateMode::Enabled { firmware_path } => {
-                firmware_path.to_string_lossy().into_owned()
-            }
         };
 
         format!(
@@ -201,10 +159,10 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         run_interval = "1s"
         concurrent_explorations = 30
         explorations_per_run = 90
-        create_machines = {site_explorer_create_machines}
+        create_machines = true
         machines_created_per_run = 30
         allow_zero_dpu_hosts = true
-        {allow_proxy_to_unknown_host}
+        allow_proxy_to_unknown_host = false
         {bmc_proxy_cfg}
         reset_rate_limit = "3600s"
 
@@ -231,8 +189,6 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         iteration_time = "20s"
         max_object_handling_time = "180s"
         max_concurrency = 10
-
-        {dpu_config}
 
         [host_models]
 

@@ -103,6 +103,7 @@ impl HostMachine {
         let (actor_message_tx, mut actor_message_rx) = mpsc::unbounded_channel();
         let host_machine_info = self.host_info.clone();
         let mat_id = self.mat_id;
+        let dpus = self.dpus.clone();
 
         if !paused {
             self.resume_dpus();
@@ -129,6 +130,7 @@ impl HostMachine {
             mat_id,
             host_machine_info,
             message_tx: actor_message_tx,
+            dpus,
         }
     }
 
@@ -439,6 +441,7 @@ pub struct HostMachineActor {
     // Optimization: These are immutable, so we can keep it in the Actor and not have to query.
     pub mat_id: Uuid,
     pub host_machine_info: HostMachineInfo,
+    pub dpus: Vec<DpuMachineActor>,
 
     message_tx: mpsc::UnboundedSender<HostMachineMessage>,
 }
