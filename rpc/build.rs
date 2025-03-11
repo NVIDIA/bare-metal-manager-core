@@ -151,6 +151,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.MachineInventorySoftwareComponent",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute("forge.HealthReportOverride", "#[derive(serde::Serialize)]")
         .type_attribute("forge.HealthOverrideOrigin", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.ManagedHostNetworkConfig",

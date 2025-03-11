@@ -1,0 +1,29 @@
+<table class="detailsview">
+	<thead>
+		<tr>
+			<th>Time</th>
+			<th>Alerts</th>
+			<th>Classifications</th>
+			<th>Details</th>
+		</tr>
+	</thead>
+	<tbody>
+	{% for record in records %}
+		<tr>
+			<td>{{ record.timestamp }}</td>
+			<td>
+				{% if record.health.alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
+					{{ record.health.alerts|health_alerts_fmt(false)|safe }}
+				</div>
+			</td>
+			<td>{{ record.health.alerts|health_alert_classifications_fmt|safe }}</td>
+			<td style="overflow: auto;">
+				<details>
+					<summary><b>Expand</b></summary>
+					<pre style="max-width: 50vw;"><code class="prettyjson">{{ record.health|json|safe }}</code></pre>
+				</details>
+			</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
