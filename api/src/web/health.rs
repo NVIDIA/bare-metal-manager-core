@@ -17,7 +17,7 @@ use forge_uuid::machine::MachineId;
 use health_report::HealthReport;
 use hyper::http::StatusCode;
 use rpc::forge::{
-    HealthReportOverride, InsertHealthReportOverrideRequest, MachinesByIdsRequest, OverrideMode,
+    InsertHealthReportOverrideRequest, MachinesByIdsRequest, OverrideMode,
     RemoveHealthReportOverrideRequest, forge_server::Forge,
 };
 use std::{str::FromStr, sync::Arc};
@@ -30,22 +30,38 @@ use crate::api::Api;
 struct MachineHealth {
     id: String,
     machine_type: String,
-    overrides: Vec<DisplayedOverrideOrigin>,
-    reports: Vec<LabeledHealthReport>,
-    history: Vec<HealthReportRecord>,
+    overrides: Vec<HealthReportOverride>,
+    aggregate_health: LabeledHealthReport,
+    component_health: Vec<LabeledHealthReport>,
+    history: MachineHealthHistoryTable,
 }
 
-struct DisplayedOverrideOrigin {
-    source: String,
-    mode: String,
+#[derive(Template)]
+#[template(path = "machine_health_history_table.html")]
+pub(super) struct MachineHealthHistoryTable {
+    pub records: Vec<MachineHealthHistoryRecord>,
 }
 
 #[derive(Debug, serde::Serialize)]
-pub(super) struct HealthReportRecord {
+pub(super) struct MachineHealthHistoryRecord {
     pub timestamp: String,
     pub health: health_report::HealthReport,
 }
 
+impl MachineHealthHistoryRecord {
+    pub fn from_rpc_convert_invalid(record: ::rpc::forge::MachineHealthHistoryRecord) -> Self {
+        MachineHealthHistoryRecord {
+            timestamp: record.time.map(|time| time.to_string()).unwrap_or_default(),
+            health: record
+                .health
+                .map(health_report_from_rpc_convert_invalid)
+                .unwrap_or_else(health_report::HealthReport::missing_report),
+        }
+    }
+}
+
+#[derive(Template)]
+#[template(path = "machine_health_component.html")]
 struct LabeledHealthReport {
     label: String,
     report: Option<health_report::HealthReport>,
@@ -72,69 +88,15 @@ pub async fn health(
         id: machine_id.clone(),
     };
 
-    let request = tonic::Request::new(rpc_machine_id.clone());
-    let mut overrides = match state
-        .list_health_report_overrides(request)
-        .await
-        .map(|response| response.into_inner())
-    {
-        Ok(m) => m,
-        Err(err) if err.code() == tonic::Code::NotFound => {
-            return super::not_found_response(machine_id);
-        }
-        Err(err) => {
-            tracing::error!(%err, %machine_id, "list_health_report_overrides");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
-        }
-    }
-    .overrides;
-    // Sort by source name.
-    overrides.sort_by(|a, b| {
-        a.report
-            .as_ref()
-            .map(|a| &a.source)
-            .cmp(&b.report.as_ref().map(|b| &b.source))
-    });
-    // Put override override first. In theory, these modes should be valid since
-    // carbide sends them.
-    overrides.sort_by_key(|hr| {
-        match OverrideMode::try_from(hr.mode).unwrap_or(OverrideMode::Merge) {
-            OverrideMode::Replace => 0,
-            OverrideMode::Merge => 1,
-        }
-    });
-    // Overrides before others.
-    let mut reports = overrides
-        .into_iter()
-        .filter_map(|o| {
-            o.report.map(|hr| LabeledHealthReport {
-                label: OverrideMode::try_from(o.mode)
-                    .unwrap_or(OverrideMode::Merge)
-                    .as_str_name()
-                    .to_string()
-                    + " "
-                    + hr.source.as_str(),
-                report: Some(
-                    hr.try_into()
-                        .unwrap_or_else(health_report::HealthReport::malformed_report),
-                ),
-            })
-        })
-        .collect::<Vec<_>>();
-
-    let request = tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-        machine_ids: vec![rpc_machine_id.clone()],
-        include_history: false,
-    });
-
     let machine = match state
-        .find_machines_by_ids(request)
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            machine_ids: vec![rpc_machine_id.clone()],
+            include_history: false,
+        }))
         .await
         .map(|response| response.into_inner())
     {
-        Ok(m) if m.machines.is_empty() => {
-            return super::not_found_response(machine_id);
-        }
+        Ok(m) if m.machines.is_empty() => None,
         Ok(m) if m.machines.len() != 1 => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -145,78 +107,106 @@ pub async fn health(
             )
                 .into_response();
         }
-        Ok(mut m) => m.machines.remove(0),
-        Err(err) if err.code() == tonic::Code::NotFound => {
-            return super::not_found_response(machine_id);
-        }
+        Ok(mut m) => Some(m.machines.remove(0)),
+        Err(err) if err.code() == tonic::Code::NotFound => None,
         Err(err) => {
             tracing::error!(%err, %machine_id, "find_machines_by_ids");
             return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
         }
     };
-    reports.push(LabeledHealthReport {
-        label: "Aggregate Health".to_string(),
-        report: machine.health.map(|health| {
-            HealthReport::try_from(health)
-                .unwrap_or_else(health_report::HealthReport::malformed_report)
-        }),
+
+    let aggregate_health = machine
+        .as_ref()
+        .and_then(|m| m.health.as_ref())
+        .map(|health| health_report_from_rpc_convert_invalid(health.clone()));
+    let associated_dpu_machine_ids = match machine {
+        Some(m) => m.associated_dpu_machine_ids,
+        None => Vec::new(),
+    };
+
+    let request = tonic::Request::new(rpc_machine_id.clone());
+    let mut overrides = match state
+        .list_health_report_overrides(request)
+        .await
+        .map(|response| response.into_inner().overrides)
+    {
+        Ok(m) => m,
+        Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
+        Err(err) => {
+            tracing::error!(%err, %machine_id, "list_health_report_overrides");
+            return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
+        }
+    };
+    // Sort by type first and source name second.
+    overrides.sort_by(|a, b| {
+        if a.mode() == OverrideMode::Replace {
+            return std::cmp::Ordering::Less;
+        } else if b.mode() == OverrideMode::Replace {
+            return std::cmp::Ordering::Greater;
+        }
+        a.report
+            .as_ref()
+            .map(|a| &a.source)
+            .cmp(&b.report.as_ref().map(|b| &b.source))
     });
+
+    let overrides: Vec<HealthReportOverride> = overrides
+        .iter()
+        .map(|o| HealthReportOverride::from_rpc_convert_invalid(o.clone()))
+        .collect();
+
+    let mut component_health = Vec::new();
 
     let request = tonic::Request::new(rpc_machine_id.clone());
     let hw_report = match state
         .get_hardware_health_report(request)
         .await
-        .map(|response| response.into_inner())
+        .map(|response| response.into_inner().report)
     {
         Ok(m) => m,
-        Err(err) if err.code() == tonic::Code::NotFound => {
-            return super::not_found_response(machine_id);
-        }
+        Err(err) if err.code() == tonic::Code::NotFound => None,
         Err(err) => {
             tracing::error!(%err, %machine_id, "get_hardware_health_report");
             return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
         }
     };
-    reports.push(LabeledHealthReport {
+    component_health.push(LabeledHealthReport {
         label: "Hardware Health".to_string(),
-        report: hw_report.report.map(|health| {
-            HealthReport::try_from(health)
-                .unwrap_or_else(health_report::HealthReport::malformed_report)
-        }),
+        report: hw_report.map(health_report_from_rpc_convert_invalid),
     });
 
-    let request = tonic::Request::new(MachinesByIdsRequest {
-        machine_ids: machine.associated_dpu_machine_ids.clone(),
-        include_history: false,
-    });
-    let dpus = match state
-        .find_machines_by_ids(request)
-        .await
-        .map(|response| response.into_inner())
-    {
-        Ok(m) => m,
-        Err(err) if err.code() == tonic::Code::NotFound => {
-            return super::not_found_response(machine_id);
-        }
-        Err(err) => {
-            tracing::error!(%err, %machine_id, "find_machines_by_ids");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
+    if !associated_dpu_machine_ids.is_empty() {
+        let request = tonic::Request::new(MachinesByIdsRequest {
+            machine_ids: associated_dpu_machine_ids,
+            include_history: false,
+        });
+        let dpus = match state
+            .find_machines_by_ids(request)
+            .await
+            .map(|response| response.into_inner())
+        {
+            Ok(m) => m.machines,
+            Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
+            Err(err) => {
+                tracing::error!(%err, %machine_id, "find_machines_by_ids");
+                return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
+            }
+        };
+        for dpu in dpus {
+            component_health.push(LabeledHealthReport {
+                label: format!(
+                    "DPU Health {}",
+                    dpu.id.map(|id| id.to_string()).unwrap_or_default()
+                ),
+                report: dpu.health.map(health_report_from_rpc_convert_invalid),
+            })
         }
     }
-    .machines;
-    // Add aggregate health, dpus, and HW health
-    for dpu in dpus {
-        reports.push(LabeledHealthReport {
-            label: format!(
-                "DPU Health {}",
-                dpu.id.map(|id| id.to_string()).unwrap_or_default()
-            ),
-            report: dpu.health.map(|health| {
-                HealthReport::try_from(health)
-                    .unwrap_or_else(health_report::HealthReport::malformed_report)
-            }),
-        })
-    }
+
+    component_health.extend(overrides.iter().map(|o| LabeledHealthReport {
+        label: format!("Override {} {}", o.mode, o.health_report.source),
+        report: Some(o.health_report.clone()),
+    }));
 
     let health_records = match fetch_health_history(&state, &rpc_machine_id).await {
         Ok(records) => records,
@@ -229,35 +219,50 @@ pub async fn health(
     let display = MachineHealth {
         id: machine_id.clone(),
         machine_type: get_machine_type(&machine_id),
-        reports,
-        overrides: machine
-            .health_overrides
-            .into_iter()
-            .map(|o| DisplayedOverrideOrigin {
-                mode: match o.mode() {
-                    OverrideMode::Merge => "Merge",
-                    OverrideMode::Replace => "Replace",
-                }
-                .to_string(),
-                source: o.source,
-            })
-            .collect(),
-        history: health_records,
+        aggregate_health: LabeledHealthReport {
+            label: "Aggregate Health".to_string(),
+            report: aggregate_health,
+        },
+        component_health,
+        overrides,
+        history: MachineHealthHistoryTable {
+            records: health_records,
+        },
     };
 
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
-#[derive(serde::Deserialize)]
-pub struct AddOverride {
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct HealthReportOverride {
     mode: String,
     health_report: HealthReport,
 }
 
-impl TryFrom<AddOverride> for HealthReportOverride {
+impl HealthReportOverride {
+    fn from_rpc_convert_invalid(o: ::rpc::forge::HealthReportOverride) -> Self {
+        let mode = match o.mode() {
+            OverrideMode::Merge => "Merge",
+            OverrideMode::Replace => "Replace",
+        }
+        .to_string();
+
+        let health_report = o
+            .report
+            .map(health_report_from_rpc_convert_invalid)
+            .unwrap_or_else(HealthReport::missing_report);
+
+        HealthReportOverride {
+            mode,
+            health_report,
+        }
+    }
+}
+
+impl TryFrom<HealthReportOverride> for ::rpc::forge::HealthReportOverride {
     type Error = String;
 
-    fn try_from(value: AddOverride) -> Result<Self, Self::Error> {
+    fn try_from(value: HealthReportOverride) -> Result<Self, Self::Error> {
         let mode = match value.mode.as_str() {
             "Replace" => OverrideMode::Replace,
             "Merge" => OverrideMode::Merge,
@@ -267,24 +272,10 @@ impl TryFrom<AddOverride> for HealthReportOverride {
                 ));
             }
         };
-        let hr = value.health_report;
 
-        Ok(HealthReportOverride {
+        Ok(::rpc::forge::HealthReportOverride {
             mode: mode as i32,
-            report: Some(rpc::protos::health::HealthReport {
-                source: hr.source,
-                observed_at: hr.observed_at.map(|t| t.into()),
-                successes: hr
-                    .successes
-                    .into_iter()
-                    .map(rpc::protos::health::HealthProbeSuccess::from)
-                    .collect::<Vec<_>>(),
-                alerts: hr
-                    .alerts
-                    .into_iter()
-                    .map(rpc::protos::health::HealthProbeAlert::from)
-                    .collect::<Vec<_>>(),
-            }),
+            report: Some(::rpc::health::HealthReport::from(value.health_report)),
         })
     }
 }
@@ -297,9 +288,9 @@ pub struct RemoveOverride {
 pub async fn add_override(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
-    extract::Json(payload): extract::Json<AddOverride>,
+    extract::Json(payload): extract::Json<HealthReportOverride>,
 ) -> impl IntoResponse {
-    let report_override = match HealthReportOverride::try_from(payload) {
+    let report_override = match ::rpc::forge::HealthReportOverride::try_from(payload) {
         Ok(report_override) => report_override,
         Err(e) => return (StatusCode::BAD_REQUEST, e),
     };
@@ -353,10 +344,17 @@ pub async fn remove_override(
     }
 }
 
+fn health_report_from_rpc_convert_invalid(
+    report: rpc::health::HealthReport,
+) -> health_report::HealthReport {
+    health_report::HealthReport::try_from(report)
+        .unwrap_or_else(health_report::HealthReport::malformed_report)
+}
+
 pub(super) async fn fetch_health_history(
     api: &Api,
     machine_id: &::rpc::common::MachineId,
-) -> Result<Vec<HealthReportRecord>, tonic::Status> {
+) -> Result<Vec<MachineHealthHistoryRecord>, tonic::Status> {
     let mut records = api
         .find_machine_health_histories(tonic::Request::new(
             ::rpc::forge::MachineHealthHistoriesRequest {
@@ -374,16 +372,7 @@ pub(super) async fn fetch_health_history(
 
     let records = records
         .into_iter()
-        .map(|record| HealthReportRecord {
-            timestamp: record.time.map(|time| time.to_string()).unwrap_or_default(),
-            health: record
-                .health
-                .map(|health| {
-                    HealthReport::try_from(health)
-                        .unwrap_or_else(health_report::HealthReport::malformed_report)
-                })
-                .unwrap_or_else(health_report::HealthReport::missing_report),
-        })
+        .map(MachineHealthHistoryRecord::from_rpc_convert_invalid)
         .collect();
 
     Ok(records)

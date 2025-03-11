@@ -5,8 +5,6 @@
 {% block content %}
 <h1>{{ machine_type }} Health <a href="/admin/machine/{{ id }}">{{ id }}</a></h1>
 
-<h2><a href="/admin/machine/{{ id }}/health-history">History</a></h2>
-
 <details>
 	<summary>
 		<h2 style="display: inline-block;">Add Override</h2>
@@ -47,108 +45,46 @@
 		<th>Source</th>
 		<th>Mode</th>
 		<th>Remove</th>
+		<th>Alerts</th>
+		<th>Details</th>
 	</tr>
 </thead>
 <tbody>
 	{% for override in overrides %}
 	<tr>
-		<td>{{ override.source }}</td>
+		<td>{{ override.health_report.source }}</td>
 		<td>{{ override.mode }}</td>
-		<td><input type="button" id="remove-override-{{ override.source }}" value="Remove"></td>
+		<td><input type="button" id="remove-override-{{ override.health_report.source }}" value="Remove"></td>
+		<td>{{ override.health_report.alerts|health_alerts_fmt(false)|safe }}</td>
+		<td style="overflow: auto;">
+			<details>
+				<summary><b>Expand</b></summary>
+				<pre style="max-width: 50vw;"><code class="prettyjson">{{ override|json|safe }}</code></pre>
+			</details>
+		</td>
 	</tr>
 	{% endfor %}
 </tbody>
 </table>
 
-{% for report in reports %}
-<h2>{{ report.label }}</h2>
-{% match report.report %}
-{% when Some with (health) %}
-<h3>Alerts</h3>
-<table class="sortable detailsview">
-	<thead>
-		<tr>
-			<th>ID</th>
-			<th>Target</th>
-			<th>In Alert Since</th>
-			<th>Message</th>
-			<th>Tenant Message</th>
-			<th>Classifications</th>
-		</tr>
-	</thead>
-	<tbody>
-		{% for alert in health.alerts %}
-		<tr>
-			<td>{{ alert.id }}</td>
-			<td>{{ alert.target|option_fmt }}</td>
-			<td>{{ alert.in_alert_since|option_fmt }}</td>
-			<td>{{ alert.message }}</td>
-			<td>{{ alert.tenant_message|option_fmt }}</td>
-			<td>{{ [alert]|health_alert_classifications_fmt|safe }}</td>
-		</tr>
-		{% endfor %}
-	</tbody>
-</table>
+{{ aggregate_health|safe }}
 
 <details>
 	<summary>
-		<h3 style="display: inline-block;">Successes</h3>
+		<h2 style="display: inline-block;">Component Health</h2>
+		<i>Health of individual components is hidden. Expand for details.</i>
 	</summary>
-	<table class="sortable detailsview">
-		<thead>
-			<tr>
-				<th>ID</th>
-				<th>Target</th>
-			</tr>
-		</thead>
-		<tbody>
-			{% for success in health.successes %}
-			<tr>
-				<td>{{ success.id }}</td>
-				<td>{{ success.target|option_fmt }}</td>
-			</tr>
-			{% endfor %}
-		</tbody>
-	</table>
+	{% for component in component_health %}
+	{{ component|safe }}
+	{%endfor%}
 </details>
-{% else %}
-<h3>Missing report</h3>
-{% endmatch %}
-{%endfor%}
 
 <details>
 	<summary>
 		<h2 style="display: inline-block;">History</h2>
+		<a href="/admin/machine/{{ id }}/health-history">Open History on separate page</a>
 	</summary>
-	<table class="detailsview">
-		<thead>
-			<tr>
-				<th>Time</th>
-				<th>Alerts</th>
-				<th>Classifications</th>
-				<th>Details</th>
-			</tr>
-		</thead>
-		<tbody>
-		{% for record in history %}
-			<tr>
-				<td>{{ record.timestamp }}</td>
-				<td>
-					{% if record.health.alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
-						{{ record.health.alerts|health_alerts_fmt(false)|safe }}
-					</div>
-				</td>
-				<td>{{ record.health.alerts|health_alert_classifications_fmt|safe }}</td>
-				<td style="overflow: auto;">
-					<details>
-						<summary><b>Expand</b></summary>
-						<pre style="max-width: 50vw;"><code class="prettyjson">{{ record.health|json|safe }}</code></pre>
-					</details>
-				</td>
-			</tr>
-		{% endfor %}
-		</tbody>
-	</table>
+	{{ history|safe }}
 </details>
 
 {% endblock %}
@@ -288,7 +224,7 @@ document.addEventListener("DOMContentLoaded", function (event) {
 		add_click_listener(item);
 	}
 	{% for override in overrides %}
-	add_click_listener(["remove-override-{{ override.source }}", "/override/remove", () => JSON.stringify({source: "{{ override.source }}"})]);
+	add_click_listener(["remove-override-{{ override.health_report.source }}", "/override/remove", () => JSON.stringify({source: "{{ override.health_report.source }}"})]);
 	{% endfor %}
 });
 

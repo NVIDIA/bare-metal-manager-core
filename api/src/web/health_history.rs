@@ -18,17 +18,14 @@ use forge_uuid::machine::MachineId;
 use hyper::http::StatusCode;
 use std::{str::FromStr, sync::Arc};
 
-use super::{
-    filters,
-    health::{HealthReportRecord, fetch_health_history},
-};
+use super::health::{MachineHealthHistoryRecord, MachineHealthHistoryTable, fetch_health_history};
 use crate::api::Api;
 
 #[derive(Template)]
 #[template(path = "machine_health_history.html")]
 struct MachineHealth {
     id: String,
-    history: Vec<HealthReportRecord>,
+    history: MachineHealthHistoryTable,
 }
 
 /// Show the health history for a certain Machine
@@ -36,14 +33,14 @@ pub async fn show_health_history(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
 ) -> Response {
-    let (machine_id, health_records) = match fetch_health_records(&state, &machine_id).await {
+    let (machine_id, records) = match fetch_health_records(&state, &machine_id).await {
         Ok((id, records)) => (id, records),
         Err((code, msg)) => return (code, msg).into_response(),
     };
 
     let display = MachineHealth {
         id: machine_id.id,
-        history: health_records,
+        history: MachineHealthHistoryTable { records },
     };
 
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
@@ -63,7 +60,8 @@ pub async fn show_health_history_json(
 pub async fn fetch_health_records(
     api: &Api,
     machine_id: &str,
-) -> Result<(::rpc::common::MachineId, Vec<HealthReportRecord>), (http::StatusCode, String)> {
+) -> Result<(::rpc::common::MachineId, Vec<MachineHealthHistoryRecord>), (http::StatusCode, String)>
+{
     let Ok(parsed_machine_id) = MachineId::from_str(machine_id) else {
         return Err((StatusCode::BAD_REQUEST, "invalid machine id".to_string()));
     };
