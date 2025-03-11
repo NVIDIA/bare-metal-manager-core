@@ -45,6 +45,8 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
             "/forge.Forge/GetDpuInfoList",
             post(handle_get_dpu_info_list),
         )
+        // ForgeApiClient needs a working Version route for connection retrying
+        .route("/forge.Forge/Version", post(handle_version))
         .fallback(handler)
         .with_state(state.clone());
     let (addr, join_handle) = common::run_grpc_server(app).await?;
@@ -148,6 +150,10 @@ async fn handle_get_dpu_info_list(
             },
         ],
     })
+}
+
+async fn handle_version() -> impl IntoResponse {
+    common::respond(rpc::BuildInfo::default())
 }
 
 async fn handler(uri: Uri) -> impl IntoResponse {

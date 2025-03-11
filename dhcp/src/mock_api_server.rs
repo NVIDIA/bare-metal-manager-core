@@ -16,7 +16,7 @@ use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::server::conn::http2;
 use hyper::service::service_fn;
-use hyper::{Request, Response, body};
+use hyper::{Request, Response, body, header};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use mac_address::MacAddress;
 use prost::Message;
@@ -211,6 +211,7 @@ impl MockAPIServer {
                     ))
                 }
             }
+            "/forge.Forge/Version" => respond(rpc::BuildInfo::default()),
             _ => panic!("DHCP -> API wrong uri: {}", req.uri().path()),
         }
     }
@@ -230,4 +231,22 @@ impl Drop for MockAPIServer {
         let _ = self.tx.take().expect("missing tx").send(());
         self.handle.abort();
     }
+}
+
+/// Takes an rpc object (built from rpc/proto/forge.proto) and turns into into a gRPC axum response
+fn respond(out: impl prost::Message) -> Result<Response<Full<Bytes>>, MockAPIServerError> {
+    let msg_len = out.encoded_len() as u32;
+    let mut body = Vec::with_capacity(1 + 4 + msg_len as usize);
+    // first byte is compression: 0 means none
+    body.push(0u8);
+    // next four bytes are length as bigendian u32
+    body.extend_from_slice(&msg_len.to_be_bytes());
+    // and finally the message
+    out.encode(&mut body).unwrap();
+
+    Ok(Response::builder()
+        .status(200)
+        .header(header::CONTENT_TYPE, "application/grpc+tonic")
+        .body(body.into())
+        .unwrap())
 }

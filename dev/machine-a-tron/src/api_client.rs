@@ -1,17 +1,14 @@
 use crate::MachineConfig;
 use base64::prelude::*;
 use mac_address::MacAddress;
+use rpc::forge::MachineType;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{
     ConfigSetting, ExpectedMachine, GetDesiredFirmwareVersionsRequest, MachinesByIdsRequest,
     PxeInstructions, SetDynamicConfigRequest,
 };
+use rpc::forge_api_client::ForgeApiClient;
 use rpc::site_explorer::SiteExplorationReport;
-use rpc::{
-    forge::MachineType,
-    forge_tls_client::{self, ApiConfig, ForgeClientT},
-};
-use std::future::Future;
 use std::sync::atomic::{AtomicU32, Ordering};
 use uuid::Uuid;
 
@@ -43,11 +40,11 @@ pub struct MockDiscoveryData {
 static SUBNET_COUNTER: AtomicU32 = AtomicU32::new(0);
 static VPC_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-#[derive(Debug)]
-pub struct ApiClient<'a>(ApiConfig<'a>);
+#[derive(Debug, Clone)]
+pub struct ApiClient(ForgeApiClient);
 
-impl<'a> From<ApiConfig<'a>> for ApiClient<'a> {
-    fn from(value: ApiConfig<'a>) -> Self {
+impl From<ForgeApiClient> for ApiClient {
+    fn from(value: ForgeApiClient) -> Self {
         ApiClient(value)
     }
 }
@@ -62,33 +59,16 @@ pub struct DpuNetworkStatusArgs<'a> {
     pub machine_config: &'a MachineConfig,
 }
 
-impl ApiClient<'_> {
-    pub async fn with_forge_client<T, F>(
-        &self,
-        callback: impl FnOnce(ForgeClientT) -> F,
-    ) -> ClientApiResult<T>
-    where
-        F: Future<Output = ClientApiResult<T>>,
-    {
-        let client = forge_tls_client::ForgeTlsClient::retry_build(&self.0)
-            .await
-            .map_err(|err| ClientApiError::ConnectFailed(err.to_string()))?;
-
-        callback(client).await
-    }
-
+impl ApiClient {
     pub async fn version(&self) -> ClientApiResult<rpc::forge::BuildInfo> {
-        self.with_forge_client(|mut client| async move {
-            let out = client
-                .version(tonic::Request::new(rpc::forge::VersionRequest {
-                    display_config: false,
-                }))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)?;
-            Ok(out)
-        })
-        .await
+        let out = self
+            .0
+            .version(rpc::forge::VersionRequest {
+                display_config: false,
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)?;
+        Ok(out)
     }
 
     pub async fn discover_dhcp(
@@ -110,66 +90,57 @@ impl ApiClient<'_> {
                 ))
             })?;
 
-        self.with_forge_client(|mut client| async move {
-            let dhcp_discovery = rpc::forge::DhcpDiscovery {
-                mac_address: mac_address.to_string(),
-                circuit_id,
-                relay_address,
-                ..default_data
-            };
-            //        tracing::info!("dhcp_discovery: {:?}", dhcp_discovery);
-            let out = client
-                .discover_dhcp(tonic::Request::new(dhcp_discovery))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)?;
+        let dhcp_discovery = rpc::forge::DhcpDiscovery {
+            mac_address: mac_address.to_string(),
+            circuit_id,
+            relay_address,
+            ..default_data
+        };
+        //        tracing::info!("dhcp_discovery: {:?}", dhcp_discovery);
+        let out = self
+            .0
+            .discover_dhcp(dhcp_discovery)
+            .await
+            .map_err(ClientApiError::InvocationError)?;
 
-            Ok(out)
-        })
-        .await
+        Ok(out)
     }
 
     pub async fn get_machine_interface(
         &self,
         id: &str,
     ) -> ClientApiResult<rpc::forge::InterfaceList> {
-        self.with_forge_client(|mut client| async move {
-            let interface_search_query = rpc::forge::InterfaceSearchQuery {
-                id: Some(rpc::Uuid {
-                    value: id.to_string(),
-                }),
-                ip: None,
-            };
-            //        tracing::info!("dhcp_discovery: {:?}", dhcp_discovery);
-            let out = client
-                .find_interfaces(tonic::Request::new(interface_search_query))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)?;
+        let interface_search_query = rpc::forge::InterfaceSearchQuery {
+            id: Some(rpc::Uuid {
+                value: id.to_string(),
+            }),
+            ip: None,
+        };
+        //        tracing::info!("dhcp_discovery: {:?}", dhcp_discovery);
+        let out = self
+            .0
+            .find_interfaces(interface_search_query)
+            .await
+            .map_err(ClientApiError::InvocationError)?;
 
-            Ok(out)
-        })
-        .await
+        Ok(out)
     }
 
     pub async fn identify_mac(
         &self,
         mac_address: MacAddress,
     ) -> ClientApiResult<rpc::forge::IdentifyMacResponse> {
-        self.with_forge_client(|mut client| async move {
-            let identify_mac_req = rpc::forge::IdentifyMacRequest {
-                mac_address: mac_address.to_string(),
-            };
-            //        tracing::info!("dhcp_discovery: {:?}", dhcp_discovery);
-            let out = client
-                .identify_mac(tonic::Request::new(identify_mac_req))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)?;
+        let identify_mac_req = rpc::forge::IdentifyMacRequest {
+            mac_address: mac_address.to_string(),
+        };
+        //        tracing::info!("dhcp_discovery: {:?}", dhcp_discovery);
+        let out = self
+            .0
+            .identify_mac(identify_mac_req)
+            .await
+            .map_err(ClientApiError::InvocationError)?;
 
-            Ok(out)
-        })
-        .await
+        Ok(out)
     }
 
     pub async fn discover_machine(
@@ -249,15 +220,12 @@ impl ApiClient<'_> {
             create_machine: true,
         };
 
-        self.with_forge_client(|mut client| async move {
-            let out = client
-                .discover_machine(tonic::Request::new(mdi))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)?;
-            Ok(out)
-        })
-        .await
+        let out = self
+            .0
+            .discover_machine(mdi)
+            .await
+            .map_err(ClientApiError::InvocationError)?;
+        Ok(out)
     }
 
     pub async fn forge_agent_control(
@@ -266,17 +234,12 @@ impl ApiClient<'_> {
     ) -> ClientApiResult<rpc::forge::ForgeAgentControlResponse> {
         let machine_id = Some(machine_id);
 
-        self.with_forge_client(|mut client| async move {
-            let out = client
-                .forge_agent_control(tonic::Request::new(rpc::forge::ForgeAgentControlRequest {
-                    machine_id,
-                }))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)?;
-            Ok(out)
-        })
-        .await
+        let out = self
+            .0
+            .forge_agent_control(rpc::forge::ForgeAgentControlRequest { machine_id })
+            .await
+            .map_err(ClientApiError::InvocationError)?;
+        Ok(out)
     }
 
     pub async fn discovery_complete(
@@ -285,17 +248,12 @@ impl ApiClient<'_> {
     ) -> ClientApiResult<rpc::forge::MachineDiscoveryCompletedResponse> {
         let machine_id = Some(machine_id);
 
-        self.with_forge_client(|mut client| async move {
-            let out = client
-                .discovery_completed(tonic::Request::new(
-                    rpc::forge::MachineDiscoveryCompletedRequest { machine_id },
-                ))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)?;
-            Ok(out)
-        })
-        .await
+        let out = self
+            .0
+            .discovery_completed(rpc::forge::MachineDiscoveryCompletedRequest { machine_id })
+            .await
+            .map_err(ClientApiError::InvocationError)?;
+        Ok(out)
     }
 
     pub async fn get_machines(
@@ -309,45 +267,39 @@ impl ApiClient<'_> {
                 .collect(),
             include_history: false,
         };
-        self.with_forge_client(|mut client| async move {
-            let out = client
-                .find_machines_by_ids(tonic::Request::new(request))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)?;
+        let out = self
+            .0
+            .find_machines_by_ids(request)
+            .await
+            .map_err(ClientApiError::InvocationError)?;
 
-            Ok(out.machines)
-        })
-        .await
+        Ok(out.machines)
     }
 
     pub async fn identify_serial(
         &self,
         serial: String,
     ) -> ClientApiResult<::rpc::common::MachineId> {
-        self.with_forge_client(|mut client| async move {
-            let out = match client
-                .identify_serial(tonic::Request::new(rpc::forge::IdentifySerialRequest {
-                    serial_number: serial,
-                }))
-                .await
-                .map(|response| response.into_inner())
-            {
-                Ok(m) => m,
-                Err(status) if status.code() == tonic::Code::NotFound => {
-                    return Err(ClientApiError::ConfigError("SerialNotFound".to_string()));
-                }
-                Err(err) => {
-                    tracing::error!(%err, "identify_serial error calling grpc identify_serial");
-                    return Err(ClientApiError::ConfigError(err.to_string()));
-                }
-            };
+        let out = match self
+            .0
+            .identify_serial(rpc::forge::IdentifySerialRequest {
+                serial_number: serial,
+            })
+            .await
+        {
+            Ok(m) => m,
+            Err(status) if status.code() == tonic::Code::NotFound => {
+                return Err(ClientApiError::ConfigError("SerialNotFound".to_string()));
+            }
+            Err(err) => {
+                tracing::error!(%err, "identify_serial error calling grpc identify_serial");
+                return Err(ClientApiError::ConfigError(err.to_string()));
+            }
+        };
 
-            out.machine_id.ok_or(ClientApiError::ConfigError(
-                "Serial number found without associated machine ID".to_string(),
-            ))
-        })
-        .await
+        out.machine_id.ok_or(ClientApiError::ConfigError(
+            "Serial number found without associated machine ID".to_string(),
+        ))
     }
 
     pub async fn get_managed_host_network_config(
@@ -356,18 +308,15 @@ impl ApiClient<'_> {
     ) -> ClientApiResult<rpc::forge::ManagedHostNetworkConfigResponse> {
         let dpu_machine_id = Some(dpu_machine_id);
 
-        self.with_forge_client(|mut client| async move {
-            let out = client
-                .get_managed_host_network_config(tonic::Request::new(
-                    rpc::forge::ManagedHostNetworkConfigRequest { dpu_machine_id },
-                ))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)?;
+        let out = self
+            .0
+            .get_managed_host_network_config(rpc::forge::ManagedHostNetworkConfigRequest {
+                dpu_machine_id,
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)?;
 
-            Ok(out)
-        })
-        .await
+        Ok(out)
     }
 
     pub async fn record_dpu_network_status(
@@ -389,64 +338,52 @@ impl ApiClient<'_> {
             .clone()
             .or(Some(forge_version::v!(build_version).to_string()));
 
-        self.with_forge_client(|mut client| async move {
-            client
-                .record_dpu_network_status(tonic::Request::new(rpc::forge::DpuNetworkStatus {
-                    dpu_health: Some(rpc::health::HealthReport {
-                        source: "forge-dpu-agent".to_string(),
-                        observed_at: None,
-                        successes: Vec::new(),
-                        alerts: Vec::new(),
-                    }),
-                    dpu_machine_id,
+        self.0
+            .record_dpu_network_status(rpc::forge::DpuNetworkStatus {
+                dpu_health: Some(rpc::health::HealthReport {
+                    source: "forge-dpu-agent".to_string(),
                     observed_at: None,
-                    network_config_version: Some(network_config_version),
-                    instance_config_version,
-                    instance_network_config_version,
-                    interfaces,
-                    network_config_error: None,
-                    instance_id,
-                    dpu_agent_version,
-                    client_certificate_expiry_unix_epoch_secs: None,
-                    fabric_interfaces: vec![],
-                    last_dhcp_requests: vec![],
-                }))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
+                    successes: Vec::new(),
+                    alerts: Vec::new(),
+                }),
+                dpu_machine_id,
+                observed_at: None,
+                network_config_version: Some(network_config_version),
+                instance_config_version,
+                instance_network_config_version,
+                interfaces,
+                network_config_error: None,
+                instance_id,
+                dpu_agent_version,
+                client_certificate_expiry_unix_epoch_secs: None,
+                fabric_interfaces: vec![],
+                last_dhcp_requests: vec![],
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)
     }
 
     pub async fn find_network_segments(&self) -> ClientApiResult<rpc::forge::NetworkSegmentList> {
-        self.with_forge_client(|mut client| async move {
-            client
-                .find_network_segments(tonic::Request::new(rpc::forge::NetworkSegmentQuery {
-                    id: None,
-                    search_config: None,
-                }))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
+        self.0
+            .find_network_segments(rpc::forge::NetworkSegmentQuery {
+                id: None,
+                search_config: None,
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)
     }
 
     pub async fn find_machine_ids(&self) -> ClientApiResult<rpc::common::MachineIdList> {
-        self.with_forge_client(|mut client| async move {
-            client
-                .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
-                    include_dpus: false,
-                    include_history: true,
-                    include_predicted_host: true,
-                    only_maintenance: false,
-                    exclude_hosts: false,
-                }))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
+        self.0
+            .find_machine_ids(rpc::forge::MachineSearchConfig {
+                include_dpus: false,
+                include_history: true,
+                include_predicted_host: true,
+                only_maintenance: false,
+                exclude_hosts: false,
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)
     }
 
     pub async fn allocate_instance(
@@ -454,107 +391,94 @@ impl ApiClient<'_> {
         host_machine_id: &str,
         network_segment_name: &str,
     ) -> ClientApiResult<rpc::forge::Instance> {
-        self.with_forge_client(|mut client| async move {
-            let segment_request = tonic::Request::new(rpc::forge::NetworkSegmentSearchFilter {
-                name: Some(network_segment_name.to_owned()),
-                tenant_org_id: None,
-            });
+        let segment_request = rpc::forge::NetworkSegmentSearchFilter {
+            name: Some(network_segment_name.to_owned()),
+            tenant_org_id: None,
+        };
 
-            let network_segment_ids = match client
-                .find_network_segment_ids(segment_request).await {
-                Ok(response) => {
-                    response.into_inner()
-                }
+        let network_segment_ids = self
+            .0
+            .find_network_segment_ids(segment_request)
+            .await
+            .map_err(|e| {
+                ClientApiError::ConfigError(format!(
+                    "network segment: {} retrieval error {}",
+                    network_segment_name, e
+                ))
+            })?;
 
-                Err(e) => {
-                    return Err(ClientApiError::ConfigError(format!(
-                        "network segment: {} retrieval error {}",
-                        network_segment_name, e)));
-                }
-            };
+        if network_segment_ids.network_segments_ids.is_empty() {
+            return Err(ClientApiError::ConfigError(format!(
+                "network segment: {} not found.",
+                network_segment_name
+            )));
+        } else if network_segment_ids.network_segments_ids.len() >= 2 {
+            tracing::warn!(
+                "Network segments from previous runs of machine-a-tron have not been cleaned up. Suggested to start again after cleaning db."
+            );
+        }
+        let network_segment_id = network_segment_ids.network_segments_ids.first();
 
-            if network_segment_ids.network_segments_ids.is_empty() {
-                return Err(ClientApiError::ConfigError(format!(
-                    "network segment: {} not found.", network_segment_name)));
-            } else if network_segment_ids.network_segments_ids.len() >= 2 {
-                tracing::warn!("Network segments from previous runs of machine-a-tron have not been cleaned up. Suggested to start again after cleaning db.");
-            }
-            let network_segment_id = network_segment_ids.network_segments_ids.first();
+        let interface_config = rpc::forge::InstanceInterfaceConfig {
+            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            network_segment_id: network_segment_id.cloned(),
+            network_details: network_segment_id
+                .cloned()
+                .map(rpc::forge::instance_interface_config::NetworkDetails::SegmentId),
+        };
 
-            let interface_config = rpc::forge::InstanceInterfaceConfig {
-                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
-                network_segment_id: network_segment_id.cloned(),
-                network_details: network_segment_id.cloned().map(rpc::forge::instance_interface_config::NetworkDetails::SegmentId),
-            };
+        let tenant_config = rpc::TenantConfig {
+            user_data: None,
+            custom_ipxe: "Non-existing-ipxe".to_string(),
+            phone_home_enabled: false,
+            always_boot_with_custom_ipxe: false,
+            tenant_organization_id: "Forge-simulation-tenant".to_string(),
+            tenant_keyset_ids: vec![],
+            hostname: None,
+        };
 
-            let tenant_config = rpc::TenantConfig {
-                user_data: None,
-                custom_ipxe: "Non-existing-ipxe".to_string(),
-                phone_home_enabled: false,
-                always_boot_with_custom_ipxe: false,
-                tenant_organization_id: "Forge-simulation-tenant".to_string(),
-                tenant_keyset_ids: vec![],
-                hostname: None,
-            };
+        let instance_config = rpc::InstanceConfig {
+            tenant: Some(tenant_config),
+            os: None,
+            network: Some(rpc::InstanceNetworkConfig {
+                interfaces: vec![interface_config],
+            }),
+            network_security_group_id: None,
+            infiniband: None,
+            storage: None,
+        };
 
-            let instance_config = rpc::InstanceConfig {
-                tenant: Some(tenant_config),
-                os: None,
-                network: Some(rpc::InstanceNetworkConfig {
-                    interfaces: vec![interface_config],
-                }),
-                network_security_group_id: None,
-                infiniband: None,
-                storage: None,
-            };
+        let instance_request = rpc::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: Some(rpc::MachineId {
+                id: host_machine_id.to_owned(),
+            }),
+            //  None here means the allocation will simply inherit the
+            // instance_type_id of the machine in the request, whatever it is.
+            instance_type_id: None,
+            config: Some(instance_config),
+            metadata: None,
+        };
 
-            let instance_request = tonic::Request::new(rpc::InstanceAllocationRequest {
-                instance_id: None,
-                machine_id: Some(rpc::MachineId {
-                    id: host_machine_id.to_owned(),
-                }),
-                //  None here means the allocation will simply inherit the
-                // instance_type_id of the machine in the request, whatever it is.
-                instance_type_id: None,
-                config: Some(instance_config),
-                metadata: None,
-            });
-
-            client
-                .allocate_instance(instance_request)
-                .await
-                .map(
-                    |response: tonic::Response<rpc::forge::Instance>| {
-                        response.into_inner()
-                    },
-                )
-                .map_err(ClientApiError::InvocationError)
-        }).await
+        self.0
+            .allocate_instance(instance_request)
+            .await
+            .map_err(ClientApiError::InvocationError)
     }
 
     pub async fn force_delete_machine(
         &self,
         machine_id: String,
     ) -> ClientApiResult<rpc::forge::AdminForceDeleteMachineResponse> {
-        self.with_forge_client(|mut client| async move {
-            client
-                .admin_force_delete_machine(tonic::Request::new(
-                    rpc::forge::AdminForceDeleteMachineRequest {
-                        host_query: machine_id,
-                        delete_interfaces: true,
-                        delete_bmc_interfaces: true,
-                        delete_bmc_credentials: false,
-                    },
-                ))
-                .await
-                .map(
-                    |response: tonic::Response<rpc::forge::AdminForceDeleteMachineResponse>| {
-                        response.into_inner()
-                    },
-                )
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
+        self.0
+            .admin_force_delete_machine(rpc::forge::AdminForceDeleteMachineRequest {
+                host_query: machine_id,
+                delete_interfaces: true,
+                delete_bmc_interfaces: true,
+                delete_bmc_credentials: false,
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)
     }
 
     pub async fn create_network_segment(
@@ -563,119 +487,108 @@ impl ApiClient<'_> {
     ) -> ClientApiResult<rpc::NetworkSegment> {
         let subnet_count = SUBNET_COUNTER.fetch_add(1, Ordering::Acquire);
 
-        self.with_forge_client(|mut client| async move {
-            let vpc_ids_all = client.find_vpc_ids(
-                tonic::Request::new(rpc::forge::VpcSearchFilter {
-                    tenant_org_id: None,
-                    name: Some(vpc_name.clone()),
-                    label: None,
-                })
-            ).await;
+        let vpc_ids_all = self
+            .0
+            .find_vpc_ids(rpc::forge::VpcSearchFilter {
+                tenant_org_id: None,
+                name: Some(vpc_name.clone()),
+                label: None,
+            })
+            .await;
 
-            match vpc_ids_all {
-                Ok(response) => {
-                    let vpc_id_list = response.into_inner();
+        match vpc_ids_all {
+            Ok(vpc_id_list) => {
+                match vpc_id_list.vpc_ids.len() {
+                    0 => tracing::error!(
+                        "There are no VPC ids associated with {}. Should not have happened.",
+                        *vpc_name
+                    ),
+                    1 => {}
+                    _ => tracing::warn!(
+                        "There are {} VPC ids associated with {}. Should not have happened. Clean up DB and start over.",
+                        vpc_id_list.vpc_ids.len(),
+                        vpc_name
+                    ),
+                }
 
-                    match vpc_id_list.vpc_ids.len() {
-                        0 => tracing::error!("There are no VPC ids associated with {}. Should not have happened.", *vpc_name),
-                        1 => {}
-                        _ => tracing::warn!("There are {} VPC ids associated with {}. Should not have happened. Clean up DB and start over.",vpc_id_list.vpc_ids.len(), vpc_name),
-                    }
-
-                    client
-                        .create_network_segment(tonic::Request::new(rpc::forge::NetworkSegmentCreationRequest {
+                self.0
+                    .create_network_segment(rpc::forge::NetworkSegmentCreationRequest {
+                        id: None,
+                        vpc_id: vpc_id_list.vpc_ids.first().cloned(),
+                        name: format!("subnet_{}", subnet_count),
+                        segment_type: rpc::forge::NetworkSegmentType::Tenant.into(),
+                        prefixes: vec![rpc::forge::NetworkPrefix {
                             id: None,
-                            vpc_id: vpc_id_list.vpc_ids.first().cloned(),
-                            name: format!("subnet_{}", subnet_count),
-                            segment_type: rpc::forge::NetworkSegmentType::Tenant.into(),
-                            prefixes: vec![rpc::forge::NetworkPrefix {
-                                id: None,
-                                prefix: format!("192.5.{}.12/24", subnet_count),
-                                gateway: Some(format!("192.5.{}.13", subnet_count)),
-                                reserve_first: 1,
-                                state: None,
-                                events: vec![],
-                                free_ip_count: 1022,
-                                svi_ip: None
-                            }],
-                            mtu: Some(1500),
-                            subdomain_id: None,
-                        }))
-                        .await
-                        .map(|response| response.into_inner())
-                        .map_err(ClientApiError::InvocationError)
-                }
-                Err(e) => {
-                    Err(ClientApiError::ConnectFailed(format!("Error {} when finding VPC {}", e, *vpc_name)))
-                }
+                            prefix: format!("192.5.{}.12/24", subnet_count),
+                            gateway: Some(format!("192.5.{}.13", subnet_count)),
+                            reserve_first: 1,
+                            state: None,
+                            events: vec![],
+                            free_ip_count: 1022,
+                            svi_ip: None,
+                        }],
+                        mtu: Some(1500),
+                        subdomain_id: None,
+                    })
+                    .await
+                    .map_err(ClientApiError::InvocationError)
             }
-        })
-            .await
+            Err(e) => Err(ClientApiError::ConnectFailed(format!(
+                "Error {} when finding VPC {}",
+                e, *vpc_name
+            ))),
+        }
     }
 
     pub async fn delete_network_segment(
         &self,
         vpc_id: &Uuid,
     ) -> ClientApiResult<rpc::forge::NetworkSegmentDeletionResult> {
-        self.with_forge_client(|mut client| async move {
-            client
-                .delete_network_segment(tonic::Request::new(
-                    rpc::forge::NetworkSegmentDeletionRequest {
-                        id: Some(rpc::Uuid {
-                            value: vpc_id.to_string(),
-                        }),
-                    },
-                ))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
+        self.0
+            .delete_network_segment(rpc::forge::NetworkSegmentDeletionRequest {
+                id: Some(rpc::Uuid {
+                    value: vpc_id.to_string(),
+                }),
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)
     }
 
     pub async fn create_vpc(&self) -> ClientApiResult<rpc::forge::Vpc> {
         let vpc_count = VPC_COUNTER.fetch_add(1, Ordering::Acquire);
-        self.with_forge_client(|mut client| async move {
-            client
-                .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-                    id: None,
-                    name: "".to_string(),
-                    tenant_organization_id: "Forge-simulation-tenant".to_string(),
-                    tenant_keyset_id: None,
-                    network_security_group_id: None,
-                    network_virtualization_type: None,
-                    metadata: Some(rpc::forge::Metadata {
-                        name: format!("vpc_{}", vpc_count),
-                        description: "".to_string(),
-                        labels: vec![rpc::forge::Label {
-                            key: "Forge-simulation-vpc".to_string(),
-                            value: Some("Machine-a-tron".to_string()),
-                        }],
-                    }),
-                }))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
+        self.0
+            .create_vpc(rpc::forge::VpcCreationRequest {
+                id: None,
+                name: "".to_string(),
+                tenant_organization_id: "Forge-simulation-tenant".to_string(),
+                tenant_keyset_id: None,
+                network_security_group_id: None,
+                network_virtualization_type: None,
+                metadata: Some(rpc::forge::Metadata {
+                    name: format!("vpc_{}", vpc_count),
+                    description: "".to_string(),
+                    labels: vec![rpc::forge::Label {
+                        key: "Forge-simulation-vpc".to_string(),
+                        value: Some("Machine-a-tron".to_string()),
+                    }],
+                }),
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)
     }
 
     pub async fn delete_vpc(
         &self,
         vpc_id: &Uuid,
     ) -> ClientApiResult<rpc::forge::VpcDeletionResult> {
-        self.with_forge_client(|mut client| async move {
-            client
-                .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
-                    id: Some(rpc::Uuid {
-                        value: vpc_id.to_string(),
-                    }),
-                }))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
+        self.0
+            .delete_vpc(rpc::forge::VpcDeletionRequest {
+                id: Some(rpc::Uuid {
+                    value: vpc_id.to_string(),
+                }),
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)
     }
 
     pub async fn machine_validation_complete(
@@ -683,20 +596,15 @@ impl ApiClient<'_> {
         machine_id: &rpc::MachineId,
         validation_id: rpc::common::Uuid,
     ) -> ClientApiResult<()> {
-        self.with_forge_client(|mut client| async move {
-            client
-                .machine_validation_completed(tonic::Request::new(
-                    rpc::forge::MachineValidationCompletedRequest {
-                        machine_id: Some(machine_id.clone()),
-                        machine_validation_error: None,
-                        validation_id: Some(validation_id),
-                    },
-                ))
-                .await
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
-        .map(|_| ())
+        self.0
+            .machine_validation_completed(rpc::forge::MachineValidationCompletedRequest {
+                machine_id: Some(machine_id.clone()),
+                machine_validation_error: None,
+                validation_id: Some(validation_id),
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)
+            .map(|_| ())
     }
 
     pub async fn cleanup_complete(&self, machine_id: &rpc::MachineId) -> ClientApiResult<()> {
@@ -721,29 +629,21 @@ impl ApiClient<'_> {
             result: 0,
         };
 
-        self.with_forge_client(|mut client| async move {
-            client
-                .cleanup_machine_completed(tonic::Request::new(cleanup_info))
-                .await
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
-        .map(|_| ())
+        self.0
+            .cleanup_machine_completed(cleanup_info)
+            .await
+            .map_err(ClientApiError::InvocationError)
+            .map(|_| ())
     }
 
     pub async fn reboot_completed(&self, machine_id: rpc::MachineId) -> ClientApiResult<()> {
-        self.with_forge_client(|mut client| async move {
-            client
-                .reboot_completed(tonic::Request::new(
-                    rpc::forge::MachineRebootCompletedRequest {
-                        machine_id: Some(machine_id),
-                    },
-                ))
-                .await
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
-        .map(|_| ())
+        self.0
+            .reboot_completed(rpc::forge::MachineRebootCompletedRequest {
+                machine_id: Some(machine_id),
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)
+            .map(|_| ())
     }
 
     pub async fn get_pxe_instructions(
@@ -751,45 +651,31 @@ impl ApiClient<'_> {
         arch: rpc::forge::MachineArchitecture,
         interface_id: rpc::Uuid,
     ) -> ClientApiResult<PxeInstructions> {
-        self.with_forge_client(|mut client| async move {
-            client
-                .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-                    arch: arch.into(),
-                    interface_id: Some(interface_id),
-                }))
-                .await
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
-        .map(|r| r.into_inner())
+        self.0
+            .get_pxe_instructions(rpc::forge::PxeInstructionRequest {
+                arch: arch.into(),
+                interface_id: Some(interface_id),
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)
     }
 
     pub async fn get_site_exploration_report(&self) -> ClientApiResult<SiteExplorationReport> {
-        self.with_forge_client(|mut client| async move {
-            client
-                .get_site_exploration_report(tonic::Request::new(
-                    rpc::forge::GetSiteExplorationRequest {},
-                ))
-                .await
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
-        .map(|r| r.into_inner())
+        self.0
+            .get_site_exploration_report(rpc::forge::GetSiteExplorationRequest {})
+            .await
+            .map_err(ClientApiError::InvocationError)
     }
 
     pub async fn configure_bmc_proxy_host(&self, host: String) -> ClientApiResult<()> {
-        self.with_forge_client(|mut client| async move {
-            client
-                .set_dynamic_config(tonic::Request::new(SetDynamicConfigRequest {
-                    setting: ConfigSetting::BmcProxy as i32,
-                    value: host,
-                    expiry: None,
-                }))
-                .await
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
-        .map(|r| r.into_inner())
+        self.0
+            .set_dynamic_config(SetDynamicConfigRequest {
+                setting: ConfigSetting::BmcProxy as i32,
+                value: host,
+                expiry: None,
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)
     }
 
     pub async fn add_expected_machine(
@@ -797,35 +683,26 @@ impl ApiClient<'_> {
         bmc_mac_address: String,
         chassis_serial_number: String,
     ) -> ClientApiResult<()> {
-        self.with_forge_client(|mut client| async move {
-            client
-                .add_expected_machine(tonic::Request::new(ExpectedMachine {
-                    bmc_mac_address,
-                    bmc_username: "root".to_string(),
-                    bmc_password: "factory_password".to_string(),
-                    chassis_serial_number,
-                    fallback_dpu_serial_numbers: Vec::new(),
-                    metadata: None,
-                }))
-                .await
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
-        .map(|r| r.into_inner())
+        self.0
+            .add_expected_machine(ExpectedMachine {
+                bmc_mac_address,
+                bmc_username: "root".to_string(),
+                bmc_password: "factory_password".to_string(),
+                chassis_serial_number,
+                fallback_dpu_serial_numbers: Vec::new(),
+                metadata: None,
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)
     }
 
     pub async fn get_desired_firmware(
         &self,
     ) -> ClientApiResult<Vec<rpc::forge::DesiredFirmwareVersionEntry>> {
-        self.with_forge_client(|mut client| async move {
-            client
-                .get_desired_firmware_versions(tonic::Request::new(
-                    GetDesiredFirmwareVersionsRequest {},
-                ))
-                .await
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
-        .map(|r| r.into_inner().entries)
+        self.0
+            .get_desired_firmware_versions(GetDesiredFirmwareVersionsRequest {})
+            .await
+            .map_err(ClientApiError::InvocationError)
+            .map(|r| r.entries)
     }
 }

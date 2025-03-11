@@ -375,7 +375,7 @@ impl MainLoop {
         let mut current_instance_id = None;
 
         let client_certificate_expiry_unix_epoch_secs =
-            self.forge_client_config.client_cert_expiry().await;
+            self.forge_client_config.client_cert_expiry();
 
         let fabric_interfaces = get_fabric_interfaces_data().await.unwrap_or_else(|err| {
             tracing::warn!("Error getting link data for fabric interfaces: {err:#}");

@@ -1,6 +1,5 @@
 use crate::api_client::ApiClient;
 use crate::api_throttler::ApiCommand::GetMachine;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::{Machine, MachineId};
 use std::collections::{HashMap, HashSet};
 use tokio::sync::{mpsc, oneshot};
@@ -10,11 +9,7 @@ use tokio::time::Interval;
 /// such that we only run them a maximum of once per time interval. Every interval, the pending
 /// calls are coalesced into a single API call to save load on the server, and responses are
 /// returned.
-pub fn run(
-    mut interval: Interval,
-    carbide_url: String,
-    client_config: ForgeClientConfig,
-) -> ApiThrottler {
+pub fn run(mut interval: Interval, api_client: ApiClient) -> ApiThrottler {
     let (message_tx, mut control_rx) = mpsc::unbounded_channel();
     tokio::task::Builder::new()
         .name("ApiThrottler")
@@ -38,7 +33,7 @@ pub fn run(
                             // Max of 100 machine IDs at a time
                             let mut machines_by_id = HashMap::new();
                             for chunk in machine_ids.chunks(100) {
-                                let machines = ApiClient::from(ApiConfig::new(&carbide_url, &client_config)).get_machines(
+                                let machines = api_client.get_machines(
                                     chunk,
                                 )
                                 .await

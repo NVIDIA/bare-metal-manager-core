@@ -1,4 +1,4 @@
-use std::io::ErrorKind;
+use std::io;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,18 +19,21 @@ use rustls::{
 };
 use tonic::body::BoxBody;
 
+use crate::forge::VersionRequest;
 use crate::forge_resolver;
+use crate::forge_resolver::resolver::ResolverError;
+use crate::forge_tls_client::ConfigurationError::CouldNotReadRootCa;
 use crate::protos::forge::forge_client::ForgeClient;
 use hyper_util::client::legacy;
 use hyper_util::rt::{TokioExecutor, TokioTimer};
 use tower::ServiceExt;
-use tower::util::BoxService;
+use tower::util::BoxCloneService;
 use tryhard::backoff_strategies::FixedBackoff;
 use tryhard::{NoOnRetry, RetryFutureConfig};
 use x509_parser::prelude::{FromDer, X509Certificate};
 
 pub type ForgeClientT = ForgeClient<
-    BoxService<
+    BoxCloneService<
         hyper::Request<BoxBody>,
         hyper::Response<Incoming>,
         hyper_util::client::legacy::Error,
@@ -224,8 +227,8 @@ impl ForgeClientConfig {
         Ok(res)
     }
 
-    pub async fn client_cert_expiry(&self) -> Option<i64> {
-        if let Some((client_certs, _key)) = self.read_client_cert().await {
+    pub fn client_cert_expiry(&self) -> Option<i64> {
+        if let Some((client_certs, _key)) = self.read_client_cert() {
             if let Some(client_public_key) = client_certs.first() {
                 if let Ok((_rem, cert)) = X509Certificate::from_der(client_public_key) {
                     Some(cert.validity.not_after.timestamp())
@@ -240,65 +243,61 @@ impl ForgeClientConfig {
         }
     }
 
-    pub async fn read_client_cert(
+    pub fn read_client_cert(
         &self,
     ) -> Option<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
         if let Some(client_cert) = self.client_cert.as_ref() {
             let cert_path = client_cert.cert_path.clone();
             let key_path = client_cert.key_path.clone();
-            tokio::task::spawn_blocking(move || {
-                let certs = {
-                    let fd = match std::fs::File::open(cert_path) {
-                        Ok(fd) => fd,
-                        Err(_) => return None,
-                    };
-                    let mut buf = std::io::BufReader::new(&fd);
-
-                    let mut errors = vec![];
-
-                    let valid_certificates = rustls_pemfile::certs(&mut buf)
-                        .filter_map(|result| result.map_err(|e| errors.push(e)).ok())
-                        .collect();
-
-                    if !errors.is_empty() {
-                        tracing::warn!( certs = ?errors, "Found error parsing one or more certificates");
-                    }
-
-                    valid_certificates
+            let certs = {
+                let fd = match std::fs::File::open(cert_path) {
+                    Ok(fd) => fd,
+                    Err(_) => return None,
                 };
+                let mut buf = std::io::BufReader::new(&fd);
 
-                let key = {
-                    let fd = match std::fs::File::open(key_path) {
-                        Ok(fd) => fd,
-                        Err(_) => return None,
-                    };
-                    let mut buf = std::io::BufReader::new(&fd);
+                let mut errors = vec![];
 
-                    use rustls_pemfile::Item;
+                let valid_certificates = rustls_pemfile::certs(&mut buf)
+                    .filter_map(|result| result.map_err(|e| errors.push(e)).ok())
+                    .collect();
 
-                    match rustls_pemfile::read_one(&mut buf) {
-                        Ok(Some(item)) => match item {
-                            Item::Pkcs1Key(key) => Some(key.into()),
-                            Item::Pkcs8Key(key) => Some(key.into()),
-                            Item::Sec1Key(key) => Some(key.into()),
-                            _ => None,
-                        },
+                if !errors.is_empty() {
+                    tracing::warn!( certs = ?errors, "Found error parsing one or more certificates");
+                }
+
+                valid_certificates
+            };
+
+            let key = {
+                let fd = match std::fs::File::open(key_path) {
+                    Ok(fd) => fd,
+                    Err(_) => return None,
+                };
+                let mut buf = std::io::BufReader::new(&fd);
+
+                use rustls_pemfile::Item;
+
+                match rustls_pemfile::read_one(&mut buf) {
+                    Ok(Some(item)) => match item {
+                        Item::Pkcs1Key(key) => Some(key.into()),
+                        Item::Pkcs8Key(key) => Some(key.into()),
+                        Item::Sec1Key(key) => Some(key.into()),
                         _ => None,
-                    }
-                };
+                    },
+                    _ => None,
+                }
+            };
 
-                let key = match key {
-                    Some(key) => key,
-                    None => {
-                        // tracing::error!("Rustls error: no keys?");
-                        return None;
-                    }
-                };
+            let key = match key {
+                Some(key) => key,
+                None => {
+                    // tracing::error!("Rustls error: no keys?");
+                    return None;
+                }
+            };
 
-                Some((certs, key))
-            })
-            .await
-            .unwrap_or(None)
+            Some((certs, key))
         } else {
             None
         }
@@ -394,23 +393,53 @@ impl<'a> ForgeTlsClient<'a> {
     /// and return a client, integrating retries into the
     /// building attempts.
     pub async fn retry_build(api_config: &ApiConfig<'a>) -> ForgeTlsClientResult<ForgeClientT> {
-        // TODO(chet): Make this configurable. For now,
-        // hard-coding as 10 minutes worth of connect attempts..
-        let client = ForgeTlsClient::new(api_config.client_config);
-        match tryhard::retry_fn(|| client.build(api_config.url))
+        // In the retrying function, if the ForgeTlsClient just fails to even build, return _that_
+        // error early by putting it in the Ok(Err(e)) variant, so that tryhard doesn't keep
+        // retrying a configuration error.
+        let result: Result<Result<ForgeClientT, ForgeTlsClientError>, ForgeTlsClientError> =
+            tryhard::retry_fn(|| async move {
+                let mut client = match ForgeTlsClient::new(api_config.client_config)
+                    .build(api_config.url)
+                    .await
+                {
+                    Ok(client) => client,
+                    // Don't let tryhard retry this, just push the error into the Ok variant
+                    Err(e) => return Ok(Err(e)),
+                };
+
+                // The thing we actually want to retry is a test connection
+                client
+                    .version(tonic::Request::new(VersionRequest {
+                        display_config: false,
+                    }))
+                    .await
+                    .inspect_err(|err| {
+                        tracing::error!(
+                            "error connecting client to forge api (url: {}), will retry: {}",
+                            api_config.url,
+                            err
+                        );
+                    })
+                    .map_err(|e| ForgeTlsClientError::Connection(e.to_string()))?;
+
+                // ok, ok
+                Ok(Ok(client))
+            })
             .with_config(api_config.retry_config())
             .await
-        {
-            Ok(client) => Ok(client),
-            Err(err) => {
+            .inspect_err(|err| {
                 tracing::error!(
-                    "error building client to forge api (url: {}, attempts: {}): {}",
+                    "error connecting client to forge api (url: {}, attempts: {}): {}",
                     api_config.url,
                     api_config.retry_config.retries,
                     err
                 );
-                Err(ForgeTlsClientError::ConnectError(err.to_string()))
-            }
+            });
+
+        match result {
+            Ok(Ok(client)) => Ok(client),
+            Ok(Err(e)) => Err(e),
+            Err(e) => Err(e),
         }
     }
 
@@ -424,9 +453,12 @@ impl<'a> ForgeTlsClient<'a> {
     /// connection establishment internally.
     /// However using a fresh client could avoid getting a stale connection from
     /// a pool.
-    pub async fn build<S: AsRef<str>>(&self, url: S) -> Result<ForgeClientT, eyre::Report> {
+    pub async fn build<S: AsRef<str>>(&self, url: S) -> ForgeTlsClientResult<ForgeClientT> {
         let mut roots = RootCertStore::empty();
-        let uri = Uri::from_str(url.as_ref())?;
+        let uri = Uri::from_str(url.as_ref()).map_err(|e| ConfigurationError::InvalidUri {
+            uri_string: url.as_ref().to_string(),
+            error: e,
+        })?;
 
         // only check for the root cert if the uri we were given is actually HTTPS.  That lets tests function properly.
         if let Some(scheme) = uri.scheme() {
@@ -440,17 +472,13 @@ impl<'a> ForgeTlsClient<'a> {
                             rustls_pemfile::certs(&mut cert_cursor).filter_map(|cert| cert.ok()),
                         );
                     }
-                    Err(error) => match error.kind() {
-                        ErrorKind::NotFound => {
-                            return Err(eyre::eyre!(
-                                "Root CA file not found at '{}'",
-                                self.forge_client_config.root_ca_path,
-                            ));
+                    Err(error) => {
+                        return Err(CouldNotReadRootCa {
+                            path: self.forge_client_config.root_ca_path.clone(),
+                            error,
                         }
-                        _ => {
-                            return Err(error.into());
-                        }
-                    },
+                        .into());
+                    }
                 }
             }
         }
@@ -474,18 +502,22 @@ impl<'a> ForgeTlsClient<'a> {
                 }
             };
 
-            if let Some((certs, key)) = self.forge_client_config.read_client_cert().await {
-                builder().with_client_auth_cert(certs, key)?
+            if let Some((certs, key)) = self.forge_client_config.read_client_cert() {
+                builder()
+                    .with_client_auth_cert(certs, key)
+                    .map_err(ConfigurationError::InvalidClientCert)?
             } else {
                 builder().with_no_client_auth()
             }
         };
 
         let forge_resolv_config =
-            forge_resolver::resolver::ForgeResolveConf::with_system_resolv_conf()?;
+            forge_resolver::resolver::ForgeResolveConf::with_system_resolv_conf()
+                .map_err(ConfigurationError::Resolver)?;
         let forge_resolver_config = forge_resolver::resolver::into_forge_resolver_config(
             forge_resolv_config.parsed_configuration(),
-        )?;
+        )
+        .map_err(ConfigurationError::Resolver)?;
 
         let resolver_config = ResolverConfig::from_parts(
             forge_resolver_config.0.domain,
@@ -560,7 +592,7 @@ impl<'a> ForgeTlsClient<'a> {
             .pool_max_idle_per_host(2)
             .timer(TokioTimer::new())
             .build(connector)
-            .boxed();
+            .boxed_clone();
 
         let mut forge_client = ForgeClient::with_origin(hyper_client, uri);
 
@@ -576,7 +608,30 @@ impl<'a> ForgeTlsClient<'a> {
 #[derive(thiserror::Error, Debug)]
 pub enum ForgeTlsClientError {
     #[error("ConnectError error: {0}")]
-    ConnectError(String),
+    Connection(String),
+    #[error("Configuration error: {0}")]
+    Configuration(#[from] ConfigurationError),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ConfigurationError {
+    #[error("Invalid URI {uri_string}: {error}")]
+    InvalidUri {
+        uri_string: String,
+        error: hyper::http::uri::InvalidUri,
+    },
+    #[error("Could not read Root CA cert at {path}: {error}")]
+    CouldNotReadRootCa { path: String, error: io::Error },
+    #[error("Invalid client cert: {0}")]
+    InvalidClientCert(rustls::Error),
+    #[error("Error configuring resolver: {0}")]
+    Resolver(#[from] ResolverError),
+}
+
+impl From<ForgeTlsClientError> for tonic::Status {
+    fn from(value: ForgeTlsClientError) -> Self {
+        tonic::Status::unavailable(value.to_string())
+    }
 }
 
 pub type ForgeTlsClientResult<T> = Result<T, ForgeTlsClientError>;
