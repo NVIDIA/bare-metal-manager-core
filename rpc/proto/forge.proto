@@ -2177,10 +2177,26 @@ message ManagedHostNetworkConfigResponse {
   string remote_id = 15;
 
   // IPv4 prefixes to be denied in the DPU ACL rules.
-  repeated string deny_prefixes = 16;
+  // This is an old field that was hijacked to hold
+  // a combination of site_fabric_prefixes _and_ the
+  // actual deny_prefixes.  We need to keep populating it
+  // to keep older agents happy, but it should eventually go
+  // away.
+  repeated string deprecated_deny_prefixes = 16;
 
   // Network monitor pinger type
   optional string dpu_network_pinger_type = 17;
+
+  // IPv4 prefixes to be denied in the DPU ACL rules.
+  repeated string deny_prefixes = 18;
+
+  // List of IPv4 prefixes (in CIDR notation) that are assigned for tenant
+  // use within this site.
+  repeated string site_fabric_prefixes = 19;
+
+  // Level of VPC isolation to apply
+  VpcIsolationBehaviorType vpc_isolation_behavior = 20;
+
 
   // Enable forge DHCP on HBN
   bool enable_dhcp = 100;
@@ -2203,6 +2219,12 @@ message ManagedHostNetworkConfigResponse {
   // VPCs in the site will not be configured to get out to
   // the Internet.
   optional uint32 internet_l3_vni = 106;
+}
+
+enum VpcIsolationBehaviorType {
+  VPC_ISOLATION_INVALID = 0;
+  VPC_ISOLATION_OPEN    = 1;
+  VPC_ISOLATION_MUTUAL  = 2;
 }
 
 // Network configuration for a managed host (host + DPU pair) managed by Forge

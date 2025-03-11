@@ -245,13 +245,13 @@
     acl:
       ACL_tenancy:
         rule:
-          '1000':
+          '1001':
             action:
               deny: {}
             match:
               ip:
                 dest-ip: 192.0.2.0/24
-          '1001':
+          '1002':
             action:
               deny: {}
             match:

@@ -1612,6 +1612,19 @@ impl std::fmt::Display for VpcIsolationBehaviorType {
     }
 }
 
+impl From<VpcIsolationBehaviorType> for rpc::forge::VpcIsolationBehaviorType {
+    fn from(b: VpcIsolationBehaviorType) -> Self {
+        match b {
+            VpcIsolationBehaviorType::Open => {
+                rpc::forge::VpcIsolationBehaviorType::VpcIsolationOpen
+            }
+            VpcIsolationBehaviorType::MutualIsolation => {
+                rpc::forge::VpcIsolationBehaviorType::VpcIsolationMutual
+            }
+        }
+    }
+}
+
 impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
     fn from(value: CarbideConfig) -> Self {
         Self {

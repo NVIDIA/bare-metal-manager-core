@@ -258,8 +258,14 @@
               deny: {}
             match:
               ip:
-                dest-ip: 192.0.2.0/24
+                dest-ip: 10.217.0.0/16
           '1001':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 192.0.2.0/24
+          '1002':
             action:
               deny: {}
             match:

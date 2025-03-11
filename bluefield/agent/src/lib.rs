@@ -333,6 +333,8 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     uplinks: opts.uplinks,
                     dhcp_servers: opts.dhcp_servers,
                     deny_prefixes: vec![],
+                    site_fabric_prefixes: vec![],
+                    use_vpc_isolation: true,
                     route_servers: opts.route_servers,
                     l3_domains: vec![],
                     use_local_dhcp: false,

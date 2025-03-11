@@ -349,6 +349,19 @@ pub async fn update_nvue(
         ct_access_vlans: access_vlans,
         use_local_dhcp: nc.enable_dhcp,
         deny_prefixes: nc.deny_prefixes.clone(),
+        site_fabric_prefixes: nc.site_fabric_prefixes.clone(),
+
+        // For now, the isolation options boil down to a boolean,
+        // but the match will make sure we catch and adjust accordingly
+        // if that changes in the future.
+        use_vpc_isolation: match nc.vpc_isolation_behavior() {
+            rpc::VpcIsolationBehaviorType::VpcIsolationInvalid => {
+                return Err(eyre::eyre!("received invalid VPC-isolation config"));
+            }
+            rpc::VpcIsolationBehaviorType::VpcIsolationMutual => true,
+            //  There's no isolation.
+            rpc::VpcIsolationBehaviorType::VpcIsolationOpen => false,
+        },
 
         ct_l3_vni: nc.vpc_vni,
         ct_vrf_loopback: "FNN".to_string(),
@@ -1166,9 +1179,22 @@ fn write_acl_rules(
     let rules_by_interface =
         instance_interface_acls_by_name(&dpu_network_config.tenant_interfaces, hbn_device_names);
     // let ingress_interfaces = instance_interface_names(&dpu_network_config.tenant_interfaces);
+
+    let deny_prefixes = match dpu_network_config.vpc_isolation_behavior() {
+        rpc::VpcIsolationBehaviorType::VpcIsolationInvalid => {
+            return Err(eyre::eyre!("received invalid VPC isolation behavior"));
+        }
+        rpc::VpcIsolationBehaviorType::VpcIsolationMutual => [
+            dpu_network_config.site_fabric_prefixes.as_slice(),
+            dpu_network_config.deny_prefixes.as_slice(),
+        ]
+        .concat(),
+        rpc::VpcIsolationBehaviorType::VpcIsolationOpen => dpu_network_config.deny_prefixes.clone(),
+    };
+
     let config = acl_rules::AclConfig {
         interfaces: rules_by_interface,
-        deny_prefixes: dpu_network_config.deny_prefixes.clone(),
+        deny_prefixes,
     };
     let contents = acl_rules::build(config)?;
     write(contents, path, "forge-acl.rules")
@@ -1977,6 +2003,9 @@ mod tests {
             vpc_vni: None,
             route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
             deny_prefixes: vec!["192.0.2.0/24".into(), "198.51.100.0/24".into()],
+            site_fabric_prefixes: vec!["10.217.0.0/16".into()],
+            deprecated_deny_prefixes: vec![],
+            vpc_isolation_behavior: rpc::VpcIsolationBehaviorType::VpcIsolationMutual.into(),
             enable_dhcp: false,
             host_interface_id: Some("60cef902-9779-4666-8362-c9bb4b37185f".to_string()),
             is_primary_dpu: true,
@@ -2085,7 +2114,9 @@ mod tests {
                 .collect(),
             dhcp_servers: vec!["10.217.5.197".to_string()],
             route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
-            deny_prefixes: vec!["10.217.4.128/26".to_string()],
+            deny_prefixes: vec![],
+            use_vpc_isolation: false,
+            site_fabric_prefixes: vec!["10.217.4.128/26".to_string()],
             ct_port_configs: networks,
             ct_vrf_name: format!("vpc_{}", vpc_vni),
             use_local_dhcp: false,
@@ -2329,6 +2360,9 @@ mod tests {
             vpc_vni: None,
             route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
             deny_prefixes: vec!["192.0.2.0/24".into(), "198.51.100.0/24".into()],
+            site_fabric_prefixes: vec!["10.217.0.0/16".into()],
+            vpc_isolation_behavior: rpc::VpcIsolationBehaviorType::VpcIsolationMutual.into(),
+            deprecated_deny_prefixes: vec![],
             enable_dhcp: true,
             host_interface_id: Some("60cef902-9779-4666-8362-c9bb4b37185f".to_string()),
             min_dpu_functioning_links: None,

@@ -77,6 +77,10 @@ impl SiteFabricPrefixList {
         Self::from_ipnetwork_vec(prefixes)
     }
 
+    pub fn as_ip_slice(&self) -> &[IpNetwork] {
+        &self.prefixes
+    }
+
     // Check whether the given network matches any of our site fabric prefixes.
     pub fn contains(&self, network: IpNetwork) -> bool {
         use IpNetwork::*;

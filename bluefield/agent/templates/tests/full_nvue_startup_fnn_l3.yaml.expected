@@ -177,7 +177,7 @@
       deny_prefixes_ipv4:
         type: ipv4
         rule:
-          '1000':
+          '1001':
             action:
               deny: {}
             match:
