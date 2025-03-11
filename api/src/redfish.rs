@@ -667,6 +667,7 @@ pub mod test_support {
         RedfishError, Resource, SystemPowerControl,
         model::{
             ODataId, ODataLinks,
+            oem::nvidia_dpu::NicMode,
             secure_boot::SecureBootMode,
             sensor::GPUSensors,
             service_root::ServiceRoot,
@@ -1401,6 +1402,14 @@ pub mod test_support {
 
         async fn clear_nvram(&self) -> Result<(), RedfishError> {
             Ok(())
+        }
+
+        async fn get_nic_mode(&self) -> Result<Option<NicMode>, RedfishError> {
+            Ok(None)
+        }
+
+        async fn is_infinite_boot_enabled(&self) -> Result<Option<bool>, RedfishError> {
+            Ok(None)
         }
     }
 

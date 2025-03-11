@@ -15,6 +15,7 @@ use config_version::ConfigVersion;
 use forge_uuid::machine::{MachineId, MachineType};
 use itertools::Itertools;
 use libredfish::RedfishError;
+use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -860,8 +861,6 @@ pub enum EndpointExplorationError {
     },
 }
 
-pub const DPU_BIOS_ATTRIBUTES_MISSING: &str = "DPU has an empty BIOS attributes";
-
 impl EndpointExplorationError {
     pub fn is_unauthorized(&self) -> bool {
         matches!(self, EndpointExplorationError::Unauthorized { .. })
@@ -893,30 +892,10 @@ pub enum EndpointType {
     Unknown,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum NicMode {
-    Dpu,
-    Nic,
-}
-
-impl FromStr for NicMode {
-    type Err = ();
-
-    fn from_str(input: &str) -> Result<NicMode, Self::Err> {
-        match input {
-            "NicMode" => Ok(NicMode::Nic),
-            "DpuMode" => Ok(NicMode::Dpu),
-            _ => Err(()),
-        }
-    }
-}
-
 #[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ComputerSystemAttributes {
     pub nic_mode: Option<NicMode>,
-    pub http_dev1_interface: Option<String>,
     pub is_infinite_boot_enabled: Option<bool>,
 }
 
@@ -1484,7 +1463,6 @@ mod tests {
                 serial_number: Some("MT2242XZ00NX".to_string()),
                 attributes: ComputerSystemAttributes {
                     nic_mode: Some(NicMode::Dpu),
-                    http_dev1_interface: None,
                     is_infinite_boot_enabled: None,
                 },
                 pcie_devices: vec![],
@@ -1542,7 +1520,6 @@ mod tests {
                 serial_number: Some("MT2242XZ00NX".to_string()),
                 attributes: ComputerSystemAttributes {
                     nic_mode: Some(NicMode::Dpu),
-                    http_dev1_interface: None,
                     is_infinite_boot_enabled: None,
                 },
                 pcie_devices: vec![],

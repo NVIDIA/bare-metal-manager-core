@@ -20,6 +20,7 @@ use std::{
 use chrono::Utc;
 use config_version::ConfigVersion;
 use itertools::Itertools;
+use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
 use managed_host::ManagedHost;
 use sqlx::{PgPool, Postgres, Transaction};
@@ -48,7 +49,7 @@ use crate::{
         metadata::Metadata,
         site_explorer::{
             EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
-            ExploredEndpoint, ExploredManagedHost, MachineExpectation, NicMode, PowerState,
+            ExploredEndpoint, ExploredManagedHost, MachineExpectation, PowerState,
             PreingestionState, Service,
         },
     },

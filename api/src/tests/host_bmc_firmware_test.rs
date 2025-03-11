@@ -315,7 +315,6 @@ fn build_exploration_report(
             serial_number: None,
             attributes: ComputerSystemAttributes {
                 nic_mode: None,
-                http_dev1_interface: None,
                 is_infinite_boot_enabled: Some(true),
             },
             pcie_devices: vec![],

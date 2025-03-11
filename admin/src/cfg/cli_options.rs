@@ -869,6 +869,8 @@ pub enum RedfishCommand {
     Browse(UriInfo),
     // Set BIOS options
     SetBios(SetBios),
+    InNicMode,
+    IsInfiniteBootEnabled,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
