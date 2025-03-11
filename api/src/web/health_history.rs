@@ -11,15 +11,17 @@
  */
 
 use askama::Template;
+use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use forge_uuid::machine::MachineId;
-use health_report::HealthReport;
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
 use std::{str::FromStr, sync::Arc};
 
-use super::filters;
+use super::{
+    filters,
+    health::{HealthReportRecord, fetch_health_history},
+};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -29,25 +31,47 @@ struct MachineHealth {
     history: Vec<HealthReportRecord>,
 }
 
-struct HealthReportRecord {
-    timestamp: String,
-    health: health_report::HealthReport,
-}
-
 /// Show the health history for a certain Machine
-pub async fn health_history(
+pub async fn show_health_history(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
 ) -> Response {
-    let Ok(parsed_machine_id) = MachineId::from_str(&machine_id) else {
-        return (StatusCode::BAD_REQUEST, "invalid machine id").into_response();
+    let (machine_id, health_records) = match fetch_health_records(&state, &machine_id).await {
+        Ok((id, records)) => (id, records),
+        Err((code, msg)) => return (code, msg).into_response(),
+    };
+
+    let display = MachineHealth {
+        id: machine_id.id,
+        history: health_records,
+    };
+
+    (StatusCode::OK, Html(display.render().unwrap())).into_response()
+}
+
+pub async fn show_health_history_json(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(machine_id): AxumPath<String>,
+) -> Response {
+    let (_machine_id, health_records) = match fetch_health_records(&state, &machine_id).await {
+        Ok((id, records)) => (id, records),
+        Err((code, msg)) => return (code, msg).into_response(),
+    };
+    (StatusCode::OK, Json(health_records)).into_response()
+}
+
+pub async fn fetch_health_records(
+    api: &Api,
+    machine_id: &str,
+) -> Result<(::rpc::common::MachineId, Vec<HealthReportRecord>), (http::StatusCode, String)> {
+    let Ok(parsed_machine_id) = MachineId::from_str(machine_id) else {
+        return Err((StatusCode::BAD_REQUEST, "invalid machine id".to_string()));
     };
     if parsed_machine_id.machine_type().is_dpu() {
-        return (
+        return Err((
             StatusCode::NOT_FOUND,
-            "no health for dpu. see host machine instead",
-        )
-            .into_response();
+            "no health for dpu. see host machine instead".to_string(),
+        ));
     }
     let machine_id = parsed_machine_id.to_string();
 
@@ -55,42 +79,13 @@ pub async fn health_history(
         id: machine_id.clone(),
     };
 
-    let health_records = match state
-        .find_machine_health_histories(tonic::Request::new(
-            ::rpc::forge::MachineHealthHistoriesRequest {
-                machine_ids: vec![rpc_machine_id],
-            },
-        ))
-        .await
-        .map(|response| response.into_inner())
-    {
-        Ok(m) => m,
+    let health_records = match fetch_health_history(api, &rpc_machine_id).await {
+        Ok(records) => records,
         Err(err) => {
             tracing::error!(%err, %machine_id, "find_machine_health_histories");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, String::new()));
         }
-    }
-    .histories
-    .remove(&machine_id)
-    .unwrap_or_default()
-    .records;
-
-    let display = MachineHealth {
-        id: machine_id.clone(),
-        history: health_records
-            .into_iter()
-            .map(|record| HealthReportRecord {
-                timestamp: record.time.map(|time| time.to_string()).unwrap_or_default(),
-                health: record
-                    .health
-                    .map(|health| {
-                        HealthReport::try_from(health)
-                            .unwrap_or_else(health_report::HealthReport::malformed_report)
-                    })
-                    .unwrap_or_else(health_report::HealthReport::missing_report),
-            })
-            .collect(),
     };
 
-    (StatusCode::OK, Html(display.render().unwrap())).into_response()
+    Ok((rpc_machine_id, health_records))
 }

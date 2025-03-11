@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -40,9 +40,10 @@ struct DisplayedOverrideOrigin {
     mode: String,
 }
 
-struct HealthReportRecord {
-    timestamp: String,
-    health: health_report::HealthReport,
+#[derive(Debug, serde::Serialize)]
+pub(super) struct HealthReportRecord {
+    pub timestamp: String,
+    pub health: health_report::HealthReport,
 }
 
 struct LabeledHealthReport {
@@ -65,6 +66,7 @@ pub async fn health(
         )
             .into_response();
     }
+    let machine_id = parsed_machine_id.to_string();
 
     let rpc_machine_id = ::rpc::common::MachineId {
         id: machine_id.clone(),
@@ -216,31 +218,17 @@ pub async fn health(
         })
     }
 
-    let id = machine.id.unwrap_or_default().id;
-
-    let health_records = match state
-        .find_machine_health_histories(tonic::Request::new(
-            ::rpc::forge::MachineHealthHistoriesRequest {
-                machine_ids: vec![rpc_machine_id],
-            },
-        ))
-        .await
-        .map(|response| response.into_inner())
-    {
-        Ok(m) => m,
+    let health_records = match fetch_health_history(&state, &rpc_machine_id).await {
+        Ok(records) => records,
         Err(err) => {
             tracing::error!(%err, %machine_id, "find_machine_health_histories");
             return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
         }
-    }
-    .histories
-    .remove(&id)
-    .unwrap_or_default()
-    .records;
+    };
 
     let display = MachineHealth {
-        id: id.clone(),
-        machine_type: get_machine_type(&id),
+        id: machine_id.clone(),
+        machine_type: get_machine_type(&machine_id),
         reports,
         overrides: machine
             .health_overrides
@@ -254,19 +242,7 @@ pub async fn health(
                 source: o.source,
             })
             .collect(),
-        history: health_records
-            .into_iter()
-            .map(|record| HealthReportRecord {
-                timestamp: record.time.map(|time| time.to_string()).unwrap_or_default(),
-                health: record
-                    .health
-                    .map(|health| {
-                        HealthReport::try_from(health)
-                            .unwrap_or_else(health_report::HealthReport::malformed_report)
-                    })
-                    .unwrap_or_else(health_report::HealthReport::missing_report),
-            })
-            .collect(),
+        history: health_records,
     };
 
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
@@ -375,4 +351,40 @@ pub async fn remove_override(
         }
         Ok(_) => (StatusCode::OK, String::new()),
     }
+}
+
+pub(super) async fn fetch_health_history(
+    api: &Api,
+    machine_id: &::rpc::common::MachineId,
+) -> Result<Vec<HealthReportRecord>, tonic::Status> {
+    let mut records = api
+        .find_machine_health_histories(tonic::Request::new(
+            ::rpc::forge::MachineHealthHistoriesRequest {
+                machine_ids: vec![machine_id.clone()],
+            },
+        ))
+        .await
+        .map(|response| response.into_inner())?
+        .histories
+        .remove(&machine_id.id)
+        .unwrap_or_default()
+        .records;
+    // History is delivered with the oldest Entry First. Reverse for better display ordering
+    records.reverse();
+
+    let records = records
+        .into_iter()
+        .map(|record| HealthReportRecord {
+            timestamp: record.time.map(|time| time.to_string()).unwrap_or_default(),
+            health: record
+                .health
+                .map(|health| {
+                    HealthReport::try_from(health)
+                        .unwrap_or_else(health_report::HealthReport::malformed_report)
+                })
+                .unwrap_or_else(health_report::HealthReport::missing_report),
+        })
+        .collect();
+
+    Ok(records)
 }

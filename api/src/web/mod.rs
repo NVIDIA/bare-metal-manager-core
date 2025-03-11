@@ -275,8 +275,12 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             )
             .route("/machine/:machine_id/health", get(health::health))
             .route(
-                "/machine/:machine_id/health_history",
-                get(health_history::health_history),
+                "/machine/:machine_id/health-history",
+                get(health_history::show_health_history),
+            )
+            .route(
+                "/machine/:machine_id/health-history.json",
+                get(health_history::show_health_history_json),
             )
             .route(
                 "/machine/:machine_id/health/override/add",
