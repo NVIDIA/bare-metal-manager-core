@@ -13,17 +13,23 @@ use std::collections::VecDeque;
 
 use std::fmt::Write;
 use std::fs;
+use std::str::FromStr;
 use std::time::Duration;
 
 use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::ApiConfig;
+use chrono::Utc;
+use health_report::{
+    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
+};
 use prettytable::{Table, row};
 use tracing::warn;
 
 use super::cfg::cli_options::ShowMachine;
 use super::{default_uuid, rpc};
 use crate::cfg::cli_options::{
-    ForceDeleteMachineQuery, MachineAutoupdate, MachineHardwareInfoGpus, OverrideCommand,
+    ForceDeleteMachineQuery, HealthOverrideTemplates, MachineAutoupdate, MachineHardwareInfoGpus,
+    OverrideCommand,
 };
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
@@ -359,6 +365,85 @@ pub async fn handle_show(
     Ok(())
 }
 
+fn get_empty_template() -> HealthReport {
+    HealthReport {
+        source: "".to_string(),
+        observed_at: Some(Utc::now()),
+        successes: vec![HealthProbeSuccess {
+            id: HealthProbeId::from_str("test").unwrap(),
+            target: Some("".to_string()),
+        }],
+        alerts: vec![HealthProbeAlert {
+            id: HealthProbeId::from_str("test").unwrap(),
+            target: None,
+            in_alert_since: None,
+            message: "".to_string(),
+            tenant_message: None,
+            classifications: vec![
+                HealthAlertClassification::prevent_allocations(),
+                HealthAlertClassification::prevent_host_state_changes(),
+                HealthAlertClassification::suppress_external_alerting(),
+            ],
+        }],
+    }
+}
+
+fn get_health_report(template: HealthOverrideTemplates, message: Option<String>) -> HealthReport {
+    let mut report = HealthReport {
+        source: "admin-cli".to_string(),
+        observed_at: Some(Utc::now()),
+        successes: vec![],
+        alerts: vec![HealthProbeAlert {
+            id: HealthProbeId::from_str("Maintenance").unwrap(),
+            target: None,
+            in_alert_since: None,
+            message: message.unwrap_or_default(),
+            tenant_message: None,
+            classifications: vec![
+                HealthAlertClassification::prevent_allocations(),
+                HealthAlertClassification::suppress_external_alerting(),
+            ],
+        }],
+    };
+
+    match template {
+        HealthOverrideTemplates::HostUpdate => {
+            report.source = "host-update".to_string();
+            report.alerts[0].id = HealthProbeId::from_str("HostUpdateInProgress").unwrap();
+            report.alerts[0].target = Some("admin-cli".to_string());
+        }
+        HealthOverrideTemplates::InternalMaintenance => {
+            report.source = "maintenance".to_string();
+        }
+        HealthOverrideTemplates::OutForRepair => {
+            report.source = "manual-maintenance".to_string();
+            report.alerts[0].target = Some("OutForRepair".to_string());
+        }
+        HealthOverrideTemplates::Degraded => {
+            report.source = "manual-maintenance".to_string();
+            report.alerts[0].target = Some("Degraded".to_string());
+        }
+        HealthOverrideTemplates::Validation => {
+            report.source = "manual-maintenance".to_string();
+            report.alerts[0].target = Some("Validation".to_string());
+            report.alerts[0].classifications =
+                vec![HealthAlertClassification::suppress_external_alerting()];
+        }
+        HealthOverrideTemplates::SuppressExternalAlerting => {
+            report.source = "suppress-paging".to_string();
+            report.alerts[0].target = Some("SuppressExternalAlerting".to_string());
+            report.alerts[0].classifications =
+                vec![HealthAlertClassification::suppress_external_alerting()];
+        }
+        HealthOverrideTemplates::MarkHealthy => {
+            report.source = "admin-cli".to_string();
+            report.alerts.clear();
+        }
+    }
+
+    report
+}
+
 pub async fn handle_override(
     command: OverrideCommand,
     output_format: OutputFormat,
@@ -407,17 +492,27 @@ pub async fn handle_override(
                 }
             }
         }
-        OverrideCommand::Add {
-            machine_id,
-            health_report,
-            replace,
-        } => {
-            rpc::machine_insert_health_report_override(
-                machine_id,
+        OverrideCommand::Add(options) => {
+            let report = if let Some(template) = options.template {
+                get_health_report(template, options.message)
+            } else if let Some(health_report) = options.health_report {
                 serde_json::from_str::<health_report::HealthReport>(&health_report)
                     .map_err(CarbideCliError::JsonError)?
-                    .into(),
-                replace,
+            } else {
+                return Err(CarbideCliError::GenericError(
+                    "Either health_report or template name must be provided.".to_string(),
+                ));
+            };
+
+            if options.print_only {
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                return Ok(());
+            }
+
+            rpc::machine_insert_health_report_override(
+                options.machine_id,
+                report.into(),
+                options.replace,
                 api_config,
             )
             .await?;
@@ -428,6 +523,12 @@ pub async fn handle_override(
         } => {
             rpc::machine_remove_health_report_override(machine_id, report_source, api_config)
                 .await?;
+        }
+        OverrideCommand::PrintEmptyTemplate => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&get_empty_template()).unwrap()
+            );
         }
     }
 
