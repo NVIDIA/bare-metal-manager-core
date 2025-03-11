@@ -14,37 +14,31 @@ use std::net::TcpListener;
 use std::sync::Arc;
 use std::{
     collections::{BTreeMap, HashMap},
-    env, fs,
-    net::{Ipv4Addr, SocketAddr},
+    env,
+    net::Ipv4Addr,
     path::{self, PathBuf},
     time::{self, Duration},
 };
 
-use crate::api_server::{ApiServerTestConfig, TestFirmwareUpdateMode};
+use crate::api_server::ApiServerTestConfig;
 use crate::utils::IntegrationTestEnvironment;
 use ::machine_a_tron::{BmcMockRegistry, HostMachineActor, MachineATronConfig, MachineConfig};
 use ::utils::HostPortPair;
 use bmc_mock::ListenerOrAddress;
 use futures::FutureExt;
 use futures::future::join_all;
-use grpcurl::grpcurl;
-use host::machine_validation_completed;
 use itertools::Itertools;
 use sqlx::{Postgres, Row};
-use tokio::sync::RwLock;
 use tokio::time::sleep;
 
 mod api_server;
 mod domain;
-mod dpu;
 pub mod grpcurl;
-mod host;
 mod instance;
 mod machine;
 mod machine_a_tron;
 mod metrics;
 mod subnet;
-mod upgrade;
 mod utils;
 mod vault;
 mod vpc;
@@ -86,213 +80,10 @@ fn setup() {
     }
 }
 
-/// that `bootstrap-forge-docker` would do.
-/// It requires `grpcurl` and `vault` on the PATH,
-#[tokio::test(flavor = "multi_thread", worker_threads = 10)]
-#[serial_test::serial] // These tests drop/create a postgres database, prevent them from running concurrently
-async fn test_integration() -> eyre::Result<()> {
-    let Some(test_env) = IntegrationTestEnvironment::try_from_environment().await? else {
-        return Ok(());
-    };
-
-    // Save typing...
-    let IntegrationTestEnvironment {
-        carbide_api_addr,
-        root_dir,
-        carbide_metrics_addr,
-        db_pool,
-        metrics: _,
-        db_url: _,
-    } = test_env.clone();
-
-    // Run bmc-mock
-    let routers = HashMap::from([(
-        "".to_owned(),
-        bmc_mock::default_host_tar_router(false, None),
-    )]);
-    let mut bmc_mock_handle = bmc_mock::run_combined_mock::<String>(
-        Arc::new(RwLock::new(routers)),
-        None,
-        Some(ListenerOrAddress::Listener(TcpListener::bind(
-            "127.0.0.1:0",
-        )?)),
-    )
-    .await?;
-
-    let server_handle = utils::start_api_server(
-        test_env,
-        Some(HostPortPair::HostAndPort(
-            "127.0.0.1".to_string(),
-            bmc_mock_handle.address.port(),
-        )),
-        // TODO: enabling create_machines in site explorer causes failures
-        // it appears this test was written without site-explorer in mind.
-        ApiServerTestConfig {
-            use_site_explorer: false,
-            firmware_update_mode: TestFirmwareUpdateMode::Disabled,
-        },
-    )
-    .await?;
-
-    // And now.. Behold! The Test!
-
-    // Before the initial host bootstrap, the dns_records view
-    // should contain 0 entries.
-    assert_eq!(0i64, get_dns_record_count(&db_pool).await);
-
-    let agent_config_file = tempfile::NamedTempFile::new()?;
-    let upgrade_indicator_file = tempfile::NamedTempFile::new()?;
-    let dpu_info = dpu::bootstrap(
-        agent_config_file.path(),
-        upgrade_indicator_file.path(),
-        carbide_api_addr,
-        &root_dir,
-    )
-    .await?;
-    let host_machine_id = host_boostrap(carbide_api_addr).await?;
-
-    // After the host_bootstrap, the dns_records view
-    // should contain 6 entries:
-    // - 2x "human friendly" for Host + DPU.
-    // - 2x Machine ID (BMC) for Host + DPU.
-    // - 2x Machine ID (ADM) for HOst + DPU.
-    assert_eq!(6i64, get_dns_record_count(&db_pool).await);
-
-    // Metrics are only updated after the machine state controller run one more
-    // time since the emitted metrics are for states at the start of the iteration.
-    // Therefore wait for the updated metrics to show up.
-    let metrics = metrics::wait_for_metric_line(
-        carbide_metrics_addr,
-        r#"forge_machines_per_state{fresh="true",state="ready",substate=""} 1"#,
-    )
-    .await?;
-    metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
-    metrics::assert_not_metric_line(
-        &metrics,
-        "machine_reboot_attempts_in_booting_with_discovery_image",
-    );
-
-    upgrade::upgrade_dpu(
-        upgrade_indicator_file.path(),
-        carbide_api_addr,
-        db_pool.clone(),
-        &dpu_info.machine_id,
-    )
-    .await?;
-    // An upgraded dpu-agent exits so that systemd can start the new version. Be systemd.
-    tokio::spawn(agent::start(agent::Options {
-        version: false,
-        config_path: Some(agent_config_file.path().to_path_buf()),
-        cmd: Some(agent::AgentCommand::Run(agent::RunOptions {
-            enable_metadata_service: false,
-            override_machine_id: Some(dpu_info.machine_id.clone()),
-            override_network_virtualization_type: None,
-            skip_upgrade_check: false,
-        })),
-    }));
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    upgrade::confirm_upgraded(db_pool.clone(), &dpu_info.machine_id).await?;
-
-    let vpc_id = vpc::create(carbide_api_addr)?;
-    let domain_id = domain::create(carbide_api_addr, "tenant-1.local")?;
-    let segment_id = subnet::create(carbide_api_addr, &vpc_id, &domain_id, 10, false)?;
-
-    // Create instance with phone_home enabled
-
-    let instance_id = instance::create(
-        carbide_api_addr,
-        &host_machine_id,
-        Some(&segment_id),
-        Some("test"),
-        true,
-        true,
-    )?;
-    let metrics = metrics::wait_for_metric_line(
-        carbide_metrics_addr,
-        r#"forge_machines_per_state{fresh="true",state="assigned",substate="ready"} 1"#,
-    )
-    .await?;
-    metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
-    metrics::assert_not_metric_line(
-        &metrics,
-        r#"forge_machines_per_state{fresh="true",state="ready",substate=""}"#,
-    );
-    metrics::assert_not_metric_line(
-        &metrics,
-        "machine_reboot_attempts_in_booting_with_discovery_image",
-    );
-
-    instance::release(carbide_api_addr, &host_machine_id, &instance_id, true)?;
-
-    let metrics = metrics::wait_for_metric_line(carbide_metrics_addr, r#"forge_machines_per_state{fresh="true",state="waitingforcleanup",substate="hostcleanup"} 1"#).await?;
-    metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
-
-    machine::cleanup_completed(carbide_api_addr, &host_machine_id)?;
-
-    machine::wait_for_state(
-        carbide_api_addr,
-        &host_machine_id,
-        "HostInitializing/MachineValidating",
-    )?;
-
-    machine::machine_validation_completed(carbide_api_addr, &host_machine_id)?;
-
-    machine::wait_for_state(carbide_api_addr, &host_machine_id, "Discovered")?;
-
-    // It stays in Discovered until we notify that reboot happened, which this test doesn't
-    let metrics = metrics::wait_for_metric_line(
-        carbide_metrics_addr,
-        r#"forge_machines_per_state{fresh="true",state="hostnotready",substate="discovered"} 1"#,
-    )
-    .await?;
-    metrics::assert_not_metric_line(
-        &metrics,
-        r#"forge_machines_per_state{fresh="true",state="assigned""#,
-    );
-
-    // Explicitly test that the histogram for `forge_reboot_attempts_in_booting_with_discovery_image_bucket`
-    // uses the custom buckets we defined for retries/attempts
-    for &(bucket, count) in &[(0, 0), (1, 1), (2, 1), (3, 1), (5, 1), (10, 1)] {
-        metrics::assert_metric_line(
-            &metrics,
-            &format!(
-                r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{{le="{bucket}"}} {count}"#
-            ),
-        );
-    }
-    metrics::assert_not_metric_line(
-        &metrics,
-        r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="4"}"#,
-    );
-    metrics::assert_not_metric_line(
-        &metrics,
-        r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="6"}"#,
-    );
-    metrics::assert_metric_line(
-        &metrics,
-        r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="+Inf"} 1"#,
-    );
-    metrics::assert_metric_line(
-        &metrics,
-        "forge_reboot_attempts_in_booting_with_discovery_image_sum 1",
-    );
-    metrics::assert_metric_line(
-        &metrics,
-        "forge_reboot_attempts_in_booting_with_discovery_image_count 1",
-    );
-
-    sleep(time::Duration::from_millis(500)).await;
-    fs::remove_dir_all(dpu_info.hbn_root)?;
-    bmc_mock_handle.stop().await?;
-    server_handle.stop().await?;
-    db_pool.close().await;
-    Ok(())
-}
-
 /// Run multiple machine-a-tron integration tests in parallel against a shared carbide API instance.
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial] // These tests drop/create a postgres database, prevent them from running concurrently
-async fn test_integration_machine_a_tron() -> eyre::Result<()> {
+async fn test_integration() -> eyre::Result<()> {
     let Some(test_env) = IntegrationTestEnvironment::try_from_environment().await? else {
         return Ok(());
     };
@@ -326,10 +117,7 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
             bmc_mock_handle.address.port(),
         )),
         ApiServerTestConfig {
-            use_site_explorer: true,
-            firmware_update_mode: TestFirmwareUpdateMode::Enabled {
-                firmware_path: empty_firmware_dir.path().to_path_buf(),
-            },
+            firmware_directory: empty_firmware_dir.path().to_string_lossy().to_string(),
         },
     )
     .await?;
@@ -375,6 +163,192 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
     server_handle.stop().await?;
     test_env.db_pool.close().await;
     bmc_mock_handle.stop().await?;
+    Ok(())
+}
+
+/// Run integration tests with machine-a-tron, asserting on metrics. This has to run as its own
+/// test, to make the values in the metrics buckets predictable.
+#[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+#[serial_test::serial] // This test is separate from
+async fn test_metrics_integration() -> eyre::Result<()> {
+    let Some(test_env) = IntegrationTestEnvironment::try_from_environment().await? else {
+        return Ok(());
+    };
+
+    // Save typing...
+    let IntegrationTestEnvironment {
+        carbide_api_addr,
+        root_dir: _,
+        carbide_metrics_addr,
+        db_pool,
+        metrics: _,
+        db_url: _,
+    } = test_env.clone();
+
+    let bmc_address_registry = BmcMockRegistry::default();
+    let certs_dir = PathBuf::from(format!("{}/dev/bmc-mock", test_env.root_dir.display()));
+    let mut bmc_mock_handle = bmc_mock::run_combined_mock(
+        bmc_address_registry.clone(),
+        Some(certs_dir),
+        Some(ListenerOrAddress::Listener(
+            // let OS choose available port
+            TcpListener::bind("127.0.0.1:0")?,
+        )),
+    )
+    .await?;
+
+    // For preingestion firmware checks to work, carbide needs a directory which exists to be
+    // configured as the firmware_directory. It can be empty, because our mocks should be showing
+    // the desired firmware verisions to carbide (and thus it won't try to update.) This folder will
+    // be deleted on Drop.
+    let empty_firmware_dir = temp_dir::TempDir::with_prefix("firmware")?;
+
+    // Begin the integration test by starting an API server. This will be shared between multiple
+    // individual machine-a-tron-based tests, which can run in parallel against the same instance.
+    let server_handle = utils::start_api_server(
+        test_env.clone(),
+        Some(HostPortPair::HostAndPort(
+            "127.0.0.1".to_string(),
+            bmc_mock_handle.address.port(),
+        )),
+        ApiServerTestConfig {
+            firmware_directory: empty_firmware_dir.path().to_string_lossy().to_string(),
+        },
+    )
+    .await?;
+
+    // Before the initial host bootstrap, the dns_records view
+    // should contain 0 entries.
+    assert_eq!(0i64, get_dns_record_count(&db_pool).await);
+
+    run_machine_a_tron_test(
+        1,
+        1,
+        false,
+        &test_env,
+        &bmc_address_registry,
+        Ipv4Addr::new(172, 20, 0, 1),
+        |machine_actor| {
+            let db_pool = db_pool.clone();
+            async move {
+                machine_actor.dpus[0].wait_until_machine_up_with_api_state("HostInitializing/WaitingForDiscovery").await?;
+
+                // After the host_bootstrap, the dns_records view
+                // should contain 8 entries:
+                // - 2x "human friendly" (BMC) for Host + DPU.
+                // - 2x "human friendly" (ADM) for Host + DPU.
+                // - 2x Machine ID (BMC) for Host + DPU.
+                // - 2x Machine ID (ADM) for Host + DPU.
+                assert_eq!(8i64, get_dns_record_count(&db_pool).await);
+
+                // Metrics are only updated after the machine state controller run one more
+                // time since the emitted metrics are for states at the start of the iteration.
+                // Therefore wait for the updated metrics to show up.
+                let metrics = metrics::wait_for_metric_line(
+                    carbide_metrics_addr,
+                    r#"forge_machines_per_state{fresh="true",state="ready",substate=""} 1"#,
+                )
+                    .await?;
+                metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
+                metrics::assert_not_metric_line(
+                    &metrics,
+                    "machine_reboot_attempts_in_booting_with_discovery_image",
+                );
+
+                let vpc_id = vpc::create(carbide_api_addr)?;
+                let domain_id = domain::create(carbide_api_addr, "tenant-1.local")?;
+                let segment_id = subnet::create(carbide_api_addr, &vpc_id, &domain_id, 10, false)?;
+                let host_machine_id = machine_actor.observed_machine_id().await?.expect("Should have gotten a machine ID by now").id;
+
+                // Create instance with phone_home enabled
+                let instance_id = instance::create(
+                    carbide_api_addr,
+                    &host_machine_id,
+                    Some(&segment_id),
+                    Some("test"),
+                    true,
+                    true,
+                )?;
+
+                let metrics = metrics::wait_for_metric_line(
+                    carbide_metrics_addr,
+                    r#"forge_machines_per_state{fresh="true",state="assigned",substate="ready"} 1"#,
+                )
+                    .await?;
+                metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
+                metrics::assert_not_metric_line(
+                    &metrics,
+                    r#"forge_machines_per_state{fresh="true",state="ready",substate=""}"#,
+                );
+                metrics::assert_not_metric_line(
+                    &metrics,
+                    "machine_reboot_attempts_in_booting_with_discovery_image",
+                );
+
+                instance::release(carbide_api_addr, &host_machine_id, &instance_id, true)?;
+
+                let metrics = metrics::wait_for_metric_line(carbide_metrics_addr, r#"forge_machines_per_state{fresh="true",state="waitingforcleanup",substate="hostcleanup"} 1"#).await?;
+                metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
+
+                machine::wait_for_state(
+                    carbide_api_addr,
+                    &host_machine_id,
+                    "HostInitializing/MachineValidating",
+                )?;
+
+                machine::wait_for_state(carbide_api_addr, &host_machine_id, "Discovered")?;
+
+                // It stays in Discovered until we notify that reboot happened, which this test doesn't
+                let metrics = metrics::wait_for_metric_line(
+                    carbide_metrics_addr,
+                    r#"forge_machines_per_state{fresh="true",state="hostnotready",substate="discovered"} 1"#,
+                )
+                    .await?;
+                metrics::assert_not_metric_line(
+                    &metrics,
+                    r#"forge_machines_per_state{fresh="true",state="assigned""#,
+                );
+
+                // Explicitly test that the histogram for `forge_reboot_attempts_in_booting_with_discovery_image_bucket`
+                // uses the custom buckets we defined for retries/attempts
+                for &(bucket, count) in &[(0, 0), (1, 1), (2, 1), (3, 1), (5, 1), (10, 1)] {
+                    metrics::assert_metric_line(
+                        &metrics,
+                        &format!(
+                            r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{{le="{bucket}"}} {count}"#
+                        ),
+                    );
+                }
+                metrics::assert_not_metric_line(
+                    &metrics,
+                    r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="4"}"#,
+                );
+                metrics::assert_not_metric_line(
+                    &metrics,
+                    r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="6"}"#,
+                );
+                metrics::assert_metric_line(
+                    &metrics,
+                    r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="+Inf"} 1"#,
+                );
+                metrics::assert_metric_line(
+                    &metrics,
+                    "forge_reboot_attempts_in_booting_with_discovery_image_sum 1",
+                );
+                metrics::assert_metric_line(
+                    &metrics,
+                    "forge_reboot_attempts_in_booting_with_discovery_image_count 1",
+                );
+
+                Ok(())
+            }
+        }
+    ).await?;
+
+    sleep(time::Duration::from_millis(500)).await;
+    bmc_mock_handle.stop().await?;
+    server_handle.stop().await?;
+    db_pool.close().await;
     Ok(())
 }
 
@@ -603,51 +577,6 @@ where
     mat_handle.stop().await?;
 
     results.into_iter().try_collect()
-}
-
-/// Bootstraps a Host in `ready` state. Returns the `machine_id`
-async fn host_boostrap(carbide_api_addr: SocketAddr) -> eyre::Result<String> {
-    let host_machine_id = host::bootstrap(carbide_api_addr)?;
-
-    // Wait until carbide-api is prepared to admit the DPU might have rebooted.
-    // There are hard coded sleeps in carbide-api before this happens.
-    machine::wait_for_state(carbide_api_addr, &host_machine_id, "WaitForDPUUp")?;
-
-    machine::wait_for_state(
-        carbide_api_addr,
-        &host_machine_id,
-        "HostInitializing/MachineValidating",
-    )?;
-
-    machine_validation_completed(carbide_api_addr, &host_machine_id)?;
-
-    // After DPU reboot forge_dpu_agent reports health to carbide-api, triggering state transition
-    machine::wait_for_state(
-        carbide_api_addr,
-        &host_machine_id,
-        "HostInitializing/Discovered",
-    )?;
-
-    grpcurl(
-        carbide_api_addr,
-        "ForgeAgentControl",
-        Some(
-            &serde_json::json!({
-                "machine_id": {"id": host_machine_id}
-            })
-            .to_string(),
-        ),
-    )?;
-    grpcurl(
-        carbide_api_addr,
-        "RebootCompleted",
-        Some(&serde_json::json!({
-            "machine_id": {"id": host_machine_id}
-        })),
-    )?;
-    machine::wait_for_state(carbide_api_addr, &host_machine_id, "Ready")?;
-    tracing::info!("ManagedHost is up in Ready state.");
-    Ok(host_machine_id)
 }
 
 fn find_prerequisites() -> eyre::Result<HashMap<String, PathBuf>> {

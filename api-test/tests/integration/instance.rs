@@ -12,7 +12,6 @@
 
 use super::{
     grpcurl::{grpcurl, grpcurl_id},
-    host::discover_machine,
     machine::wait_for_state,
 };
 use std::net::SocketAddr;
@@ -133,7 +132,6 @@ pub fn release(
     wait_for_state(addr, host_machine_id, "Assigned/BootingWithDiscoveryImage")?;
 
     tracing::info!("Instance with ID {instance_id} at {ip_address} is terminating");
-    discover_machine(addr, &ip_address)?;
 
     wait_for_state(addr, host_machine_id, "WaitingForCleanup/HostCleanup")?;
     let data = serde_json::json!({
