@@ -31,12 +31,12 @@ use crate::{
         site_explorer::{
             Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
             EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager,
-            NicMode, PowerState, Service, UefiDevicePath,
+            PowerState, Service, UefiDevicePath,
         },
     },
 };
 use forge_uuid::machine::MachineId;
-use libredfish::{OData, PCIeDevice};
+use libredfish::{OData, PCIeDevice, model::oem::nvidia_dpu::NicMode};
 use mac_address::MacAddress;
 use rpc::{
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
@@ -139,7 +139,6 @@ impl From<DpuConfig> for EndpointExplorationReport {
                 serial_number: Some(value.serial.clone()),
                 attributes: ComputerSystemAttributes {
                     nic_mode: Some(NicMode::Dpu),
-                    http_dev1_interface: None,
                     is_infinite_boot_enabled: None,
                 },
                 pcie_devices: vec![

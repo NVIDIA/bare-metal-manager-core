@@ -497,6 +497,14 @@ pub async fn action(api_config: &ApiConfig<'_>, action: RedfishAction) -> color_
             redfish.set_bios(attrmap).await?;
             println!("success");
         }
+        InNicMode => {
+            let is_dpu_in_nic_mode = redfish.get_nic_mode().await?;
+            println!("{is_dpu_in_nic_mode:#?}");
+        }
+        IsInfiniteBootEnabled => {
+            let is_infinite_boot_enabled = redfish.is_infinite_boot_enabled().await?;
+            println!("{is_infinite_boot_enabled:#?}");
+        }
     }
     Ok(())
 }

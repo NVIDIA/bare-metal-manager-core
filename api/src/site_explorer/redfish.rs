@@ -14,19 +14,18 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use bmc_vendor::BMCVendor;
 use forge_network::deserialize_input_mac_to_address;
 use forge_secrets::credentials::Credentials;
+use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
-use libredfish::{EnabledDisabled, Redfish, RedfishError};
+use libredfish::{Redfish, RedfishError};
 use regex::Regex;
-use serde_json::Value;
 
 use crate::model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
-    DPU_BIOS_ATTRIBUTES_MISSING, EndpointExplorationError, EndpointExplorationReport, EndpointType,
-    EthernetInterface, ForgeSetupDiff, ForgeSetupStatus, Inventory, Manager, NetworkAdapter,
-    NicMode, PCIeDevice, PowerState, Service, SystemStatus, UefiDevicePath,
+    EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
+    ForgeSetupDiff, ForgeSetupStatus, Inventory, Manager, NetworkAdapter, PCIeDevice, PowerState,
+    Service, SystemStatus, UefiDevicePath,
 };
 use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
@@ -217,7 +216,7 @@ impl RedfishClient {
         let manager = fetch_manager(client.as_ref())
             .await
             .map_err(map_redfish_error)?;
-        let system = fetch_system(client.as_ref(), vendor).await?;
+        let system = fetch_system(client.as_ref()).await?;
 
         // TODO (spyda): once we test the BMC reset logic, we can enhance our logic here
         // to detect cases where the host's BMC is returning invalid (empty) chassis information, even though
@@ -323,10 +322,7 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
     })
 }
 
-async fn fetch_system(
-    client: &dyn Redfish,
-    vendor: Option<BMCVendor>,
-) -> Result<ComputerSystem, EndpointExplorationError> {
+async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointExplorationError> {
     let mut system = client.get_system().await.map_err(map_redfish_error)?;
     let is_dpu = system.id.to_lowercase().contains("bluefield");
     let ethernet_interfaces = fetch_ethernet_interfaces(client, true, is_dpu)
@@ -361,105 +357,30 @@ async fn fetch_system(
 
     system.serial_number = system.serial_number.map(|s| s.trim().to_string());
 
-    let bios_attributes: Value;
-    match client.bios().await {
-        Ok(bios) => {
-            match bios.get("Attributes") {
-                Some(attributes) => bios_attributes = attributes.clone(),
-                None => {
-                    if is_dpu {
-                        return Err(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
-                            details: DPU_BIOS_ATTRIBUTES_MISSING.to_owned(),
-                            response_body: Some(
-                                serde_json::to_string(&bios)
-                                    .unwrap_or_else(|_| "Can not serialize map".to_string()),
-                            ),
-                            response_code: None,
-                        });
-                    }
+    let pcie_devices = fetch_pcie_devices(client)
+        .await
+        .map_err(map_redfish_error)?;
 
-                    bios_attributes = Value::default();
-                }
-            };
-        }
+    let nic_mode: Option<NicMode> = match client.get_nic_mode().await {
+        Ok(nic_mode) => nic_mode,
         Err(e) => {
+            // this call should only ever return an error for DPUs--this check is just defensive
             if is_dpu {
-                match e {
-                    RedfishError::HTTPErrorCode {
-                        url,
-                        status_code,
-                        response_body,
-                    } if status_code.is_server_error() => {
-                        let code_str = status_code.as_str();
-                        return Err(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
-                            details: format!(
-                                "Failed to retrieve bios attributes: HTTP {status_code} {code_str} at {url}"
-                            ),
-                            response_body: Some(response_body),
-                            response_code: Some(status_code.as_u16()),
-                        });
-                    }
-                    _ => {}
-                }
+                return Err(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
+                    details: e.to_string(),
+                    response_body: None,
+                    response_code: None,
+                });
             }
 
             return Err(map_redfish_error(e));
         }
     };
 
-    let pcie_devices = fetch_pcie_devices(client)
+    let is_infinite_boot_enabled = client
+        .is_infinite_boot_enabled()
         .await
         .map_err(map_redfish_error)?;
-
-    let nic_mode: Option<NicMode> = if is_dpu {
-        bios_attributes
-            .get("NicMode")
-            .and_then(|v| v.as_str().and_then(|v| NicMode::from_str(v).ok()))
-    } else {
-        None
-    };
-
-    let vendor = vendor.unwrap_or_default();
-
-    let http_dev1_interface = if vendor.is_dell() {
-        Some(
-            bios_attributes
-                .get("HttpDev1Interface")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| RedfishError::MissingKey {
-                    key: "HttpDev1Interface".to_string(),
-                    url: "Bios attributes".to_string(),
-                })
-                .map_err(map_redfish_error)?
-                .to_string(),
-        )
-    } else {
-        None
-    };
-
-    let is_infinite_boot_enabled = if vendor.is_dell() {
-        let infinite_boot_status = bios_attributes
-            .get("BootSeqRetry")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| RedfishError::MissingKey {
-                key: "BootSeqRetry".to_string(),
-                url: "Bios attributes".to_string(),
-            })
-            .map_err(map_redfish_error)?;
-        Some(infinite_boot_status == EnabledDisabled::Enabled.to_string())
-    } else if vendor.is_lenovo() {
-        let infinite_boot_status = bios_attributes
-            .get("BootModes_InfiniteBootRetry")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| RedfishError::MissingKey {
-                key: "BootModes_InfiniteBootRetry".to_string(),
-                url: "Bios attributes".to_string(),
-            })
-            .map_err(map_redfish_error)?;
-        Some(infinite_boot_status == EnabledDisabled::Enabled.to_string())
-    } else {
-        None
-    };
 
     let boot_order = fetch_boot_order(client, system.clone())
         .await
@@ -474,7 +395,6 @@ async fn fetch_system(
         serial_number: system.serial_number,
         attributes: ComputerSystemAttributes {
             nic_mode,
-            http_dev1_interface,
             is_infinite_boot_enabled,
         },
         pcie_devices,

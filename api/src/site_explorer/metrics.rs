@@ -426,21 +426,6 @@ impl SiteExplorerInstruments {
                 .build();
         }
 
-        {
-            let metrics = shared_metrics.clone();
-            meter
-                .u64_observable_gauge("forge_site_explorer_bmc_reboot_count")
-                .with_description(
-                    "The amount of BMC reboots initiated in the last SiteExplorer run",
-                )
-                .with_callback(move |observer| {
-                    metrics.if_available(|metrics, attrs| {
-                        observer.observe(metrics.bmc_reboot_count as u64, attrs);
-                    })
-                })
-                .build();
-        }
-
         SiteExplorerInstruments {
             endpoint_exploration_duration,
             site_explorer_iteration_latency,
