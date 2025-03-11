@@ -32,11 +32,17 @@ struct MachineHealth {
     machine_type: String,
     overrides: Vec<DisplayedOverrideOrigin>,
     reports: Vec<LabeledHealthReport>,
+    history: Vec<HealthReportRecord>,
 }
 
 struct DisplayedOverrideOrigin {
     source: String,
     mode: String,
+}
+
+struct HealthReportRecord {
+    timestamp: String,
+    health: health_report::HealthReport,
 }
 
 struct LabeledHealthReport {
@@ -212,6 +218,26 @@ pub async fn health(
 
     let id = machine.id.unwrap_or_default().id;
 
+    let health_records = match state
+        .find_machine_health_histories(tonic::Request::new(
+            ::rpc::forge::MachineHealthHistoriesRequest {
+                machine_ids: vec![rpc_machine_id],
+            },
+        ))
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(m) => m,
+        Err(err) => {
+            tracing::error!(%err, %machine_id, "find_machine_health_histories");
+            return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
+        }
+    }
+    .histories
+    .remove(&id)
+    .unwrap_or_default()
+    .records;
+
     let display = MachineHealth {
         id: id.clone(),
         machine_type: get_machine_type(&id),
@@ -226,6 +252,19 @@ pub async fn health(
                 }
                 .to_string(),
                 source: o.source,
+            })
+            .collect(),
+        history: health_records
+            .into_iter()
+            .map(|record| HealthReportRecord {
+                timestamp: record.time.map(|time| time.to_string()).unwrap_or_default(),
+                health: record
+                    .health
+                    .map(|health| {
+                        HealthReport::try_from(health)
+                            .unwrap_or_else(health_report::HealthReport::malformed_report)
+                    })
+                    .unwrap_or_else(health_report::HealthReport::missing_report),
             })
             .collect(),
     };

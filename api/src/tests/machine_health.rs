@@ -332,6 +332,101 @@ async fn test_machine_health_aggregation(
 }
 
 #[crate::sqlx_test]
+async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_env(pool).await;
+
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+
+    // Get the initial amount of health records. The ingestion history is ignored
+    // for the remaining test
+    let initial_records = load_host_health_history(&env, &host_machine_id).await;
+    let num_ignored_records = initial_records.len();
+
+    // Add an alert via override.
+    let mut health1 = hr(
+        "test-report-1",
+        vec![],
+        vec![("Fan", Some("TestFan"), "Reason")],
+    );
+    health1.observed_at = Some(chrono::Utc::now());
+    health1.alerts[0].in_alert_since = Some(chrono::Utc::now());
+    send_health_report_override(
+        &env,
+        &host_machine_id,
+        (health1.clone(), OverrideMode::Replace),
+    )
+    .await;
+
+    // Run the state controller twice to update history
+    // The 2nd run should not yield a new entry
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+
+    // Change some in-alert times on the health report. They shouldn't add another record
+    let mut health1_newdate = health1.clone();
+    health1_newdate.observed_at = Some(chrono::Utc::now() + chrono::Duration::minutes(5));
+    health1.alerts[0].in_alert_since = Some(chrono::Utc::now() + chrono::Duration::minutes(3));
+    send_health_report_override(
+        &env,
+        &host_machine_id,
+        (health1_newdate.clone(), OverrideMode::Replace),
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+
+    let health2 = hr(
+        "test-report-1",
+        vec![],
+        vec![
+            ("Fan", Some("TestFan"), "Reason"),
+            ("Fan", Some("TestFan2"), "Other Reason"),
+        ],
+    );
+    send_health_report_override(
+        &env,
+        &host_machine_id,
+        (health2.clone(), OverrideMode::Replace),
+    )
+    .await;
+
+    // Run the state controller twice to update history
+    // The 2nd run should not yield a new entry
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+
+    let health3 = hr("test-report-3", vec![], vec![]);
+    remove_health_report_override(&env, &host_machine_id, "test-report-1".to_string()).await;
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+
+    // Check the health history
+    let mut records = load_host_health_history(&env, &host_machine_id).await;
+    let mut records = records.split_off(num_ignored_records);
+
+    assert_eq!(records.len(), 3);
+
+    check_reports_equal(
+        "aggregate-host-health",
+        records.remove(0).health.unwrap().try_into().unwrap(),
+        health1,
+    );
+    check_reports_equal(
+        "aggregate-host-health",
+        records.remove(0).health.unwrap().try_into().unwrap(),
+        health2,
+    );
+    check_reports_equal(
+        "aggregate-host-health",
+        records.remove(0).health.unwrap().try_into().unwrap(),
+        health3,
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_attempt_dpu_override(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
 
@@ -490,6 +585,25 @@ async fn get_machine(
         .await
         .unwrap()
         .into_inner()
+}
+
+async fn load_host_health_history(
+    env: &common::api_fixtures::TestEnv,
+    machine_id: &forge_uuid::machine::MachineId,
+) -> Vec<::rpc::forge::MachineHealthHistoryRecord> {
+    env.api
+        .find_machine_health_histories(tonic::Request::new(
+            ::rpc::forge::MachineHealthHistoriesRequest {
+                machine_ids: vec![machine_id.to_string().into()],
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .histories
+        .remove(&machine_id.to_string())
+        .unwrap()
+        .records
 }
 
 /// Loads aggregate health via get_machine api

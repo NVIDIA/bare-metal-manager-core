@@ -1146,11 +1146,7 @@ impl Forge for Api {
         let machine_ids: Result<Vec<MachineId>, CarbideError> = request
             .machine_ids
             .iter()
-            .map(|id| {
-                MachineId::from_str(&id.id).map_err(|_| {
-                    CarbideError::from(RpcDataConversionError::InvalidMachineId(id.id.clone()))
-                })
-            })
+            .map(|id| try_parse_machine_id(id).map_err(CarbideError::from))
             .collect();
 
         let machine_ids = machine_ids?;
@@ -1192,6 +1188,68 @@ impl Forge for Api {
         Ok(tonic::Response::new(snapshot_map_to_rpc_machines(
             snapshots,
         )))
+    }
+
+    async fn find_machine_health_histories(
+        &self,
+        request: tonic::Request<rpc::MachineHealthHistoriesRequest>,
+    ) -> std::result::Result<tonic::Response<rpc::MachineHealthHistories>, tonic::Status> {
+        log_request_data(&request);
+        let request = request.into_inner();
+
+        let machine_ids: Result<Vec<MachineId>, CarbideError> = request
+            .machine_ids
+            .iter()
+            .map(|id| try_parse_machine_id(id).map_err(CarbideError::from))
+            .collect();
+        let machine_ids = machine_ids?;
+
+        let max_find_by_ids = self.runtime_config.max_find_by_ids as usize;
+        if machine_ids.len() > max_find_by_ids {
+            return Err(CarbideError::InvalidArgument(format!(
+                "no more than {max_find_by_ids} IDs can be accepted"
+            ))
+            .into());
+        } else if machine_ids.is_empty() {
+            return Err(CarbideError::InvalidArgument(
+                "at least one ID must be provided".to_string(),
+            )
+            .into());
+        }
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin find_machine_health_histories",
+                e,
+            ))
+        })?;
+
+        let results = db::machine_health_history::find_by_machine_ids(&mut txn, &machine_ids)
+            .await
+            .map_err(CarbideError::from)?;
+
+        let mut response = rpc::MachineHealthHistories::default();
+        for (machine_id, records) in results {
+            response.histories.insert(
+                machine_id.to_string(),
+                ::rpc::forge::MachineHealthHistoryRecords {
+                    records: records.into_iter().map(Into::into).collect(),
+                },
+            );
+        }
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "end find_machine_health_histories",
+                e,
+            ))
+        })?;
+
+        Ok(tonic::Response::new(response))
     }
 
     async fn find_tenant_organization_ids(

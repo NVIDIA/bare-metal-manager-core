@@ -136,6 +136,7 @@ service Forge {
   rpc FindIpAddress(FindIpAddressRequest) returns (FindIpAddressResponse);
   rpc FindMachineIds(MachineSearchConfig) returns (common.MachineIdList);
   rpc FindMachinesByIds(MachinesByIdsRequest) returns (MachineList);
+  rpc FindMachineHealthHistories(MachineHealthHistoriesRequest) returns (MachineHealthHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
@@ -1703,6 +1704,28 @@ message MachineSearchConfig {
   bool only_maintenance = 4;
   reserved 5; // Was: bool include_associated_machine_id = 5; Now always included
   bool exclude_hosts = 6;
+}
+
+message MachineHealthHistoriesRequest {
+  repeated common.MachineId machine_ids = 1;
+}
+
+message MachineHealthHistories {
+  // The Health History for each Machine
+  map<string, MachineHealthHistoryRecords> histories = 1;
+}
+
+// A list of Machine health history records, starting by the oldest
+message MachineHealthHistoryRecords {
+  repeated MachineHealthHistoryRecord records = 1;
+}
+
+// The observed health for a Machine at a certain point in time
+message MachineHealthHistoryRecord {
+  // The observed health
+  health.HealthReport health = 1;
+  // The time when the health was observed
+  google.protobuf.Timestamp time = 2;
 }
 
 message TenantByOrganizationIdsRequest {

@@ -12,6 +12,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
+    hash::Hash,
     str::FromStr,
 };
 
@@ -54,6 +55,22 @@ impl HealthReport {
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
             alerts: vec![],
+        }
+    }
+
+    /// Calculate a hash value for all the Alerts and Successes in the Report
+    ///
+    /// The hash value can be used to quickly compare health reports - even in
+    /// cases where timestamps of the reports might be different
+    pub fn hash_without_timestamps<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        hasher.write_usize(self.successes.len());
+        for success in self.successes.iter() {
+            success.hash_without_timestamps(hasher);
+        }
+
+        hasher.write_usize(self.alerts.len());
+        for alert in self.alerts.iter() {
+            alert.hash_without_timestamps(hasher);
         }
     }
 
@@ -296,6 +313,15 @@ pub struct HealthProbeAlert {
 }
 
 impl HealthProbeAlert {
+    /// Calculate a hash value for the Alert while excluding the timestamp
+    pub fn hash_without_timestamps<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        self.id.0.hash(hasher);
+        self.target.hash(hasher);
+        self.message.hash(hasher);
+        self.tenant_message.hash(hasher);
+        self.classifications.hash(hasher);
+    }
+
     /// Creates a HeartbeatTimeout alert
     pub fn heartbeat_timeout(target: String, message: String) -> Self {
         Self {
@@ -409,6 +435,14 @@ pub struct HealthProbeSuccess {
     /// combination are calculated individually when reports are merged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+}
+
+impl HealthProbeSuccess {
+    /// Calculate a hash value for the Success while excluding the timestamp
+    pub fn hash_without_timestamps<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        self.id.0.hash(hasher);
+        self.target.hash(hasher);
+    }
 }
 
 /// A well-known name of a probe that generated an alert
