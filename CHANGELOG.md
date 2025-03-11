@@ -3,6 +3,9 @@
 
 ### Added
 ### Changed
+
+- The handling of VPC-isolation behavior has been moved to the DPU agent.  `deny_prefixes` and `site_fabric_prefixes` are now sent separately to the DPU along with `vpc_isolation_behavior`, and the agent adjusts generated config as appropriate.  The old protobuf field has been renamed and is still populated with the original content for backward-compatibility.
+
 ### Fixed
 ### Removed
 
