@@ -51,6 +51,7 @@ mod expected_machine;
 mod explored_endpoint;
 mod filters;
 mod health;
+mod health_history;
 mod ib_partition;
 mod instance;
 mod interface;
@@ -273,6 +274,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 post(machine::maintenance),
             )
             .route("/machine/:machine_id/health", get(health::health))
+            .route(
+                "/machine/:machine_id/health_history",
+                get(health_history::health_history),
+            )
             .route(
                 "/machine/:machine_id/health/override/add",
                 post(health::add_override),

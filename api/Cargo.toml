@@ -15,7 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 arc-swap = "1.6"
-askama = "0.12.1"
+askama = { version = "0.12.1", features = ["serde-json"] }
 askama_escape = "0.10"
 async-trait = "*"
 axum = { workspace = true, features = ["http2"] }

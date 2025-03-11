@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 
-{% block title %}Health Reports {{ id }}{% endblock %}
+{% block title %}{{ machine_type }} Health {{ id }}{% endblock %}
 
 {% block content %}
-<h1>{{ machine_type }} Health {{ id }}</h1>
+<h1>{{ machine_type }} Health <a href="/admin/machine/{{ id }}">{{ id }}</a></h1>
+
+<h2><a href="/admin/machine/{{ id }}/health_history">History</a></h2>
 
 <details>
 	<summary>
@@ -118,34 +120,35 @@
 	<summary>
 		<h2 style="display: inline-block;">History</h2>
 	</summary>
-	{% for record in history %}
-		<h3 style="display: inline-block;">Alerts at {{ record.timestamp }}</h3>
-		<table class="sortable detailsview">
-			<thead>
-				<tr>
-					<th>ID</th>
-					<th>Target</th>
-					<th>In Alert Since</th>
-					<th>Message</th>
-					<th>Tenant Message</th>
-					<th>Classifications</th>
-				</tr>
-			</thead>
-			<tbody>
-				{% for alert in record.health.alerts %}
-				<tr>
-					<td>{{ alert.id }}</td>
-					<td>{{ alert.target|option_fmt }}</td>
-					<td>{{ alert.in_alert_since|option_fmt }}</td>
-					<td>{{ alert.message }}</td>
-					<td>{{ alert.tenant_message|option_fmt }}</td>
-					<td>{{ [alert]|health_alert_classifications_fmt|safe }}</td>
-				</tr>
-				{% endfor %}
-			</tbody>
-		</table>
-
-	{%endfor%}
+	<table class="detailsview">
+		<thead>
+			<tr>
+				<th>Time</th>
+				<th>Alerts</th>
+				<th>Classifications</th>
+				<th>Details</th>
+			</tr>
+		</thead>
+		<tbody>
+		{% for record in history %}
+			<tr>
+				<td>{{ record.timestamp }}</td>
+				<td>
+					{% if record.health.alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
+						{{ record.health.alerts|health_alerts_fmt(false)|safe }}
+					</div>
+				</td>
+				<td>{{ record.health.alerts|health_alert_classifications_fmt|safe }}</td>
+				<td style="overflow: auto;">
+					<details>
+						<summary><b>Expand</b></summary>
+						<pre style="max-width: 50vw;"><code class="prettyjson">{{ record.health|json|safe }}</code></pre>
+					</details>
+				</td>
+			</tr>
+		{% endfor %}
+		</tbody>
+	</table>
 </details>
 
 {% endblock %}
