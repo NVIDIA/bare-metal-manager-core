@@ -118,6 +118,7 @@ impl InstanceStatus {
                 | InstanceState::WaitingForNetworkReconfig => tenant::TenantState::Terminating,
                 InstanceState::DPUReprovision { .. } => tenant::TenantState::DpuReprovisioning,
                 InstanceState::Failed { .. } => tenant::TenantState::Failed,
+                InstanceState::HostReprovision { .. } => tenant::TenantState::HostReprovisioning,
             },
             ManagedHostState::ForceDeletion => tenant::TenantState::Terminating,
             _ => {

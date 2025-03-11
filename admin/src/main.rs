@@ -47,6 +47,7 @@ use cfg::cli_options::DpuAction::Versions;
 use cfg::cli_options::DpuReprovision;
 use cfg::cli_options::ExpectedMachineJson;
 use cfg::cli_options::HostAction;
+use cfg::cli_options::HostReprovision;
 use cfg::cli_options::IbPartitionOptions;
 use cfg::cli_options::IpAction;
 use cfg::cli_options::MachineInterfaces;
@@ -83,6 +84,7 @@ mod cfg;
 mod domain;
 mod dpu;
 mod expected_machines;
+mod host;
 mod ib_partition;
 mod instance;
 mod inventory;
@@ -732,6 +734,27 @@ async fn main() -> color_eyre::Result<()> {
                 let password = Credentials::generate_password_no_special_char();
                 println!("Generated Bios Admin Password: {}", password);
             }
+            HostAction::Reprovision(reprovision) => match reprovision {
+                HostReprovision::Set(data) => {
+                    host::trigger_reprovisioning(
+                        data.id,
+                        ::rpc::forge::host_reprovisioning_request::Mode::Set,
+                        api_config,
+                        data.maintenance_reference,
+                    )
+                    .await?
+                }
+                HostReprovision::Clear(data) => {
+                    host::trigger_reprovisioning(
+                        data.id,
+                        ::rpc::forge::host_reprovisioning_request::Mode::Clear,
+                        api_config,
+                        None,
+                    )
+                    .await?
+                }
+                HostReprovision::List => host::list_hosts_pending(api_config).await?,
+            },
         },
         CliCommand::Redfish(_) => {
             // Handled earlier

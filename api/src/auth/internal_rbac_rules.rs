@@ -180,7 +180,9 @@ impl InternalRBACRules {
         x.perm("SetMaintenance", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("SetDynamicConfig", vec![ForgeAdminCLI, Machineatron]);
         x.perm("TriggerDpuReprovisioning", vec![ForgeAdminCLI]);
+        x.perm("TriggerHostReprovisioning", vec![ForgeAdminCLI]);
         x.perm("ListDpuWaitingForReprovisioning", vec![ForgeAdminCLI]);
+        x.perm("ListHostsWaitingForReprovisioning", vec![ForgeAdminCLI]);
         x.perm("GetDpuInfoList", vec![Agent]);
         x.perm("GetMachineBootOverride", vec![ForgeAdminCLI]);
         x.perm("SetMachineBootOverride", vec![ForgeAdminCLI]);

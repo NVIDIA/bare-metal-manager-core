@@ -11,7 +11,10 @@
  */
 
 use crate::tests::common;
-use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};
+use crate::tests::common::api_fixtures::{
+    TestEnvOverrides, create_test_env, forge_agent_control,
+    instance::{create_instance, single_interface_network_config},
+};
 use crate::{
     CarbideResult,
     cfg::file::FirmwareComponentType,
@@ -23,7 +26,7 @@ use crate::{
     },
     machine_update_manager::MachineUpdateManager,
     model::{
-        machine::{HostReprovisionState, ManagedHostState},
+        machine::{HostReprovisionState, InstanceState, ManagedHostState},
         site_explorer::{
             Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport,
             EndpointType, Inventory, PowerDrainState, PowerState, PreingestionState, Service,
@@ -45,6 +48,7 @@ use std::{
     time::Duration,
 };
 use temp_dir::TempDir;
+use tonic::Request;
 
 #[crate::sqlx_test]
 async fn test_preingestion_bmc_upgrade(
@@ -1015,5 +1019,352 @@ async fn test_preingestion_powercycling(
     );
     txn.commit().await?;
 
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_instance_upgrading(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    // Create an environment with one managed host in the assigned/ready state.
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let (_instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        Some(single_interface_network_config(segment_id)),
+        None,
+        None,
+        vec![],
+    )
+    .await;
+
+    // Create and start an update manager, it better not do anything though!
+    let update_manager =
+        MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
+    // Update manager should NOT notice that the host is underversioned, setting the request to update it
+    update_manager.run_single_iteration().await?;
+
+    // Check that we're properly NOT marking it as upgrade needed
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(host.host_reprovision_requested.is_none());
+    txn.commit().await.unwrap();
+
+    // Now simulate someone marking it for an upgrade with forge-admin-cli
+    let request = rpc::forge::HostReprovisioningRequest {
+        machine_id: Some(host_machine_id.into()),
+        mode: rpc::forge::host_reprovisioning_request::Mode::Set.into(),
+        initiator: 0,
+    };
+    let request = Request::new(request);
+    env.api.trigger_host_reprovisioning(request).await.unwrap();
+
+    // A tick of the state machine, but we don't start anything yet and it's still in assigned/ready
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+    let InstanceState::Ready = instance_state else {
+        panic!("Unexpecte instance state {:?}", host.state);
+    };
+    txn.commit().await.unwrap();
+
+    // Simulate a tenant OKing the request
+    let request = rpc::forge::InstancePowerRequest {
+        machine_id: Some(host_machine_id.into()),
+        operation: rpc::forge::instance_power_request::Operation::PowerReset.into(),
+        boot_with_custom_ipxe: false,
+        apply_updates_on_reboot: true,
+    };
+    let request = Request::new(request);
+    env.api.invoke_instance_power(request).await.unwrap();
+
+    // A tick of the state machine, now we begin.
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+    let InstanceState::BootingWithDiscoveryImage { .. } = instance_state else {
+        panic!("Unexpected instance state {:?}", host.state);
+    };
+    assert!(host.host_reprovision_requested.is_some());
+    txn.commit().await.unwrap();
+
+    // Simulate agent saying it's booted so we can continue
+    _ = forge_agent_control(&env, host_machine_id.into()).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    // Should check firmware next
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(host.host_reprovision_requested.is_some());
+    let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+    let InstanceState::HostReprovision { reprovision_state } = instance_state else {
+        panic!("Unexpected state {:?}", host.state)
+    };
+    let HostReprovisionState::CheckingFirmware = reprovision_state else {
+        panic!("Unexpected state {:?}", host.state)
+    };
+    assert!(host.host_reprovision_requested.is_some());
+    txn.commit().await.unwrap();
+
+    // Next one should start a UEFI upgrade
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(host.host_reprovision_requested.is_some());
+    let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+    let InstanceState::HostReprovision { reprovision_state } = instance_state else {
+        panic!("Unexpected state {:?}", host.state)
+    };
+    let HostReprovisionState::WaitingForFirmwareUpgrade { firmware_type, .. } = reprovision_state
+    else {
+        panic!("Not in WaitingForFirmwareUpgrade");
+    };
+    assert_eq!(firmware_type, FirmwareComponentType::Uefi);
+    txn.commit().await.unwrap();
+
+    // The faked Redfish task will immediately show as completed, but we won't proceed further because "site explorer" (ie us) has not re-reported the info.
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+    let InstanceState::HostReprovision { reprovision_state } = instance_state else {
+        panic!("Unexpected state {:?}", host.state)
+    };
+    let HostReprovisionState::ResetForNewFirmware { .. } = reprovision_state else {
+        panic!("Not in reset {reprovision_state:?}");
+    };
+    txn.commit().await.unwrap();
+
+    // Another state machine pass
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+    let InstanceState::HostReprovision { reprovision_state } = instance_state else {
+        panic!("Unexpected state {:?}", host.state)
+    };
+    let HostReprovisionState::NewFirmwareReportedWait { .. } = reprovision_state else {
+        panic!("Not in waiting {reprovision_state:?}");
+    };
+
+    // "Site explorer" pass
+    let endpoints =
+        DbExploredEndpoint::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()]).await?;
+    let mut endpoint = endpoints.first().unwrap().clone();
+    endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
+    endpoint
+        .report
+        .versions
+        .insert(FirmwareComponentType::Uefi, "1.13.2".to_string());
+    DbExploredEndpoint::try_update(
+        host.bmc_info.ip_addr().unwrap(),
+        endpoint.report_version,
+        &endpoint.report,
+        &mut txn,
+    )
+    .await?;
+    txn.commit().await.unwrap();
+
+    // Another state machine pass
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+    let InstanceState::HostReprovision { reprovision_state } = instance_state else {
+        panic!("Unexpected state {:?}", host.state)
+    };
+    let HostReprovisionState::CheckingFirmware { .. } = reprovision_state else {
+        panic!("Not in reset {reprovision_state:?}");
+    };
+    txn.commit().await.unwrap();
+
+    // Another state machine pass
+    env.run_machine_state_controller_iteration().await;
+
+    // It should have "started" a BMC upgrade now
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(host.host_reprovision_requested.is_some());
+    let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+    let InstanceState::HostReprovision { reprovision_state } = instance_state else {
+        panic!("Unexpected state {:?}", host.state)
+    };
+    let HostReprovisionState::WaitingForFirmwareUpgrade { firmware_type, .. } = reprovision_state
+    else {
+        panic!("Not in WaitingForFirmwareUpgrade");
+    };
+    assert_eq!(firmware_type, FirmwareComponentType::Bmc);
+    txn.commit().await.unwrap();
+
+    // Another state machine pass
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+    let InstanceState::HostReprovision { reprovision_state } = instance_state else {
+        panic!("Unexpected state {:?}", host.state)
+    };
+    let HostReprovisionState::ResetForNewFirmware { .. } = reprovision_state else {
+        panic!("Not in reset {reprovision_state:?}");
+    };
+
+    // "Site explorer" pass to indicate that we're at the desired version
+    let endpoints =
+        DbExploredEndpoint::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()]).await?;
+    let mut endpoint = endpoints.into_iter().next().unwrap();
+    endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
+    endpoint
+        .report
+        .versions
+        .insert(FirmwareComponentType::Bmc, "6.00.30.00".to_string());
+    DbExploredEndpoint::try_update(
+        host.bmc_info.ip_addr().unwrap(),
+        endpoint.report_version,
+        &endpoint.report,
+        &mut txn,
+    )
+    .await?;
+    MachineTopology::update_firmware_version_by_bmc_address(
+        &mut txn,
+        &host.bmc_info.ip_addr().unwrap(),
+        "6.00.30.00",
+        "1.2.3",
+    )
+    .await?;
+    txn.commit().await.unwrap();
+    // Another state machine pass
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+    let InstanceState::HostReprovision { reprovision_state } = instance_state else {
+        panic!("Unexpected state {:?}", host.state)
+    };
+    let HostReprovisionState::NewFirmwareReportedWait { .. } = reprovision_state else {
+        panic!("Not in waiting {reprovision_state:?}");
+    };
+
+    // Another state machine pass
+    env.run_machine_state_controller_iteration().await;
+
+    // It should be checking
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+    let InstanceState::HostReprovision { reprovision_state } = instance_state else {
+        panic!("Unexpected state {:?}", host.state)
+    };
+    if reprovision_state != HostReprovisionState::CheckingFirmware {
+        panic!("Not in checking");
+    }
+    txn.commit().await.unwrap();
+
+    // Another state machine pass, and we should be complete
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+    let InstanceState::Ready = instance_state else {
+        panic!("Unexpected state {:?}", host.state)
+    };
+
+    assert!(host.host_reprovision_requested.is_none()); // Should be cleared
+    let reqs = HostMachineUpdate::find_upgrade_needed(&mut txn, true).await?;
+    assert!(reqs.is_empty());
+    txn.commit().await.unwrap();
+
+    // Validate update_firmware_version_by_bmc_address behavior
+    assert_eq!(
+        host.bmc_info.firmware_version,
+        Some("6.00.30.00".to_string())
+    );
+    assert_eq!(
+        host.hardware_info
+            .as_ref()
+            .unwrap()
+            .dmi_data
+            .clone()
+            .unwrap()
+            .bios_version,
+        "1.2.3".to_string()
+    );
     Ok(())
 }

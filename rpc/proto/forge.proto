@@ -236,6 +236,11 @@ service Forge {
   // List DPUs waiting for reprovisioning
   rpc ListDpuWaitingForReprovisioning(DpuReprovisioningListRequest) returns (DpuReprovisioningListResponse);
 
+  // Trigger reprovisioning of a host
+  rpc TriggerHostReprovisioning(HostReprovisioningRequest) returns (google.protobuf.Empty);
+  // List hosts waiting for reprovisioning
+  rpc ListHostsWaitingForReprovisioning(HostReprovisioningListRequest) returns (HostReprovisioningListResponse);
+
   rpc GetDpuInfoList(GetDpuInfoListRequest) returns (GetDpuInfoListResponse);
 
   rpc GetMachineBootOverride(common.UUID) returns (MachineBootOverride);
@@ -947,6 +952,8 @@ enum TenantState {
   FAILED = 5;
   // DPU is being reprovisioned.
   DPU_REPROVISIONING = 6;
+  // Host is doing firmware updates
+  HOST_REPROVISIONING = 7;
 }
 
 // Describe the desired configuration of an IBPartition
@@ -3138,6 +3145,31 @@ message DpuReprovisioningListResponse {
     bool user_approval_received = 7;  // User approval received or not if needed
   }
   repeated DpuReprovisioningListItem dpus = 1;
+}
+
+message HostReprovisioningRequest {
+  enum Mode {
+    Set = 0;
+    Clear = 1;
+  }
+  common.MachineId machine_id = 1;
+  Mode mode = 2;
+  UpdateInitiator initiator = 3;
+}
+
+message HostReprovisioningListRequest {
+}
+
+message HostReprovisioningListResponse {
+  message HostReprovisioningListItem {
+    common.MachineId id = 1; // Machine ID
+    string state = 2;  // ManagedHost state
+    string initiator = 3;  // Who requested this reprovisioning.
+    google.protobuf.Timestamp requested_at = 4;  // When reprovisioning was requested.
+    optional google.protobuf.Timestamp initiated_at = 5;  // When reprovisioning is started.
+    bool user_approval_received = 6;  // User approval received or not if needed
+  }
+  repeated HostReprovisioningListItem hosts = 1;
 }
 
 message DpuInfo {

@@ -62,6 +62,7 @@
   ```
   Pass an empty json array to remove all GPU entries.
 - Added BIOS profiles.  Individual sites can be set to Performance or PowerEfficiency from their carbide-api-site-config.toml, defaulting to Performance.  Details of what this means for a particular model will typically come from the base carbide-api-config.toml.  These are set by the call to machine_setup during ingestion; currently changing a site's configuration will not affect any already ingested machines.
+- Upgrade of host firmware can now be requested of assigned instances in a similar manner to DPU upgrades.  We flag machines we want to be updated with "forge-admin-cli host reprovision sed --id MACHINEID".  The tenant can the request the host to be rebooted which will trigger the actual update.  If DPU updates were requested as well, they will be performed first.
 
 ### Changed
 

@@ -426,7 +426,7 @@ pub(crate) async fn invoke_power(
     })?;
     if snapshot.instance.is_none() {
         return Err(Status::invalid_argument(format!(
-            "Supplied invalid UUID: {}",
+            "Supplied machine ID does not match an instance: {}",
             machine_id
         )));
     }
@@ -465,12 +465,6 @@ pub(crate) async fn invoke_power(
     // TODO: multidpu: Fix it for multiple dpus.
     let mut reprovision_handled = false;
     if request.apply_updates_on_reboot {
-        if snapshot.dpu_snapshots.is_empty() {
-            return Err(CarbideError::internal(
-                "Request update for DPU is requested, but no DPU found.".to_string(),
-            )
-            .into());
-        }
         for dpu_snapshot in &snapshot.dpu_snapshots {
             let Some(rr) = &dpu_snapshot.reprovision_requested else {
                 continue;
@@ -495,7 +489,19 @@ pub(crate) async fn invoke_power(
 
                     // TODO: What does this error actually mean
                     CarbideError::internal(
-                        "Internal Failure. Try again after sometime.".to_string(),
+                        "Internal Failure. Try again after some time.".to_string(),
+                    )
+                })?;
+        }
+        if snapshot.host_snapshot.host_reprovision_requested.is_some() {
+            db::machine::approve_host_reprovision_request(&snapshot.host_snapshot.id, &mut txn)
+                .await
+                .map_err(|err| {
+                    // print actual error for debugging, but don't leak internal info to user.
+                    tracing::error!(machine=%machine_id, "{:?}", err);
+
+                    CarbideError::internal(
+                        "Internal Failure. Try again after some time.".to_string(),
                     )
                 })?;
         }

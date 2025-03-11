@@ -112,9 +112,7 @@ pub struct MachineStateHandler {
     dpu_up_threshold: chrono::Duration,
     /// Reachability params to check if DPU is up or not
     reachability_params: ReachabilityParams,
-    parsed_hosts: Arc<FirmwareConfig>,
-    downloader: FirmwareDownloader,
-    upload_limiter: Arc<Semaphore>,
+    host_upgrade: Arc<HostUpgradeState>,
 }
 
 pub struct MachineStateHandlerBuilder {
@@ -244,6 +242,13 @@ impl MachineStateHandlerBuilder {
 
 impl MachineStateHandler {
     fn new(builder: MachineStateHandlerBuilder) -> Self {
+        let host_upgrade = Arc::new(HostUpgradeState {
+            parsed_hosts: Arc::new(builder.hardware_models.clone().unwrap_or_default()),
+            downloader: builder.firmware_downloader.unwrap_or_default(),
+            upload_limiter: builder
+                .upload_limiter
+                .unwrap_or(Arc::new(Semaphore::new(5))),
+        });
         MachineStateHandler {
             dpu_up_threshold: builder.dpu_up_threshold,
             host_handler: HostMachineStateHandler::new(HostHandlerParams {
@@ -262,13 +267,10 @@ impl MachineStateHandler {
                 builder.reachability_params,
                 builder.hardware_models.clone().unwrap_or_default(),
                 builder.common_pools,
+                host_upgrade.clone(),
             ),
             reachability_params: builder.reachability_params,
-            parsed_hosts: Arc::new(builder.hardware_models.unwrap_or_default()),
-            downloader: builder.firmware_downloader.unwrap_or_default(),
-            upload_limiter: builder
-                .upload_limiter
-                .unwrap_or(Arc::new(Semaphore::new(5))),
+            host_upgrade,
         }
     }
 
@@ -594,7 +596,14 @@ impl MachineStateHandler {
 
                 if host_reprovisioning_requested(mh_snapshot).await {
                     if let Some(next_state) = self
-                        .handle_host_reprovision(mh_snapshot, ctx.services, host_machine_id, txn)
+                        .host_upgrade
+                        .handle_host_reprovision(
+                            mh_snapshot,
+                            ctx.services,
+                            host_machine_id,
+                            HostFirmwareScenario::Ready,
+                            txn,
+                        )
                         .await?
                     {
                         return Ok(StateHandlerOutcome::Transition(next_state));
@@ -1073,7 +1082,7 @@ impl MachineStateHandler {
                         txn,
                         &MachineNextStateResolver,
                         dpu_snapshot,
-                        self.parsed_hosts.clone().as_ref(),
+                        self.host_upgrade.parsed_hosts.clone().as_ref(),
                     )
                     .await?
                     {
@@ -1087,7 +1096,14 @@ impl MachineStateHandler {
 
             ManagedHostState::HostReprovision { .. } => {
                 if let Some(next_state) = self
-                    .handle_host_reprovision(mh_snapshot, ctx.services, host_machine_id, txn)
+                    .host_upgrade
+                    .handle_host_reprovision(
+                        mh_snapshot,
+                        ctx.services,
+                        host_machine_id,
+                        HostFirmwareScenario::Ready,
+                        txn,
+                    )
                     .await?
                 {
                     Ok(StateHandlerOutcome::Transition(next_state))
@@ -1240,665 +1256,6 @@ impl MachineStateHandler {
         }
 
         Ok(None)
-    }
-
-    // Handles when in HostReprovisioning or when entering it
-    async fn handle_host_reprovision(
-        &self,
-        state: &ManagedHostStateSnapshot,
-        services: &StateHandlerServices,
-        machine_id: &MachineId,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
-        // Treat Ready (but flagged to do updates) the same as HostReprovisionState/CheckingFirmware
-        let original_state = &state.managed_state;
-        let managed_host_state = match &state.managed_state {
-            ManagedHostState::HostReprovision { reprovision_state } => reprovision_state,
-            ManagedHostState::Ready => &HostReprovisionState::CheckingFirmware,
-            _ => {
-                return Err(StateHandlerError::InvalidState(format!(
-                    "Invalid state for calling handle_host_reprovision {:?}",
-                    state.managed_state
-                )));
-            }
-        };
-        match managed_host_state {
-            HostReprovisionState::CheckingFirmware => {
-                self.host_checking_fw(state, services, machine_id, original_state, txn)
-                    .await
-            }
-            details @ HostReprovisionState::WaitingForFirmwareUpgrade { .. } => {
-                self.host_waiting_fw(details, state, services, machine_id, txn)
-                    .await
-            }
-            details @ HostReprovisionState::ResetForNewFirmware { .. } => {
-                self.host_reset_for_new_firmware(state, services, machine_id, details, txn)
-                    .await
-            }
-            HostReprovisionState::NewFirmwareReportedWait {
-                final_version,
-                firmware_type,
-            } => {
-                self.host_new_firmware_reported_wait(
-                    state,
-                    final_version,
-                    firmware_type,
-                    machine_id,
-                    txn,
-                )
-                .await
-            }
-            HostReprovisionState::FailedFirmwareUpgrade { report_time, .. } => {
-                if Utc::now().signed_duration_since(report_time.unwrap_or(Utc::now()))
-                    >= services
-                        .site_config
-                        .firmware_global
-                        .host_firmware_upgrade_retry_interval
-                {
-                    tracing::info!("Retrying firmware upgrade on {}", state.host_snapshot.id);
-                    Ok(Some(ManagedHostState::HostReprovision {
-                        reprovision_state: HostReprovisionState::CheckingFirmware,
-                    }))
-                } else {
-                    Ok(None)
-                }
-            }
-        }
-    }
-
-    async fn host_checking_fw(
-        &self,
-        state: &ManagedHostStateSnapshot,
-        services: &StateHandlerServices,
-        machine_id: &MachineId,
-        original_state: &ManagedHostState,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
-        let mut ret = self
-            .host_checking_fw_noclear(state, services, machine_id, txn)
-            .await?;
-
-        // Check if we are returning to the ready state, and clear the host reprovisioning request if so.
-        if let Some(ret) = &ret {
-            match ret {
-                ManagedHostState::HostReprovision { .. } => {}
-                _ => {
-                    db::machine::clear_host_reprovisioning_request(txn, machine_id).await?;
-                }
-            };
-        }
-
-        if ret == Some(original_state.clone()) {
-            // host_checking_fw_noclear can return Ready to indicate that we're moving out of CheckingFirmware,
-            // but we also take this path when we're actually in Ready - for that case, return Ok(None) so that
-            // we don't keep retransitioning to the same state.
-            ret = None;
-        }
-
-        Ok(ret)
-    }
-    async fn host_checking_fw_noclear(
-        &self,
-        state: &ManagedHostStateSnapshot,
-        services: &StateHandlerServices,
-        machine_id: &MachineId,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
-        let Some(explored_endpoint) =
-            find_explored_refreshed_endpoint(state, machine_id, txn).await?
-        else {
-            // find_explored_refreshed_endpoint's behavior is to return None to indicate we're waiting for an update, not to indicate there isn't anything.
-
-            tracing::debug!("Managed host {machine_id} waiting for site explorer to revisit");
-            return Ok(Some(ManagedHostState::HostReprovision {
-                reprovision_state: HostReprovisionState::CheckingFirmware,
-            }));
-        };
-
-        let Some(fw_info) = self.parsed_hosts.find_fw_info_for_host(&explored_endpoint) else {
-            return Ok(Some(ManagedHostState::Ready));
-        };
-
-        for firmware_type in fw_info.ordering() {
-            if let Some(to_install) =
-                need_host_fw_upgrade(&explored_endpoint, &fw_info, firmware_type)
-            {
-                tracing::debug!(
-                    "Installing {:?} on {}",
-                    to_install,
-                    explored_endpoint.address
-                );
-
-                match self
-                    .initiate_host_fw_update(
-                        explored_endpoint.address,
-                        services,
-                        &to_install,
-                        &state.host_snapshot,
-                        &firmware_type,
-                        txn,
-                    )
-                    .await?
-                {
-                    Some(task_id) => {
-                        // Upload complete and updated started, will monitor task in future iterations
-                        return Ok(Some(ManagedHostState::HostReprovision {
-                            reprovision_state: HostReprovisionState::WaitingForFirmwareUpgrade {
-                                task_id,
-                                firmware_type,
-                                final_version: to_install.version,
-                                power_drains_needed: to_install.power_drains_needed,
-                            },
-                        }));
-                    }
-                    None => {
-                        // Deferred upload due to download or other reason, recheck later
-                        return Ok(Some(ManagedHostState::HostReprovision {
-                            reprovision_state: HostReprovisionState::CheckingFirmware,
-                        }));
-                    }
-                };
-            }
-        }
-
-        // Nothing needs updates, return to ready.  But first, we may need to reenable lockdown.
-
-        let redfish_client = services
-            .redfish_client_pool
-            .create_client_from_machine(&state.host_snapshot, txn)
-            .await?;
-
-        match redfish_client.lockdown_status().await {
-            Err(RedfishError::NotSupported(_)) => Ok(Some(ManagedHostState::Ready)),
-            Err(e) => {
-                tracing::warn!("Could not get lockdown status for {machine_id}: {e}",);
-                Ok(None)
-            }
-            Ok(status) if status.is_fully_disabled() => {
-                tracing::debug!("host firmware update: Reenabling lockdown");
-                // Already disabled, we need to reenable.
-                if let Err(e) = redfish_client
-                    .lockdown(libredfish::EnabledDisabled::Enabled)
-                    .await
-                {
-                    tracing::error!("Could not set lockdown for {machine_id}: {e}");
-                    return Ok(None);
-                }
-                // Reenabling lockdown can require us to wait for the DPU to become available again due to resets, we cannot go directly to Ready.
-                Ok(Some(ManagedHostState::HostInit {
-                    machine_state: MachineState::WaitingForLockdown {
-                        lockdown_info: LockdownInfo {
-                            state: LockdownState::TimeWaitForDPUDown,
-                            mode: Enable,
-                        },
-                    },
-                }))
-            }
-            _ => {
-                tracing::debug!("host firmware update: Don't need to reenable lockdown");
-                Ok(Some(ManagedHostState::Ready))
-            }
-        }
-    }
-
-    /// Uploads a firmware update via multipart, returning the task ID, or None if upload was deferred
-    async fn initiate_host_fw_update(
-        &self,
-        address: IpAddr,
-        services: &StateHandlerServices,
-        to_install: &FirmwareEntry,
-        snapshot: &Machine,
-        component_type: &FirmwareComponentType,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> Result<Option<String>, StateHandlerError> {
-        if !self
-            .downloader
-            .available(
-                &to_install.get_filename(),
-                &to_install.get_url(),
-                &to_install.get_checksum(),
-            )
-            .await
-        {
-            tracing::debug!(
-                "{} is being downloaded from {}, update deferred",
-                to_install.get_filename().display(),
-                to_install.get_url()
-            );
-
-            return Ok(None);
-        }
-
-        let Ok(_active) = self.upload_limiter.try_acquire() else {
-            tracing::debug!(
-                "Deferring installation of {:?} on {}, too many uploads already active",
-                to_install,
-                snapshot.id,
-            );
-            return Ok(None);
-        };
-
-        // Setup the Redfish connection
-        let redfish_client = services
-            .redfish_client_pool
-            .create_client_from_machine(snapshot, txn)
-            .await?;
-
-        match redfish_client.lockdown_status().await {
-            Err(e) => {
-                tracing::warn!(
-                    "Could not get lockdown status for {}: {e}",
-                    address.to_string()
-                );
-                return Ok(None);
-            }
-            Ok(status) if status.is_fully_disabled() => {
-                // Already disabled, we can go ahead
-                tracing::debug!("Host fw update: No need for disabling lockdown");
-            }
-            _ => {
-                tracing::debug!("Host fw update: Disabling lockdown");
-                if let Err(e) = redfish_client
-                    .lockdown(libredfish::EnabledDisabled::Disabled)
-                    .await
-                {
-                    tracing::warn!("Could not set lockdown for {}: {e}", address.to_string());
-                    return Ok(None);
-                }
-            }
-        };
-
-        let redfish_component_type: libredfish::model::update_service::ComponentType =
-            match to_install.install_only_specified {
-                false => libredfish::model::update_service::ComponentType::Unknown,
-                true => (*component_type).into(),
-            };
-        let task = match redfish_client
-            .update_firmware_multipart(
-                to_install.get_filename().as_path(),
-                true,
-                std::time::Duration::from_secs(120),
-                redfish_component_type,
-            )
-            .await
-        {
-            Ok(task) => task,
-            Err(e) => {
-                tracing::warn!("Failed uploading firmware to {}: {e}", address.to_string());
-                return Ok(None);
-            }
-        };
-
-        Ok(Some(task))
-    }
-
-    async fn host_waiting_fw(
-        &self,
-        details: &HostReprovisionState,
-        state: &ManagedHostStateSnapshot,
-        services: &StateHandlerServices,
-        machine_id: &MachineId,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
-        let (task_id, final_version, firmware_type, power_drains_needed) = match details {
-            HostReprovisionState::WaitingForFirmwareUpgrade {
-                task_id,
-                final_version,
-                firmware_type,
-                power_drains_needed,
-            } => (task_id, final_version, firmware_type, power_drains_needed),
-            _ => {
-                return Err(StateHandlerError::GenericError(eyre!(
-                    "Wrong enum in host_waiting_fw"
-                )));
-            }
-        };
-
-        let address = state
-            .host_snapshot
-            .bmc_info
-            .ip_addr()
-            .map_err(StateHandlerError::GenericError)?;
-        // Setup the Redfish connection
-        let redfish_client = services
-            .redfish_client_pool
-            .create_client_from_machine(&state.host_snapshot, txn)
-            .await?;
-
-        match redfish_client.get_task(task_id.as_str()).await {
-            Ok(task_info) => {
-                match task_info.task_state {
-                    Some(TaskState::New)
-                    | Some(TaskState::Starting)
-                    | Some(TaskState::Running)
-                    | Some(TaskState::Pending) => {
-                        tracing::debug!(
-                            "Upgrade task for {} not yet complete, current state {:?} message {:?}",
-                            machine_id,
-                            task_info.task_state,
-                            task_info.messages,
-                        );
-                        Ok(None)
-                    }
-                    Some(TaskState::Completed) => {
-                        // Task has completed, update is done and we can clean up.  Site explorer will ingest this next time it runs on this endpoint.
-                        tracing::debug!(
-                            "Saw completion of host firmware upgrade task for {}",
-                            machine_id
-                        );
-
-                        Ok(Some(ManagedHostState::HostReprovision {
-                            reprovision_state: HostReprovisionState::ResetForNewFirmware {
-                                final_version: final_version.to_string(),
-                                firmware_type: *firmware_type,
-                                power_drains_needed: *power_drains_needed,
-                                delay_until: None,
-                                last_power_drain_operation: None,
-                            },
-                        }))
-                    }
-                    Some(TaskState::Exception)
-                    | Some(TaskState::Interrupted)
-                    | Some(TaskState::Killed)
-                    | Some(TaskState::Cancelled) => {
-                        tracing::debug!(
-                            "Failure in firmware upgrade for {}: {} {:?}",
-                            machine_id,
-                            task_info.task_state.unwrap(),
-                            task_info
-                                .messages
-                                .last()
-                                .map_or("".to_string(), |m| m.message.clone())
-                        );
-
-                        // We need site explorer to requery the version, just in case it actually did get done
-                        DbExploredEndpoint::set_waiting_for_explorer_refresh(address, txn).await?;
-                        Ok(Some(ManagedHostState::HostReprovision {
-                            reprovision_state: HostReprovisionState::CheckingFirmware,
-                        }))
-                    }
-                    _ => {
-                        // Unexpected state
-                        tracing::warn!(
-                            "Unrecognized task state for {}: {:?}",
-                            machine_id,
-                            task_info.task_state
-                        );
-                        // For now, a force delete will be needed to recover from this state
-                        Ok(Some(ManagedHostState::HostReprovision {
-                            reprovision_state: HostReprovisionState::FailedFirmwareUpgrade {
-                                firmware_type: *firmware_type,
-                                report_time: Some(Utc::now()),
-                            },
-                        }))
-                    }
-                }
-            }
-            Err(e) => match e {
-                RedfishError::HTTPErrorCode { status_code, .. } => {
-                    if status_code == NOT_FOUND {
-                        // Dells (maybe others) have been observed to not have report the job any more after completing a host reboot for a UEFI upgrade.  If we get a 404 but see that we're at the right version, we're done with that upgrade.
-                        let Some(endpoint) =
-                            find_explored_refreshed_endpoint(state, machine_id, txn).await?
-                        else {
-                            return Ok(None);
-                        };
-
-                        if let Some(fw_info) = self.parsed_hosts.find_fw_info_for_host(&endpoint) {
-                            if let Some(current_version) =
-                                endpoint.find_version(&fw_info, *firmware_type)
-                            {
-                                if current_version == *final_version {
-                                    tracing::info!(
-                                        "Marking completion of Redfish task of firmware upgrade for {} with missing task",
-                                        &endpoint.address
-                                    );
-                                    return Ok(Some(ManagedHostState::HostReprovision {
-                                        reprovision_state: HostReprovisionState::CheckingFirmware,
-                                    }));
-                                }
-                            }
-                        }
-                    }
-                    Err(StateHandlerError::RedfishError {
-                        operation: "get_task",
-                        error: e,
-                    })
-                }
-                _ => Err(StateHandlerError::RedfishError {
-                    operation: "get_task",
-                    error: e,
-                }),
-            },
-        }
-    }
-
-    async fn host_reset_for_new_firmware(
-        &self,
-        state: &ManagedHostStateSnapshot,
-        services: &StateHandlerServices,
-        machine_id: &MachineId,
-        details: &HostReprovisionState,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
-        let (
-            final_version,
-            firmware_type,
-            power_drains_needed,
-            delay_until,
-            last_power_drain_operation,
-        ) = match details {
-            HostReprovisionState::ResetForNewFirmware {
-                final_version,
-                firmware_type,
-                power_drains_needed,
-                delay_until,
-                last_power_drain_operation,
-            } => (
-                final_version,
-                firmware_type,
-                power_drains_needed,
-                delay_until,
-                last_power_drain_operation,
-            ),
-            _ => {
-                return Err(StateHandlerError::GenericError(eyre!(
-                    "Wrong enum in host_reset_for_new_firmware"
-                )));
-            }
-        };
-
-        let Some(endpoint) = find_explored_refreshed_endpoint(state, machine_id, txn).await? else {
-            tracing::debug!("Waiting for site explorer to revisit {machine_id}");
-            return Ok(None);
-        };
-
-        if let Some(power_drains_needed) = power_drains_needed {
-            if let Some(delay_until) = delay_until {
-                if *delay_until > chrono::Utc::now().timestamp() {
-                    tracing::info!(
-                        "Waiting after {last_power_drain_operation:?} of {}",
-                        &endpoint.address
-                    );
-                    return Ok(None);
-                }
-            }
-
-            match last_power_drain_operation {
-                None | Some(PowerDrainState::On) => {
-                    // The 1000 is for unit tests; values above this will skip delays.
-                    if *power_drains_needed == 0 || *power_drains_needed == 1000 {
-                        tracing::info!("Power drains for {} done", &endpoint.address);
-                        // This path, and only this path of the match, exits the match and lets us proceed.  All others should return after updating state.
-                    } else {
-                        tracing::info!(
-                            "Upgrade task has completed for {} but needs {} power drain(s), initiating one",
-                            &endpoint.address,
-                            power_drains_needed
-                        );
-                        handler_host_power_control(
-                            state,
-                            services,
-                            SystemPowerControl::ForceOff,
-                            txn,
-                        )
-                        .await?;
-
-                        // Wait 60 seconds after powering off to do AC powercycle
-                        let delay = if *power_drains_needed < 1000 { 60 } else { 0 };
-                        return Ok(Some(ManagedHostState::HostReprovision {
-                            reprovision_state: HostReprovisionState::ResetForNewFirmware {
-                                final_version: final_version.clone(),
-                                firmware_type: *firmware_type,
-                                power_drains_needed: Some(*power_drains_needed),
-                                delay_until: Some(chrono::Utc::now().timestamp() + delay),
-                                last_power_drain_operation: Some(PowerDrainState::Off),
-                            },
-                        }));
-                    }
-                }
-                Some(PowerDrainState::Off) => {
-                    tracing::info!("Doing powercycle now for {}", &endpoint.address);
-                    handler_host_power_control(
-                        state,
-                        services,
-                        SystemPowerControl::ACPowercycle,
-                        txn,
-                    )
-                    .await?;
-
-                    let delay = if *power_drains_needed < 1000 { 90 } else { 0 };
-                    return Ok(Some(ManagedHostState::HostReprovision {
-                        reprovision_state: HostReprovisionState::ResetForNewFirmware {
-                            final_version: final_version.clone(),
-                            firmware_type: *firmware_type,
-                            power_drains_needed: Some(*power_drains_needed),
-                            delay_until: Some(chrono::Utc::now().timestamp() + delay),
-                            last_power_drain_operation: Some(PowerDrainState::Powercycle),
-                        },
-                    }));
-                }
-                Some(PowerDrainState::Powercycle) => {
-                    tracing::info!("Turning back on {}", &endpoint.address);
-                    handler_host_power_control(state, services, SystemPowerControl::On, txn)
-                        .await?;
-
-                    let delay = if *power_drains_needed < 1000 { 5 } else { 0 };
-                    return Ok(Some(ManagedHostState::HostReprovision {
-                        reprovision_state: HostReprovisionState::ResetForNewFirmware {
-                            final_version: final_version.clone(),
-                            firmware_type: *firmware_type,
-                            power_drains_needed: Some(power_drains_needed - 1),
-                            delay_until: Some(chrono::Utc::now().timestamp() + delay),
-                            last_power_drain_operation: Some(PowerDrainState::On),
-                        },
-                    }));
-                }
-            };
-        } else if firmware_type.is_uefi() {
-            tracing::debug!(
-                "Upgrade task has completed for {} but needs reboot, initiating one",
-                &endpoint.address
-            );
-            handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn)
-                .await?;
-
-            // Same state but with the rebooted flag set, it can take a long time to reboot in some cases so we do not retry.
-        }
-
-        if firmware_type.is_bmc()
-            && !endpoint
-                .report
-                .vendor
-                .unwrap_or(bmc_vendor::BMCVendor::Unknown)
-                .is_dell()
-        {
-            tracing::debug!(
-                "Upgrade task has completed for {} but needs BMC reboot, initiating one",
-                &endpoint.address
-            );
-            let redfish_client = services
-                .redfish_client_pool
-                .create_client_from_machine(&state.host_snapshot, txn)
-                .await?;
-
-            if let Err(e) = redfish_client.bmc_reset().await {
-                tracing::warn!("Failed to reboot {}: {e}", &endpoint.address);
-                return Ok(None);
-            }
-        }
-
-        if *firmware_type == FirmwareComponentType::HGXBmc {
-            // Needs a host power reset
-            let redfish_client = services
-                .redfish_client_pool
-                .create_client_from_machine(&state.host_snapshot, txn)
-                .await?;
-            if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
-                tracing::error!("Failed to power off {}: {e}", &endpoint.address);
-                return Ok(None);
-            }
-            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-            if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
-                tracing::error!("Failed to power on {}: {e}", &endpoint.address);
-                return Ok(None);
-            }
-            // Okay to proceed
-        }
-
-        // Now we can go on to waiting for the correct version to be reported
-        Ok(Some(ManagedHostState::HostReprovision {
-            reprovision_state: HostReprovisionState::NewFirmwareReportedWait {
-                firmware_type: *firmware_type,
-                final_version: final_version.to_string(),
-            },
-        }))
-    }
-
-    async fn host_new_firmware_reported_wait(
-        &self,
-        state: &ManagedHostStateSnapshot,
-        final_version: &str,
-        firmware_type: &FirmwareComponentType,
-        machine_id: &MachineId,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
-        let Some(endpoint) = find_explored_refreshed_endpoint(state, machine_id, txn).await? else {
-            tracing::debug!("Waiting for site explorer to revisit {machine_id}");
-            return Ok(None);
-        };
-
-        let Some(fw_info) = self.parsed_hosts.find_fw_info_for_host(&endpoint) else {
-            tracing::error!("Could no longer find firmware info for {machine_id}");
-            return Ok(Some(ManagedHostState::HostReprovision {
-                reprovision_state: HostReprovisionState::CheckingFirmware,
-            }));
-        };
-        let Some(current_version) = endpoint.find_version(&fw_info, *firmware_type) else {
-            tracing::error!("Could no longer find current version for {machine_id}");
-            return Ok(Some(ManagedHostState::HostReprovision {
-                reprovision_state: HostReprovisionState::CheckingFirmware,
-            }));
-        };
-
-        if current_version == final_version {
-            // Done waiting, go back to overall checking of versions
-            tracing::debug!("Done waiting for {machine_id} to reach version");
-            Ok(Some(ManagedHostState::HostReprovision {
-                reprovision_state: HostReprovisionState::CheckingFirmware,
-            }))
-        } else {
-            tracing::debug!(
-                "Waiting for {machine_id} to reach version {final_version} currently {current_version}"
-            );
-            DbExploredEndpoint::re_explore_if_version_matches(
-                endpoint.address,
-                endpoint.report_version,
-                txn,
-            )
-            .await?;
-            Ok(None)
-        }
     }
 }
 
@@ -3109,7 +2466,11 @@ async fn handle_dpu_reprovision(
             // We need to wait for the host to reboot and submit its new Hardware information in
             // case of Ready.
             Ok(StateHandlerOutcome::Transition(
-                next_state_resolver.next_state(&state.managed_state, dpu_machine_id)?,
+                next_state_resolver.next_state(
+                    &state.managed_state,
+                    dpu_machine_id,
+                    &state.host_snapshot,
+                )?,
             ))
         }
         ReprovisionState::NotUnderReprovision => Ok(StateHandlerOutcome::DoNothingWithDetails(
@@ -4843,15 +4204,17 @@ pub struct InstanceStateHandler {
     reachability_params: ReachabilityParams,
     hardware_models: FirmwareConfig,
     common_pools: Option<Arc<CommonPools>>,
+    host_upgrade: Arc<HostUpgradeState>,
 }
 
 impl InstanceStateHandler {
-    pub fn new(
+    fn new(
         dpu_nic_firmware_reprovision_update_enabled: bool,
         attestation_enabled: bool,
         reachability_params: ReachabilityParams,
         hardware_models: FirmwareConfig,
         common_pools: Option<Arc<CommonPools>>,
+        host_upgrade: Arc<HostUpgradeState>,
     ) -> Self {
         InstanceStateHandler {
             dpu_nic_firmware_reprovision_update_enabled,
@@ -4859,6 +4222,7 @@ impl InstanceStateHandler {
             reachability_params,
             hardware_models,
             common_pools,
+            host_upgrade,
         }
     }
 }
@@ -5056,8 +4420,18 @@ impl StateHandler for InstanceStateHandler {
                         } else {
                             false
                         };
+                    let host_firmware_requested = if let Some(request) =
+                        &mh_snapshot.host_snapshot.host_reprovision_requested
+                    {
+                        request.user_approval_received
+                    } else {
+                        false
+                    };
 
-                    if instance.deleted.is_some() || reprov_can_be_started {
+                    if instance.deleted.is_some()
+                        || reprov_can_be_started
+                        || host_firmware_requested
+                    {
                         for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                             if dpu_snapshot.reprovision_requested.is_some() {
                                 // User won't be allowed to clear reprovisioning flag after this.
@@ -5068,10 +4442,21 @@ impl StateHandler for InstanceStateHandler {
                                 .await?;
                             }
                         }
+                        if mh_snapshot
+                            .host_snapshot
+                            .host_reprovision_requested
+                            .is_some()
+                        {
+                            db::machine::update_host_reprovision_start_time(
+                                &mh_snapshot.host_snapshot.id,
+                                txn,
+                            )
+                            .await?;
+                        }
 
                         // Reboot host. Host will boot with carbide discovery image now. Changes
                         // are done in get_pxe_instructions api.
-                        // User will loose all access to instance now.
+                        // User will lose all access to instance now.
                         if let Err(err) = handler_host_power_control(
                             mh_snapshot,
                             ctx.services,
@@ -5183,6 +4568,18 @@ impl StateHandler for InstanceStateHandler {
                             dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
                         )?;
                         Ok(StateHandlerOutcome::Transition(next_state))
+                    } else if mh_snapshot
+                        .host_snapshot
+                        .host_reprovision_requested
+                        .is_some()
+                    {
+                        Ok(StateHandlerOutcome::Transition(
+                            ManagedHostState::Assigned {
+                                instance_state: InstanceState::HostReprovision {
+                                    reprovision_state: HostReprovisionState::CheckingFirmware,
+                                },
+                            },
+                        ))
                     } else {
                         Ok(StateHandlerOutcome::Wait(
                             "Don't know how did we reach here.".to_string(),
@@ -5340,12 +4737,750 @@ impl StateHandler for InstanceStateHandler {
                         DoNothingDetails { line: line!() },
                     ));
                 }
+                InstanceState::HostReprovision { .. } => {
+                    if let Some(next_state) = self
+                        .host_upgrade
+                        .handle_host_reprovision(
+                            mh_snapshot,
+                            ctx.services,
+                            host_machine_id,
+                            HostFirmwareScenario::Instance,
+                            txn,
+                        )
+                        .await?
+                    {
+                        Ok(StateHandlerOutcome::Transition(next_state))
+                    } else {
+                        Ok(StateHandlerOutcome::DoNothingWithDetails(
+                            DoNothingDetails { line: line!() },
+                        ))
+                    }
+                }
             }
         } else {
             // We are not in Assigned state. Should this be Err(StateHandlerError::InvalidHostState)?
             Ok(StateHandlerOutcome::DoNothingWithDetails(
                 DoNothingDetails { line: line!() },
             ))
+        }
+    }
+}
+
+#[derive(Debug)]
+enum HostFirmwareScenario {
+    Ready,
+    Instance,
+}
+
+impl HostFirmwareScenario {
+    fn actual_new_state(
+        &self,
+        reprovision_state: HostReprovisionState,
+    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        match self {
+            HostFirmwareScenario::Ready => Ok(Some(ManagedHostState::HostReprovision {
+                reprovision_state,
+            })),
+            HostFirmwareScenario::Instance => Ok(Some(ManagedHostState::Assigned {
+                instance_state: InstanceState::HostReprovision { reprovision_state },
+            })),
+        }
+    }
+    fn complete_state(&self) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        match self {
+            HostFirmwareScenario::Ready => Ok(Some(ManagedHostState::Ready)),
+            HostFirmwareScenario::Instance => Ok(Some(ManagedHostState::Assigned {
+                instance_state: InstanceState::Ready,
+            })),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct HostUpgradeState {
+    parsed_hosts: Arc<FirmwareConfig>,
+    downloader: FirmwareDownloader,
+    upload_limiter: Arc<Semaphore>,
+}
+
+impl HostUpgradeState {
+    // Handles when in HostReprovisioning or when entering it
+    async fn handle_host_reprovision(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        services: &StateHandlerServices,
+        machine_id: &MachineId,
+        scenario: HostFirmwareScenario,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        // Treat Ready (but flagged to do updates) the same as HostReprovisionState/CheckingFirmware
+        let original_state = &state.managed_state;
+        let host_reprovision_state = match &state.managed_state {
+            ManagedHostState::HostReprovision { reprovision_state } => reprovision_state,
+            ManagedHostState::Ready => &HostReprovisionState::CheckingFirmware,
+            ManagedHostState::Assigned { instance_state } => match &instance_state {
+                InstanceState::HostReprovision { reprovision_state } => reprovision_state,
+                InstanceState::Ready => &HostReprovisionState::CheckingFirmware,
+                _ => {
+                    return Err(StateHandlerError::InvalidState(format!(
+                        "Invalid state for calling handle_host_reprovision {:?}",
+                        state.managed_state
+                    )));
+                }
+            },
+            _ => {
+                return Err(StateHandlerError::InvalidState(format!(
+                    "Invalid state for calling handle_host_reprovision {:?}",
+                    state.managed_state
+                )));
+            }
+        };
+        match host_reprovision_state {
+            HostReprovisionState::CheckingFirmware => {
+                self.host_checking_fw(state, services, machine_id, original_state, scenario, txn)
+                    .await
+            }
+            details @ HostReprovisionState::WaitingForFirmwareUpgrade { .. } => {
+                self.host_waiting_fw(details, state, services, machine_id, scenario, txn)
+                    .await
+            }
+            details @ HostReprovisionState::ResetForNewFirmware { .. } => {
+                self.host_reset_for_new_firmware(
+                    state, services, machine_id, details, scenario, txn,
+                )
+                .await
+            }
+            HostReprovisionState::NewFirmwareReportedWait {
+                final_version,
+                firmware_type,
+            } => {
+                self.host_new_firmware_reported_wait(
+                    state,
+                    final_version,
+                    firmware_type,
+                    machine_id,
+                    scenario,
+                    txn,
+                )
+                .await
+            }
+            HostReprovisionState::FailedFirmwareUpgrade { report_time, .. } => {
+                if Utc::now().signed_duration_since(report_time.unwrap_or(Utc::now()))
+                    >= services
+                        .site_config
+                        .firmware_global
+                        .host_firmware_upgrade_retry_interval
+                {
+                    tracing::info!("Retrying firmware upgrade on {}", state.host_snapshot.id);
+                    let reprovision_state = HostReprovisionState::CheckingFirmware;
+                    scenario.actual_new_state(reprovision_state)
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+    }
+
+    async fn host_checking_fw(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        services: &StateHandlerServices,
+        machine_id: &MachineId,
+        original_state: &ManagedHostState,
+        scenario: HostFirmwareScenario,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        let mut ret = self
+            .host_checking_fw_noclear(state, services, machine_id, scenario, txn)
+            .await?;
+
+        // Check if we are returning to the ready state, and clear the host reprovisioning request if so.
+        if let Some(ret) = &ret {
+            match ret {
+                ManagedHostState::HostReprovision { .. } => {}
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::HostReprovision { .. },
+                } => {}
+                _ => {
+                    db::machine::clear_host_reprovisioning_request(txn, machine_id).await?;
+                }
+            };
+        }
+
+        if ret == Some(original_state.clone()) {
+            // host_checking_fw_noclear can return Ready to indicate that we're moving out of CheckingFirmware,
+            // but we also take this path when we're actually in Ready - for that case, return Ok(None) so that
+            // we don't keep retransitioning to the same state.
+            ret = None;
+        }
+
+        Ok(ret)
+    }
+    async fn host_checking_fw_noclear(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        services: &StateHandlerServices,
+        machine_id: &MachineId,
+        scenario: HostFirmwareScenario,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        let Some(explored_endpoint) =
+            find_explored_refreshed_endpoint(state, machine_id, txn).await?
+        else {
+            // find_explored_refreshed_endpoint's behavior is to return None to indicate we're waiting for an update, not to indicate there isn't anything.
+
+            tracing::debug!("Managed host {machine_id} waiting for site explorer to revisit");
+            return scenario.actual_new_state(HostReprovisionState::CheckingFirmware);
+        };
+
+        let Some(fw_info) = self.parsed_hosts.find_fw_info_for_host(&explored_endpoint) else {
+            return scenario.complete_state();
+        };
+
+        for firmware_type in fw_info.ordering() {
+            if let Some(to_install) =
+                need_host_fw_upgrade(&explored_endpoint, &fw_info, firmware_type)
+            {
+                tracing::debug!(
+                    "Installing {:?} on {}",
+                    to_install,
+                    explored_endpoint.address
+                );
+
+                match self
+                    .initiate_host_fw_update(
+                        explored_endpoint.address,
+                        services,
+                        &to_install,
+                        &state.host_snapshot,
+                        &firmware_type,
+                        txn,
+                    )
+                    .await?
+                {
+                    Some(task_id) => {
+                        // Upload complete and updated started, will monitor task in future iterations
+                        let reprovision_state = HostReprovisionState::WaitingForFirmwareUpgrade {
+                            task_id,
+                            firmware_type,
+                            final_version: to_install.version,
+                            power_drains_needed: to_install.power_drains_needed,
+                        };
+                        return scenario.actual_new_state(reprovision_state);
+                    }
+                    None => {
+                        // Deferred upload due to download or other reason, recheck later
+                        return scenario.actual_new_state(HostReprovisionState::CheckingFirmware);
+                    }
+                };
+            }
+        }
+
+        // Nothing needs updates, return to ready.  But first, we may need to reenable lockdown.
+
+        let redfish_client = services
+            .redfish_client_pool
+            .create_client_from_machine(&state.host_snapshot, txn)
+            .await?;
+
+        match redfish_client.lockdown_status().await {
+            Err(e) => {
+                tracing::warn!("Could not get lockdown status for {machine_id}: {e}",);
+                Ok(None)
+            }
+            Ok(status) if status.is_fully_disabled() => {
+                tracing::debug!("host firmware update: Reenabling lockdown");
+                // Already disabled, we need to reenable.
+                if let Err(e) = redfish_client
+                    .lockdown(libredfish::EnabledDisabled::Enabled)
+                    .await
+                {
+                    tracing::error!("Could not set lockdown for {machine_id}: {e}");
+                    return Ok(None);
+                }
+                // Reenabling lockdown can require us to wait for the DPU to become available again due to resets, we cannot go directly to Ready.
+                match scenario {
+                    HostFirmwareScenario::Ready => Ok(Some(ManagedHostState::HostInit {
+                        machine_state: MachineState::WaitingForLockdown {
+                            lockdown_info: LockdownInfo {
+                                state: LockdownState::TimeWaitForDPUDown,
+                                mode: Enable,
+                            },
+                        },
+                    })),
+                    HostFirmwareScenario::Instance => {
+                        handler_host_power_control(
+                            state,
+                            services,
+                            SystemPowerControl::ForceRestart,
+                            txn,
+                        )
+                        .await?;
+                        scenario.complete_state()
+                    }
+                }
+            }
+            _ => {
+                tracing::debug!("host firmware update: Don't need to reenable lockdown");
+                if let HostFirmwareScenario::Instance = scenario {
+                    handler_host_power_control(
+                        state,
+                        services,
+                        SystemPowerControl::ForceRestart,
+                        txn,
+                    )
+                    .await?;
+                }
+                scenario.complete_state()
+            }
+        }
+    }
+
+    /// Uploads a firmware update via multipart, returning the task ID, or None if upload was deferred
+    async fn initiate_host_fw_update(
+        &self,
+        address: IpAddr,
+        services: &StateHandlerServices,
+        to_install: &FirmwareEntry,
+        snapshot: &Machine,
+        component_type: &FirmwareComponentType,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Option<String>, StateHandlerError> {
+        if !self
+            .downloader
+            .available(
+                &to_install.get_filename(),
+                &to_install.get_url(),
+                &to_install.get_checksum(),
+            )
+            .await
+        {
+            tracing::debug!(
+                "{} is being downloaded from {}, update deferred",
+                to_install.get_filename().display(),
+                to_install.get_url()
+            );
+
+            return Ok(None);
+        }
+
+        let Ok(_active) = self.upload_limiter.try_acquire() else {
+            tracing::debug!(
+                "Deferring installation of {:?} on {}, too many uploads already active",
+                to_install,
+                snapshot.id,
+            );
+            return Ok(None);
+        };
+
+        // Setup the Redfish connection
+        let redfish_client = services
+            .redfish_client_pool
+            .create_client_from_machine(snapshot, txn)
+            .await?;
+
+        match redfish_client.lockdown_status().await {
+            Err(e) => {
+                tracing::warn!(
+                    "Could not get lockdown status for {}: {e}",
+                    address.to_string()
+                );
+                return Ok(None);
+            }
+            Ok(status) if status.is_fully_disabled() => {
+                // Already disabled, we can go ahead
+                tracing::debug!("Host fw update: No need for disabling lockdown");
+            }
+            _ => {
+                tracing::debug!("Host fw update: Disabling lockdown");
+                if let Err(e) = redfish_client
+                    .lockdown(libredfish::EnabledDisabled::Disabled)
+                    .await
+                {
+                    tracing::warn!("Could not set lockdown for {}: {e}", address.to_string());
+                    return Ok(None);
+                }
+            }
+        };
+
+        let redfish_component_type: libredfish::model::update_service::ComponentType =
+            match to_install.install_only_specified {
+                false => libredfish::model::update_service::ComponentType::Unknown,
+                true => (*component_type).into(),
+            };
+        let task = match redfish_client
+            .update_firmware_multipart(
+                to_install.get_filename().as_path(),
+                true,
+                std::time::Duration::from_secs(120),
+                redfish_component_type,
+            )
+            .await
+        {
+            Ok(task) => task,
+            Err(e) => {
+                tracing::warn!("Failed uploading firmware to {}: {e}", address.to_string());
+                return Ok(None);
+            }
+        };
+
+        Ok(Some(task))
+    }
+
+    async fn host_waiting_fw(
+        &self,
+        details: &HostReprovisionState,
+        state: &ManagedHostStateSnapshot,
+        services: &StateHandlerServices,
+        machine_id: &MachineId,
+        scenario: HostFirmwareScenario,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        let (task_id, final_version, firmware_type, power_drains_needed) = match details {
+            HostReprovisionState::WaitingForFirmwareUpgrade {
+                task_id,
+                final_version,
+                firmware_type,
+                power_drains_needed,
+            } => (task_id, final_version, firmware_type, power_drains_needed),
+            _ => {
+                return Err(StateHandlerError::GenericError(eyre!(
+                    "Wrong enum in host_waiting_fw"
+                )));
+            }
+        };
+
+        let address = state
+            .host_snapshot
+            .bmc_info
+            .ip_addr()
+            .map_err(StateHandlerError::GenericError)?;
+        // Setup the Redfish connection
+        let redfish_client = services
+            .redfish_client_pool
+            .create_client_from_machine(&state.host_snapshot, txn)
+            .await?;
+
+        match redfish_client.get_task(task_id.as_str()).await {
+            Ok(task_info) => {
+                match task_info.task_state {
+                    Some(TaskState::New)
+                    | Some(TaskState::Starting)
+                    | Some(TaskState::Running)
+                    | Some(TaskState::Pending) => {
+                        tracing::debug!(
+                            "Upgrade task for {} not yet complete, current state {:?} message {:?}",
+                            machine_id,
+                            task_info.task_state,
+                            task_info.messages,
+                        );
+                        Ok(None)
+                    }
+                    Some(TaskState::Completed) => {
+                        // Task has completed, update is done and we can clean up.  Site explorer will ingest this next time it runs on this endpoint.
+                        tracing::debug!(
+                            "Saw completion of host firmware upgrade task for {}",
+                            machine_id
+                        );
+
+                        let reprovision_state = HostReprovisionState::ResetForNewFirmware {
+                            final_version: final_version.to_string(),
+                            firmware_type: *firmware_type,
+                            power_drains_needed: *power_drains_needed,
+                            delay_until: None,
+                            last_power_drain_operation: None,
+                        };
+                        scenario.actual_new_state(reprovision_state)
+                    }
+                    Some(TaskState::Exception)
+                    | Some(TaskState::Interrupted)
+                    | Some(TaskState::Killed)
+                    | Some(TaskState::Cancelled) => {
+                        tracing::debug!(
+                            "Failure in firmware upgrade for {}: {} {:?}",
+                            machine_id,
+                            task_info.task_state.unwrap(),
+                            task_info
+                                .messages
+                                .last()
+                                .map_or("".to_string(), |m| m.message.clone())
+                        );
+
+                        // We need site explorer to requery the version, just in case it actually did get done
+                        DbExploredEndpoint::set_waiting_for_explorer_refresh(address, txn).await?;
+                        scenario.actual_new_state(HostReprovisionState::CheckingFirmware)
+                    }
+                    _ => {
+                        // Unexpected state
+                        tracing::warn!(
+                            "Unrecognized task state for {}: {:?}",
+                            machine_id,
+                            task_info.task_state
+                        );
+                        // For now, a force delete will be needed to recover from this state
+                        let reprovision_state = HostReprovisionState::FailedFirmwareUpgrade {
+                            firmware_type: *firmware_type,
+                            report_time: Some(Utc::now()),
+                        };
+                        scenario.actual_new_state(reprovision_state)
+                    }
+                }
+            }
+            Err(e) => match e {
+                RedfishError::HTTPErrorCode { status_code, .. } => {
+                    if status_code == NOT_FOUND {
+                        // Dells (maybe others) have been observed to not have report the job any more after completing a host reboot for a UEFI upgrade.  If we get a 404 but see that we're at the right version, we're done with that upgrade.
+                        let Some(endpoint) =
+                            find_explored_refreshed_endpoint(state, machine_id, txn).await?
+                        else {
+                            return Ok(None);
+                        };
+
+                        if let Some(fw_info) = self.parsed_hosts.find_fw_info_for_host(&endpoint) {
+                            if let Some(current_version) =
+                                endpoint.find_version(&fw_info, *firmware_type)
+                            {
+                                if current_version == *final_version {
+                                    tracing::info!(
+                                        "Marking completion of Redfish task of firmware upgrade for {} with missing task",
+                                        &endpoint.address
+                                    );
+                                    return scenario
+                                        .actual_new_state(HostReprovisionState::CheckingFirmware);
+                                }
+                            }
+                        }
+                    }
+                    Err(StateHandlerError::RedfishError {
+                        operation: "get_task",
+                        error: e,
+                    })
+                }
+                _ => Err(StateHandlerError::RedfishError {
+                    operation: "get_task",
+                    error: e,
+                }),
+            },
+        }
+    }
+
+    async fn host_reset_for_new_firmware(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        services: &StateHandlerServices,
+        machine_id: &MachineId,
+        details: &HostReprovisionState,
+        scenario: HostFirmwareScenario,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        let (
+            final_version,
+            firmware_type,
+            power_drains_needed,
+            delay_until,
+            last_power_drain_operation,
+        ) = match details {
+            HostReprovisionState::ResetForNewFirmware {
+                final_version,
+                firmware_type,
+                power_drains_needed,
+                delay_until,
+                last_power_drain_operation,
+            } => (
+                final_version,
+                firmware_type,
+                power_drains_needed,
+                delay_until,
+                last_power_drain_operation,
+            ),
+            _ => {
+                return Err(StateHandlerError::GenericError(eyre!(
+                    "Wrong enum in host_reset_for_new_firmware"
+                )));
+            }
+        };
+
+        let Some(endpoint) = find_explored_refreshed_endpoint(state, machine_id, txn).await? else {
+            tracing::debug!("Waiting for site explorer to revisit {machine_id}");
+            return Ok(None);
+        };
+
+        if let Some(power_drains_needed) = power_drains_needed {
+            if let Some(delay_until) = delay_until {
+                if *delay_until > chrono::Utc::now().timestamp() {
+                    tracing::info!(
+                        "Waiting after {last_power_drain_operation:?} of {}",
+                        &endpoint.address
+                    );
+                    return Ok(None);
+                }
+            }
+
+            match last_power_drain_operation {
+                None | Some(PowerDrainState::On) => {
+                    // The 1000 is for unit tests; values above this will skip delays.
+                    if *power_drains_needed == 0 || *power_drains_needed == 1000 {
+                        tracing::info!("Power drains for {} done", &endpoint.address);
+                        // This path, and only this path of the match, exits the match and lets us proceed.  All others should return after updating state.
+                    } else {
+                        tracing::info!(
+                            "Upgrade task has completed for {} but needs {} power drain(s), initiating one",
+                            &endpoint.address,
+                            power_drains_needed
+                        );
+                        handler_host_power_control(
+                            state,
+                            services,
+                            SystemPowerControl::ForceOff,
+                            txn,
+                        )
+                        .await?;
+
+                        // Wait 60 seconds after powering off to do AC powercycle
+                        let delay = if *power_drains_needed < 1000 { 60 } else { 0 };
+                        let reprovision_state = HostReprovisionState::ResetForNewFirmware {
+                            final_version: final_version.clone(),
+                            firmware_type: *firmware_type,
+                            power_drains_needed: Some(*power_drains_needed),
+                            delay_until: Some(chrono::Utc::now().timestamp() + delay),
+                            last_power_drain_operation: Some(PowerDrainState::Off),
+                        };
+                        return scenario.actual_new_state(reprovision_state);
+                    }
+                }
+                Some(PowerDrainState::Off) => {
+                    tracing::info!("Doing powercycle now for {}", &endpoint.address);
+                    handler_host_power_control(
+                        state,
+                        services,
+                        SystemPowerControl::ACPowercycle,
+                        txn,
+                    )
+                    .await?;
+
+                    let delay = if *power_drains_needed < 1000 { 90 } else { 0 };
+                    let reprovision_state = HostReprovisionState::ResetForNewFirmware {
+                        final_version: final_version.clone(),
+                        firmware_type: *firmware_type,
+                        power_drains_needed: Some(*power_drains_needed),
+                        delay_until: Some(chrono::Utc::now().timestamp() + delay),
+                        last_power_drain_operation: Some(PowerDrainState::Powercycle),
+                    };
+                    return scenario.actual_new_state(reprovision_state);
+                }
+                Some(PowerDrainState::Powercycle) => {
+                    tracing::info!("Turning back on {}", &endpoint.address);
+                    handler_host_power_control(state, services, SystemPowerControl::On, txn)
+                        .await?;
+
+                    let delay = if *power_drains_needed < 1000 { 5 } else { 0 };
+                    let reprovision_state = HostReprovisionState::ResetForNewFirmware {
+                        final_version: final_version.clone(),
+                        firmware_type: *firmware_type,
+                        power_drains_needed: Some(power_drains_needed - 1),
+                        delay_until: Some(chrono::Utc::now().timestamp() + delay),
+                        last_power_drain_operation: Some(PowerDrainState::On),
+                    };
+                    return scenario.actual_new_state(reprovision_state);
+                }
+            };
+        } else if firmware_type.is_uefi() {
+            tracing::debug!(
+                "Upgrade task has completed for {} but needs reboot, initiating one",
+                &endpoint.address
+            );
+            handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn)
+                .await?;
+
+            // Same state but with the rebooted flag set, it can take a long time to reboot in some cases so we do not retry.
+        }
+
+        if firmware_type.is_bmc()
+            && !endpoint
+                .report
+                .vendor
+                .unwrap_or(bmc_vendor::BMCVendor::Unknown)
+                .is_dell()
+        {
+            tracing::debug!(
+                "Upgrade task has completed for {} but needs BMC reboot, initiating one",
+                &endpoint.address
+            );
+            let redfish_client = services
+                .redfish_client_pool
+                .create_client_from_machine(&state.host_snapshot, txn)
+                .await?;
+
+            if let Err(e) = redfish_client.bmc_reset().await {
+                tracing::warn!("Failed to reboot {}: {e}", &endpoint.address);
+                return Ok(None);
+            }
+        }
+
+        if *firmware_type == FirmwareComponentType::HGXBmc {
+            // Needs a host power reset
+            let redfish_client = services
+                .redfish_client_pool
+                .create_client_from_machine(&state.host_snapshot, txn)
+                .await?;
+            if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
+                tracing::error!("Failed to power off {}: {e}", &endpoint.address);
+                return Ok(None);
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+            if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
+                tracing::error!("Failed to power on {}: {e}", &endpoint.address);
+                return Ok(None);
+            }
+            // Okay to proceed
+        }
+
+        // Now we can go on to waiting for the correct version to be reported
+        let reprovision_state = HostReprovisionState::NewFirmwareReportedWait {
+            firmware_type: *firmware_type,
+            final_version: final_version.to_string(),
+        };
+        scenario.actual_new_state(reprovision_state)
+    }
+
+    async fn host_new_firmware_reported_wait(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        final_version: &str,
+        firmware_type: &FirmwareComponentType,
+        machine_id: &MachineId,
+        scenario: HostFirmwareScenario,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        let Some(endpoint) = find_explored_refreshed_endpoint(state, machine_id, txn).await? else {
+            tracing::debug!("Waiting for site explorer to revisit {machine_id}");
+            return Ok(None);
+        };
+
+        let Some(fw_info) = self.parsed_hosts.find_fw_info_for_host(&endpoint) else {
+            tracing::error!("Could no longer find firmware info for {machine_id}");
+            return scenario.actual_new_state(HostReprovisionState::CheckingFirmware);
+        };
+        let Some(current_version) = endpoint.find_version(&fw_info, *firmware_type) else {
+            tracing::error!("Could no longer find current version for {machine_id}");
+            return scenario.actual_new_state(HostReprovisionState::CheckingFirmware);
+        };
+
+        if current_version == final_version {
+            // Done waiting, go back to overall checking of version`2s
+            tracing::debug!("Done waiting for {machine_id} to reach version");
+            scenario.actual_new_state(HostReprovisionState::CheckingFirmware)
+        } else {
+            tracing::debug!(
+                "Waiting for {machine_id} to reach version {final_version} currently {current_version}"
+            );
+            DbExploredEndpoint::re_explore_if_version_matches(
+                endpoint.address,
+                endpoint.report_version,
+                txn,
+            )
+            .await?;
+            Ok(None)
         }
     }
 }

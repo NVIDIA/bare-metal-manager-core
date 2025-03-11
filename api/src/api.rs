@@ -2666,6 +2666,127 @@ impl Forge for Api {
         Ok(Response::new(rpc::DpuReprovisioningListResponse { dpus }))
     }
 
+    async fn trigger_host_reprovisioning(
+        &self,
+        request: Request<rpc::HostReprovisioningRequest>,
+    ) -> Result<tonic::Response<()>, tonic::Status> {
+        use ::rpc::forge::host_reprovisioning_request::Mode;
+
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let machine_id = try_parse_machine_id(
+            req.machine_id
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Machine ID is missing"))?,
+        )
+        .map_err(CarbideError::from)?;
+
+        log_machine_id(&machine_id);
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin trigger_host_reprovisioning ",
+                e,
+            ))
+        })?;
+        let snapshot =
+            db::managed_host::load_snapshot(&mut txn, &machine_id, LoadSnapshotOptions::default())
+                .await
+                .map_err(CarbideError::from)?
+                .ok_or(CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: machine_id.to_string(),
+                })?;
+
+        if let Some(request) = snapshot.host_snapshot.reprovision_requested {
+            if request.started_at.is_some() {
+                return Err(CarbideError::internal(
+                    "Reprovisioning is already started.".to_string(),
+                )
+                .into());
+            }
+        }
+
+        match req.mode() {
+            Mode::Set => {
+                let initiator = req.initiator().as_str_name();
+                db::machine::trigger_host_reprovisioning_request(&mut txn, initiator, &machine_id)
+                    .await
+                    .map_err(CarbideError::from)?;
+            }
+            Mode::Clear => {
+                db::machine::clear_host_reprovisioning_request(&mut txn, &machine_id)
+                    .await
+                    .map_err(CarbideError::from)?;
+            }
+        }
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "end trigger_host_reprovisioning",
+                e,
+            ))
+        })?;
+
+        Ok(Response::new(()))
+    }
+
+    async fn list_hosts_waiting_for_reprovisioning(
+        &self,
+        request: tonic::Request<rpc::HostReprovisioningListRequest>,
+    ) -> Result<tonic::Response<rpc::HostReprovisioningListResponse>, tonic::Status> {
+        log_request_data(&request);
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin list_hosts_waiting_for_reprovisioning ",
+                e,
+            ))
+        })?;
+
+        let hosts = db::machine::list_machines_requested_for_host_reprovisioning(&mut txn)
+            .await
+            .map_err(CarbideError::from)?
+            .into_iter()
+            .map(
+                |x| rpc::host_reprovisioning_list_response::HostReprovisioningListItem {
+                    id: Some(::rpc::common::MachineId {
+                        id: x.id.to_string(),
+                    }),
+                    state: x.current_state().to_string(),
+                    requested_at: x
+                        .reprovision_requested
+                        .as_ref()
+                        .map(|a| a.requested_at.into()),
+                    initiator: x
+                        .reprovision_requested
+                        .as_ref()
+                        .map(|a| a.initiator.clone())
+                        .unwrap_or_default(),
+                    initiated_at: x
+                        .reprovision_requested
+                        .as_ref()
+                        .map(|a| a.started_at.map(|x| x.into()))
+                        .unwrap_or_default(),
+                    user_approval_received: x
+                        .reprovision_requested
+                        .as_ref()
+                        .map(|x| x.user_approval_received)
+                        .unwrap_or_default(),
+                },
+            )
+            .collect_vec();
+
+        Ok(Response::new(rpc::HostReprovisioningListResponse { hosts }))
+    }
+
     /// Retrieves all DPU information including id and loopback IP
     async fn get_dpu_info_list(
         &self,
