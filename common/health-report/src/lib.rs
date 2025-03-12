@@ -63,13 +63,22 @@ impl HealthReport {
     /// The hash value can be used to quickly compare health reports - even in
     /// cases where timestamps of the reports might be different
     pub fn hash_without_timestamps<H: std::hash::Hasher>(&self, hasher: &mut H) {
-        hasher.write_usize(self.successes.len());
+        // The BTreeMaps are used to retain ordering while hashing in order to make the hash consistent
+        let mut successes = BTreeMap::new();
         for success in self.successes.iter() {
+            successes.insert((success.id.clone(), success.target.clone()), success);
+        }
+        hasher.write_usize(successes.len());
+        for success in successes.values() {
             success.hash_without_timestamps(hasher);
         }
 
-        hasher.write_usize(self.alerts.len());
+        let mut alerts = BTreeMap::new();
         for alert in self.alerts.iter() {
+            alerts.insert((alert.id.clone(), alert.target.clone()), alert);
+        }
+        hasher.write_usize(alerts.len());
+        for alert in alerts.values() {
             alert.hash_without_timestamps(hasher);
         }
     }
@@ -319,7 +328,8 @@ impl HealthProbeAlert {
         self.target.hash(hasher);
         self.message.hash(hasher);
         self.tenant_message.hash(hasher);
-        self.classifications.hash(hasher);
+        let sorted_classifications: BTreeSet<_> = self.classifications.iter().collect();
+        sorted_classifications.hash(hasher);
     }
 
     /// Creates a HeartbeatTimeout alert
