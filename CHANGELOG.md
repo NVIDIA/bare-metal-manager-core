@@ -2,6 +2,14 @@
 ## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.02.28-rc2-0...trunk)
 
 ### Added
+
+- Host health status is recorded over time in health history. Whenever the health status (added/removed/changed alert or success) of a host changes, a new host health history record is created. Host health history can be retrieved via the `FindMachineHealthHistories` gRPC API.
+- The Host Health page on carbide-web have been improved:
+  - Host health history is presented directly on the health page (`/admin/machine/:id/health`), as well as on a dedicated health history page (`/admin/machine/:id/health-history`)
+  - The layout of the health page had been improved
+  - The list of health overrides now shows the full override definition in JSON format in an expandable `Details` column
+  - The health page is now loading without an error even in case the machine is not currently ingested. This allows viewing the health history for deleted machines
+
 ### Changed
 
 - The handling of VPC-isolation behavior has been moved to the DPU agent.  `deny_prefixes` and `site_fabric_prefixes` are now sent separately to the DPU along with `vpc_isolation_behavior`, and the agent adjusts generated config as appropriate.  The old protobuf field has been renamed and is still populated with the original content for backward-compatibility.
