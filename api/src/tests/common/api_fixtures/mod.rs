@@ -537,7 +537,7 @@ fn dpu_fw_example() -> HashMap<String, Firmware> {
                     FirmwareComponentType::Bmc,
                     FirmwareComponent {
                         current_version_reported_as: Some(Regex::new("BMC_Firmware").unwrap()),
-                        preingest_upgrade_when_below: Some("BF-23.10".to_string()),
+                        preingest_upgrade_when_below: None,
                         known_firmware: vec![FirmwareEntry {
                             version: "BF-23.10".to_string(),
                             default: true,
@@ -554,9 +554,9 @@ fn dpu_fw_example() -> HashMap<String, Firmware> {
                     FirmwareComponentType::Cec,
                     FirmwareComponent {
                         current_version_reported_as: Some(Regex::new("Bluefield_FW_ERoT").unwrap()),
-                        preingest_upgrade_when_below: Some("4-15".to_string()),
+                        preingest_upgrade_when_below: None,
                         known_firmware: vec![FirmwareEntry {
-                            version: "4-15".to_string(),
+                            version: "00.02.0180.0000".to_string(),
                             default: true,
                             filename: Some("/dev/null".to_string()),
                             url: Some("file://dev/null".to_string()),

@@ -4,6 +4,24 @@ cat << \ZOF > /etc/bf.cfg
 ENABLE_BR_HBN=yes
 ENABLE_BR_SFC=yes
 
+BMC_PASSWORD=`tr -dc 'A-Za-z0-9' </dev/urandom | head -c 6; echo`-`tr -dc 'A-Za-z0-9' </dev/urandom | head -c 6; echo`
+BMC_USER="firmware_updater"
+BMC_REBOOT="yes"
+CEC_REBOOT="yes"
+USER_ID=8
+
+pre_bmc_components_update() {
+    ipmitool user set name $USER_ID $BMC_USER
+    ipmitool user set password $USER_ID $BMC_PASSWORD
+    ipmitool user enable $USER_ID
+    ipmitool channel setaccess 1 $USER_ID ipmi=on
+    ipmitool user priv $USER_ID 0x4 1
+}
+
+post_bmc_components_update() {
+    ipmitool user set name $USER_ID ""
+}
+
 # This function is called by install.sh script embedded in the BFB
 bfb_modify_os()
 {

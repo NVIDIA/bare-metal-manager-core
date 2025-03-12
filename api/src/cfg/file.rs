@@ -934,7 +934,7 @@ impl Default for DpuConfig {
                 ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
                 components: HashMap::from([(FirmwareComponentType::Bmc, FirmwareComponent {
                     current_version_reported_as: Some(Regex::new("BMC_Firmware").unwrap()),
-                    preingest_upgrade_when_below: Some("BF-23.10-5".to_string()),
+                    preingest_upgrade_when_below: None,
                     known_firmware: vec![FirmwareEntry {
                         version: "BF-24.07-14".to_string(),
                         mandatory_upgrade_from_priority: None,
@@ -948,7 +948,7 @@ impl Default for DpuConfig {
                 }),
                     (FirmwareComponentType::Cec, FirmwareComponent {
                         current_version_reported_as: Some(Regex::new("Bluefield_FW_ERoT").unwrap()),
-                        preingest_upgrade_when_below: Some("4-15".to_string()),
+                        preingest_upgrade_when_below: None,
                         known_firmware: vec![FirmwareEntry {
                             version: "4-15".to_string(),
                             mandatory_upgrade_from_priority: None,
@@ -967,7 +967,7 @@ impl Default for DpuConfig {
                 ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
                 components: HashMap::from([(FirmwareComponentType::Bmc, FirmwareComponent {
                     current_version_reported_as: Some(Regex::new("BMC_Firmware").unwrap()),
-                    preingest_upgrade_when_below: Some("BF-23.10-5".to_string()),
+                    preingest_upgrade_when_below: None,
                     known_firmware: vec![FirmwareEntry {
                         version: "BF-24.07-14".to_string(),
                         mandatory_upgrade_from_priority: None,
@@ -981,7 +981,7 @@ impl Default for DpuConfig {
                 }),
                     (FirmwareComponentType::Cec, FirmwareComponent {
                         current_version_reported_as: Some(Regex::new("Bluefield_FW_ERoT").unwrap()),
-                        preingest_upgrade_when_below: Some("00.02.0152.0000_n02".to_string()),
+                        preingest_upgrade_when_below: None,
                         known_firmware: vec![FirmwareEntry {
                             version: "00.02.0182.0000_n02".to_string(),
                             mandatory_upgrade_from_priority: None,
