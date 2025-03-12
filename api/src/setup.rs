@@ -19,10 +19,12 @@ use forge_secrets::{ForgeVaultClient, credentials::CredentialProvider};
 use sqlx::{ConnectOptions, PgPool, postgres::PgSslMode};
 use std::{collections::HashSet, sync::Arc};
 
-use crate::db::expected_machine::ExpectedMachine;
 use crate::ib::DEFAULT_IB_FABRIC_NAME;
 use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
 use crate::{db, db::machine::update_dpu_asns, resource_pool::DefineResourcePoolError};
+use crate::{
+    db::expected_machine::ExpectedMachine, handlers::machine_validation::apply_config_on_startup,
+};
 
 use crate::cfg::file::HostHealthConfig;
 use crate::{
@@ -415,7 +417,7 @@ pub async fn start_api(
                 .firmware_downloader(&downloader)
                 .attestation_enabled(carbide_config.attestation_enabled)
                 .upload_limiter(upload_limiter.clone())
-                .machine_validation_config(carbide_config.machine_validation_config)
+                .machine_validation_config(carbide_config.machine_validation_config.clone())
                 .common_pools(common_pools.clone())
                 .bom_validation(carbide_config.bom_validation)
                 .build(),
@@ -524,10 +526,16 @@ pub async fn start_api(
 
     let machine_validation_metric = crate::machine_validation::MachineValidationManager::new(
         db_pool.clone(),
-        carbide_config.machine_validation_config,
+        carbide_config.machine_validation_config.clone(),
         meter.clone(),
     );
     let _machine_validation_metric_handle = machine_validation_metric.start()?;
+
+    apply_config_on_startup(
+        &api_service,
+        &carbide_config.machine_validation_config.clone(),
+    )
+    .await?;
 
     let listen_addr = carbide_config.listen;
     listener::listen_and_serve(

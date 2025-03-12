@@ -10,6 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::cfg::file::{
+    MachineValidationConfig, MachineValidationTestConfig, MachineValidationTestSelectionMode,
+};
+use crate::handlers::machine_validation::apply_config_on_startup;
 use crate::model::machine::{
     FailureCause, FailureDetails, FailureSource, MachineState, MachineValidationFilter,
     ManagedHostState, machine_id::try_parse_machine_id,
@@ -1326,6 +1330,397 @@ async fn test_on_demant_machine_validation_all_contexts(
                 assert!(contexts.contains(&c));
             }
         }
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
+async fn test_machine_validation_tests_on_startup_default_mode(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    // Get initial state of tests
+    let initial_tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest::default(),
+        ))
+        .await?
+        .into_inner()
+        .tests;
+
+    // Create config with Default mode
+    let config = MachineValidationConfig {
+        enabled: true,
+        test_selection_mode: MachineValidationTestSelectionMode::Default,
+        run_interval: std::time::Duration::from_secs(60),
+        tests: vec![
+            MachineValidationTestConfig {
+                id: initial_tests[0].test_id.clone(),
+                enable: false,
+            },
+            MachineValidationTestConfig {
+                id: initial_tests[1].test_id.clone(),
+                enable: true,
+            },
+        ],
+    };
+
+    // Apply config
+    apply_config_on_startup(&env.api, &config).await?;
+
+    // Verify results
+    let updated_tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest::default(),
+        ))
+        .await?
+        .into_inner()
+        .tests;
+
+    // First test should be disabled
+    assert!(
+        !updated_tests
+            .iter()
+            .find(|t| t.test_id == initial_tests[0].test_id)
+            .unwrap()
+            .is_enabled
+    );
+
+    // Second test should be enabled
+    assert!(
+        updated_tests
+            .iter()
+            .find(|t| t.test_id == initial_tests[1].test_id)
+            .unwrap()
+            .is_enabled
+    );
+
+    // Other tests should remain unchanged
+    for test in updated_tests.iter().skip(2) {
+        assert_eq!(
+            test.is_enabled,
+            initial_tests
+                .iter()
+                .find(|t| t.test_id == test.test_id)
+                .unwrap()
+                .is_enabled,
+            "Test {} state should not change",
+            test.test_id
+        );
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
+async fn test_machine_validation_tests_enable_all_mode(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    // Get initial state of tests
+    let initial_tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest::default(),
+        ))
+        .await?
+        .into_inner()
+        .tests;
+
+    // Create config with EnableAll mode and one override
+    let config = MachineValidationConfig {
+        enabled: true,
+        test_selection_mode: MachineValidationTestSelectionMode::EnableAll,
+        run_interval: std::time::Duration::from_secs(60),
+        tests: vec![MachineValidationTestConfig {
+            id: initial_tests[0].test_id.clone(),
+            enable: false, // Override first test to be disabled
+        }],
+    };
+
+    // Apply config
+    apply_config_on_startup(&env.api, &config).await?;
+
+    // Verify results
+    let updated_tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest::default(),
+        ))
+        .await?
+        .into_inner()
+        .tests;
+
+    // First test should be disabled (due to override)
+    assert!(
+        !updated_tests
+            .iter()
+            .find(|t| t.test_id == initial_tests[0].test_id)
+            .unwrap()
+            .is_enabled
+    );
+
+    // All other tests should be enabled
+    for test in updated_tests.iter().skip(1) {
+        assert!(
+            test.is_enabled,
+            "Test {} should be enabled in EnableAll mode",
+            test.test_id
+        );
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
+async fn test_machine_validation_tests_on_startup_disable_all_mode(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    // Get initial state of tests
+    let initial_tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest::default(),
+        ))
+        .await?
+        .into_inner()
+        .tests;
+
+    // Create config with DisableAll mode and one override
+    let config = MachineValidationConfig {
+        enabled: true,
+        test_selection_mode: MachineValidationTestSelectionMode::DisableAll,
+        run_interval: std::time::Duration::from_secs(60),
+        tests: vec![MachineValidationTestConfig {
+            id: initial_tests[0].test_id.clone(),
+            enable: true, // Override first test to be enabled
+        }],
+    };
+
+    // Apply config
+    apply_config_on_startup(&env.api, &config).await?;
+
+    // Verify results
+    let updated_tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest::default(),
+        ))
+        .await?
+        .into_inner()
+        .tests;
+
+    // First test should be enabled (due to override)
+    assert!(
+        updated_tests
+            .iter()
+            .find(|t| t.test_id == initial_tests[0].test_id)
+            .unwrap()
+            .is_enabled
+    );
+
+    // All other tests should be disabled
+    for test in updated_tests.iter().skip(1) {
+        assert!(
+            !test.is_enabled,
+            "Test {} should be disabled in DisableAll mode",
+            test.test_id
+        );
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
+async fn test_machine_validation_tests_on_startup_missing_test_selection_mode(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    // Get initial state of tests
+    let initial_tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest::default(),
+        ))
+        .await?
+        .into_inner()
+        .tests;
+
+    // Create minimal config without test_selection_mode (should default to Default mode)
+    let config = MachineValidationConfig {
+        enabled: true,
+        run_interval: std::time::Duration::from_secs(60),
+        tests: vec![MachineValidationTestConfig {
+            id: initial_tests[0].test_id.clone(),
+            enable: false,
+        }],
+        ..Default::default() // This will use the default test_selection_mode
+    };
+
+    // Apply config
+    apply_config_on_startup(&env.api, &config).await?;
+
+    // Verify results
+    let updated_tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest::default(),
+        ))
+        .await?
+        .into_inner()
+        .tests;
+
+    // First test should be disabled as specified in config
+    assert!(
+        !updated_tests
+            .iter()
+            .find(|t| t.test_id == initial_tests[0].test_id)
+            .unwrap()
+            .is_enabled
+    );
+
+    // Other tests should remain unchanged (Default mode behavior)
+    for test in updated_tests.iter().skip(1) {
+        assert_eq!(
+            test.is_enabled,
+            initial_tests
+                .iter()
+                .find(|t| t.test_id == test.test_id)
+                .unwrap()
+                .is_enabled,
+            "Test {} state should not change when test_selection_mode is missing",
+            test.test_id
+        );
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
+async fn test_machine_validation_tests_on_startup_missing_tests_config(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    // Create config without any test configurations
+    let config = MachineValidationConfig {
+        enabled: true,
+        test_selection_mode: MachineValidationTestSelectionMode::EnableAll,
+        run_interval: std::time::Duration::from_secs(60),
+        tests: vec![], // Empty test configuration
+    };
+
+    // Apply config
+    apply_config_on_startup(&env.api, &config).await?;
+
+    // Verify results
+    let updated_tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest::default(),
+        ))
+        .await?
+        .into_inner()
+        .tests;
+
+    // All tests should be enabled (EnableAll mode with no overrides)
+    for test in &updated_tests {
+        assert!(
+            test.is_enabled,
+            "Test {} should be enabled when no test configs are provided in EnableAll mode",
+            test.test_id
+        );
+    }
+
+    // Test with DisableAll mode
+    let config = MachineValidationConfig {
+        enabled: true,
+        test_selection_mode: MachineValidationTestSelectionMode::DisableAll,
+        run_interval: std::time::Duration::from_secs(60),
+        tests: vec![], // Empty test configuration
+    };
+
+    // Apply config
+    apply_config_on_startup(&env.api, &config).await?;
+
+    // Verify results
+    let updated_tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest::default(),
+        ))
+        .await?
+        .into_inner()
+        .tests;
+
+    // All tests should be disabled (DisableAll mode with no overrides)
+    for test in &updated_tests {
+        assert!(
+            !test.is_enabled,
+            "Test {} should be disabled when no test configs are provided in DisableAll mode",
+            test.test_id
+        );
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
+async fn test_machine_validation_tests_on_startup_missing_both_fields(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    // Get initial state of tests
+    let initial_tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest::default(),
+        ))
+        .await?
+        .into_inner()
+        .tests;
+
+    // Create minimal config without both test_selection_mode and tests
+    let config = MachineValidationConfig {
+        enabled: true,
+        run_interval: std::time::Duration::from_secs(60),
+        ..Default::default() // This will use defaults for both test_selection_mode and tests
+    };
+
+    // Apply config
+    apply_config_on_startup(&env.api, &config).await?;
+
+    // Verify results
+    let updated_tests = env
+        .api
+        .get_machine_validation_tests(tonic::Request::new(
+            rpc::forge::MachineValidationTestsGetRequest::default(),
+        ))
+        .await?
+        .into_inner()
+        .tests;
+
+    // All tests should remain unchanged (Default mode with no test configs)
+    for test in &updated_tests {
+        assert_eq!(
+            test.is_enabled,
+            initial_tests
+                .iter()
+                .find(|t| t.test_id == test.test_id)
+                .unwrap()
+                .is_enabled,
+            "Test {} state should not change when both fields are missing",
+            test.test_id
+        );
     }
 
     Ok(())

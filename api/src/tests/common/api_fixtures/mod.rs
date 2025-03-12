@@ -950,6 +950,8 @@ pub async fn create_test_env_with_overrides(
                 .machine_validation_config(MachineValidationConfig {
                     enabled: config.machine_validation_config.enabled,
                     run_interval: config.machine_validation_config.run_interval,
+                    tests: config.machine_validation_config.tests.clone(),
+                    test_selection_mode: config.machine_validation_config.test_selection_mode,
                 })
                 .bom_validation(config.bom_validation)
                 .build(),
