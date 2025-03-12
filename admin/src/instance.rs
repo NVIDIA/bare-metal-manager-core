@@ -12,12 +12,12 @@
 use std::fmt::Write;
 
 use ::rpc::forge as forgerpc;
-use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{Table, row};
 
 use super::cfg::cli_options::ShowInstance;
-use super::{default_uuid, invalid_machine_id, rpc};
+use super::{default_uuid, invalid_machine_id};
 use crate::cfg::cli_options::RebootInstance;
+use crate::rpc::ApiClient;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 fn convert_instance_to_nice_format(
@@ -276,28 +276,28 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
 
 async fn show_instances(
     json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     tenant_org_id: Option<String>,
     vpc_id: Option<String>,
     label_key: Option<String>,
     label_value: Option<String>,
     page_size: usize,
 ) -> CarbideCliResult<()> {
-    let all_instances = match rpc::get_all_instances(
-        api_config,
-        tenant_org_id.clone(),
-        vpc_id.clone(),
-        label_key.clone(),
-        label_value.clone(),
-        page_size,
-    )
-    .await
+    let all_instances = match api_client
+        .get_all_instances(
+            tenant_org_id.clone(),
+            vpc_id.clone(),
+            label_key.clone(),
+            label_value.clone(),
+            page_size,
+        )
+        .await
     {
         Ok(all_instance_ids) => all_instance_ids,
         Err(e) => return Err(e),
     };
     if json {
-        println!("{}", serde_json::to_string_pretty(&all_instances).unwrap());
+        println!("{}", serde_json::to_string_pretty(&all_instances)?);
     } else {
         convert_instances_to_nice_table(all_instances).printstd();
     }
@@ -307,16 +307,16 @@ async fn show_instances(
 async fn show_instance_details(
     id: String,
     json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     extrainfo: bool,
 ) -> CarbideCliResult<()> {
     let instance = if id.starts_with("fm100") {
-        rpc::get_instances_by_machine_id(api_config, id).await?
+        api_client.get_instances_by_machine_id(id).await?
     } else {
         let instance_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
             .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
             .into();
-        match rpc::get_one_instance(api_config, instance_id).await {
+        match api_client.get_one_instance(instance_id).await {
             Ok(instance) => instance,
             Err(e) => return Err(e),
         }
@@ -331,7 +331,7 @@ async fn show_instance_details(
     let instance = &instance.instances[0];
 
     if json {
-        println!("{}", serde_json::to_string_pretty(instance).unwrap());
+        println!("{}", serde_json::to_string_pretty(instance)?);
     } else {
         println!(
             "{}",
@@ -344,14 +344,14 @@ async fn show_instance_details(
 pub async fn handle_show(
     args: ShowInstance,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.id.is_empty() {
         show_instances(
             is_json,
-            api_config,
+            api_client,
             args.tenant_org_id,
             args.vpc_id,
             args.label_key,
@@ -361,18 +361,16 @@ pub async fn handle_show(
         .await?;
         return Ok(());
     }
-    show_instance_details(args.id, is_json, api_config, args.extrainfo).await?;
+    show_instance_details(args.id, is_json, api_client, args.extrainfo).await?;
     Ok(())
 }
 
-pub async fn handle_reboot(
-    args: RebootInstance,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
+pub async fn handle_reboot(args: RebootInstance, api_client: &ApiClient) -> CarbideCliResult<()> {
     let instance_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&args.instance)
         .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
         .into();
-    let machine_id = rpc::get_one_instance(api_config, instance_id)
+    let machine_id = api_client
+        .get_one_instance(instance_id)
         .await?
         .instances
         .last()
@@ -383,13 +381,13 @@ pub async fn handle_reboot(
             CarbideCliError::GenericError("Instance has no machine associated.".to_string())
         })?;
 
-    rpc::reboot_instance(
-        api_config,
-        machine_id.clone(),
-        args.custom_pxe,
-        args.apply_updates_on_reboot,
-    )
-    .await?;
+    api_client
+        .reboot_instance(
+            machine_id.clone(),
+            args.custom_pxe,
+            args.apply_updates_on_reboot,
+        )
+        .await?;
     println!(
         "Reboot for instance {} (machine {}) is requested successfully!",
         args.instance, machine_id

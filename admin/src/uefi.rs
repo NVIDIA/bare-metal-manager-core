@@ -10,16 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-use super::rpc;
 use crate::cfg::cli_options::MachineQuery;
-use ::rpc::forge_tls_client::ApiConfig;
+use crate::rpc::ApiClient;
 use utils::admin_cli::CarbideCliResult;
 
 pub async fn set_host_uefi_password(
     query: MachineQuery,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let response = rpc::set_host_uefi_password(query.clone(), api_config).await?;
+    let response = api_client.set_host_uefi_password(query.clone()).await?;
     println!(
         "successfully set UEFI password for host {query:#?} (jid: {:#?})",
         response.job_id
@@ -29,9 +28,9 @@ pub async fn set_host_uefi_password(
 
 pub async fn clear_host_uefi_password(
     query: MachineQuery,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let response = rpc::clear_host_uefi_password(query.clone(), api_config).await?;
+    let response = api_client.clear_host_uefi_password(query.clone()).await?;
     println!(
         "successfully cleared UEFI password for host {query:#?}; (jid: {:#?})",
         response.job_id

@@ -17,9 +17,8 @@ use crate::cfg::storage::{
     ListStoragePool, ListStorageVolume, UpdateOsImage, UpdateStorageCluster, UpdateStoragePool,
     UpdateStorageVolume,
 };
-use crate::rpc as cli_rpc;
+use crate::rpc::ApiClient;
 use ::rpc::forge as forgerpc;
-use ::rpc::forge_tls_client::ApiConfig;
 use utils::admin_cli::CarbideCliResult;
 use utils::admin_cli::OutputFormat;
 
@@ -43,17 +42,17 @@ fn opt_str_to_rpc_uuid(id: Option<String>) -> CarbideCliResult<Option<::rpc::com
 pub async fn cluster_show(
     args: ListStorageCluster,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     _page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     let mut clusters = Vec::new();
     if let Some(x) = args.id {
         let id = str_to_rpc_uuid(&x)?;
-        let cluster = cli_rpc::get_storage_cluster(api_config, id).await?;
+        let cluster = api_client.0.get_storage_cluster(id).await?;
         clusters.push(cluster);
     } else {
-        clusters = cli_rpc::list_storage_cluster(api_config).await?;
+        clusters = api_client.list_storage_cluster().await?;
     }
     if is_json {
         println!(
@@ -69,7 +68,7 @@ pub async fn cluster_show(
 
 pub async fn cluster_import(
     args: ImportStorageCluster,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let host = args.hosts.split(',').map(|x| x.to_string()).collect();
     let cluster_attrs = forgerpc::StorageClusterAttributes {
@@ -79,7 +78,7 @@ pub async fn cluster_import(
         password: args.password,
         description: None,
     };
-    let cluster = cli_rpc::import_storage_cluster(api_config, cluster_attrs).await?;
+    let cluster = api_client.0.import_storage_cluster(cluster_attrs).await?;
     if let Some(x) = cluster.id {
         println!("Imported cluster {x} successfully.");
     } else {
@@ -91,32 +90,26 @@ pub async fn cluster_import(
 
 pub async fn cluster_delete(
     args: DeleteStorageCluster,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let id = str_to_rpc_uuid(&args.id)?;
-    cli_rpc::delete_storage_cluster(api_config, id, args.name).await?;
+    api_client.delete_storage_cluster(id, args.name).await?;
     println!("Deleted cluster {} successfully.", args.id);
     Ok(())
 }
 
 pub async fn cluster_update(
     args: UpdateStorageCluster,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let mut host = Vec::new();
     if let Some(x) = args.hosts {
         host = x.split(',').map(|x| x.to_string()).collect();
     }
     let id = str_to_rpc_uuid(&args.id)?;
-    let cluster = cli_rpc::update_storage_cluster(
-        api_config,
-        id,
-        host,
-        args.port,
-        args.username,
-        args.password,
-    )
-    .await?;
+    let cluster = api_client
+        .update_storage_cluster(id, host, args.port, args.username, args.password)
+        .await?;
     if let Some(x) = cluster.id {
         println!("Updated cluster {x} successfully.");
     } else {
@@ -128,14 +121,14 @@ pub async fn cluster_update(
 pub async fn pool_show(
     args: ListStoragePool,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     _page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     let mut pools = Vec::new();
     if let Some(x) = args.id {
         let id = str_to_rpc_uuid(&x)?;
-        let pool = cli_rpc::get_storage_pool(api_config, id).await?;
+        let pool = api_client.0.get_storage_pool(id).await?;
         pools.push(pool);
     } else {
         let mut cluster_id: Option<::rpc::common::Uuid> = None;
@@ -143,7 +136,9 @@ pub async fn pool_show(
             let id = str_to_rpc_uuid(&x)?;
             cluster_id = Some(id);
         }
-        pools = cli_rpc::list_storage_pool(api_config, cluster_id, args.tenant_org_id).await?;
+        pools = api_client
+            .list_storage_pool(cluster_id, args.tenant_org_id)
+            .await?;
     }
     if is_json {
         println!(
@@ -157,10 +152,7 @@ pub async fn pool_show(
     Ok(())
 }
 
-pub async fn pool_create(
-    args: CreateStoragePool,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
+pub async fn pool_create(args: CreateStoragePool, api_client: &ApiClient) -> CarbideCliResult<()> {
     let id = str_to_rpc_uuid(&args.id)?;
     let cluster_id = str_to_rpc_uuid(&args.cluster_id)?;
     let raid_level = args.raid_level.0 as i32;
@@ -175,7 +167,7 @@ pub async fn pool_create(
         name: args.name,
         description: args.description,
     };
-    let pool = cli_rpc::create_storage_pool(api_config, pool_attrs).await?;
+    let pool = api_client.0.create_storage_pool(pool_attrs).await?;
     if let Some(x) = pool.attributes {
         if let Some(y) = x.id {
             println!("Storage pool {y} created successfully.");
@@ -188,25 +180,21 @@ pub async fn pool_create(
     Ok(())
 }
 
-pub async fn pool_delete(
-    args: DeleteStoragePool,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
+pub async fn pool_delete(args: DeleteStoragePool, api_client: &ApiClient) -> CarbideCliResult<()> {
     let id = str_to_rpc_uuid(&args.id)?;
     let cluster_id = str_to_rpc_uuid(&args.cluster_id)?;
-    cli_rpc::delete_storage_pool(api_config, cluster_id, id.clone()).await?;
+    api_client
+        .delete_storage_pool(cluster_id, id.clone())
+        .await?;
     println!("Deleted storage pool {id} successfully.");
     Ok(())
 }
 
-pub async fn pool_update(
-    args: UpdateStoragePool,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
+pub async fn pool_update(args: UpdateStoragePool, api_client: &ApiClient) -> CarbideCliResult<()> {
     let id = str_to_rpc_uuid(&args.id)?;
-    let pool =
-        cli_rpc::update_storage_pool(api_config, id, args.capacity, args.name, args.description)
-            .await?;
+    let pool = api_client
+        .update_storage_pool(id, args.capacity, args.name, args.description)
+        .await?;
     if let Some(x) = pool.attributes {
         if let Some(y) = x.id {
             println!("Storage pool {y} updated successfully.");
@@ -224,14 +212,14 @@ pub async fn pool_update(
 pub async fn volume_show(
     args: ListStorageVolume,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     _page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     let mut volumes = Vec::new();
     if let Some(x) = args.id {
         let id = str_to_rpc_uuid(&x)?;
-        let volume = cli_rpc::get_storage_volume(api_config, id).await?;
+        let volume = api_client.0.get_storage_volume(id).await?;
         volumes.push(volume);
     } else {
         let cluster_id = opt_str_to_rpc_uuid(args.cluster_id)?;
@@ -250,7 +238,7 @@ pub async fn volume_show(
             os_images: args.os_images,
             exclude_snapshots: args.exclude_snapshots,
         };
-        volumes = cli_rpc::list_storage_volume(api_config, filter).await?;
+        volumes = api_client.0.list_storage_volume(filter).await?.volumes;
     }
     if is_json {
         println!(
@@ -266,7 +254,7 @@ pub async fn volume_show(
 
 pub async fn volume_create(
     args: CreateStorageVolume,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let id = str_to_rpc_uuid(&args.id)?;
     let cluster_id = str_to_rpc_uuid(&args.cluster_id)?;
@@ -285,7 +273,7 @@ pub async fn volume_create(
         name: args.name,
         description: args.description,
     };
-    let volume = cli_rpc::create_storage_volume(api_config, volume_attrs).await?;
+    let volume = api_client.0.create_storage_volume(volume_attrs).await?;
     if let Some(x) = volume.attributes {
         if let Some(y) = x.id {
             println!("Storage volume {y} created successfully.")
@@ -302,24 +290,26 @@ pub async fn volume_create(
 
 pub async fn volume_delete(
     args: DeleteStorageVolume,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let id = str_to_rpc_uuid(&args.id)?;
     let cluster_id = str_to_rpc_uuid(&args.cluster_id)?;
     let pool_id = str_to_rpc_uuid(&args.pool_id)?;
-    cli_rpc::delete_storage_volume(api_config, cluster_id, pool_id, id.clone()).await?;
+    api_client
+        .delete_storage_volume(cluster_id, pool_id, id.clone())
+        .await?;
     println!("Storage volume {id} deleted successfully.");
     Ok(())
 }
 
 pub async fn volume_update(
     args: UpdateStorageVolume,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let id = str_to_rpc_uuid(&args.id)?;
-    let volume =
-        cli_rpc::update_storage_volume(api_config, id, args.capacity, args.name, args.description)
-            .await?;
+    let volume = api_client
+        .update_storage_volume(id, args.capacity, args.name, args.description)
+        .await?;
     if let Some(x) = volume.attributes {
         if let Some(y) = x.id {
             println!("Storage volume {y} updated successfully.")
@@ -339,17 +329,17 @@ pub async fn volume_update(
 pub async fn os_image_show(
     args: ListOsImage,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     _page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     let mut images = Vec::new();
     if let Some(x) = args.id {
         let id = str_to_rpc_uuid(&x)?;
-        let image = cli_rpc::get_os_image(api_config, id).await?;
+        let image = api_client.0.get_os_image(id).await?;
         images.push(image);
     } else {
-        images = cli_rpc::list_os_image(api_config, args.tenant_org_id).await?;
+        images = api_client.list_os_image(args.tenant_org_id).await?;
     }
     if is_json {
         println!(
@@ -363,10 +353,7 @@ pub async fn os_image_show(
     Ok(())
 }
 
-pub async fn os_image_create(
-    args: CreateOsImage,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
+pub async fn os_image_create(args: CreateOsImage, api_client: &ApiClient) -> CarbideCliResult<()> {
     let id = str_to_rpc_uuid(&args.id)?;
     let image_attrs = forgerpc::OsImageAttributes {
         id: Some(id),
@@ -385,7 +372,7 @@ pub async fn os_image_create(
         bootfs_id: args.bootfs_id,
         efifs_id: args.efifs_id,
     };
-    let image = cli_rpc::create_os_image(api_config, image_attrs).await?;
+    let image = api_client.0.create_os_image(image_attrs).await?;
     if let Some(x) = image.attributes {
         if let Some(y) = x.id {
             println!("OS image {y} created successfully.");
@@ -398,30 +385,26 @@ pub async fn os_image_create(
     Ok(())
 }
 
-pub async fn os_image_delete(
-    args: DeleteOsImage,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
+pub async fn os_image_delete(args: DeleteOsImage, api_client: &ApiClient) -> CarbideCliResult<()> {
     let id = str_to_rpc_uuid(&args.id)?;
-    cli_rpc::delete_os_image(api_config, id.clone(), args.tenant_org_id).await?;
+    api_client
+        .delete_os_image(id.clone(), args.tenant_org_id)
+        .await?;
     println!("OS image {id} deleted successfully.");
     Ok(())
 }
 
-pub async fn os_image_update(
-    args: UpdateOsImage,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
+pub async fn os_image_update(args: UpdateOsImage, api_client: &ApiClient) -> CarbideCliResult<()> {
     let id = str_to_rpc_uuid(&args.id)?;
-    let image = cli_rpc::update_os_image(
-        api_config,
-        id,
-        args.auth_type,
-        args.auth_token,
-        args.name,
-        args.description,
-    )
-    .await?;
+    let image = api_client
+        .update_os_image(
+            id,
+            args.auth_type,
+            args.auth_token,
+            args.name,
+            args.description,
+        )
+        .await?;
     if let Some(x) = image.attributes {
         if let Some(y) = x.id {
             println!("OS image {y} updated successfully.");

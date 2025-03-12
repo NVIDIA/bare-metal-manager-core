@@ -1,13 +1,13 @@
 use std::fmt::Write;
 
 use crate::cfg::cli_options::NetworkDeviceShow;
-use ::rpc::forge_tls_client::ApiConfig;
+use crate::rpc::ApiClient;
 use utils::admin_cli::{CarbideCliResult, OutputFormat};
 
 pub async fn show(
     output_format: OutputFormat,
     query: NetworkDeviceShow,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let query_id: Option<String> = if query.all || query.id.is_empty() {
         None
@@ -15,10 +15,10 @@ pub async fn show(
         Some(query.id)
     };
 
-    let devices = crate::rpc::get_network_device_topology(query_id, api_config).await?;
+    let devices = api_client.get_network_device_topology(query_id).await?;
 
     match output_format {
-        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&devices).unwrap()),
+        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&devices)?),
         OutputFormat::AsciiTable => show_network_devices_info(&devices)?,
         OutputFormat::Csv => println!("CSV not yet supported."),
         OutputFormat::Yaml => println!("YAML not yet supported."),

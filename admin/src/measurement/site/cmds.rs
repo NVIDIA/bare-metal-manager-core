@@ -25,7 +25,7 @@ use utils::admin_cli::cli_output;
 
 use measured_boot::records::{MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord};
 
-use ::rpc::forge_tls_client::ForgeClientT;
+use crate::rpc::ApiClient;
 use ::rpc::protos::measured_boot::remove_measurement_trusted_machine_request;
 use ::rpc::protos::measured_boot::remove_measurement_trusted_profile_request;
 use ::rpc::protos::measured_boot::{
@@ -134,10 +134,7 @@ pub async fn dispatch(
 }
 
 /// Import imports a serialized SiteModel back into the database.
-pub async fn import(
-    grpc_conn: &mut ForgeClientT,
-    import: &Import,
-) -> CarbideCliResult<ImportResult> {
+pub async fn import(grpc_conn: &ApiClient, import: &Import) -> CarbideCliResult<ImportResult> {
     // Prepare.
     let reader = BufReader::new(File::open(import.path.clone())?);
     let site_model: SiteModel = serde_json::from_reader(reader)?;
@@ -152,17 +149,17 @@ pub async fn import(
 
     // Response + process and return.
     Ok(ImportResult::from(
-        grpc_conn
+        &grpc_conn
+            .0
             .import_site_measurements(request)
             .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .get_ref(),
+            .map_err(CarbideCliError::ApiInvocationError)?,
     ))
 }
 
 /// Export grabs all of the data needed to build a SiteModel.
 /// Summary is explicitly set to false so all data is serialized.
-pub async fn export(grpc_conn: &mut ForgeClientT, _export: &Export) -> CarbideCliResult<SiteModel> {
+pub async fn export(grpc_conn: &ApiClient, _export: &Export) -> CarbideCliResult<SiteModel> {
     // Prepare.
     // Force != summarized output, so all keys
     // accompany the serialized data.
@@ -173,17 +170,18 @@ pub async fn export(grpc_conn: &mut ForgeClientT, _export: &Export) -> CarbideCl
 
     // Response.
     let response = grpc_conn
+        .0
         .export_site_measurements(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
-    SiteModel::from_grpc(response.get_ref().model.as_ref())
+    SiteModel::from_grpc(response.model.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// approve_machine is used to approve a trusted machine by machine ID.
 pub async fn approve_machine(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     approve: &ApproveMachine,
 ) -> CarbideCliResult<MeasurementApprovedMachineRecord> {
     // Prepare.
@@ -199,19 +197,20 @@ pub async fn approve_machine(
 
     // Response.
     let response = grpc_conn
+        .0
         .add_measurement_trusted_machine(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
     // Process and return.
-    MeasurementApprovedMachineRecord::from_grpc(response.get_ref().approval_record.as_ref())
+    MeasurementApprovedMachineRecord::from_grpc(response.approval_record.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// remove_machine_by_approval_id removes a trusted machine approval
 /// by its approval ID.
 pub async fn remove_machine_by_approval_id(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     by_approval_id: &RemoveMachineByApprovalId,
 ) -> CarbideCliResult<MeasurementApprovedMachineRecord> {
     // Request.
@@ -225,19 +224,20 @@ pub async fn remove_machine_by_approval_id(
 
     // Response.
     let response = grpc_conn
+        .0
         .remove_measurement_trusted_machine(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
     // Process and return.
-    MeasurementApprovedMachineRecord::from_grpc(response.get_ref().approval_record.as_ref())
+    MeasurementApprovedMachineRecord::from_grpc(response.approval_record.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// remove_machine_by_machine_id removes a trusted machine approval
 /// by its machine ID.
 pub async fn remove_machine_by_machine_id(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     by_machine_id: &RemoveMachineByMachineId,
 ) -> CarbideCliResult<MeasurementApprovedMachineRecord> {
     // Request
@@ -251,18 +251,19 @@ pub async fn remove_machine_by_machine_id(
 
     // Response
     let response = grpc_conn
+        .0
         .remove_measurement_trusted_machine(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
     // Process and return.
-    MeasurementApprovedMachineRecord::from_grpc(response.get_ref().approval_record.as_ref())
+    MeasurementApprovedMachineRecord::from_grpc(response.approval_record.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// list_machines lists all trusted machine approvals.
 pub async fn list_machines(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
 ) -> CarbideCliResult<MeasurementApprovedMachineRecordList> {
     // Request.
     let request = ListMeasurementTrustedMachinesRequest {};
@@ -270,10 +271,10 @@ pub async fn list_machines(
     // Response.
     Ok(MeasurementApprovedMachineRecordList(
         grpc_conn
+            .0
             .list_measurement_trusted_machines(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .get_ref()
             .approval_records
             .iter()
             .map(|record| {
@@ -286,7 +287,7 @@ pub async fn list_machines(
 
 /// approve_profile is used to approve a trusted profile by profile ID.
 pub async fn approve_profile(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     approve: &ApproveProfile,
 ) -> CarbideCliResult<MeasurementApprovedProfileRecord> {
     // Request.
@@ -300,19 +301,20 @@ pub async fn approve_profile(
 
     // Response.
     let response = grpc_conn
+        .0
         .add_measurement_trusted_profile(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
     // Process and return.
-    MeasurementApprovedProfileRecord::from_grpc(response.get_ref().approval_record.as_ref())
+    MeasurementApprovedProfileRecord::from_grpc(response.approval_record.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// remove_profile_by_approval_id removes a trusted profile approval
 /// by its approval ID.
 pub async fn remove_profile_by_approval_id(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     by_approval_id: &RemoveProfileByApprovalId,
 ) -> CarbideCliResult<MeasurementApprovedProfileRecord> {
     // Request.
@@ -326,19 +328,20 @@ pub async fn remove_profile_by_approval_id(
 
     // Response.
     let response = grpc_conn
+        .0
         .remove_measurement_trusted_profile(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
     // Process and return.
-    MeasurementApprovedProfileRecord::from_grpc(response.get_ref().approval_record.as_ref())
+    MeasurementApprovedProfileRecord::from_grpc(response.approval_record.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// remove_profile_by_machine_id removes a trusted machine approval
 /// by its profile ID.
 pub async fn remove_profile_by_profile_id(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     by_profile_id: &RemoveProfileByProfileId,
 ) -> CarbideCliResult<MeasurementApprovedProfileRecord> {
     // Request.
@@ -352,18 +355,19 @@ pub async fn remove_profile_by_profile_id(
 
     // Response.
     let response = grpc_conn
+        .0
         .remove_measurement_trusted_profile(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
     // Process and return.
-    MeasurementApprovedProfileRecord::from_grpc(response.get_ref().approval_record.as_ref())
+    MeasurementApprovedProfileRecord::from_grpc(response.approval_record.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// list_profiles lists all trusted profile approvals.
 pub async fn list_profiles(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
 ) -> CarbideCliResult<MeasurementApprovedProfileRecordList> {
     // Request.
     let request = ListMeasurementTrustedProfilesRequest {};
@@ -371,10 +375,10 @@ pub async fn list_profiles(
     // Response.
     Ok(MeasurementApprovedProfileRecordList(
         grpc_conn
+            .0
             .list_measurement_trusted_profiles(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .get_ref()
             .approval_records
             .iter()
             .map(|record| {

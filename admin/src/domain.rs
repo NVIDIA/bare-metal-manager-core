@@ -14,8 +14,7 @@ use std::fmt::Write;
 use tracing::warn;
 
 use super::cfg::cli_options::ShowDomain;
-use super::rpc;
-use ::rpc::forge_tls_client::ApiConfig;
+use crate::rpc::ApiClient;
 use ::rpc::{Timestamp, forge as forgerpc};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
@@ -76,10 +75,10 @@ fn convert_domain_to_nice_table(domains: forgerpc::DomainList) -> Box<Table> {
     table.into()
 }
 
-async fn show_all_domains(json: bool, api_config: &ApiConfig<'_>) -> CarbideCliResult<()> {
-    let domains = rpc::get_domains(None, api_config).await?;
+async fn show_all_domains(json: bool, api_client: &ApiClient) -> CarbideCliResult<()> {
+    let domains = api_client.get_domains(None).await?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&domains).unwrap());
+        println!("{}", serde_json::to_string_pretty(&domains)?);
     } else {
         convert_domain_to_nice_table(domains).printstd();
     }
@@ -89,24 +88,22 @@ async fn show_all_domains(json: bool, api_config: &ApiConfig<'_>) -> CarbideCliR
 async fn show_domain_information(
     id: String,
     json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let domains = rpc::get_domains(
-        Some(
+    let domains = api_client
+        .get_domains(Some(
             uuid::Uuid::parse_str(&id)
                 .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
                 .into(),
-        ),
-        api_config,
-    )
-    .await?;
+        ))
+        .await?;
     if domains.domains.is_empty() {
         return Err(CarbideCliError::DomainNotFound);
     }
     let domain = &domains.domains[0];
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&domain).unwrap());
+        println!("{}", serde_json::to_string_pretty(&domain)?);
     } else {
         println!(
             "{}",
@@ -119,11 +116,11 @@ async fn show_domain_information(
 pub async fn handle_show(
     args: ShowDomain,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.all || args.domain.is_empty() {
-        show_all_domains(is_json, api_config).await?;
+        show_all_domains(is_json, api_client).await?;
         // TODO(chet): Remove this ~March 2024.
         // Use tracing::warn for this so its both a little more
         // noticeable, and a little more annoying/naggy. If people
@@ -133,6 +130,6 @@ pub async fn handle_show(
         }
         return Ok(());
     }
-    show_domain_information(args.domain, is_json, api_config).await?;
+    show_domain_information(args.domain, is_json, api_client).await?;
     Ok(())
 }

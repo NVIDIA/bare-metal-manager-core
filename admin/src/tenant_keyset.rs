@@ -13,34 +13,35 @@
 use std::fmt::Write;
 
 use super::cfg::cli_options::ShowTenantKeySet;
-use super::rpc;
+use crate::rpc::ApiClient;
 use ::rpc::forge as forgerpc;
-use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{Table, row};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 pub async fn handle_show(
     args: ShowTenantKeySet,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.id.is_empty() {
-        show_keysets(is_json, api_config, page_size, args.tenant_org_id).await?;
+        show_keysets(is_json, api_client, page_size, args.tenant_org_id).await?;
         return Ok(());
     }
-    show_keyset_details(args.id, is_json, api_config).await?;
+    show_keyset_details(args.id, is_json, api_client).await?;
     Ok(())
 }
 
 async fn show_keysets(
     json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     page_size: usize,
     tenant_org_id: Option<String>,
 ) -> CarbideCliResult<()> {
-    let all_keysets = match rpc::get_all_keysets(api_config, tenant_org_id.clone(), page_size).await
+    let all_keysets = match api_client
+        .get_all_keysets(tenant_org_id.clone(), page_size)
+        .await
     {
         Ok(all_vpc_ids) => all_vpc_ids,
         Err(e) => return Err(e),
@@ -56,7 +57,7 @@ async fn show_keysets(
 async fn show_keyset_details(
     id: String,
     json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let split_id = id.split('/').collect::<Vec<&str>>();
     if split_id.len() != 2 {
@@ -68,7 +69,7 @@ async fn show_keyset_details(
         organization_id: split_id[0].to_string(),
         keyset_id: split_id[1].to_string(),
     };
-    let keysets = match rpc::get_one_keyset(api_config, identifier).await {
+    let keysets = match api_client.get_one_keyset(identifier).await {
         Ok(keysets) => keysets,
         Err(e) => return Err(e),
     };

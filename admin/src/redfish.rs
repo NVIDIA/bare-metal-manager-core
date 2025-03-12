@@ -25,15 +25,15 @@ use libredfish::{
 };
 use mac_address::MacAddress;
 use prettytable::{Table, row};
-use rpc::forge_tls_client::ApiConfig;
 use serde::Serialize;
 use tracing::warn;
 
 use super::cfg::cli_options::RedfishCommand;
 use crate::cfg::cli_options::{DpuOperations, FwCommand, RedfishAction, ShowFw, ShowPort, UriInfo};
+use crate::rpc::ApiClient;
 
-async fn handle_browse_command(api_config: &ApiConfig<'_>, uri: &str) -> color_eyre::Result<()> {
-    let data = crate::rpc::redfish_browse(api_config, uri.to_string()).await?;
+async fn handle_browse_command(api_client: &ApiClient, uri: &str) -> color_eyre::Result<()> {
+    let data = api_client.redfish_browse(uri.to_string()).await?;
     #[derive(Serialize, Debug)]
     struct Output {
         text: serde_json::Value,
@@ -57,9 +57,9 @@ async fn handle_browse_command(api_config: &ApiConfig<'_>, uri: &str) -> color_e
     Ok(())
 }
 
-pub async fn action(api_config: &ApiConfig<'_>, action: RedfishAction) -> color_eyre::Result<()> {
+pub async fn action(api_client: &ApiClient, action: RedfishAction) -> color_eyre::Result<()> {
     if let RedfishCommand::Browse(UriInfo { uri }) = &action.command {
-        return handle_browse_command(api_config, uri).await;
+        return handle_browse_command(api_client, uri).await;
     }
 
     let endpoint = libredfish::Endpoint {

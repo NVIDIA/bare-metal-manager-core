@@ -1,12 +1,10 @@
 use std::collections::HashMap;
 
-use crate::{cfg::cli_options::GetReportMode, rpc};
-use ::rpc::{
-    forge_tls_client::ApiConfig,
-    site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport},
-};
+use crate::cfg::cli_options::GetReportMode;
+use ::rpc::site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport};
 use prettytable::{Cell, Row, Table, format, row};
 
+use crate::rpc::ApiClient;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 fn get_endpoints_for_managed_host<'a>(
@@ -135,18 +133,19 @@ fn managed_host_to_row(
 
 async fn get_exploration_report_for_bmc_address(
     ip: String,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<SiteExplorationReport> {
     // get managed host with host bmc
-    let mut managed_host = rpc::get_explored_managed_host_by_ids(api_config, &[ip.clone()])
+    let mut managed_host = api_client
+        .get_explored_managed_host_by_ids(&[ip.clone()])
         .await?
         .managed_hosts;
 
     if managed_host.is_empty() {
         // We didn't find anything here. Lets search all managed hosts.
         // // This is costly. We have to add a api to fetch only needed info.
-        let managed_hosts = rpc::get_all_explored_managed_hosts(api_config, page_size).await?;
+        let managed_hosts = api_client.get_all_explored_managed_hosts(page_size).await?;
         managed_host = managed_hosts
             .into_iter()
             .filter(|x| x.host_bmc_ip == ip || x.dpus.iter().any(|a| a.bmc_ip == ip))
@@ -161,7 +160,7 @@ async fn get_exploration_report_for_bmc_address(
         vec![ip]
     };
 
-    let endpoints = rpc::get_explored_endpoints_by_ids(api_config, &ips).await?;
+    let endpoints = api_client.get_explored_endpoints_by_ids(&ips).await?;
 
     Ok(::rpc::site_explorer::SiteExplorationReport {
         endpoints: endpoints.endpoints,
@@ -170,15 +169,16 @@ async fn get_exploration_report_for_bmc_address(
 }
 
 pub async fn show_site_explorer_discovered_managed_host(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     output_format: OutputFormat,
     internal_page_size: usize,
     mode: GetReportMode,
 ) -> CarbideCliResult<()> {
     match mode {
         GetReportMode::All => {
-            let exploration_report =
-                rpc::get_site_exploration_report(api_config, internal_page_size).await?;
+            let exploration_report = api_client
+                .get_site_exploration_report(internal_page_size)
+                .await?;
 
             println!("{}", serde_json::to_string_pretty(&exploration_report)?);
             return Ok(());
@@ -188,7 +188,7 @@ pub async fn show_site_explorer_discovered_managed_host(
             if let Some(address) = managed_host_info.address {
                 let exploration_report = get_exploration_report_for_bmc_address(
                     address.clone(),
-                    api_config,
+                    api_client,
                     internal_page_size,
                 )
                 .await?;
@@ -205,8 +205,9 @@ pub async fn show_site_explorer_discovered_managed_host(
                 let endpoints = get_endpoints_for_managed_host(managed_host, &exploration_report);
                 print_managed_host_info(managed_host, endpoints);
             } else {
-                let exploration_report =
-                    rpc::get_site_exploration_report(api_config, internal_page_size).await?;
+                let exploration_report = api_client
+                    .get_site_exploration_report(internal_page_size)
+                    .await?;
                 if output_format == OutputFormat::Json {
                     println!(
                         "{}",
@@ -222,7 +223,7 @@ pub async fn show_site_explorer_discovered_managed_host(
             if let Some(address) = endpoint_info.address {
                 let exploration_report = get_exploration_report_for_bmc_address(
                     address.clone(),
-                    api_config,
+                    api_client,
                     internal_page_size,
                 )
                 .await?;
@@ -243,8 +244,9 @@ pub async fn show_site_explorer_discovered_managed_host(
                         .clone(),
                 );
             } else {
-                let exploration_report =
-                    rpc::get_site_exploration_report(api_config, internal_page_size).await?;
+                let exploration_report = api_client
+                    .get_site_exploration_report(internal_page_size)
+                    .await?;
                 let mut paired_ips = vec![];
                 if endpoint_info.unpairedonly {
                     for managed_host in exploration_report.managed_hosts {

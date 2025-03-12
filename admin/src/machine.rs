@@ -11,26 +11,21 @@
  */
 use std::collections::VecDeque;
 
-use std::fmt::Write;
-use std::fs;
-use std::str::FromStr;
-use std::time::Duration;
-
+use super::cfg::cli_options::{HealthOverrideTemplates, MachineHardwareInfoGpus, ShowMachine};
+use super::default_uuid;
+use crate::cfg::cli_options::{ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand};
+use crate::rpc::ApiClient;
 use ::rpc::forge as forgerpc;
-use ::rpc::forge_tls_client::ApiConfig;
 use chrono::Utc;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
 };
 use prettytable::{Table, row};
+use std::fmt::Write;
+use std::fs;
+use std::str::FromStr;
+use std::time::Duration;
 use tracing::warn;
-
-use super::cfg::cli_options::ShowMachine;
-use super::{default_uuid, rpc};
-use crate::cfg::cli_options::{
-    ForceDeleteMachineQuery, HealthOverrideTemplates, MachineAutoupdate, MachineHardwareInfoGpus,
-    OverrideCommand,
-};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 fn convert_machine_to_nice_format(
@@ -303,13 +298,15 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
 
 async fn show_all_machines(
     json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     machine_type: Option<forgerpc::MachineType>,
     page_size: usize,
 ) -> CarbideCliResult<()> {
-    let machines = rpc::get_all_machines(api_config, machine_type, false, page_size).await?;
+    let machines = api_client
+        .get_all_machines(machine_type, false, page_size)
+        .await?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&machines).unwrap());
+        println!("{}", serde_json::to_string_pretty(&machines)?);
     } else {
         convert_machines_to_nice_table(machines).printstd();
     }
@@ -319,11 +316,11 @@ async fn show_all_machines(
 async fn show_machine_information(
     args: &ShowMachine,
     json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let machine = rpc::get_machine(args.machine.clone(), api_config).await?;
+    let machine = api_client.get_machine(args.machine.clone()).await?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&machine).unwrap());
+        println!("{}", serde_json::to_string_pretty(&machine)?);
     } else {
         println!(
             "{}",
@@ -337,12 +334,12 @@ async fn show_machine_information(
 pub async fn handle_show(
     args: ShowMachine,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if !args.machine.is_empty() {
-        show_machine_information(&args, is_json, api_config).await?;
+        show_machine_information(&args, is_json, api_client).await?;
     } else {
         let machine_type = if args.dpus {
             Some(forgerpc::MachineType::Dpu)
@@ -352,7 +349,7 @@ pub async fn handle_show(
             None
         };
 
-        show_all_machines(is_json, api_config, machine_type, page_size).await?;
+        show_all_machines(is_json, api_client, machine_type, page_size).await?;
         // TODO(chet): Remove this ~March 2024.
         // Use tracing::warn for this so its both a little more
         // noticeable, and a little more annoying/naggy. If people
@@ -447,12 +444,13 @@ fn get_health_report(template: HealthOverrideTemplates, message: Option<String>)
 pub async fn handle_override(
     command: OverrideCommand,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     match command {
         OverrideCommand::Show { machine_id } => {
-            let response =
-                rpc::machine_list_health_report_overrides(machine_id, api_config).await?;
+            let response = api_client
+                .machine_list_health_report_overrides(machine_id)
+                .await?;
             let mut rows = vec![];
             for r#override in response.overrides {
                 let report = r#override.report.ok_or(CarbideCliError::GenericError(
@@ -479,14 +477,13 @@ pub async fn handle_override(
                                 })
                             })
                             .collect::<Vec<_>>(),
-                    )
-                    .unwrap()
+                    )?
                 ),
                 _ => {
                     let mut table = Table::new();
                     table.set_titles(row!["Report", "Mode"]);
                     for row in rows {
-                        table.add_row(row![serde_json::to_string(&row.0).unwrap(), row.1]);
+                        table.add_row(row![serde_json::to_string(&row.0)?, row.1]);
                     }
                     table.printstd();
                 }
@@ -509,19 +506,20 @@ pub async fn handle_override(
                 return Ok(());
             }
 
-            rpc::machine_insert_health_report_override(
-                options.machine_id,
-                report.into(),
-                options.replace,
-                api_config,
-            )
-            .await?;
+            api_client
+                .machine_insert_health_report_override(
+                    options.machine_id,
+                    report.into(),
+                    options.replace,
+                )
+                .await?;
         }
         OverrideCommand::Remove {
             machine_id,
             report_source,
         } => {
-            rpc::machine_remove_health_report_override(machine_id, report_source, api_config)
+            api_client
+                .machine_remove_health_report_override(machine_id, report_source)
                 .await?;
         }
         OverrideCommand::PrintEmptyTemplate => {
@@ -537,7 +535,7 @@ pub async fn handle_override(
 
 pub async fn force_delete(
     mut query: ForceDeleteMachineQuery,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     const RETRY_TIME: Duration = Duration::from_secs(5);
     const MAX_WAIT_TIME: Duration = Duration::from_secs(60 * 20);
@@ -545,7 +543,8 @@ pub async fn force_delete(
     let start = std::time::Instant::now();
     let mut dpu_machine_id = String::new();
 
-    if !rpc::get_instances_by_machine_id(api_config, query.machine.clone())
+    if !api_client
+        .get_instances_by_machine_id(query.machine.clone())
         .await?
         .instances
         .is_empty()
@@ -557,10 +556,10 @@ pub async fn force_delete(
     }
 
     loop {
-        let response = rpc::machine_admin_force_delete(query.clone(), api_config).await?;
+        let response = api_client.machine_admin_force_delete(query.clone()).await?;
         println!(
             "Force delete response: {}",
-            serde_json::to_string_pretty(&response).unwrap()
+            serde_json::to_string_pretty(&response)?
         );
 
         if dpu_machine_id.is_empty() && !response.dpu_machine_id.is_empty() {
@@ -602,20 +601,18 @@ pub async fn force_delete(
     Ok(())
 }
 
-pub async fn autoupdate(
-    cfg: MachineAutoupdate,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
-    let _response = rpc::machine_set_auto_update(cfg, api_config).await?;
+pub async fn autoupdate(cfg: MachineAutoupdate, api_client: &ApiClient) -> CarbideCliResult<()> {
+    let _response = api_client.machine_set_auto_update(cfg).await?;
     Ok(())
 }
 
 pub async fn get_next_free_machine(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     machine_ids: &mut VecDeque<String>,
 ) -> Option<String> {
     while let Some(id) = machine_ids.pop_front() {
-        let api_state = rpc::get_machine(id.clone(), api_config)
+        let api_state = api_client
+            .get_machine(id.clone())
             .await
             .map_or("<ERROR>".to_owned(), |machine| machine.state);
         if api_state == "Ready" {
@@ -626,23 +623,23 @@ pub async fn get_next_free_machine(
 }
 
 pub async fn handle_update_machine_hardware_info_gpus(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     gpus: MachineHardwareInfoGpus,
 ) -> CarbideCliResult<()> {
     let gpu_file_contents = fs::read_to_string(gpus.gpu_json_file)?;
     let gpus_from_json: Vec<::rpc::machine_discovery::Gpu> =
         serde_json::from_str(&gpu_file_contents)?;
-    rpc::update_machine_hardware_info(
-        api_config,
-        gpus.machine.clone(),
-        forgerpc::MachineHardwareInfoUpdateType::Gpus,
-        gpus_from_json,
-    )
-    .await
+    api_client
+        .update_machine_hardware_info(
+            gpus.machine.clone(),
+            forgerpc::MachineHardwareInfoUpdateType::Gpus,
+            gpus_from_json,
+        )
+        .await
 }
 
 pub async fn handle_show_machine_hardware_info(
-    _api_config: &ApiConfig<'_>,
+    _api_client: &ApiClient,
     _machine_id: String,
 ) -> CarbideCliResult<()> {
     println!("Show hardware info not yet implemented");

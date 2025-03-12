@@ -24,8 +24,7 @@ pub mod report;
 pub mod site;
 
 use crate::cfg::measurement::{Cmd, GlobalOptions};
-use crate::measurement::global::cmds::get_forge_client;
-use ::rpc::forge_tls_client::ApiConfig;
+use crate::rpc::ApiClient;
 use forge_uuid::machine::MachineId;
 use serde::Serialize;
 use utils::admin_cli::{ToTable, set_summary};
@@ -33,12 +32,11 @@ use utils::admin_cli::{ToTable, set_summary};
 pub async fn dispatch(
     command: &Cmd,
     args: &GlobalOptions,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> eyre::Result<()> {
     set_summary(!args.extended);
-    let mut grpc_conn = get_forge_client(api_config).await?;
     let mut cli_data = global::cmds::CliData {
-        grpc_conn: &mut grpc_conn,
+        grpc_conn: api_client,
         args,
     };
 

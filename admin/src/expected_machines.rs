@@ -1,34 +1,30 @@
 use std::collections::HashMap;
 
-use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{Table, row};
 use utils::admin_cli::{CarbideCliResult, OutputFormat};
 
 use crate::cfg::cli_options::ShowExpectedMachineQuery;
-use crate::rpc;
+use crate::rpc::ApiClient;
 
 pub async fn show_expected_machines(
     expected_machine_query: &ShowExpectedMachineQuery,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
     if let Some(bmc_mac_address) = expected_machine_query.bmc_mac_address {
-        let expected_machine = rpc::get_expected_machine(bmc_mac_address, api_config).await?;
+        let expected_machine = api_client.get_expected_machine(bmc_mac_address).await?;
         println!("{:#?}", expected_machine);
         return Ok(());
     }
 
-    let expected_machines = rpc::get_all_expected_machines(api_config).await?;
+    let expected_machines = api_client.get_all_expected_machines().await?;
     if output_format == OutputFormat::Json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&expected_machines).unwrap()
-        );
+        println!("{}", serde_json::to_string_pretty(&expected_machines)?);
     }
 
     // TODO: This should be optimised. `find_interfaces` should accept a list of macs also and
     // return related interfaces details.
-    let all_mi = rpc::get_all_machines_interfaces(api_config, None).await?;
+    let all_mi = api_client.get_all_machines_interfaces(None).await?;
     let expected_macs = expected_machines
         .expected_machines
         .iter()
@@ -53,7 +49,8 @@ pub async fn show_expected_machines(
         .collect::<Vec<_>>();
 
     let expected_bmc_ip_vs_ids = HashMap::from_iter(
-        rpc::get_machines_ids_by_bmc_ips(api_config, &bmc_ips)
+        api_client
+            .get_machines_ids_by_bmc_ips(&bmc_ips)
             .await?
             .pairs
             .iter()

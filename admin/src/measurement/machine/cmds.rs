@@ -14,7 +14,6 @@
 //! `measurement mock-machine` subcommand dispatcher + backing functions.
 //!
 
-use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::{
     AttestCandidateMachineRequest, ShowCandidateMachineRequest, ShowCandidateMachinesRequest,
 };
@@ -25,6 +24,7 @@ use utils::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
 
 use crate::measurement::global;
 use crate::measurement::machine::args::{Attest, CmdMachine, Show};
+use crate::rpc::ApiClient;
 use measured_boot::records::CandidateMachineSummary;
 use serde::Serialize;
 
@@ -70,10 +70,7 @@ pub async fn dispatch(
 
 /// attest sends attestation data for the given machine ID, as in, PCR
 /// register + value pairings, which results in a journal entry being made.
-pub async fn attest(
-    grpc_conn: &mut ForgeClientT,
-    attest: &Attest,
-) -> CarbideCliResult<MeasurementReport> {
+pub async fn attest(grpc_conn: &ApiClient, attest: &Attest) -> CarbideCliResult<MeasurementReport> {
     // Request.
     let request = AttestCandidateMachineRequest {
         machine_id: attest.machine_id.to_string(),
@@ -82,19 +79,17 @@ pub async fn attest(
 
     // Response.
     let response = grpc_conn
+        .0
         .attest_candidate_machine(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
-    MeasurementReport::from_grpc(response.get_ref().report.as_ref())
+    MeasurementReport::from_grpc(response.report.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
 /// show_by_id shows all info about a given machine ID.
-pub async fn show_by_id(
-    grpc_conn: &mut ForgeClientT,
-    show: &Show,
-) -> CarbideCliResult<CandidateMachine> {
+pub async fn show_by_id(grpc_conn: &ApiClient, show: &Show) -> CarbideCliResult<CandidateMachine> {
     // Prepare.
     // TODO(chet): This exists just because of how I'm dispatching
     // commands, since &Show gets reused for showing all (where machine_id
@@ -116,17 +111,18 @@ pub async fn show_by_id(
 
     // Response.
     let response = grpc_conn
+        .0
         .show_candidate_machine(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
-    CandidateMachine::from_grpc(response.get_ref().machine.as_ref())
+    CandidateMachine::from_grpc(response.machine.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
 /// show_all shows all info about all machines.
 pub async fn show_all(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     _show: &Show,
 ) -> CarbideCliResult<CandidateMachineList> {
     // Request.
@@ -135,10 +131,10 @@ pub async fn show_all(
     // Response.
     Ok(CandidateMachineList(
         grpc_conn
+            .0
             .show_candidate_machines(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .get_ref()
             .machines
             .iter()
             .map(|machine| {
@@ -150,17 +146,17 @@ pub async fn show_all(
 }
 
 /// list lists all machine IDs.
-pub async fn list(grpc_conn: &mut ForgeClientT) -> CarbideCliResult<CandidateMachineSummaryList> {
+pub async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<CandidateMachineSummaryList> {
     // Request.
     let request = ListCandidateMachinesRequest {};
 
     // Response.
     Ok(CandidateMachineSummaryList(
         grpc_conn
+            .0
             .list_candidate_machines(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .get_ref()
             .machines
             .iter()
             .map(|machine| {

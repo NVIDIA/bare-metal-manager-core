@@ -1,10 +1,10 @@
 use ::rpc::forge::SkuList;
-use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{Row, Table};
+use rpc::forge::SkuIdList;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 use crate::cfg::cli_options::{CreateSku, GenerateSku, Sku};
-use crate::rpc;
+use crate::rpc::ApiClient;
 
 struct SkuWrapper {
     sku: ::rpc::forge::Sku,
@@ -141,11 +141,7 @@ fn show_skus_table(
 ) -> CarbideCliResult<()> {
     match output_format {
         OutputFormat::Json => {
-            output.write_all(
-                (serde_json::to_string_pretty(&skus)?)
-                    .to_string()
-                    .as_bytes(),
-            )?;
+            output.write_all(serde_json::to_string_pretty(&skus)?.to_string().as_bytes())?;
         }
         OutputFormat::Csv => {
             let skus = SkusWrapper::from(
@@ -182,7 +178,7 @@ fn show_sku_details(
 ) -> CarbideCliResult<()> {
     match output_format {
         OutputFormat::Json => {
-            output.write_all((serde_json::to_string_pretty(&sku)?).to_string().as_bytes())?;
+            output.write_all(serde_json::to_string_pretty(&sku)?.to_string().as_bytes())?;
         }
         OutputFormat::Csv => {
             return Err(CarbideCliError::GenericError(
@@ -258,7 +254,7 @@ fn show_sku_details(
 }
 
 pub async fn handle_sku_command(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     output: &mut dyn std::io::Write,
     output_format: &OutputFormat,
     sku_command: Sku,
@@ -266,14 +262,14 @@ pub async fn handle_sku_command(
     match sku_command {
         Sku::Show(show_sku) => {
             if let Some(sku_id) = show_sku.sku_id {
-                let skus = rpc::find_skus_by_ids(api_config, &[sku_id]).await?;
+                let skus = api_client.find_skus_by_ids(&[sku_id]).await?;
                 if let Some(sku) = skus.skus.into_iter().next() {
                     show_sku_details(output, output_format, sku)?;
                 }
             } else {
-                let all_ids = rpc::get_all_sku_ids(api_config).await?;
+                let all_ids = api_client.0.get_all_sku_ids().await?;
                 let sku_list = if !all_ids.ids.is_empty() {
-                    rpc::find_skus_by_ids(api_config, &all_ids.ids).await?
+                    api_client.find_skus_by_ids(&all_ids.ids).await?
                 } else {
                     SkuList::default()
                 };
@@ -282,11 +278,10 @@ pub async fn handle_sku_command(
             };
         }
         Sku::Generate(GenerateSku { machine_id, id }) => {
-            let mut sku = rpc::generate_sku_from_machine(
-                api_config,
-                ::rpc::common::MachineId { id: machine_id },
-            )
-            .await?;
+            let mut sku = api_client
+                .0
+                .generate_sku_from_machine(::rpc::common::MachineId { id: machine_id })
+                .await?;
             if let Some(id) = id {
                 sku.id = id;
             }
@@ -307,27 +302,30 @@ pub async fn handle_sku_command(
                 }
                 sku_list.skus[0].id = id;
             }
-            let sku_ids = rpc::create_sku(api_config, sku_list).await?;
-            let sku_list = rpc::find_skus_by_ids(api_config, &sku_ids.ids).await?;
+            let sku_ids = api_client.0.create_sku(sku_list).await?;
+            let sku_list = api_client.find_skus_by_ids(&sku_ids.ids).await?;
             show_skus_table(output, output_format, sku_list.skus)?;
         }
         Sku::Delete { sku_id } => {
-            rpc::delete_sku(api_config, sku_id).await?;
+            api_client
+                .0
+                .delete_sku(SkuIdList { ids: vec![sku_id] })
+                .await?;
         }
         Sku::Assign { sku_id, machine_id } => {
             let machine_id = ::rpc::common::MachineId { id: machine_id };
 
-            rpc::assign_sku_to_machine(api_config, sku_id, machine_id).await?;
+            api_client.assign_sku_to_machine(sku_id, machine_id).await?;
         }
         Sku::Unassign { machine_id } => {
             let machine_id = ::rpc::common::MachineId { id: machine_id };
 
-            rpc::remove_sku_association(api_config, machine_id).await?;
+            api_client.0.remove_sku_association(machine_id).await?;
         }
         Sku::Verify { machine_id } => {
             let machine_id = ::rpc::common::MachineId { id: machine_id };
 
-            rpc::verify_sku_for_machine(api_config, machine_id).await?;
+            api_client.0.verify_sku_for_machine(machine_id).await?;
         }
     }
     Ok(())

@@ -21,9 +21,8 @@ use crate::cfg::network_security_group::{
     DetachNetworkSecurityGroup, ShowNetworkSecurityGroup, ShowNetworkSecurityGroupAttachments,
     UpdateNetworkSecurityGroup,
 };
-use crate::rpc as cli_rpc;
+use crate::rpc::ApiClient;
 use ::rpc::forge as forgerpc;
-use ::rpc::forge_tls_client::ApiConfig;
 use utils::admin_cli::CarbideCliResult;
 use utils::admin_cli::OutputFormat;
 
@@ -121,17 +120,19 @@ fn convert_nsgs_to_table(
 pub async fn nsg_show(
     args: ShowNetworkSecurityGroup,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
     let mut nsgs = Vec::new();
     if let Some(id) = args.id {
-        let nsg = cli_rpc::get_single_network_security_group(api_config, id).await?;
+        let nsg = api_client.get_single_network_security_group(id).await?;
         nsgs.push(nsg);
     } else {
-        nsgs = cli_rpc::get_all_network_security_groups(api_config, page_size).await?;
+        nsgs = api_client
+            .get_all_network_security_groups(page_size)
+            .await?;
     }
 
     if is_json {
@@ -151,14 +152,11 @@ pub async fn nsg_show(
 /// Delete a network security group.
 pub async fn nsg_delete(
     args: DeleteNetworkSecurityGroup,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    cli_rpc::delete_network_security_group(
-        api_config,
-        args.id.clone(),
-        args.tenant_organization_id,
-    )
-    .await?;
+    api_client
+        .delete_network_security_group(args.id.clone(), args.tenant_organization_id)
+        .await?;
     println!("Deleted network security group {} successfully.", args.id);
     Ok(())
 }
@@ -169,13 +167,15 @@ pub async fn nsg_delete(
 pub async fn nsg_update(
     args: UpdateNetworkSecurityGroup,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
     let id = args.id;
 
-    let nsg = cli_rpc::get_single_network_security_group(api_config, id.clone()).await?;
+    let nsg = api_client
+        .get_single_network_security_group(id.clone())
+        .await?;
 
     let mut metadata = nsg.metadata.unwrap_or_default();
     let mut rules = nsg.attributes.unwrap_or_default().rules;
@@ -196,15 +196,15 @@ pub async fn nsg_update(
         rules = serde_json::from_str(&r)?;
     }
 
-    let nsg = cli_rpc::update_network_security_group(
-        api_config,
-        id,
-        args.tenant_organization_id,
-        metadata,
-        args.version,
-        rules,
-    )
-    .await?;
+    let nsg = api_client
+        .update_network_security_group(
+            id,
+            args.tenant_organization_id,
+            metadata,
+            args.version,
+            rules,
+        )
+        .await?;
 
     if is_json {
         println!(
@@ -224,7 +224,7 @@ pub async fn nsg_update(
 pub async fn nsg_create(
     args: CreateNetworkSecurityGroup,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
@@ -248,14 +248,9 @@ pub async fn nsg_create(
         vec![]
     };
 
-    let nsg = cli_rpc::create_network_security_group(
-        api_config,
-        id,
-        args.tenant_organization_id,
-        metadata,
-        rules,
-    )
-    .await?;
+    let nsg = api_client
+        .create_network_security_group(id, args.tenant_organization_id, metadata, rules)
+        .await?;
 
     if is_json {
         println!(
@@ -275,16 +270,19 @@ pub async fn nsg_create(
 pub async fn nsg_show_attachments(
     args: ShowNetworkSecurityGroupAttachments,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
     // Grab the NSG details.
-    let nsg = cli_rpc::get_single_network_security_group(api_config, args.id.clone()).await?;
+    let nsg = api_client
+        .get_single_network_security_group(args.id.clone())
+        .await?;
 
     // Grab the list of IDs for objects that are directly using this NSG.
-    let nsg_attachments =
-        cli_rpc::get_network_security_group_attachments(api_config, args.id.clone()).await?;
+    let nsg_attachments = api_client
+        .get_network_security_group_attachments(args.id.clone())
+        .await?;
 
     if nsg_attachments.vpc_ids.is_empty() && nsg_attachments.instance_ids.is_empty() {
         println!(
@@ -297,13 +295,13 @@ pub async fn nsg_show_attachments(
 
     // Next, prepare some sugar for users by grabbing the
     // propagation details for all objects using the NSG.
-    let (vpcs, instances) = cli_rpc::get_network_security_group_propagation_status(
-        api_config,
-        args.id.clone(),
-        Some(nsg_attachments.vpc_ids.clone()),
-        Some(nsg_attachments.instance_ids.clone()),
-    )
-    .await?;
+    let (vpcs, instances) = api_client
+        .get_network_security_group_propagation_status(
+            args.id.clone(),
+            Some(nsg_attachments.vpc_ids.clone()),
+            Some(nsg_attachments.instance_ids.clone()),
+        )
+        .await?;
 
     if is_json {
         // JSON output will get simple details.
@@ -390,7 +388,7 @@ pub async fn nsg_show_attachments(
 /// by updating the config of the object.
 pub async fn nsg_attach(
     args: AttachNetworkSecurityGroup,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     // Check that at least one of instance ID or VPC ID has been sent
     if args.instance_id.is_none() && args.vpc_id.is_none() {
@@ -401,16 +399,14 @@ pub async fn nsg_attach(
 
     // Grab the instance for the ID if requested.
     if let Some(instance_id) = args.instance_id {
-        let instance = cli_rpc::get_one_instance(
-            api_config,
-            rpc::Uuid {
+        let instance = api_client
+            .get_one_instance(rpc::Uuid {
                 value: instance_id.clone(),
-            },
-        )
-        .await?
-        .instances
-        .pop()
-        .ok_or(CarbideCliError::UuidNotFound)?;
+            })
+            .await?
+            .instances
+            .pop()
+            .ok_or(CarbideCliError::UuidNotFound)?;
 
         // Grab the instance config for the target instance.
         // We'll modify the NSG ID field and then resubmit.
@@ -424,14 +420,14 @@ pub async fn nsg_attach(
         config.network_security_group_id = Some(args.id.clone());
 
         // Resubmit the data back to the system.
-        let _instance = cli_rpc::update_instance_config(
-            api_config,
-            instance_id.clone(),
-            instance.config_version,
-            config,
-            instance.metadata,
-        )
-        .await?;
+        let _instance = api_client
+            .update_instance_config(
+                instance_id.clone(),
+                instance.config_version,
+                config,
+                instance.metadata,
+            )
+            .await?;
 
         println!(
             "Network security group {} successfully attached to instance {}",
@@ -442,7 +438,8 @@ pub async fn nsg_attach(
 
     // Grab the VPC for the ID if requested.
     if let Some(v) = args.vpc_id {
-        let vpc = cli_rpc::get_one_vpc(api_config, rpc::Uuid { value: v.clone() })
+        let vpc = api_client
+            .get_one_vpc(rpc::Uuid { value: v.clone() })
             .await?
             .vpcs
             .pop()
@@ -450,15 +447,15 @@ pub async fn nsg_attach(
 
         // Submit the VPC details back to the system but change the
         // NSG ID value.
-        let _vpc = cli_rpc::update_vpc_config(
-            api_config,
-            v.clone(),
-            vpc.version,
-            vpc.name,
-            vpc.metadata,
-            Some(args.id.clone()),
-        )
-        .await?;
+        let _vpc = api_client
+            .update_vpc_config(
+                v.clone(),
+                vpc.version,
+                vpc.name,
+                vpc.metadata,
+                Some(args.id.clone()),
+            )
+            .await?;
 
         println!(
             "Network security group {} successfully attached to VPC {}",
@@ -474,7 +471,7 @@ pub async fn nsg_attach(
 /// by updating the config of the object.
 pub async fn nsg_detach(
     args: DetachNetworkSecurityGroup,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     // Check that at least one of instance ID or VPC ID has been sent
     if args.instance_id.is_none() && args.vpc_id.is_none() {
@@ -485,16 +482,14 @@ pub async fn nsg_detach(
 
     // Grab the instance for the ID if requested.
     if let Some(instance_id) = args.instance_id {
-        let instance = cli_rpc::get_one_instance(
-            api_config,
-            rpc::Uuid {
+        let instance = api_client
+            .get_one_instance(rpc::Uuid {
                 value: instance_id.clone(),
-            },
-        )
-        .await?
-        .instances
-        .pop()
-        .ok_or(CarbideCliError::UuidNotFound)?;
+            })
+            .await?
+            .instances
+            .pop()
+            .ok_or(CarbideCliError::UuidNotFound)?;
 
         // Similar to attachment, we'll grab the full config
         // so we can empty the NSG ID field and then resubmit.
@@ -508,14 +503,14 @@ pub async fn nsg_detach(
         config.network_security_group_id = None;
 
         // Submit the config to the system.
-        let _instance = cli_rpc::update_instance_config(
-            api_config,
-            instance_id.clone(),
-            instance.config_version,
-            config,
-            instance.metadata,
-        )
-        .await?;
+        let _instance = api_client
+            .update_instance_config(
+                instance_id.clone(),
+                instance.config_version,
+                config,
+                instance.metadata,
+            )
+            .await?;
 
         println!(
             "Network security group successfully detached from instance {}",
@@ -525,7 +520,8 @@ pub async fn nsg_detach(
 
     // Grab the instance for the ID if requested.
     if let Some(v) = args.vpc_id {
-        let vpc = cli_rpc::get_one_vpc(api_config, rpc::Uuid { value: v.clone() })
+        let vpc = api_client
+            .get_one_vpc(rpc::Uuid { value: v.clone() })
             .await?
             .vpcs
             .pop()
@@ -534,15 +530,9 @@ pub async fn nsg_detach(
         // Similar to attachment, we'll resubmit the
         // VPC details we just grabbed and only clear
         // the NSG ID field.
-        let _vpc = cli_rpc::update_vpc_config(
-            api_config,
-            v.clone(),
-            vpc.version,
-            vpc.name,
-            vpc.metadata,
-            None,
-        )
-        .await?;
+        let _vpc = api_client
+            .update_vpc_config(v.clone(), vpc.version, vpc.name, vpc.metadata, None)
+            .await?;
 
         println!(
             "Network security group successfully detached from VPC {}",
