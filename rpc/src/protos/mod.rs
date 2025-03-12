@@ -33,3 +33,7 @@ pub mod measured_boot;
 #[allow(non_snake_case, unknown_lints, clippy::all)]
 #[rustfmt::skip]
 pub mod site_explorer;
+
+#[allow(clippy::all)]
+#[rustfmt::skip]
+pub mod forge_api_client;
