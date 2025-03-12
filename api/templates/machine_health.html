@@ -38,6 +38,7 @@
 	<p><input type="submit" id="submit_add" value="Submit Override"></p>
 </details>
 
+{% if !overrides.is_empty() %}
 <h2>Active overrides:</h2>
 <table class="sortable detailsview">
 <thead>
@@ -66,6 +67,7 @@
 	{% endfor %}
 </tbody>
 </table>
+{% endif %}
 
 {{ aggregate_health|safe }}
 
@@ -79,7 +81,7 @@
 	{%endfor%}
 </details>
 
-<details>
+<details open>
 	<summary>
 		<h2 style="display: inline-block;">History</h2>
 		<a href="/admin/machine/{{ id }}/health-history">Open History on separate page</a>
