@@ -840,6 +840,18 @@ impl ForgeApiClient {
             .into_inner())
     }
 
+    pub async fn find_machine_health_histories(
+        &self,
+        request: MachineHealthHistoriesRequest,
+    ) -> Result<MachineHealthHistories, Status> {
+        Ok(self
+            .connection()
+            .await?
+            .find_machine_health_histories(Request::new(request))
+            .await?
+            .into_inner())
+    }
+
     pub async fn find_tenant_organization_ids(
         &self,
         request: TenantSearchFilter,
@@ -1355,6 +1367,30 @@ impl ForgeApiClient {
             .connection()
             .await?
             .list_dpu_waiting_for_reprovisioning(Request::new(request))
+            .await?
+            .into_inner())
+    }
+
+    pub async fn trigger_host_reprovisioning(
+        &self,
+        request: HostReprovisioningRequest,
+    ) -> Result<(), Status> {
+        self.connection()
+            .await?
+            .trigger_host_reprovisioning(Request::new(request))
+            .await?
+            .into_inner();
+        Ok(())
+    }
+
+    pub async fn list_hosts_waiting_for_reprovisioning(
+        &self,
+        request: HostReprovisioningListRequest,
+    ) -> Result<HostReprovisioningListResponse, Status> {
+        Ok(self
+            .connection()
+            .await?
+            .list_hosts_waiting_for_reprovisioning(Request::new(request))
             .await?
             .into_inner())
     }

@@ -19,7 +19,7 @@ use crate::measurement::journal::args::{CmdJournal, Delete, List, Promote, Show}
 use crate::measurement::report::{
     args::Promote as ReportPromoteArgs, cmds::promote as report_promote,
 };
-use ::rpc::forge_tls_client::ForgeClientT;
+use crate::rpc::ApiClient;
 use ::rpc::protos::measured_boot::list_measurement_journal_request;
 use ::rpc::protos::measured_boot::show_measurement_journal_request;
 use ::rpc::protos::measured_boot::{
@@ -84,7 +84,7 @@ pub async fn dispatch(
 ///
 /// `journal delete <journal-id>`
 pub async fn delete(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     delete: &Delete,
 ) -> CarbideCliResult<MeasurementJournal> {
     // Request.
@@ -94,11 +94,12 @@ pub async fn delete(
 
     // Response.
     let response = grpc_conn
+        .0
         .delete_measurement_journal(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
-    MeasurementJournal::from_grpc(response.get_ref().journal.as_ref())
+    MeasurementJournal::from_grpc(response.journal.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
@@ -106,7 +107,7 @@ pub async fn delete(
 ///
 /// `journal show <journal-id>`
 pub async fn show_by_id(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     show: &Show,
 ) -> CarbideCliResult<MeasurementJournal> {
     // Prepare.
@@ -130,11 +131,12 @@ pub async fn show_by_id(
 
     // Response.
     let response = grpc_conn
+        .0
         .show_measurement_journal(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
-    MeasurementJournal::from_grpc(response.get_ref().journal.as_ref())
+    MeasurementJournal::from_grpc(response.journal.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
@@ -142,7 +144,7 @@ pub async fn show_by_id(
 ///
 /// `journal show`
 pub async fn show_all(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     _show: &Show,
 ) -> CarbideCliResult<MeasurementJournalList> {
     // Request.
@@ -151,10 +153,10 @@ pub async fn show_all(
     // Response.
     Ok(MeasurementJournalList(
         grpc_conn
+            .0
             .show_measurement_journals(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .get_mut()
             .journals
             .drain(..)
             .map(|journal| {
@@ -169,7 +171,7 @@ pub async fn show_all(
 ///
 /// `journal list`
 pub async fn list(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     list: &List,
 ) -> CarbideCliResult<MeasurementJournalRecordList> {
     // Request.
@@ -185,10 +187,10 @@ pub async fn list(
     // Response.
     Ok(MeasurementJournalRecordList(
         grpc_conn
+            .0
             .list_measurement_journal(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .get_mut()
             .journals
             .drain(..)
             .map(|journal| {
@@ -208,7 +210,7 @@ pub async fn list(
 ///
 /// `journal promote <journal-id> [--pcr-registers <range0>,...]`
 pub async fn promote(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     promote: &Promote,
 ) -> CarbideCliResult<MeasurementBundle> {
     let journal = show_by_id(

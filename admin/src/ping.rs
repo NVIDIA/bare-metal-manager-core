@@ -10,20 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::cfg::cli_options::PingOptions;
+use crate::rpc::ApiClient;
+use rpc::forge::VersionRequest;
 use std::cmp;
 use std::time::Duration;
 use std::time::Instant;
 
-use ::rpc::forge as forgerpc;
-use ::rpc::forge_tls_client::{ApiConfig, ForgeTlsClient};
-
-use crate::cfg::cli_options::PingOptions;
-use utils::admin_cli::CarbideCliError;
-
-pub async fn ping(api_config: &ApiConfig<'_>, opts: PingOptions) -> color_eyre::Result<()> {
-    let mut client = ForgeTlsClient::retry_build(api_config)
-        .await
-        .map_err(|err| CarbideCliError::ApiConnectFailed(err.to_string()))?;
+pub async fn ping(client: &ApiClient, opts: PingOptions) -> color_eyre::Result<()> {
     let interval = Duration::from_secs_f32(opts.interval);
     let mut total_count = 1;
     let mut err_count = 0;
@@ -35,7 +29,10 @@ pub async fn ping(api_config: &ApiConfig<'_>, opts: PingOptions) -> color_eyre::
     loop {
         let start = Instant::now();
         let out = client
-            .version(tonic::Request::new(forgerpc::VersionRequest {
+            .0
+            .connection()
+            .await?
+            .version(tonic::Request::new(VersionRequest {
                 display_config: false,
             }))
             .await;
@@ -45,7 +42,7 @@ pub async fn ping(api_config: &ApiConfig<'_>, opts: PingOptions) -> color_eyre::
                 rtt_min = cmp::min(rtt_min, rtt);
                 rtt_max = cmp::max(rtt_max, rtt);
                 rtt_avg = (rtt_avg * success_count + rtt) / total_count;
-                println!("{total_count}. {} time={:0.2?}", api_config.url, rtt);
+                println!("{total_count}. {} time={:0.2?}", client.0.url(), rtt);
                 success_count += 1;
             }
             Err(status) => {

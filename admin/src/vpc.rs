@@ -12,26 +12,23 @@
 
 use std::fmt::Write;
 
-use crate::{
-    cfg::cli_options::{SetVpcVirt, ShowVpc},
-    rpc,
-};
+use crate::cfg::cli_options::{SetVpcVirt, ShowVpc};
+use crate::rpc::ApiClient;
 use ::rpc::forge::{self as forgerpc};
-use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{Table, row};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 pub async fn handle_show(
     args: ShowVpc,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.id.is_empty() {
         show_vpcs(
             is_json,
-            api_config,
+            api_client,
             page_size,
             args.tenant_org_id,
             args.name,
@@ -41,49 +38,45 @@ pub async fn handle_show(
         .await?;
         return Ok(());
     }
-    show_vpc_details(args.id, is_json, api_config).await?;
+    show_vpc_details(args.id, is_json, api_client).await?;
     Ok(())
 }
 
 async fn show_vpcs(
     json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     page_size: usize,
     tenant_org_id: Option<String>,
     name: Option<String>,
     label_key: Option<String>,
     label_value: Option<String>,
 ) -> CarbideCliResult<()> {
-    let all_vpcs = match rpc::get_all_vpcs(
-        api_config,
-        tenant_org_id.clone(),
-        name.clone(),
-        page_size,
-        label_key,
-        label_value,
-    )
-    .await
+    let all_vpcs = match api_client
+        .get_all_vpcs(
+            tenant_org_id.clone(),
+            name.clone(),
+            page_size,
+            label_key,
+            label_value,
+        )
+        .await
     {
         Ok(all_vpcs) => all_vpcs,
         Err(e) => return Err(e),
     };
     if json {
-        println!("{}", serde_json::to_string_pretty(&all_vpcs).unwrap());
+        println!("{}", serde_json::to_string_pretty(&all_vpcs)?);
     } else {
         convert_vpcs_to_nice_table(all_vpcs).printstd();
     }
     Ok(())
 }
 
-async fn show_vpc_details(
-    id: String,
-    json: bool,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
+async fn show_vpc_details(id: String, json: bool, api_client: &ApiClient) -> CarbideCliResult<()> {
     let vpc_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
         .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
         .into();
-    let vpcs = match rpc::get_one_vpc(api_config, vpc_id).await {
+    let vpcs = match api_client.get_one_vpc(vpc_id).await {
         Ok(vpcs) => vpcs,
         Err(e) => return Err(e),
     };
@@ -95,7 +88,7 @@ async fn show_vpc_details(
     let vpcs = &vpcs.vpcs[0];
 
     if json {
-        println!("{}", serde_json::to_string_pretty(vpcs).unwrap());
+        println!("{}", serde_json::to_string_pretty(vpcs)?);
     } else {
         println!(
             "{}",
@@ -206,7 +199,7 @@ fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
 /// This is intended for dev use only, and can only be done on a VPC
 /// with 0 instances (an error will be returned otherwise).
 pub async fn set_network_virtualization_type(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     args: SetVpcVirt,
 ) -> CarbideCliResult<()> {
     let vpc_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&args.id)
@@ -219,7 +212,7 @@ pub async fn set_network_virtualization_type(
     // comes into play, an `fetch_one` error might be returned if
     // the VPC doesn't exist, OR if there's a version mismatch, so
     // it can be kind of misleading. For now, just do this.
-    let mut vpcs = match rpc::get_one_vpc(api_config, vpc_id).await {
+    let mut vpcs = match api_client.get_one_vpc(vpc_id).await {
         Ok(vpcs) => vpcs,
         Err(e) => return Err(e),
     };
@@ -228,10 +221,7 @@ pub async fn set_network_virtualization_type(
         return Err(CarbideCliError::GenericError("Unknown VPC ID".to_string()));
     }
 
-    rpc::set_vpc_network_virtualization_type(
-        api_config,
-        vpcs.vpcs.remove(0),
-        args.virtualizer.into(),
-    )
-    .await
+    api_client
+        .set_vpc_network_virtualization_type(vpcs.vpcs.remove(0), args.virtualizer.into())
+        .await
 }

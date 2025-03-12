@@ -16,15 +16,15 @@ use std::{
     path::Path,
 };
 
-use crate::{CarbideCliError, rpc};
-use ::rpc::forge_tls_client::ApiConfig;
+use crate::CarbideCliError;
+use crate::rpc::ApiClient;
 use x509_parser::certificate::X509Certificate;
 use x509_parser::pem::parse_x509_pem;
 use x509_parser::prelude::FromDer;
 use x509_parser::validate::*;
 
-pub async fn show_ca_certs(api_config: &ApiConfig<'_>) -> Result<(), CarbideCliError> {
-    let ca_certs = rpc::tpm_ca_show(api_config).await?;
+pub async fn show_ca_certs(api_client: &ApiClient) -> Result<(), CarbideCliError> {
+    let ca_certs = api_client.0.tpm_show_ca_certs().await?.tpm_ca_cert_details;
     println!("{}", serde_json::to_string_pretty(&ca_certs)?);
 
     Ok(())
@@ -32,14 +32,14 @@ pub async fn show_ca_certs(api_config: &ApiConfig<'_>) -> Result<(), CarbideCliE
 
 pub async fn delete_ca_cert(
     ca_cert_id: i32,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    rpc::tpm_ca_delete_cert(api_config, ca_cert_id).await
+    api_client.tpm_ca_delete_cert(ca_cert_id).await
 }
 
 pub async fn add_ca_cert_filename(
     filename: &str,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
     let filepath = Path::new(filename);
     let is_pem = filepath.with_extension("pem").is_file();
@@ -52,13 +52,13 @@ pub async fn add_ca_cert_filename(
         ));
     }
 
-    add_ca_cert_individual(filepath, is_pem, api_config).await
+    add_ca_cert_individual(filepath, is_pem, api_client).await
 }
 
 async fn add_ca_cert_individual(
     filepath: &Path,
     is_pem: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
     println!("Adding CA Certificate {0}", filepath.to_string_lossy());
     let mut ca_file = File::open(filepath).map_err(CarbideCliError::IOError)?;
@@ -94,7 +94,7 @@ async fn add_ca_cert_individual(
 
     validate_ca_cert(&ca_file_bytes_der)?;
 
-    let ca_cert_id_response = rpc::tpm_ca_add_cert(api_config, &ca_file_bytes_der).await?;
+    let ca_cert_id_response = api_client.tpm_ca_add_cert(&ca_file_bytes_der).await?;
 
     println!(
         "Successfully added CA Certificate {0} with id {1}. {2} EK certs have been matched",
@@ -127,7 +127,7 @@ fn validate_ca_cert(ca_cert_bytes: &[u8]) -> Result<(), CarbideCliError> {
 
 pub async fn add_ca_cert_bulk(
     dirname: &str,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
     let dirpath = Path::new(dirname);
 
@@ -143,7 +143,7 @@ pub async fn add_ca_cert_bulk(
             || dir_entry.path().with_extension("der").is_file()
         {
             if let Err(e) =
-                add_ca_cert_individual(dir_entry.path().as_path(), false, api_config).await
+                add_ca_cert_individual(dir_entry.path().as_path(), false, api_client).await
             {
                 // we log the error but continue the iteration
                 eprintln!("Could not add ca cert {:?}: {e}", dir_entry);
@@ -151,7 +151,7 @@ pub async fn add_ca_cert_bulk(
         }
         if dir_entry.path().with_extension("pem").is_file() {
             if let Err(e) =
-                add_ca_cert_individual(dir_entry.path().as_path(), true, api_config).await
+                add_ca_cert_individual(dir_entry.path().as_path(), true, api_client).await
             {
                 // we log the error but continue the iteration
                 eprintln!("Could not add ca cert {:?}: {e}", dir_entry);
@@ -162,8 +162,12 @@ pub async fn add_ca_cert_bulk(
     Ok(())
 }
 
-pub async fn show_unmatched_ek_certs(api_config: &ApiConfig<'_>) -> Result<(), CarbideCliError> {
-    let unmatched_eks = rpc::tpm_unmatched_ek_show(api_config).await?;
+pub async fn show_unmatched_ek_certs(api_client: &ApiClient) -> Result<(), CarbideCliError> {
+    let unmatched_eks = api_client
+        .0
+        .tpm_show_unmatched_ek_certs()
+        .await?
+        .tpm_ek_cert_statuses;
     println!("{}", serde_json::to_string_pretty(&unmatched_eks)?);
 
     Ok(())

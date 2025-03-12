@@ -7,27 +7,28 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use super::rpc;
 use crate::cfg::cli_options::{
     MachineValidationAddTestOptions, MachineValidationEnableDisableTestOptions,
     MachineValidationOnDemandOptions, MachineValidationUpdateTestOptions,
     MachineValidationVerifyTestOptions, ShowMachineValidationResultsOptions,
     ShowMachineValidationRunsOptions, ShowMachineValidationTestOptions,
 };
+use crate::rpc::ApiClient;
 use ::rpc::forge as forgerpc;
-use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{Table, row};
 use std::fmt::Write;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 pub async fn external_config_show(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     config_names: Vec<String>,
     extended: bool,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
-    let ret = rpc::get_machine_validation_external_configs(api_config, config_names).await?;
+    let ret = api_client
+        .get_machine_validation_external_configs(config_names)
+        .await?;
 
     if extended {
         show_external_config_show_details(ret.configs, is_json).await?;
@@ -42,7 +43,7 @@ pub async fn show_external_config_show_details(
     json: bool,
 ) -> CarbideCliResult<()> {
     if json {
-        println!("{}", serde_json::to_string_pretty(&configs).unwrap());
+        println!("{}", serde_json::to_string_pretty(&configs)?);
     } else {
         println!("{}", convert_external_config_to_nice_format(configs)?);
     }
@@ -54,7 +55,7 @@ pub async fn show_external_config_show(
     json: bool,
 ) -> CarbideCliResult<()> {
     if json {
-        println!("{}", serde_json::to_string_pretty(&configs).unwrap());
+        println!("{}", serde_json::to_string_pretty(&configs)?);
     } else {
         convert_external_config_to_nice_table(configs).printstd();
     }
@@ -124,46 +125,44 @@ fn convert_external_config_to_nice_table(
 }
 
 pub async fn external_config_add_update(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     config_name: String,
     file_name: String,
     description: String,
 ) -> CarbideCliResult<()> {
     // Read the file data from disk
     let file_data = std::fs::read(&file_name)?;
-    rpc::add_update_machine_validation_external_config(
-        config_name,
-        description,
-        file_data,
-        api_config,
-    )
-    .await?;
+    api_client
+        .add_update_machine_validation_external_config(config_name, description, file_data)
+        .await?;
     Ok(())
 }
 
 pub async fn handle_runs_show(
     args: ShowMachineValidationRunsOptions,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     _page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
-    show_runs(is_json, api_config, args).await?;
+    show_runs(is_json, api_client, args).await?;
     Ok(())
 }
 
 async fn show_runs(
     json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     args: ShowMachineValidationRunsOptions,
 ) -> CarbideCliResult<()> {
-    let runs = match rpc::get_machine_validation_runs(api_config, args.machine, args.history).await
+    let runs = match api_client
+        .get_machine_validation_runs(args.machine, args.history)
+        .await
     {
         Ok(runs) => runs,
         Err(e) => return Err(e),
     };
     if json {
-        println!("{}", serde_json::to_string_pretty(&runs).unwrap());
+        println!("{}", serde_json::to_string_pretty(&runs)?);
     } else {
         convert_runs_to_nice_table(runs).printstd();
     }
@@ -213,15 +212,15 @@ fn convert_runs_to_nice_table(runs: forgerpc::MachineValidationRunList) -> Box<T
 pub async fn handle_results_show(
     args: ShowMachineValidationResultsOptions,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     _page_size: usize,
     extended: bool,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if extended {
-        show_results_details(is_json, api_config, args).await?;
+        show_results_details(is_json, api_client, args).await?;
     } else {
-        show_results(is_json, api_config, args).await?;
+        show_results(is_json, api_client, args).await?;
     }
 
     Ok(())
@@ -229,16 +228,12 @@ pub async fn handle_results_show(
 
 async fn show_results(
     json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     args: ShowMachineValidationResultsOptions,
 ) -> CarbideCliResult<()> {
-    let mut results = match rpc::get_machine_validation_results(
-        api_config,
-        args.machine,
-        args.history,
-        args.validation_id,
-    )
-    .await
+    let mut results = match api_client
+        .get_machine_validation_results(args.machine, args.history, args.validation_id)
+        .await
     {
         Ok(results) => results,
         Err(e) => return Err(e),
@@ -250,7 +245,7 @@ async fn show_results(
             .retain(|x| x.name == args.test_name.clone().unwrap_or_default())
     }
     if json {
-        println!("{}", serde_json::to_string_pretty(&results).unwrap());
+        println!("{}", serde_json::to_string_pretty(&results)?);
     } else {
         convert_results_to_nice_table(results).printstd();
     }
@@ -259,16 +254,12 @@ async fn show_results(
 
 async fn show_results_details(
     json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     args: ShowMachineValidationResultsOptions,
 ) -> CarbideCliResult<()> {
-    let mut results = match rpc::get_machine_validation_results(
-        api_config,
-        args.machine,
-        args.history,
-        args.validation_id,
-    )
-    .await
+    let mut results = match api_client
+        .get_machine_validation_results(args.machine, args.history, args.validation_id)
+        .await
     {
         Ok(results) => results,
         Err(e) => return Err(e),
@@ -279,7 +270,7 @@ async fn show_results_details(
             .retain(|x| x.name == args.test_name.clone().unwrap_or_default())
     }
     if json {
-        println!("{}", serde_json::to_string_pretty(&results).unwrap());
+        println!("{}", serde_json::to_string_pretty(&results)?);
     } else {
         println!(
             "{}",
@@ -368,42 +359,41 @@ fn convert_to_nice_format(
 }
 
 pub async fn on_demand_machine_validation(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     args: MachineValidationOnDemandOptions,
 ) -> CarbideCliResult<()> {
-    rpc::on_demand_machine_validation(
-        args.machine,
-        args.tags,
-        args.allowed_tests,
-        args.run_unverfied_tests,
-        args.contexts,
-        api_config,
-    )
-    .await?;
+    api_client
+        .on_demand_machine_validation(
+            args.machine,
+            args.tags,
+            args.allowed_tests,
+            args.run_unverfied_tests,
+            args.contexts,
+        )
+        .await?;
     Ok(())
 }
-pub async fn remove_external_config(
-    api_config: &ApiConfig<'_>,
-    name: String,
-) -> CarbideCliResult<()> {
-    rpc::remove_machine_validation_external_config(api_config, name).await?;
+pub async fn remove_external_config(api_client: &ApiClient, name: String) -> CarbideCliResult<()> {
+    api_client
+        .remove_machine_validation_external_config(name)
+        .await?;
     Ok(())
 }
 
 pub async fn show_tests(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     args: ShowMachineValidationTestOptions,
     output_format: OutputFormat,
     extended: bool,
 ) -> CarbideCliResult<()> {
-    let tests = rpc::get_machine_validation_tests(
-        api_config,
-        args.test_id,
-        args.platforms,
-        args.contexts,
-        args.show_un_verfied,
-    )
-    .await?;
+    let tests = api_client
+        .get_machine_validation_tests(
+            args.test_id,
+            args.platforms,
+            args.contexts,
+            args.show_un_verfied,
+        )
+        .await?;
     if extended {
         let _ = show_tests_details(output_format == OutputFormat::Json, tests);
     } else {
@@ -419,7 +409,7 @@ fn show_tests_details(
 ) -> CarbideCliResult<()> {
     if is_json {
         for test in test.tests {
-            println!("{}", serde_json::to_string_pretty(&test).unwrap());
+            println!("{}", serde_json::to_string_pretty(&test)?);
         }
     } else {
         println!(
@@ -535,38 +525,37 @@ fn convert_tests_to_nice_format(
 }
 
 pub async fn machine_validation_test_verfied(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     options: MachineValidationVerifyTestOptions,
 ) -> CarbideCliResult<()> {
-    rpc::machine_validation_test_verfied(api_config, options.test_id, options.version).await?;
+    api_client
+        .machine_validation_test_verfied(options.test_id, options.version)
+        .await?;
     Ok(())
 }
 
 pub async fn machine_validation_test_enable(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     options: MachineValidationEnableDisableTestOptions,
 ) -> CarbideCliResult<()> {
-    rpc::machine_validation_test_enable_disable(api_config, options.test_id, options.version, true)
+    api_client
+        .machine_validation_test_enable_disable(options.test_id, options.version, true)
         .await?;
     Ok(())
 }
 
 pub async fn machine_validation_test_disable(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     options: MachineValidationEnableDisableTestOptions,
 ) -> CarbideCliResult<()> {
-    rpc::machine_validation_test_enable_disable(
-        api_config,
-        options.test_id,
-        options.version,
-        false,
-    )
-    .await?;
+    api_client
+        .machine_validation_test_enable_disable(options.test_id, options.version, false)
+        .await?;
     Ok(())
 }
 
 pub async fn machine_validation_test_update(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     options: MachineValidationUpdateTestOptions,
 ) -> CarbideCliResult<()> {
     let payload = forgerpc::machine_validation_test_update_request::Payload {
@@ -589,13 +578,14 @@ pub async fn machine_validation_test_update(
         verified: None,
         name: None,
     };
-    rpc::machine_validation_test_update(api_config, options.test_id, options.version, payload)
+    api_client
+        .machine_validation_test_update(options.test_id, options.version, payload)
         .await?;
     Ok(())
 }
 
 pub async fn machine_validation_test_add(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     options: MachineValidationAddTestOptions,
 ) -> CarbideCliResult<()> {
     let mut contexts = vec!["OnDemand".to_string()];
@@ -631,6 +621,6 @@ pub async fn machine_validation_test_add(
         components: options.components,
         is_enabled: options.is_enabled,
     };
-    rpc::machine_validation_test_add(api_config, request).await?;
+    api_client.0.add_machine_validation_test(request).await?;
     Ok(())
 }

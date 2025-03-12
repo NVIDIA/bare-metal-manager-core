@@ -13,20 +13,19 @@ use std::collections::HashMap;
 
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::{BuildInfo, ManagedHostNetworkConfigResponse};
-use ::rpc::forge_tls_client::ApiConfig;
 use ::rpc::{Machine, MachineId, forge::MachineType};
 use prettytable::{Row, Table, format, row};
 use serde::Serialize;
 
-use super::rpc;
 use crate::cfg::cli_options::AgentUpgradePolicyChoice;
+use crate::rpc::ApiClient;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 pub async fn trigger_reprovisioning(
     id: String,
     mode: Mode,
     update_firmware: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     maintenance_reference: Option<String>,
 ) -> CarbideCliResult<()> {
     if let (Mode::Set, Some(mr)) = (mode, &maintenance_reference) {
@@ -35,12 +34,12 @@ pub async fn trigger_reprovisioning(
         let host_id = if id.starts_with("fm100h") {
             Some(::rpc::MachineId { id: id.clone() })
         } else {
-            let machine =
-                rpc::get_machines_by_ids(api_config, &[::rpc::MachineId { id: id.clone() }])
-                    .await?
-                    .machines
-                    .into_iter()
-                    .next();
+            let machine = api_client
+                .get_machines_by_ids(&[::rpc::MachineId { id: id.clone() }])
+                .await?
+                .machines
+                .into_iter()
+                .next();
 
             if let Some(host_id) = machine.map(|x| x.associated_host_machine_id) {
                 host_id
@@ -53,7 +52,8 @@ pub async fn trigger_reprovisioning(
 
         // Check host must not be in maintenance mode.
         if let Some(host_machine_id) = &host_id {
-            let host_machine = rpc::get_machines_by_ids(api_config, &[host_machine_id.clone()])
+            let host_machine = api_client
+                .get_machines_by_ids(&[host_machine_id.clone()])
                 .await?
                 .machines
                 .into_iter()
@@ -74,15 +74,17 @@ pub async fn trigger_reprovisioning(
             host_id,
             reference: Some(mr.clone()),
         };
-        rpc::set_maintenance(req, api_config).await?;
+        api_client.0.set_maintenance(req).await?;
     }
-    rpc::trigger_dpu_reprovisioning(id.clone(), mode, update_firmware, api_config).await?;
+    api_client
+        .trigger_dpu_reprovisioning(id.clone(), mode, update_firmware)
+        .await?;
 
     Ok(())
 }
 
-pub async fn list_dpus_pending(api_config: &ApiConfig<'_>) -> CarbideCliResult<()> {
-    let response = rpc::list_dpu_pending_for_reprovisioning(api_config).await?;
+pub async fn list_dpus_pending(api_client: &ApiClient) -> CarbideCliResult<()> {
+    let response = api_client.list_dpu_pending_for_reprovisioning().await?;
     print_pending_dpus(response);
     Ok(())
 }
@@ -125,17 +127,19 @@ fn print_pending_dpus(dpus: ::rpc::forge::DpuReprovisioningListResponse) {
 }
 
 pub async fn handle_agent_upgrade_policy(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     action: Option<::rpc::forge::AgentUpgradePolicy>,
 ) -> CarbideCliResult<()> {
     match action {
         None => {
-            let resp = rpc::dpu_agent_upgrade_policy_action(api_config, None).await?;
+            let resp = api_client.dpu_agent_upgrade_policy_action(None).await?;
             let policy: AgentUpgradePolicyChoice = resp.active_policy.into();
             tracing::info!("{policy}");
         }
         Some(choice) => {
-            let resp = rpc::dpu_agent_upgrade_policy_action(api_config, Some(choice)).await?;
+            let resp = api_client
+                .dpu_agent_upgrade_policy_action(Some(choice))
+                .await?;
             let policy: AgentUpgradePolicyChoice = resp.active_policy.into();
             tracing::info!(
                 "Policy is now: {policy}. Update succeeded? {}.",
@@ -244,19 +248,20 @@ pub fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
 pub async fn handle_dpu_versions(
     output: &mut dyn std::io::Write,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     updates_only: bool,
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let expected_versions: HashMap<String, String> = if updates_only {
-        let bi = rpc::version(api_config, true).await?;
+        let bi = api_client.version(true).await?;
         let rc = bi.runtime_config.unwrap_or_default();
         rc.dpu_nic_firmware_update_version
     } else {
         HashMap::default()
     };
 
-    let dpus = rpc::get_all_machines(api_config, Some(MachineType::Dpu), false, page_size)
+    let dpus = api_client
+        .get_all_machines(Some(MachineType::Dpu), false, page_size)
         .await?
         .machines
         .into_iter()
@@ -440,27 +445,28 @@ pub async fn get_dpu_version_status(
 pub async fn handle_dpu_status(
     output: &mut dyn std::io::Write,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {
-    let dpus = rpc::get_all_machines(api_config, Some(MachineType::Dpu), false, page_size)
+    let dpus = api_client
+        .get_all_machines(Some(MachineType::Dpu), false, page_size)
         .await?
         .machines;
 
     match output_format {
         OutputFormat::Json => {
-            let machines: Vec<DpuStatus> = generate_dpu_status_data(api_config, dpus).await?;
+            let machines: Vec<DpuStatus> = generate_dpu_status_data(api_client, dpus).await?;
             write!(output, "{}", serde_json::to_string(&machines).unwrap())?;
         }
         OutputFormat::Csv => {
-            let result = generate_dpu_status_table(api_config, dpus).await?;
+            let result = generate_dpu_status_table(api_client, dpus).await?;
 
             if let Err(error) = result.to_csv(output) {
                 tracing::warn!("Error writing csv data: {}", error);
             }
         }
         _ => {
-            let result = generate_dpu_status_table(api_config, dpus).await?;
+            let result = generate_dpu_status_table(api_client, dpus).await?;
             if let Err(error) = result.print(output) {
                 tracing::warn!("Error writing table data: {}", error);
             }
@@ -470,11 +476,11 @@ pub async fn handle_dpu_status(
 }
 
 async fn generate_dpu_status_data(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     machines: Vec<Machine>,
 ) -> CarbideCliResult<Vec<DpuStatus>> {
     let mut dpu_status = Vec::new();
-    let build_info = rpc::version(api_config, true).await?;
+    let build_info = api_client.version(true).await?;
     for machine in machines {
         let version_status = get_dpu_version_status(&build_info, &machine).await?;
         let mut status = DpuStatus::from(machine);
@@ -486,7 +492,7 @@ async fn generate_dpu_status_data(
 }
 
 pub async fn generate_dpu_status_table(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     machines: Vec<Machine>,
 ) -> CarbideCliResult<Box<Table>> {
     let mut table = Table::new();
@@ -495,7 +501,7 @@ pub async fn generate_dpu_status_table(
 
     table.set_titles(Row::from(headers));
 
-    generate_dpu_status_data(api_config, machines)
+    generate_dpu_status_data(api_client, machines)
         .await?
         .into_iter()
         .for_each(|status| {
@@ -515,7 +521,7 @@ fn deny_prefix(config: &ManagedHostNetworkConfigResponse) -> String {
 }
 
 pub async fn show_dpu_network_config(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     dpu_id: String,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
@@ -524,13 +530,13 @@ pub async fn show_dpu_network_config(
             "Only DPU id is allowed.".to_string(),
         ));
     }
-    let config = rpc::get_managed_host_network_config(dpu_id, api_config).await?;
+    let config = api_client.get_managed_host_network_config(dpu_id).await?;
     match output_format {
         OutputFormat::Json => {
-            println!("{}", serde_json::to_string(&config).unwrap());
+            println!("{}", serde_json::to_string(&config)?);
         }
         OutputFormat::Yaml => {
-            println!("{}", serde_yaml::to_string(&config).unwrap());
+            println!("{}", serde_yaml::to_string(&config)?);
         }
         OutputFormat::AsciiTable => {
             let mut table = Table::new();
@@ -649,10 +655,8 @@ pub async fn show_dpu_network_config(
     Ok(())
 }
 
-pub async fn show_dpu_status(api_config: &ApiConfig<'_>) -> CarbideCliResult<()> {
-    let all_status = rpc::get_all_managed_host_network_status(api_config)
-        .await?
-        .all;
+pub async fn show_dpu_status(api_client: &ApiClient) -> CarbideCliResult<()> {
+    let all_status = api_client.get_all_managed_host_network_status().await?.all;
     if all_status.is_empty() {
         println!("No reported network status");
     } else {
@@ -660,9 +664,7 @@ pub async fn show_dpu_status(api_config: &ApiConfig<'_>) -> CarbideCliResult<()>
             .iter()
             .filter_map(|status| status.dpu_machine_id.clone())
             .collect();
-        let all_dpus = rpc::get_machines_by_ids(api_config, &all_ids)
-            .await?
-            .machines;
+        let all_dpus = api_client.get_machines_by_ids(&all_ids).await?.machines;
         let mut dpus_by_id = HashMap::new();
         for dpu in all_dpus.into_iter() {
             if let Some(id) = dpu.id.clone() {

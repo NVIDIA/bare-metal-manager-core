@@ -13,23 +13,22 @@
 use std::fmt::Write;
 
 use super::cfg::cli_options::ShowIbPartition;
-use super::rpc;
+use crate::rpc::ApiClient;
 use ::rpc::forge as forgerpc;
-use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{Table, row};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 pub async fn handle_show(
     args: ShowIbPartition,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.id.is_empty() {
         show_ib_partitions(
             is_json,
-            api_config,
+            api_client,
             page_size,
             args.tenant_org_id,
             args.name,
@@ -37,33 +36,26 @@ pub async fn handle_show(
         .await?;
         return Ok(());
     }
-    show_ib_partition_details(args.id, is_json, api_config).await?;
+    show_ib_partition_details(args.id, is_json, api_client).await?;
     Ok(())
 }
 
 async fn show_ib_partitions(
     json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     page_size: usize,
     tenant_org_id: Option<String>,
     name: Option<String>,
 ) -> CarbideCliResult<()> {
-    let all_ib_partitions = match rpc::get_all_ib_partitions(
-        api_config,
-        tenant_org_id.clone(),
-        name.clone(),
-        page_size,
-    )
-    .await
+    let all_ib_partitions = match api_client
+        .get_all_ib_partitions(tenant_org_id.clone(), name.clone(), page_size)
+        .await
     {
         Ok(all_ib_partition_ids) => all_ib_partition_ids,
         Err(e) => return Err(e),
     };
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&all_ib_partitions).unwrap()
-        );
+        println!("{}", serde_json::to_string_pretty(&all_ib_partitions)?);
     } else {
         convert_ib_partitions_to_nice_table(all_ib_partitions).printstd();
     }
@@ -73,12 +65,12 @@ async fn show_ib_partitions(
 async fn show_ib_partition_details(
     id: String,
     json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let ib_partition_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
         .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
         .into();
-    let ib_partitions = match rpc::get_one_ib_partition(api_config, ib_partition_id).await {
+    let ib_partitions = match api_client.get_one_ib_partition(ib_partition_id).await {
         Ok(instances) => instances,
         Err(e) => return Err(e),
     };
@@ -92,7 +84,7 @@ async fn show_ib_partition_details(
     let ib_partition = &ib_partitions.ib_partitions[0];
 
     if json {
-        println!("{}", serde_json::to_string_pretty(ib_partition).unwrap());
+        println!("{}", serde_json::to_string_pretty(ib_partition)?);
     } else {
         println!(
             "{}",

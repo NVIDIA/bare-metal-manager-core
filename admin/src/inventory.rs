@@ -10,14 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::{InstanceList, MachineList, site_explorer::ExploredManagedHost};
-use ::rpc::{MachineId, forge::MachineType, forge_tls_client::ApiConfig};
+use ::rpc::{MachineId, forge::MachineType};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, hash_map::RandomState},
     fs,
 };
 
-use crate::{cfg::cli_options::InventoryAction, rpc};
+use crate::cfg::cli_options::InventoryAction;
+use crate::rpc::ApiClient;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult};
 
 // Expected output
@@ -214,13 +215,14 @@ fn machine_type(machine_id: &Option<MachineId>) -> MachineType {
 
 /// Main entry function which print inventory.
 pub async fn print_inventory(
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     action: InventoryAction,
     page_size: usize,
 ) -> CarbideCliResult<()> {
-    let all_machines = rpc::get_all_machines(api_config, None, false, page_size).await?;
-    let all_instances =
-        rpc::get_all_instances(api_config, None, None, None, None, page_size).await?;
+    let all_machines = api_client.get_all_machines(None, false, page_size).await?;
+    let all_instances = api_client
+        .get_all_instances(None, None, None, None, page_size)
+        .await?;
 
     let (instances, used_machine) = create_inventory_for_instances(all_instances, &all_machines)?;
 
@@ -234,8 +236,7 @@ pub async fn print_inventory(
         TopYamlElement::InstanceChildren(children),
     )]);
 
-    let site_report_managed_host =
-        rpc::get_all_explored_managed_hosts(api_config, page_size).await?;
+    let site_report_managed_host = api_client.get_all_explored_managed_hosts(page_size).await?;
 
     for (key, value) in instances.into_iter() {
         let mut ins_details: HashMap<String, InstanceDetails> = HashMap::new();

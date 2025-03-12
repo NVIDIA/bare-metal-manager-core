@@ -21,21 +21,20 @@ use tracing::warn;
 use super::cfg::cli_options::ShowMachineInterfaces;
 use utils::admin_cli::{CarbideCliResult, OutputFormat};
 
-use super::rpc;
 use crate::cfg::cli_options::DeleteMachineInterfaces;
 use crate::default_uuid;
+use crate::rpc::ApiClient;
 use ::rpc::forge as forgerpc;
-use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::Table;
 
 pub async fn handle_show(
     args: ShowMachineInterfaces,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.all || args.interface_id.is_empty() {
-        show_all_machine_interfaces(is_json, args.more, api_config).await?;
+        show_all_machine_interfaces(is_json, args.more, api_client).await?;
         // TODO(chet): Remove this ~March 2024.
         // Use tracing::warn for this so its both a little more
         // noticeable, and a little more annoying/naggy. If people
@@ -47,24 +46,21 @@ pub async fn handle_show(
         }
         return Ok(());
     }
-    show_machine_interfaces_information(args.interface_id, is_json, api_config).await?;
+    show_machine_interfaces_information(args.interface_id, is_json, api_client).await?;
     Ok(())
 }
 
 async fn show_all_machine_interfaces(
     is_json: bool,
     has_more: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let machine_interfaces = rpc::get_all_machines_interfaces(api_config, None).await?;
+    let machine_interfaces = api_client.get_all_machines_interfaces(None).await?;
 
     if is_json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&machine_interfaces).unwrap()
-        );
+        println!("{}", serde_json::to_string_pretty(&machine_interfaces)?);
     } else {
-        let domain_list = rpc::get_domains(None, api_config).await?;
+        let domain_list = api_client.get_domains(None).await?;
 
         convert_machines_to_nice_table(has_more, machine_interfaces, domain_list).printstd();
     }
@@ -74,19 +70,19 @@ async fn show_all_machine_interfaces(
 async fn show_machine_interfaces_information(
     id: String,
     is_json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let interface_id = Some(Uuid { value: id });
-    let machine_interfaces = rpc::get_all_machines_interfaces(api_config, interface_id).await?;
+    let machine_interfaces = api_client.get_all_machines_interfaces(interface_id).await?;
     if !machine_interfaces.interfaces.is_empty() {
         if is_json {
             println!(
                 "{}",
-                serde_json::to_string_pretty(&machine_interfaces.interfaces.first()).unwrap()
+                serde_json::to_string_pretty(&machine_interfaces.interfaces.first())?
             );
         } else {
             let interface = machine_interfaces.interfaces.first().unwrap().to_owned();
-            let domain_list = rpc::get_domains(interface.domain_id.clone(), api_config).await?;
+            let domain_list = api_client.get_domains(interface.domain_id.clone()).await?;
             println!(
                 "{}",
                 convert_machine_to_nice_format(interface, domain_list)
@@ -230,11 +226,11 @@ fn convert_machine_to_nice_format(
 
 pub async fn handle_delete(
     args: DeleteMachineInterfaces,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let interface_id = Some(Uuid {
         value: args.interface_id,
     });
-    rpc::delete_machine_interface(api_config, interface_id).await?;
+    api_client.delete_machine_interface(interface_id).await?;
     Ok(())
 }

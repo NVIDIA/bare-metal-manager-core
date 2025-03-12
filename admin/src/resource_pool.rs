@@ -10,15 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge as forgerpc;
-use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{Table, row};
 
-use crate::rpc;
+use crate::rpc::ApiClient;
 use utils::admin_cli::CarbideCliResult;
 
-pub async fn list(api_config: &ApiConfig<'_>) -> CarbideCliResult<()> {
-    let response =
-        rpc::list_resource_pools(forgerpc::ListResourcePoolsRequest {}, api_config).await?;
+pub async fn list(api_client: &ApiClient) -> CarbideCliResult<()> {
+    let response = api_client
+        .0
+        .admin_list_resource_pools(forgerpc::ListResourcePoolsRequest {})
+        .await?;
     if response.pools.is_empty() {
         println!("No resource pools defined");
         return Err(super::CarbideCliError::Empty);

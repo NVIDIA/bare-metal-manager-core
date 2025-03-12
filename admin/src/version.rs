@@ -9,10 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{Cell, Row, Table, row};
 
-use crate::{cfg::cli_options::Version, rpc};
+use crate::cfg::cli_options::Version;
+use crate::rpc::ApiClient;
 use utils::admin_cli::{CarbideCliError, OutputFormat};
 
 macro_rules! r {
@@ -36,9 +36,9 @@ macro_rules! rv {
 pub async fn handle_show_version(
     version: Version,
     format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    let v = rpc::version(api_config, version.show_runtime_config).await?;
+    let v = api_client.version(version.show_runtime_config).await?;
     if format == OutputFormat::Json {
         println!("{}", serde_json::to_string(&v)?);
         return Ok(());

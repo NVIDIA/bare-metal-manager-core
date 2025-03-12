@@ -19,6 +19,7 @@ use sqlx::{Pool, Postgres};
 use ::rpc::common::MachineId;
 use ::rpc::forge::MachineType;
 pub use output::{Destination, OutputFormat};
+use rpc::forge_tls_client::ForgeTlsClientError;
 
 /// SUMMARY is a global variable that is being used by a few structs which
 /// implement serde::Serialize with skip_serialization_if.
@@ -66,10 +67,10 @@ pub async fn connect(db_url: &str) -> eyre::Result<Pool<Postgres>> {
 #[derive(thiserror::Error, Debug)]
 pub enum CarbideCliError {
     #[error("Unable to connect to carbide API: {0}")]
-    ApiConnectFailed(String),
+    ApiConnectFailed(#[from] ForgeTlsClientError),
 
     #[error("The API call to the Forge API server returned {0}")]
-    ApiInvocationError(tonic::Status),
+    ApiInvocationError(#[from] tonic::Status),
 
     #[error("Error while writing into string: {0}")]
     StringWriteError(#[from] std::fmt::Error),

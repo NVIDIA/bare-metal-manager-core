@@ -11,16 +11,15 @@
  */
 
 use ::rpc::forge::host_reprovisioning_request::Mode;
-use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{Table, row};
 
-use super::rpc;
+use crate::rpc::ApiClient;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult};
 
 pub async fn trigger_reprovisioning(
     host_id: String,
     mode: Mode,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     maintenance_reference: Option<String>,
 ) -> CarbideCliResult<()> {
     let machine_id = ::rpc::MachineId {
@@ -28,7 +27,8 @@ pub async fn trigger_reprovisioning(
     };
     if let (Mode::Set, Some(mr)) = (mode, &maintenance_reference) {
         // Check host must not be in maintenance mode.
-        let host_machine = rpc::get_machines_by_ids(api_config, &[machine_id.clone()])
+        let host_machine = api_client
+            .get_machines_by_ids(&[machine_id.clone()])
             .await?
             .machines
             .into_iter()
@@ -48,15 +48,17 @@ pub async fn trigger_reprovisioning(
             host_id: Some(machine_id),
             reference: Some(mr.clone()),
         };
-        rpc::set_maintenance(req, api_config).await?;
+        api_client.0.set_maintenance(req).await?;
     }
-    rpc::trigger_host_reprovisioning(host_id.clone(), mode, api_config).await?;
+    api_client
+        .trigger_host_reprovisioning(host_id.clone(), mode)
+        .await?;
 
     Ok(())
 }
 
-pub async fn list_hosts_pending(api_config: &ApiConfig<'_>) -> CarbideCliResult<()> {
-    let response = rpc::list_hosts_pending_for_reprovisioning(api_config).await?;
+pub async fn list_hosts_pending(api_client: &ApiClient) -> CarbideCliResult<()> {
+    let response = api_client.list_hosts_pending_for_reprovisioning().await?;
     print_pending_hosts(response);
     Ok(())
 }

@@ -13,9 +13,8 @@
 use std::collections::HashSet;
 use std::fmt::Write;
 
-use super::rpc;
 use crate::cfg::cli_options::ShowManagedHost;
-use ::rpc::forge_tls_client::ApiConfig;
+use crate::rpc::ApiClient;
 use ::rpc::{Machine, MachineId};
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
@@ -418,11 +417,10 @@ pub async fn handle_show(
     output: &mut dyn std::io::Write,
     args: ShowManagedHost,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {
-    let site_explorer_managed_hosts =
-        rpc::get_all_explored_managed_hosts(api_config, page_size).await?;
+    let site_explorer_managed_hosts = api_client.get_all_explored_managed_hosts(page_size).await?;
 
     // TODO(chet): Remove this ~March 2024.
     // Use tracing::warn for this so its both a little more
@@ -436,37 +434,37 @@ pub async fn handle_show(
 
     let machines: Vec<Machine> = if show_all_machines {
         // Get all machines: DPUs will arrive as part of this request
-        rpc::get_all_machines(api_config, None, args.fix, page_size)
+        api_client
+            .get_all_machines(None, args.fix, page_size)
             .await?
             .machines
     } else {
         // Get a single managed host: We need to find associated DPU IDs along with the machine ID,
         // so make a few RPC fetches to get everything in the managed host.
         // Start by getting the requested machine
-        let requested_machine = rpc::get_machine(args.machine, api_config).await?;
+        let requested_machine = api_client.get_machine(args.machine).await?;
 
         if !requested_machine.associated_dpu_machine_ids.is_empty() {
             // If requested machine is a host, get the DPUs too.
-            let dpu_machines =
-                rpc::get_machines_by_ids(api_config, &requested_machine.associated_dpu_machine_ids)
-                    .await?
-                    .machines;
+            let dpu_machines = api_client
+                .get_machines_by_ids(&requested_machine.associated_dpu_machine_ids)
+                .await?
+                .machines;
             [&[requested_machine], dpu_machines.as_slice()].concat()
         } else if let Some(ref host_id) = requested_machine.associated_host_machine_id {
             // the requested machine is a DPU, get the host machine...
-            if let Some(host_machine) = rpc::get_machines_by_ids(api_config, &[host_id.clone()])
+            if let Some(host_machine) = api_client
+                .get_machines_by_ids(&[host_id.clone()])
                 .await?
                 .machines
                 .into_iter()
                 .next()
             {
                 // ... plus get all the other attached DPUs of that host machine.
-                let dpu_machines = rpc::get_machines_by_ids(
-                    api_config,
-                    host_machine.associated_dpu_machine_ids.as_slice(),
-                )
-                .await?
-                .machines;
+                let dpu_machines = api_client
+                    .get_machines_by_ids(host_machine.associated_dpu_machine_ids.as_slice())
+                    .await?
+                    .machines;
 
                 [&[host_machine], dpu_machines.as_slice()].concat()
             } else {
@@ -484,22 +482,22 @@ pub async fn handle_show(
         .filter_map(|m| m.id.clone())
         .collect::<Vec<MachineId>>();
 
-    let connected_devices =
-        rpc::find_connected_devices_by_dpu_machine_ids(api_config, dpu_machine_ids.clone())
-            .await?
-            .connected_devices;
+    let connected_devices = api_client
+        .find_connected_devices_by_dpu_machine_ids(dpu_machine_ids.clone())
+        .await?
+        .connected_devices;
 
     let network_device_ids: HashSet<String> = connected_devices
         .iter()
         .filter_map(|d| d.network_device_id.clone())
         .collect();
 
-    let network_devices = rpc::find_network_devices_by_device_ids(
-        api_config,
-        network_device_ids.iter().map(|id| id.to_owned()).collect(),
-    )
-    .await?
-    .network_devices;
+    let network_devices = api_client
+        .find_network_devices_by_device_ids(
+            network_device_ids.iter().map(|id| id.to_owned()).collect(),
+        )
+        .await?
+        .network_devices;
 
     show_managed_hosts(
         utils::ManagedHostMetadata {

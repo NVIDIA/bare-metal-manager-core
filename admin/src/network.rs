@@ -17,8 +17,8 @@ use prettytable::{Table, row};
 use serde::Deserialize;
 
 use super::cfg::cli_options::ShowNetwork;
-use super::{default_uuid, rpc};
-use ::rpc::forge_tls_client::ApiConfig;
+use super::default_uuid;
+use crate::rpc::ApiClient;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 #[derive(Deserialize)]
@@ -28,7 +28,7 @@ struct NetworkState {
 
 async fn convert_network_to_nice_format(
     segment: &forgerpc::NetworkSegment,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<String> {
     let width = 10;
     let mut lines = String::new();
@@ -65,7 +65,7 @@ async fn convert_network_to_nice_format(
             format!(
                 "{}/{}",
                 segment.subdomain_id.clone().unwrap_or_else(default_uuid),
-                get_domain_name(segment.subdomain_id.clone(), api_config).await
+                get_domain_name(segment.subdomain_id.clone(), api_client).await
             ),
         ),
         (
@@ -142,12 +142,9 @@ async fn convert_network_to_nice_format(
     Ok(lines)
 }
 
-async fn get_domain_name(
-    domain_id: Option<::rpc::common::Uuid>,
-    api_config: &ApiConfig<'_>,
-) -> String {
+async fn get_domain_name(domain_id: Option<::rpc::common::Uuid>, api_client: &ApiClient) -> String {
     match domain_id {
-        Some(id) => match rpc::get_domains(Some(id), api_config).await {
+        Some(id) => match api_client.get_domains(Some(id)).await {
             Ok(domain_list) => {
                 if domain_list.domains.is_empty() {
                     return "Not Found in db".to_string();
@@ -203,20 +200,20 @@ async fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -
 
 async fn show_all_segments(
     json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     tenant_org_id: Option<String>,
     name: Option<String>,
     page_size: usize,
 ) -> CarbideCliResult<()> {
-    let all_segments =
-        match rpc::get_all_segments(api_config, tenant_org_id.clone(), name.clone(), page_size)
-            .await
-        {
-            Ok(all_segment_ids) => all_segment_ids,
-            Err(e) => return Err(e),
-        };
+    let all_segments = match api_client
+        .get_all_segments(tenant_org_id.clone(), name.clone(), page_size)
+        .await
+    {
+        Ok(all_segment_ids) => all_segment_ids,
+        Err(e) => return Err(e),
+    };
     if json {
-        println!("{}", serde_json::to_string_pretty(&all_segments).unwrap());
+        println!("{}", serde_json::to_string_pretty(&all_segments)?);
     } else {
         convert_network_to_nice_table(all_segments).await.printstd();
     }
@@ -226,12 +223,12 @@ async fn show_all_segments(
 async fn show_network_information(
     id: String,
     json: bool,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let segment_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
         .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
         .into();
-    let segment = match rpc::get_one_segment(api_config, segment_id).await {
+    let segment = match api_client.get_one_segment(segment_id).await {
         Ok(instances) => instances,
         Err(e) => return Err(e),
     };
@@ -242,11 +239,11 @@ async fn show_network_information(
     let segment = &segment.network_segments[0];
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&segment).unwrap());
+        println!("{}", serde_json::to_string_pretty(&segment)?);
     } else {
         println!(
             "{}",
-            convert_network_to_nice_format(segment, api_config)
+            convert_network_to_nice_format(segment, api_client)
                 .await
                 .unwrap_or_else(|x| x.to_string())
         );
@@ -257,14 +254,14 @@ async fn show_network_information(
 pub async fn handle_show(
     args: ShowNetwork,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.network.is_empty() {
         show_all_segments(
             is_json,
-            api_config,
+            api_client,
             args.tenant_org_id,
             args.name,
             page_size,
@@ -272,6 +269,6 @@ pub async fn handle_show(
         .await?;
         return Ok(());
     }
-    show_network_information(args.network, is_json, api_config).await?;
+    show_network_information(args.network, is_json, api_client).await?;
     Ok(())
 }

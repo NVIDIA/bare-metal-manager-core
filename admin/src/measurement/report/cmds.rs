@@ -19,7 +19,7 @@ use crate::measurement::report::args::{
     CmdReport, Create, Delete, List, ListMachines, Match, Promote, Revoke, ShowFor, ShowForId,
     ShowForMachine,
 };
-use ::rpc::forge_tls_client::ForgeClientT;
+use crate::rpc::ApiClient;
 use ::rpc::protos::measured_boot::list_measurement_report_request;
 use ::rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, DeleteMeasurementReportRequest, ListMeasurementReportRequest,
@@ -119,7 +119,7 @@ pub async fn dispatch(
 
 /// create_for_id creates a new measurement report.
 pub async fn create_for_id(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     create: &Create,
 ) -> CarbideCliResult<MeasurementReport> {
     // Request.
@@ -130,19 +130,17 @@ pub async fn create_for_id(
 
     // Response.
     let response = grpc_conn
+        .0
         .create_measurement_report(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
-    MeasurementReport::from_grpc(response.get_ref().report.as_ref())
+    MeasurementReport::from_grpc(response.report.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// delete deletes a measurement report with the provided ID.
-pub async fn delete(
-    grpc_conn: &mut ForgeClientT,
-    delete: &Delete,
-) -> CarbideCliResult<MeasurementReport> {
+pub async fn delete(grpc_conn: &ApiClient, delete: &Delete) -> CarbideCliResult<MeasurementReport> {
     // Request.
     let request = DeleteMeasurementReportRequest {
         report_id: Some(delete.report_id.into()),
@@ -150,11 +148,12 @@ pub async fn delete(
 
     // Response.
     let response = grpc_conn
+        .0
         .delete_measurement_report(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
-    MeasurementReport::from_grpc(response.get_ref().report.as_ref())
+    MeasurementReport::from_grpc(response.report.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
@@ -162,7 +161,7 @@ pub async fn delete(
 ///
 /// `report promote <report-id> [pcr-selector]`
 pub async fn promote(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     promote: &Promote,
 ) -> CarbideCliResult<MeasurementBundle> {
     // Request.
@@ -176,11 +175,12 @@ pub async fn promote(
 
     // Response.
     let response = grpc_conn
+        .0
         .promote_measurement_report(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
-    MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
+    MeasurementBundle::from_grpc(response.bundle.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
@@ -189,10 +189,7 @@ pub async fn promote(
 /// matching this should be marked as rejected.
 ///
 /// `journal revoke <journal-id> [pcr-selector]`
-pub async fn revoke(
-    grpc_conn: &mut ForgeClientT,
-    revoke: &Revoke,
-) -> CarbideCliResult<MeasurementBundle> {
+pub async fn revoke(grpc_conn: &ApiClient, revoke: &Revoke) -> CarbideCliResult<MeasurementBundle> {
     // Request.
     let request = RevokeMeasurementReportRequest {
         report_id: Some(revoke.report_id.into()),
@@ -204,17 +201,18 @@ pub async fn revoke(
 
     // Response.
     let response = grpc_conn
+        .0
         .revoke_measurement_report(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
-    MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
+    MeasurementBundle::from_grpc(response.bundle.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// show_for_id dumps all info about a report for the given ID.
 pub async fn show_for_id(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     show_for_id: &ShowForId,
 ) -> CarbideCliResult<MeasurementReport> {
     // Request.
@@ -224,17 +222,18 @@ pub async fn show_for_id(
 
     // Response.
     let response = grpc_conn
+        .0
         .show_measurement_report_for_id(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
-    MeasurementReport::from_grpc(response.get_ref().report.as_ref())
+    MeasurementReport::from_grpc(response.report.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
 }
 
 /// show_for_machine dumps reports for a given machine.
 pub async fn show_for_machine(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     show_for_machine: &ShowForMachine,
 ) -> CarbideCliResult<MeasurementReportList> {
     // Request.
@@ -245,10 +244,10 @@ pub async fn show_for_machine(
     // Response.
     Ok(MeasurementReportList(
         grpc_conn
+            .0
             .show_measurement_reports_for_machine(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .get_ref()
             .reports
             .iter()
             .map(|report| {
@@ -260,17 +259,17 @@ pub async fn show_for_machine(
 }
 
 /// show_all dumps all info about all reports.
-pub async fn show_all(grpc_conn: &mut ForgeClientT) -> CarbideCliResult<MeasurementReportList> {
+pub async fn show_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementReportList> {
     // Request.
     let request = ShowMeasurementReportsRequest {};
 
     // Response.
     Ok(MeasurementReportList(
         grpc_conn
+            .0
             .show_measurement_reports(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .get_ref()
             .reports
             .iter()
             .map(|report| {
@@ -282,19 +281,17 @@ pub async fn show_all(grpc_conn: &mut ForgeClientT) -> CarbideCliResult<Measurem
 }
 
 /// list lists all bundle ids.
-pub async fn list_all(
-    grpc_conn: &mut ForgeClientT,
-) -> CarbideCliResult<MeasurementReportRecordList> {
+pub async fn list_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementReportRecordList> {
     // Request.
     let request = ListMeasurementReportRequest { selector: None };
 
     // Response.
     Ok(MeasurementReportRecordList(
         grpc_conn
+            .0
             .list_measurement_report(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .get_ref()
             .reports
             .iter()
             .map(|report| {
@@ -307,7 +304,7 @@ pub async fn list_all(
 
 /// list_machines lists all reports for the given machine ID.
 pub async fn list_machines(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     list_machines: &ListMachines,
 ) -> CarbideCliResult<MeasurementReportRecordList> {
     // Request.
@@ -320,10 +317,10 @@ pub async fn list_machines(
     // Response.
     Ok(MeasurementReportRecordList(
         grpc_conn
+            .0
             .list_measurement_report(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .get_ref()
             .reports
             .iter()
             .map(|report| {
@@ -338,7 +335,7 @@ pub async fn list_machines(
 ///
 /// `report match <pcr_register:val>,...`
 pub async fn match_values(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     match_args: &Match,
 ) -> CarbideCliResult<MeasurementReportRecordList> {
     // Request.
@@ -349,10 +346,10 @@ pub async fn match_values(
     // Response.
     Ok(MeasurementReportRecordList(
         grpc_conn
+            .0
             .match_measurement_report(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .get_ref()
             .reports
             .iter()
             .map(|report| {

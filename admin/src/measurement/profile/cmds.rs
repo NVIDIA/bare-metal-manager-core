@@ -20,7 +20,7 @@ use crate::measurement::global::cmds::{IdentifierType, get_identifier};
 use crate::measurement::profile::args::{
     CmdProfile, Create, Delete, List, ListBundles, ListMachines, Rename, Show,
 };
-use ::rpc::forge_tls_client::ForgeClientT;
+use crate::rpc::ApiClient;
 use ::rpc::protos::measured_boot::delete_measurement_system_profile_request;
 use ::rpc::protos::measured_boot::list_measurement_system_profile_bundles_request;
 use ::rpc::protos::measured_boot::list_measurement_system_profile_machines_request;
@@ -113,7 +113,7 @@ pub async fn dispatch(
 /// create is `profile create` and used for creating
 /// a new profile.
 pub async fn create(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     create: &Create,
 ) -> CarbideCliResult<MeasurementSystemProfile> {
     // Prepare.
@@ -136,18 +136,19 @@ pub async fn create(
 
     // Response.
     let response = grpc_conn
+        .0
         .create_measurement_system_profile(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
-    MeasurementSystemProfile::from_grpc(response.get_ref().system_profile.as_ref())
+    MeasurementSystemProfile::from_grpc(response.system_profile.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
 /// delete is `delete <profile-id|profile-name>` and is used
 /// for deleting an existing profile by ID or name.
 pub async fn delete(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     delete: &Delete,
 ) -> CarbideCliResult<MeasurementSystemProfile> {
     // Prepare.
@@ -184,17 +185,18 @@ pub async fn delete(
 
     // Response.
     let response = grpc_conn
+        .0
         .delete_measurement_system_profile(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
-    MeasurementSystemProfile::from_grpc(response.get_ref().system_profile.as_ref())
+    MeasurementSystemProfile::from_grpc(response.system_profile.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
 /// rename renames a measurement bundle with the provided name or ID.
 pub async fn rename(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     rename: &Rename,
 ) -> CarbideCliResult<MeasurementSystemProfile> {
     let selector = match get_identifier(rename)? {
@@ -232,30 +234,29 @@ pub async fn rename(
 
     // Response.
     let response = grpc_conn
+        .0
         .rename_measurement_system_profile(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
-    MeasurementSystemProfile::from_grpc(response.get_ref().profile.as_ref())
+    MeasurementSystemProfile::from_grpc(response.profile.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
 /// show_all is `show`, and is used for showing all
 /// profiles with details (when no <profile_id> is
 /// specified on the command line).
-pub async fn show_all(
-    grpc_conn: &mut ForgeClientT,
-) -> CarbideCliResult<MeasurementSystemProfileList> {
+pub async fn show_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementSystemProfileList> {
     // Request.
     let request = ShowMeasurementSystemProfilesRequest {};
 
     // Response.
     Ok(MeasurementSystemProfileList(
         grpc_conn
+            .0
             .show_measurement_system_profiles(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .get_ref()
             .system_profiles
             .iter()
             .map(|system_profile| {
@@ -269,7 +270,7 @@ pub async fn show_all(
 /// show_by_id_or_name is `show <profile-id|profile-name>` and is used for
 /// showing a profile (and its details) by ID or name.
 pub async fn show_by_id_or_name(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     show: &Show,
 ) -> CarbideCliResult<MeasurementSystemProfile> {
     // Prepare.
@@ -305,11 +306,12 @@ pub async fn show_by_id_or_name(
 
     // Response.
     let response = grpc_conn
+        .0
         .show_measurement_system_profile(request)
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
-    MeasurementSystemProfile::from_grpc(response.get_ref().system_profile.as_ref())
+    MeasurementSystemProfile::from_grpc(response.system_profile.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
@@ -317,7 +319,7 @@ pub async fn show_by_id_or_name(
 /// high level profile info (just IDs). For actual
 /// details, use `show`.
 pub async fn list_all(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
 ) -> CarbideCliResult<MeasurementSystemProfileRecordList> {
     // Request.
     let request = ListMeasurementSystemProfilesRequest {};
@@ -325,10 +327,10 @@ pub async fn list_all(
     // Response.
     Ok(MeasurementSystemProfileRecordList(
         grpc_conn
+            .0
             .list_measurement_system_profiles(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .get_ref()
             .system_profiles
             .iter()
             .map(|rec| {
@@ -342,7 +344,7 @@ pub async fn list_all(
 /// list_bundles_by_id_or_name is `list bundles <profile-id|profile-name>` and
 /// is used to list all configured bundles for a given profile ID or name.
 pub async fn list_bundles_for_id_or_name(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     list_bundles: &ListBundles,
 ) -> CarbideCliResult<MeasurementBundleIdList> {
     // Prepare.
@@ -384,10 +386,10 @@ pub async fn list_bundles_for_id_or_name(
     // Response.
     Ok(MeasurementBundleIdList(
         grpc_conn
+            .0
             .list_measurement_system_profile_bundles(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .get_ref()
             .bundle_ids
             .iter()
             .map(|rec| {
@@ -402,7 +404,7 @@ pub async fn list_bundles_for_id_or_name(
 /// and is used to list all configured machines associated with a given profile
 /// ID or name.
 pub async fn list_machines_for_id_or_name(
-    grpc_conn: &mut ForgeClientT,
+    grpc_conn: &ApiClient,
     list_machines: &ListMachines,
 ) -> CarbideCliResult<MachineIdList> {
     // Prepare.
@@ -444,10 +446,10 @@ pub async fn list_machines_for_id_or_name(
     // Response.
     Ok(MachineIdList(
         grpc_conn
+            .0
             .list_measurement_system_profile_machines(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .get_ref()
             .machine_ids
             .iter()
             .map(|rec| {

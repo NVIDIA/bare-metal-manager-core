@@ -18,28 +18,24 @@ use rpc::Uuid;
 use serde::Serialize;
 
 use crate::cfg::cli_options::{VpcPrefixCreate, VpcPrefixDelete, VpcPrefixShow};
-use crate::rpc::with_forge_client;
-use CarbideCliError::GenericError;
+use crate::rpc::ApiClient;
 use forge_uuid::vpc::VpcPrefixId;
 use rpc::forge::{
     PrefixMatchType, VpcPrefix, VpcPrefixCreationRequest, VpcPrefixDeletionRequest,
-    VpcPrefixDeletionResult, VpcPrefixSearchQuery,
+    VpcPrefixSearchQuery,
 };
-use rpc::forge_tls_client::{ApiConfig, ForgeClientT};
+use utils::admin_cli::CarbideCliError::GenericError;
 use utils::admin_cli::output::{FormattedOutput, IntoTable, OutputFormat};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult};
 
 pub async fn handle_show(
     args: VpcPrefixShow,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
     batch_size: usize,
 ) -> CarbideCliResult<()> {
     let show_method = ShowMethod::from(args);
-    let output = with_forge_client(api_config, |mut forge_client| async move {
-        fetch(&mut forge_client, batch_size, show_method).await
-    })
-    .await?;
+    let output = fetch(api_client, batch_size, show_method).await?;
 
     output
         .write_output(output_format, utils::admin_cli::Destination::Stdout())
@@ -49,26 +45,17 @@ pub async fn handle_show(
 pub async fn handle_create(
     args: VpcPrefixCreate,
     output_format: OutputFormat,
-    api_config: &ApiConfig<'_>,
+    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let output = with_forge_client(api_config, |mut forge_client| async move {
-        create(&mut forge_client, args).await
-    })
-    .await?;
+    let output = create(api_client, args).await?;
 
     output
         .write_output(output_format, utils::admin_cli::Destination::Stdout())
         .map_err(CarbideCliError::from)
 }
 
-pub async fn handle_delete(
-    args: VpcPrefixDelete,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut forge_client| async move {
-        delete(&mut forge_client, args).await
-    })
-    .await
+pub async fn handle_delete(args: VpcPrefixDelete, api_client: &ApiClient) -> CarbideCliResult<()> {
+    delete(api_client, args).await
 }
 
 #[derive(Debug)]
@@ -120,7 +107,7 @@ impl From<VpcPrefixShow> for ShowMethod {
 }
 
 async fn create(
-    forge_client: &mut ForgeClientT,
+    api_client: &ApiClient,
     create_args: VpcPrefixCreate,
 ) -> Result<ShowOutput, CarbideCliError> {
     let VpcPrefixCreate {
@@ -135,42 +122,40 @@ async fn create(
         name,
         vpc_id: Some(vpc_id.into()),
     };
-    let request = tonic::Request::new(new_prefix);
-    forge_client
-        .create_vpc_prefix(request)
+    api_client
+        .0
+        .create_vpc_prefix(new_prefix)
         .await
-        .map(|response| ShowOutput::One(response.into_inner()))
+        .map(ShowOutput::One)
         .map_err(CarbideCliError::ApiInvocationError)
 }
 
 async fn delete(
-    forge_client: &mut ForgeClientT,
+    api_client: &ApiClient,
     delete_args: VpcPrefixDelete,
 ) -> Result<(), CarbideCliError> {
     let VpcPrefixDelete { vpc_prefix_id } = delete_args;
     let delete_prefix = VpcPrefixDeletionRequest {
         id: Some(vpc_prefix_id.into()),
     };
-    let request = tonic::Request::new(delete_prefix);
-    forge_client
-        .delete_vpc_prefix(request)
+    api_client
+        .0
+        .delete_vpc_prefix(delete_prefix)
         .await
-        .map(|response| {
-            let VpcPrefixDeletionResult {} = response.into_inner();
-        })
-        .map_err(CarbideCliError::ApiInvocationError)
+        .map_err(CarbideCliError::ApiInvocationError)?;
+    Ok(())
 }
 
 async fn fetch(
-    forge_client: &mut ForgeClientT,
+    api_client: &ApiClient,
     batch_size: usize,
     show_method: ShowMethod,
 ) -> Result<ShowOutput, CarbideCliError> {
     match show_method {
-        ShowMethod::Get(get_one) => get_one.fetch(forge_client).await.map(ShowOutput::One),
+        ShowMethod::Get(get_one) => get_one.fetch(api_client).await.map(ShowOutput::One),
         ShowMethod::Search(query) => {
-            let vpc_prefix_ids = search(forge_client, query).await?;
-            get_by_ids(forge_client, batch_size, vpc_prefix_ids.as_slice())
+            let vpc_prefix_ids = search(api_client, query).await?;
+            get_by_ids(api_client, batch_size, vpc_prefix_ids.as_slice())
                 .await
                 .map(ShowOutput::Many)
         }
@@ -178,19 +163,19 @@ async fn fetch(
 }
 
 async fn search(
-    forge_client: &mut ForgeClientT,
+    api_client: &ApiClient,
     query: VpcPrefixSearchQuery,
 ) -> Result<Vec<Uuid>, CarbideCliError> {
-    let request = tonic::Request::new(query);
-    forge_client
-        .search_vpc_prefixes(request)
+    api_client
+        .0
+        .search_vpc_prefixes(query)
         .await
-        .map(|response| response.into_inner().vpc_prefix_ids)
+        .map(|response| response.vpc_prefix_ids)
         .map_err(CarbideCliError::ApiInvocationError)
 }
 
 async fn get_by_ids(
-    forge_client: &mut ForgeClientT,
+    api_client: &ApiClient,
     batch_size: usize,
     ids: &[Uuid],
 ) -> Result<Vec<VpcPrefix>, CarbideCliError> {
@@ -199,11 +184,11 @@ async fn get_by_ids(
         let vpc_id_list = rpc::forge::VpcPrefixGetRequest {
             vpc_prefix_ids: ids.to_owned(),
         };
-        let request = tonic::Request::new(vpc_id_list);
-        let prefixes_batch = forge_client
-            .get_vpc_prefixes(request)
+        let prefixes_batch = api_client
+            .0
+            .get_vpc_prefixes(vpc_id_list)
             .await
-            .map(|response| response.into_inner().vpc_prefixes)
+            .map(|response| response.vpc_prefixes)
             .map_err(CarbideCliError::ApiInvocationError)?;
         vpc_prefixes.extend(prefixes_batch);
     }
@@ -211,10 +196,10 @@ async fn get_by_ids(
 }
 
 async fn get_one_by_id(
-    forge_client: &mut ForgeClientT,
+    api_client: &ApiClient,
     id: VpcPrefixId,
 ) -> Result<VpcPrefix, CarbideCliError> {
-    let mut prefixes = get_by_ids(forge_client, 1, &[id.into()]).await?;
+    let mut prefixes = get_by_ids(api_client, 1, &[id.into()]).await?;
     match (prefixes.len(), prefixes.pop()) {
         (1, Some(prefix)) => Ok(prefix),
         (0, None) => Err(CarbideCliError::GenericError(format!(
@@ -236,15 +221,12 @@ pub enum VpcPrefixSelector {
 }
 
 impl VpcPrefixSelector {
-    pub async fn fetch(
-        self,
-        forge_client: &mut ForgeClientT,
-    ) -> Result<VpcPrefix, CarbideCliError> {
+    pub async fn fetch(self, api_client: &ApiClient) -> Result<VpcPrefix, CarbideCliError> {
         match self {
-            VpcPrefixSelector::Id(id) => get_one_by_id(forge_client, id).await,
+            VpcPrefixSelector::Id(id) => get_one_by_id(api_client, id).await,
             VpcPrefixSelector::Prefix(prefix) => {
                 let id = {
-                    let uuids = search(forge_client, prefix_match_exact(&prefix)).await?;
+                    let uuids = search(api_client, prefix_match_exact(&prefix)).await?;
                     let uuid = match Quantity::from(uuids) {
                         Quantity::One(uuid) => Ok(uuid),
                         Quantity::Zero => Err(GenericError(format!(
@@ -261,7 +243,7 @@ impl VpcPrefixSelector {
                         })
                     })
                 }?;
-                get_one_by_id(forge_client, id).await
+                get_one_by_id(api_client, id).await
             }
         }
     }

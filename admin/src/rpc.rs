@@ -10,11 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::future::Future;
-use std::net::IpAddr;
-use std::path::Path;
-use std::str::FromStr;
-
 use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
     self as rpc, BmcCredentialStatusResponse, BmcEndpointRequest,
@@ -24,42 +19,43 @@ use ::rpc::forge::{
     IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
     MachineHardwareInfoUpdateType, MachineSearchConfig, MachineType, NetworkDeviceIdList,
     NetworkSecurityGroupAttributes, NetworkSegmentSearchConfig, OperatingSystem,
-    RedfishBrowseResponse, SkuIdList, UpdateMachineHardwareInfoRequest,
-    UpdateNetworkSecurityGroupRequest, VpcVirtualizationType,
+    RedfishBrowseResponse, UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest,
+    VpcVirtualizationType,
 };
-
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
-use mac_address::MacAddress;
+use std::net::IpAddr;
+use std::path::Path;
+use std::str::FromStr;
 
 use crate::cfg::cli_options::{
     self, AllocateInstance, ForceDeleteMachineQuery, MachineAutoupdate, MachineQuery,
 };
+use ::rpc::forge_api_client::ForgeApiClient;
+use mac_address::MacAddress;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult};
 
-pub async fn with_forge_client<T, F>(
-    api_config: &ApiConfig<'_>,
-    callback: impl FnOnce(ForgeClientT) -> F,
-) -> CarbideCliResult<T>
-where
-    F: Future<Output = CarbideCliResult<T>>,
-{
-    let client = forge_tls_client::ForgeTlsClient::retry_build(api_config)
-        .await
-        .map_err(|err| CarbideCliError::ApiConnectFailed(err.to_string()))?;
+/// [`ApiClient`] is a thin wrapper around [`ForgeApiClient`], which mainly adds some convenience
+/// methods.
+#[derive(Clone)]
+pub struct ApiClient(pub ForgeApiClient);
 
-    callback(client).await
-}
-
-pub async fn get_machine(id: String, api_config: &ApiConfig<'_>) -> CarbideCliResult<rpc::Machine> {
-    with_forge_client(api_config, |mut client| async move {
-        let mut machines = client
+// Note: You do *not* need to add every gRPC method to this wrapper. Callers can use `.0` to get
+// access to the underlying ForgeApiClient, if they want to simply call the gRPC methods themselves.
+// Add methods here if there's some value to it, like constructing rpc request objects from simpler
+// primitives, or other data conversions.
+//
+// (this module used to have more logic around establishing a connection to carbide, but this is all
+// now done in ForgeApiClient itself, leaving these methods only concerned with data conversions and
+// other conveniences. 90% of these methods no longer justify their existence... we probably don't
+// need to add more.)
+impl ApiClient {
+    pub async fn get_machine(&self, id: String) -> CarbideCliResult<rpc::Machine> {
+        let mut machines = self
+            .0
             .find_machines_by_ids(::rpc::forge::MachinesByIdsRequest {
                 machine_ids: vec![id.clone().into()],
                 include_history: true,
             })
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .await?;
 
         if machines.machines.is_empty() {
             return Err(CarbideCliError::MachineNotFound(id.into()));
@@ -77,42 +73,33 @@ pub async fn get_machine(id: String, api_config: &ApiConfig<'_>) -> CarbideCliRe
         }
 
         Ok(machine_details)
-    })
-    .await
-}
+    }
 
-pub async fn get_network_device_topology(
-    id: Option<String>,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<rpc::NetworkTopologyData> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::NetworkTopologyRequest { id });
-        let topology = client
+    pub async fn get_network_device_topology(
+        &self,
+        id: Option<String>,
+    ) -> CarbideCliResult<rpc::NetworkTopologyData> {
+        let request = rpc::NetworkTopologyRequest { id };
+        self.0
             .get_network_topology(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(topology)
-    })
-    .await
-}
+    // this uses deprecated APIs and should not be used.
+    // exists for backwards compatability with older APIs
+    async fn get_all_machines_deprecated(
+        &self,
+        machine_type: Option<MachineType>,
+        only_maintenance: bool,
+    ) -> CarbideCliResult<rpc::MachineList> {
+        let include_dpus = machine_type.map(|t| t == MachineType::Dpu).unwrap_or(true);
+        let exclude_hosts = machine_type
+            .map(|t| t != MachineType::Host)
+            .unwrap_or(false);
+        let include_predicted_host = machine_type.map(|t| t == MachineType::Host).unwrap_or(true);
 
-// this uses deprecated APIs and should not be used.
-// exists for backwards compatability with older APIs
-async fn get_all_machines_deprecated(
-    api_config: &ApiConfig<'_>,
-    machine_type: Option<MachineType>,
-    only_maintenance: bool,
-) -> CarbideCliResult<rpc::MachineList> {
-    let include_dpus = machine_type.map(|t| t == MachineType::Dpu).unwrap_or(true);
-    let exclude_hosts = machine_type
-        .map(|t| t != MachineType::Host)
-        .unwrap_or(false);
-    let include_predicted_host = machine_type.map(|t| t == MachineType::Host).unwrap_or(true);
-
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::MachineSearchQuery {
+        let request = rpc::MachineSearchQuery {
             id: None,
             fqdn: None,
             search_config: Some(rpc::MachineSearchConfig {
@@ -122,12 +109,8 @@ async fn get_all_machines_deprecated(
                 only_maintenance,
                 exclude_hosts,
             }),
-        });
-        let machine_details = client
-            .find_machines(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+        };
+        let machine_details = self.0.find_machines(request).await?;
 
         let machines = machine_details
             .machines
@@ -151,91 +134,76 @@ async fn get_all_machines_deprecated(
             })
             .collect();
         Ok(rpc::MachineList { machines })
-    })
-    .await
-}
-
-pub async fn get_all_machines(
-    api_config: &ApiConfig<'_>,
-    machine_type: Option<MachineType>,
-    only_maintenance: bool,
-    page_size: usize,
-) -> CarbideCliResult<rpc::MachineList> {
-    let all_machine_ids = match find_machine_ids(api_config, machine_type, only_maintenance).await {
-        Ok(all_machine_ids) => all_machine_ids,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            return get_all_machines_deprecated(api_config, machine_type, only_maintenance).await;
-        }
-        Err(e) => return Err(e),
-    };
-    let mut all_machines = rpc::MachineList {
-        machines: Vec::with_capacity(all_machine_ids.machine_ids.len()),
-    };
-
-    for machine_ids in all_machine_ids.machine_ids.chunks(page_size) {
-        let machines = get_machines_by_ids(api_config, machine_ids).await?;
-        all_machines.machines.extend(machines.machines);
     }
 
-    Ok(all_machines)
-}
+    pub async fn get_all_machines(
+        &self,
+        machine_type: Option<MachineType>,
+        only_maintenance: bool,
+        page_size: usize,
+    ) -> CarbideCliResult<rpc::MachineList> {
+        let all_machine_ids = match self.find_machine_ids(machine_type, only_maintenance).await {
+            Ok(all_machine_ids) => all_machine_ids,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                return self
+                    .get_all_machines_deprecated(machine_type, only_maintenance)
+                    .await;
+            }
+            Err(e) => return Err(e),
+        };
+        let mut all_machines = rpc::MachineList {
+            machines: Vec::with_capacity(all_machine_ids.machine_ids.len()),
+        };
 
-pub async fn reboot_instance(
-    api_config: &ApiConfig<'_>,
-    machine_id: ::rpc::common::MachineId,
-    boot_with_custom_ipxe: bool,
-    apply_updates_on_reboot: bool,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::InstancePowerRequest {
+        for machine_ids in all_machine_ids.machine_ids.chunks(page_size) {
+            let machines = self.get_machines_by_ids(machine_ids).await?;
+            all_machines.machines.extend(machines.machines);
+        }
+
+        Ok(all_machines)
+    }
+
+    pub async fn reboot_instance(
+        &self,
+        machine_id: ::rpc::common::MachineId,
+        boot_with_custom_ipxe: bool,
+        apply_updates_on_reboot: bool,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::InstancePowerRequest {
             machine_id: Some(machine_id),
             operation: rpc::instance_power_request::Operation::PowerReset as i32,
             boot_with_custom_ipxe,
             apply_updates_on_reboot,
-        });
+        };
 
-        client
-            .invoke_instance_power(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+        self.0.invoke_instance_power(request).await?;
 
         Ok(())
-    })
-    .await
-}
+    }
 
-pub async fn release_instances(
-    api_config: &ApiConfig<'_>,
-    instance_ids: Vec<::rpc::common::Uuid>,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
+    pub async fn release_instances(
+        &self,
+        instance_ids: Vec<::rpc::common::Uuid>,
+    ) -> CarbideCliResult<()> {
         for instance_id in instance_ids {
-            let request = tonic::Request::new(rpc::InstanceReleaseRequest {
+            let request = rpc::InstanceReleaseRequest {
                 id: Some(instance_id),
-            });
-            client
-                .release_instance(request)
-                .await
-                .map(|response| response.into_inner())
-                .map_err(CarbideCliError::ApiInvocationError)?;
+            };
+            self.0.release_instance(request).await?;
         }
         Ok(())
-    })
-    .await
-}
+    }
 
-// TODO: remove when all sites updated to carbide-api with find_instance_ids and find_instances_by_ids implemented
-async fn get_instances_deprecated(
-    api_config: &ApiConfig<'_>,
-    id: Option<String>,
-    label_key: Option<String>,
-    label_value: Option<String>,
-) -> CarbideCliResult<rpc::InstanceList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::InstanceSearchQuery {
+    // TODO: remove when all sites updated to carbide-api with find_instance_ids and find_instances_by_ids implemented
+    async fn get_instances_deprecated(
+        &self,
+        id: Option<String>,
+        label_key: Option<String>,
+        label_value: Option<String>,
+    ) -> CarbideCliResult<rpc::InstanceList> {
+        let request = rpc::InstanceSearchQuery {
             id: id.map(|x| ::rpc::common::Uuid { value: x }),
             label: if label_key.is_none() && label_value.is_none() {
                 None
@@ -245,33 +213,19 @@ async fn get_instances_deprecated(
                     value: label_value,
                 })
             },
-        });
-        let instance_details = client
+        };
+        self.0
             .find_instances(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(instance_details)
-    })
-    .await
-}
+    pub async fn identify_uuid(&self, u: uuid::Uuid) -> CarbideCliResult<rpc::UuidType> {
+        let request = rpc::IdentifyUuidRequest {
+            uuid: Some(u.into()),
+        };
 
-pub async fn identify_uuid(
-    api_config: &ApiConfig<'_>,
-    u: uuid::Uuid,
-) -> CarbideCliResult<rpc::UuidType> {
-    let req = rpc::IdentifyUuidRequest {
-        uuid: Some(u.into()),
-    };
-
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(req);
-        let uuid_details = match client
-            .identify_uuid(request)
-            .await
-            .map(|response| response.into_inner())
-        {
+        let uuid_details = match self.0.identify_uuid(request).await {
             Ok(m) => m,
             Err(status) if status.code() == tonic::Code::NotFound => {
                 return Err(CarbideCliError::UuidNotFound);
@@ -293,25 +247,17 @@ pub async fn identify_uuid(
         };
 
         Ok(object_type)
-    })
-    .await
-}
+    }
 
-pub async fn identify_mac(
-    api_config: &ApiConfig<'_>,
-    mac_address: MacAddress,
-) -> CarbideCliResult<(rpc::MacOwner, String)> {
-    let req = rpc::IdentifyMacRequest {
-        mac_address: mac_address.to_string(),
-    };
+    pub async fn identify_mac(
+        &self,
+        mac_address: MacAddress,
+    ) -> CarbideCliResult<(rpc::MacOwner, String)> {
+        let request = rpc::IdentifyMacRequest {
+            mac_address: mac_address.to_string(),
+        };
 
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(req);
-        let mac_details = match client
-            .identify_mac(request)
-            .await
-            .map(|response| response.into_inner())
-        {
+        let mac_details = match self.0.identify_mac(request).await {
             Ok(m) => m,
             Err(status) if status.code() == tonic::Code::NotFound => {
                 return Err(CarbideCliError::MacAddressNotFound);
@@ -333,23 +279,15 @@ pub async fn identify_mac(
         };
 
         Ok((object_type, mac_details.primary_key))
-    })
-    .await
-}
+    }
 
-pub async fn identify_serial(
-    api_config: &ApiConfig<'_>,
-    serial_number: String,
-) -> CarbideCliResult<::rpc::common::MachineId> {
-    let req = rpc::IdentifySerialRequest { serial_number };
+    pub async fn identify_serial(
+        &self,
+        serial_number: String,
+    ) -> CarbideCliResult<::rpc::common::MachineId> {
+        let request = rpc::IdentifySerialRequest { serial_number };
 
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(req);
-        let serial_details = match client
-            .identify_serial(request)
-            .await
-            .map(|response| response.into_inner())
-        {
+        let serial_details = match self.0.identify_serial(request).await {
             Ok(m) => m,
             Err(status) if status.code() == tonic::Code::NotFound => {
                 return Err(CarbideCliError::SerialNumberNotFound);
@@ -365,80 +303,81 @@ pub async fn identify_serial(
             .ok_or(CarbideCliError::GenericError(
                 "Serial number found without associated machine ID".to_string(),
             ))
-    })
-    .await
-}
-
-pub async fn get_all_instances(
-    api_config: &ApiConfig<'_>,
-    tenant_org_id: Option<String>,
-    vpc_id: Option<String>,
-    label_key: Option<String>,
-    label_value: Option<String>,
-    page_size: usize,
-) -> CarbideCliResult<rpc::InstanceList> {
-    let all_ids = match get_instance_ids(
-        api_config,
-        tenant_org_id.clone(),
-        vpc_id.clone(),
-        label_key.clone(),
-        label_value.clone(),
-    )
-    .await
-    {
-        Ok(all_ids) => all_ids,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            if tenant_org_id.is_some() {
-                return Err(CarbideCliError::GenericError(
-                    "Filtering by Tenant Org or VPC ID is not supported for this site.\
-                        \nIt does not have a required version of the Carbide API."
-                        .to_string(),
-                ));
-            }
-            return get_instances_deprecated(api_config, None, label_key, label_value).await;
-        }
-        Err(e) => return Err(e),
-    };
-    let mut all_list = rpc::InstanceList {
-        instances: Vec::with_capacity(all_ids.instance_ids.len()),
-    };
-
-    for ids in all_ids.instance_ids.chunks(page_size) {
-        let list = get_instances_by_ids(api_config, ids).await?;
-        all_list.instances.extend(list.instances);
     }
 
-    Ok(all_list)
-}
-
-pub async fn get_one_instance(
-    api_config: &ApiConfig<'_>,
-    instance_id: ::rpc::common::Uuid,
-) -> CarbideCliResult<rpc::InstanceList> {
-    let instances = match get_instances_by_ids(api_config, &[instance_id.clone()]).await {
-        Ok(instances) => instances,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
+    pub async fn get_all_instances(
+        &self,
+        tenant_org_id: Option<String>,
+        vpc_id: Option<String>,
+        label_key: Option<String>,
+        label_value: Option<String>,
+        page_size: usize,
+    ) -> CarbideCliResult<rpc::InstanceList> {
+        let all_ids = match self
+            .get_instance_ids(
+                tenant_org_id.clone(),
+                vpc_id.clone(),
+                label_key.clone(),
+                label_value.clone(),
+            )
+            .await
         {
-            return get_instances_deprecated(api_config, Some(instance_id.value), None, None).await;
+            Ok(all_ids) => all_ids,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                if tenant_org_id.is_some() {
+                    return Err(CarbideCliError::GenericError(
+                        "Filtering by Tenant Org or VPC ID is not supported for this site.\
+                        \nIt does not have a required version of the Carbide API."
+                            .to_string(),
+                    ));
+                }
+                return self
+                    .get_instances_deprecated(None, label_key, label_value)
+                    .await;
+            }
+            Err(e) => return Err(e),
+        };
+        let mut all_list = rpc::InstanceList {
+            instances: Vec::with_capacity(all_ids.instance_ids.len()),
+        };
+
+        for ids in all_ids.instance_ids.chunks(page_size) {
+            let list = self.get_instances_by_ids(ids).await?;
+            all_list.instances.extend(list.instances);
         }
-        Err(e) => return Err(e),
-    };
 
-    Ok(instances)
-}
+        Ok(all_list)
+    }
 
-async fn get_instance_ids(
-    api_config: &ApiConfig<'_>,
-    tenant_org_id: Option<String>,
-    vpc_id: Option<String>,
-    label_key: Option<String>,
-    label_value: Option<String>,
-) -> CarbideCliResult<rpc::InstanceIdList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::InstanceSearchFilter {
+    pub async fn get_one_instance(
+        &self,
+        instance_id: ::rpc::common::Uuid,
+    ) -> CarbideCliResult<rpc::InstanceList> {
+        let instances = match self.get_instances_by_ids(&[instance_id.clone()]).await {
+            Ok(instances) => instances,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                return self
+                    .get_instances_deprecated(Some(instance_id.value), None, None)
+                    .await;
+            }
+            Err(e) => return Err(e),
+        };
+
+        Ok(instances)
+    }
+
+    async fn get_instance_ids(
+        &self,
+        tenant_org_id: Option<String>,
+        vpc_id: Option<String>,
+        label_key: Option<String>,
+        label_value: Option<String>,
+    ) -> CarbideCliResult<rpc::InstanceIdList> {
+        let request = rpc::InstanceSearchFilter {
             tenant_org_id,
             vpc_id,
             label: if label_key.is_none() && label_value.is_none() {
@@ -449,267 +388,203 @@ async fn get_instance_ids(
                     value: label_value,
                 })
             },
-        });
-        let instance_ids = client
+        };
+        self.0
             .find_instance_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(instance_ids)
-    })
-    .await
-}
-
-async fn get_instances_by_ids(
-    api_config: &ApiConfig<'_>,
-    instance_ids: &[::rpc::common::Uuid],
-) -> CarbideCliResult<rpc::InstanceList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::InstancesByIdsRequest {
-            instance_ids: Vec::from(instance_ids),
-        });
-        let instances = client
-            .find_instances_by_ids(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        Ok(instances)
-    })
-    .await
-}
-
-pub async fn get_instances_by_machine_id(
-    api_config: &ApiConfig<'_>,
-    id: String,
-) -> CarbideCliResult<rpc::InstanceList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::common::MachineId { id });
-        let instance_details = client
-            .find_instance_by_machine_id(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        Ok(instance_details)
-    })
-    .await
-}
-
-pub async fn get_all_segments(
-    api_config: &ApiConfig<'_>,
-    tenant_org_id: Option<String>,
-    name: Option<String>,
-    page_size: usize,
-) -> CarbideCliResult<rpc::NetworkSegmentList> {
-    let all_ids = match get_segment_ids(api_config, tenant_org_id.clone(), name.clone()).await {
-        Ok(all_ids) => all_ids,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            if tenant_org_id.is_some() || name.is_some() {
-                return Err(CarbideCliError::GenericError(
-                    "Filtering by Tenant Org ID or Name is not supported for this site.\
-                \nIt does not have a required version of the Carbide API."
-                        .to_string(),
-                ));
-            }
-            return get_segments_deprecated(None, api_config).await;
-        }
-        Err(e) => return Err(e),
-    };
-    let mut all_list = rpc::NetworkSegmentList {
-        network_segments: Vec::with_capacity(all_ids.network_segments_ids.len()),
-    };
-
-    for ids in all_ids.network_segments_ids.chunks(page_size) {
-        let list = get_segments_by_ids(api_config, ids).await?;
-        all_list.network_segments.extend(list.network_segments);
+            .map_err(CarbideCliError::ApiInvocationError)
     }
 
-    Ok(all_list)
-}
+    async fn get_instances_by_ids(
+        &self,
+        instance_ids: &[::rpc::common::Uuid],
+    ) -> CarbideCliResult<rpc::InstanceList> {
+        let request = rpc::InstancesByIdsRequest {
+            instance_ids: Vec::from(instance_ids),
+        };
+        self.0
+            .find_instances_by_ids(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn get_one_segment(
-    api_config: &ApiConfig<'_>,
-    segment_id: ::rpc::common::Uuid,
-) -> CarbideCliResult<rpc::NetworkSegmentList> {
-    let segments = match get_segments_by_ids(api_config, &[segment_id.clone()]).await {
-        Ok(segments) => segments,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
+    pub async fn get_instances_by_machine_id(
+        &self,
+        id: String,
+    ) -> CarbideCliResult<rpc::InstanceList> {
+        let request = ::rpc::common::MachineId { id };
+        self.0
+            .find_instance_by_machine_id(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn get_all_segments(
+        &self,
+        tenant_org_id: Option<String>,
+        name: Option<String>,
+        page_size: usize,
+    ) -> CarbideCliResult<rpc::NetworkSegmentList> {
+        let all_ids = match self
+            .get_segment_ids(tenant_org_id.clone(), name.clone())
+            .await
         {
-            return get_segments_deprecated(Some(segment_id), api_config).await;
+            Ok(all_ids) => all_ids,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                if tenant_org_id.is_some() || name.is_some() {
+                    return Err(CarbideCliError::GenericError(
+                        "Filtering by Tenant Org ID or Name is not supported for this site.\
+                \nIt does not have a required version of the Carbide API."
+                            .to_string(),
+                    ));
+                }
+                return self.get_segments_deprecated(None).await;
+            }
+            Err(e) => return Err(e),
+        };
+        let mut all_list = rpc::NetworkSegmentList {
+            network_segments: Vec::with_capacity(all_ids.network_segments_ids.len()),
+        };
+
+        for ids in all_ids.network_segments_ids.chunks(page_size) {
+            let list = self.get_segments_by_ids(ids).await?;
+            all_list.network_segments.extend(list.network_segments);
         }
-        Err(e) => return Err(e),
-    };
 
-    Ok(segments)
-}
+        Ok(all_list)
+    }
 
-async fn get_segment_ids(
-    api_config: &ApiConfig<'_>,
-    tenant_org_id: Option<String>,
-    name: Option<String>,
-) -> CarbideCliResult<rpc::NetworkSegmentIdList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::NetworkSegmentSearchFilter {
+    pub async fn get_one_segment(
+        &self,
+        segment_id: ::rpc::common::Uuid,
+    ) -> CarbideCliResult<rpc::NetworkSegmentList> {
+        let segments = match self.get_segments_by_ids(&[segment_id.clone()]).await {
+            Ok(segments) => segments,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                return self.get_segments_deprecated(Some(segment_id)).await;
+            }
+            Err(e) => return Err(e),
+        };
+
+        Ok(segments)
+    }
+
+    async fn get_segment_ids(
+        &self,
+        tenant_org_id: Option<String>,
+        name: Option<String>,
+    ) -> CarbideCliResult<rpc::NetworkSegmentIdList> {
+        let request = rpc::NetworkSegmentSearchFilter {
             tenant_org_id,
             name,
-        });
-        let segment_ids = client
+        };
+        self.0
             .find_network_segment_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(segment_ids)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-async fn get_segments_by_ids(
-    api_config: &ApiConfig<'_>,
-    segment_ids: &[::rpc::common::Uuid],
-) -> CarbideCliResult<rpc::NetworkSegmentList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::NetworkSegmentsByIdsRequest {
+    async fn get_segments_by_ids(
+        &self,
+        segment_ids: &[::rpc::common::Uuid],
+    ) -> CarbideCliResult<rpc::NetworkSegmentList> {
+        let request = rpc::NetworkSegmentsByIdsRequest {
             network_segments_ids: Vec::from(segment_ids),
             include_history: segment_ids.len() == 1, // only request it when getting data for single resource
             include_num_free_ips: true,
-        });
-        let segments = client
+        };
+        self.0
             .find_network_segments_by_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(segments)
-    })
-    .await
-}
-
-// TODO: remove when all sites updated to carbide-api with find_network_segment_ids and find_network_segments_by_ids implemented
-async fn get_segments_deprecated(
-    id: Option<::rpc::common::Uuid>,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<rpc::NetworkSegmentList> {
-    with_forge_client(api_config, |mut client| async move {
-        // Return the number of free ips only when client is asking for segment info
+    // TODO: remove when all sites updated to carbide-api with find_network_segment_ids and find_network_segments_by_ids implemented
+    async fn get_segments_deprecated(
+        &self,
+        id: Option<::rpc::common::Uuid>,
+    ) -> CarbideCliResult<rpc::NetworkSegmentList> {
+        // Return the number of free ips only when self.0 is asking for segment info
         // of a specific segment id.
         let ret_free_ips = id.is_some();
 
-        let request = tonic::Request::new(rpc::NetworkSegmentQuery {
+        let request = rpc::NetworkSegmentQuery {
             id,
             search_config: Some(NetworkSegmentSearchConfig {
                 include_history: true,
                 include_num_free_ips: ret_free_ips,
             }),
-        });
+        };
 
-        let networks = client
+        self.0
             .find_network_segments(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(networks)
-    })
-    .await
-}
-
-pub async fn get_domains(
-    id: Option<::rpc::common::Uuid>,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<rpc::DomainList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::DomainSearchQuery { id, name: None });
-        let networks = client
+    pub async fn get_domains(
+        &self,
+        id: Option<::rpc::common::Uuid>,
+    ) -> CarbideCliResult<rpc::DomainList> {
+        let request = rpc::DomainSearchQuery { id, name: None };
+        self.0
             .find_domain(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(networks)
-    })
-    .await
-}
-
-pub async fn get_dpu_ssh_credential(
-    query: String,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<rpc::CredentialResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::CredentialRequest { host_id: query });
-        let cred = client
-            .get_dpu_ssh_credential(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+    pub async fn get_dpu_ssh_credential(
+        &self,
+        query: String,
+    ) -> CarbideCliResult<rpc::CredentialResponse> {
+        let request = rpc::CredentialRequest { host_id: query };
+        let cred = self.0.get_dpu_ssh_credential(request).await?;
 
         Ok(cred)
-    })
-    .await
-}
+    }
 
-pub async fn get_all_managed_host_network_status(
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<rpc::ManagedHostNetworkStatusResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ManagedHostNetworkStatusRequest {});
-        let all = client
-            .get_all_managed_host_network_status(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
+    pub async fn get_all_managed_host_network_status(
+        &self,
+    ) -> CarbideCliResult<rpc::ManagedHostNetworkStatusResponse> {
+        let request = rpc::ManagedHostNetworkStatusRequest {};
+        let all = self.0.get_all_managed_host_network_status(request).await?;
         Ok(all)
-    })
-    .await
-}
+    }
 
-pub async fn get_managed_host_network_config(
-    id: String,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<rpc::ManagedHostNetworkConfigResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ManagedHostNetworkConfigRequest {
+    pub async fn get_managed_host_network_config(
+        &self,
+        id: String,
+    ) -> CarbideCliResult<rpc::ManagedHostNetworkConfigResponse> {
+        let request = rpc::ManagedHostNetworkConfigRequest {
             dpu_machine_id: Some(::rpc::common::MachineId { id }),
-        });
-        let all = client
+        };
+        self.0
             .get_managed_host_network_config(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        Ok(all)
-    })
-    .await
-}
-pub async fn machine_list_health_report_overrides(
-    id: String,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<rpc::ListHealthReportOverrideResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::MachineId { id });
-        let result = client
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+    pub async fn machine_list_health_report_overrides(
+        &self,
+        id: String,
+    ) -> CarbideCliResult<rpc::ListHealthReportOverrideResponse> {
+        let request = ::rpc::MachineId { id };
+        self.0
             .list_health_report_overrides(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(result)
-    })
-    .await
-}
-
-pub async fn machine_insert_health_report_override(
-    id: String,
-    report: ::rpc::health::HealthReport,
-    replace: bool,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::forge::InsertHealthReportOverrideRequest {
+    pub async fn machine_insert_health_report_override(
+        &self,
+        id: String,
+        report: ::rpc::health::HealthReport,
+        replace: bool,
+    ) -> CarbideCliResult<()> {
+        let request = ::rpc::forge::InsertHealthReportOverrideRequest {
             machine_id: Some(::rpc::MachineId { id }),
             r#override: Some(rpc::HealthReportOverride {
                 report: Some(report),
@@ -719,425 +594,209 @@ pub async fn machine_insert_health_report_override(
                     rpc::OverrideMode::Merge
                 } as i32,
             }),
-        });
-        client
+        };
+        self.0
             .insert_health_report_override(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(())
-    })
-    .await
-}
-
-pub async fn machine_remove_health_report_override(
-    id: String,
-    source: String,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::forge::RemoveHealthReportOverrideRequest {
+    pub async fn machine_remove_health_report_override(
+        &self,
+        id: String,
+        source: String,
+    ) -> CarbideCliResult<()> {
+        let request = ::rpc::forge::RemoveHealthReportOverrideRequest {
             machine_id: Some(::rpc::MachineId { id }),
             source,
-        });
-        client
+        };
+        self.0
             .remove_health_report_override(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(())
-    })
-    .await
-}
-
-pub async fn machine_admin_force_delete(
-    query: ForceDeleteMachineQuery,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<::rpc::forge::AdminForceDeleteMachineResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::forge::AdminForceDeleteMachineRequest {
+    pub async fn machine_admin_force_delete(
+        &self,
+        query: ForceDeleteMachineQuery,
+    ) -> CarbideCliResult<::rpc::forge::AdminForceDeleteMachineResponse> {
+        let request = ::rpc::forge::AdminForceDeleteMachineRequest {
             host_query: query.machine,
             delete_interfaces: query.delete_interfaces,
             delete_bmc_interfaces: query.delete_bmc_interfaces,
             delete_bmc_credentials: query.delete_bmc_credentials,
-        });
-        let response = client
+        };
+        self.0
             .admin_force_delete_machine(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(response)
-    })
-    .await
-}
-
-pub async fn set_host_uefi_password(
-    query: MachineQuery,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<::rpc::forge::SetHostUefiPasswordResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::SetHostUefiPasswordRequest {
+    pub async fn set_host_uefi_password(
+        &self,
+        query: MachineQuery,
+    ) -> CarbideCliResult<::rpc::forge::SetHostUefiPasswordResponse> {
+        let request = rpc::SetHostUefiPasswordRequest {
             host_id: Some(::rpc::common::MachineId { id: query.query }),
-        });
-        let response = client
+        };
+        self.0
             .set_host_uefi_password(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(response)
-    })
-    .await
-}
-
-pub async fn clear_host_uefi_password(
-    query: MachineQuery,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<::rpc::forge::ClearHostUefiPasswordResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ClearHostUefiPasswordRequest {
+    pub async fn clear_host_uefi_password(
+        &self,
+        query: MachineQuery,
+    ) -> CarbideCliResult<::rpc::forge::ClearHostUefiPasswordResponse> {
+        let request = rpc::ClearHostUefiPasswordRequest {
             host_id: Some(::rpc::common::MachineId { id: query.query }),
-        });
-        let response = client
+        };
+        self.0
             .clear_host_uefi_password(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(response)
-    })
-    .await
-}
-
-pub async fn grow_resource_pool(
-    req: rpc::GrowResourcePoolRequest,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<rpc::GrowResourcePoolResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(req);
-        let out = client
-            .admin_grow_resource_pool(request)
+    pub async fn version(&self, display_config: bool) -> CarbideCliResult<rpc::BuildInfo> {
+        self.0
+            .version(rpc::VersionRequest { display_config })
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(out)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn list_resource_pools(
-    req: rpc::ListResourcePoolsRequest,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<rpc::ResourcePools> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(req);
-        let out = client
-            .admin_list_resource_pools(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(out)
-    })
-    .await
-}
-
-pub async fn version(
-    api_config: &ApiConfig<'_>,
-    display_config: bool,
-) -> CarbideCliResult<rpc::BuildInfo> {
-    with_forge_client(api_config, |mut client| async move {
-        let out = client
-            .version(tonic::Request::new(rpc::VersionRequest { display_config }))
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(out)
-    })
-    .await
-}
-
-pub async fn set_maintenance(
-    req: rpc::MaintenanceRequest,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        client
-            .set_maintenance(tonic::Request::new(req))
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(())
-    })
-    .await
-}
-
-pub async fn find_ip_address(
-    req: rpc::FindIpAddressRequest,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<rpc::FindIpAddressResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(req);
-        let out = client
-            .find_ip_address(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(out)
-    })
-    .await
-}
-
-pub async fn trigger_dpu_reprovisioning(
-    id: String,
-    mode: ::rpc::forge::dpu_reprovisioning_request::Mode,
-    update_firmware: bool,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::DpuReprovisioningRequest {
+    pub async fn trigger_dpu_reprovisioning(
+        &self,
+        id: String,
+        mode: ::rpc::forge::dpu_reprovisioning_request::Mode,
+        update_firmware: bool,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::DpuReprovisioningRequest {
             dpu_id: Some(::rpc::common::MachineId { id: id.clone() }),
             machine_id: Some(::rpc::common::MachineId { id }),
             mode: mode as i32,
             initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
             update_firmware,
-        });
-        client
+        };
+        self.0
             .trigger_dpu_reprovisioning(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(())
-    })
-    .await?;
-
-    Ok(())
-}
-
-pub async fn list_dpu_pending_for_reprovisioning(
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<rpc::DpuReprovisioningListResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::DpuReprovisioningListRequest {});
-        let data = client
-            .list_dpu_waiting_for_reprovisioning(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+    pub async fn list_dpu_pending_for_reprovisioning(
+        &self,
+    ) -> CarbideCliResult<rpc::DpuReprovisioningListResponse> {
+        let request = rpc::DpuReprovisioningListRequest {};
+        let data = self.0.list_dpu_waiting_for_reprovisioning(request).await?;
 
         Ok(data)
-    })
-    .await
-}
+    }
 
-pub async fn trigger_host_reprovisioning(
-    id: String,
-    mode: ::rpc::forge::host_reprovisioning_request::Mode,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::HostReprovisioningRequest {
+    pub async fn trigger_host_reprovisioning(
+        &self,
+        id: String,
+        mode: ::rpc::forge::host_reprovisioning_request::Mode,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::HostReprovisioningRequest {
             machine_id: Some(::rpc::common::MachineId { id }),
             mode: mode as i32,
             initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-        });
-        client
-            .trigger_host_reprovisioning(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+        };
+        self.0.trigger_host_reprovisioning(request).await?;
 
         Ok(())
-    })
-    .await?;
+    }
 
-    Ok(())
-}
-
-pub async fn list_hosts_pending_for_reprovisioning(
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<rpc::HostReprovisioningListResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::HostReprovisioningListRequest {});
-        let data = client
+    pub async fn list_hosts_pending_for_reprovisioning(
+        &self,
+    ) -> CarbideCliResult<rpc::HostReprovisioningListResponse> {
+        let request = rpc::HostReprovisioningListRequest {};
+        let data = self
+            .0
             .list_hosts_waiting_for_reprovisioning(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .await?;
 
         Ok(data)
-    })
-    .await
-}
+    }
 
-pub async fn get_boot_override(
-    api_config: &ApiConfig<'_>,
-    machine_interface_id: ::rpc::common::Uuid,
-) -> CarbideCliResult<MachineBootOverride> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(machine_interface_id);
+    pub async fn set_boot_override(
+        &self,
+        machine_interface_id: ::rpc::common::Uuid,
+        custom_pxe_path: Option<&Path>,
+        custom_user_data_path: Option<&Path>,
+    ) -> CarbideCliResult<()> {
+        let custom_pxe = match custom_pxe_path {
+            Some(custom_pxe_path) => Some(std::fs::read_to_string(custom_pxe_path)?),
+            None => None,
+        };
 
-        client
-            .get_machine_boot_override(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
+        let custom_user_data = match custom_user_data_path {
+            Some(custom_user_data_path) => Some(std::fs::read_to_string(custom_user_data_path)?),
+            None => None,
+        };
 
-pub async fn set_boot_override(
-    api_config: &ApiConfig<'_>,
-    machine_interface_id: ::rpc::common::Uuid,
-    custom_pxe_path: Option<&Path>,
-    custom_user_data_path: Option<&Path>,
-) -> CarbideCliResult<()> {
-    let custom_pxe = match custom_pxe_path {
-        Some(custom_pxe_path) => Some(std::fs::read_to_string(custom_pxe_path)?),
-        None => None,
-    };
-
-    let custom_user_data = match custom_user_data_path {
-        Some(custom_user_data_path) => Some(std::fs::read_to_string(custom_user_data_path)?),
-        None => None,
-    };
-
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(MachineBootOverride {
+        let request = MachineBootOverride {
             machine_interface_id: Some(machine_interface_id),
             custom_pxe,
             custom_user_data,
-        });
+        };
 
-        client
+        self.0
             .set_machine_boot_override(request)
             .await
-            .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
+    }
 
-pub async fn clear_boot_override(
-    api_config: &ApiConfig<'_>,
-    machine_interface_id: ::rpc::common::Uuid,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(machine_interface_id);
-
-        client
-            .clear_machine_boot_override(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
-
-pub async fn bmc_reset(
-    api_config: &ApiConfig<'_>,
-    bmc_endpoint_request: Option<BmcEndpointRequest>,
-    machine_id: Option<String>,
-    use_ipmitool: bool,
-) -> CarbideCliResult<rpc::AdminBmcResetResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::AdminBmcResetRequest {
+    pub async fn bmc_reset(
+        &self,
+        bmc_endpoint_request: Option<BmcEndpointRequest>,
+        machine_id: Option<String>,
+        use_ipmitool: bool,
+    ) -> CarbideCliResult<rpc::AdminBmcResetResponse> {
+        let request = rpc::AdminBmcResetRequest {
             bmc_endpoint_request,
             machine_id,
             use_ipmitool,
-        });
-        let out = client
+        };
+        self.0
             .admin_bmc_reset(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(out)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn admin_power_control(
-    api_config: &ApiConfig<'_>,
-    bmc_endpoint_request: Option<BmcEndpointRequest>,
-    machine_id: Option<String>,
-    action: ::rpc::forge::admin_power_control_request::SystemPowerControl,
-) -> CarbideCliResult<rpc::AdminPowerControlResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::AdminPowerControlRequest {
+    pub async fn admin_power_control(
+        &self,
+        bmc_endpoint_request: Option<BmcEndpointRequest>,
+        machine_id: Option<String>,
+        action: ::rpc::forge::admin_power_control_request::SystemPowerControl,
+    ) -> CarbideCliResult<rpc::AdminPowerControlResponse> {
+        let request = rpc::AdminPowerControlRequest {
             bmc_endpoint_request,
             machine_id,
             action: action.into(),
-        });
-        let out = client
+        };
+        self.0
             .admin_power_control(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(out)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn dpu_agent_upgrade_policy_action(
-    api_config: &ApiConfig<'_>,
-    new_policy: Option<rpc::AgentUpgradePolicy>,
-) -> CarbideCliResult<rpc::DpuAgentUpgradePolicyResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::DpuAgentUpgradePolicyRequest {
+    pub async fn dpu_agent_upgrade_policy_action(
+        &self,
+        new_policy: Option<rpc::AgentUpgradePolicy>,
+    ) -> CarbideCliResult<rpc::DpuAgentUpgradePolicyResponse> {
+        let request = rpc::DpuAgentUpgradePolicyRequest {
             new_policy: new_policy.map(|p| p as i32),
-        });
-        client
+        };
+        self.0
             .dpu_agent_upgrade_policy_action(request)
             .await
-            .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
+    }
 
-pub async fn add_credential(
-    api_config: &ApiConfig<'_>,
-    req: rpc::CredentialCreationRequest,
-) -> CarbideCliResult<rpc::CredentialCreationResult> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(req);
-
-        client
-            .create_credential(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
-
-pub async fn delete_credential(
-    api_config: &ApiConfig<'_>,
-    req: rpc::CredentialDeletionRequest,
-) -> CarbideCliResult<rpc::CredentialDeletionResult> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(req);
-
-        client
-            .delete_credential(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
-
-pub async fn get_route_servers(api_config: &ApiConfig<'_>) -> CarbideCliResult<Vec<IpAddr>> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(());
-        let route_servers = client
-            .get_route_servers(request)
-            .await
-            .map(|response: tonic::Response<rpc::RouteServers>| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+    pub async fn get_route_servers(&self) -> CarbideCliResult<Vec<IpAddr>> {
+        let route_servers = self.0.get_route_servers().await?;
         route_servers
             .route_servers
             .iter()
@@ -1145,529 +804,398 @@ pub async fn get_route_servers(api_config: &ApiConfig<'_>) -> CarbideCliResult<V
                 IpAddr::from_str(rs).map_err(|e| CarbideCliError::GenericError(e.to_string()))
             })
             .collect()
-    })
-    .await
-}
+    }
 
-pub async fn add_route_server(
-    api_config: &ApiConfig<'_>,
-    addr: std::net::Ipv4Addr,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::RouteServers {
+    pub async fn add_route_server(&self, addr: std::net::Ipv4Addr) -> CarbideCliResult<()> {
+        let request = rpc::RouteServers {
             route_servers: vec![addr.to_string()],
-        });
-        client
+        };
+        self.0
             .add_route_servers(request)
             .await
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(())
-    })
-    .await?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-    Ok(())
-}
-
-pub async fn remove_route_server(
-    api_config: &ApiConfig<'_>,
-    addr: std::net::Ipv4Addr,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::RouteServers {
+    pub async fn remove_route_server(&self, addr: std::net::Ipv4Addr) -> CarbideCliResult<()> {
+        let request = rpc::RouteServers {
             route_servers: vec![addr.to_string()],
-        });
-        client
+        };
+        self.0
             .remove_route_servers(request)
             .await
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(())
-    })
-    .await?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-    Ok(())
-}
-
-pub async fn get_all_machines_interfaces(
-    api_config: &ApiConfig<'_>,
-    id: Option<::rpc::common::Uuid>,
-) -> CarbideCliResult<rpc::InterfaceList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::InterfaceSearchQuery { id, ip: None });
-        let machine_interfaces = client
+    pub async fn get_all_machines_interfaces(
+        &self,
+        id: Option<::rpc::common::Uuid>,
+    ) -> CarbideCliResult<rpc::InterfaceList> {
+        let request = rpc::InterfaceSearchQuery { id, ip: None };
+        self.0
             .find_interfaces(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(machine_interfaces)
-    })
-    .await
-}
-
-pub async fn delete_machine_interface(
-    api_config: &ApiConfig<'_>,
-    id: Option<::rpc::common::Uuid>,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::InterfaceDeleteQuery { id });
-        client
-            .delete_interface(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+    pub async fn delete_machine_interface(
+        &self,
+        id: Option<::rpc::common::Uuid>,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::InterfaceDeleteQuery { id };
+        self.0.delete_interface(request).await?;
 
         Ok(())
-    })
-    .await
-}
+    }
 
-// DEPRECATED: use get_site_exploration_report
-async fn get_site_exploration_report_deprecated(
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<::rpc::site_explorer::SiteExplorationReport> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::GetSiteExplorationRequest {});
-        Ok(client
+    // DEPRECATED: use get_site_exploration_report
+    async fn get_site_exploration_report_deprecated(
+        &self,
+    ) -> CarbideCliResult<::rpc::site_explorer::SiteExplorationReport> {
+        let request = rpc::GetSiteExplorationRequest {};
+        self.0
             .get_site_exploration_report(request)
             .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .into_inner())
-    })
-    .await
-}
-
-pub async fn get_site_exploration_report(
-    api_config: &ApiConfig<'_>,
-    page_size: usize,
-) -> CarbideCliResult<::rpc::site_explorer::SiteExplorationReport> {
-    // grab endpoints
-    let endpoint_ids = match get_explored_endpoint_ids(api_config).await {
-        Ok(endpoint_ids) => endpoint_ids,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            return get_site_exploration_report_deprecated(api_config).await;
-        }
-        Err(e) => return Err(e),
-    };
-    let mut all_endpoints = ::rpc::site_explorer::ExploredEndpointList {
-        endpoints: Vec::with_capacity(endpoint_ids.endpoint_ids.len()),
-    };
-    for ids in endpoint_ids.endpoint_ids.chunks(page_size) {
-        let list = get_explored_endpoints_by_ids(api_config, ids).await?;
-        all_endpoints.endpoints.extend(list.endpoints);
+            .map_err(CarbideCliError::ApiInvocationError)
     }
 
-    // grab managed hosts
-    let all_hosts = match get_all_explored_managed_hosts(api_config, page_size).await {
-        Ok(all_hosts) => all_hosts,
-        Err(e) => return Err(e),
-    };
+    pub async fn get_site_exploration_report(
+        &self,
+        page_size: usize,
+    ) -> CarbideCliResult<::rpc::site_explorer::SiteExplorationReport> {
+        // grab endpoints
+        let endpoint_ids = match self.get_explored_endpoint_ids().await {
+            Ok(endpoint_ids) => endpoint_ids,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                return self.get_site_exploration_report_deprecated().await;
+            }
+            Err(e) => return Err(e),
+        };
+        let mut all_endpoints = ::rpc::site_explorer::ExploredEndpointList {
+            endpoints: Vec::with_capacity(endpoint_ids.endpoint_ids.len()),
+        };
+        for ids in endpoint_ids.endpoint_ids.chunks(page_size) {
+            let list = self.get_explored_endpoints_by_ids(ids).await?;
+            all_endpoints.endpoints.extend(list.endpoints);
+        }
 
-    Ok(::rpc::site_explorer::SiteExplorationReport {
-        endpoints: all_endpoints.endpoints,
-        managed_hosts: all_hosts,
-    })
-}
+        // grab managed hosts
+        let all_hosts = match self.get_all_explored_managed_hosts(page_size).await {
+            Ok(all_hosts) => all_hosts,
+            Err(e) => return Err(e),
+        };
 
-async fn get_explored_endpoint_ids(
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<::rpc::site_explorer::ExploredEndpointIdList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::site_explorer::ExploredEndpointSearchFilter {});
-        let endpoint_ids = client
+        Ok(::rpc::site_explorer::SiteExplorationReport {
+            endpoints: all_endpoints.endpoints,
+            managed_hosts: all_hosts,
+        })
+    }
+
+    async fn get_explored_endpoint_ids(
+        &self,
+    ) -> CarbideCliResult<::rpc::site_explorer::ExploredEndpointIdList> {
+        let request = ::rpc::site_explorer::ExploredEndpointSearchFilter {};
+        self.0
             .find_explored_endpoint_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(endpoint_ids)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn get_explored_endpoints_by_ids(
-    api_config: &ApiConfig<'_>,
-    endpoint_ids: &[String],
-) -> CarbideCliResult<::rpc::site_explorer::ExploredEndpointList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::site_explorer::ExploredEndpointsByIdsRequest {
+    pub async fn get_explored_endpoints_by_ids(
+        &self,
+        endpoint_ids: &[String],
+    ) -> CarbideCliResult<::rpc::site_explorer::ExploredEndpointList> {
+        let request = ::rpc::site_explorer::ExploredEndpointsByIdsRequest {
             endpoint_ids: Vec::from(endpoint_ids),
-        });
-        let endpoints = client
+        };
+        self.0
             .find_explored_endpoints_by_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(endpoints)
-    })
-    .await
-}
-
-pub async fn get_all_explored_managed_hosts(
-    api_config: &ApiConfig<'_>,
-    page_size: usize,
-) -> CarbideCliResult<Vec<::rpc::site_explorer::ExploredManagedHost>> {
-    let host_ids = match get_explored_managed_host_ids(api_config).await {
-        Ok(host_ids) => host_ids,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            let hosts = get_site_exploration_report_deprecated(api_config)
-                .await?
-                .managed_hosts;
-            return Ok(hosts);
-        }
-        Err(e) => return Err(e),
-    };
-    let mut all_hosts = ::rpc::site_explorer::ExploredManagedHostList {
-        managed_hosts: Vec::with_capacity(host_ids.host_ids.len()),
-    };
-    for ids in host_ids.host_ids.chunks(page_size) {
-        let list = get_explored_managed_host_by_ids(api_config, ids).await?;
-        all_hosts.managed_hosts.extend(list.managed_hosts);
+            .map_err(CarbideCliError::ApiInvocationError)
     }
-    Ok(all_hosts.managed_hosts)
-}
 
-async fn get_explored_managed_host_ids(
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<::rpc::site_explorer::ExploredManagedHostIdList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::site_explorer::ExploredManagedHostSearchFilter {});
-        let host_ids = client
+    pub async fn get_all_explored_managed_hosts(
+        &self,
+        page_size: usize,
+    ) -> CarbideCliResult<Vec<::rpc::site_explorer::ExploredManagedHost>> {
+        let host_ids = match self.get_explored_managed_host_ids().await {
+            Ok(host_ids) => host_ids,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                let hosts = self
+                    .get_site_exploration_report_deprecated()
+                    .await?
+                    .managed_hosts;
+                return Ok(hosts);
+            }
+            Err(e) => return Err(e),
+        };
+        let mut all_hosts = ::rpc::site_explorer::ExploredManagedHostList {
+            managed_hosts: Vec::with_capacity(host_ids.host_ids.len()),
+        };
+        for ids in host_ids.host_ids.chunks(page_size) {
+            let list = self.get_explored_managed_host_by_ids(ids).await?;
+            all_hosts.managed_hosts.extend(list.managed_hosts);
+        }
+        Ok(all_hosts.managed_hosts)
+    }
+
+    async fn get_explored_managed_host_ids(
+        &self,
+    ) -> CarbideCliResult<::rpc::site_explorer::ExploredManagedHostIdList> {
+        let request = ::rpc::site_explorer::ExploredManagedHostSearchFilter {};
+        self.0
             .find_explored_managed_host_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(host_ids)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn get_explored_managed_host_by_ids(
-    api_config: &ApiConfig<'_>,
-    host_ids: &[String],
-) -> CarbideCliResult<::rpc::site_explorer::ExploredManagedHostList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::site_explorer::ExploredManagedHostsByIdsRequest {
+    pub async fn get_explored_managed_host_by_ids(
+        &self,
+        host_ids: &[String],
+    ) -> CarbideCliResult<::rpc::site_explorer::ExploredManagedHostList> {
+        let request = ::rpc::site_explorer::ExploredManagedHostsByIdsRequest {
             host_ids: Vec::from(host_ids),
-        });
-        let hosts = client
+        };
+        self.0
             .find_explored_managed_hosts_by_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(hosts)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn explore(
-    api_config: &ApiConfig<'_>,
-    address: &str,
-    mac_address: Option<MacAddress>,
-) -> CarbideCliResult<::rpc::site_explorer::EndpointExplorationReport> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::BmcEndpointRequest {
+    pub async fn explore(
+        &self,
+        address: &str,
+        mac_address: Option<MacAddress>,
+    ) -> CarbideCliResult<::rpc::site_explorer::EndpointExplorationReport> {
+        let request = rpc::BmcEndpointRequest {
             ip_address: address.to_string(),
             mac_address: mac_address.map(|mac| mac.to_string()),
-        });
-        Ok(client
+        };
+        self.0
             .explore(request)
             .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .into_inner())
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn re_explore_endpoint(
-    api_config: &ApiConfig<'_>,
-    address: &str,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ReExploreEndpointRequest {
+    pub async fn re_explore_endpoint(&self, address: &str) -> CarbideCliResult<()> {
+        let request = rpc::ReExploreEndpointRequest {
             ip_address: address.to_string(),
             if_version_match: None,
-        });
-        client
+        };
+        self.0
             .re_explore_endpoint(request)
             .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .into_inner();
-        Ok(())
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn clear_site_explorer_last_known_error(
-    api_config: &ApiConfig<'_>,
-    ip_address: String,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ClearSiteExplorationErrorRequest { ip_address });
-        client
+    pub async fn clear_site_explorer_last_known_error(
+        &self,
+        ip_address: String,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::ClearSiteExplorationErrorRequest { ip_address };
+        self.0
             .clear_site_exploration_error(request)
             .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .into_inner();
-        Ok(())
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn is_bmc_in_managed_host(
-    api_config: &ApiConfig<'_>,
-    address: &str,
-    mac_address: Option<MacAddress>,
-) -> CarbideCliResult<IsBmcInManagedHostResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::BmcEndpointRequest {
+    pub async fn is_bmc_in_managed_host(
+        &self,
+        address: &str,
+        mac_address: Option<MacAddress>,
+    ) -> CarbideCliResult<IsBmcInManagedHostResponse> {
+        let request = rpc::BmcEndpointRequest {
             ip_address: address.to_string(),
             mac_address: mac_address.map(|mac| mac.to_string()),
-        });
-        let is_bmc_in_managed_host = client
+        };
+        self.0
             .is_bmc_in_managed_host(request)
             .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .into_inner();
-        Ok(is_bmc_in_managed_host)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn bmc_credential_status(
-    api_config: &ApiConfig<'_>,
-    address: &str,
-    mac_address: Option<MacAddress>,
-) -> CarbideCliResult<BmcCredentialStatusResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::BmcEndpointRequest {
+    pub async fn bmc_credential_status(
+        &self,
+        address: &str,
+        mac_address: Option<MacAddress>,
+    ) -> CarbideCliResult<BmcCredentialStatusResponse> {
+        let request = rpc::BmcEndpointRequest {
             ip_address: address.to_string(),
             mac_address: mac_address.map(|mac| mac.to_string()),
-        });
-        let have_credentials = client
+        };
+        self.0
             .bmc_credential_status(request)
             .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .into_inner();
-        Ok(have_credentials)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn find_machine_ids(
-    api_config: &ApiConfig<'_>,
-    machine_type: Option<MachineType>,
-    only_maintenance: bool,
-) -> CarbideCliResult<::rpc::common::MachineIdList> {
-    with_forge_client(api_config, |mut client| async move {
+    pub async fn find_machine_ids(
+        &self,
+        machine_type: Option<MachineType>,
+        only_maintenance: bool,
+    ) -> CarbideCliResult<::rpc::common::MachineIdList> {
         let include_dpus = machine_type.map(|t| t == MachineType::Dpu).unwrap_or(true);
         let exclude_hosts = machine_type
             .map(|t| t != MachineType::Host)
             .unwrap_or(false);
         let include_predicted_host = machine_type.map(|t| t == MachineType::Host).unwrap_or(true);
 
-        let request = tonic::Request::new(MachineSearchConfig {
+        let request = MachineSearchConfig {
             include_dpus,
             include_history: false,
             include_predicted_host,
             only_maintenance,
             exclude_hosts,
-        });
-        let machine_ids = client
+        };
+        self.0
             .find_machine_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(machine_ids)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn get_machines_by_ids(
-    api_config: &ApiConfig<'_>,
-    machine_ids: &[::rpc::common::MachineId],
-) -> CarbideCliResult<rpc::MachineList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::forge::MachinesByIdsRequest {
+    pub async fn get_machines_by_ids(
+        &self,
+        machine_ids: &[::rpc::common::MachineId],
+    ) -> CarbideCliResult<rpc::MachineList> {
+        let request = ::rpc::forge::MachinesByIdsRequest {
             machine_ids: Vec::from(machine_ids),
             ..Default::default()
-        });
-        let machine_details = client
+        };
+        self.0
             .find_machines_by_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(machine_details)
-    })
-    .await
-}
-
-pub async fn get_machines_ids_by_bmc_ips(
-    api_config: &ApiConfig<'_>,
-    bmc_ips: &[String],
-) -> CarbideCliResult<rpc::MachineIdBmcIpPairs> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::forge::BmcIpList {
+    pub async fn get_machines_ids_by_bmc_ips(
+        &self,
+        bmc_ips: &[String],
+    ) -> CarbideCliResult<rpc::MachineIdBmcIpPairs> {
+        let request = ::rpc::forge::BmcIpList {
             bmc_ips: Vec::from(bmc_ips),
-        });
-        let machine_details = client
+        };
+        self.0
             .find_machine_ids_by_bmc_ips(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(machine_details)
-    })
-    .await
-}
-
-pub async fn set_dynamic_config(
-    api_config: &ApiConfig<'_>,
-    feature: rpc::ConfigSetting,
-    value: String,
-    expiry: Option<String>,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::SetDynamicConfigRequest {
+    pub async fn set_dynamic_config(
+        &self,
+        feature: rpc::ConfigSetting,
+        value: String,
+        expiry: Option<String>,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::SetDynamicConfigRequest {
             setting: feature.into(),
             value,
             expiry,
-        });
-        client
+        };
+        self.0
             .set_dynamic_config(request)
             .await
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(())
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn find_connected_devices_by_dpu_machine_ids(
-    api_config: &ApiConfig<'_>,
-    machine_ids: Vec<::rpc::common::MachineId>,
-) -> CarbideCliResult<rpc::ConnectedDeviceList> {
-    with_forge_client(api_config, |mut client| async move {
+    pub async fn find_connected_devices_by_dpu_machine_ids(
+        &self,
+        machine_ids: Vec<::rpc::common::MachineId>,
+    ) -> CarbideCliResult<rpc::ConnectedDeviceList> {
         let machine_id_list = ::rpc::common::MachineIdList { machine_ids };
-        client
+        self.0
             .find_connected_devices_by_dpu_machine_ids(machine_id_list)
             .await
-            .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
+    }
 
-pub async fn find_network_devices_by_device_ids(
-    api_config: &ApiConfig<'_>,
-    device_ids: Vec<String>,
-) -> CarbideCliResult<rpc::NetworkTopologyData> {
-    with_forge_client(api_config, |mut client| async move {
+    pub async fn find_network_devices_by_device_ids(
+        &self,
+        device_ids: Vec<String>,
+    ) -> CarbideCliResult<rpc::NetworkTopologyData> {
         let network_device_id_list = NetworkDeviceIdList {
             network_device_ids: device_ids.to_vec(),
         };
-        client
+        self.0
             .find_network_devices_by_device_ids(network_device_id_list)
             .await
-            .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
+    }
 
-pub async fn get_all_expected_machines(
-    api_config: &ApiConfig<'_>,
-) -> Result<rpc::ExpectedMachineList, CarbideCliError> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(());
-
-        client
-            .get_all_expected_machines(request)
+    pub async fn get_all_expected_machines(
+        &self,
+    ) -> Result<rpc::ExpectedMachineList, CarbideCliError> {
+        self.0
+            .get_all_expected_machines()
             .await
-            .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
+    }
 
-pub async fn get_expected_machine(
-    bmc_mac_address: MacAddress,
-    api_config: &ApiConfig<'_>,
-) -> Result<rpc::ExpectedMachine, CarbideCliError> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ExpectedMachineRequest {
+    pub async fn get_expected_machine(
+        &self,
+        bmc_mac_address: MacAddress,
+    ) -> Result<rpc::ExpectedMachine, CarbideCliError> {
+        let request = rpc::ExpectedMachineRequest {
             bmc_mac_address: bmc_mac_address.to_string(),
-        });
+        };
 
-        client
+        self.0
             .get_expected_machine(request)
             .await
-            .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
+    }
 
-pub async fn delete_expected_machine(
-    bmc_mac_address: MacAddress,
-    api_config: &ApiConfig<'_>,
-) -> Result<(), CarbideCliError> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ExpectedMachineRequest {
+    pub async fn delete_expected_machine(
+        &self,
+        bmc_mac_address: MacAddress,
+    ) -> Result<(), CarbideCliError> {
+        let request = rpc::ExpectedMachineRequest {
             bmc_mac_address: bmc_mac_address.to_string(),
-        });
+        };
 
-        client
+        self.0
             .delete_expected_machine(request)
             .await
-            .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
+    }
 
-pub async fn add_expected_machine(
-    bmc_mac_address: MacAddress,
-    bmc_username: String,
-    bmc_password: String,
-    chassis_serial_number: String,
-    fallback_dpu_serial_numbers: Option<Vec<String>>,
-    metadata: ::rpc::forge::Metadata,
-    api_config: &ApiConfig<'_>,
-) -> Result<(), CarbideCliError> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ExpectedMachine {
+    pub async fn add_expected_machine(
+        &self,
+        bmc_mac_address: MacAddress,
+        bmc_username: String,
+        bmc_password: String,
+        chassis_serial_number: String,
+        fallback_dpu_serial_numbers: Option<Vec<String>>,
+        metadata: ::rpc::forge::Metadata,
+    ) -> Result<(), CarbideCliError> {
+        let request = rpc::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username,
             bmc_password,
             chassis_serial_number,
             fallback_dpu_serial_numbers: fallback_dpu_serial_numbers.unwrap_or_default(),
             metadata: Some(metadata),
-        });
+        };
 
-        client
+        self.0
             .add_expected_machine(request)
             .await
-            .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
+    }
 
-pub async fn update_expected_machine(
-    bmc_mac_address: MacAddress,
-    bmc_username: Option<String>,
-    bmc_password: Option<String>,
-    chassis_serial_number: Option<String>,
-    fallback_dpu_serial_numbers: Option<Vec<String>>,
-    metadata: ::rpc::forge::Metadata,
-    api_config: &ApiConfig<'_>,
-) -> Result<(), CarbideCliError> {
-    let expected_machine = get_expected_machine(bmc_mac_address, api_config).await?;
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ExpectedMachine {
+    pub async fn update_expected_machine(
+        &self,
+        bmc_mac_address: MacAddress,
+        bmc_username: Option<String>,
+        bmc_password: Option<String>,
+        chassis_serial_number: Option<String>,
+        fallback_dpu_serial_numbers: Option<Vec<String>>,
+        metadata: ::rpc::forge::Metadata,
+    ) -> Result<(), CarbideCliError> {
+        let expected_machine = self.get_expected_machine(bmc_mac_address).await?;
+        let request = rpc::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: bmc_username.unwrap_or(expected_machine.bmc_username),
             bmc_password: bmc_password.unwrap_or(expected_machine.bmc_password),
@@ -1676,23 +1204,19 @@ pub async fn update_expected_machine(
             fallback_dpu_serial_numbers: fallback_dpu_serial_numbers
                 .unwrap_or(expected_machine.fallback_dpu_serial_numbers),
             metadata: Some(metadata),
-        });
+        };
 
-        client
+        self.0
             .update_expected_machine(request)
             .await
-            .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
+    }
 
-pub async fn replace_all_expected_machines(
-    expected_machine_list: Vec<cli_options::ExpectedMachineJson>,
-    api_config: &ApiConfig<'_>,
-) -> Result<(), CarbideCliError> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ExpectedMachineList {
+    pub async fn replace_all_expected_machines(
+        &self,
+        expected_machine_list: Vec<cli_options::ExpectedMachineJson>,
+    ) -> Result<(), CarbideCliError> {
+        let request = rpc::ExpectedMachineList {
             expected_machines: expected_machine_list
                 .into_iter()
                 .map(|machine| rpc::ExpectedMachine {
@@ -1706,102 +1230,82 @@ pub async fn replace_all_expected_machines(
                     metadata: machine.metadata,
                 })
                 .collect(),
-        });
+        };
 
-        client
+        self.0
             .replace_all_expected_machines(request)
             .await
-            .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
-
-pub async fn delete_all_expected_machines(
-    api_config: &ApiConfig<'_>,
-) -> Result<(), CarbideCliError> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(());
-
-        client
-            .delete_all_expected_machines(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
-
-pub async fn get_all_vpcs(
-    api_config: &ApiConfig<'_>,
-    tenant_org_id: Option<String>,
-    name: Option<String>,
-    page_size: usize,
-    label_key: Option<String>,
-    label_value: Option<String>,
-) -> CarbideCliResult<rpc::VpcList> {
-    let all_ids = match get_vpc_ids(
-        api_config,
-        tenant_org_id.clone(),
-        name.clone(),
-        label_key,
-        label_value,
-    )
-    .await
-    {
-        Ok(all_ids) => all_ids,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            if tenant_org_id.is_some() {
-                return Err(CarbideCliError::GenericError(
-                    "Filtering by Tenant Org ID is not supported for this site.\
-                \nIt does not have a required version of the Carbide API."
-                        .to_string(),
-                ));
-            }
-            return get_vpcs_deprecated(api_config, None, name).await;
-        }
-        Err(e) => return Err(e),
-    };
-    let mut all_list = rpc::VpcList {
-        vpcs: Vec::with_capacity(all_ids.vpc_ids.len()),
-    };
-
-    for ids in all_ids.vpc_ids.chunks(page_size) {
-        let list = get_vpcs_by_ids(api_config, ids).await?;
-        all_list.vpcs.extend(list.vpcs);
     }
 
-    Ok(all_list)
-}
+    pub async fn delete_all_expected_machines(&self) -> Result<(), CarbideCliError> {
+        self.0
+            .delete_all_expected_machines()
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn get_one_vpc(
-    api_config: &ApiConfig<'_>,
-    vpc_id: ::rpc::common::Uuid,
-) -> CarbideCliResult<rpc::VpcList> {
-    let vpcs = match get_vpcs_by_ids(api_config, &[vpc_id.clone()]).await {
-        Ok(vpcs) => vpcs,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
+    pub async fn get_all_vpcs(
+        &self,
+        tenant_org_id: Option<String>,
+        name: Option<String>,
+        page_size: usize,
+        label_key: Option<String>,
+        label_value: Option<String>,
+    ) -> CarbideCliResult<rpc::VpcList> {
+        let all_ids = match self
+            .get_vpc_ids(tenant_org_id.clone(), name.clone(), label_key, label_value)
+            .await
         {
-            return get_vpcs_deprecated(api_config, Some(vpc_id), None).await;
+            Ok(all_ids) => all_ids,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                if tenant_org_id.is_some() {
+                    return Err(CarbideCliError::GenericError(
+                        "Filtering by Tenant Org ID is not supported for this site.\
+                \nIt does not have a required version of the Carbide API."
+                            .to_string(),
+                    ));
+                }
+                return self.get_vpcs_deprecated(None, name).await;
+            }
+            Err(e) => return Err(e),
+        };
+        let mut all_list = rpc::VpcList {
+            vpcs: Vec::with_capacity(all_ids.vpc_ids.len()),
+        };
+
+        for ids in all_ids.vpc_ids.chunks(page_size) {
+            let list = self.get_vpcs_by_ids(ids).await?;
+            all_list.vpcs.extend(list.vpcs);
         }
-        Err(e) => return Err(e),
-    };
 
-    Ok(vpcs)
-}
+        Ok(all_list)
+    }
 
-async fn get_vpc_ids(
-    api_config: &ApiConfig<'_>,
-    tenant_org_id: Option<String>,
-    name: Option<String>,
-    label_key: Option<String>,
-    label_value: Option<String>,
-) -> CarbideCliResult<rpc::VpcIdList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::VpcSearchFilter {
+    pub async fn get_one_vpc(&self, vpc_id: ::rpc::common::Uuid) -> CarbideCliResult<rpc::VpcList> {
+        let vpcs = match self.get_vpcs_by_ids(&[vpc_id.clone()]).await {
+            Ok(vpcs) => vpcs,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                return self.get_vpcs_deprecated(Some(vpc_id), None).await;
+            }
+            Err(e) => return Err(e),
+        };
+
+        Ok(vpcs)
+    }
+
+    async fn get_vpc_ids(
+        &self,
+        tenant_org_id: Option<String>,
+        name: Option<String>,
+        label_key: Option<String>,
+        label_value: Option<String>,
+    ) -> CarbideCliResult<rpc::VpcIdList> {
+        let request = rpc::VpcSearchFilter {
             tenant_org_id,
             name,
             label: if label_key.is_none() && label_value.is_none() {
@@ -1812,352 +1316,292 @@ async fn get_vpc_ids(
                     value: label_value,
                 })
             },
-        });
-        let ids = client
+        };
+        self.0
             .find_vpc_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(ids)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-async fn get_vpcs_by_ids(
-    api_config: &ApiConfig<'_>,
-    ids: &[::rpc::common::Uuid],
-) -> CarbideCliResult<rpc::VpcList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::VpcsByIdsRequest {
+    async fn get_vpcs_by_ids(&self, ids: &[::rpc::common::Uuid]) -> CarbideCliResult<rpc::VpcList> {
+        let request = rpc::VpcsByIdsRequest {
             vpc_ids: Vec::from(ids),
-        });
-        let instances = client
+        };
+        self.0
             .find_vpcs_by_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(instances)
-    })
-    .await
-}
-
-// TODO: remove when all sites have been upgraded to include find_vpc_ids and find_vpcs_by_ids methods
-async fn get_vpcs_deprecated(
-    api_config: &ApiConfig<'_>,
-    id: Option<::rpc::common::Uuid>,
-    name: Option<String>,
-) -> CarbideCliResult<rpc::VpcList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::VpcSearchQuery { id, name });
-        let details = client
+    // TODO: remove when all sites have been upgraded to include find_vpc_ids and find_vpcs_by_ids methods
+    async fn get_vpcs_deprecated(
+        &self,
+        id: Option<::rpc::common::Uuid>,
+        name: Option<String>,
+    ) -> CarbideCliResult<rpc::VpcList> {
+        let request = rpc::VpcSearchQuery { id, name };
+        self.0
             .find_vpcs(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(details)
-    })
-    .await
-}
-
-/// set_vpc_network_virtualization_type sends out a `VpcUpdateVirtualizationRequest`
-/// to the API, with the purpose of being able to modify the underlying
-/// VpcVirtualizationType (or NetworkVirtualizationType) of the VPC. This will
-/// return an error if there are configured instances in the VPC (you can only
-/// do this with an empty VPC).
-pub async fn set_vpc_network_virtualization_type(
-    api_config: &ApiConfig<'_>,
-    vpc: rpc::Vpc,
-    virtualizer: VpcVirtualizationType,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::VpcUpdateVirtualizationRequest {
+    /// set_vpc_network_virtualization_type sends out a `VpcUpdateVirtualizationRequest`
+    /// to the API, with the purpose of being able to modify the underlying
+    /// VpcVirtualizationType (or NetworkVirtualizationType) of the VPC. This will
+    /// return an error if there are configured instances in the VPC (you can only
+    /// do this with an empty VPC).
+    pub async fn set_vpc_network_virtualization_type(
+        &self,
+        vpc: rpc::Vpc,
+        virtualizer: VpcVirtualizationType,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::VpcUpdateVirtualizationRequest {
             id: vpc.id,
             if_version_match: None,
             network_virtualization_type: Some(virtualizer as i32),
-        });
-        client
-            .update_vpc_virtualization(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+        };
+        self.0.update_vpc_virtualization(request).await?;
 
         Ok(())
-    })
-    .await
-}
-
-pub async fn get_all_ib_partitions(
-    api_config: &ApiConfig<'_>,
-    tenant_org_id: Option<String>,
-    name: Option<String>,
-    page_size: usize,
-) -> CarbideCliResult<rpc::IbPartitionList> {
-    let all_ids = match get_ib_partition_ids(api_config, tenant_org_id.clone(), name.clone()).await
-    {
-        Ok(all_ids) => all_ids,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            if tenant_org_id.is_some() || name.is_some() {
-                return Err(CarbideCliError::GenericError(
-                    "Filtering by Tenant Org ID or Name is not supported for this site.\
-                \nIt does not have a required version of the Carbide API."
-                        .to_string(),
-                ));
-            }
-            return get_ib_partitions_deprecated(api_config, None).await;
-        }
-        Err(e) => return Err(e),
-    };
-    let mut all_list = rpc::IbPartitionList {
-        ib_partitions: Vec::with_capacity(all_ids.ib_partition_ids.len()),
-    };
-
-    for ids in all_ids.ib_partition_ids.chunks(page_size) {
-        let list = get_ib_partitions_by_ids(api_config, ids).await?;
-        all_list.ib_partitions.extend(list.ib_partitions);
     }
 
-    Ok(all_list)
-}
-
-pub async fn get_one_ib_partition(
-    api_config: &ApiConfig<'_>,
-    ib_partition_id: ::rpc::common::Uuid,
-) -> CarbideCliResult<rpc::IbPartitionList> {
-    let partitions = match get_ib_partitions_by_ids(api_config, &[ib_partition_id.clone()]).await {
-        Ok(partitions) => partitions,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
+    pub async fn get_all_ib_partitions(
+        &self,
+        tenant_org_id: Option<String>,
+        name: Option<String>,
+        page_size: usize,
+    ) -> CarbideCliResult<rpc::IbPartitionList> {
+        let all_ids = match self
+            .get_ib_partition_ids(tenant_org_id.clone(), name.clone())
+            .await
         {
-            return get_ib_partitions_deprecated(api_config, Some(ib_partition_id)).await;
+            Ok(all_ids) => all_ids,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                if tenant_org_id.is_some() || name.is_some() {
+                    return Err(CarbideCliError::GenericError(
+                        "Filtering by Tenant Org ID or Name is not supported for this site.\
+                \nIt does not have a required version of the Carbide API."
+                            .to_string(),
+                    ));
+                }
+                return self.get_ib_partitions_deprecated(None).await;
+            }
+            Err(e) => return Err(e),
+        };
+        let mut all_list = rpc::IbPartitionList {
+            ib_partitions: Vec::with_capacity(all_ids.ib_partition_ids.len()),
+        };
+
+        for ids in all_ids.ib_partition_ids.chunks(page_size) {
+            let list = self.get_ib_partitions_by_ids(ids).await?;
+            all_list.ib_partitions.extend(list.ib_partitions);
         }
-        Err(e) => return Err(e),
-    };
 
-    Ok(partitions)
-}
+        Ok(all_list)
+    }
 
-async fn get_ib_partition_ids(
-    api_config: &ApiConfig<'_>,
-    tenant_org_id: Option<String>,
-    name: Option<String>,
-) -> CarbideCliResult<rpc::IbPartitionIdList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::IbPartitionSearchFilter {
+    pub async fn get_one_ib_partition(
+        &self,
+        ib_partition_id: ::rpc::common::Uuid,
+    ) -> CarbideCliResult<rpc::IbPartitionList> {
+        let partitions = match self
+            .get_ib_partitions_by_ids(&[ib_partition_id.clone()])
+            .await
+        {
+            Ok(partitions) => partitions,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                return self
+                    .get_ib_partitions_deprecated(Some(ib_partition_id))
+                    .await;
+            }
+            Err(e) => return Err(e),
+        };
+
+        Ok(partitions)
+    }
+
+    async fn get_ib_partition_ids(
+        &self,
+        tenant_org_id: Option<String>,
+        name: Option<String>,
+    ) -> CarbideCliResult<rpc::IbPartitionIdList> {
+        let request = rpc::IbPartitionSearchFilter {
             tenant_org_id,
             name,
-        });
-        let ids = client
+        };
+        self.0
             .find_ib_partition_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(ids)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-async fn get_ib_partitions_by_ids(
-    api_config: &ApiConfig<'_>,
-    ids: &[::rpc::common::Uuid],
-) -> CarbideCliResult<rpc::IbPartitionList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::IbPartitionsByIdsRequest {
+    async fn get_ib_partitions_by_ids(
+        &self,
+        ids: &[::rpc::common::Uuid],
+    ) -> CarbideCliResult<rpc::IbPartitionList> {
+        let request = rpc::IbPartitionsByIdsRequest {
             ib_partition_ids: Vec::from(ids),
             include_history: ids.len() == 1,
-        });
-        let instances = client
+        };
+        self.0
             .find_ib_partitions_by_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(instances)
-    })
-    .await
-}
-
-// TODO: remove when all sites have been upgraded to include find_ib_partition_ids and find_ib_partitions_by_ids methods
-async fn get_ib_partitions_deprecated(
-    api_config: &ApiConfig<'_>,
-    id: Option<::rpc::common::Uuid>,
-) -> CarbideCliResult<rpc::IbPartitionList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::IbPartitionQuery {
+    // TODO: remove when all sites have been upgraded to include find_ib_partition_ids and find_ib_partitions_by_ids methods
+    async fn get_ib_partitions_deprecated(
+        &self,
+        id: Option<::rpc::common::Uuid>,
+    ) -> CarbideCliResult<rpc::IbPartitionList> {
+        let request = rpc::IbPartitionQuery {
             id: id.clone(),
             search_config: Some(rpc::IbPartitionSearchConfig {
                 include_history: id.is_some(),
             }),
-        });
-        let details = client
+        };
+        self.0
             .find_ib_partitions(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        Ok(details)
-    })
-    .await
-}
-
-pub async fn get_all_keysets(
-    api_config: &ApiConfig<'_>,
-    tenant_org_id: Option<String>,
-    page_size: usize,
-) -> CarbideCliResult<rpc::TenantKeySetList> {
-    let all_ids = match get_keyset_ids(api_config, tenant_org_id.clone()).await {
-        Ok(all_ids) => all_ids,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            return get_keysets_deprecated(api_config, tenant_org_id, None).await;
-        }
-        Err(e) => return Err(e),
-    };
-    let mut all_list = rpc::TenantKeySetList {
-        keyset: Vec::with_capacity(all_ids.keyset_ids.len()),
-    };
-
-    for ids in all_ids.keyset_ids.chunks(page_size) {
-        let list = get_keysets_by_ids(api_config, ids).await?;
-        all_list.keyset.extend(list.keyset);
+            .map_err(CarbideCliError::ApiInvocationError)
     }
 
-    Ok(all_list)
-}
+    pub async fn get_all_keysets(
+        &self,
+        tenant_org_id: Option<String>,
+        page_size: usize,
+    ) -> CarbideCliResult<rpc::TenantKeySetList> {
+        let all_ids = match self.get_keyset_ids(tenant_org_id.clone()).await {
+            Ok(all_ids) => all_ids,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                return self.get_keysets_deprecated(tenant_org_id, None).await;
+            }
+            Err(e) => return Err(e),
+        };
+        let mut all_list = rpc::TenantKeySetList {
+            keyset: Vec::with_capacity(all_ids.keyset_ids.len()),
+        };
 
-pub async fn get_one_keyset(
-    api_config: &ApiConfig<'_>,
-    keyset_id: rpc::TenantKeysetIdentifier,
-) -> CarbideCliResult<rpc::TenantKeySetList> {
-    let keysets = match get_keysets_by_ids(api_config, &[keyset_id.clone()]).await {
-        Ok(keysets) => keysets,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            return get_keysets_deprecated(api_config, None, Some(keyset_id)).await;
+        for ids in all_ids.keyset_ids.chunks(page_size) {
+            let list = self.get_keysets_by_ids(ids).await?;
+            all_list.keyset.extend(list.keyset);
         }
-        Err(e) => return Err(e),
-    };
 
-    Ok(keysets)
-}
+        Ok(all_list)
+    }
 
-async fn get_keyset_ids(
-    api_config: &ApiConfig<'_>,
-    tenant_org_id: Option<String>,
-) -> CarbideCliResult<rpc::TenantKeysetIdList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::TenantKeysetSearchFilter { tenant_org_id });
-        let ids = client
+    pub async fn get_one_keyset(
+        &self,
+        keyset_id: rpc::TenantKeysetIdentifier,
+    ) -> CarbideCliResult<rpc::TenantKeySetList> {
+        let keysets = match self.get_keysets_by_ids(&[keyset_id.clone()]).await {
+            Ok(keysets) => keysets,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                return self.get_keysets_deprecated(None, Some(keyset_id)).await;
+            }
+            Err(e) => return Err(e),
+        };
+
+        Ok(keysets)
+    }
+
+    async fn get_keyset_ids(
+        &self,
+        tenant_org_id: Option<String>,
+    ) -> CarbideCliResult<rpc::TenantKeysetIdList> {
+        let request = rpc::TenantKeysetSearchFilter { tenant_org_id };
+        self.0
             .find_tenant_keyset_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(ids)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-async fn get_keysets_by_ids(
-    api_config: &ApiConfig<'_>,
-    identifiers: &[rpc::TenantKeysetIdentifier],
-) -> CarbideCliResult<rpc::TenantKeySetList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::TenantKeysetsByIdsRequest {
+    async fn get_keysets_by_ids(
+        &self,
+        identifiers: &[rpc::TenantKeysetIdentifier],
+    ) -> CarbideCliResult<rpc::TenantKeySetList> {
+        let request = rpc::TenantKeysetsByIdsRequest {
             keyset_ids: Vec::from(identifiers),
             include_key_data: true,
-        });
-        let instances = client
+        };
+        self.0
             .find_tenant_keysets_by_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        Ok(instances)
-    })
-    .await
-}
-
-// TODO: remove when all sites have been upgraded to include find_ids and find_by_ids methods
-async fn get_keysets_deprecated(
-    api_config: &ApiConfig<'_>,
-    tenant_org_id: Option<String>,
-    identifier: Option<rpc::TenantKeysetIdentifier>,
-) -> CarbideCliResult<rpc::TenantKeySetList> {
-    let (mut organization_id, keyset_id) = match identifier.clone() {
-        Some(id) => (Some(id.organization_id), Some(id.keyset_id)),
-        None => (None, None),
-    };
-    if tenant_org_id.is_some() {
-        organization_id = tenant_org_id;
+            .map_err(CarbideCliError::ApiInvocationError)
     }
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::FindTenantKeysetRequest {
+
+    // TODO: remove when all sites have been upgraded to include find_ids and find_by_ids methods
+    async fn get_keysets_deprecated(
+        &self,
+        tenant_org_id: Option<String>,
+        identifier: Option<rpc::TenantKeysetIdentifier>,
+    ) -> CarbideCliResult<rpc::TenantKeySetList> {
+        let (mut organization_id, keyset_id) = match identifier.clone() {
+            Some(id) => (Some(id.organization_id), Some(id.keyset_id)),
+            None => (None, None),
+        };
+        if tenant_org_id.is_some() {
+            organization_id = tenant_org_id;
+        }
+        let request = rpc::FindTenantKeysetRequest {
             organization_id,
             keyset_id,
             include_key_data: true,
-        });
-        let details = client
+        };
+        self.0
             .find_tenant_keyset(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(details)
-    })
-    .await
-}
-
-pub async fn machine_set_auto_update(
-    req: MachineAutoupdate,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<::rpc::forge::MachineSetAutoUpdateResponse> {
-    let action = if req.enable {
-        ::rpc::forge::machine_set_auto_update_request::SetAutoupdateAction::Enable
-    } else if req.disable {
-        ::rpc::forge::machine_set_auto_update_request::SetAutoupdateAction::Disable
-    } else {
-        ::rpc::forge::machine_set_auto_update_request::SetAutoupdateAction::Clear
-    };
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::forge::MachineSetAutoUpdateRequest {
+    pub async fn machine_set_auto_update(
+        &self,
+        req: MachineAutoupdate,
+    ) -> CarbideCliResult<::rpc::forge::MachineSetAutoUpdateResponse> {
+        let action = if req.enable {
+            ::rpc::forge::machine_set_auto_update_request::SetAutoupdateAction::Enable
+        } else if req.disable {
+            ::rpc::forge::machine_set_auto_update_request::SetAutoupdateAction::Disable
+        } else {
+            ::rpc::forge::machine_set_auto_update_request::SetAutoupdateAction::Clear
+        };
+        let request = ::rpc::forge::MachineSetAutoUpdateRequest {
             machine_id: Some(::rpc::MachineId {
                 id: req.machine.to_string(),
             }),
             action: action.into(),
-        });
-        let response = client
+        };
+        self.0
             .machine_set_auto_update(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(response)
-    })
-    .await
-}
-
-pub async fn allocate_instance(
-    api_config: &ApiConfig<'_>,
-    host_machine_id: &str,
-    allocate_instance: &AllocateInstance,
-    instance_name: &str,
-) -> CarbideCliResult<rpc::Instance> {
-    with_forge_client(api_config, |mut client| async move {
+    pub async fn allocate_instance(
+        &self,
+        host_machine_id: &str,
+        allocate_instance: &AllocateInstance,
+        instance_name: &str,
+    ) -> CarbideCliResult<rpc::Instance> {
         let (interface_config, tenant_org) = if let Some(network_segment_name) =
             &allocate_instance.subnet
         {
-            let segment_request = tonic::Request::new(rpc::NetworkSegmentSearchFilter {
+            let segment_request = rpc::NetworkSegmentSearchFilter {
                 name: Some(network_segment_name.clone()),
                 tenant_org_id: None,
-            });
+            };
 
-            let network_segment_ids = match client.find_network_segment_ids(segment_request).await {
-                Ok(response) => response.into_inner(),
+            let network_segment_ids = match self.0.find_network_segment_ids(segment_request).await {
+                Ok(response) => response,
 
                 Err(e) => {
                     return Err(CarbideCliError::GenericError(format!(
@@ -2261,7 +1705,7 @@ pub async fn allocate_instance(
             (None, None) => {}
         }
 
-        let instance_request = tonic::Request::new(rpc::InstanceAllocationRequest {
+        let instance_request = rpc::InstanceAllocationRequest {
             instance_id: None,
             machine_id: Some(::rpc::common::MachineId {
                 id: host_machine_id.to_owned(),
@@ -2274,1000 +1718,519 @@ pub async fn allocate_instance(
                 description: "instance created from admin-cli".to_string(),
                 labels,
             }),
-        });
+        };
 
-        client
+        self.0
             .allocate_instance(instance_request)
             .await
-            .map(|response: tonic::Response<rpc::Instance>| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)
-    })
-    .await
-}
+    }
 
-pub async fn get_machine_validation_external_configs(
-    api_config: &ApiConfig<'_>,
-    names: Vec<String>,
-) -> CarbideCliResult<rpc::GetMachineValidationExternalConfigsResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request =
-            tonic::Request::new(rpc::GetMachineValidationExternalConfigsRequest { names });
-        let result = client
+    pub async fn get_machine_validation_external_configs(
+        &self,
+        names: Vec<String>,
+    ) -> CarbideCliResult<rpc::GetMachineValidationExternalConfigsResponse> {
+        let request = rpc::GetMachineValidationExternalConfigsRequest { names };
+        self.0
             .get_machine_validation_external_configs(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        Ok(result)
-    })
-    .await
-}
-pub async fn add_update_machine_validation_external_config(
-    name: String,
-    description: String,
-    config: Vec<u8>,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::AddUpdateMachineValidationExternalConfigRequest {
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+    pub async fn add_update_machine_validation_external_config(
+        &self,
+        name: String,
+        description: String,
+        config: Vec<u8>,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::AddUpdateMachineValidationExternalConfigRequest {
             name,
             description: Some(description),
             config,
-        });
-        client
+        };
+        self.0
             .add_update_machine_validation_external_config(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(())
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn get_machine_validation_results(
-    api_config: &ApiConfig<'_>,
-    arg_machine_id: Option<String>,
-    history: bool,
-    arg_validation_id: Option<String>,
-) -> CarbideCliResult<rpc::MachineValidationResultList> {
-    let mut machine_id: Option<::rpc::common::MachineId> = None;
-    if let Some(id) = arg_machine_id {
-        machine_id = Some(::rpc::common::MachineId { id })
-    }
-    let mut validation_id: Option<::rpc::common::Uuid> = None;
-    if let Some(value) = arg_validation_id {
-        validation_id = Some(::rpc::common::Uuid { value })
-    }
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::MachineValidationGetRequest {
+    pub async fn get_machine_validation_results(
+        &self,
+        arg_machine_id: Option<String>,
+        history: bool,
+        arg_validation_id: Option<String>,
+    ) -> CarbideCliResult<rpc::MachineValidationResultList> {
+        let mut machine_id: Option<::rpc::common::MachineId> = None;
+        if let Some(id) = arg_machine_id {
+            machine_id = Some(::rpc::common::MachineId { id })
+        }
+        let mut validation_id: Option<::rpc::common::Uuid> = None;
+        if let Some(value) = arg_validation_id {
+            validation_id = Some(::rpc::common::Uuid { value })
+        }
+        let request = rpc::MachineValidationGetRequest {
             machine_id,
             include_history: history,
             validation_id,
-        });
-        let details = client
+        };
+        self.0
             .get_machine_validation_results(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(details)
-    })
-    .await
-}
+    pub async fn list_storage_cluster(&self) -> CarbideCliResult<Vec<rpc::StorageCluster>> {
+        let request = rpc::ListStorageClusterRequest {};
+        let response = self.0.list_storage_cluster(request).await?;
+        Ok(response.clusters)
+    }
 
-pub async fn import_storage_cluster(
-    api_config: &ApiConfig<'_>,
-    cluster_attrs: rpc::StorageClusterAttributes,
-) -> CarbideCliResult<rpc::StorageCluster> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(cluster_attrs);
-
-        let cluster = client
-            .import_storage_cluster(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(cluster)
-    })
-    .await
-}
-
-pub async fn list_storage_cluster(
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<Vec<rpc::StorageCluster>> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ListStorageClusterRequest {});
-        let response = client
-            .list_storage_cluster(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        let clusters = response.clusters;
-        Ok(clusters)
-    })
-    .await
-}
-
-pub async fn get_storage_cluster(
-    api_config: &ApiConfig<'_>,
-    id: ::rpc::common::Uuid,
-) -> CarbideCliResult<rpc::StorageCluster> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(id);
-        let cluster = client
-            .get_storage_cluster(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(cluster)
-    })
-    .await
-}
-
-pub async fn delete_storage_cluster(
-    api_config: &ApiConfig<'_>,
-    id: ::rpc::common::Uuid,
-    name: String,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::DeleteStorageClusterRequest { name, id: Some(id) });
-        let _response = client
-            .delete_storage_cluster(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+    pub async fn delete_storage_cluster(
+        &self,
+        id: ::rpc::common::Uuid,
+        name: String,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::DeleteStorageClusterRequest { name, id: Some(id) };
+        self.0.delete_storage_cluster(request).await?;
         Ok(())
-    })
-    .await
-}
+    }
 
-pub async fn update_storage_cluster(
-    api_config: &ApiConfig<'_>,
-    id: ::rpc::common::Uuid,
-    host: Vec<String>,
-    port: Option<u32>,
-    username: Option<String>,
-    password: Option<String>,
-) -> CarbideCliResult<rpc::StorageCluster> {
-    if host.is_empty() && port.is_none() && username.is_none() && password.is_none() {
-        return Err(CarbideCliError::GenericError(
-            "Invalid arguments".to_string(),
-        ));
-    }
-    let cluster = get_storage_cluster(api_config, id.clone()).await?;
-    if cluster.attributes.is_none() {
-        return Err(CarbideCliError::Empty);
-    }
-    let mut new_attrs = cluster.attributes.clone().unwrap();
-    if !host.is_empty() {
-        new_attrs.host = host;
-    }
-    if let Some(x) = port {
-        new_attrs.port = x;
-    }
-    if username.is_some() {
-        new_attrs.username = username;
-    }
-    if password.is_some() {
-        new_attrs.password = password;
-    }
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::UpdateStorageClusterRequest {
+    pub async fn update_storage_cluster(
+        &self,
+        id: ::rpc::common::Uuid,
+        host: Vec<String>,
+        port: Option<u32>,
+        username: Option<String>,
+        password: Option<String>,
+    ) -> CarbideCliResult<rpc::StorageCluster> {
+        if host.is_empty() && port.is_none() && username.is_none() && password.is_none() {
+            return Err(CarbideCliError::GenericError(
+                "Invalid arguments".to_string(),
+            ));
+        }
+        let cluster = self.0.get_storage_cluster(id.clone()).await?;
+        if cluster.attributes.is_none() {
+            return Err(CarbideCliError::Empty);
+        }
+        let mut new_attrs = cluster.attributes.clone().unwrap();
+        if !host.is_empty() {
+            new_attrs.host = host;
+        }
+        if let Some(x) = port {
+            new_attrs.port = x;
+        }
+        if username.is_some() {
+            new_attrs.username = username;
+        }
+        if password.is_some() {
+            new_attrs.password = password;
+        }
+        let request = rpc::UpdateStorageClusterRequest {
             cluster_id: Some(id),
             attributes: Some(new_attrs),
-        });
+        };
 
-        let cluster = client
+        self.0
             .update_storage_cluster(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(cluster)
-    })
-    .await
-}
-
-pub async fn get_machine_validation_runs(
-    api_config: &ApiConfig<'_>,
-    arg_machine_id: Option<String>,
-    include_history: bool,
-) -> CarbideCliResult<rpc::MachineValidationRunList> {
-    let mut machine_id: Option<::rpc::common::MachineId> = None;
-    if let Some(id) = arg_machine_id {
-        machine_id = Some(::rpc::common::MachineId { id })
+            .map_err(CarbideCliError::ApiInvocationError)
     }
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::MachineValidationRunListGetRequest {
+
+    pub async fn get_machine_validation_runs(
+        &self,
+        arg_machine_id: Option<String>,
+        include_history: bool,
+    ) -> CarbideCliResult<rpc::MachineValidationRunList> {
+        let mut machine_id: Option<::rpc::common::MachineId> = None;
+        if let Some(id) = arg_machine_id {
+            machine_id = Some(::rpc::common::MachineId { id })
+        }
+        let request = rpc::MachineValidationRunListGetRequest {
             machine_id,
             include_history,
-        });
-        let details = client
+        };
+        self.0
             .get_machine_validation_runs(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(details)
-    })
-    .await
-}
-
-pub async fn on_demand_machine_validation(
-    machine_id: String,
-    tags: Option<Vec<String>>,
-    allowed_tests: Option<Vec<String>>,
-    run_unverfied_tests: bool,
-    contexts: Option<Vec<String>>,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<rpc::MachineValidationOnDemandResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::MachineValidationOnDemandRequest {
+    pub async fn on_demand_machine_validation(
+        &self,
+        machine_id: String,
+        tags: Option<Vec<String>>,
+        allowed_tests: Option<Vec<String>>,
+        run_unverfied_tests: bool,
+        contexts: Option<Vec<String>>,
+    ) -> CarbideCliResult<rpc::MachineValidationOnDemandResponse> {
+        let request = rpc::MachineValidationOnDemandRequest {
             machine_id: Some(::rpc::common::MachineId { id: machine_id }),
             tags: tags.unwrap_or_default(),
             allowed_tests: allowed_tests.unwrap_or_default(),
             action: rpc::machine_validation_on_demand_request::Action::Start.into(),
             run_unverfied_tests,
             contexts: contexts.unwrap_or_default(),
-        });
-        let ret = client
+        };
+        self.0
             .on_demand_machine_validation(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(ret)
-    })
-    .await
-}
-
-pub async fn create_storage_pool(
-    api_config: &ApiConfig<'_>,
-    pool_attrs: rpc::StoragePoolAttributes,
-) -> CarbideCliResult<rpc::StoragePool> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(pool_attrs);
-        let pool = client
-            .create_storage_pool(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(pool)
-    })
-    .await
-}
-
-pub async fn list_storage_pool(
-    api_config: &ApiConfig<'_>,
-    cluster_id: Option<::rpc::common::Uuid>,
-    tenant_organization_id: Option<String>,
-) -> CarbideCliResult<Vec<rpc::StoragePool>> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ListStoragePoolRequest {
+    pub async fn list_storage_pool(
+        &self,
+        cluster_id: Option<::rpc::common::Uuid>,
+        tenant_organization_id: Option<String>,
+    ) -> CarbideCliResult<Vec<rpc::StoragePool>> {
+        let request = rpc::ListStoragePoolRequest {
             cluster_id,
             tenant_organization_id,
-        });
-        let response = client
-            .list_storage_pool(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+        };
+        let response = self.0.list_storage_pool(request).await?;
         Ok(response.pools)
-    })
-    .await
-}
+    }
 
-pub async fn get_storage_pool(
-    api_config: &ApiConfig<'_>,
-    id: ::rpc::common::Uuid,
-) -> CarbideCliResult<rpc::StoragePool> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(id);
-        let pool = client
-            .get_storage_pool(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(pool)
-    })
-    .await
-}
-
-pub async fn delete_storage_pool(
-    api_config: &ApiConfig<'_>,
-    cluster_id: ::rpc::common::Uuid,
-    pool_id: ::rpc::common::Uuid,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::DeleteStoragePoolRequest {
+    pub async fn delete_storage_pool(
+        &self,
+        cluster_id: ::rpc::common::Uuid,
+        pool_id: ::rpc::common::Uuid,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::DeleteStoragePoolRequest {
             cluster_id: Some(cluster_id),
             pool_id: Some(pool_id),
-        });
-        let _response = client
-            .delete_storage_pool(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+        };
+        self.0.delete_storage_pool(request).await?;
         Ok(())
-    })
-    .await
-}
+    }
 
-pub async fn update_storage_pool(
-    api_config: &ApiConfig<'_>,
-    id: ::rpc::common::Uuid,
-    capacity: Option<u64>,
-    name: Option<String>,
-    description: Option<String>,
-) -> CarbideCliResult<rpc::StoragePool> {
-    if capacity.is_none() && name.is_none() && description.is_none() {
-        return Err(CarbideCliError::GenericError(
-            "Invalid arguments".to_string(),
-        ));
-    }
-    let pool = get_storage_pool(api_config, id).await?;
-    if pool.attributes.is_none() {
-        return Err(CarbideCliError::Empty);
-    }
-    let mut new_attrs = pool.attributes.clone().unwrap();
-    if let Some(x) = capacity {
-        new_attrs.capacity = x;
-    }
-    if name.is_some() {
-        new_attrs.name = name;
-    }
-    if description.is_some() {
-        new_attrs.description = description;
-    }
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(new_attrs);
-        let updated = client
-            .update_storage_pool(request)
+    pub async fn update_storage_pool(
+        &self,
+        id: ::rpc::common::Uuid,
+        capacity: Option<u64>,
+        name: Option<String>,
+        description: Option<String>,
+    ) -> CarbideCliResult<rpc::StoragePool> {
+        if capacity.is_none() && name.is_none() && description.is_none() {
+            return Err(CarbideCliError::GenericError(
+                "Invalid arguments".to_string(),
+            ));
+        }
+        let pool = self.0.get_storage_pool(id).await?;
+        if pool.attributes.is_none() {
+            return Err(CarbideCliError::Empty);
+        }
+        let mut new_attrs = pool.attributes.clone().unwrap();
+        if let Some(x) = capacity {
+            new_attrs.capacity = x;
+        }
+        if name.is_some() {
+            new_attrs.name = name;
+        }
+        if description.is_some() {
+            new_attrs.description = description;
+        }
+        self.0
+            .update_storage_pool(new_attrs)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(updated)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn create_storage_volume(
-    api_config: &ApiConfig<'_>,
-    volume_attrs: rpc::StorageVolumeAttributes,
-) -> CarbideCliResult<rpc::StorageVolume> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(volume_attrs);
-        let volume = client
-            .create_storage_volume(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(volume)
-    })
-    .await
-}
-
-pub async fn list_storage_volume(
-    api_config: &ApiConfig<'_>,
-    filter: rpc::StorageVolumeFilter,
-) -> CarbideCliResult<Vec<rpc::StorageVolume>> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(filter);
-        let response = client
-            .list_storage_volume(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(response.volumes)
-    })
-    .await
-}
-
-pub async fn get_storage_volume(
-    api_config: &ApiConfig<'_>,
-    id: ::rpc::common::Uuid,
-) -> CarbideCliResult<rpc::StorageVolume> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(id);
-        let volume = client
-            .get_storage_volume(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(volume)
-    })
-    .await
-}
-
-pub async fn delete_storage_volume(
-    api_config: &ApiConfig<'_>,
-    cluster_id: ::rpc::common::Uuid,
-    pool_id: ::rpc::common::Uuid,
-    volume_id: ::rpc::common::Uuid,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::DeleteStorageVolumeRequest {
+    pub async fn delete_storage_volume(
+        &self,
+        cluster_id: ::rpc::common::Uuid,
+        pool_id: ::rpc::common::Uuid,
+        volume_id: ::rpc::common::Uuid,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::DeleteStorageVolumeRequest {
             volume_id: Some(volume_id),
             pool_id: Some(pool_id),
             cluster_id: Some(cluster_id),
-        });
-        let _ = client
-            .delete_storage_volume(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+        };
+        self.0.delete_storage_volume(request).await?;
         Ok(())
-    })
-    .await
-}
+    }
 
-pub async fn update_storage_volume(
-    api_config: &ApiConfig<'_>,
-    id: ::rpc::common::Uuid,
-    capacity: Option<u64>,
-    name: Option<String>,
-    description: Option<String>,
-) -> CarbideCliResult<rpc::StorageVolume> {
-    if capacity.is_none() && name.is_none() && description.is_none() {
-        return Err(CarbideCliError::GenericError(
-            "Invalid arguments".to_string(),
-        ));
-    }
-    let volume = get_storage_volume(api_config, id).await?;
-    if volume.attributes.is_none() {
-        return Err(CarbideCliError::Empty);
-    }
-    let mut new_attrs = volume.attributes.clone().unwrap();
-    if let Some(x) = capacity {
-        new_attrs.capacity = x;
-    }
-    if name.is_some() {
-        new_attrs.name = name;
-    }
-    if description.is_some() {
-        new_attrs.description = description;
-    }
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(new_attrs);
-        let volume = client
-            .update_storage_volume(request)
+    pub async fn update_storage_volume(
+        &self,
+        id: ::rpc::common::Uuid,
+        capacity: Option<u64>,
+        name: Option<String>,
+        description: Option<String>,
+    ) -> CarbideCliResult<rpc::StorageVolume> {
+        if capacity.is_none() && name.is_none() && description.is_none() {
+            return Err(CarbideCliError::GenericError(
+                "Invalid arguments".to_string(),
+            ));
+        }
+        let volume = self.0.get_storage_volume(id).await?;
+        if volume.attributes.is_none() {
+            return Err(CarbideCliError::Empty);
+        }
+        let mut new_attrs = volume.attributes.clone().unwrap();
+        if let Some(x) = capacity {
+            new_attrs.capacity = x;
+        }
+        if name.is_some() {
+            new_attrs.name = name;
+        }
+        if description.is_some() {
+            new_attrs.description = description;
+        }
+        self.0
+            .update_storage_volume(new_attrs)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(volume)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn create_os_image(
-    api_config: &ApiConfig<'_>,
-    image_attrs: rpc::OsImageAttributes,
-) -> CarbideCliResult<rpc::OsImage> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(image_attrs);
-        let os_image = client
-            .create_os_image(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(os_image)
-    })
-    .await
-}
-
-pub async fn list_os_image(
-    api_config: &ApiConfig<'_>,
-    tenant_organization_id: Option<String>,
-) -> CarbideCliResult<Vec<rpc::OsImage>> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::ListOsImageRequest {
+    pub async fn list_os_image(
+        &self,
+        tenant_organization_id: Option<String>,
+    ) -> CarbideCliResult<Vec<rpc::OsImage>> {
+        let request = rpc::ListOsImageRequest {
             tenant_organization_id,
-        });
-        let response = client
-            .list_os_image(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+        };
+        let response = self.0.list_os_image(request).await?;
         Ok(response.images)
-    })
-    .await
-}
+    }
 
-pub async fn get_os_image(
-    api_config: &ApiConfig<'_>,
-    id: ::rpc::common::Uuid,
-) -> CarbideCliResult<rpc::OsImage> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(id);
-        let os_image = client
-            .get_os_image(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(os_image)
-    })
-    .await
-}
-
-pub async fn delete_os_image(
-    api_config: &ApiConfig<'_>,
-    id: ::rpc::common::Uuid,
-    tenant_organization_id: String,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::DeleteOsImageRequest {
+    pub async fn delete_os_image(
+        &self,
+        id: ::rpc::common::Uuid,
+        tenant_organization_id: String,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::DeleteOsImageRequest {
             id: Some(id),
             tenant_organization_id,
-        });
-        let _ = client
-            .delete_os_image(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+        };
+        self.0.delete_os_image(request).await?;
         Ok(())
-    })
-    .await
-}
+    }
 
-pub async fn update_os_image(
-    api_config: &ApiConfig<'_>,
-    id: ::rpc::common::Uuid,
-    auth_type: Option<String>,
-    auth_token: Option<String>,
-    name: Option<String>,
-    description: Option<String>,
-) -> CarbideCliResult<rpc::OsImage> {
-    let os_image = get_os_image(api_config, id).await?;
-    if os_image.attributes.is_none() {
-        return Err(CarbideCliError::Empty);
-    }
-    let mut new_attrs = os_image.attributes.clone().unwrap();
-    if auth_type.is_some() {
-        new_attrs.auth_type = auth_type;
-    }
-    if auth_token.is_some() {
-        new_attrs.auth_token = auth_token;
-    }
-    if name.is_some() {
-        new_attrs.name = name;
-    }
-    if description.is_some() {
-        new_attrs.description = description;
-    }
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(new_attrs);
-        let os_image = client
-            .update_os_image(request)
+    pub async fn update_os_image(
+        &self,
+        id: ::rpc::common::Uuid,
+        auth_type: Option<String>,
+        auth_token: Option<String>,
+        name: Option<String>,
+        description: Option<String>,
+    ) -> CarbideCliResult<rpc::OsImage> {
+        let os_image = self.0.get_os_image(id).await?;
+        if os_image.attributes.is_none() {
+            return Err(CarbideCliError::Empty);
+        }
+        let mut new_attrs = os_image.attributes.clone().unwrap();
+        if auth_type.is_some() {
+            new_attrs.auth_type = auth_type;
+        }
+        if auth_token.is_some() {
+            new_attrs.auth_token = auth_token;
+        }
+        if name.is_some() {
+            new_attrs.name = name;
+        }
+        if description.is_some() {
+            new_attrs.description = description;
+        }
+        self.0
+            .update_os_image(new_attrs)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(os_image)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn update_instance_config(
-    api_config: &ApiConfig<'_>,
-    instance_id: String,
-    version: String,
-    config: rpc::InstanceConfig,
-    metadata: Option<rpc::Metadata>,
-) -> CarbideCliResult<rpc::Instance> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::InstanceConfigUpdateRequest {
+    pub async fn update_instance_config(
+        &self,
+        instance_id: String,
+        version: String,
+        config: rpc::InstanceConfig,
+        metadata: Option<rpc::Metadata>,
+    ) -> CarbideCliResult<rpc::Instance> {
+        let request = rpc::InstanceConfigUpdateRequest {
             instance_id: Some(::rpc::Uuid { value: instance_id }),
             if_version_match: Some(version),
             config: Some(config),
             metadata,
-        });
-        let instance = client
+        };
+        self.0
             .update_instance_config(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(instance)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn update_vpc_config(
-    api_config: &ApiConfig<'_>,
-    vpc_id: String,
-    version: String,
-    name: String,
-    metadata: Option<rpc::Metadata>,
-    network_security_group_id: Option<String>,
-) -> CarbideCliResult<rpc::Vpc> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::VpcUpdateRequest {
+    pub async fn update_vpc_config(
+        &self,
+        vpc_id: String,
+        version: String,
+        name: String,
+        metadata: Option<rpc::Metadata>,
+        network_security_group_id: Option<String>,
+    ) -> CarbideCliResult<rpc::Vpc> {
+        let request = rpc::VpcUpdateRequest {
             name,
             id: Some(::rpc::Uuid { value: vpc_id }),
             if_version_match: Some(version),
             metadata,
             network_security_group_id,
-        });
-        let vpc = client
+        };
+        self.0
             .update_vpc(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .into_inner()
             .vpc
-            .ok_or(CarbideCliError::Empty)?;
-        Ok(vpc)
-    })
-    .await
-}
+            .ok_or(CarbideCliError::Empty)
+    }
 
-pub async fn tpm_ca_add_cert(
-    api_config: &ApiConfig<'_>,
-    ca_cert_bytes: &[u8],
-) -> CarbideCliResult<rpc::TpmCaAddedCaStatus> {
-    with_forge_client(api_config, |mut client| async move {
+    pub async fn tpm_ca_add_cert(
+        &self,
+        ca_cert_bytes: &[u8],
+    ) -> CarbideCliResult<rpc::TpmCaAddedCaStatus> {
         // call tpm_add_ca_cert
-        let request = tonic::Request::new(rpc::TpmCaCert {
+        let request = rpc::TpmCaCert {
             ca_cert: ca_cert_bytes.to_vec(),
-        });
-        let ca_cert_id = client
+        };
+        self.0
             .tpm_add_ca_cert(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(ca_cert_id)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn tpm_ca_show(
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<Vec<rpc::TpmCaCertDetail>> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(());
-        let ca_certs = client
-            .tpm_show_ca_certs(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(ca_certs.tpm_ca_cert_details)
-    })
-    .await
-}
-
-pub async fn tpm_unmatched_ek_show(
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<Vec<rpc::TpmEkCertStatus>> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(());
-        let unmatched_eks = client
-            .tpm_show_unmatched_ek_certs(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        Ok(unmatched_eks.tpm_ek_cert_statuses)
-    })
-    .await
-}
-
-pub async fn tpm_ca_delete_cert(
-    api_config: &ApiConfig<'_>,
-    ca_cert_id: i32,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
+    pub async fn tpm_ca_delete_cert(&self, ca_cert_id: i32) -> CarbideCliResult<()> {
         // call tpm_add_ca_cert
-        let request = tonic::Request::new(rpc::TpmCaCertId { ca_cert_id });
-        client
+        let request = rpc::TpmCaCertId { ca_cert_id };
+        self.0
             .tpm_delete_ca_cert(request)
             .await
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(())
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn remove_machine_validation_external_config(
-    api_config: &ApiConfig<'_>,
-    name: String,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request =
-            tonic::Request::new(rpc::RemoveMachineValidationExternalConfigRequest { name });
-        client
+    pub async fn remove_machine_validation_external_config(
+        &self,
+        name: String,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::RemoveMachineValidationExternalConfigRequest { name };
+        self.0
             .remove_machine_validation_external_config(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(())
-    })
-    .await
-}
-pub async fn get_machine_validation_tests(
-    api_config: &ApiConfig<'_>,
-    test_id: Option<String>,
-    platforms: Vec<String>,
-    contexts: Vec<String>,
-    show_un_verfied: bool,
-) -> CarbideCliResult<rpc::MachineValidationTestsGetResponse> {
-    let verified = if show_un_verfied { None } else { Some(true) };
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::MachineValidationTestsGetRequest {
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+    pub async fn get_machine_validation_tests(
+        &self,
+        test_id: Option<String>,
+        platforms: Vec<String>,
+        contexts: Vec<String>,
+        show_un_verified: bool,
+    ) -> CarbideCliResult<rpc::MachineValidationTestsGetResponse> {
+        let verified = if show_un_verified { None } else { Some(true) };
+        let request = rpc::MachineValidationTestsGetRequest {
             supported_platforms: platforms,
             contexts,
             test_id,
             verified,
             ..rpc::MachineValidationTestsGetRequest::default()
-        });
-        let ret = client
+        };
+        self.0
             .get_machine_validation_tests(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(ret)
-    })
-    .await
-}
-
-pub async fn machine_validation_test_verfied(
-    api_config: &ApiConfig<'_>,
-    test_id: String,
-    version: String,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request =
-            tonic::Request::new(rpc::MachineValidationTestVerfiedRequest { test_id, version });
-        client
-            .machine_validation_test_verfied(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+    pub async fn machine_validation_test_verfied(
+        &self,
+        test_id: String,
+        version: String,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::MachineValidationTestVerfiedRequest { test_id, version };
+        self.0.machine_validation_test_verfied(request).await?;
         Ok(())
-    })
-    .await
-}
+    }
 
-pub async fn machine_validation_test_enable_disable(
-    api_config: &ApiConfig<'_>,
-    test_id: String,
-    version: String,
-    is_enabled: bool,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::MachineValidationTestEnableDisableTestRequest {
+    pub async fn machine_validation_test_enable_disable(
+        &self,
+        test_id: String,
+        version: String,
+        is_enabled: bool,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::MachineValidationTestEnableDisableTestRequest {
             test_id,
             version,
             is_enabled,
-        });
-        client
+        };
+        self.0
             .machine_validation_test_enable_disable_test(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .await?;
         Ok(())
-    })
-    .await
-}
+    }
 
-pub async fn redfish_browse(
-    api_config: &ApiConfig<'_>,
-    uri: String,
-) -> CarbideCliResult<RedfishBrowseResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::RedfishBrowseRequest { uri });
-        let response = client
+    pub async fn redfish_browse(&self, uri: String) -> CarbideCliResult<RedfishBrowseResponse> {
+        let request = rpc::RedfishBrowseRequest { uri };
+        self.0
             .redfish_browse(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(response)
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn machine_validation_test_update(
-    api_config: &ApiConfig<'_>,
-    test_id: String,
-    version: String,
-    payload: rpc::machine_validation_test_update_request::Payload,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::MachineValidationTestUpdateRequest {
+    pub async fn machine_validation_test_update(
+        &self,
+        test_id: String,
+        version: String,
+        payload: rpc::machine_validation_test_update_request::Payload,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::MachineValidationTestUpdateRequest {
             test_id,
             version,
             payload: Some(payload),
-        });
-        client
-            .update_machine_validation_test(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+        };
+        self.0.update_machine_validation_test(request).await?;
         Ok(())
-    })
-    .await
-}
+    }
 
-pub async fn machine_validation_test_add(
-    api_config: &ApiConfig<'_>,
-    request: rpc::MachineValidationTestAddRequest,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        client
-            .add_machine_validation_test(tonic::Request::new(request))
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(())
-    })
-    .await
-}
-
-pub async fn update_machine_metadata(
-    api_config: &ApiConfig<'_>,
-    machine_id: ::rpc::common::MachineId,
-    metadata: ::rpc::forge::Metadata,
-    current_version: String,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::forge::MachineMetadataUpdateRequest {
+    pub async fn update_machine_metadata(
+        &self,
+        machine_id: ::rpc::common::MachineId,
+        metadata: ::rpc::forge::Metadata,
+        current_version: String,
+    ) -> CarbideCliResult<()> {
+        let request = ::rpc::forge::MachineMetadataUpdateRequest {
             machine_id: Some(machine_id),
             if_version_match: Some(current_version),
             metadata: Some(metadata),
-        });
-        client
+        };
+        self.0
             .update_machine_metadata(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(())
-    })
-    .await
-}
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-pub async fn find_skus_by_ids(
-    api_config: &ApiConfig<'_>,
-    sku_ids: &[String],
-) -> CarbideCliResult<rpc::SkuList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::forge::SkusByIdsRequest {
+    pub async fn find_skus_by_ids(&self, sku_ids: &[String]) -> CarbideCliResult<rpc::SkuList> {
+        let request = ::rpc::forge::SkusByIdsRequest {
             ids: Vec::from(sku_ids),
-        });
-        let sku_details = client
+        };
+        self.0
             .find_skus_by_ids(request)
             .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(sku_details)
-    })
-    .await
-}
-
-pub async fn assign_sku_to_machine(
-    api_config: &ApiConfig<'_>,
-    sku_id: String,
-    machine_id: ::rpc::common::MachineId,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request: tonic::Request<rpc::SkuMachinePair> =
-            tonic::Request::new(::rpc::forge::SkuMachinePair {
-                sku_id,
-                machine_id: Some(machine_id),
-            });
-        client
+    pub async fn assign_sku_to_machine(
+        &self,
+        sku_id: String,
+        machine_id: ::rpc::common::MachineId,
+    ) -> CarbideCliResult<()> {
+        let request = ::rpc::forge::SkuMachinePair {
+            sku_id,
+            machine_id: Some(machine_id),
+        };
+        self.0
             .assign_sku_to_machine(request)
             .await
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 
-        Ok(())
-    })
-    .await
-}
-
-pub async fn remove_sku_association(
-    api_config: &ApiConfig<'_>,
-    machine_id: ::rpc::common::MachineId,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(machine_id);
-        client
-            .remove_sku_association(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        Ok(())
-    })
-    .await
-}
-
-pub async fn verify_sku_for_machine(
-    api_config: &ApiConfig<'_>,
-    machine_id: ::rpc::common::MachineId,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(machine_id);
-        client
-            .verify_sku_for_machine(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        Ok(())
-    })
-    .await
-}
-
-pub async fn get_all_sku_ids(api_config: &ApiConfig<'_>) -> CarbideCliResult<rpc::SkuIdList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(());
-        let sku_ids = client
-            .get_all_sku_ids(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        Ok(sku_ids)
-    })
-    .await
-}
-
-pub async fn generate_sku_from_machine(
-    api_config: &ApiConfig<'_>,
-    machine_id: ::rpc::common::MachineId,
-) -> CarbideCliResult<rpc::Sku> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(machine_id);
-
-        let sku_details = client
-            .generate_sku_from_machine(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        Ok(sku_details)
-    })
-    .await
-}
-
-pub async fn create_sku(
-    api_config: &ApiConfig<'_>,
-    sku_list: ::rpc::forge::SkuList,
-) -> CarbideCliResult<rpc::SkuIdList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(sku_list);
-
-        let sku_details = client
-            .create_sku(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        Ok(sku_details)
-    })
-    .await
-}
-
-pub async fn delete_sku(api_config: &ApiConfig<'_>, sku_id: String) -> CarbideCliResult<()> {
-    let sku_id_list = SkuIdList { ids: vec![sku_id] };
-
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(sku_id_list);
-
-        client
-            .delete_sku(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        Ok(())
-    })
-    .await
-}
-
-pub async fn create_network_security_group(
-    api_config: &ApiConfig<'_>,
-    id: Option<String>,
-    tenant_organization_id: String,
-    metadata: rpc::Metadata,
-    rules: Vec<rpc::NetworkSecurityGroupRuleAttributes>,
-) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
-    with_forge_client(api_config, |mut client| async move {
+    pub async fn create_network_security_group(
+        &self,
+        id: Option<String>,
+        tenant_organization_id: String,
+        metadata: rpc::Metadata,
+        rules: Vec<rpc::NetworkSecurityGroupRuleAttributes>,
+    ) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
         let request = CreateNetworkSecurityGroupRequest {
             id,
             tenant_organization_id,
@@ -3275,78 +2238,56 @@ pub async fn create_network_security_group(
             network_security_group_attributes: Some(NetworkSecurityGroupAttributes { rules }),
         };
 
-        let response = client
-            .create_network_security_group(tonic::Request::new(request))
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .into_inner();
+        let response = self.0.create_network_security_group(request).await?;
 
         response
             .network_security_group
             .ok_or(CarbideCliError::Empty)
-    })
-    .await
-}
+    }
 
-pub async fn get_single_network_security_group(
-    api_config: &ApiConfig<'_>,
-    id: String,
-) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
-    with_forge_client(api_config, |mut client| async move {
-        let nsg = client
-            .find_network_security_groups_by_ids(tonic::Request::new(
-                FindNetworkSecurityGroupsByIdsRequest {
-                    tenant_organization_id: None,
-                    network_security_group_ids: vec![id],
-                },
-            ))
+    pub async fn get_single_network_security_group(
+        &self,
+        id: String,
+    ) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
+        self.0
+            .find_network_security_groups_by_ids(FindNetworkSecurityGroupsByIdsRequest {
+                tenant_organization_id: None,
+                network_security_group_ids: vec![id],
+            })
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .into_inner()
             .network_security_groups
             .pop()
-            .ok_or(CarbideCliError::Empty)?;
+            .ok_or(CarbideCliError::Empty)
+    }
 
-        Ok(nsg)
-    })
-    .await
-}
-
-pub async fn get_network_security_group_attachments(
-    api_config: &ApiConfig<'_>,
-    id: String,
-) -> CarbideCliResult<rpc::NetworkSecurityGroupAttachments> {
-    with_forge_client(api_config, |mut client| async move {
-        let nsg = client
-            .get_network_security_group_attachments(tonic::Request::new(
-                GetNetworkSecurityGroupAttachmentsRequest {
-                    network_security_group_ids: vec![id],
-                },
-            ))
+    pub async fn get_network_security_group_attachments(
+        &self,
+        id: String,
+    ) -> CarbideCliResult<rpc::NetworkSecurityGroupAttachments> {
+        self.0
+            .get_network_security_group_attachments(GetNetworkSecurityGroupAttachmentsRequest {
+                network_security_group_ids: vec![id],
+            })
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .into_inner()
             .attachments
             .pop()
-            .ok_or(CarbideCliError::Empty)?;
+            .ok_or(CarbideCliError::Empty)
+    }
 
-        Ok(nsg)
-    })
-    .await
-}
-
-pub async fn get_network_security_group_propagation_status(
-    api_config: &ApiConfig<'_>,
-    id: String,
-    vpc_ids: Option<Vec<String>>,
-    instance_ids: Option<Vec<String>>,
-) -> CarbideCliResult<(
-    Vec<rpc::NetworkSecurityGroupPropagationObjectStatus>,
-    Vec<rpc::NetworkSecurityGroupPropagationObjectStatus>,
-)> {
-    with_forge_client(api_config, |mut client| async move {
-        let nsg = client
-            .get_network_security_group_propagation_status(tonic::Request::new(
+    pub async fn get_network_security_group_propagation_status(
+        &self,
+        id: String,
+        vpc_ids: Option<Vec<String>>,
+        instance_ids: Option<Vec<String>>,
+    ) -> CarbideCliResult<(
+        Vec<rpc::NetworkSecurityGroupPropagationObjectStatus>,
+        Vec<rpc::NetworkSecurityGroupPropagationObjectStatus>,
+    )> {
+        let nsg = self
+            .0
+            .get_network_security_group_propagation_status(
                 GetNetworkSecurityGroupPropagationStatusRequest {
                     network_security_group_ids: Some(rpc::NetworkSecurityGroupIdList {
                         ids: vec![id],
@@ -3354,64 +2295,52 @@ pub async fn get_network_security_group_propagation_status(
                     vpc_ids: vpc_ids.unwrap_or_default(),
                     instance_ids: instance_ids.unwrap_or_default(),
                 },
-            ))
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .into_inner();
+            )
+            .await?;
 
         Ok((nsg.vpcs, nsg.instances))
-    })
-    .await
-}
+    }
 
-pub async fn get_all_network_security_groups(
-    api_config: &ApiConfig<'_>,
-    page_size: usize,
-) -> CarbideCliResult<Vec<rpc::NetworkSecurityGroup>> {
-    with_forge_client(api_config, |mut client| async move {
-        let all_nsg_ids = client
-            .find_network_security_group_ids(tonic::Request::new(
-                rpc::FindNetworkSecurityGroupIdsRequest {
-                    name: None,
-                    tenant_organization_id: None,
-                },
-            ))
+    pub async fn get_all_network_security_groups(
+        &self,
+        page_size: usize,
+    ) -> CarbideCliResult<Vec<rpc::NetworkSecurityGroup>> {
+        let all_nsg_ids = self
+            .0
+            .find_network_security_group_ids(rpc::FindNetworkSecurityGroupIdsRequest {
+                name: None,
+                tenant_organization_id: None,
+            })
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .into_inner()
             .network_security_group_ids;
 
         let mut all_nsgs = Vec::with_capacity(all_nsg_ids.len());
 
         for nsg_ids in all_nsg_ids.chunks(page_size) {
-            let nsgs = client
-                .find_network_security_groups_by_ids(tonic::Request::new(
-                    FindNetworkSecurityGroupsByIdsRequest {
-                        tenant_organization_id: None,
-                        network_security_group_ids: nsg_ids.to_vec(),
-                    },
-                ))
+            let nsgs = self
+                .0
+                .find_network_security_groups_by_ids(FindNetworkSecurityGroupsByIdsRequest {
+                    tenant_organization_id: None,
+                    network_security_group_ids: nsg_ids.to_vec(),
+                })
                 .await
                 .map_err(CarbideCliError::ApiInvocationError)?
-                .into_inner()
                 .network_security_groups;
             all_nsgs.extend(nsgs);
         }
 
         Ok(all_nsgs)
-    })
-    .await
-}
+    }
 
-pub async fn update_network_security_group(
-    api_config: &ApiConfig<'_>,
-    id: String,
-    tenant_organization_id: String,
-    metadata: rpc::Metadata,
-    if_version_match: Option<String>,
-    rules: Vec<rpc::NetworkSecurityGroupRuleAttributes>,
-) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
-    with_forge_client(api_config, |mut client| async move {
+    pub async fn update_network_security_group(
+        &self,
+        id: String,
+        tenant_organization_id: String,
+        metadata: rpc::Metadata,
+        if_version_match: Option<String>,
+        rules: Vec<rpc::NetworkSecurityGroupRuleAttributes>,
+    ) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
         let request = UpdateNetworkSecurityGroupRequest {
             id,
             tenant_organization_id,
@@ -3420,56 +2349,43 @@ pub async fn update_network_security_group(
             network_security_group_attributes: Some(NetworkSecurityGroupAttributes { rules }),
         };
 
-        let response = client
-            .update_network_security_group(tonic::Request::new(request))
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .into_inner();
+        let response = self.0.update_network_security_group(request).await?;
 
         response
             .network_security_group
             .ok_or(CarbideCliError::Empty)
-    })
-    .await
-}
+    }
 
-pub async fn delete_network_security_group(
-    api_config: &ApiConfig<'_>,
-    id: String,
-    tenant_organization_id: String,
-) -> CarbideCliResult<()> {
-    with_forge_client(api_config, |mut client| async move {
-        client
-            .delete_network_security_group(tonic::Request::new(DeleteNetworkSecurityGroupRequest {
+    pub async fn delete_network_security_group(
+        &self,
+        id: String,
+        tenant_organization_id: String,
+    ) -> CarbideCliResult<()> {
+        self.0
+            .delete_network_security_group(DeleteNetworkSecurityGroupRequest {
                 id,
                 tenant_organization_id,
-            }))
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?;
+            })
+            .await?;
 
         Ok(())
-    })
-    .await
-}
+    }
 
-// TODO: add other hardware info
-pub async fn update_machine_hardware_info(
-    api_config: &ApiConfig<'_>,
-    id: String,
-    hardware_info_update_type: MachineHardwareInfoUpdateType,
-    gpus: Vec<::rpc::machine_discovery::Gpu>,
-) -> CarbideCliResult<()> {
-    let hardware_info = MachineHardwareInfo { gpus };
-    with_forge_client(api_config, |mut client| async move {
-        client
-            .update_machine_hardware_info(tonic::Request::new(UpdateMachineHardwareInfoRequest {
+    // TODO: add other hardware info
+    pub async fn update_machine_hardware_info(
+        &self,
+        id: String,
+        hardware_info_update_type: MachineHardwareInfoUpdateType,
+        gpus: Vec<::rpc::machine_discovery::Gpu>,
+    ) -> CarbideCliResult<()> {
+        let hardware_info = MachineHardwareInfo { gpus };
+        self.0
+            .update_machine_hardware_info(UpdateMachineHardwareInfoRequest {
                 machine_id: Some(::rpc::common::MachineId { id }),
                 info: Some(hardware_info),
                 update_type: hardware_info_update_type as i32,
-            }))
+            })
             .await
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(())
-    })
-    .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 }

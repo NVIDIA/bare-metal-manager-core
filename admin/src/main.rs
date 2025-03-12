@@ -29,11 +29,13 @@ use std::str::FromStr;
 use crate::cfg::storage::{
     OsImageActions, StorageActions, StorageClusterActions, StoragePoolActions, StorageVolumeActions,
 };
+use crate::rpc::ApiClient;
 use ::rpc::CredentialType;
 use ::rpc::Uuid;
 use ::rpc::forge as forgerpc;
 use ::rpc::forge::ConfigSetting;
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
+use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use cfg::cli_options::AgentUpgrade;
 use cfg::cli_options::AgentUpgradePolicyChoice;
@@ -173,12 +175,12 @@ async fn main() -> color_eyre::Result<()> {
     let mut client_config = ForgeClientConfig::new(forge_root_ca_path, Some(forge_client_cert));
     client_config.socks_proxy(proxy);
 
-    // api_config is created here and subsequently
+    // api_client is created here and subsequently
     // borrowed by all others.
-    let api_config = &ApiConfig::new(&url, &client_config);
+    let api_client = ApiClient(ForgeApiClient::new(&ApiConfig::new(&url, &client_config)));
 
     if let Some(CliCommand::Redfish(ra)) = config.commands {
-        return redfish::action(api_config, ra).await;
+        return redfish::action(&api_client, ra).await;
     }
 
     let command = match config.commands {
@@ -191,24 +193,24 @@ async fn main() -> color_eyre::Result<()> {
     // Command do talk to Carbide API
     match command {
         CliCommand::Version(version) => {
-            version::handle_show_version(version, config.format, api_config).await?
+            version::handle_show_version(version, config.format, &api_client).await?
         }
         CliCommand::Machine(machine) => match machine {
             Machine::Show(machine) => {
                 machine::handle_show(
                     machine,
                     config.format,
-                    api_config,
+                    &api_client,
                     config.internal_page_size,
                 )
                 .await?
             }
             Machine::Metadata(metadata_command) => match metadata_command {
                 MachineMetadataCommand::Show(cmd) => {
-                    let mut machines =
-                        rpc::get_machines_by_ids(api_config, &[cmd.machine.clone().into()])
-                            .await?
-                            .machines;
+                    let mut machines = api_client
+                        .get_machines_by_ids(&[cmd.machine.clone().into()])
+                        .await?
+                        .machines;
                     if machines.len() != 1 {
                         return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
                     }
@@ -219,13 +221,13 @@ async fn main() -> color_eyre::Result<()> {
                         .ok_or_else(|| eyre::eyre!("Machine does not carry Metadata"))?;
 
                     // TODO: Support non-json output
-                    println!("{}", serde_json::to_string_pretty(&metadata).unwrap());
+                    println!("{}", serde_json::to_string_pretty(&metadata)?);
                 }
                 MachineMetadataCommand::Set(cmd) => {
-                    let mut machines =
-                        rpc::get_machines_by_ids(api_config, &[cmd.machine.clone().into()])
-                            .await?
-                            .machines;
+                    let mut machines = api_client
+                        .get_machines_by_ids(&[cmd.machine.clone().into()])
+                        .await?
+                        .machines;
                     if machines.len() != 1 {
                         return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
                     }
@@ -241,19 +243,15 @@ async fn main() -> color_eyre::Result<()> {
                         metadata.description = description;
                     }
 
-                    rpc::update_machine_metadata(
-                        api_config,
-                        machine.id.unwrap(),
-                        metadata,
-                        machine.version,
-                    )
-                    .await?;
+                    api_client
+                        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
+                        .await?;
                 }
                 MachineMetadataCommand::FromExpectedMachine(cmd) => {
-                    let mut machines =
-                        rpc::get_machines_by_ids(api_config, &[cmd.machine.clone().into()])
-                            .await?
-                            .machines;
+                    let mut machines = api_client
+                        .get_machines_by_ids(&[cmd.machine.clone().into()])
+                        .await?
+                        .machines;
                     if machines.len() != 1 {
                         return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
                     }
@@ -274,7 +272,8 @@ async fn main() -> color_eyre::Result<()> {
                         eyre::eyre!("Machine does not carry Metadata that can be patched")
                     })?;
 
-                    let expected_machines = rpc::get_all_expected_machines(api_config)
+                    let expected_machines = api_client
+                        .get_all_expected_machines()
                         .await?
                         .expected_machines;
                     let expected_machine =
@@ -317,19 +316,15 @@ async fn main() -> color_eyre::Result<()> {
                         }
                     }
 
-                    rpc::update_machine_metadata(
-                        api_config,
-                        machine.id.unwrap(),
-                        metadata,
-                        machine.version,
-                    )
-                    .await?;
+                    api_client
+                        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
+                        .await?;
                 }
                 MachineMetadataCommand::AddLabel(cmd) => {
-                    let mut machines =
-                        rpc::get_machines_by_ids(api_config, &[cmd.machine.clone().into()])
-                            .await?
-                            .machines;
+                    let mut machines = api_client
+                        .get_machines_by_ids(&[cmd.machine.clone().into()])
+                        .await?
+                        .machines;
                     if machines.len() != 1 {
                         return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
                     }
@@ -344,19 +339,15 @@ async fn main() -> color_eyre::Result<()> {
                         value: cmd.value,
                     });
 
-                    rpc::update_machine_metadata(
-                        api_config,
-                        machine.id.unwrap(),
-                        metadata,
-                        machine.version,
-                    )
-                    .await?;
+                    api_client
+                        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
+                        .await?;
                 }
                 MachineMetadataCommand::RemoveLabels(cmd) => {
-                    let mut machines =
-                        rpc::get_machines_by_ids(api_config, &[cmd.machine.clone().into()])
-                            .await?
-                            .machines;
+                    let mut machines = api_client
+                        .get_machines_by_ids(&[cmd.machine.clone().into()])
+                        .await?
+                        .machines;
                     if machines.len() != 1 {
                         return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
                     }
@@ -370,19 +361,15 @@ async fn main() -> color_eyre::Result<()> {
                     let removed_labels: HashSet<String> = cmd.keys.into_iter().collect();
                     metadata.labels.retain(|l| !removed_labels.contains(&l.key));
 
-                    rpc::update_machine_metadata(
-                        api_config,
-                        machine.id.unwrap(),
-                        metadata,
-                        machine.version,
-                    )
-                    .await?;
+                    api_client
+                        .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
+                        .await?;
                 }
             },
             Machine::DpuSshCredentials(query) => {
-                let cred = rpc::get_dpu_ssh_credential(query.query, api_config).await?;
+                let cred = api_client.get_dpu_ssh_credential(query.query).await?;
                 if config.format == OutputFormat::Json {
-                    println!("{}", serde_json::to_string_pretty(&cred).unwrap());
+                    println!("{}", serde_json::to_string_pretty(&cred)?);
                 } else {
                     println!("{}:{}", cred.username, cred.password);
                 }
@@ -392,39 +379,40 @@ async fn main() -> color_eyre::Result<()> {
                     println!(
                         "Deprecated: Use dpu network, instead machine network. machine network will be removed in future."
                     );
-                    dpu::show_dpu_status(api_config).await?;
+                    dpu::show_dpu_status(&api_client).await?;
                 }
                 NetworkCommand::Config(query) => {
                     println!(
                         "Deprecated: Use dpu network, instead of machine network. machine network will be removed in future."
                     );
-                    let config =
-                        rpc::get_managed_host_network_config(query.machine_id, api_config).await?;
+                    let config = api_client
+                        .get_managed_host_network_config(query.machine_id)
+                        .await?;
                     println!("{config:?}");
                 }
             },
             Machine::HealthOverride(command) => {
-                machine::handle_override(command, config.format, api_config).await?;
+                machine::handle_override(command, config.format, &api_client).await?;
             }
             Machine::Reboot(c) => {
-                rpc::admin_power_control(
-                    api_config,
-                    None,
-                    Some(c.machine),
-                    ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceRestart,
-                )
-                .await?;
+                api_client
+                    .admin_power_control(
+                        None,
+                        Some(c.machine),
+                        ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceRestart,
+                    )
+                    .await?;
             }
-            Machine::ForceDelete(query) => machine::force_delete(query, api_config).await?,
-            Machine::AutoUpdate(cfg) => machine::autoupdate(cfg, api_config).await?,
+            Machine::ForceDelete(query) => machine::force_delete(query, &api_client).await?,
+            Machine::AutoUpdate(cfg) => machine::autoupdate(cfg, &api_client).await?,
             Machine::HardwareInfo(hardware_info_command) => match hardware_info_command {
                 MachineHardwareInfoCommand::Show(show_command) => {
-                    handle_show_machine_hardware_info(api_config, show_command.machine).await?
+                    handle_show_machine_hardware_info(&api_client, show_command.machine).await?
                 }
                 MachineHardwareInfoCommand::Update(capability) => match capability {
                     MachineHardwareInfo::Gpus(gpus) => {
                         // Handle the gRPC to update GPUs
-                        handle_update_machine_hardware_info_gpus(api_config, gpus).await?
+                        handle_update_machine_hardware_info_gpus(&api_client, gpus).await?
                     }
                 },
             },
@@ -434,13 +422,13 @@ async fn main() -> color_eyre::Result<()> {
                 instance::handle_show(
                     instance,
                     config.format,
-                    api_config,
+                    &api_client,
                     config.internal_page_size,
                 )
                 .await?
             }
             Instance::Reboot(reboot_request) => {
-                instance::handle_reboot(reboot_request, api_config).await?
+                instance::handle_reboot(reboot_request, &api_client).await?
             }
             Instance::Release(release_request) => {
                 if !config.cloud_unsafe_op {
@@ -461,23 +449,22 @@ async fn main() -> color_eyre::Result<()> {
                         instance_ids.push(uuid::Uuid::parse_str(&instance_id)?.into())
                     }
                     (_, Some(machine_id), _) => {
-                        let instances =
-                            rpc::get_instances_by_machine_id(api_config, machine_id).await?;
+                        let instances = api_client.get_instances_by_machine_id(machine_id).await?;
                         if instances.instances.is_empty() {
                             color_eyre::eyre::bail!("No instances assigned to that machine");
                         }
                         instance_ids.push(instances.instances[0].id.clone().unwrap());
                     }
                     (_, _, Some(key)) => {
-                        let instances = rpc::get_all_instances(
-                            api_config,
-                            None,
-                            None,
-                            Some(key),
-                            release_request.label_value,
-                            config.internal_page_size,
-                        )
-                        .await?;
+                        let instances = api_client
+                            .get_all_instances(
+                                None,
+                                None,
+                                Some(key),
+                                release_request.label_value,
+                                config.internal_page_size,
+                            )
+                            .await?;
                         if instances.instances.is_empty() {
                             color_eyre::eyre::bail!("No instances with the passed label.key exist");
                         }
@@ -489,7 +476,7 @@ async fn main() -> color_eyre::Result<()> {
                     }
                     _ => {}
                 };
-                rpc::release_instances(api_config, instance_ids).await?
+                api_client.release_instances(instance_ids).await?
             }
             Instance::Allocate(allocate_request) => {
                 if !config.cloud_unsafe_op {
@@ -499,30 +486,29 @@ async fn main() -> color_eyre::Result<()> {
                     )
                     .into());
                 }
-                let mut machine_ids: VecDeque<_> =
-                    rpc::find_machine_ids(api_config, Some(forgerpc::MachineType::Host), false)
-                        .await
-                        .unwrap()
-                        .machine_ids
-                        .into_iter()
-                        .map(|id| id.to_string())
-                        .collect();
+                let mut machine_ids: VecDeque<_> = api_client
+                    .find_machine_ids(Some(forgerpc::MachineType::Host), false)
+                    .await?
+                    .machine_ids
+                    .into_iter()
+                    .map(|id| id.to_string())
+                    .collect();
 
                 for i in 0..allocate_request.number.unwrap_or(1) {
                     let Some(hid_for_instance) =
-                        machine::get_next_free_machine(&api_config.clone(), &mut machine_ids).await
+                        machine::get_next_free_machine(&api_client.clone(), &mut machine_ids).await
                     else {
                         tracing::error!("No available machines.");
                         break;
                     };
 
-                    match rpc::allocate_instance(
-                        &api_config.clone(),
-                        &hid_for_instance,
-                        &allocate_request,
-                        &format!("{}_{}", allocate_request.prefix_name.clone(), i),
-                    )
-                    .await
+                    match api_client
+                        .allocate_instance(
+                            &hid_for_instance,
+                            &allocate_request,
+                            &format!("{}_{}", allocate_request.prefix_name.clone(), i),
+                        )
+                        .await
                     {
                         Ok(_) => {
                             tracing::info!("allocate_instance was successful. ");
@@ -539,14 +525,14 @@ async fn main() -> color_eyre::Result<()> {
                 network::handle_show(
                     network,
                     config.format,
-                    api_config,
+                    &api_client,
                     config.internal_page_size,
                 )
                 .await?
             }
         },
         CliCommand::Domain(domain) => match domain {
-            Domain::Show(domain) => domain::handle_show(domain, config.format, api_config).await?,
+            Domain::Show(domain) => domain::handle_show(domain, config.format, &api_client).await?,
         },
         CliCommand::ManagedHost(managed_host) => match managed_host {
             ManagedHost::Show(managed_host) => {
@@ -564,7 +550,7 @@ async fn main() -> color_eyre::Result<()> {
                     &mut output_file,
                     managed_host,
                     config.format,
-                    api_config,
+                    &api_client,
                     config.internal_page_size,
                 )
                 .await?
@@ -576,7 +562,7 @@ async fn main() -> color_eyre::Result<()> {
                         host_id: Some(maint_on.host.into()),
                         reference: Some(maint_on.reference),
                     };
-                    rpc::set_maintenance(req, api_config).await?;
+                    api_client.0.set_maintenance(req).await?;
                 }
                 MaintenanceAction::Off(maint_off) => {
                     let req = forgerpc::MaintenanceRequest {
@@ -584,7 +570,7 @@ async fn main() -> color_eyre::Result<()> {
                         host_id: Some(maint_off.host.into()),
                         reference: None,
                     };
-                    rpc::set_maintenance(req, api_config).await?;
+                    api_client.0.set_maintenance(req).await?;
                 }
             },
         },
@@ -593,17 +579,17 @@ async fn main() -> color_eyre::Result<()> {
                 format: config.format,
                 extended: config.extended,
             };
-            measurement::dispatch(&cmd, &args, api_config).await?
+            measurement::dispatch(&cmd, &args, &api_client).await?
         }
         CliCommand::ResourcePool(rp) => match rp {
             ResourcePool::Grow(def) => {
                 let defs = fs::read_to_string(&def.filename)?;
                 let rpc_req = forgerpc::GrowResourcePoolRequest { text: defs };
-                let _ = rpc::grow_resource_pool(rpc_req, api_config).await?;
+                let _ = api_client.0.admin_grow_resource_pool(rpc_req).await?;
                 tracing::info!("Resource Pool request sent.");
             }
             ResourcePool::List => {
-                resource_pool::list(api_config).await?;
+                resource_pool::list(&api_client).await?;
             }
         },
         CliCommand::Ip(ip_command) => match ip_command {
@@ -612,7 +598,7 @@ async fn main() -> color_eyre::Result<()> {
                     ip: find.ip.to_string(),
                 };
                 // maybe handle tonic::Status's `.code()` of tonic::Code::NotFound
-                let resp = rpc::find_ip_address(req, api_config).await?;
+                let resp = api_client.0.find_ip_address(req).await?;
                 for r in resp.matches {
                     tracing::info!("{}", r.message);
                 }
@@ -626,7 +612,7 @@ async fn main() -> color_eyre::Result<()> {
         },
         CliCommand::NetworkDevice(data) => match data {
             cfg::cli_options::NetworkDeviceAction::Show(args) => {
-                network_devices::show(config.format, args, api_config).await?;
+                network_devices::show(config.format, args, &api_client).await?;
             }
         },
         CliCommand::Dpu(dpu_action) => match dpu_action {
@@ -636,7 +622,7 @@ async fn main() -> color_eyre::Result<()> {
                         data.id,
                         Mode::Set,
                         data.update_firmware,
-                        api_config,
+                        &api_client,
                         data.maintenance_reference,
                     )
                     .await?
@@ -646,18 +632,18 @@ async fn main() -> color_eyre::Result<()> {
                         data.id,
                         Mode::Clear,
                         data.update_firmware,
-                        api_config,
+                        &api_client,
                         None,
                     )
                     .await?
                 }
-                DpuReprovision::List => dpu::list_dpus_pending(api_config).await?,
+                DpuReprovision::List => dpu::list_dpus_pending(&api_client).await?,
                 DpuReprovision::Restart(data) => {
                     dpu::trigger_reprovisioning(
                         data.id,
                         Mode::Restart,
                         data.update_firmware,
-                        api_config,
+                        &api_client,
                         None,
                     )
                     .await?
@@ -669,7 +655,7 @@ async fn main() -> color_eyre::Result<()> {
                     AgentUpgradePolicyChoice::UpOnly => forgerpc::AgentUpgradePolicy::UpOnly,
                     AgentUpgradePolicyChoice::UpDown => forgerpc::AgentUpgradePolicy::UpDown,
                 });
-                dpu::handle_agent_upgrade_policy(api_config, rpc_choice).await?
+                dpu::handle_agent_upgrade_policy(&api_client, rpc_choice).await?
             }
             Versions(options) => {
                 let mut output_file = if let Some(filename) = config.output {
@@ -686,7 +672,7 @@ async fn main() -> color_eyre::Result<()> {
                 dpu::handle_dpu_versions(
                     &mut output_file,
                     config.format,
-                    api_config,
+                    &api_client,
                     options.updates_only,
                     config.internal_page_size,
                 )
@@ -707,7 +693,7 @@ async fn main() -> color_eyre::Result<()> {
                 dpu::handle_dpu_status(
                     &mut output_file,
                     config.format,
-                    api_config,
+                    &api_client,
                     config.internal_page_size,
                 )
                 .await?
@@ -715,20 +701,20 @@ async fn main() -> color_eyre::Result<()> {
 
             DpuAction::Network(network) => match network {
                 NetworkCommand::Config(query) => {
-                    dpu::show_dpu_network_config(api_config, query.machine_id, config.format)
+                    dpu::show_dpu_network_config(&api_client, query.machine_id, config.format)
                         .await?;
                 }
                 NetworkCommand::Status => {
-                    dpu::show_dpu_status(api_config).await?;
+                    dpu::show_dpu_status(&api_client).await?;
                 }
             },
         },
         CliCommand::Host(host_action) => match host_action {
             HostAction::SetUefiPassword(query) => {
-                uefi::set_host_uefi_password(query, api_config).await?;
+                uefi::set_host_uefi_password(query, &api_client).await?;
             }
             HostAction::ClearUefiPassword(query) => {
-                uefi::clear_host_uefi_password(query, api_config).await?;
+                uefi::clear_host_uefi_password(query, &api_client).await?;
             }
             HostAction::GenerateHostUefiPassword => {
                 let password = Credentials::generate_password_no_special_char();
@@ -739,7 +725,7 @@ async fn main() -> color_eyre::Result<()> {
                     host::trigger_reprovisioning(
                         data.id,
                         ::rpc::forge::host_reprovisioning_request::Mode::Set,
-                        api_config,
+                        &api_client,
                         data.maintenance_reference,
                     )
                     .await?
@@ -748,12 +734,12 @@ async fn main() -> color_eyre::Result<()> {
                     host::trigger_reprovisioning(
                         data.id,
                         ::rpc::forge::host_reprovisioning_request::Mode::Clear,
-                        api_config,
+                        &api_client,
                         None,
                     )
                     .await?
                 }
-                HostReprovision::List => host::list_hosts_pending(api_config).await?,
+                HostReprovision::List => host::list_hosts_pending(&api_client).await?,
             },
         },
         CliCommand::Redfish(_) => {
@@ -762,13 +748,12 @@ async fn main() -> color_eyre::Result<()> {
         }
         CliCommand::BootOverride(boot_override_args) => match boot_override_args {
             BootOverrideAction::Get(boot_override) => {
-                let mbo = rpc::get_boot_override(
-                    api_config,
-                    Uuid {
+                let mbo = api_client
+                    .0
+                    .get_machine_boot_override(Uuid {
                         value: boot_override.interface_id,
-                    },
-                )
-                .await?;
+                    })
+                    .await?;
 
                 tracing::info!(
                     "{}",
@@ -789,37 +774,39 @@ async fn main() -> color_eyre::Result<()> {
                 let custom_pxe_path = boot_override_set.custom_pxe.map(PathBuf::from);
                 let custom_user_data_path = boot_override_set.custom_user_data.map(PathBuf::from);
 
-                rpc::set_boot_override(
-                    api_config,
-                    Uuid {
-                        value: boot_override_set.interface_id,
-                    },
-                    custom_pxe_path.as_deref(),
-                    custom_user_data_path.as_deref(),
-                )
-                .await?;
+                api_client
+                    .set_boot_override(
+                        Uuid {
+                            value: boot_override_set.interface_id,
+                        },
+                        custom_pxe_path.as_deref(),
+                        custom_user_data_path.as_deref(),
+                    )
+                    .await?;
             }
             BootOverrideAction::Clear(boot_override) => {
-                rpc::clear_boot_override(
-                    api_config,
-                    Uuid {
+                api_client
+                    .0
+                    .clear_machine_boot_override(Uuid {
                         value: boot_override.interface_id,
-                    },
-                )
-                .await?;
+                    })
+                    .await?;
             }
         },
         CliCommand::BmcMachine(bmc_machine) => match bmc_machine {
             BmcAction::BmcReset(args) => {
-                rpc::bmc_reset(api_config, None, Some(args.machine), args.use_ipmitool).await?;
+                api_client
+                    .bmc_reset(None, Some(args.machine), args.use_ipmitool)
+                    .await?;
             }
             BmcAction::AdminPowerControl(args) => {
-                rpc::admin_power_control(api_config, None, Some(args.machine), args.action.into())
+                api_client
+                    .admin_power_control(None, Some(args.machine), args.action.into())
                     .await?;
             }
         },
         CliCommand::Inventory(action) => {
-            inventory::print_inventory(api_config, action, config.internal_page_size).await?
+            inventory::print_inventory(&api_client, action, config.internal_page_size).await?
         }
         CliCommand::Credential(credential_action) => match credential_action {
             CredentialAction::AddUFM(c) => {
@@ -832,7 +819,7 @@ async fn main() -> color_eyre::Result<()> {
                     mac_address: None,
                     vendor: None,
                 };
-                rpc::add_credential(api_config, req).await?;
+                api_client.0.create_credential(req).await?;
             }
             CredentialAction::DeleteUFM(c) => {
                 let username = url_validator(c.url.clone()).await?;
@@ -841,7 +828,7 @@ async fn main() -> color_eyre::Result<()> {
                     username: Some(username),
                     mac_address: None,
                 };
-                rpc::delete_credential(api_config, req).await?;
+                api_client.0.delete_credential(req).await?;
             }
             CredentialAction::GenerateUFMCert(c) => {
                 let req = forgerpc::CredentialCreationRequest {
@@ -851,7 +838,7 @@ async fn main() -> color_eyre::Result<()> {
                     mac_address: None,
                     vendor: Some(c.fabric),
                 };
-                rpc::add_credential(api_config, req).await?;
+                api_client.0.create_credential(req).await?;
             }
             CredentialAction::AddBMC(c) => {
                 let password = password_validator(c.password.clone()).await?;
@@ -862,7 +849,7 @@ async fn main() -> color_eyre::Result<()> {
                     mac_address: c.mac_address.map(|mac| mac.to_string()),
                     vendor: None,
                 };
-                rpc::add_credential(api_config, req).await?;
+                api_client.0.create_credential(req).await?;
             }
             CredentialAction::DeleteBMC(c) => {
                 let req = forgerpc::CredentialDeletionRequest {
@@ -870,7 +857,7 @@ async fn main() -> color_eyre::Result<()> {
                     username: None,
                     mac_address: c.mac_address.map(|mac| mac.to_string()),
                 };
-                rpc::delete_credential(api_config, req).await?;
+                api_client.0.delete_credential(req).await?;
             }
             CredentialAction::AddUefi(c) => {
                 let mut password = password_validator(c.password.clone()).await?;
@@ -885,7 +872,7 @@ async fn main() -> color_eyre::Result<()> {
                     mac_address: None,
                     vendor: None,
                 };
-                rpc::add_credential(api_config, req).await?;
+                api_client.0.create_credential(req).await?;
             }
             CredentialAction::AddHostFactoryDefault(c) => {
                 let req = forgerpc::CredentialCreationRequest {
@@ -895,7 +882,7 @@ async fn main() -> color_eyre::Result<()> {
                     mac_address: None,
                     vendor: Some(c.vendor.to_string()),
                 };
-                rpc::add_credential(api_config, req).await?;
+                api_client.0.create_credential(req).await?;
             }
             CredentialAction::AddDpuFactoryDefault(c) => {
                 let req = forgerpc::CredentialCreationRequest {
@@ -905,25 +892,25 @@ async fn main() -> color_eyre::Result<()> {
                     mac_address: None,
                     vendor: None,
                 };
-                rpc::add_credential(api_config, req).await?;
+                api_client.0.create_credential(req).await?;
             }
         },
         CliCommand::RouteServer(action) => match action {
             RouteServer::Get => {
-                let route_servers = rpc::get_route_servers(api_config).await?;
+                let route_servers = api_client.get_route_servers().await?;
                 println!("{}", serde_json::to_string(&route_servers)?);
             }
             RouteServer::Add(ip) => {
-                rpc::add_route_server(api_config, ip.ip).await?;
+                api_client.add_route_server(ip.ip).await?;
             }
             RouteServer::Remove(ip) => {
-                rpc::remove_route_server(api_config, ip.ip).await?;
+                api_client.remove_route_server(ip.ip).await?;
             }
         },
         CliCommand::SiteExplorer(action) => match action {
             SiteExplorer::GetReport(mode) => {
                 show_site_explorer_discovered_managed_host(
-                    api_config,
+                    &api_client,
                     config.format,
                     config.internal_page_size,
                     mode,
@@ -931,36 +918,40 @@ async fn main() -> color_eyre::Result<()> {
                 .await?;
             }
             SiteExplorer::Explore(opts) => {
-                let report = rpc::explore(api_config, &opts.address, opts.mac).await?;
+                let report = api_client.explore(&opts.address, opts.mac).await?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
             }
             SiteExplorer::ReExplore(opts) => {
-                rpc::re_explore_endpoint(api_config, &opts.address).await?;
+                api_client.re_explore_endpoint(&opts.address).await?;
             }
             SiteExplorer::ClearError(opts) => {
-                rpc::clear_site_explorer_last_known_error(api_config, opts.address).await?;
+                api_client
+                    .clear_site_explorer_last_known_error(opts.address)
+                    .await?;
             }
             SiteExplorer::IsBmcInManagedHost(opts) => {
-                let is_bmc_in_managed_host =
-                    rpc::is_bmc_in_managed_host(api_config, &opts.address, opts.mac).await?;
+                let is_bmc_in_managed_host = api_client
+                    .is_bmc_in_managed_host(&opts.address, opts.mac)
+                    .await?;
                 println!(
                     "Is {} in a managed host?: {}",
                     opts.address, is_bmc_in_managed_host.in_managed_host
                 );
             }
             SiteExplorer::HaveCredentials(opts) => {
-                let have_credentials =
-                    rpc::bmc_credential_status(api_config, &opts.address, opts.mac).await?;
+                let have_credentials = api_client
+                    .bmc_credential_status(&opts.address, opts.mac)
+                    .await?;
                 println!("{}", have_credentials.have_credentials);
             }
         },
         CliCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {
             MachineInterfaces::Show(machine_interfaces) => {
-                machine_interfaces::handle_show(machine_interfaces, config.format, api_config)
+                machine_interfaces::handle_show(machine_interfaces, config.format, &api_client)
                     .await?
             }
             MachineInterfaces::Delete(args) => {
-                machine_interfaces::handle_delete(args, api_config).await?
+                machine_interfaces::handle_delete(args, &api_client).await?
             }
         },
         CliCommand::GenerateShellComplete(shell) => {
@@ -996,43 +987,35 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         }
-        CliCommand::Ping(opts) => ping::ping(api_config, opts).await?,
+        CliCommand::Ping(opts) => ping::ping(&api_client, opts).await?,
         CliCommand::Set(subcmd) => match subcmd {
             SetAction::LogFilter(opts) => {
-                rpc::set_dynamic_config(
-                    api_config,
-                    ConfigSetting::LogFilter,
-                    opts.filter,
-                    Some(opts.expiry),
-                )
-                .await?
+                api_client
+                    .set_dynamic_config(ConfigSetting::LogFilter, opts.filter, Some(opts.expiry))
+                    .await?
             }
             SetAction::CreateMachines(opts) => {
-                rpc::set_dynamic_config(
-                    api_config,
-                    ConfigSetting::CreateMachines,
-                    opts.enabled.to_string(),
-                    None,
-                )
-                .await?
+                api_client
+                    .set_dynamic_config(
+                        ConfigSetting::CreateMachines,
+                        opts.enabled.to_string(),
+                        None,
+                    )
+                    .await?
             }
             SetAction::BmcProxy(opts) => {
                 if opts.enabled {
-                    rpc::set_dynamic_config(
-                        api_config,
-                        ConfigSetting::BmcProxy,
-                        opts.proxy.unwrap_or("".to_string()),
-                        None,
-                    )
-                    .await?
+                    api_client
+                        .set_dynamic_config(
+                            ConfigSetting::BmcProxy,
+                            opts.proxy.unwrap_or("".to_string()),
+                            None,
+                        )
+                        .await?
                 } else {
-                    rpc::set_dynamic_config(
-                        api_config,
-                        ConfigSetting::BmcProxy,
-                        "".to_string(),
-                        None,
-                    )
-                    .await?
+                    api_client
+                        .set_dynamic_config(ConfigSetting::BmcProxy, "".to_string(), None)
+                        .await?
                 }
             }
         },
@@ -1040,7 +1023,7 @@ async fn main() -> color_eyre::Result<()> {
             cfg::cli_options::ExpectedMachineAction::Show(expected_machine_query) => {
                 expected_machines::show_expected_machines(
                     &expected_machine_query,
-                    api_config,
+                    &api_client,
                     config.format,
                 )
                 .await?;
@@ -1051,19 +1034,20 @@ async fn main() -> color_eyre::Result<()> {
                     return Ok(());
                 }
                 let metadata = expected_machine_data.metadata()?;
-                rpc::add_expected_machine(
-                    expected_machine_data.bmc_mac_address,
-                    expected_machine_data.bmc_username,
-                    expected_machine_data.bmc_password,
-                    expected_machine_data.chassis_serial_number,
-                    expected_machine_data.fallback_dpu_serial_numbers,
-                    metadata,
-                    api_config,
-                )
-                .await?;
+                api_client
+                    .add_expected_machine(
+                        expected_machine_data.bmc_mac_address,
+                        expected_machine_data.bmc_username,
+                        expected_machine_data.bmc_password,
+                        expected_machine_data.chassis_serial_number,
+                        expected_machine_data.fallback_dpu_serial_numbers,
+                        metadata,
+                    )
+                    .await?;
             }
             cfg::cli_options::ExpectedMachineAction::Delete(expected_machine_query) => {
-                rpc::delete_expected_machine(expected_machine_query.bmc_mac_address, api_config)
+                api_client
+                    .delete_expected_machine(expected_machine_query.bmc_mac_address)
                     .await?;
             }
             cfg::cli_options::ExpectedMachineAction::Update(expected_machine_data) => {
@@ -1072,16 +1056,16 @@ async fn main() -> color_eyre::Result<()> {
                     return Ok(());
                 }
                 let metadata = expected_machine_data.metadata()?;
-                rpc::update_expected_machine(
-                    expected_machine_data.bmc_mac_address,
-                    expected_machine_data.bmc_username,
-                    expected_machine_data.bmc_password,
-                    expected_machine_data.chassis_serial_number,
-                    expected_machine_data.fallback_dpu_serial_numbers,
-                    metadata,
-                    api_config,
-                )
-                .await?;
+                api_client
+                    .update_expected_machine(
+                        expected_machine_data.bmc_mac_address,
+                        expected_machine_data.bmc_username,
+                        expected_machine_data.bmc_password,
+                        expected_machine_data.chassis_serial_number,
+                        expected_machine_data.fallback_dpu_serial_numbers,
+                        metadata,
+                    )
+                    .await?;
             }
             cfg::cli_options::ExpectedMachineAction::ReplaceAll(request) => {
                 let json_file_path = Path::new(&request.filename);
@@ -1107,48 +1091,51 @@ async fn main() -> color_eyre::Result<()> {
                     .into());
                 }
 
-                rpc::replace_all_expected_machines(
-                    expected_machine_list.expected_machines,
-                    api_config,
-                )
-                .await?;
+                api_client
+                    .replace_all_expected_machines(expected_machine_list.expected_machines)
+                    .await?;
             }
             cfg::cli_options::ExpectedMachineAction::Erase => {
-                rpc::delete_all_expected_machines(api_config).await?;
+                api_client.delete_all_expected_machines().await?;
             }
         },
         CliCommand::Vpc(vpc) => match vpc {
             VpcOptions::Show(vpc) => {
-                vpc::handle_show(vpc, config.format, api_config, config.internal_page_size).await?
+                vpc::handle_show(vpc, config.format, &api_client, config.internal_page_size).await?
             }
             VpcOptions::SetVirtualizer(set_vpc_virt) => {
-                vpc::set_network_virtualization_type(api_config, set_vpc_virt).await?
+                vpc::set_network_virtualization_type(&api_client, set_vpc_virt).await?
             }
         },
         CliCommand::VpcPrefix(vpc_prefix_command) => {
             use VpcPrefixOptions::*;
             match vpc_prefix_command {
                 Create(create_options) => {
-                    vpc_prefix::handle_create(create_options, config.format, api_config).await?
+                    vpc_prefix::handle_create(create_options, config.format, &api_client).await?
                 }
                 Show(show_options) => {
                     vpc_prefix::handle_show(
                         show_options,
                         config.format,
-                        api_config,
+                        &api_client,
                         config.internal_page_size,
                     )
                     .await?
                 }
                 Delete(delete_options) => {
-                    vpc_prefix::handle_delete(delete_options, api_config).await?
+                    vpc_prefix::handle_delete(delete_options, &api_client).await?
                 }
             }
         }
         CliCommand::IbPartition(ibp) => match ibp {
             IbPartitionOptions::Show(ibp) => {
-                ib_partition::handle_show(ibp, config.format, api_config, config.internal_page_size)
-                    .await?
+                ib_partition::handle_show(
+                    ibp,
+                    config.format,
+                    &api_client,
+                    config.internal_page_size,
+                )
+                .await?
             }
         },
         CliCommand::TenantKeySet(tks) => match tks {
@@ -1156,7 +1143,7 @@ async fn main() -> color_eyre::Result<()> {
                 tenant_keyset::handle_show(
                     tks,
                     config.format,
-                    api_config,
+                    &api_client,
                     config.internal_page_size,
                 )
                 .await?
@@ -1176,7 +1163,7 @@ async fn main() -> color_eyre::Result<()> {
                         history_count: 5,
                     },
                     config.format,
-                    api_config,
+                    &api_client,
                     config.internal_page_size,
                 )
                 .await?;
@@ -1188,7 +1175,7 @@ async fn main() -> color_eyre::Result<()> {
             if IpAddr::from_str(&j.id).is_ok() {
                 let req = forgerpc::FindIpAddressRequest { ip: j.id };
 
-                let resp = rpc::find_ip_address(req, api_config).await?;
+                let resp = api_client.0.find_ip_address(req).await?;
 
                 // Go through each object that matched the IP search,
                 // and perform any more specific searches available for
@@ -1222,7 +1209,7 @@ async fn main() -> color_eyre::Result<()> {
                                     label_value: None,
                                 },
                                 config_format,
-                                api_config,
+                                &api_client,
                                 config.internal_page_size,
                             )
                             .await?
@@ -1240,7 +1227,7 @@ async fn main() -> color_eyre::Result<()> {
                                     history_count: 5
                                 },
                                 config_format,
-                                api_config,
+                                &api_client,
                                 config.internal_page_size,
                             )
                             .await?;
@@ -1248,7 +1235,7 @@ async fn main() -> color_eyre::Result<()> {
 
                         ExploredEndpoint => {
                             site_explorer::show_site_explorer_discovered_managed_host(
-                                api_config,
+                                &api_client,
                                 config_format,
                                 config.internal_page_size,
                                 cfg::cli_options::GetReportMode::Endpoint(cfg::cli_options::EndpointInfo{
@@ -1274,12 +1261,12 @@ async fn main() -> color_eyre::Result<()> {
                                     name: None,
                                 },
                                 config_format,
-                                api_config,
+                                &api_client,
                                 config.internal_page_size,
                             )
                             .await?
                         }
-                        ResourcePool => resource_pool::list(api_config).await?,
+                        ResourcePool => resource_pool::list(&api_client).await?,
                     };
                 }
 
@@ -1291,7 +1278,7 @@ async fn main() -> color_eyre::Result<()> {
             // a search for the object's details.  E.g., if it's the
             // UUID of an instance, then get the details of the instance.
             if let Ok(u) = j.id.parse::<uuid::Uuid>() {
-                match rpc::identify_uuid(api_config, u).await {
+                match api_client.identify_uuid(u).await {
                     Ok(o) => match o {
                         forgerpc::UuidType::NetworkSegment => {
                             network::handle_show(
@@ -1301,7 +1288,7 @@ async fn main() -> color_eyre::Result<()> {
                                     name: None,
                                 },
                                 config.format,
-                                api_config,
+                                &api_client,
                                 config.internal_page_size,
                             )
                             .await?
@@ -1317,7 +1304,7 @@ async fn main() -> color_eyre::Result<()> {
                                     label_value: None,
                                 },
                                 config.format,
-                                api_config,
+                                &api_client,
                                 config.internal_page_size,
                             )
                             .await?
@@ -1330,7 +1317,7 @@ async fn main() -> color_eyre::Result<()> {
                                     more: true,
                                 },
                                 config.format,
-                                api_config,
+                                &api_client,
                             )
                             .await?
                         }
@@ -1344,7 +1331,7 @@ async fn main() -> color_eyre::Result<()> {
                                     label_value: None,
                                 },
                                 config.format,
-                                api_config,
+                                &api_client,
                                 1,
                             )
                             .await?
@@ -1356,7 +1343,7 @@ async fn main() -> color_eyre::Result<()> {
                                     all: false,
                                 },
                                 config.format,
-                                api_config,
+                                &api_client,
                             )
                             .await?
                         }
@@ -1372,7 +1359,7 @@ async fn main() -> color_eyre::Result<()> {
             // Is it a MAC?
             // Grab the details for the interface it's associated with.
             if let Ok(m) = MacAddress::from_str(&j.id) {
-                match rpc::identify_mac(api_config, m).await {
+                match api_client.identify_mac(m).await {
                     Ok((mac_owner, mac_type)) => match mac_owner {
                         forgerpc::MacOwner::MachineInterface => {
                             machine_interfaces::handle_show(
@@ -1382,7 +1369,7 @@ async fn main() -> color_eyre::Result<()> {
                                     more: true,
                                 },
                                 config.format,
-                                api_config,
+                                &api_client,
                             )
                             .await?
                         }
@@ -1407,7 +1394,7 @@ async fn main() -> color_eyre::Result<()> {
 
             // Is it a serial number?!??!?!
             // Grab the machine ID and look-up the machine.
-            if let Ok(machine_id) = rpc::identify_serial(api_config, j.id).await {
+            if let Ok(machine_id) = api_client.identify_serial(j.id).await {
                 machine::handle_show(
                     cfg::cli_options::ShowMachine {
                         machine: machine_id.to_string(),
@@ -1418,7 +1405,7 @@ async fn main() -> color_eyre::Result<()> {
                         history_count: 5,
                     },
                     config.format,
-                    api_config,
+                    &api_client,
                     config.internal_page_size,
                 )
                 .await?;
@@ -1435,7 +1422,7 @@ async fn main() -> color_eyre::Result<()> {
                 match config_command {
                     cfg::cli_options::MachineValidationExternalConfigCommand::Show(opts) => {
                         machine_validation::external_config_show(
-                            api_config,
+                            &api_client,
                             opts.name,
                             config.extended,
                             config.format,
@@ -1444,7 +1431,7 @@ async fn main() -> color_eyre::Result<()> {
                     }
                     cfg::cli_options::MachineValidationExternalConfigCommand::AddUpdate(opts) => {
                         machine_validation::external_config_add_update(
-                            api_config,
+                            &api_client,
                             opts.name,
                             opts.file_name,
                             opts.description,
@@ -1452,7 +1439,7 @@ async fn main() -> color_eyre::Result<()> {
                         .await?;
                     }
                     cfg::cli_options::MachineValidationExternalConfigCommand::Remove(opts) => {
-                        machine_validation::remove_external_config(api_config, opts.name).await?;
+                        machine_validation::remove_external_config(&api_client, opts.name).await?;
                     }
                 }
             }
@@ -1461,7 +1448,7 @@ async fn main() -> color_eyre::Result<()> {
                     machine_validation::handle_results_show(
                         options,
                         config.format,
-                        api_config,
+                        &api_client,
                         config.internal_page_size,
                         config.extended,
                     )
@@ -1473,7 +1460,7 @@ async fn main() -> color_eyre::Result<()> {
                     machine_validation::handle_runs_show(
                         options,
                         config.format,
-                        api_config,
+                        &api_client,
                         config.internal_page_size,
                     )
                     .await?;
@@ -1482,7 +1469,7 @@ async fn main() -> color_eyre::Result<()> {
             cfg::cli_options::MachineValidationCommand::OnDemand(on_demand_command) => {
                 match on_demand_command {
                     cfg::cli_options::MachineValidationOnDemandCommand::Start(options) => {
-                        machine_validation::on_demand_machine_validation(api_config, options)
+                        machine_validation::on_demand_machine_validation(&api_client, options)
                             .await?;
                     }
                 }
@@ -1491,7 +1478,7 @@ async fn main() -> color_eyre::Result<()> {
                 match *machine_validation_tests_command {
                     cfg::cli_options::MachineValidationTestsCommand::Show(options) => {
                         machine_validation::show_tests(
-                            api_config,
+                            &api_client,
                             options,
                             config.format,
                             config.extended,
@@ -1499,23 +1486,23 @@ async fn main() -> color_eyre::Result<()> {
                         .await?;
                     }
                     cfg::cli_options::MachineValidationTestsCommand::Verify(options) => {
-                        machine_validation::machine_validation_test_verfied(api_config, options)
+                        machine_validation::machine_validation_test_verfied(&api_client, options)
                             .await?;
                     }
                     cfg::cli_options::MachineValidationTestsCommand::Enable(options) => {
-                        machine_validation::machine_validation_test_enable(api_config, options)
+                        machine_validation::machine_validation_test_enable(&api_client, options)
                             .await?;
                     }
                     cfg::cli_options::MachineValidationTestsCommand::Disable(options) => {
-                        machine_validation::machine_validation_test_disable(api_config, options)
+                        machine_validation::machine_validation_test_disable(&api_client, options)
                             .await?;
                     }
                     cfg::cli_options::MachineValidationTestsCommand::Add(options) => {
-                        machine_validation::machine_validation_test_add(api_config, options)
+                        machine_validation::machine_validation_test_add(&api_client, options)
                             .await?;
                     }
                     cfg::cli_options::MachineValidationTestsCommand::Update(options) => {
-                        machine_validation::machine_validation_test_update(api_config, options)
+                        machine_validation::machine_validation_test_update(&api_client, options)
                             .await?;
                     }
                 }
@@ -1527,19 +1514,19 @@ async fn main() -> color_eyre::Result<()> {
                     storage::cluster_show(
                         storage_cluster,
                         config.format,
-                        api_config,
+                        &api_client,
                         config.internal_page_size,
                     )
                     .await?
                 }
                 StorageClusterActions::Import(storage_cluster) => {
-                    storage::cluster_import(storage_cluster, api_config).await?
+                    storage::cluster_import(storage_cluster, &api_client).await?
                 }
                 StorageClusterActions::Delete(storage_cluster) => {
-                    storage::cluster_delete(storage_cluster, api_config).await?
+                    storage::cluster_delete(storage_cluster, &api_client).await?
                 }
                 StorageClusterActions::Update(storage_cluster) => {
-                    storage::cluster_update(storage_cluster, api_config).await?
+                    storage::cluster_update(storage_cluster, &api_client).await?
                 }
             },
             StorageActions::Pool(storage_pool) => match storage_pool {
@@ -1547,19 +1534,19 @@ async fn main() -> color_eyre::Result<()> {
                     storage::pool_show(
                         storage_pool,
                         config.format,
-                        api_config,
+                        &api_client,
                         config.internal_page_size,
                     )
                     .await?
                 }
                 StoragePoolActions::Create(storage_pool) => {
-                    storage::pool_create(storage_pool, api_config).await?
+                    storage::pool_create(storage_pool, &api_client).await?
                 }
                 StoragePoolActions::Delete(storage_pool) => {
-                    storage::pool_delete(storage_pool, api_config).await?
+                    storage::pool_delete(storage_pool, &api_client).await?
                 }
                 StoragePoolActions::Update(storage_pool) => {
-                    storage::pool_update(storage_pool, api_config).await?
+                    storage::pool_update(storage_pool, &api_client).await?
                 }
             },
             StorageActions::Volume(storage_volume) => match storage_volume {
@@ -1567,19 +1554,19 @@ async fn main() -> color_eyre::Result<()> {
                     storage::volume_show(
                         storage_volume,
                         config.format,
-                        api_config,
+                        &api_client,
                         config.internal_page_size,
                     )
                     .await?
                 }
                 StorageVolumeActions::Create(storage_volume) => {
-                    storage::volume_create(storage_volume, api_config).await?
+                    storage::volume_create(storage_volume, &api_client).await?
                 }
                 StorageVolumeActions::Delete(storage_volume) => {
-                    storage::volume_delete(storage_volume, api_config).await?
+                    storage::volume_delete(storage_volume, &api_client).await?
                 }
                 StorageVolumeActions::Update(storage_volume) => {
-                    storage::volume_update(storage_volume, api_config).await?
+                    storage::volume_update(storage_volume, &api_client).await?
                 }
             },
         },
@@ -1588,62 +1575,62 @@ async fn main() -> color_eyre::Result<()> {
                 storage::os_image_show(
                     os_image,
                     config.format,
-                    api_config,
+                    &api_client,
                     config.internal_page_size,
                 )
                 .await?
             }
             OsImageActions::Create(os_image) => {
-                storage::os_image_create(os_image, api_config).await?
+                storage::os_image_create(os_image, &api_client).await?
             }
             OsImageActions::Delete(os_image) => {
-                storage::os_image_delete(os_image, api_config).await?
+                storage::os_image_delete(os_image, &api_client).await?
             }
             OsImageActions::Update(os_image) => {
-                storage::os_image_update(os_image, api_config).await?
+                storage::os_image_update(os_image, &api_client).await?
             }
         },
         CliCommand::TpmCa(subcmd) => match subcmd {
-            TpmCa::Show => tpm::show_ca_certs(api_config).await?,
+            TpmCa::Show => tpm::show_ca_certs(&api_client).await?,
             TpmCa::Delete(delete_opts) => {
-                tpm::delete_ca_cert(delete_opts.ca_id, api_config).await?
+                tpm::delete_ca_cert(delete_opts.ca_id, &api_client).await?
             }
             TpmCa::Add(add_opts) => {
-                tpm::add_ca_cert_filename(&add_opts.filename, api_config).await?
+                tpm::add_ca_cert_filename(&add_opts.filename, &api_client).await?
             }
             TpmCa::AddBulk(add_opts) => {
-                tpm::add_ca_cert_bulk(&add_opts.dirname, api_config).await?
+                tpm::add_ca_cert_bulk(&add_opts.dirname, &api_client).await?
             }
-            TpmCa::ShowUnmatchedEk => tpm::show_unmatched_ek_certs(api_config).await?,
+            TpmCa::ShowUnmatchedEk => tpm::show_unmatched_ek_certs(&api_client).await?,
         },
         CliCommand::NetworkSecurityGroup(nsg_action) => match nsg_action {
             NetworkSecurityGroupActions::Create(args) => {
-                network_security_group::nsg_create(args, config.format, api_config).await?
+                network_security_group::nsg_create(args, config.format, &api_client).await?
             }
             NetworkSecurityGroupActions::Show(args) => {
                 network_security_group::nsg_show(
                     args,
                     config.format,
-                    api_config,
+                    &api_client,
                     config.internal_page_size,
                 )
                 .await?
             }
             NetworkSecurityGroupActions::Update(args) => {
-                network_security_group::nsg_update(args, config.format, api_config).await?
+                network_security_group::nsg_update(args, config.format, &api_client).await?
             }
             NetworkSecurityGroupActions::Delete(args) => {
-                network_security_group::nsg_delete(args, api_config).await?
+                network_security_group::nsg_delete(args, &api_client).await?
             }
             NetworkSecurityGroupActions::ShowAttachments(args) => {
-                network_security_group::nsg_show_attachments(args, config.format, api_config)
+                network_security_group::nsg_show_attachments(args, config.format, &api_client)
                     .await?
             }
             NetworkSecurityGroupActions::Attach(args) => {
-                network_security_group::nsg_attach(args, api_config).await?
+                network_security_group::nsg_attach(args, &api_client).await?
             }
             NetworkSecurityGroupActions::Detach(args) => {
-                network_security_group::nsg_detach(args, api_config).await?
+                network_security_group::nsg_detach(args, &api_client).await?
             }
         },
         CliCommand::Sku(sku_command) => {
@@ -1658,7 +1645,7 @@ async fn main() -> color_eyre::Result<()> {
                 Box::new(std::io::stdout()) as Box<dyn std::io::Write>
             };
 
-            sku::handle_sku_command(api_config, &mut output_file, &config.format, sku_command)
+            sku::handle_sku_command(&api_client, &mut output_file, &config.format, sku_command)
                 .await?;
         }
     }
