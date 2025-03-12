@@ -37,3 +37,9 @@ health-report = { path = "../common/health-report" }
 
 [build-dependencies]
 tonic-build = "0.12"
+quote = "1.0.40"
+syn = "2.0.100"
+prettyplease = "0.2.30"
+heck = "0.5.0"
+prost-types = "0.13.5"
+lazy_static = "1.5.0"
