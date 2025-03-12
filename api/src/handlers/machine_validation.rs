@@ -12,9 +12,9 @@
 use crate::{
     CarbideError,
     api::{Api, log_machine_id, log_request_data},
-    db,
+    cfg::file::{MachineValidationConfig, MachineValidationTestSelectionMode},
     db::{
-        DatabaseError,
+        self, DatabaseError,
         machine::MachineSearchConfig,
         machine_validation::{
             MachineValidation, MachineValidationResult, MachineValidationState,
@@ -818,7 +818,7 @@ pub(crate) async fn machine_validation_test_enable_disable_test(
         },
     )
     .await?;
-    let _ = machine_validation_suites::MachineValidationTest::enabled_diable(
+    let _ = machine_validation_suites::MachineValidationTest::enable_disable(
         &mut txn,
         req.test_id,
         existing[0].version,
@@ -886,4 +886,124 @@ pub(crate) async fn update_machine_validation_run(
     Ok(tonic::Response::new(rpc::MachineValidationRunResponse {
         message: "Success".to_string(),
     }))
+}
+
+pub async fn apply_config_on_startup(
+    api: &Api,
+    config: &MachineValidationConfig,
+) -> Result<(), CarbideError> {
+    let mut txn =
+        api.database_connection.begin().await.map_err(|e| {
+            DatabaseError::new(file!(), line!(), "begin apply_config_on_startup", e)
+        })?;
+
+    // Get all tests from DB
+    let tests = machine_validation_suites::MachineValidationTest::find(
+        &mut txn,
+        rpc::MachineValidationTestsGetRequest::default(),
+    )
+    .await?;
+
+    // Create a set of test IDs from config for efficient lookup
+    let config_test_ids: std::collections::HashSet<_> =
+        config.tests.iter().map(|t| &t.id).collect();
+
+    match config.test_selection_mode {
+        // Only update tests specified in tests config
+        MachineValidationTestSelectionMode::Default => {
+            // Only update tests specified in config
+            for test_config in &config.tests {
+                if let Some(test) = tests.iter().find(|t| t.test_id == test_config.id) {
+                    tracing::info!(
+                        "Updating test '{}' to state {} from config",
+                        test.test_id,
+                        test_config.enable
+                    );
+
+                    machine_validation_suites::MachineValidationTest::enable_disable(
+                        &mut txn,
+                        test.test_id.clone(),
+                        test.version,
+                        test_config.enable,
+                        test.verified,
+                    )
+                    .await?;
+                }
+            }
+        }
+        // Enables all tests in DB, but allows config overrides
+        MachineValidationTestSelectionMode::EnableAll => {
+            // First enable all tests
+            for test in &tests {
+                let should_override = config_test_ids.contains(&test.test_id);
+                let enable_state = if should_override {
+                    // If test is in config, use config's enable state
+                    config
+                        .tests
+                        .iter()
+                        .find(|t| t.id == test.test_id)
+                        .map(|t| t.enable)
+                        .unwrap_or(true)
+                } else {
+                    // If test is not in config, enable it
+                    true
+                };
+
+                tracing::info!(
+                    "Setting test '{}' to state {} (EnableAll mode)",
+                    test.test_id,
+                    enable_state
+                );
+
+                machine_validation_suites::MachineValidationTest::enable_disable(
+                    &mut txn,
+                    test.test_id.clone(),
+                    test.version,
+                    enable_state,
+                    test.verified,
+                )
+                .await?;
+            }
+        }
+        // Disables all tests in DB, but allows config overrides
+        MachineValidationTestSelectionMode::DisableAll => {
+            // First disable all tests
+            for test in &tests {
+                let should_override = config_test_ids.contains(&test.test_id);
+                let enable_state = if should_override {
+                    // If test is in config, use config's enable state
+                    config
+                        .tests
+                        .iter()
+                        .find(|t| t.id == test.test_id)
+                        .map(|t| t.enable)
+                        .unwrap_or(false)
+                } else {
+                    // If test is not in config, disable it
+                    false
+                };
+
+                tracing::info!(
+                    "Setting test '{}' to state {} (DisableAll mode)",
+                    test.test_id,
+                    enable_state
+                );
+
+                machine_validation_suites::MachineValidationTest::enable_disable(
+                    &mut txn,
+                    test.test_id.clone(),
+                    test.version,
+                    enable_state,
+                    test.verified,
+                )
+                .await?;
+            }
+        }
+    }
+
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "commit apply_config_on_startup", e))?;
+
+    Ok(())
 }

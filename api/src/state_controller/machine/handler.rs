@@ -95,7 +95,7 @@ pub struct ReachabilityParams {
 }
 
 /// Parameters used by the HostStateMachineHandler.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct HostHandlerParams {
     pub attestation_enabled: bool,
     pub reachability_params: ReachabilityParams,

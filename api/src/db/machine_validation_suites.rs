@@ -449,7 +449,7 @@ impl MachineValidationTest {
         Self::update(txn, req).await
     }
 
-    pub async fn enabled_diable(
+    pub async fn enable_disable(
         txn: &mut Transaction<'_, Postgres>,
         test_id: String,
         version: ConfigVersion,

@@ -1564,12 +1564,23 @@ pub struct IbFabricDefinition {
     pub pkeys: Vec<resource_pool::define::Range>,
 }
 
-/// MachineValidation related configuration
 #[derive(Default, Clone, Copy, Debug, Deserialize, Serialize)]
+pub enum MachineValidationTestSelectionMode {
+    #[default]
+    Default, // only update tests in DB that are specified in tests config
+    EnableAll, // Enables all tests in DB, but allows config overrides specified in tests config
+    DisableAll, // Disables all tests in DB, but allows config overrides specified in tests config
+}
+
+#[derive(Default, Clone, Debug, Deserialize, Serialize)]
 pub struct MachineValidationConfig {
     #[serde(default)]
     /// Whether MachineValidation is enabled
     pub enabled: bool,
+
+    #[serde(default)]
+    /// Controls whether to run all tests, no tests, or use per-test configuration
+    pub test_selection_mode: MachineValidationTestSelectionMode,
 
     #[serde(
         default = "MachineValidationConfig::default_run_interval",
@@ -1577,7 +1588,24 @@ pub struct MachineValidationConfig {
         serialize_with = "as_std_duration"
     )]
     pub run_interval: std::time::Duration,
+
+    #[serde(default)]
+    /// Test specific config
+    pub tests: Vec<MachineValidationTestConfig>,
 }
+
+/// Test specific config.
+/// Example:
+/// tests = [
+///    { id = "forge_MmMemLatency", enable = true },
+///    { id = "forge_FioSSD", enable = true }
+/// ]
+#[derive(Default, Clone, Debug, Deserialize, Serialize)]
+pub struct MachineValidationTestConfig {
+    pub id: String,
+    pub enable: bool,
+}
+
 impl MachineValidationConfig {
     const fn default_run_interval() -> std::time::Duration {
         std::time::Duration::from_secs(60)
