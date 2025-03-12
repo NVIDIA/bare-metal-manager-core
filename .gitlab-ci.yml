@@ -1051,7 +1051,9 @@ build-machine-lifecycle-test-container:
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
       changes:
         - dev/docker/Dockerfile.machine-lifecycle-test-container
-        - dev/docker/Dockerfile.release-forge-cli
+        - tests/machine-lifecycle/requirements.txt
+        - tests/machine-lifecycle/pyproject.toml
+        - tests/machine-lifecycle/poetry.lock
   variables:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.machine-lifecycle-test-container
     BUILD_DOCKER_IMAGE: $CONTAINER_MACHINE_LIFECYCLE_TEST

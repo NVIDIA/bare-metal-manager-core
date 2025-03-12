@@ -9,10 +9,14 @@ python = "^3.10"
 rich = "^13.7.1"
 paramiko = "^3.4.0"
 hvac = "^2.2.0"
+scp = "^0.15.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.4.2"
 isort = "^5.13.2"
+
+[tool.poetry.requires-plugins]
+poetry-plugin-export = ">=1.8"
 
 [build-system]
 requires = ["poetry-core"]
