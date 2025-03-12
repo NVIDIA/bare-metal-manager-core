@@ -7,7 +7,7 @@
         "node": 2,
         "model": "0x1",
         "number": 0,
-        "socket": 0,
+        "socket": 2,
         "vendor": "0x41",
         "frequency": "400.00"
       },
@@ -16,7 +16,7 @@
         "node": 2,
         "model": "0x1",
         "number": 1,
-        "socket": 0,
+        "socket": 2,
         "vendor": "0x41",
         "frequency": "400.00"
       },
@@ -25,7 +25,7 @@
         "node": 2,
         "model": "0x1",
         "number": 2,
-        "socket": 0,
+        "socket": 2,
         "vendor": "0x41",
         "frequency": "400.00"
       },
@@ -34,7 +34,7 @@
         "node": 2,
         "model": "0x1",
         "number": 3,
-        "socket": 0,
+        "socket": 2,
         "vendor": "0x41",
         "frequency": "400.00"
       },
@@ -43,7 +43,7 @@
         "node": 2,
         "model": "0x1",
         "number": 4,
-        "socket": 0,
+        "socket": 2,
         "vendor": "0x41",
         "frequency": "400.00"
       },
@@ -52,7 +52,7 @@
         "node": 2,
         "model": "0x1",
         "number": 5,
-        "socket": 0,
+        "socket": 2,
         "vendor": "0x41",
         "frequency": "400.00"
       },
@@ -61,7 +61,7 @@
         "node": 2,
         "model": "0x1",
         "number": 6,
-        "socket": 0,
+        "socket": 2,
         "vendor": "0x41",
         "frequency": "400.00"
       },
@@ -70,14 +70,29 @@
         "node": 2,
         "model": "0x1",
         "number": 7,
-        "socket": 0,
+        "socket": 2,
         "vendor": "0x41",
         "frequency": "400.00"
       }
     ],
-    "machine_type": "",
-    "machine_arch": 0,
-    "nvme_devices": [],
+    "machine_type": "aarch64",
+    "nvme_devices": [
+      {
+        "model": "NO_MODEL",
+        "firmware_rev": "NO_FIRMWARE_REV"
+      }
+    ],
+    "dmi_data": {
+      "board_name": "BlueField-3 SmartNIC Main Card",
+      "board_version": "1.0.0",
+      "bios_version": "4.2.0.12855",
+      "product_serial": "MT2331XZ0CGM",
+      "board_serial": "Unspecified Base Board Serial Number",
+      "chassis_serial": "Unspecified Chassis Board Serial Number",
+      "bios_date": "Aug  8 2023",
+      "product_name": "BlueField-3 SmartNIC Main Card",
+      "sys_vendor": "https://www.mellanox.com"
+    },
     "block_devices": [
       {
         "model": "NO_MODEL",
@@ -105,20 +120,9 @@
         "revision": "NO_REVISION"
       }
     ],
-    "dmi_data": {
-      "board_name": "BlueField SoC",
-      "board_version": "1.0.0",
-      "bios_version": "BlueField:3.9.3-7-g8f2d8ca",
-      "product_serial": "MT2242XZ00NX",
-      "board_serial": "Unspecified Base Board Serial Number",
-      "chassis_serial": "Unspecified Chassis Board Serial Number",
-      "bios_date": "Oct 21 2022",
-      "product_name": "BlueField SoC",
-      "sys_vendor": "https://www.mellanox.com"
-    },
     "network_interfaces": [
       {
-        "mac_address": "02:52:e9:bc:01:91",
+        "mac_address": "02:21:d6:91:84:dd",
         "pci_properties": {
           "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.0/mlx5_core.sf.2/net/enp3s0f0s0",
           "device": "0xa2d6",
@@ -138,7 +142,7 @@
         }
       },
       {
-        "mac_address": "08:c0:eb:cb:0e:ac",
+        "mac_address": "08:c0:eb:cb:0e:8c",
         "pci_properties": {
           "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.0/net/p0",
           "device": "0xa2d6",
@@ -148,7 +152,7 @@
         }
       },
       {
-        "mac_address": "00:11:22:33:44:55",
+        "mac_address": "ch:64",
         "pci_properties": {
           "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.0/net/pf0hpf",
           "device": "0xa2d6",
@@ -158,7 +162,7 @@
         }
       },
       {
-        "mac_address": "02:13:e7:bf:35:9e",
+        "mac_address": "02:f2:ac:5c:9e:dc",
         "pci_properties": {
           "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.1/mlx5_core.sf.3/net/enp3s0f1s0",
           "device": "0xa2d6",
@@ -178,7 +182,7 @@
         }
       },
       {
-        "mac_address": "08:c0:eb:cb:0e:ad",
+        "mac_address": "08:c0:eb:cb:0e:8d",
         "pci_properties": {
           "path": "/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.1/net/p1",
           "device": "0xa2d6",
@@ -203,7 +207,7 @@
       "firmware_date": "24.11.2022",
       "product_version": "24.35.2000",
       "firmware_version": "24.35.2000",
-      "part_description": "BlueField-2 P-Series DPU 100GbE Dual-Port QSFP56; integrated BMC; PCIe Gen4 x16; Secure Boot Enabled; Crypto Enabled; 32GB on-board DDR; 1GbE OOB management; FHHL",
+      "part_description": "NVIDIA BlueField-3 B3220 P-Series FHHL DPU; 200GbE (default mode) / NDR200 IB; Dual-port QSFP112; PCIe Gen5.0 x16 with x16 PCIe extension option; 16 Arm cores; 32GB on-board DDR; integrated BMC; Crypto Enabled",
       "factory_mac_address": "00:11:22:33:44:66",
       "switches": [
         {
@@ -211,7 +215,7 @@
           "id": "mac=a1:b1:c1:00:00:01",
           "description": "Cumulus Linux version 4.3.0 running on DELL S3048ON",
           "local_port": "oob_net0",
-          "remote_port": "iftype=swp1",
+          "remote_port": "swp1",
           "ip_address": [
             "10.0.0.1",
             "::1"
@@ -222,7 +226,7 @@
           "id": "mac=a2:b2:c2:00:00:02",
           "description": "Cumulus Linux version 4.3.0 running on DELL S3048ON",
           "local_port": "p0",
-          "remote_port": "iftype=swp2",
+          "remote_port": "swp2",
           "ip_address": [
             "10.1.1.1",
             "::2"
@@ -233,13 +237,14 @@
           "id": "mac=a3:b3:c3:00:00:03",
           "description": "Cumulus Linux version 4.3.0 running on DELL S3048ON",
           "local_port": "p1",
-          "remote_port": "iftype=swp3",
+          "remote_port": "swp3",
           "ip_address": [
             "10.2.2.2",
             "::3"
           ]
         }
       ]
-    }
+    },
+    "gpus": []
   }
 }

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::cfg::file::FirmwareComponentType;
 use forge_uuid::machine::MachineId;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -13,22 +12,18 @@ use forge_uuid::machine::MachineId;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use crate::db::{self, machine::MachineSearchConfig};
 use crate::model::machine::{
     DpuInitState, FailureDetails, InstanceState, MachineLastRebootRequestedMode, MachineState,
     ManagedHostState, ReprovisionState,
 };
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
-use crate::{
-    db::{self, machine::MachineSearchConfig},
-    model::machine::BmcFirmwareUpgradeSubstate,
-};
 use chrono::Utc;
 use common::api_fixtures::create_managed_host_multi_dpu;
 use common::api_fixtures::{create_test_env, reboot_completed};
 use rpc::forge::MachineArchitecture;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
-use sqlx::{Postgres, Transaction};
 
 use crate::tests::common;
 
@@ -111,45 +106,6 @@ pub async fn trigger_dpu_reprovisioning(
         .unwrap();
 }
 
-pub async fn trigger_bmc_fw_update(
-    txn: &mut Transaction<'_, Postgres>,
-    dpu_machine_id: &MachineId,
-    env: &TestEnv,
-) {
-    let dpu = db::machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    *dpu_machine_id,
-                    ReprovisionState::WaitingForNetworkInstall
-                )]),
-            },
-        }
-    );
-    env.run_machine_state_controller_iteration().await;
-    let dpu = db::machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu.id,
-                    crate::model::machine::ReprovisionState::WaitingForNetworkInstall,
-                )]),
-            },
-        }
-    );
-}
-
 #[crate::sqlx_test]
 async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
@@ -197,7 +153,36 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         last_reboot_requested_time.unwrap().time
     );
 
-    trigger_bmc_fw_update(&mut txn, &dpu_machine_id, &env).await;
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id,
+                    crate::model::machine::ReprovisionState::WaitingForNetworkInstall
+                )]),
+            },
+        }
+    );
+
+    let pxe = env
+        .api
+        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
+            arch: arch as i32,
+            interface_id: Some(rpc::Uuid {
+                value: interface_id.clone(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_ne!(pxe.pxe_script, "exit".to_string());
 
     let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
@@ -649,83 +634,6 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        ReprovisionState::BmcFirmwareUpgrade {
-                            substate: BmcFirmwareUpgradeSubstate::CheckFwVersion
-                        }
-                    )]),
-                },
-            }
-        }
-    );
-
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu.id,
-                        crate::model::machine::ReprovisionState::BmcFirmwareUpgrade {
-                            substate: BmcFirmwareUpgradeSubstate::WaitForUpdateCompletion {
-                                firmware_type: FirmwareComponentType::Bmc,
-                                task_id: "0".to_string()
-                            }
-                        }
-                    )]),
-                },
-            }
-        }
-    );
-
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        crate::model::machine::ReprovisionState::BmcFirmwareUpgrade {
-                            substate:
-                                BmcFirmwareUpgradeSubstate::WaitForERoTBackgroundCopyToComplete
-                        }
-                    )]),
-                },
-            }
-        }
-    );
-
-    env.run_machine_state_controller_iteration().await;
-
-    env.run_machine_state_controller_iteration().await;
-
     env.run_machine_state_controller_iteration().await;
 
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1407,6 +1315,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     let last_reboot_requested_time = dpu.last_reboot_requested.as_ref();
 
     env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
 
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1417,7 +1326,6 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         dpu.last_reboot_requested.unwrap().time,
         last_reboot_requested_time.unwrap().time
     );
-    trigger_bmc_fw_update(&mut txn, &dpu_machine_id, &env).await;
 
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1697,8 +1605,6 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
         last_reboot_requested_time.unwrap().time
     );
 
-    trigger_bmc_fw_update(&mut txn, &dpu_machine_id, &env).await;
-
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
@@ -1897,10 +1803,10 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
 
     env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
 
-    trigger_bmc_fw_update(&mut txn, &dpu_machine_id, &env).await;
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
@@ -2282,33 +2188,6 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         dpu.last_reboot_requested.as_ref().unwrap().time,
         last_reboot_requested_time.unwrap().time
     );
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([
-                    (dpu_machine_id_1, ReprovisionState::WaitingForNetworkInstall),
-                    (dpu_machine_id_2, ReprovisionState::WaitingForNetworkInstall)
-                ]),
-            },
-        }
-    );
-
-    for _dpu in 0..2 {
-        env.run_machine_state_controller_iteration().await; // CheckFwVersion -> UpdateBmcFw
-
-        env.run_machine_state_controller_iteration().await; // UpdateBmcFw -> Reboot
-
-        env.run_machine_state_controller_iteration().await; // Reboot -> CheckFwVersion
-
-        env.run_machine_state_controller_iteration().await; // CheckFwVersion -> FirmwareUpgrade
-    }
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
 
     assert_eq!(
         dpu.current_state(),

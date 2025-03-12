@@ -1088,53 +1088,6 @@ impl ReprovisionState {
             ))),
         }
     }
-
-    pub fn next_bmc_upgrade_step(
-        &self,
-        current_state: &ManagedHostStateSnapshot,
-        dpu_snapshot: &Machine,
-    ) -> Result<ManagedHostState, StateHandlerError> {
-        let dpu_machine_id = &dpu_snapshot.id;
-        match current_state.managed_state.clone() {
-            ManagedHostState::DPUReprovision { dpu_states } => {
-                let mut states = dpu_states.states.clone();
-                states.insert(*dpu_machine_id, self.clone());
-                Ok(ManagedHostState::DPUReprovision {
-                    dpu_states: DpuReprovisionStates { states },
-                })
-            }
-            ManagedHostState::Assigned {
-                instance_state: InstanceState::DPUReprovision { dpu_states },
-            } => match self {
-                ReprovisionState::BmcFirmwareUpgrade {
-                    substate: BmcFirmwareUpgradeSubstate::Failed { failure_details },
-                } => Ok(ManagedHostState::Assigned {
-                    instance_state: InstanceState::Failed {
-                        details: FailureDetails {
-                            cause: FailureCause::Reprovisioning {
-                                err: failure_details.clone(),
-                            },
-                            failed_at: chrono::Utc::now(),
-                            source: FailureSource::StateMachine,
-                        },
-                        machine_id: *dpu_machine_id,
-                    },
-                }),
-                _ => {
-                    let mut states = dpu_states.states.clone();
-                    states.insert(*dpu_machine_id, self.clone());
-                    Ok(ManagedHostState::Assigned {
-                        instance_state: InstanceState::DPUReprovision {
-                            dpu_states: DpuReprovisionStates { states },
-                        },
-                    })
-                }
-            },
-            _ => Err(StateHandlerError::InvalidState(
-                "Invalid State passed to Reprovision::next_bmc_updrade_step.".to_string(),
-            )),
-        }
-    }
 }
 
 /// MeasuringState contains states used for host attestion (or
@@ -1888,6 +1841,13 @@ pub trait NextReprovisionState {
             itertools::Itertools::collect_vec(state.dpu_snapshots.iter().map(|x| &x.id));
 
         match current_reprovision_state {
+            ReprovisionState::BmcFirmwareUpgrade { .. } => ReprovisionState::FirmwareUpgrade
+                .next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    // Mark all DPUs in PowerDown state.
+                    dpu_ids_for_reprov,
+                ),
             ReprovisionState::FirmwareUpgrade => ReprovisionState::PoweringOffHost
                 .next_state_with_all_dpus_updated(
                     &state.managed_state,

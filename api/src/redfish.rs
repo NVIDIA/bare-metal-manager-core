@@ -856,12 +856,26 @@ pub mod test_support {
 
         async fn get_firmware(
             &self,
-            _id: &str,
+            id: &str,
         ) -> Result<libredfish::model::software_inventory::SoftwareInventory, RedfishError>
         {
-            let state = self.state.lock().unwrap();
-            Ok(serde_json::from_str(
-                "{
+            if id == "Bluefield_FW_ERoT" {
+                Ok(serde_json::from_str(
+                    "{
+            \"@odata.id\": \"/redfish/v1/UpdateService/FirmwareInventory/Bluefield_FW_ERoT\",
+            \"@odata.type\": \"#SoftwareInventory.v1_4_0.SoftwareInventory\",
+            \"Description\": \"Other image\",
+            \"Id\": \"Bluefield_FW_ERoT\",
+            \"Manufacturer\": \"NVIDIA\",
+            \"Name\": \"Software Inventory\",
+            \"Version\": \"00.02.0180.0000\"
+            }",
+                )
+                .unwrap())
+            } else {
+                let state = self.state.lock().unwrap();
+                Ok(serde_json::from_str(
+                    "{
             \"@odata.id\": \"/redfish/v1/UpdateService/FirmwareInventory/BMC_Firmware\",
             \"@odata.type\": \"#SoftwareInventory.v1_4_0.SoftwareInventory\",
             \"Description\": \"BMC image\",
@@ -871,10 +885,11 @@ pub mod test_support {
             \"Version\": \"BF-FW-VERSION\",
             \"WriteProtected\": false
           }"
-                .replace("FW-VERSION", state.fw_version.as_str())
-                .as_str(),
-            )
-            .unwrap())
+                    .replace("FW-VERSION", state.fw_version.as_str())
+                    .as_str(),
+                )
+                .unwrap())
+            }
         }
 
         async fn update_firmware(
@@ -1433,7 +1448,7 @@ pub mod test_support {
                         power: PowerState::On,
                     });
                 if self.state.clone().lock().unwrap().fw_version.is_empty() {
-                    self.state.clone().lock().unwrap().fw_version = Arc::new("23.07".to_string());
+                    self.state.clone().lock().unwrap().fw_version = Arc::new("23.10".to_string());
                 }
             }
             Ok(Box::new(RedfishSimClient {
