@@ -14,7 +14,7 @@ pub async fn observe_as_latest_version(
     version: &str,
 ) -> Result<IsFirstObservation, DatabaseError> {
     // Is this version already present?
-    let id: Option<String> = {
+    let id: Option<uuid::Uuid> = {
         let query = "SELECT id FROM forge_versions WHERE version = $1 LIMIT 1";
         sqlx::query_scalar(query)
             .bind(version)
