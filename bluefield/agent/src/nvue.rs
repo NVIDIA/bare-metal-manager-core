@@ -192,7 +192,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         SearchDomain: conf.dpu_search_domain,
         Uplinks: conf.uplinks.clone(),
         RouteServers: conf.route_servers.clone(),
-        UseLocalDHCP: conf.use_local_dhcp,
         DHCPServers: conf.dhcp_servers.clone(),
         SiteFabricPrefixes: conf
             .site_fabric_prefixes
@@ -535,7 +534,6 @@ pub struct NvueConfig {
     pub route_servers: Vec<String>,
     pub dhcp_servers: Vec<String>,
     pub l3_domains: Vec<L3Domain>,
-    pub use_local_dhcp: bool,
     pub deny_prefixes: Vec<String>,
     pub site_fabric_prefixes: Vec<String>,
     pub use_vpc_isolation: bool,
@@ -615,10 +613,6 @@ struct TmplNvue {
     SearchDomain: String, // The rest of the FQDN
     Uplinks: Vec<String>,
     RouteServers: Vec<String>,
-
-    // true to use dhcp-server in HBN container (new)
-    // false to use dhcp-relay (old)
-    UseLocalDHCP: bool,
 
     /// Format: IPv4 address of (per tenant) dhcp server
     DHCPServers: Vec<String>, // Previously 'Servers'

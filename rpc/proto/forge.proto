@@ -636,7 +636,7 @@ message RuntimeConfig {
   int32 max_concurrent_machine_updates = 22;
   uint64 machine_update_runtime_interval = 23;
 
-  bool dpu_dhcp_server_enabled = 24;
+  reserved 24;
   bool nvue_enabled = 25;
   uint32 max_database_connections = 26;
 
@@ -2205,7 +2205,8 @@ message ManagedHostNetworkConfigResponse {
   VpcIsolationBehaviorType vpc_isolation_behavior = 20;
 
 
-  // Enable forge DHCP on HBN
+  // Enable forge DHCP on HBN.
+  // Deprecated: It is always enabled now.
   bool enable_dhcp = 100;
 
   // Host primary interface id

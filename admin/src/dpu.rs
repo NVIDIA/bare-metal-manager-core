@@ -580,7 +580,6 @@ pub async fn show_dpu_network_config(
             table.add_row(row!["Route Servers", config.route_servers.join(", ")]);
             table.add_row(row!["Deny Prefixes", deny_prefix(&config)]);
             table.add_row(row!["Network Pinger", config.dpu_network_pinger_type()]);
-            table.add_row(row!["Dhcp Server Enabled", config.enable_dhcp]);
             table.add_row(row!["Host Interface ID", config.host_interface_id()]);
             table.add_row(row![
                 "Min Functioning Link",

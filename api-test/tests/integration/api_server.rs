@@ -76,7 +76,6 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         initial_domain_name = "{DOMAIN_NAME}"
         initial_dpu_agent_upgrade_policy = "off"
         max_concurrent_machine_updates = 1
-        dpu_dhcp_server_enabled = true
         nvue_enabled = true
         attestation_enabled = false
         max_find_by_ids = 100

@@ -83,18 +83,6 @@
               '10':
                 action:
                   deny: {}
-    service:
-      dhcp-relay:
-        default:
-          source-ip: gateway
-          gateway-interface:
-            lo: {}
-          interface:
-            p0_if: {}
-            p1_if: {}
-            vlan10: {}
-          server:
-            127.0.0.1: {}
     vrf:
       default:
         router:
