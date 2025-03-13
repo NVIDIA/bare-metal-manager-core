@@ -2735,6 +2735,22 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         1
     );
 
+    let ns_id = fetched_instance.config.network.interfaces[0]
+        .network_segment_id
+        .unwrap();
+
+    let ns = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &ns_id),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap();
+    let ns = ns.first().unwrap();
+
+    assert!(ns.vlan_id.is_none());
+    assert!(ns.vni.is_none());
+
     let network_config = fetched_instance.config.network.clone();
     assert_eq!(fetched_instance.network_config_version.version_nr(), 1);
     let mut network_config_no_addresses = network_config.clone();
