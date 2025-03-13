@@ -33,6 +33,8 @@ if [ "$1" = "configure" ]; then
  		# this is not the discovery workflow and otelcol-contrib can restart without
  		# interfering. Restart is needed to pick up any configuration changes.
 
+		systemctl restart transceiver-exporter.service
+		systemctl restart node-exporter.service
 		systemctl restart forge-dpu-otel-agent.service
 		systemctl restart otelcol-contrib.service
 	fi
