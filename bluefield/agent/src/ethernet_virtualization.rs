@@ -1710,7 +1710,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_with_tenant_nvue_fnn_classic() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_with_tenant_nvue_fnn_classic_with_nsg() -> Result<(), Box<dyn std::error::Error>>
+    {
         let virtualization_type = VpcVirtualizationType::Fnn;
         let network_config = netconf(virtualization_type, 32, 24, true);
 
@@ -1741,6 +1742,60 @@ mod tests {
         //
         // let expected = include_str!("../templates/tests/nvue_startup_fnn_classic.yaml.expected");
         // compare_diffed(hbn_root.join(nvue::PATH), expected)?;
+        // Until then... let's at least confirm valid YAML...
+        const ERR_FILE: &str = "/tmp/test_nvue_startup.yaml";
+        let startup_yaml = fs::read_to_string(hbn_root.join(nvue::PATH))?;
+        let _: Vec<serde_yaml::Value> = serde_yaml::from_str(&startup_yaml)
+            .inspect_err(|_| {
+                let mut f = fs::File::create(ERR_FILE).unwrap();
+                f.write_all(startup_yaml.as_bytes()).unwrap();
+            })
+            .wrap_err(format!("YAML parser error. Output written to {ERR_FILE}"))?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_with_tenant_nvue_fnn_classic() -> Result<(), Box<dyn std::error::Error>> {
+        let virtualization_type = VpcVirtualizationType::Fnn;
+        let network_config = netconf(virtualization_type, 32, 24, false);
+
+        let td = tempfile::tempdir()?;
+        let hbn_root = td.path();
+        fs::create_dir_all(hbn_root.join("var/support"))?;
+        fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+
+        let has_changes = super::update_nvue(
+            virtualization_type,
+            hbn_root,
+            &network_config,
+            true,
+            HBNDeviceNames::hbn_23(),
+        )
+        .await?;
+        assert!(
+            has_changes,
+            "update_nvue should have written the file, there should be changes"
+        );
+
+        // check ACLs
+        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
+
+        // check startup.yaml.
+        // TODO: This should be fixed when new template is merged.
+        //
+        // let expected = include_str!("../templates/tests/nvue_startup_fnn_classic.yaml.expected");
+        // compare_diffed(hbn_root.join(nvue::PATH), expected)?;
+        // Until then... let's at least confirm valid YAML...
+        const ERR_FILE: &str = "/tmp/test_nvue_startup.yaml";
+        let startup_yaml = fs::read_to_string(hbn_root.join(nvue::PATH))?;
+        let _: Vec<serde_yaml::Value> = serde_yaml::from_str(&startup_yaml)
+            .inspect_err(|_| {
+                let mut f = fs::File::create(ERR_FILE).unwrap();
+                f.write_all(startup_yaml.as_bytes()).unwrap();
+            })
+            .wrap_err(format!("YAML parser error. Output written to {ERR_FILE}"))?;
 
         Ok(())
     }
