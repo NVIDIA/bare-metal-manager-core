@@ -711,7 +711,6 @@ pub fn get_config() -> CarbideConfig {
             allow_proxy_to_unknown_host: false,
             ..Default::default()
         },
-        dpu_dhcp_server_enabled: false,
         nvue_enabled: true,
         attestation_enabled: false,
         tpm_required: true,

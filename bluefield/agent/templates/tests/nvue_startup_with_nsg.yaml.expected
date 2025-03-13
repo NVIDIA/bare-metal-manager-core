@@ -131,20 +131,6 @@
               '10':
                 action:
                   deny: {}
-    service:
-      dhcp-relay:
-        default:
-          source-ip: gateway
-          gateway-interface:
-            lo: {}
-          interface:
-            p0_if: {}
-            p1_if: {}
-            vlan196: {}
-            vlan185: {}
-          server:
-            10.217.5.197: {}
-            10.217.5.197: {}
     vrf:
       default:
         router:

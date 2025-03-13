@@ -257,20 +257,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 println!("Wrote {}", opts.path);
             }
 
-            WriteTarget::Dhcp(opts) => {
-                let contents = dhcp::build_relay_config(dhcp::DhcpRelayConfig {
-                    uplinks: HBNDeviceNames::hbn_23()
-                        .uplinks
-                        .iter()
-                        .map(|x| x.to_string())
-                        .collect(),
-                    vlan_ids: opts.vlan,
-                    dhcp_servers: opts.dhcp,
-                    remote_id: opts.remote_id,
-                })?;
-                std::fs::write(&opts.path, contents)?;
-                println!("Wrote {}", opts.path);
-            }
+            WriteTarget::Dhcp(_opts) => {}
 
             // Example:
             // forge-dpu-agent write nvue
@@ -337,7 +324,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     use_vpc_isolation: true,
                     route_servers: opts.route_servers,
                     l3_domains: vec![],
-                    use_local_dhcp: false,
                     ct_vrf_name: opts.ct_vrf_name,
                     ct_l3_vni: opts.ct_l3vni,
                     ct_vrf_loopback: opts.ct_vrf_loopback,

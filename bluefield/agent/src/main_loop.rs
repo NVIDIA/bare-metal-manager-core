@@ -477,7 +477,6 @@ impl MainLoop {
                         &conf,
                         self.agent_config.hbn.skip_reload,
                         &self.service_addrs,
-                        virtualization_type,
                         self.hbn_device_names.clone(),
                     )
                     .await;

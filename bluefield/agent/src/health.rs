@@ -25,20 +25,17 @@ mod bgp;
 pub mod probe_ids;
 
 const HBN_DAEMONS_FILE: &str = "etc/frr/daemons";
-const DHCP_RELAY_FILE: &str = "etc/supervisor/conf.d/default-isc-dhcp-relay.conf";
 const DHCP_SERVER_FILE: &str = "etc/supervisor/conf.d/default-forge-dhcp-server.conf";
 // const NVUE_FILE: &str = "etc/nvue.d/startup.yaml";
 
-const EXPECTED_FILES: [&str; 5] = [
+const EXPECTED_FILES: [&str; 4] = [
     "etc/frr/frr.conf",
     "etc/network/interfaces",
-    DHCP_RELAY_FILE,
     DHCP_SERVER_FILE,
     HBN_DAEMONS_FILE,
 ];
 
 const EXPECTED_SERVICES: [&str; 3] = ["frr", "nl2doca", "rsyslog"];
-const DHCP_RELAY_SERVICE: &str = "isc-dhcp-relay-default";
 const DHCP_SERVER_SERVICE: &str = "forge-dhcp-server-default";
 
 fn failed(
@@ -140,7 +137,7 @@ pub async fn health_check(
     if !is_up(&hr) {
         return hr;
     }
-    check_dhcp_relay_and_server(&mut hr, &container_id).await;
+    check_dhcp_server(&mut hr, &container_id).await;
     check_ifreload(&mut hr, &container_id).await;
     let hbn_daemons_file = hbn_root.join(HBN_DAEMONS_FILE);
     bgp::check_daemon_enabled(&mut hr, &hbn_daemons_file.to_string_lossy());
@@ -227,7 +224,7 @@ async fn check_hbn_services_running(
 // Very similar to check_hbn_services_running, except it happens _after_ we start configuring.
 // The other services must be up before we start configuring.
 // Out of relay and dhcp server, only and only one should be up.
-async fn check_dhcp_relay_and_server(hr: &mut health_report::HealthReport, container_id: &str) {
+async fn check_dhcp_server(hr: &mut health_report::HealthReport, container_id: &str) {
     // `supervisorctl status` has exit code 3 if there are stopped processes (which we expect),
     // so final param is 'false' here.
     // https://github.com/Supervisor/supervisor/issues/1223
@@ -259,14 +256,6 @@ async fn check_dhcp_relay_and_server(hr: &mut health_report::HealthReport, conta
         }
     };
 
-    let relay_status = match st.status_of(DHCP_RELAY_SERVICE) {
-        SctlState::Running => {
-            passed(hr, probe_ids::DhcpRelay.clone(), None);
-            None
-        }
-        status => Some(status),
-    };
-
     let dhcp_server_status = match st.status_of(DHCP_SERVER_SERVICE) {
         SctlState::Running => {
             passed(hr, probe_ids::DhcpServer.clone(), None);
@@ -275,35 +264,14 @@ async fn check_dhcp_relay_and_server(hr: &mut health_report::HealthReport, conta
         status => Some(status),
     };
 
-    match (relay_status, dhcp_server_status) {
-        (None, None) => {
-            tracing::warn!("check_dhcp_relay_and_server: Both can not be running together.");
-            failed(
-                hr,
-                probe_ids::DhcpRelay.clone(),
-                None,
-                "Dhcp relay and server are running together".to_string(),
-            );
-            failed(
-                hr,
-                probe_ids::DhcpServer.clone(),
-                None,
-                "Dhcp relay and server are running together".to_string(),
-            );
-        }
-        (Some(a), Some(b)) => {
-            tracing::warn!("check_dhcp_relay: {a}");
-            failed(hr, probe_ids::DhcpRelay.clone(), None, a.to_string());
-
-            tracing::warn!("check_dhcp_server: {b}");
-            failed(hr, probe_ids::DhcpRelay.clone(), None, b.to_string());
-        }
-        (Some(_), None) => {
-            // Relay is running, not dhcp-server. DPU is configured in relay mode. All good.
-        }
-        (None, Some(_)) => {
-            // Dhcp-server is running, not relay. DPU is configured in dhcp-server mode. All good.
-        }
+    if let Some(x) = dhcp_server_status {
+        tracing::warn!("check_dhcp_server: Not running.");
+        failed(
+            hr,
+            probe_ids::DhcpServer.clone(),
+            None,
+            format!("Dhcp-server is not running. Status: {}", x),
+        );
     }
 }
 
@@ -329,7 +297,6 @@ async fn check_ifreload(hr: &mut health_report::HealthReport, container_id: &str
 // The files VPC creates should exist
 fn check_files(hr: &mut health_report::HealthReport, hbn_root: &Path, expected_files: &[&str]) {
     const MIN_SIZE: u64 = 100;
-    let mut dhcp_relay_size = 0;
     let mut dhcp_server_size = 0;
     for filename in expected_files {
         let path = hbn_root.join(filename);
@@ -363,8 +330,6 @@ fn check_files(hr: &mut health_report::HealthReport, hbn_root: &Path, expected_f
         };
         if filename == &DHCP_SERVER_FILE {
             dhcp_server_size = stat.len();
-        } else if filename == &DHCP_RELAY_FILE {
-            dhcp_relay_size = stat.len();
         } else if stat.len() < MIN_SIZE {
             tracing::warn!(
                 "check_files {filename}: Too small {} < {MIN_SIZE} bytes",
@@ -384,24 +349,13 @@ fn check_files(hr: &mut health_report::HealthReport, hbn_root: &Path, expected_f
         );
     }
 
-    if dhcp_relay_size < MIN_SIZE && dhcp_server_size < MIN_SIZE {
-        tracing::warn!("check_files {DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}: Too small");
+    if dhcp_server_size < MIN_SIZE {
+        tracing::warn!("check_files {DHCP_SERVER_FILE}: Too small");
         failed(
             hr,
             probe_ids::FileIsValid.clone(),
-            Some(format!("{DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}")),
+            Some(DHCP_SERVER_FILE.to_string()),
             "Too small".to_string(),
-        );
-    }
-    if dhcp_relay_size > MIN_SIZE && dhcp_server_size > MIN_SIZE {
-        tracing::warn!(
-            "check_files {DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}: Both are valid. Only one can be valid."
-        );
-        failed(
-            hr,
-            probe_ids::FileIsValid.clone(),
-            Some(format!("{DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}")),
-            "Both can not be valid together.".to_string(),
         );
     }
 }

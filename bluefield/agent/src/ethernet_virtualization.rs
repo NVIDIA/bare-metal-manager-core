@@ -133,16 +133,6 @@ struct DhcpServerPaths {
     host_config: FPath,
 }
 
-impl DhcpServerPaths {
-    fn cleanup(&self) -> bool {
-        let mut did_delete = false;
-        for p in [&self.server, &self.config, &self.host_config] {
-            did_delete = did_delete || p.cleanup();
-        }
-        did_delete
-    }
-}
-
 /// Stores addresses of dependent services that the DHCP module announces
 pub struct ServiceAddresses {
     pub pxe_ip: Ipv4Addr,
@@ -347,7 +337,6 @@ pub async fn update_nvue(
         ct_port_configs: networks,
         ct_vrf_name: format!("vpc_{}", nc.vpc_vni.unwrap_or_default()),
         ct_access_vlans: access_vlans,
-        use_local_dhcp: nc.enable_dhcp,
         deny_prefixes: nc.deny_prefixes.clone(),
         site_fabric_prefixes: nc.site_fabric_prefixes.clone(),
 
@@ -609,7 +598,6 @@ pub async fn update_dhcp(
     // if true don't run the reload/restart commands after file update
     skip_post: bool,
     service_addrs: &ServiceAddresses,
-    nvt: VpcVirtualizationType,
     hbn_device_names: HBNDeviceNames,
 ) -> eyre::Result<bool> {
     let path_dhcp_relay = FPath(hbn_root.join(dhcp::RELAY_PATH));
@@ -621,67 +609,34 @@ pub async fn update_dhcp(
     };
     let mut has_cleaned_dhcp_relay_config = path_dhcp_relay.cleanup();
     has_cleaned_dhcp_relay_config = has_cleaned_dhcp_relay_config || path_dhcp_relay_nvue.cleanup();
-    let has_cleaned_dhcp_server_config = paths_dhcp_server.cleanup();
 
-    let post_action = if network_config.enable_dhcp {
-        // dhcp-server
+    // Delete NVUE relay config in case we used that previously
+    let _ = fs::remove_file(path_dhcp_relay_nvue);
 
-        // Delete NVUE relay config in case we used that previously
-        let _ = fs::remove_file(path_dhcp_relay_nvue);
-        // Start DHCP Server in HBN.
-        match write_dhcp_server_config(
-            &path_dhcp_relay,
-            &paths_dhcp_server,
-            network_config,
-            service_addrs,
-            &hbn_device_names,
-        ) {
-            Ok(true) => PostAction {
-                path: paths_dhcp_server.server,
-                cmd: dhcp::RELOAD_DHCP_SERVER,
-            },
-            Ok(false) => {
-                // If we deleted an old relay config we need to reload to stop the relay running
-                if has_cleaned_dhcp_relay_config {
-                    PostAction {
-                        path: paths_dhcp_server.server,
-                        cmd: dhcp::RELOAD_DHCP_SERVER,
-                    }
-                } else {
-                    return Ok(false);
+    // Start DHCP Server in HBN.
+    let post_action = match write_dhcp_server_config(
+        &path_dhcp_relay,
+        &paths_dhcp_server,
+        network_config,
+        service_addrs,
+        &hbn_device_names,
+    ) {
+        Ok(true) => PostAction {
+            path: paths_dhcp_server.server,
+            cmd: dhcp::RELOAD_DHCP_SERVER,
+        },
+        Ok(false) => {
+            // If we deleted an old relay config we need to reload to stop the relay running
+            if has_cleaned_dhcp_relay_config {
+                PostAction {
+                    path: paths_dhcp_server.server,
+                    cmd: dhcp::RELOAD_DHCP_SERVER,
                 }
+            } else {
+                return Ok(false);
             }
-            Err(err) => eyre::bail!("write dhcp server config file: {err:#}"),
         }
-    } else if matches!(nvt, VpcVirtualizationType::EthernetVirtualizerWithNvue) {
-        // dhcp-relay managed by NVUE
-        let _ = fs::remove_file(path_dhcp_relay);
-        return Ok(false);
-    } else {
-        // dhcp-relay managed by us
-        let _ = fs::remove_file(path_dhcp_relay_nvue);
-        match write_dhcp_relay_config(
-            &path_dhcp_relay,
-            &paths_dhcp_server.server,
-            network_config,
-            hbn_device_names,
-        ) {
-            Ok(true) => PostAction {
-                path: path_dhcp_relay,
-                cmd: dhcp::RELOAD_CMD,
-            },
-            Ok(false) => {
-                if has_cleaned_dhcp_server_config {
-                    PostAction {
-                        path: path_dhcp_relay,
-                        cmd: dhcp::RELOAD_CMD,
-                    }
-                } else {
-                    return Ok(false);
-                }
-            }
-            Err(err) => eyre::bail!("write_dhcp_relay_config: {err:#}"),
-        }
+        Err(err) => eyre::bail!("write dhcp server config file: {err:#}"),
     };
 
     do_post(skip_post, vec![post_action], vec![]).await
@@ -855,19 +810,6 @@ pub async fn reset(
     }
 }
 
-fn dhcp_servers(nc: &rpc::ManagedHostNetworkConfigResponse) -> Vec<Ipv4Addr> {
-    let mut dhcp_servers: Vec<Ipv4Addr> = Vec::with_capacity(nc.dhcp_servers.len());
-    for server in &nc.dhcp_servers {
-        match server.parse() {
-            Ok(s) => dhcp_servers.push(s),
-            Err(err) => {
-                tracing::error!("Invalid DHCP server from remote: {server}. {err:#}");
-            }
-        }
-    }
-    dhcp_servers
-}
-
 // In case DHCP server has to be configured in HBN,
 // 1. stop dhcp-relay
 // 2. Copy dhcp_config file
@@ -999,46 +941,6 @@ fn write_dhcp_server_config(
     }
 
     Ok(has_changes)
-}
-
-fn write_dhcp_relay_config(
-    path: &FPath,
-    dhcp_server_path: &FPath,
-    nc: &rpc::ManagedHostNetworkConfigResponse,
-    hbn_device_names: HBNDeviceNames,
-) -> eyre::Result<bool> {
-    // Stop dhcp server if running.
-    match write(dhcp::blank(), dhcp_server_path, "DHCP server blank") {
-        Ok(true) => {
-            dhcp_server_path.del("BAK");
-        }
-        Ok(false) => {}
-        Err(err) => {
-            tracing::warn!("Write blank DHCP server: {err:#}");
-        }
-    }
-
-    let vlan_ids = if nc.use_admin_network {
-        let admin_interface = nc
-            .admin_interface
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
-        vec![admin_interface.vlan_id]
-    } else {
-        nc.tenant_interfaces.iter().map(|n| n.vlan_id).collect()
-    };
-    let next_contents = dhcp::build_relay_config(dhcp::DhcpRelayConfig {
-        dhcp_servers: dhcp_servers(nc),
-        uplinks: hbn_device_names
-            .uplinks
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        vlan_ids,
-        remote_id: nc.remote_id.clone(),
-    })?;
-
-    write(next_contents, path, "DHCP relay")
 }
 
 fn write_interfaces(
@@ -1572,25 +1474,7 @@ mod tests {
         let f = tempfile::NamedTempFile::new()?;
         let fp = FPath(f.path().to_owned());
 
-        let g = tempfile::NamedTempFile::new()?;
-        let gp = FPath(g.path().to_owned());
-
         // What we're testing
-
-        match super::write_dhcp_relay_config(&fp, &gp, &network_config, HBNDeviceNames::hbn_23()) {
-            Err(err) => {
-                panic!("write_dhcp_relay_config error: {err}");
-            }
-            Ok(false) => {
-                panic!("write_dhcp_relay_config says the config didn't change, that's wrong");
-            }
-            Ok(true) => {
-                // success
-            }
-        }
-        let expected = include_str!("../templates/tests/tenant_dhcp-relay.conf");
-        compare(&fp, expected)?;
-
         match super::write_interfaces(&fp, &network_config, HBNDeviceNames::hbn_23()) {
             Err(err) => {
                 panic!("write_interfaces error: {err}");
@@ -2005,8 +1889,8 @@ mod tests {
             deny_prefixes: vec!["192.0.2.0/24".into(), "198.51.100.0/24".into()],
             site_fabric_prefixes: vec!["10.217.0.0/16".into()],
             deprecated_deny_prefixes: vec![],
+            enable_dhcp: true,
             vpc_isolation_behavior: rpc::VpcIsolationBehaviorType::VpcIsolationMutual.into(),
-            enable_dhcp: false,
             host_interface_id: Some("60cef902-9779-4666-8362-c9bb4b37185f".to_string()),
             is_primary_dpu: true,
             min_dpu_functioning_links: None,
@@ -2119,7 +2003,6 @@ mod tests {
             site_fabric_prefixes: vec!["10.217.4.128/26".to_string()],
             ct_port_configs: networks,
             ct_vrf_name: format!("vpc_{}", vpc_vni),
-            use_local_dhcp: false,
             ct_access_vlans: vec![nvue::VlanConfig {
                 vlan_id: 123,
                 network: "10.217.4.70/32".to_string(),

@@ -8,7 +8,6 @@ route_servers = ["9.10.11.12"]
 rapid_iterations = false
 initial_domain_name = "forge.local"
 initial_dpu_agent_upgrade_policy = "off"
-dpu_dhcp_server_enabled = true
 max_concurrent_machine_updates = 1
 machine_update_run_interval = 60
 dpu_ipmi_tool_impl = "fake"

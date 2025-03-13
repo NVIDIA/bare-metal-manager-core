@@ -4,7 +4,6 @@ rapid_iterations = true
 max_database_connections = 1333
 max_find_by_ids = 50
 dpu_network_monitor_pinger_type = "OobNetBind"
-dpu_dhcp_server_enabled = false
 nvue_enabled = false
 
 [tls]

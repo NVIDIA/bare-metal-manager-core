@@ -467,7 +467,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         site_fabric_prefixes: vec!["2.2.2.2/32".to_string()],
         vpc_isolation_behavior: rpc::forge::VpcIsolationBehaviorType::VpcIsolationMutual.into(),
         deprecated_deny_prefixes: vec![],
-        enable_dhcp: false,
+        enable_dhcp: true,
         host_interface_id: None,
         min_dpu_functioning_links: None,
         is_primary_dpu: true,

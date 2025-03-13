@@ -138,10 +138,6 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub site_explorer: SiteExplorerConfig,
 
-    /// Enable DHCP server on DPU to serve host.
-    #[serde(default = "default_to_true")]
-    pub dpu_dhcp_server_enabled: bool,
-
     /// DPU agent to use NVUE instead of writing files directly.
     /// Once we are comfortable with this and all DPUs are HBN 2+ it will become the only option.
     #[serde(default = "default_to_true")]
@@ -1701,7 +1697,6 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .max_concurrent_machine_updates
                 .unwrap_or_default(),
             machine_update_runtime_interval: value.machine_update_run_interval.unwrap_or_default(),
-            dpu_dhcp_server_enabled: value.dpu_dhcp_server_enabled,
             nvue_enabled: value.nvue_enabled,
             attestation_enabled: value.attestation_enabled,
             auto_host_firmware_update: value.firmware_global.autoupdate,
@@ -1930,7 +1925,6 @@ mod tests {
         assert_eq!(config.metrics_endpoint, None);
         assert_eq!(config.asn, 123);
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
-        assert!(config.dpu_dhcp_server_enabled);
         assert_eq!(
             config.max_database_connections,
             default_max_database_connections()
@@ -1986,7 +1980,6 @@ mod tests {
         assert_eq!(config.asn, 777);
         assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
         assert!(config.route_servers.is_empty());
-        assert!(!config.dpu_dhcp_server_enabled);
         assert!(!config.nvue_enabled);
         assert_eq!(
             config.tls.as_ref().unwrap().identity_pemfile_path,
@@ -2104,7 +2097,6 @@ mod tests {
             config.dhcp_servers,
             vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
         );
-        assert!(config.dpu_dhcp_server_enabled);
         assert!(config.nvue_enabled);
         assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
         assert_eq!(

@@ -495,7 +495,9 @@ pub(crate) async fn get_managed_host_network_config(
             network_virtualization_type,
         ) as i32),
         vpc_vni,
-        enable_dhcp: api.runtime_config.dpu_dhcp_server_enabled,
+        // Deprecated: this field is always true now.
+        // This should be removed in future version.
+        enable_dhcp: true,
         host_interface_id: Some(host_interface_id.to_string()),
         is_primary_dpu,
         multidpu_enabled: api.runtime_config.multi_dpu.enabled,
