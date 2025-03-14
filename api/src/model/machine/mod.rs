@@ -1131,6 +1131,7 @@ pub enum HostReprovisionState {
     NewFirmwareReportedWait {
         final_version: String,
         firmware_type: FirmwareComponentType,
+        previous_reset_time: Option<i64>,
     },
     FailedFirmwareUpgrade {
         firmware_type: FirmwareComponentType,

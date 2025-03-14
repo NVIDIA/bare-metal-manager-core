@@ -1211,6 +1211,8 @@ pub struct FirmwareGlobal {
         serialize_with = "as_duration"
     )]
     pub host_firmware_upgrade_retry_interval: Duration,
+    #[serde(default)]
+    pub no_reset_retries: bool,
 }
 
 impl FirmwareGlobal {
@@ -1226,6 +1228,7 @@ impl FirmwareGlobal {
             firmware_directory: PathBuf::default(),
             host_firmware_upgrade_retry_interval:
                 FirmwareGlobal::host_firmware_upgrade_retry_interval_default(),
+            no_reset_retries: false,
         }
     }
 }
@@ -1287,6 +1290,7 @@ impl Default for FirmwareGlobal {
             firmware_directory: FirmwareGlobal::firmware_directory_default(),
             host_firmware_upgrade_retry_interval:
                 FirmwareGlobal::host_firmware_upgrade_retry_interval_default(),
+            no_reset_retries: false,
         }
     }
 }

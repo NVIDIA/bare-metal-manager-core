@@ -12,6 +12,7 @@
 use std::net::IpAddr;
 use std::ops::DerefMut;
 
+use chrono::Utc;
 use config_version::ConfigVersion;
 use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
 
@@ -373,6 +374,7 @@ WHERE address = $3 AND version=$4";
         let state = PreingestionState::NewFirmwareReportedWait {
             final_version: final_version.to_owned(),
             upgrade_type: *upgrade_type,
+            previous_reset_time: Some(Utc::now().timestamp()),
         };
         DbExploredEndpoint::set_preingestion(address, state, txn).await
     }

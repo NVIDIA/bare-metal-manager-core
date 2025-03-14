@@ -12,6 +12,7 @@
 
 use std::{default::Default, sync::Arc, time::Duration};
 
+use chrono::Utc;
 use libredfish::{
     RedfishError, SystemPowerControl,
     model::{task::TaskState, update_service::TransferProtocolType},
@@ -295,9 +296,16 @@ async fn one_endpoint(
         PreingestionState::NewFirmwareReportedWait {
             final_version,
             upgrade_type,
+            previous_reset_time,
         } => {
             static_info
-                .in_new_firmware_reported_wait(&mut txn, &endpoint, final_version, upgrade_type)
+                .in_new_firmware_reported_wait(
+                    &mut txn,
+                    &endpoint,
+                    final_version,
+                    upgrade_type,
+                    previous_reset_time,
+                )
                 .await?;
             false
         }
@@ -900,7 +908,7 @@ impl PreingestionManagerStatic {
         )
         .await?;
 
-        self.in_new_firmware_reported_wait(txn, endpoint, final_version, upgrade_type)
+        self.in_new_firmware_reported_wait(txn, endpoint, final_version, upgrade_type, &None)
             .await
     }
 
@@ -910,11 +918,34 @@ impl PreingestionManagerStatic {
         endpoint: &ExploredEndpoint,
         final_version: &str,
         upgrade_type: &FirmwareComponentType,
+        previous_reset_time: &Option<i64>,
     ) -> CarbideResult<()> {
         if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
             if let Some(current_version) = endpoint.find_version(&fw_info, *upgrade_type) {
                 if current_version != final_version {
                     // Still not reporting the new version.
+                    if !self.firmware_global.no_reset_retries {
+                        if let Some(previous_reset_time) = previous_reset_time {
+                            if previous_reset_time + 20 * 60 >= Utc::now().timestamp() {
+                                tracing::info!(
+                                    "Upgrade for {} {:?} has taken more than 20 minutes to report new version; resetting again.",
+                                    &endpoint.address,
+                                    upgrade_type
+                                );
+                                let state = &PreingestionState::ResetForNewFirmware {
+                                    final_version: final_version.to_string(),
+                                    upgrade_type: *upgrade_type,
+                                    power_drains_needed: None,
+                                    delay_until: None,
+                                    last_power_drain_operation: None,
+                                };
+                                return Box::pin(
+                                    self.in_reset_for_new_firmware(txn, endpoint, state),
+                                )
+                                .await;
+                            }
+                        }
+                    }
                     DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn)
                         .await?;
                     tracing::info!(

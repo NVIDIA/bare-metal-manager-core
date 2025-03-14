@@ -115,6 +115,7 @@ pub struct MachineStateHandlerBuilder {
     dpu_nic_firmware_initial_update_enabled: bool,
     dpu_nic_firmware_reprovision_update_enabled: bool,
     hardware_models: Option<FirmwareConfig>,
+    no_firmware_update_reset_retries: bool,
     reachability_params: ReachabilityParams,
     firmware_downloader: Option<FirmwareDownloader>,
     attestation_enabled: bool,
@@ -137,6 +138,7 @@ impl MachineStateHandlerBuilder {
                 failure_retry_time: chrono::Duration::zero(),
             },
             firmware_downloader: None,
+            no_firmware_update_reset_retries: false,
             attestation_enabled: false,
             upload_limiter: None,
             machine_validation_config: MachineValidationConfig {
@@ -230,6 +232,14 @@ impl MachineStateHandlerBuilder {
         self
     }
 
+    pub fn no_firmware_update_reset_retries(
+        mut self,
+        no_firmware_update_reset_retries: bool,
+    ) -> Self {
+        self.no_firmware_update_reset_retries = no_firmware_update_reset_retries;
+        self
+    }
+
     pub fn build(self) -> MachineStateHandler {
         MachineStateHandler::new(self)
     }
@@ -243,6 +253,7 @@ impl MachineStateHandler {
             upload_limiter: builder
                 .upload_limiter
                 .unwrap_or(Arc::new(Semaphore::new(5))),
+            no_firmware_update_reset_retries: builder.no_firmware_update_reset_retries,
         });
         MachineStateHandler {
             dpu_up_threshold: builder.dpu_up_threshold,
@@ -4470,6 +4481,7 @@ struct HostUpgradeState {
     parsed_hosts: Arc<FirmwareConfig>,
     downloader: FirmwareDownloader,
     upload_limiter: Arc<Semaphore>,
+    no_firmware_update_reset_retries: bool,
 }
 
 impl HostUpgradeState {
@@ -4519,17 +4531,9 @@ impl HostUpgradeState {
                 )
                 .await
             }
-            HostReprovisionState::NewFirmwareReportedWait {
-                final_version,
-                firmware_type,
-            } => {
+            details @ HostReprovisionState::NewFirmwareReportedWait { .. } => {
                 self.host_new_firmware_reported_wait(
-                    state,
-                    final_version,
-                    firmware_type,
-                    machine_id,
-                    scenario,
-                    txn,
+                    state, services, details, machine_id, scenario, txn,
                 )
                 .await
             }
@@ -5108,6 +5112,7 @@ impl HostUpgradeState {
         let reprovision_state = HostReprovisionState::NewFirmwareReportedWait {
             firmware_type: *firmware_type,
             final_version: final_version.to_string(),
+            previous_reset_time: Some(Utc::now().timestamp()),
         };
         scenario.actual_new_state(reprovision_state)
     }
@@ -5115,12 +5120,25 @@ impl HostUpgradeState {
     async fn host_new_firmware_reported_wait(
         &self,
         state: &ManagedHostStateSnapshot,
-        final_version: &str,
-        firmware_type: &FirmwareComponentType,
+        services: &StateHandlerServices,
+        details: &HostReprovisionState,
         machine_id: &MachineId,
         scenario: HostFirmwareScenario,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        let (final_version, firmware_type, previous_reset_time) = match details {
+            HostReprovisionState::NewFirmwareReportedWait {
+                final_version,
+                firmware_type,
+                previous_reset_time,
+            } => (final_version, firmware_type, previous_reset_time),
+            _ => {
+                return Err(StateHandlerError::GenericError(eyre!(
+                    "Wrong enum in host_new_firmware_reported_wait"
+                )));
+            }
+        };
+
         let Some(endpoint) = find_explored_refreshed_endpoint(state, machine_id, txn).await? else {
             tracing::debug!("Waiting for site explorer to revisit {machine_id}");
             return Ok(None);
@@ -5135,13 +5153,36 @@ impl HostUpgradeState {
             return scenario.actual_new_state(HostReprovisionState::CheckingFirmware);
         };
 
-        if current_version == final_version {
+        if current_version == *final_version {
             // Done waiting, go back to overall checking of version`2s
             tracing::debug!("Done waiting for {machine_id} to reach version");
             scenario.actual_new_state(HostReprovisionState::CheckingFirmware)
         } else {
-            tracing::debug!(
-                "Waiting for {machine_id} to reach version {final_version} currently {current_version}"
+            if !self.no_firmware_update_reset_retries {
+                if let Some(previous_reset_time) = previous_reset_time {
+                    if previous_reset_time + 20 * 60 >= Utc::now().timestamp() {
+                        tracing::info!(
+                            "Upgrade for {} {:?} has taken more than 20 minutes to report new version; resetting again.",
+                            &endpoint.address,
+                            firmware_type
+                        );
+                        let details = &HostReprovisionState::ResetForNewFirmware {
+                            final_version: final_version.to_string(),
+                            firmware_type: *firmware_type,
+                            power_drains_needed: None,
+                            delay_until: None,
+                            last_power_drain_operation: None,
+                        };
+                        return self
+                            .host_reset_for_new_firmware(
+                                state, services, machine_id, details, scenario, txn,
+                            )
+                            .await;
+                    }
+                }
+            }
+            tracing::info!(
+                "Waiting for {machine_id} {firmware_type:?} to reach version {final_version} currently {current_version}"
             );
             DbExploredEndpoint::re_explore_if_version_matches(
                 endpoint.address,

@@ -50,6 +50,177 @@ use std::{
 use temp_dir::TempDir;
 use tonic::Request;
 
+#[crate::sqlx_test]
+async fn test_preingestion_bmc_upgrade(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let mgr = PreingestionManager::new(
+        pool.clone(),
+        env.config.clone(),
+        env.redfish_sim.clone(),
+        env.test_meter.meter(),
+        None,
+        None,
+    );
+
+    let mut txn = pool.begin().await.unwrap();
+
+    let response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: "b8:3f:d2:90:97:a6".to_string(),
+            relay_address: "192.0.2.1".to_string(),
+            link_address: None,
+            vendor_string: Some("iDRac".to_string()),
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await?
+        .into_inner();
+
+    // First, a host where it's already up to date; it should immediately go to complete.
+    let addr = response.address.as_str();
+    insert_endpoint_version(&mut txn, addr, "6.00.30.00", "1.13.2", false).await?;
+    txn.commit().await?;
+
+    mgr.run_single_iteration().await?;
+    let mut txn = pool.begin().await.unwrap();
+    assert!(
+        DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn)
+            .await?
+            .is_empty()
+    );
+    assert!(
+        DbExploredEndpoint::find_all_preingestion_complete(&mut txn)
+            .await?
+            .len()
+            == 1
+    );
+
+    // Next, one that isn't up to date but it above preingestion limits.
+    DbExploredEndpoint::delete(&mut txn, IpAddr::from_str(addr).unwrap()).await?;
+    insert_endpoint_version(&mut txn, addr, "5.1", "1.13.2", false).await?;
+    txn.commit().await?;
+    let mut txn = pool.begin().await.unwrap();
+
+    mgr.run_single_iteration().await?;
+
+    assert!(
+        DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn)
+            .await?
+            .is_empty()
+    );
+    assert!(
+        DbExploredEndpoint::find_all_preingestion_complete(&mut txn)
+            .await?
+            .len()
+            == 1
+    );
+
+    // And now, one that's low enough to trigger preingestion upgrades.
+    DbExploredEndpoint::delete(&mut txn, IpAddr::from_str(addr).unwrap()).await?;
+    insert_endpoint_version(&mut txn, addr, "4.9", "1.13.2", false).await?;
+    txn.commit().await?;
+
+    mgr.run_single_iteration().await?;
+    // The "upload" is synchronous now and will be complete at this point.
+
+    // At this point, we expect that it shows as having completed upload
+    let mut txn = pool.begin().await.unwrap();
+
+    let endpoints = DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn).await?;
+    assert!(endpoints.len() == 1);
+    let endpoint = endpoints.first().unwrap().clone();
+    match &endpoint.preingestion_state {
+        // We expect it to be waiting for task completion
+        PreingestionState::UpgradeFirmwareWait {
+            task_id,
+            final_version,
+            upgrade_type,
+            ..
+        } => {
+            println!("Waiting on {task_id} {upgrade_type:?} {final_version}");
+        }
+        _ => {
+            panic!("Bad preingestion state: {endpoint:?}");
+        }
+    }
+    txn.commit().await?;
+
+    // Let it go to NewFirmwareReportedWait
+    mgr.run_single_iteration().await?;
+
+    let mut txn = pool.begin().await.unwrap();
+    let endpoints = DbExploredEndpoint::find_all(&mut txn).await?;
+    assert!(endpoints.len() == 1);
+    let endpoint = endpoints.first().unwrap();
+    let PreingestionState::NewFirmwareReportedWait { .. } = endpoint.preingestion_state else {
+        panic!("Bad preingestion state: {endpoint:?}");
+    };
+    txn.commit().await?;
+
+    // One more, to make sure noething is weird with retrying resets
+    mgr.run_single_iteration().await?;
+
+    let mut txn = pool.begin().await.unwrap();
+    let endpoints = DbExploredEndpoint::find_all(&mut txn).await?;
+    assert!(endpoints.len() == 1);
+    let endpoint = endpoints.first().unwrap();
+
+    // Now we simulate site explorer coming through and reading the new updated version
+    let mut endpoint = endpoint.clone();
+    endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
+    assert!(
+        DbExploredEndpoint::try_update(
+            endpoint.address,
+            endpoint.report_version,
+            &endpoint.report,
+            &mut txn
+        )
+        .await?
+    );
+
+    txn.commit().await?;
+
+    // The next run of the state machine should see that the task shows as complete and move us back to checking again
+    mgr.run_single_iteration().await?;
+
+    let mut txn = pool.begin().await.unwrap();
+    let endpoints = DbExploredEndpoint::find_all(&mut txn).await?;
+    assert!(endpoints.len() == 1);
+    let endpoint = endpoints.first().unwrap();
+    match &endpoint.preingestion_state {
+        PreingestionState::RecheckVersions => {
+            println!("Rechecking versions");
+        }
+        _ => {
+            panic!("Bad preingestion state: {endpoint:?}");
+        }
+    }
+    txn.commit().await?;
+
+    // Now it should go to completion
+    mgr.run_single_iteration().await?;
+
+    let mut txn = pool.begin().await.unwrap();
+    assert!(
+        DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn)
+            .await?
+            .is_empty()
+    );
+    assert!(
+        DbExploredEndpoint::find_all_preingestion_complete(&mut txn)
+            .await?
+            .len()
+            == 1
+    );
+    txn.commit().await?;
+
+    Ok(())
+}
+
 async fn insert_endpoint_version(
     txn: &mut Transaction<'_, Postgres>,
     addr: &str,
