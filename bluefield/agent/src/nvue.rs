@@ -179,6 +179,13 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         (false, vec![], vec![], vec![], vec![])
     };
 
+    tracing::info!(
+        "nvue::build incoming network security group expanded rule counts are ingress_ipv4_rules={}, egress_ipv4_rules={}, ingress_ipv6_rules={}, egress_ipv6_rules={}",
+        ingress_ipv4_rules.len(),
+        egress_ipv4_rules.len(),
+        ingress_ipv6_rules.len(),
+        egress_ipv6_rules.len()
+    );
     // The original VPC isolation would add site fabric prefixes to deny prefixes,
     // with site_fabric_prefixes coming first.
     // This is just an easy way to maintain the ordering of the original behavior.
@@ -313,6 +320,7 @@ fn expand_network_security_group_rules(
                                     HasDstPort: true,
                                     DstPort: di,
                                     CanMatchAnyProtocol: rule.can_match_any_protocol,
+                                    CanBeStateful: rule.can_be_stateful,
                                     Protocol: rule.protocol.clone(),
                                     Action: rule.action.clone(),
                                     SrcPrefix: src_prefix.clone(),
@@ -332,6 +340,7 @@ fn expand_network_security_group_rules(
                                 HasDstPort: false,
                                 DstPort: 0,
                                 CanMatchAnyProtocol: rule.can_match_any_protocol,
+                                CanBeStateful: rule.can_be_stateful,
                                 Protocol: rule.protocol.clone(),
                                 Action: rule.action.clone(),
                                 SrcPrefix: src_prefix.clone(),
@@ -353,6 +362,7 @@ fn expand_network_security_group_rules(
                             HasDstPort: true,
                             DstPort: di,
                             CanMatchAnyProtocol: rule.can_match_any_protocol,
+                            CanBeStateful: rule.can_be_stateful,
                             Protocol: rule.protocol.clone(),
                             Action: rule.action.clone(),
                             SrcPrefix: src_prefix.clone(),
@@ -370,6 +380,7 @@ fn expand_network_security_group_rules(
                         HasDstPort: false,
                         DstPort: 0,
                         CanMatchAnyProtocol: rule.can_match_any_protocol,
+                        CanBeStateful: rule.can_be_stateful,
                         Protocol: rule.protocol.clone(),
                         Action: rule.action.clone(),
                         SrcPrefix: src_prefix.clone(),
@@ -570,6 +581,7 @@ pub struct NetworkSecurityGroupRule {
     pub dst_port_start: Option<u32>,
     pub dst_port_end: Option<u32>,
     pub can_match_any_protocol: bool,
+    pub can_be_stateful: bool,
     pub protocol: String,
     pub action: String,
     pub src_prefixes: Vec<String>,
@@ -680,6 +692,7 @@ struct TmplNetworkSecurityGroupRule {
     HasDstPort: bool,
     DstPort: u32,
     CanMatchAnyProtocol: bool,
+    CanBeStateful: bool,
     Protocol: String,
     Action: String,
     SrcPrefix: String,

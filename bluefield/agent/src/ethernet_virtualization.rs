@@ -298,6 +298,12 @@ pub async fn update_nvue(
                         == rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
                     can_match_any_protocol: rule.protocol()
                         == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny,
+                    can_be_stateful: matches!(
+                        rule.protocol(),
+                        rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp
+                            | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp
+                            | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp
+                    ),
                     ipv6: rule.ipv6,
                     priority: rule.priority,
                     src_port_start: rule.src_port_start,
@@ -339,7 +345,7 @@ pub async fn update_nvue(
         ct_access_vlans: access_vlans,
         deny_prefixes: nc.deny_prefixes.clone(),
         site_fabric_prefixes: nc.site_fabric_prefixes.clone(),
-        stateful_acls_enabled: nc.stateful_acls_enabled,
+        stateful_acls_enabled: has_network_security_group, // For testing, assume having NSGs means using stateful
 
         // For now, the isolation options boil down to a boolean,
         // but the match will make sure we catch and adjust accordingly
@@ -2079,6 +2085,7 @@ mod tests {
                 ipv6: true,
                 priority: 1001,
                 can_match_any_protocol: false,
+                can_be_stateful: true,
                 protocol: "TCP".to_string(),
                 src_prefixes: vec!["2.2.2.2/24".to_string()],
                 dst_prefixes: vec!["3.3.3.3/24".to_string()],
