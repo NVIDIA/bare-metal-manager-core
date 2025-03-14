@@ -66,6 +66,9 @@
               '10':
                 action:
                   deny: {}
+    system:
+      reflexive-acl:
+        enable: on
     vrf:
       default:
         router:
@@ -189,6 +192,9 @@
             action:
               deny: {}
             match:
+              conntrack:
+                new: {}
+                established: {}
               ip:
                 dest-ip: 1.0.0.0/0
                 dest-port:
@@ -201,6 +207,9 @@
             action:
               deny: {}
             match:
+              conntrack:
+                new: {}
+                established: {}
               ip:
                 dest-ip: 1.0.0.0/0
                 dest-port:
@@ -213,6 +222,9 @@
             action:
               deny: {}
             match:
+              conntrack:
+                new: {}
+                established: {}
               ip:
                 dest-ip: 1.0.0.0/0
                 dest-port:
@@ -225,6 +237,9 @@
             action:
               deny: {}
             match:
+              conntrack:
+                new: {}
+                established: {}
               ip:
                 dest-ip: 1.0.0.0/0
                 dest-port:
@@ -341,6 +356,30 @@
                 source-ip: 0.0.0.0/0
                 source-port:
                   '81': {}
+          '65532':
+            action:
+              permit: {}
+            match:
+              ip:
+                protocol: tcp
+              conntrack:
+                established: {}
+          '65533':
+            action:
+              permit: {}
+            match:
+              ip:
+                protocol: udp
+              conntrack:
+                established: {}
+          '65534':
+            action:
+              permit: {}
+            match:
+              ip:
+                protocol: icmp
+              conntrack:
+                established: {}
           '65535':
             action:
               deny: {}
