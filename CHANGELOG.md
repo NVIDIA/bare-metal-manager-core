@@ -9,6 +9,7 @@
   - The layout of the health page had been improved
   - The list of health overrides now shows the full override definition in JSON format in an expandable `Details` column
   - The health page is now loading without an error even in case the machine is not currently ingested. This allows viewing the health history for deleted machines
+- IPv4 egress rules for Network Security Groups are now stateful by default, and the behavior can be turned off in the site-controller config by setting `stateful_acls_enabled` to false under `network_security_group` config.
 
 ### Changed
 
