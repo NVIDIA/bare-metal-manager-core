@@ -211,6 +211,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                 Prefix: s.to_string(),
             })
             .collect(),
+        StatefulAclsEnabled: conf.stateful_acls_enabled,
         UseVpcIsolation: conf.use_vpc_isolation,
         Infrastructure: infra,
         HbnVersion: conf.hbn_version,
@@ -537,6 +538,7 @@ pub struct NvueConfig {
     pub deny_prefixes: Vec<String>,
     pub site_fabric_prefixes: Vec<String>,
     pub use_vpc_isolation: bool,
+    pub stateful_acls_enabled: bool,
 
     // Currently we have a single tenant, hence the single ct_ prefix.
     // Later this will be Vec<ComputeTenant>.
@@ -633,6 +635,11 @@ struct TmplNvue {
     // A structure to hold infra wide information to be used in the configuration. It would need
     // to hold multiple levels.
     Infrastructure: Vec<TmplInfra>,
+
+    /// Whether stateful ACLs are possible and we
+    /// should perform any extra config to prepare
+    /// for them.
+    StatefulAclsEnabled: bool,
 
     /// For when we have more than one tenant
     ComputeTENANTs: Vec<TmplComputeTenant>,

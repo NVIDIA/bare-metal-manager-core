@@ -1175,12 +1175,19 @@ pub struct NetworkSecurityGroupConfig {
     /// (src port range * dst port range * src prefix list * dst prefix list)
     #[serde(default = "default_max_network_security_group_size")]
     pub max_network_security_group_size: u32,
+    /// Whether to allow stateful security groups.
+    /// This will initially only be passed through to the
+    /// DPU as a way to toggle default stateful options
+    /// in nvue config.
+    #[serde(default = "default_to_true")]
+    pub stateful_acls_enabled: bool,
 }
 
 impl Default for NetworkSecurityGroupConfig {
     fn default() -> Self {
         NetworkSecurityGroupConfig {
             max_network_security_group_size: default_max_network_security_group_size(),
+            stateful_acls_enabled: default_to_true(),
         }
     }
 }

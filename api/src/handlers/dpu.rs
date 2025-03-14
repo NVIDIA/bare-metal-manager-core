@@ -481,6 +481,10 @@ pub(crate) async fn get_managed_host_network_config(
         use_admin_network,
         admin_interface: Some(admin_interface_rpc),
         tenant_interfaces,
+        stateful_acls_enabled: api
+            .runtime_config
+            .network_security_group
+            .stateful_acls_enabled,
         instance_network_config_version: if use_admin_network {
             "".to_string()
         } else {

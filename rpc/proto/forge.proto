@@ -2204,6 +2204,10 @@ message ManagedHostNetworkConfigResponse {
   // Level of VPC isolation to apply
   VpcIsolationBehaviorType vpc_isolation_behavior = 20;
 
+  // Whether stateful ACLs are possible and the DPU
+  // should perform any extra config to prepare
+  // for them.
+  bool stateful_acls_enabled = 21;
 
   // Enable forge DHCP on HBN.
   // Deprecated: It is always enabled now.

@@ -322,6 +322,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     deny_prefixes: vec![],
                     site_fabric_prefixes: vec![],
                     use_vpc_isolation: true,
+                    stateful_acls_enabled: opts.stateful_acls_enabled,
                     route_servers: opts.route_servers,
                     l3_domains: vec![],
                     ct_vrf_name: opts.ct_vrf_name,

@@ -339,6 +339,7 @@ pub async fn update_nvue(
         ct_access_vlans: access_vlans,
         deny_prefixes: nc.deny_prefixes.clone(),
         site_fabric_prefixes: nc.site_fabric_prefixes.clone(),
+        stateful_acls_enabled: nc.stateful_acls_enabled,
 
         // For now, the isolation options boil down to a boolean,
         // but the match will make sure we catch and adjust accordingly
@@ -1951,6 +1952,7 @@ mod tests {
             min_dpu_functioning_links: None,
             multidpu_enabled: false,
             internet_l3_vni: Some(1337),
+            stateful_acls_enabled: true,
         }
     }
 
@@ -2056,6 +2058,7 @@ mod tests {
             deny_prefixes: vec![],
             use_vpc_isolation: false,
             site_fabric_prefixes: vec!["10.217.4.128/26".to_string()],
+            stateful_acls_enabled: true,
             ct_port_configs: networks,
             ct_vrf_name: format!("vpc_{}", vpc_vni),
             ct_access_vlans: vec![nvue::VlanConfig {
@@ -2307,6 +2310,7 @@ mod tests {
             is_primary_dpu: true,
             multidpu_enabled: false,
             internet_l3_vni: Some(1337),
+            stateful_acls_enabled: true,
         };
 
         let f = tempfile::NamedTempFile::new()?;

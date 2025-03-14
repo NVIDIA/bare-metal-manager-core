@@ -137,6 +137,13 @@ pub struct NvueOptions {
         help = "Full JSON representation of a NetworkSecurityGroupRule (see nvue.rs). Repeats with multiple --ct_network_security_group_rule."
     )]
     pub ct_network_security_group_rule: Vec<String>,
+
+    #[clap(
+        long,
+        help = "Whether stateful ACLs are allowed and the DPU should adjust config to handle them.",
+        default_value_t = true
+    )]
+    pub stateful_acls_enabled: bool,
 }
 
 #[derive(Parser, Debug)]
