@@ -12,17 +12,19 @@
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::net::SocketAddr;
+use std::option::Option;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use ::rpc::common::MachineId;
 use ::rpc::forge::{self as rpc};
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig, ForgeClientT};
+use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use cfg::Options;
 use chrono::{DateTime, Utc};
 use eyre::Result;
 use forge_tls::client_config::ClientCert;
+use futures::future;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
 use hyper::{
@@ -33,6 +35,7 @@ use hyper::{
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto;
 
+use ::rpc::forge_api_client::ForgeApiClient;
 use opentelemetry::logs::{Logger, LoggerProvider};
 use opentelemetry::metrics::{Histogram, MeterProvider};
 use opentelemetry_otlp::{LogExporter, WithExportConfig};
@@ -41,6 +44,7 @@ use opentelemetry_sdk::metrics::SdkMeterProvider;
 use prometheus::{Encoder, TextEncoder};
 use rpc::Machine;
 use tokio::net::TcpListener;
+use tokio::sync::{Mutex, MutexGuard};
 use tracing::error;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
@@ -50,6 +54,8 @@ use tracing_subscriber::util::SubscriberInitExt;
 mod cfg;
 mod metrics;
 use crate::metrics::{HealthHashData, scrape_machine_health};
+
+const CONCURRENCY: usize = 16;
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
@@ -130,7 +136,7 @@ async fn create_forge_client(
     client_cert: String,
     client_key: String,
     api_url: String,
-) -> Result<ForgeClientT, HealthError> {
+) -> Result<ForgeApiClient, HealthError> {
     let client_config = ForgeClientConfig::new(
         root_ca,
         Some(ClientCert {
@@ -140,37 +146,38 @@ async fn create_forge_client(
     );
     let api_config = ApiConfig::new(&api_url, &client_config);
 
-    let client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
+    let client = ForgeApiClient::new(&api_config);
+    // Test the connection now, so that we don't do it N times in N different workers.
+    client
+        .connect_eagerly()
         .await
         .map_err(|err| HealthError::ApiConnectFailed(err.to_string()))?;
     Ok(client)
 }
 
-pub async fn get_machines(client: &mut ForgeClientT) -> Result<rpc::MachineList, HealthError> {
-    let request = tonic::Request::new(rpc::MachineSearchConfig {
+pub async fn get_machines(client: &ForgeApiClient) -> Result<rpc::MachineList, HealthError> {
+    let request = rpc::MachineSearchConfig {
         include_dpus: false,
         include_history: false,
         include_predicted_host: false,
         only_maintenance: false,
         exclude_hosts: false,
-    });
+    };
     let machine_ids = client
         .find_machine_ids(request)
         .await
-        .map(|response| response.into_inner())
         .map_err(HealthError::ApiInvocationError)?;
     let mut all_machines = rpc::MachineList {
         machines: Vec::with_capacity(machine_ids.machine_ids.len()),
     };
     for ids_chunk in machine_ids.machine_ids.chunks(100) {
-        let request = tonic::Request::new(::rpc::forge::MachinesByIdsRequest {
+        let request = ::rpc::forge::MachinesByIdsRequest {
             machine_ids: Vec::from(ids_chunk),
             ..Default::default()
-        });
+        };
         let machines = client
             .find_machines_by_ids(request)
             .await
-            .map(|response| response.into_inner())
             .map_err(HealthError::ApiInvocationError)?;
         all_machines.machines.extend(machines.machines);
     }
@@ -179,21 +186,20 @@ pub async fn get_machines(client: &mut ForgeClientT) -> Result<rpc::MachineList,
 }
 
 pub async fn get_machine_bmc_data(
-    client: &mut ForgeClientT,
+    client: ForgeApiClient,
     id: &MachineId,
     histogram: &Histogram<f64>,
 ) -> Result<libredfish::Endpoint, HealthError> {
-    let request = tonic::Request::new(rpc::BmcMetaDataGetRequest {
+    let request = rpc::BmcMetaDataGetRequest {
         machine_id: Some(id.clone()),
         bmc_endpoint_request: None,
         role: rpc::UserRoles::Administrator.into(),
         request_type: rpc::BmcRequestType::Ipmi.into(),
-    });
+    };
     let start_time = std::time::Instant::now();
     let response = client
         .get_bmc_meta_data(request)
         .await
-        .map(|response| response.into_inner())
         .map_err(HealthError::ApiInvocationError);
     histogram.record(1000.0 * start_time.elapsed().as_secs_f64(), &[]);
     let response = response?;
@@ -266,6 +272,249 @@ pub async fn metrics_listener(state: Arc<HealthMetricsState>) -> Result<(), io::
     }
 }
 
+pub async fn scrape_single_machine(
+    machine: &Machine,
+    mut health_data: MutexGuard<'_, HealthHashData>,
+    grpc_client: ForgeApiClient,
+    get_bmc_metadata_latency_histogram: Histogram<f64>,
+    provider: SdkMeterProvider,
+    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
+) {
+    let Some(id) = machine.id.as_ref() else {
+        return;
+    };
+    let machine_id = id.id.as_str();
+
+    let mut scrape_machine = true;
+    // check if a host had errors and back off querying appropriately
+    if health_data.host_error_count > 0 {
+        let now: DateTime<Utc> = Utc::now();
+        if health_data.host_error_count < 24 {
+            // try every 30 minutes for 12 hours
+            if (now.timestamp() - health_data.last_host_error_ts) < (30 * 60) {
+                scrape_machine = false;
+            }
+        } else if health_data.host_error_count < 36 {
+            // try every 60 minutes for next 12 hours
+            if (now.timestamp() - health_data.last_host_error_ts) < (60 * 60) {
+                scrape_machine = false;
+            }
+        } else {
+            // try once a day
+            if (now.timestamp() - health_data.last_host_error_ts) < (24 * 60 * 60) {
+                scrape_machine = false;
+            }
+        }
+    }
+    if !scrape_machine {
+        return;
+    }
+
+    if health_data.host.is_empty() {
+        // initial empty hash, get host bmc creds from api-server
+        let endpoint = match get_machine_bmc_data(
+            grpc_client.clone(),
+            id,
+            &get_bmc_metadata_latency_histogram,
+        )
+        .await
+        {
+            Ok(x) => {
+                health_data.last_host_error_ts = 0;
+                health_data.host_error_count = 0;
+                x
+            }
+            Err(e) => {
+                // some hosts bmc data may error out at times due to creds missing in vault
+                error!(error=%e, %machine_id, "grpc error getting machine bmc metadata");
+                // back off for grpc / vault errors for a host
+                let now: DateTime<Utc> = Utc::now();
+                health_data.last_host_error_ts = now.timestamp();
+                health_data.host_error_count += 1;
+                return;
+            }
+        };
+        if let Some(dmi_data) = machine
+            .discovery_info
+            .as_ref()
+            .and_then(|i| i.dmi_data.as_ref())
+        {
+            health_data.description = format!(
+                "{} {} SN: {}",
+                dmi_data.sys_vendor, dmi_data.product_name, dmi_data.product_serial
+            )
+            .to_string();
+        }
+        health_data.host = endpoint.host;
+        health_data.port = endpoint.port.unwrap_or(0);
+        health_data.user = endpoint.user.unwrap_or("".to_string());
+        health_data.password = endpoint.password.unwrap_or("".to_string());
+    }
+
+    if health_data.dpu.is_empty() {
+        // dpu bmc creds
+        let now: DateTime<Utc> = Utc::now();
+        let mut scrape_dpu = true;
+        if health_data.dpu_error_count < 24 {
+            // try every 30 minutes for 12 hours
+            if (now.timestamp() - health_data.last_dpu_error_ts) < (30 * 60) {
+                scrape_dpu = false;
+            }
+        } else if health_data.dpu_error_count < 36 {
+            // try every 60 minutes for next 12 hours
+            if (now.timestamp() - health_data.last_dpu_error_ts) < (60 * 60) {
+                scrape_dpu = false;
+            }
+        } else {
+            // try once a day
+            if (now.timestamp() - health_data.last_dpu_error_ts) < (24 * 60 * 60) {
+                scrape_dpu = false;
+            }
+        }
+        if let (Some(dpu_id), true) = (
+            attached_dpu_machine_id_for_primary_interface(machine),
+            scrape_dpu,
+        ) {
+            let dpu_endpoint = match get_machine_bmc_data(
+                grpc_client.clone(),
+                dpu_id,
+                &get_bmc_metadata_latency_histogram,
+            )
+            .await
+            {
+                Ok(x) => {
+                    health_data.last_dpu_error_ts = 0;
+                    health_data.dpu_error_count = 0;
+                    Some(x)
+                }
+                Err(e) => {
+                    error!(error=%e, %dpu_id, "grpc error getting dpu bmc metadata");
+                    let now: DateTime<Utc> = Utc::now();
+                    health_data.last_dpu_error_ts = now.timestamp();
+                    health_data.dpu_error_count += 1;
+                    None
+                }
+            };
+            if let Some(dpu_endpoint) = dpu_endpoint {
+                health_data.dpu = dpu_endpoint.host.clone();
+                health_data.dpu_port = dpu_endpoint.port.unwrap_or(0);
+                health_data.dpu_user = dpu_endpoint.user.clone().unwrap_or("".to_string());
+                health_data.dpu_password = dpu_endpoint.password.clone().unwrap_or("".to_string());
+            }
+        }
+    }
+
+    match scrape_machine_health(
+        grpc_client.clone(),
+        provider.clone(),
+        logger,
+        machine_id,
+        &health_data,
+    )
+    .await
+    {
+        Ok((
+            firmware_digest,
+            sel_count,
+            last_polled_ts,
+            last_recorded_ts,
+            dpu_reachable,
+            dpu_attempted,
+        )) => {
+            if !firmware_digest.is_empty() {
+                health_data.firmware_digest = firmware_digest.to_string();
+            }
+            if sel_count > 0 {
+                health_data.sel_count = sel_count;
+            }
+            if last_polled_ts > 0 {
+                health_data.last_polled_ts = last_polled_ts;
+            }
+            if last_recorded_ts > 0 {
+                health_data.last_recorded_ts = last_recorded_ts;
+            }
+            if dpu_reachable {
+                health_data.last_dpu_error_ts = 0;
+                health_data.dpu_error_count = 0;
+            } else if dpu_attempted {
+                let now: DateTime<Utc> = Utc::now();
+                health_data.last_dpu_error_ts = now.timestamp();
+                health_data.dpu_error_count += 1;
+            }
+            health_data.last_host_error_ts = 0;
+            health_data.host_error_count = 0;
+        }
+        Err(e) => {
+            error!(error=%e, %machine_id, "failed to scrape metrics");
+            let now: DateTime<Utc> = Utc::now();
+            health_data.last_host_error_ts = now.timestamp();
+            health_data.host_error_count += 1;
+        }
+    };
+}
+
+async fn scrape_machines_concurrent(
+    machines: Arc<Mutex<Vec<Machine>>>,
+    machines_map: Arc<Mutex<HashMap<String, Arc<Mutex<HealthHashData>>>>>,
+    mut grpc_clients: Vec<ForgeApiClient>,
+    get_bmc_metadata_latency_histogram: Histogram<f64>,
+    provider: SdkMeterProvider,
+    logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
+) {
+    let workers: Vec<_> = grpc_clients
+        .iter_mut()
+        .map(|client| {
+            let work_items = machines.clone();
+            let map = machines_map.clone();
+            let client = client.clone();
+            let logger = logger.clone();
+            let provider = provider.clone();
+            let histogram = get_bmc_metadata_latency_histogram.clone();
+
+            tokio::spawn(async move {
+                loop {
+                    let machine = {
+                        let mut guard = work_items.lock().await;
+                        guard.pop()
+                    };
+
+                    match machine {
+                        Some(machine) => {
+                            let Some(machine_id) = machine.id.as_ref() else {
+                                continue;
+                            };
+                            let pending_health_data = map
+                                .lock()
+                                .await
+                                .entry(machine_id.to_string())
+                                .or_default()
+                                .clone();
+                            scrape_single_machine(
+                                &machine,
+                                pending_health_data.lock().await,
+                                client.clone(),
+                                histogram.clone(),
+                                provider.clone(),
+                                logger.clone(),
+                            )
+                            .await;
+                        }
+                        None => break,
+                    }
+                }
+            })
+        })
+        .collect();
+
+    let results: Vec<_> = future::join_all(workers).await;
+
+    for result in results {
+        if let Err(e) = result {
+            tracing::error!("Concurrent scrape failed with error: {}", e);
+        }
+    }
+}
+
 pub async fn scrape_machines_health(
     provider: SdkMeterProvider,
     logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
@@ -275,15 +524,18 @@ pub async fn scrape_machines_health(
     // metrics listener address, bmcs polling interval
     let root_ca = get_forge_root_ca_path(Some(config.root_ca));
     let client_certs = get_client_cert_info(Some(config.client_cert), Some(config.client_key));
-    let mut grpc_client = create_forge_client(
-        root_ca,
-        client_certs.cert_path,
-        client_certs.key_path,
-        config.api,
+    let grpc_client = create_forge_client(
+        root_ca.to_string(),
+        client_certs.cert_path.to_string(),
+        client_certs.key_path.to_string(),
+        config.api.to_string(),
     )
     .await?;
 
-    let mut machines_hash: HashMap<String, HealthHashData> = HashMap::new();
+    let grpc_clients: Vec<ForgeApiClient> = (0..CONCURRENCY).map(|_| grpc_client.clone()).collect();
+
+    let machines_map: Arc<Mutex<HashMap<String, Arc<Mutex<HealthHashData>>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
 
     // build a meter for carbide api response time
     let api_meter = provider.meter("api-server-client");
@@ -308,7 +560,7 @@ pub async fn scrape_machines_health(
 
     loop {
         let loop_start = std::time::Instant::now();
-        let get_machines_result = get_machines(&mut grpc_client).await;
+        let get_machines_result = get_machines(&grpc_client).await;
         find_machines_latency_histogram.record(1000.0 * loop_start.elapsed().as_secs_f64(), &[]);
         let machines = match get_machines_result {
             Ok(machines) => machines,
@@ -319,215 +571,36 @@ pub async fn scrape_machines_health(
             }
         };
 
-        // Only keep active machines in machines_hash
+        // Only keep active machines in machines_map
         let active_ids: HashSet<String> = machines
             .machines
             .iter()
             .filter_map(|m| m.id.as_ref().map(|machine_id| machine_id.id.clone()))
             .collect();
-        machines_hash.retain(|id, _| active_ids.contains(id));
 
-        for machine in machines.machines {
-            let Some(id) = machine.id.as_ref() else {
-                continue;
-            };
-            let machine_id = id.id.as_str();
-            let health_data = machines_hash.entry(machine_id.to_owned()).or_insert_with(||
-                // insert into hash on first enumeration of the machine
-                HealthHashData {
-                    description: "".to_string(),
-                    firmware_digest: "".to_string(),
-                    sel_count: 0,
-                    last_polled_ts: 0,
-                    last_recorded_ts: 0,
-                    last_host_error_ts: 0,
-                    last_dpu_error_ts: 0,
-                    host_error_count: 0,
-                    dpu_error_count: 0,
-                    host: "".to_string(),
-                    dpu: "".to_string(),
-                    port: 0,
-                    dpu_port: 0,
-                    user: "".to_string(),
-                    dpu_user: "".to_string(),
-                    password: "".to_string(),
-                    dpu_password: "".to_string(),
-            });
-
-            let mut scrape_machine = true;
-            // check if a host had errors and back off querying appropriately
-            if health_data.host_error_count > 0 {
-                let now: DateTime<Utc> = Utc::now();
-                if health_data.host_error_count < 24 {
-                    // try every 30 minutes for 12 hours
-                    if (now.timestamp() - health_data.last_host_error_ts) < (30 * 60) {
-                        scrape_machine = false;
-                    }
-                } else if health_data.host_error_count < 36 {
-                    // try every 60 minutes for next 12 hours
-                    if (now.timestamp() - health_data.last_host_error_ts) < (60 * 60) {
-                        scrape_machine = false;
-                    }
-                } else {
-                    // try once a day
-                    if (now.timestamp() - health_data.last_host_error_ts) < (24 * 60 * 60) {
-                        scrape_machine = false;
-                    }
-                }
-            }
-            if !scrape_machine {
-                continue;
-            }
-
-            if health_data.host.is_empty() {
-                // initial empty hash, get host bmc creds from api-server
-                let endpoint = match get_machine_bmc_data(
-                    &mut grpc_client,
-                    id,
-                    &get_bmc_metadata_latency_histogram,
-                )
-                .await
-                {
-                    Ok(x) => {
-                        health_data.last_host_error_ts = 0;
-                        health_data.host_error_count = 0;
-                        x
-                    }
-                    Err(e) => {
-                        // some hosts bmc data may error out at times due to creds missing in vault
-                        error!(error=%e, %machine_id, "grpc error getting machine bmc metadata");
-                        // back off for grpc / vault errors for a host
-                        let now: DateTime<Utc> = Utc::now();
-                        health_data.last_host_error_ts = now.timestamp();
-                        health_data.host_error_count += 1;
-                        continue;
-                    }
-                };
-                if let Some(dmi_data) = machine
-                    .discovery_info
-                    .as_ref()
-                    .and_then(|i| i.dmi_data.as_ref())
-                {
-                    health_data.description = format!(
-                        "{} {} SN: {}",
-                        dmi_data.sys_vendor, dmi_data.product_name, dmi_data.product_serial
-                    )
-                    .to_string();
-                }
-                health_data.host = endpoint.host;
-                health_data.port = endpoint.port.unwrap_or(0);
-                health_data.user = endpoint.user.unwrap_or("".to_string());
-                health_data.password = endpoint.password.unwrap_or("".to_string());
-            }
-
-            if health_data.dpu.is_empty() {
-                // dpu bmc creds
-                let now: DateTime<Utc> = Utc::now();
-                let mut scrape_dpu = true;
-                if health_data.dpu_error_count < 24 {
-                    // try every 30 minutes for 12 hours
-                    if (now.timestamp() - health_data.last_dpu_error_ts) < (30 * 60) {
-                        scrape_dpu = false;
-                    }
-                } else if health_data.dpu_error_count < 36 {
-                    // try every 60 minutes for next 12 hours
-                    if (now.timestamp() - health_data.last_dpu_error_ts) < (60 * 60) {
-                        scrape_dpu = false;
-                    }
-                } else {
-                    // try once a day
-                    if (now.timestamp() - health_data.last_dpu_error_ts) < (24 * 60 * 60) {
-                        scrape_dpu = false;
-                    }
-                }
-                if let (Some(dpu_id), true) = (
-                    attached_dpu_machine_id_for_primary_interface(&machine),
-                    scrape_dpu,
-                ) {
-                    let dpu_endpoint = match get_machine_bmc_data(
-                        &mut grpc_client,
-                        dpu_id,
-                        &get_bmc_metadata_latency_histogram,
-                    )
-                    .await
-                    {
-                        Ok(x) => {
-                            health_data.last_dpu_error_ts = 0;
-                            health_data.dpu_error_count = 0;
-                            Some(x)
-                        }
-                        Err(e) => {
-                            error!(error=%e, %dpu_id, "grpc error getting dpu bmc metadata");
-                            let now: DateTime<Utc> = Utc::now();
-                            health_data.last_dpu_error_ts = now.timestamp();
-                            health_data.dpu_error_count += 1;
-                            None
-                        }
-                    };
-                    if let Some(dpu_endpoint) = dpu_endpoint {
-                        health_data.dpu = dpu_endpoint.host.clone();
-                        health_data.dpu_port = dpu_endpoint.port.unwrap_or(0);
-                        health_data.dpu_user = dpu_endpoint.user.clone().unwrap_or("".to_string());
-                        health_data.dpu_password =
-                            dpu_endpoint.password.clone().unwrap_or("".to_string());
-                    }
-                }
-            }
-
-            match scrape_machine_health(
-                &mut grpc_client,
-                provider.clone(),
-                logger.clone(),
-                machine_id,
-                health_data,
-            )
-            .await
-            {
-                Ok((
-                    firmware_digest,
-                    sel_count,
-                    last_polled_ts,
-                    last_recorded_ts,
-                    dpu_reachable,
-                    dpu_attempted,
-                )) => {
-                    if !firmware_digest.is_empty() {
-                        health_data.firmware_digest = firmware_digest.to_string();
-                    }
-                    if sel_count > 0 {
-                        health_data.sel_count = sel_count;
-                    }
-                    if last_polled_ts > 0 {
-                        health_data.last_polled_ts = last_polled_ts;
-                    }
-                    if last_recorded_ts > 0 {
-                        health_data.last_recorded_ts = last_recorded_ts;
-                    }
-                    if dpu_reachable {
-                        health_data.last_dpu_error_ts = 0;
-                        health_data.dpu_error_count = 0;
-                    } else if dpu_attempted {
-                        let now: DateTime<Utc> = Utc::now();
-                        health_data.last_dpu_error_ts = now.timestamp();
-                        health_data.dpu_error_count += 1;
-                    }
-                    health_data.last_host_error_ts = 0;
-                    health_data.host_error_count = 0;
-                }
-                Err(e) => {
-                    error!(error=%e, %machine_id, "failed to scrape metrics");
-                    let now: DateTime<Utc> = Utc::now();
-                    health_data.last_host_error_ts = now.timestamp();
-                    health_data.host_error_count += 1;
-                    continue;
-                }
-            };
+        {
+            let mut map_guard = machines_map.lock().await;
+            map_guard.retain(|id, _| active_ids.contains(id));
         }
+
+        scrape_machines_concurrent(
+            Arc::new(Mutex::new(machines.machines)),
+            machines_map.clone(),
+            grpc_clients.clone(),
+            get_bmc_metadata_latency_histogram.clone(),
+            provider.clone(),
+            logger.clone(),
+        )
+        .await;
 
         let elapsed = loop_start.elapsed();
         iteration_latency_histogram.record(1000.0 * elapsed.as_secs_f64(), &[]);
 
-        tokio::time::sleep(Duration::from_secs(60)).await;
+        // If it took less than a minute to scrape all the machines, sleep the remainder of the
+        // minute, or 5 seconds minimum.
+        let remaining_sleep_time = Duration::from_secs(60).saturating_sub(elapsed);
+        let sleep_time = remaining_sleep_time.max(Duration::from_secs(5));
+        tokio::time::sleep(sleep_time).await;
     }
 }
 

@@ -14,6 +14,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
+use crate::HealthError;
 use base64::{Engine as _, engine::general_purpose};
 use chrono::{DateTime, Utc};
 use health_report::{
@@ -34,10 +35,9 @@ use opentelemetry::logs::{AnyValue, LogRecord, Logger};
 use opentelemetry::metrics::Meter;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use report::HealthCheck;
-use rpc::forge_tls_client::ForgeClientT;
+use rpc::forge_api_client::ForgeApiClient;
 use sha2::{Digest, Sha256};
-
-use crate::HealthError;
+use tokio::sync::MutexGuard;
 
 lazy_static! {
     static ref STATIC_MACHINE_ID_STRS: Mutex<HashMap<String, &'static str>> = Default::default();
@@ -59,7 +59,7 @@ pub struct DpuHealth {
     attempted: bool,
 }
 
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug, Hash, Default)]
 pub struct HealthHashData {
     pub description: String,
     pub firmware_digest: String,
@@ -661,11 +661,11 @@ pub async fn export_metrics(
 
 /// get a single machine's health metrics and export it
 pub async fn scrape_machine_health(
-    client: &mut ForgeClientT,
+    client: ForgeApiClient,
     provider: SdkMeterProvider,
     logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
     machine_id: &str,
-    health_hash: &HealthHashData,
+    health_hash: &MutexGuard<'_, HealthHashData>,
 ) -> Result<(String, usize, i64, i64, bool, bool), HealthError> {
     let pool = RedfishClientPool::builder().build()?;
     let endpoint = libredfish::Endpoint {
@@ -751,7 +751,7 @@ pub async fn scrape_machine_health(
 }
 
 async fn export_health_report(
-    client: &mut ForgeClientT,
+    client: ForgeApiClient,
     health: &HardwareHealth,
     machine_id: &str,
     model: String,
@@ -872,12 +872,12 @@ async fn export_health_report(
         }),
     }
 
-    let request = tonic::Request::new(rpc::forge::HardwareHealthReport {
+    let request = rpc::forge::HardwareHealthReport {
         machine_id: Some(rpc::MachineId {
             id: machine_id.to_string(),
         }),
         report: Some(report.into()),
-    });
+    };
 
     client
         .record_hardware_health_report(request)

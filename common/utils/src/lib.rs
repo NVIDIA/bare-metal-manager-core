@@ -1,5 +1,6 @@
 use serde::{Serialize, Serializer};
 use std::collections::{BTreeMap, HashMap};
+use std::hash::Hash;
 
 pub mod admin_cli;
 pub mod cmd;
@@ -45,7 +46,7 @@ where
 pub fn has_duplicates<T>(iter: T) -> bool
 where
     T: IntoIterator,
-    T::Item: Eq + std::hash::Hash,
+    T::Item: Eq + Hash,
 {
     let mut uniq = std::collections::HashSet::new();
     !iter.into_iter().all(move |x| uniq.insert(x))
@@ -53,9 +54,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    pub use super::*;
+    use super::*;
+
     #[test]
-    pub fn test_has_duplicates() {
+    fn test_has_duplicates() {
         assert!(!has_duplicates(vec![
             "1".to_string(),
             "2".to_string(),

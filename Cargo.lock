@@ -2862,14 +2862,17 @@ dependencies = [
 name = "health"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
  "base64 0.22.1",
  "chrono",
  "clap",
  "eyre",
  "forge-tls",
  "forge-version",
+ "futures",
  "health-report",
  "http-body-util",
+ "humantime",
  "hyper",
  "hyper-util",
  "lazy_static",
@@ -2888,6 +2891,7 @@ dependencies = [
  "tonic",
  "tracing",
  "tracing-subscriber",
+ "utils",
 ]
 
 [[package]]
