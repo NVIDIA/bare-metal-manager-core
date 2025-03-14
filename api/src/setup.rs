@@ -420,6 +420,7 @@ pub async fn start_api(
                 .machine_validation_config(carbide_config.machine_validation_config.clone())
                 .common_pools(common_pools.clone())
                 .bom_validation(carbide_config.bom_validation)
+                .no_firmware_update_reset_retries(carbide_config.firmware_global.no_reset_retries)
                 .build(),
         ))
         .io(Arc::new(MachineStateControllerIO {

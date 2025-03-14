@@ -282,6 +282,7 @@ pub enum PreingestionState {
     NewFirmwareReportedWait {
         final_version: String,
         upgrade_type: FirmwareComponentType,
+        previous_reset_time: Option<i64>,
     },
     RecheckVersionsAfterFailure {
         reason: String,
