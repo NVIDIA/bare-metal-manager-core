@@ -1,8 +1,83 @@
 # Changelog
-## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.02.28-rc2-0...trunk)
+## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.03.14-rc2-0...trunk)
+
+### Added
+### Changed
+### Fixed
+### Removed
+### Added
+
+## [v2025.03.14-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.02.28-rc2-0...v2025.03.14-rc2-0)
 
 ### Added
 
+- Added metrics for machine-validation feature.
+- Added BIOS profiles.  Individual sites can be set to Performance or PowerEfficiency from their carbide-api-site-config.toml, defaulting to Performance.  Details of what this means for a particular model will typically come from the base carbide-api-config.toml.  These are set by the call to machine_setup during ingestion; currently changing a site's configuration will not affect any already ingested machines.
+- [FORGE-5665](https://jirasw.nvidia.com/browse/FORGE-5665) allow cli to override id of sku
+    allows setting the id on either the create or generate call to avoid having to manually edit the json file.
+
+    ```
+    ❯ forge-cli local sku create ~/sku-dev3.json -i dev3-sku
+    +----------+----------------------------------------------+-----------------------+-----------------------------+
+    | ID       | Description                                  | Model                 | Created                     |
+    +==========+==============================================+=======================+=============================+
+    | dev3-sku | ProLiant DL380a Gen11; 2xCPU; 0xGPU; 256 GiB | ProLiant DL380a Gen11 | 2025-03-07T19:03:27.633979Z |
+    +----------+----------------------------------------------+-----------------------+-----------------------------+
+
+    ❯ forge-cli local sku g fm100htv4fu8fpktl0e0qrg4dl58g2bc2g7naq0l6c15ruc22po1i5rfsq0 -i gen-sku
+    ID:              gen-sku
+    Description:     PowerEdge R760; 2xCPU; 0xGPU; 256 GiB
+    Model:           PowerEdge R760
+    Architecture:    x86_64
+    Created At:      2025-03-07T19:04:31.084215485Z
+    ...
+    ```
+
+    other wide the generated id looks like:
+
+    ```
+    ❯ forge-cli local sku g fm100htv4fu8fpktl0e0qrg4dl58g2bc2g7naq0l6c15ruc22po1i5rfsq0
+    ID:              PowerEdge R760 2025-03-07 19:14:11.228991270 UTC
+    ...
+    ```
+- [FORGE-5471](https://jirasw.nvidia.com/browse/FORGE-5471) Machines are marked as unhealthy if DPU-agent is not updated within 1 day of the site controller software deployment.
+- forge-admin-cli can now use templates to easily apply pre-defined health overrides.
+  ```
+  ❯ admin-cli demo2 machine health-override add --help
+    Insert a health report override
+
+    Usage: forge-admin-cli machine health-override add [OPTIONS] <--health-report <HEALTH_REPORT>|--template <TEMPLATE>> <MACHINE_ID>
+
+    Arguments:
+      <MACHINE_ID>
+
+    Options:
+          --health-report <HEALTH_REPORT>  New health report as json
+          --template <TEMPLATE>            Predefined Template name. Use host-update for DPU Reprovision [possible values: host-update, internal-maintenance, out-for-repair, degraded, validation, suppress-external-alerting, mark-healthy]
+          --message <MESSAGE>              Message to be filled in template.
+          --replace                        Replace all other health reports with this override
+          --print-only                     Print the template that is going to be send to carbide
+          --extended                       Extended result output.
+      -h, --help                           Print help
+  ```
+- [FORGE-5585](https://jirasw.nvidia.com/browse/FORGE-5585) The Machine Validation Test Control feature provides flexible configuration options to manage test execution through TOML configuration files (carbide-api-site-config.toml). This enhancement allows administrators to globally control test execution states while maintaining the ability to override specific tests.
+  - The feature introduces two new configuration fields under machine_validation_config.
+    - test_selection_mode
+    - tests
+    ```
+    [machine_validation_config]
+    enabled = true
+
+    # Optional: Controls global test execution behavior (Default/EnableAll/DisableAll)
+    test_selection_mode = "EnableAll"
+    # Optional: Override specific test states
+    tests = [
+        { id = "forge_MmMemLatency", enable = false },
+        { id = "forge_FioSSD", enable = true }
+    ]
+    ```
+- BMC and CEC FW are now updated during bfb installation, using the interegrated bfb firmware package.
+- Added support for Dell XE9680 in machine validation.
 - Host health status is recorded over time in health history. Whenever the health status (added/removed/changed alert or success) of a host changes, a new host health history record is created. Host health history can be retrieved via the `FindMachineHealthHistories` gRPC API.
 - The Host Health page on carbide-web have been improved:
   - Host health history is presented directly on the health page (`/admin/machine/:id/health`), as well as on a dedicated health history page (`/admin/machine/:id/health-history`)
@@ -13,13 +88,46 @@
 
 ### Changed
 
+- Host health status is recorded over time in health history. Whenever the health status (added/removed/changed alert or success) of a host changes, a new host health history record is created. Host health history can be retrieved via the `FindMachineHealthHistories` gRPC API.
+- The Host Health page on carbide-web have been improved:
+  - Host health history is presented directly on the health page (`/admin/machine/:id/health`), as well as on a dedicated health history page (`/admin/machine/:id/health-history`)
+  - The layout of the health page had been improved
+  - The list of health overrides now shows the full override definition in JSON format in an expandable `Details` column
+  - The health page is now loading without an error even in case the machine is not currently ingested. This allows viewing the health history for deleted machines
+- [FORGE-5695](https://jirasw.nvidia.com/browse/FORGE-5695) SKU auto matching now occurs when ignore_unassigned_machines is true
+- IPv4 egress rules for Network Security Groups are now stateful by default, and the behavior can be turned off in the site-controller config by setting `stateful_acls_enabled` to false under `network_security_group` config.
 - The handling of VPC-isolation behavior has been moved to the DPU agent.  `deny_prefixes` and `site_fabric_prefixes` are now sent separately to the DPU along with `vpc_isolation_behavior`, and the agent adjusts generated config as appropriate.  The old protobuf field has been renamed and is still populated with the original content for backward-compatibility.
+- Network security group names can now be re-used between tenants.
+- Updated libredfish to 0.29.8
+  - Uses new functionality to query nic mode on DPUs and whether infinite boot is enabled on hosts. Deprecate querying for HttpDev1Interface on Dells--this was not being used anywhere.
+  - Fixed ability to set the boot order on Dell XE9680.
+- Upgrade of host firmware can now be requested of assigned instances in a similar manner to DPU upgrades.  We flag machines we want to be updated with "forge-admin-cli host reprovision set --id MACHINEID".  The tenant can the request the host to be rebooted which will trigger the actual update.  If DPU updates were requested as well, they will be performed first.
 
 ### Fixed
+
+- Machine state is checked more often to avoid race with state machine.
+- Only require bmc exploration requests to specify the BMC IP.  If the BMC mac is not specified, query the machine interface addresses table to find the MAC address associated with that IP if an entry exists in the table.
+- [FORGE-5521](https://jirasw.nvidia.com/browse/FORGE-5521) increased TPM_PT_MAX_AUTH_FAIL to 256 to avoid TPM lockout during continous reingestion.
+- Fixed update_machine_validation_results_completed trigger as part of [machine-validation] testing.
+- [FORGE-4412](https://jirasw.nvidia.com/browse/FORGE-4412) Added proto file linter to CI pipeline and fixed existing violations.
+- Site fabric prefixes are now separated from deny_prefixes
+  - Stops site_fabric_prefixes from being combined with deny_prefixes.
+    - Renames the original deny_prefixes field and continues to populate the old field with the combined set for older agents.
+    - Updates the protos to add site_fabric_prefixes as a separate field in the network config that the DPU agent receives.
+    - Updates the protos to send along VPC isolation behavior type to the DPU as well.
+    - Updates the FNN, pre-FNN etv, and pre-NVUE etv templates to add in site_fabric_prefixes to the deny policies when necessary.
+      - If a security group is applied, site_fabric_prefixes is ignored. (default deny is applied if no security group rule matches.)
+- Improved consistency of Health Hash.  Corrects an issue where two health reports with different orderings of successes or alerts were compared, the health might have been different.
+- Fixed an issue where `forge-dpu-agent` upgrade installed `node-exporter` and `transceiver-exporter` services but not starting them.
+- Host firmware updates that have waited more than 20 minutes after a reset without seeing the version number update, will now try resetting it again.
+- All DPUs will now do a complete upgrade of Firmware, Software and BMC.
+
 ### Removed
 
-## [v2025.02.28-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.02.14-rc3-0...v2025.02.28-rc2-0)
+- [FORGE-5635](https://jirasw.nvidia.com/browse/FORGE-5635) Remove instance DHCP handling from carbide. Instance DHCP will be handled by DHCP server configured on DPU only.
+- Removed deprecated configurations parameters dhcp-relay and dpu_dhcp_server_enabled.
 
+## [v2025.02.28-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.02.14-rc3-0...v2025.02.28-rc2-0)
 
 ### Added
 
@@ -53,6 +161,8 @@
     inactive_devices: [0, 2]
   }
   ```
+- Added forge_ForgeRunBook machine-validation test disabled by default.
+- New forge-admin-cli command, "machine hardware-info update". This command allows users to update a machine's hardware info in the site DB, in case data is missing like in [https://nvbugspro.nvidia.com/bug/4908711]. Currently, the command can only update GPUs, but other hardware info types will be added.
 - The security settings of InfiniBand fabrics are now monitored by the "IB Fabric Monitor" task. If certain security related properties of an InfiniBand fabric (e.g. m_key) are not configured as expected, the metric `forge_ib_monitor_insecure_fabric_configuration_count` will be emitted with value `1`. The security settings that are monitored should be in place in order to provide strong isolation between various Forge Tenants using InfiniBand, as well as to protect the InfiniBand infrastructure from tenants. Once the metric is rolled out, alarming on insecure infrastructure configurations can be added. In order to suppress the alarm during site builds when insecure configuration is expected for a certain amount of time, a new configuration file parameter `[ib_config.allow_insecure` is added that is `false` by default. If fabrics are defined as insecure, then an additional metric `forge_ib_monitor_allow_insecure_fabric_configuration_count` will be emitted that can be used to suppress the security alert.
 - Added forge_ForgeRunBook machine-validation test disabled by default.
 - New forge-admin-cli command, "machine hardware-info update". This command allows users to update a machine's hardware info in the site DB, in case data is missing like in [https://nvbugspro.nvidia.com/bug/4908711]. Currently, the command can only update GPUs, but other hardware info types will be added. The next `discover_machine` call from scout will overwrite whatever you added to the table.
@@ -70,7 +180,6 @@
     }
   ```
   Pass an empty json array to remove all GPU entries.
-- Added BIOS profiles.  Individual sites can be set to Performance or PowerEfficiency from their carbide-api-site-config.toml, defaulting to Performance.  Details of what this means for a particular model will typically come from the base carbide-api-config.toml.  These are set by the call to machine_setup during ingestion; currently changing a site's configuration will not affect any already ingested machines.
 - Upgrade of host firmware can now be requested of assigned instances in a similar manner to DPU upgrades.  We flag machines we want to be updated with "forge-admin-cli host reprovision sed --id MACHINEID".  The tenant can the request the host to be rebooted which will trigger the actual update.  If DPU updates were requested as well, they will be performed first.
 - If host firmware updates have waited more than 20 minutes after a reset without seeing the version number update, they will now try resetting it again.
 
@@ -105,7 +214,6 @@
   Operators can use a new `Host Update` template on the Machine Health page of the Forge Admin Web UI in order to place a simlar health override before manual DPU updates are started.  
   [Forge-4270](https://jirasw.nvidia.com/browse/FORGE-4270)
 - The carbide-web `/admin/managed-host/:machine_id` page had been removed. Links to the page have been replaced with links to `/admin/machine/:machine_id`. The reason for the removal is that the `/admin/machine` page contained a superset of the information available on the `/admin/managed-host` page.
-- [FORGE-5635](https://jirasw.nvidia.com/browse/FORGE-5635) Remove instance DHCP handling from carbide. Instance DHCP will be handled by DHCP server configured on DPU only.
 
 ### Fixed
 
@@ -142,6 +250,7 @@
 ### Removed
 
 - Removed legacy state migration code.
+- [FORGE-5635](https://jirasw.nvidia.com/browse/FORGE-5635) Remove instance DHCP handling from carbide. Instance DHCP will be handled by DHCP server configured on DPU only.
 
 ## [v2025.02.14-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.02.14-rc2-0...v2025.02.14-rc3-0)
 
