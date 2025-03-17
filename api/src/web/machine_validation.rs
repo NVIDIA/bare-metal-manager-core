@@ -91,6 +91,7 @@ struct ValidationExternalConfig {
     version: String,
     timestamp: String,
 }
+use super::filters;
 #[derive(Template)]
 #[template(path = "validation_result_details.html")]
 struct ValidationResultDetailDisplay {
