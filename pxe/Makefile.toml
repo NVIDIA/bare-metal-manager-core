@@ -19,13 +19,14 @@ BFB_UPSTREAM_LOCATION = "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04
 URM_LOCATION = "https://urm.nvidia.com/artifactory/sw-forge-admins-generic-local/build-artifacts/${HBN_VERSION}"
 DOCA_VERSION = "2.8.0"
 HBN_VERSION = "2.3.0"
+# The upstream config url no longer works, and the file must be retrieved manually from the following page, then downloaded
+# to the machine that is running the upload job
+# https://catalog.ngc.nvidia.com/orgs/nvidia/teams/doca/resources/doca_container_configs/version
 HBN_UPSTREAM_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/${DOCA_VERSION}v2/zip"
 IPXE_BANNER_VERSION = { script = [
   "echo ${VERSION:-$(git describe --tags --first-parent --always --long)}",
 ] }
 DOCA_HBN_URI = "nvcr.io/nvidia/doca/doca_hbn:2.3.0-doca2.8.0"
-DOCA_TELEMETRY_URI = "nvcr.io/nvidia/doca/doca_telemetry:1.18.6-doca2.8.0"
-K8S_PAUSE_URI = "k8s.gcr.io/pause:3.9"
 DPU_AGENT_PKG_VERSION = { script = [
   "echo $(git describe --tags --first-parent --always --long | cut -c 2-)",
 ] }
@@ -55,11 +56,7 @@ dependencies = [
   "bfb-download",
   "bfb-mv-to-build-dir",
   "bfb-hbn-download",
-  "k8s-pause-download",
-  "bfb-telemetry-download",
   "bfb-hbn-export",
-  "kubelet-pause-export",
-  "bfb-telemetry-export",
   "download-hbn-installer-to-bfb",
   "upload-artifacts-to-artifactory",
 ]
@@ -605,18 +602,6 @@ description = "Download the hbn doca container on aarch64 gitlab runner"
 command = "docker"
 args = ["pull", "--platform=linux/arm64", "${DOCA_HBN_URI}"]
 
-[tasks.bfb-telemetry-download]
-category = "iPXE Kernel"
-description = "Download the doca telemetry container on aarch64 gitlab runner"
-command = "docker"
-args = ["pull", "--platform=linux/arm64", "${DOCA_TELEMETRY_URI}"]
-
-[tasks.k8s-pause-download]
-category = "iPXE Kernel"
-description = "Download the kubelet pause container on aarch64 gitlab runner"
-command = "docker"
-args = ["pull", "--platform=linux/arm64", "${K8S_PAUSE_URI}"]
-
 [tasks.bfb-extract]
 category = "iPXE Kernel"
 description = "Extract the BFB on aarch64 gitlab runner"
@@ -638,7 +623,6 @@ description = "Extract the BFB initramfs on aarch64 gitlab runner"
 script = ["gzip -d < /tmp/bfb-dump/dump-initramfs-v0 | cpio -id"]
 cwd = "${BUILD_LOCATION}"
 
-
 [tasks.bfb-hbn-export]
 category = "iPXE Kernel"
 description = "export the hbn doca container on aarch64 gitlab runner"
@@ -646,31 +630,15 @@ command = "docker"
 args = ["save", "--output=doca_hbn.tar", "${DOCA_HBN_URI}"]
 cwd = "${BUILD_LOCATION}"
 
-[tasks.bfb-telemetry-export]
-category = "iPXE Kernel"
-description = "export the hbn telemetry container on aarch64 gitlab runner"
-command = "docker"
-args = ["save", "--output=doca_telemetry.tar", "${DOCA_TELEMETRY_URI}"]
-cwd = "${BUILD_LOCATION}"
-
-[tasks.kubelet-pause-export]
-category = "iPXE Kernel"
-description = "export the kubelet pause container on aarch64 gitlab runner"
-command = "docker"
-args = ["save", "--output=pause.tar", "${K8S_PAUSE_URI}"]
-cwd = "${BUILD_LOCATION}"
-
-
 [tasks.download-docker-containers]
 category = "iPXE Kernel"
 description = "Download all the docker containers from artifactory"
 command = "curl"
 args = [
   "--remote-name-all",
-  "${URM_LOCATION}/{doca_hbn,doca_telemetry,pause}.tar",
+  "${URM_LOCATION}/{doca_hbn}.tar",
 ]
 cwd = "${BUILD_LOCATION}"
-
 
 [tasks.bfb-extract-ifconfig]
 category = "iPXE Kernel"
@@ -678,7 +646,6 @@ description = "extract ifconfig from ubuntu tar"
 command = "tar"
 args = ["xJf", "ubuntu/image.tar.xz", "./usr/sbin/ifconfig"]
 cwd = "${BUILD_LOCATION}"
-
 
 [tasks.bfb-add-prod-forge-root-ca-to-bfb]
 category = "iPXE Kernel"
