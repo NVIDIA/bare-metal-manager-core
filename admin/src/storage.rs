@@ -52,7 +52,7 @@ pub async fn cluster_show(
         let cluster = api_client.0.get_storage_cluster(id).await?;
         clusters.push(cluster);
     } else {
-        clusters = api_client.list_storage_cluster().await?;
+        clusters = api_client.0.list_storage_cluster().await?.clusters;
     }
     if is_json {
         println!(

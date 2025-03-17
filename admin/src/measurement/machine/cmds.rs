@@ -14,10 +14,8 @@
 //! `measurement mock-machine` subcommand dispatcher + backing functions.
 //!
 
-use ::rpc::protos::measured_boot::{
-    AttestCandidateMachineRequest, ShowCandidateMachineRequest, ShowCandidateMachinesRequest,
-};
-use ::rpc::protos::measured_boot::{ListCandidateMachinesRequest, show_candidate_machine_request};
+use ::rpc::protos::measured_boot::show_candidate_machine_request;
+use ::rpc::protos::measured_boot::{AttestCandidateMachineRequest, ShowCandidateMachineRequest};
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::{machine::CandidateMachine, report::MeasurementReport};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
@@ -125,14 +123,10 @@ pub async fn show_all(
     grpc_conn: &ApiClient,
     _show: &Show,
 ) -> CarbideCliResult<CandidateMachineList> {
-    // Request.
-    let request = ShowCandidateMachinesRequest {};
-
-    // Response.
     Ok(CandidateMachineList(
         grpc_conn
             .0
-            .show_candidate_machines(request)
+            .show_candidate_machines()
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
             .machines
@@ -147,14 +141,10 @@ pub async fn show_all(
 
 /// list lists all machine IDs.
 pub async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<CandidateMachineSummaryList> {
-    // Request.
-    let request = ListCandidateMachinesRequest {};
-
-    // Response.
     Ok(CandidateMachineSummaryList(
         grpc_conn
             .0
-            .list_candidate_machines(request)
+            .list_candidate_machines()
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
             .machines

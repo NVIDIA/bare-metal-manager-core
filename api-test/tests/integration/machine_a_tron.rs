@@ -13,7 +13,7 @@ use bmc_mock::TarGzOption;
 use forge_tls::client_config::get_forge_root_ca_path;
 use machine_a_tron::{
     BmcMockRegistry, BmcRegistrationMode, DhcpRelayService, HostMachineActor, MachineATron,
-    MachineATronConfig, MachineATronContext, api_client::ApiClient, api_throttler,
+    MachineATronConfig, MachineATronContext, api_throttler,
 };
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
@@ -52,9 +52,10 @@ pub async fn run_local(
         forge_api_client.clone().into(),
     );
 
-    let desired_firmware = ApiClient::from(forge_api_client.clone())
-        .get_desired_firmware()
-        .await?;
+    let desired_firmware = forge_api_client
+        .get_desired_firmware_versions()
+        .await?
+        .entries;
 
     tracing::info!(
         "Got desired firmware versions from the server: {:?}",

@@ -449,7 +449,8 @@ pub async fn handle_override(
     match command {
         OverrideCommand::Show { machine_id } => {
             let response = api_client
-                .machine_list_health_report_overrides(machine_id)
+                .0
+                .list_health_report_overrides(machine_id)
                 .await?;
             let mut rows = vec![];
             for r#override in response.overrides {
@@ -544,7 +545,8 @@ pub async fn force_delete(
     let mut dpu_machine_id = String::new();
 
     if !api_client
-        .get_instances_by_machine_id(query.machine.clone())
+        .0
+        .find_instance_by_machine_id(query.machine.clone())
         .await?
         .instances
         .is_empty()

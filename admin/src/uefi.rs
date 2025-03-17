@@ -18,7 +18,10 @@ pub async fn set_host_uefi_password(
     query: MachineQuery,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let response = api_client.set_host_uefi_password(query.clone()).await?;
+    let response = api_client
+        .0
+        .set_host_uefi_password(query.clone().query)
+        .await?;
     println!(
         "successfully set UEFI password for host {query:#?} (jid: {:#?})",
         response.job_id
@@ -30,7 +33,10 @@ pub async fn clear_host_uefi_password(
     query: MachineQuery,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let response = api_client.clear_host_uefi_password(query.clone()).await?;
+    let response = api_client
+        .0
+        .clear_host_uefi_password(query.clone().query)
+        .await?;
     println!(
         "successfully cleared UEFI password for host {query:#?}; (jid: {:#?})",
         response.job_id

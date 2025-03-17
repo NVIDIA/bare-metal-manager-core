@@ -38,7 +38,7 @@ pub async fn handle_show_version(
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    let v = api_client.version(version.show_runtime_config).await?;
+    let v = api_client.0.version(version.show_runtime_config).await?;
     if format == OutputFormat::Json {
         println!("{}", serde_json::to_string(&v)?);
         return Ok(());

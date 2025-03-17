@@ -228,9 +228,9 @@ pub async fn handle_delete(
     args: DeleteMachineInterfaces,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let interface_id = Some(Uuid {
+    let interface_id = Uuid {
         value: args.interface_id,
-    });
-    api_client.delete_machine_interface(interface_id).await?;
+    };
+    api_client.0.delete_interface(interface_id).await?;
     Ok(())
 }

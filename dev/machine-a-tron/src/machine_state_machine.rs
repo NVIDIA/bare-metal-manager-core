@@ -416,7 +416,7 @@ impl MachineStateMachine {
 
             // Inform the API that we have finished our reboot (ie. scout is now running)
             self.app_context
-                .api_client()
+                .forge_api_client
                 .reboot_completed(machine_id.clone())
                 .await?;
 
@@ -520,7 +520,7 @@ impl MachineStateMachine {
     ) -> Result<(), MachineStateError> {
         let network_config = self
             .app_context
-            .api_client()
+            .forge_api_client
             .get_managed_host_network_config(machine_id.clone())
             .await?;
 
@@ -774,8 +774,8 @@ impl MachineStateMachine {
     ) -> Result<(), ClientApiError> {
         let start = Instant::now();
         self.app_context
-            .api_client()
-            .discovery_complete(machine_id.clone())
+            .forge_api_client
+            .discovery_completed(machine_id.clone())
             .await?;
         tracing::trace!("discovery_complete took {}ms", start.elapsed().as_millis());
         Ok(())
@@ -958,6 +958,12 @@ pub enum MachineStateError {
     BmcMock(#[from] BmcMockError),
     #[error("{0}")]
     WrongOsForMachine(String),
+}
+
+impl From<tonic::Status> for MachineStateError {
+    fn from(err: tonic::Status) -> Self {
+        MachineStateError::ClientApi(ClientApiError::from(err))
+    }
 }
 
 #[derive(thiserror::Error, Debug)]

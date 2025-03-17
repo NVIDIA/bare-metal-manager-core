@@ -337,20 +337,6 @@ impl prost::Message for Duration {
     }
 }
 
-impl From<uuid::Uuid> for common::Uuid {
-    fn from(uuid: uuid::Uuid) -> common::Uuid {
-        common::Uuid {
-            value: uuid.hyphenated().to_string(),
-        }
-    }
-}
-
-impl From<String> for common::MachineId {
-    fn from(machine_id: String) -> common::MachineId {
-        common::MachineId { id: machine_id }
-    }
-}
-
 impl TryFrom<common::Uuid> for uuid::Uuid {
     type Error = uuid::Error;
     fn try_from(uuid: Uuid) -> Result<Self, Self::Error> {

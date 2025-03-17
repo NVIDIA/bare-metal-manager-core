@@ -27,6 +27,7 @@ pub async fn external_config_show(
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     let ret = api_client
+        .0
         .get_machine_validation_external_configs(config_names)
         .await?;
 
@@ -375,6 +376,7 @@ pub async fn on_demand_machine_validation(
 }
 pub async fn remove_external_config(api_client: &ApiClient, name: String) -> CarbideCliResult<()> {
     api_client
+        .0
         .remove_machine_validation_external_config(name)
         .await?;
     Ok(())

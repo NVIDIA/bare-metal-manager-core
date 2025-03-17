@@ -33,7 +33,7 @@ use crate::cfg::cli_options::{DpuOperations, FwCommand, RedfishAction, ShowFw, S
 use crate::rpc::ApiClient;
 
 async fn handle_browse_command(api_client: &ApiClient, uri: &str) -> color_eyre::Result<()> {
-    let data = api_client.redfish_browse(uri.to_string()).await?;
+    let data = api_client.0.redfish_browse(uri.to_string()).await?;
     #[derive(Serialize, Debug)]
     struct Output {
         text: serde_json::Value,

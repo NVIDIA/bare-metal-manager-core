@@ -34,7 +34,7 @@ pub async fn delete_ca_cert(
     ca_cert_id: i32,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    api_client.tpm_ca_delete_cert(ca_cert_id).await
+    Ok(api_client.0.tpm_delete_ca_cert(ca_cert_id).await?)
 }
 
 pub async fn add_ca_cert_filename(
@@ -94,7 +94,7 @@ async fn add_ca_cert_individual(
 
     validate_ca_cert(&ca_file_bytes_der)?;
 
-    let ca_cert_id_response = api_client.tpm_ca_add_cert(&ca_file_bytes_der).await?;
+    let ca_cert_id_response = api_client.0.tpm_add_ca_cert(ca_file_bytes_der).await?;
 
     println!(
         "Successfully added CA Certificate {0} with id {1}. {2} EK certs have been matched",

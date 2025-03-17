@@ -9,12 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use heck::{ToSnakeCase, ToUpperCamelCase};
-use lazy_static::lazy_static;
-use quote::__private::TokenStream;
-use quote::{TokenStreamExt, quote};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use tonic_client_wrapper::codegen;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
@@ -518,169 +514,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .unwrap();
 
-    write_api_client_wrapper_methods("src/protos/forge_api_client.rs");
+    let client_wrapper_generator = codegen::CodeGenerator::new(codegen::Config {
+        wrapper_name: "ForgeApiClient".to_string(),
+        inner_rpc_client_type: "crate::forge_tls_client::ForgeClientT".to_string(),
+        proto_files: vec!["proto/forge.proto".to_string()],
+        include_paths: vec!["proto".to_string()],
+        generated_types_path_within_crate: "protos".to_string(),
+    })?;
+
+    client_wrapper_generator.write_rpc_client_wrapper("src/protos/forge_api_client.rs")?;
+    client_wrapper_generator
+        .write_rpc_convenience_converters("src/protos/convenience_converters.rs")?;
 
     Ok(())
-}
-
-/// Write a set of helper methods as an `impl ForgeApiClient` block. See
-/// [`make_forge_api_client_wrapper`] for details on what the wrapper methods do.
-fn write_api_client_wrapper_methods<P: AsRef<Path>>(out: P) {
-    let forge_fds = tonic_build::Config::new()
-        .protoc_arg("--experimental_allow_proto3_optional")
-        .load_fds(&["proto/forge.proto"], &["proto"])
-        .unwrap()
-        .file;
-
-    let mut wrapper_methods = TokenStream::new();
-    forge_fds
-        .into_iter()
-        .flat_map(|fd| fd.service)
-        .flat_map(|svc| svc.method)
-        .filter_map(make_forge_api_client_wrapper)
-        .for_each(|m| wrapper_methods.append_all(m));
-
-    let file = quote! {
-        // GENERATED CODE: See `write_api_client_wrapper_methods` in `build.rs` at the root of this crate.
-        // Extend ForgeApiClient by adding wrapper methods to every gRPC method in the forge namespace.
-        impl crate::forge_api_client::ForgeApiClient {
-            #wrapper_methods
-        }
-    };
-
-    let ast: syn::File = syn::parse2(file).expect("not a valid tokenstream");
-    let code = prettyplease::unparse(&ast);
-    std::fs::write(out, code).expect("could not write output file");
-}
-
-/// Converts the given protobuf method descriptor into a method that looks like:
-///
-/// ```
-/// pub async fn version(
-///     &self,
-///     request: crate::protos::forge::VersionRequest,
-/// ) -> Result<crate::protos::forge::BuildInfo, tonic::Status> {
-///     Ok(
-///         self
-///             .connection()
-///             .await?
-///             .version(tonic::Request::new(request))
-///             .await?
-///             .into_inner(),
-///     )
-/// }
-/// ```
-///
-/// That is, it will wrap a `ForgeClientT` method, by:
-///
-/// - calling `self.connection().await?` to ensure the connection is initialized
-/// - wrapping the request in `tonic::Request::new()`
-/// - unpacking the response via `.into_inner()`
-fn make_forge_api_client_wrapper(
-    method: prost_types::MethodDescriptorProto,
-) -> Option<TokenStream> {
-    let method_name: TokenStream = method
-        .name?
-        .replace(".", "::")
-        .to_snake_case()
-        .parse::<TokenStream>()
-        .unwrap();
-    let input_type_str = convert_protobuf_type_to_rust_type(method.input_type?.as_str())?;
-    let input_type: TokenStream = input_type_str.parse().unwrap();
-    let output_type: TokenStream =
-        convert_protobuf_type_to_rust_type(method.output_type?.as_str())?
-            .parse()
-            .unwrap();
-    let token_stream = if input_type_str == "()" {
-        // Don't make callers pass `()` to the method...
-        quote! {
-            pub async fn #method_name(&self) -> Result<#output_type, tonic::Status> {
-                Ok(self
-                    .connection()
-                    .await?
-                    .#method_name(tonic::Request::new(()))
-                    .await?
-                    .into_inner())
-            }
-        }
-    } else {
-        quote! {
-            pub async fn #method_name(&self, request: #input_type) -> Result<#output_type, tonic::Status> {
-                Ok(self
-                    .connection()
-                    .await?
-                    .#method_name(tonic::Request::new(request))
-                    .await?
-                    .into_inner())
-            }
-        }
-    };
-
-    Some(token_stream)
-}
-
-/// Convert tye protobuf type (which looks like `.forge.VersionRequest` or similar) to the proper
-/// rust type, by:
-///
-/// - Converting it to a known base type (bool, (), etc) if it's a known base type
-///
-/// or:
-///
-/// - Stripping the leading `.`
-/// - Converting all but the last dot-separated components into snake_case
-/// - Converting the last dot-separated component into CamelCase
-/// - Joining the components with `::` instead of `.`
-/// - Prefixing the type with `crate::protos::`, since that's the fully qualified path.
-fn convert_protobuf_type_to_rust_type(t: &str) -> Option<String> {
-    if let Some(base_type) = base_types.get(t) {
-        return Some(base_type.clone());
-    }
-
-    let components = t.strip_prefix(".")?.split('.').collect::<Vec<_>>();
-    let result = if components.len() > 1 {
-        let leading = components[0..components.len() - 1]
-            .iter()
-            .map(|s| s.to_snake_case())
-            .collect::<Vec<_>>()
-            .join("::");
-        let last = components[components.len() - 1].to_upper_camel_case();
-        [leading, last].join("::")
-    } else {
-        components.last()?.to_upper_camel_case()
-    };
-
-    Some(format!("crate::protos::{result}"))
-}
-
-lazy_static! {
-    /// Hardcoded list of types that correspond to rust primitives. Taken from [prost-build][0]
-    ///
-    /// [0]: https://github.com/tokio-rs/prost/blob/9f5a38101afaeda951e563b4721f812cd0918214/prost-build/src/extern_paths.rs#L26
-    static ref base_types: HashMap<String, String> = HashMap::from([
-        (".google.protobuf.BoolValue".to_string(), "bool".to_string()),
-        (
-            ".google.protobuf.BytesValue".to_string(),
-            "::prost::alloc::vec::Vec<u8>".to_string(),
-        ),
-        (
-            ".google.protobuf.DoubleValue".to_string(),
-            "f64".to_string(),
-        ),
-        (".google.protobuf.Empty".to_string(), "()".to_string()),
-        (".google.protobuf.FloatValue".to_string(), "f32".to_string()),
-        (".google.protobuf.Int32Value".to_string(), "i32".to_string()),
-        (".google.protobuf.Int64Value".to_string(), "i64".to_string()),
-        (
-            ".google.protobuf.StringValue".to_string(),
-            "::prost::alloc::string::String".to_string(),
-        ),
-        (
-            ".google.protobuf.UInt32Value".to_string(),
-            "u32".to_string(),
-        ),
-        (
-            ".google.protobuf.UInt64Value".to_string(),
-            "u64".to_string(),
-        ),
-    ]);
 }

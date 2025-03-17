@@ -178,7 +178,12 @@ impl MachineATron {
         // It rather soft deletes the VPCs by updating the deleted column of a vpc.
         for vpc in vpc_handles {
             tracing::info!("Attempting to delete VPC with id: {} from db.", vpc.vpc_id);
-            if let Err(e) = self.app_context.api_client().delete_vpc(&vpc.vpc_id).await {
+            if let Err(e) = self
+                .app_context
+                .forge_api_client
+                .delete_vpc(vpc.vpc_id)
+                .await
+            {
                 tracing::error!("Delete VPC Api call failed with {}", e)
             }
         }
@@ -190,8 +195,8 @@ impl MachineATron {
             );
             if let Err(e) = self
                 .app_context
-                .api_client()
-                .delete_network_segment(&subnet.segment_id)
+                .forge_api_client
+                .delete_network_segment(subnet.segment_id)
                 .await
             {
                 tracing::error!("Delete network segment Api call failed with {}", e)

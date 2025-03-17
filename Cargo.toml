@@ -18,6 +18,7 @@ members = [
     "common/metrics-endpoint",
     "common/secrets",
     "common/tls",
+    "common/tonic-client-wrapper",
     "common/utils",
     "common/version",
     "dev/bmc-mock",
