@@ -206,14 +206,9 @@ write_files:
       cd /opt/forge/doca_container_configs/scripts/
       ip vrf exec mgmt /bin/bash hbn-dpu-setup.sh
       /usr/bin/systemctl enable ssh@mgmt
-      ctr -n=k8s.io image import /opt/forge/pause.tar
-      ctr -n=k8s.io image import /opt/forge/doca_telemetry.tar
       ctr -n=k8s.io image import /opt/forge/doca_hbn.tar
+      /opt/mellanox/doca/services/telemetry/import_doca_telemetry.sh
       cp /opt/forge/doca_container_configs/configs/doca_hbn.yaml /etc/kubelet.d/
-      sum /etc/kubelet.d/doca_hbn.yaml
-      cp /opt/forge/doca_container_configs/configs/doca_telemetry.yaml /etc/kubelet.d/
-      sum /etc/kubelet.d/doca_telemetry.yaml
-      sync
       /opt/forge/run-scout.sh
       touch /run/cloud-init.done
 
