@@ -18,7 +18,6 @@
 use std::collections::BTreeSet;
 
 use askama_escape::Escaper;
-
 /// Generates HTML links for Machine IDs
 pub fn machine_id_link<T: std::fmt::Display>(id: T) -> ::askama::Result<String> {
     machine_link(id.to_string(), "machine")
@@ -185,4 +184,11 @@ pub fn boot_order_fmt(
     Ok(json_result
         .trim_matches(|c| c == '{' || c == '}')
         .to_string())
+}
+
+pub fn colorize_output(ansi_text: &str) -> ::askama::Result<String> {
+    let html = ansi_to_html::Converter::new()
+        .convert(ansi_text)
+        .unwrap_or_default();
+    Ok(html)
 }
