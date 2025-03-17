@@ -345,7 +345,7 @@ pub async fn update_nvue(
         ct_access_vlans: access_vlans,
         deny_prefixes: nc.deny_prefixes.clone(),
         site_fabric_prefixes: nc.site_fabric_prefixes.clone(),
-        stateful_acls_enabled: has_network_security_group, // For testing, assume having NSGs means using stateful
+        stateful_acls_enabled: nc.stateful_acls_enabled,
 
         // For now, the isolation options boil down to a boolean,
         // but the match will make sure we catch and adjust accordingly
