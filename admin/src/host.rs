@@ -58,7 +58,7 @@ pub async fn trigger_reprovisioning(
 }
 
 pub async fn list_hosts_pending(api_client: &ApiClient) -> CarbideCliResult<()> {
-    let response = api_client.list_hosts_pending_for_reprovisioning().await?;
+    let response = api_client.0.list_hosts_waiting_for_reprovisioning().await?;
     print_pending_hosts(response);
     Ok(())
 }

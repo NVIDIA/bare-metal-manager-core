@@ -29,8 +29,7 @@ use ::rpc::protos::measured_boot::show_measurement_system_profile_request;
 use ::rpc::protos::measured_boot::{
     CreateMeasurementSystemProfileRequest, DeleteMeasurementSystemProfileRequest, KvPair,
     ListMeasurementSystemProfileBundlesRequest, ListMeasurementSystemProfileMachinesRequest,
-    ListMeasurementSystemProfilesRequest, RenameMeasurementSystemProfileRequest,
-    ShowMeasurementSystemProfileRequest, ShowMeasurementSystemProfilesRequest,
+    RenameMeasurementSystemProfileRequest, ShowMeasurementSystemProfileRequest,
 };
 use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
@@ -247,14 +246,10 @@ pub async fn rename(
 /// profiles with details (when no <profile_id> is
 /// specified on the command line).
 pub async fn show_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementSystemProfileList> {
-    // Request.
-    let request = ShowMeasurementSystemProfilesRequest {};
-
-    // Response.
     Ok(MeasurementSystemProfileList(
         grpc_conn
             .0
-            .show_measurement_system_profiles(request)
+            .show_measurement_system_profiles()
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
             .system_profiles
@@ -321,14 +316,10 @@ pub async fn show_by_id_or_name(
 pub async fn list_all(
     grpc_conn: &ApiClient,
 ) -> CarbideCliResult<MeasurementSystemProfileRecordList> {
-    // Request.
-    let request = ListMeasurementSystemProfilesRequest {};
-
-    // Response.
     Ok(MeasurementSystemProfileRecordList(
         grpc_conn
             .0
-            .list_measurement_system_profiles(request)
+            .list_measurement_system_profiles()
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
             .system_profiles

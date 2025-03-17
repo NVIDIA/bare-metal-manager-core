@@ -138,7 +138,8 @@ async fn get_exploration_report_for_bmc_address(
 ) -> CarbideCliResult<SiteExplorationReport> {
     // get managed host with host bmc
     let mut managed_host = api_client
-        .get_explored_managed_host_by_ids(&[ip.clone()])
+        .0
+        .find_explored_managed_hosts_by_ids(&[ip.clone()])
         .await?
         .managed_hosts;
 

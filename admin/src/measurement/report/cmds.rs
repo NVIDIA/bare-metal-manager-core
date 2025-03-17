@@ -25,7 +25,6 @@ use ::rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, DeleteMeasurementReportRequest, ListMeasurementReportRequest,
     MatchMeasurementReportRequest, PromoteMeasurementReportRequest, RevokeMeasurementReportRequest,
     ShowMeasurementReportForIdRequest, ShowMeasurementReportsForMachineRequest,
-    ShowMeasurementReportsRequest,
 };
 use measured_boot::bundle::MeasurementBundle;
 use measured_boot::pcr::PcrRegisterValue;
@@ -260,14 +259,10 @@ pub async fn show_for_machine(
 
 /// show_all dumps all info about all reports.
 pub async fn show_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementReportList> {
-    // Request.
-    let request = ShowMeasurementReportsRequest {};
-
-    // Response.
     Ok(MeasurementReportList(
         grpc_conn
             .0
-            .show_measurement_reports(request)
+            .show_measurement_reports()
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
             .reports

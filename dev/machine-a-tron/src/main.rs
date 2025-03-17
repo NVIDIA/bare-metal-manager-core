@@ -5,7 +5,6 @@ use figment::providers::{Format, Toml};
 use forge_tls::client_config::{
     get_client_cert_info, get_config_from_file, get_forge_root_ca_path, get_proxy_info,
 };
-use machine_a_tron::api_client::ApiClient;
 use machine_a_tron::{BmcMockRegistry, BmcRegistrationMode, MachineATron};
 use machine_a_tron::{
     DhcpRelayService, MachineATronArgs, MachineATronConfig, MachineATronContext, Tui, TuiHostLogs,
@@ -112,13 +111,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         forge_api_client.clone().into(),
     );
 
-    let desired_firmware = ApiClient::from(forge_api_client.clone())
-        .get_desired_firmware()
-        .await?;
+    let desired_firmware_versions = forge_api_client
+        .get_desired_firmware_versions()
+        .await?
+        .entries;
 
     tracing::info!(
         "Got desired firmware versions from the server: {:?}",
-        desired_firmware
+        desired_firmware_versions
     );
 
     let bmc_mock_port = app_config.bmc_mock_port;
@@ -132,7 +132,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         dpu_tar_router,
         bmc_registration_mode,
         api_throttler,
-        desired_firmware_versions: desired_firmware,
+        desired_firmware_versions,
         forge_api_client,
     });
 
@@ -144,7 +144,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .inspect_err(|e| tracing::error!("Error running DHCP service: {}", e));
     });
 
-    let info = app_context.api_client().version().await?;
+    let info = app_context.forge_api_client.version(false).await?;
     tracing::info!("version: {}", info.build_version);
 
     let mut mat = MachineATron::new(app_context.clone());

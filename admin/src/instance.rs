@@ -311,7 +311,7 @@ async fn show_instance_details(
     extrainfo: bool,
 ) -> CarbideCliResult<()> {
     let instance = if id.starts_with("fm100") {
-        api_client.get_instances_by_machine_id(id).await?
+        api_client.0.find_instance_by_machine_id(id).await?
     } else {
         let instance_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
             .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?

@@ -24,7 +24,6 @@ use ::rpc::protos::measured_boot::list_measurement_journal_request;
 use ::rpc::protos::measured_boot::show_measurement_journal_request;
 use ::rpc::protos::measured_boot::{
     DeleteMeasurementJournalRequest, ListMeasurementJournalRequest, ShowMeasurementJournalRequest,
-    ShowMeasurementJournalsRequest,
 };
 use measured_boot::records::MeasurementJournalRecord;
 use measured_boot::{bundle::MeasurementBundle, journal::MeasurementJournal};
@@ -147,14 +146,10 @@ pub async fn show_all(
     grpc_conn: &ApiClient,
     _show: &Show,
 ) -> CarbideCliResult<MeasurementJournalList> {
-    // Request.
-    let request = ShowMeasurementJournalsRequest {};
-
-    // Response.
     Ok(MeasurementJournalList(
         grpc_conn
             .0
-            .show_measurement_journals(request)
+            .show_measurement_journals()
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
             .journals

@@ -30,10 +30,8 @@ use ::rpc::protos::measured_boot::remove_measurement_trusted_machine_request;
 use ::rpc::protos::measured_boot::remove_measurement_trusted_profile_request;
 use ::rpc::protos::measured_boot::{
     AddMeasurementTrustedMachineRequest, AddMeasurementTrustedProfileRequest,
-    ExportSiteMeasurementsRequest, ImportSiteMeasurementsRequest,
-    ListMeasurementTrustedMachinesRequest, ListMeasurementTrustedProfilesRequest,
-    MeasurementApprovedTypePb, RemoveMeasurementTrustedMachineRequest,
-    RemoveMeasurementTrustedProfileRequest,
+    ImportSiteMeasurementsRequest, MeasurementApprovedTypePb,
+    RemoveMeasurementTrustedMachineRequest, RemoveMeasurementTrustedProfileRequest,
 };
 use serde::Serialize;
 use std::fs::File;
@@ -165,13 +163,9 @@ pub async fn export(grpc_conn: &ApiClient, _export: &Export) -> CarbideCliResult
     // accompany the serialized data.
     set_summary(false);
 
-    // Request.
-    let request = ExportSiteMeasurementsRequest {};
-
-    // Response.
     let response = grpc_conn
         .0
-        .export_site_measurements(request)
+        .export_site_measurements()
         .await
         .map_err(CarbideCliError::ApiInvocationError)?;
 
@@ -265,14 +259,10 @@ pub async fn remove_machine_by_machine_id(
 pub async fn list_machines(
     grpc_conn: &ApiClient,
 ) -> CarbideCliResult<MeasurementApprovedMachineRecordList> {
-    // Request.
-    let request = ListMeasurementTrustedMachinesRequest {};
-
-    // Response.
     Ok(MeasurementApprovedMachineRecordList(
         grpc_conn
             .0
-            .list_measurement_trusted_machines(request)
+            .list_measurement_trusted_machines()
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
             .approval_records
@@ -369,14 +359,10 @@ pub async fn remove_profile_by_profile_id(
 pub async fn list_profiles(
     grpc_conn: &ApiClient,
 ) -> CarbideCliResult<MeasurementApprovedProfileRecordList> {
-    // Request.
-    let request = ListMeasurementTrustedProfilesRequest {};
-
-    // Response.
     Ok(MeasurementApprovedProfileRecordList(
         grpc_conn
             .0
-            .list_measurement_trusted_profiles(request)
+            .list_measurement_trusted_profiles()
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
             .approval_records

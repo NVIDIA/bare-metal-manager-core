@@ -236,8 +236,8 @@ impl DhcpRelayService {
         // DHCP response.
         if let Ok(mac_identifier) = self
             .app_context
-            .api_client()
-            .identify_mac(request_info.mac_address)
+            .forge_api_client
+            .identify_mac(request_info.mac_address.to_string())
             .await
         {
             if mac_identifier.object_type() == MacOwner::MachineInterface {
@@ -620,7 +620,7 @@ impl DhcpRelayService {
     ) -> Result<DhcpResponseInfo, DhcpRelayError> {
         let managed_host_config = self
             .app_context
-            .api_client()
+            .forge_api_client
             .get_managed_host_network_config(dpu_id.clone())
             .await
             .inspect_err(|e| {
@@ -725,4 +725,10 @@ pub enum DhcpRelayError {
     MissingDhcpRequest,
     #[error("Error encoding DHCP response")]
     ResponseEncodingError(#[from] dhcproto::error::EncodeError),
+}
+
+impl From<tonic::Status> for DhcpRelayError {
+    fn from(s: tonic::Status) -> Self {
+        Self::ClientApiError(ClientApiError::from(s))
+    }
 }

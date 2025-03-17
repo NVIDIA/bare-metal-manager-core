@@ -42,7 +42,7 @@ pub async fn forge_agent_control(
     machine_id: rpc::common::MachineId,
 ) -> ForgeAgentControlResponse {
     app_context
-        .api_client()
+        .forge_api_client
         .forge_agent_control(machine_id)
         .await
         .unwrap_or_else(|e| {

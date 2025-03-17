@@ -37,3 +37,7 @@ pub mod site_explorer;
 #[allow(clippy::all)]
 #[rustfmt::skip]
 pub mod forge_api_client;
+
+#[allow(clippy::all)]
+#[rustfmt::skip]
+pub mod convenience_converters;

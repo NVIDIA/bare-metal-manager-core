@@ -12,12 +12,15 @@ pub async fn show_expected_machines(
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
     if let Some(bmc_mac_address) = expected_machine_query.bmc_mac_address {
-        let expected_machine = api_client.get_expected_machine(bmc_mac_address).await?;
+        let expected_machine = api_client
+            .0
+            .get_expected_machine(bmc_mac_address.to_string())
+            .await?;
         println!("{:#?}", expected_machine);
         return Ok(());
     }
 
-    let expected_machines = api_client.get_all_expected_machines().await?;
+    let expected_machines = api_client.0.get_all_expected_machines().await?;
     if output_format == OutputFormat::Json {
         println!("{}", serde_json::to_string_pretty(&expected_machines)?);
     }
@@ -50,7 +53,8 @@ pub async fn show_expected_machines(
 
     let expected_bmc_ip_vs_ids = HashMap::from_iter(
         api_client
-            .get_machines_ids_by_bmc_ips(&bmc_ips)
+            .0
+            .find_machine_ids_by_bmc_ips(bmc_ips)
             .await?
             .pairs
             .iter()

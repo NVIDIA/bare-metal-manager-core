@@ -4,13 +4,10 @@ use mac_address::MacAddress;
 use rpc::forge::MachineType;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{
-    ConfigSetting, ExpectedMachine, GetDesiredFirmwareVersionsRequest, MachinesByIdsRequest,
-    PxeInstructions, SetDynamicConfigRequest,
+    ConfigSetting, ExpectedMachine, MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest,
 };
 use rpc::forge_api_client::ForgeApiClient;
-use rpc::site_explorer::SiteExplorationReport;
 use std::sync::atomic::{AtomicU32, Ordering};
-use uuid::Uuid;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientApiError {
@@ -21,7 +18,7 @@ pub enum ClientApiError {
     ConnectFailed(String),
 
     #[error("The API call to the Forge API server returned {0}")]
-    InvocationError(tonic::Status),
+    InvocationError(#[from] tonic::Status),
 }
 
 type ClientApiResult<T> = Result<T, ClientApiError>;
@@ -60,17 +57,6 @@ pub struct DpuNetworkStatusArgs<'a> {
 }
 
 impl ApiClient {
-    pub async fn version(&self) -> ClientApiResult<rpc::forge::BuildInfo> {
-        let out = self
-            .0
-            .version(rpc::forge::VersionRequest {
-                display_config: false,
-            })
-            .await
-            .map_err(ClientApiError::InvocationError)?;
-        Ok(out)
-    }
-
     pub async fn discover_dhcp(
         &self,
         mac_address: MacAddress,
@@ -96,7 +82,6 @@ impl ApiClient {
             relay_address,
             ..default_data
         };
-        //        tracing::info!("dhcp_discovery: {:?}", dhcp_discovery);
         let out = self
             .0
             .discover_dhcp(dhcp_discovery)
@@ -111,32 +96,12 @@ impl ApiClient {
         id: &str,
     ) -> ClientApiResult<rpc::forge::InterfaceList> {
         let interface_search_query = rpc::forge::InterfaceSearchQuery {
-            id: Some(rpc::Uuid {
-                value: id.to_string(),
-            }),
+            id: Some(id.to_string().into()),
             ip: None,
         };
-        //        tracing::info!("dhcp_discovery: {:?}", dhcp_discovery);
         let out = self
             .0
             .find_interfaces(interface_search_query)
-            .await
-            .map_err(ClientApiError::InvocationError)?;
-
-        Ok(out)
-    }
-
-    pub async fn identify_mac(
-        &self,
-        mac_address: MacAddress,
-    ) -> ClientApiResult<rpc::forge::IdentifyMacResponse> {
-        let identify_mac_req = rpc::forge::IdentifyMacRequest {
-            mac_address: mac_address.to_string(),
-        };
-        //        tracing::info!("dhcp_discovery: {:?}", dhcp_discovery);
-        let out = self
-            .0
-            .identify_mac(identify_mac_req)
             .await
             .map_err(ClientApiError::InvocationError)?;
 
@@ -158,14 +123,6 @@ impl ApiClient {
             tpm_ek_certificate,
             dpu_nic_version,
         } = discovery_data;
-        /*
-        tracing::info!(
-            "sending discover info for {:?} {} ({:?})",
-            machine_type,
-            machine_interface_id,
-            network_interface_macs.get(0)
-        );
-        */
         let json_path = if machine_type == MachineType::Dpu {
             format!("{}/dpu_discovery_info.json", template_dir)
         } else {
@@ -228,43 +185,12 @@ impl ApiClient {
         Ok(out)
     }
 
-    pub async fn forge_agent_control(
-        &self,
-        machine_id: rpc::MachineId,
-    ) -> ClientApiResult<rpc::forge::ForgeAgentControlResponse> {
-        let machine_id = Some(machine_id);
-
-        let out = self
-            .0
-            .forge_agent_control(rpc::forge::ForgeAgentControlRequest { machine_id })
-            .await
-            .map_err(ClientApiError::InvocationError)?;
-        Ok(out)
-    }
-
-    pub async fn discovery_complete(
-        &self,
-        machine_id: rpc::MachineId,
-    ) -> ClientApiResult<rpc::forge::MachineDiscoveryCompletedResponse> {
-        let machine_id = Some(machine_id);
-
-        let out = self
-            .0
-            .discovery_completed(rpc::forge::MachineDiscoveryCompletedRequest { machine_id })
-            .await
-            .map_err(ClientApiError::InvocationError)?;
-        Ok(out)
-    }
-
     pub async fn get_machines(
         &self,
         machine_ids: &[&String],
     ) -> ClientApiResult<Vec<rpc::Machine>> {
         let request = MachinesByIdsRequest {
-            machine_ids: machine_ids
-                .iter()
-                .map(|i| rpc::MachineId { id: i.to_string() })
-                .collect(),
+            machine_ids: machine_ids.iter().map(|i| i.to_string().into()).collect(),
             include_history: false,
         };
         let out = self
@@ -274,49 +200,6 @@ impl ApiClient {
             .map_err(ClientApiError::InvocationError)?;
 
         Ok(out.machines)
-    }
-
-    pub async fn identify_serial(
-        &self,
-        serial: String,
-    ) -> ClientApiResult<::rpc::common::MachineId> {
-        let out = match self
-            .0
-            .identify_serial(rpc::forge::IdentifySerialRequest {
-                serial_number: serial,
-            })
-            .await
-        {
-            Ok(m) => m,
-            Err(status) if status.code() == tonic::Code::NotFound => {
-                return Err(ClientApiError::ConfigError("SerialNotFound".to_string()));
-            }
-            Err(err) => {
-                tracing::error!(%err, "identify_serial error calling grpc identify_serial");
-                return Err(ClientApiError::ConfigError(err.to_string()));
-            }
-        };
-
-        out.machine_id.ok_or(ClientApiError::ConfigError(
-            "Serial number found without associated machine ID".to_string(),
-        ))
-    }
-
-    pub async fn get_managed_host_network_config(
-        &self,
-        dpu_machine_id: rpc::MachineId,
-    ) -> ClientApiResult<rpc::forge::ManagedHostNetworkConfigResponse> {
-        let dpu_machine_id = Some(dpu_machine_id);
-
-        let out = self
-            .0
-            .get_managed_host_network_config(rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id,
-            })
-            .await
-            .map_err(ClientApiError::InvocationError)?;
-
-        Ok(out)
     }
 
     pub async fn record_dpu_network_status(
@@ -368,19 +251,6 @@ impl ApiClient {
             .find_network_segments(rpc::forge::NetworkSegmentQuery {
                 id: None,
                 search_config: None,
-            })
-            .await
-            .map_err(ClientApiError::InvocationError)
-    }
-
-    pub async fn find_machine_ids(&self) -> ClientApiResult<rpc::common::MachineIdList> {
-        self.0
-            .find_machine_ids(rpc::forge::MachineSearchConfig {
-                include_dpus: false,
-                include_history: true,
-                include_predicted_host: true,
-                only_maintenance: false,
-                exclude_hosts: false,
             })
             .await
             .map_err(ClientApiError::InvocationError)
@@ -540,20 +410,6 @@ impl ApiClient {
         }
     }
 
-    pub async fn delete_network_segment(
-        &self,
-        vpc_id: &Uuid,
-    ) -> ClientApiResult<rpc::forge::NetworkSegmentDeletionResult> {
-        self.0
-            .delete_network_segment(rpc::forge::NetworkSegmentDeletionRequest {
-                id: Some(rpc::Uuid {
-                    value: vpc_id.to_string(),
-                }),
-            })
-            .await
-            .map_err(ClientApiError::InvocationError)
-    }
-
     pub async fn create_vpc(&self) -> ClientApiResult<rpc::forge::Vpc> {
         let vpc_count = VPC_COUNTER.fetch_add(1, Ordering::Acquire);
         self.0
@@ -571,20 +427,6 @@ impl ApiClient {
                         key: "Forge-simulation-vpc".to_string(),
                         value: Some("Machine-a-tron".to_string()),
                     }],
-                }),
-            })
-            .await
-            .map_err(ClientApiError::InvocationError)
-    }
-
-    pub async fn delete_vpc(
-        &self,
-        vpc_id: &Uuid,
-    ) -> ClientApiResult<rpc::forge::VpcDeletionResult> {
-        self.0
-            .delete_vpc(rpc::forge::VpcDeletionRequest {
-                id: Some(rpc::Uuid {
-                    value: vpc_id.to_string(),
                 }),
             })
             .await
@@ -636,16 +478,6 @@ impl ApiClient {
             .map(|_| ())
     }
 
-    pub async fn reboot_completed(&self, machine_id: rpc::MachineId) -> ClientApiResult<()> {
-        self.0
-            .reboot_completed(rpc::forge::MachineRebootCompletedRequest {
-                machine_id: Some(machine_id),
-            })
-            .await
-            .map_err(ClientApiError::InvocationError)
-            .map(|_| ())
-    }
-
     pub async fn get_pxe_instructions(
         &self,
         arch: rpc::forge::MachineArchitecture,
@@ -656,13 +488,6 @@ impl ApiClient {
                 arch: arch.into(),
                 interface_id: Some(interface_id),
             })
-            .await
-            .map_err(ClientApiError::InvocationError)
-    }
-
-    pub async fn get_site_exploration_report(&self) -> ClientApiResult<SiteExplorationReport> {
-        self.0
-            .get_site_exploration_report(rpc::forge::GetSiteExplorationRequest {})
             .await
             .map_err(ClientApiError::InvocationError)
     }
@@ -694,15 +519,5 @@ impl ApiClient {
             })
             .await
             .map_err(ClientApiError::InvocationError)
-    }
-
-    pub async fn get_desired_firmware(
-        &self,
-    ) -> ClientApiResult<Vec<rpc::forge::DesiredFirmwareVersionEntry>> {
-        self.0
-            .get_desired_firmware_versions(GetDesiredFirmwareVersionsRequest {})
-            .await
-            .map_err(ClientApiError::InvocationError)
-            .map(|r| r.entries)
     }
 }

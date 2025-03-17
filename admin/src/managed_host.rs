@@ -483,7 +483,8 @@ pub async fn handle_show(
         .collect::<Vec<MachineId>>();
 
     let connected_devices = api_client
-        .find_connected_devices_by_dpu_machine_ids(dpu_machine_ids.clone())
+        .0
+        .find_connected_devices_by_dpu_machine_ids(dpu_machine_ids)
         .await?
         .connected_devices;
 
@@ -493,8 +494,12 @@ pub async fn handle_show(
         .collect();
 
     let network_devices = api_client
+        .0
         .find_network_devices_by_device_ids(
-            network_device_ids.iter().map(|id| id.to_owned()).collect(),
+            network_device_ids
+                .iter()
+                .map(|id| id.to_owned())
+                .collect::<Vec<_>>(),
         )
         .await?
         .network_devices;

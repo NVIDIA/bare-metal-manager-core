@@ -9,17 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
 
 use crate::rpc::ApiClient;
 use utils::admin_cli::CarbideCliResult;
 
 pub async fn list(api_client: &ApiClient) -> CarbideCliResult<()> {
-    let response = api_client
-        .0
-        .admin_list_resource_pools(forgerpc::ListResourcePoolsRequest {})
-        .await?;
+    let response = api_client.0.admin_list_resource_pools().await?;
     if response.pools.is_empty() {
         println!("No resource pools defined");
         return Err(super::CarbideCliError::Empty);

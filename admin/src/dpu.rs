@@ -84,7 +84,7 @@ pub async fn trigger_reprovisioning(
 }
 
 pub async fn list_dpus_pending(api_client: &ApiClient) -> CarbideCliResult<()> {
-    let response = api_client.list_dpu_pending_for_reprovisioning().await?;
+    let response = api_client.0.list_dpu_waiting_for_reprovisioning().await?;
     print_pending_dpus(response);
     Ok(())
 }
@@ -132,14 +132,17 @@ pub async fn handle_agent_upgrade_policy(
 ) -> CarbideCliResult<()> {
     match action {
         None => {
-            let resp = api_client.dpu_agent_upgrade_policy_action(None).await?;
+            let resp = api_client
+                .0
+                .dpu_agent_upgrade_policy_action(rpc::forge::DpuAgentUpgradePolicyRequest {
+                    new_policy: None,
+                })
+                .await?;
             let policy: AgentUpgradePolicyChoice = resp.active_policy.into();
             tracing::info!("{policy}");
         }
         Some(choice) => {
-            let resp = api_client
-                .dpu_agent_upgrade_policy_action(Some(choice))
-                .await?;
+            let resp = api_client.0.dpu_agent_upgrade_policy_action(choice).await?;
             let policy: AgentUpgradePolicyChoice = resp.active_policy.into();
             tracing::info!(
                 "Policy is now: {policy}. Update succeeded? {}.",
@@ -253,7 +256,7 @@ pub async fn handle_dpu_versions(
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let expected_versions: HashMap<String, String> = if updates_only {
-        let bi = api_client.version(true).await?;
+        let bi = api_client.0.version(true).await?;
         let rc = bi.runtime_config.unwrap_or_default();
         rc.dpu_nic_firmware_update_version
     } else {
@@ -480,7 +483,7 @@ async fn generate_dpu_status_data(
     machines: Vec<Machine>,
 ) -> CarbideCliResult<Vec<DpuStatus>> {
     let mut dpu_status = Vec::new();
-    let build_info = api_client.version(true).await?;
+    let build_info = api_client.0.version(true).await?;
     for machine in machines {
         let version_status = get_dpu_version_status(&build_info, &machine).await?;
         let mut status = DpuStatus::from(machine);
@@ -530,7 +533,7 @@ pub async fn show_dpu_network_config(
             "Only DPU id is allowed.".to_string(),
         ));
     }
-    let config = api_client.get_managed_host_network_config(dpu_id).await?;
+    let config = api_client.0.get_managed_host_network_config(dpu_id).await?;
     match output_format {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string(&config)?);
@@ -655,7 +658,11 @@ pub async fn show_dpu_network_config(
 }
 
 pub async fn show_dpu_status(api_client: &ApiClient) -> CarbideCliResult<()> {
-    let all_status = api_client.get_all_managed_host_network_status().await?.all;
+    let all_status = api_client
+        .0
+        .get_all_managed_host_network_status()
+        .await?
+        .all;
     if all_status.is_empty() {
         println!("No reported network status");
     } else {

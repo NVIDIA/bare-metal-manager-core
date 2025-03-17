@@ -273,6 +273,7 @@ async fn main() -> color_eyre::Result<()> {
                     })?;
 
                     let expected_machines = api_client
+                        .0
                         .get_all_expected_machines()
                         .await?
                         .expected_machines;
@@ -367,7 +368,7 @@ async fn main() -> color_eyre::Result<()> {
                 }
             },
             Machine::DpuSshCredentials(query) => {
-                let cred = api_client.get_dpu_ssh_credential(query.query).await?;
+                let cred = api_client.0.get_dpu_ssh_credential(query.query).await?;
                 if config.format == OutputFormat::Json {
                     println!("{}", serde_json::to_string_pretty(&cred)?);
                 } else {
@@ -386,6 +387,7 @@ async fn main() -> color_eyre::Result<()> {
                         "Deprecated: Use dpu network, instead of machine network. machine network will be removed in future."
                     );
                     let config = api_client
+                        .0
                         .get_managed_host_network_config(query.machine_id)
                         .await?;
                     println!("{config:?}");
@@ -449,7 +451,8 @@ async fn main() -> color_eyre::Result<()> {
                         instance_ids.push(uuid::Uuid::parse_str(&instance_id)?.into())
                     }
                     (_, Some(machine_id), _) => {
-                        let instances = api_client.get_instances_by_machine_id(machine_id).await?;
+                        let instances =
+                            api_client.0.find_instance_by_machine_id(machine_id).await?;
                         if instances.instances.is_empty() {
                             color_eyre::eyre::bail!("No instances assigned to that machine");
                         }
@@ -901,10 +904,16 @@ async fn main() -> color_eyre::Result<()> {
                 println!("{}", serde_json::to_string(&route_servers)?);
             }
             RouteServer::Add(ip) => {
-                api_client.add_route_server(ip.ip).await?;
+                api_client
+                    .0
+                    .add_route_servers(vec![ip.ip.to_string()])
+                    .await?;
             }
             RouteServer::Remove(ip) => {
-                api_client.remove_route_server(ip.ip).await?;
+                api_client
+                    .0
+                    .remove_route_servers(vec![ip.ip.to_string()])
+                    .await?;
             }
         },
         CliCommand::SiteExplorer(action) => match action {
@@ -926,7 +935,8 @@ async fn main() -> color_eyre::Result<()> {
             }
             SiteExplorer::ClearError(opts) => {
                 api_client
-                    .clear_site_explorer_last_known_error(opts.address)
+                    .0
+                    .clear_site_exploration_error(opts.address)
                     .await?;
             }
             SiteExplorer::IsBmcInManagedHost(opts) => {
@@ -1047,7 +1057,8 @@ async fn main() -> color_eyre::Result<()> {
             }
             cfg::cli_options::ExpectedMachineAction::Delete(expected_machine_query) => {
                 api_client
-                    .delete_expected_machine(expected_machine_query.bmc_mac_address)
+                    .0
+                    .delete_expected_machine(expected_machine_query.bmc_mac_address.to_string())
                     .await?;
             }
             cfg::cli_options::ExpectedMachineAction::Update(expected_machine_data) => {
@@ -1096,7 +1107,7 @@ async fn main() -> color_eyre::Result<()> {
                     .await?;
             }
             cfg::cli_options::ExpectedMachineAction::Erase => {
-                api_client.delete_all_expected_machines().await?;
+                api_client.0.delete_all_expected_machines().await?;
             }
         },
         CliCommand::Vpc(vpc) => match vpc {

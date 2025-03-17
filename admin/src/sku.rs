@@ -262,14 +262,14 @@ pub async fn handle_sku_command(
     match sku_command {
         Sku::Show(show_sku) => {
             if let Some(sku_id) = show_sku.sku_id {
-                let skus = api_client.find_skus_by_ids(&[sku_id]).await?;
+                let skus = api_client.0.find_skus_by_ids(vec![sku_id]).await?;
                 if let Some(sku) = skus.skus.into_iter().next() {
                     show_sku_details(output, output_format, sku)?;
                 }
             } else {
                 let all_ids = api_client.0.get_all_sku_ids().await?;
                 let sku_list = if !all_ids.ids.is_empty() {
-                    api_client.find_skus_by_ids(&all_ids.ids).await?
+                    api_client.0.find_skus_by_ids(all_ids.ids).await?
                 } else {
                     SkuList::default()
                 };
@@ -303,7 +303,7 @@ pub async fn handle_sku_command(
                 sku_list.skus[0].id = id;
             }
             let sku_ids = api_client.0.create_sku(sku_list).await?;
-            let sku_list = api_client.find_skus_by_ids(&sku_ids.ids).await?;
+            let sku_list = api_client.0.find_skus_by_ids(sku_ids.ids).await?;
             show_skus_table(output, output_format, sku_list.skus)?;
         }
         Sku::Delete { sku_id } => {

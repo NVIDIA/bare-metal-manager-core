@@ -23,9 +23,8 @@ use crate::measurement::global::cmds::{IdentifierType, get_identifier};
 use crate::rpc::ApiClient;
 use ::rpc::protos::measured_boot::{
     CreateMeasurementBundleRequest, DeleteMeasurementBundleRequest,
-    ListMeasurementBundleMachinesRequest, ListMeasurementBundlesRequest, MeasurementBundleStatePb,
-    RenameMeasurementBundleRequest, ShowMeasurementBundleRequest, ShowMeasurementBundlesRequest,
-    UpdateMeasurementBundleRequest,
+    ListMeasurementBundleMachinesRequest, MeasurementBundleStatePb, RenameMeasurementBundleRequest,
+    ShowMeasurementBundleRequest, UpdateMeasurementBundleRequest,
 };
 use ::rpc::protos::measured_boot::{
     delete_measurement_bundle_request, list_measurement_bundle_machines_request,
@@ -305,14 +304,10 @@ pub async fn show_all(
     grpc_conn: &ApiClient,
     _get_by_id: &Show,
 ) -> CarbideCliResult<MeasurementBundleList> {
-    // Request.
-    let request = ShowMeasurementBundlesRequest {};
-
-    // Response.
     Ok(MeasurementBundleList(
         grpc_conn
             .0
-            .show_measurement_bundles(request)
+            .show_measurement_bundles()
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
             .bundles
@@ -327,14 +322,10 @@ pub async fn show_all(
 
 /// list lists all bundle ids.
 pub async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementBundleRecordList> {
-    // Request.
-    let request = ListMeasurementBundlesRequest {};
-
-    // Response.
     Ok(MeasurementBundleRecordList(
         grpc_conn
             .0
-            .list_measurement_bundles(request)
+            .list_measurement_bundles()
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
             .bundles

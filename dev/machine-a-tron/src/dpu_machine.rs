@@ -233,14 +233,15 @@ impl DpuMachine {
         if let Some(machine_id) = self.state_machine.machine_id() {
             self.observed_machine_id = Some(machine_id.to_owned());
         } else if self.observed_machine_id.is_none() {
-            if let Ok(machine) = self
+            if let Ok(Some(machine_id)) = self
                 .app_context
-                .api_client()
+                .forge_api_client
                 .identify_serial(self.dpu_info.serial.clone())
                 .await
+                .map(|r| r.machine_id)
             {
-                tracing::trace!("dpu's machine id: {}", machine.id);
-                self.observed_machine_id = Some(machine);
+                tracing::trace!("dpu's machine id: {}", machine_id);
+                self.observed_machine_id = Some(machine_id);
             }
         }
 
