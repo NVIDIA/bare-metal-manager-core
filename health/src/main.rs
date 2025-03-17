@@ -555,7 +555,11 @@ pub async fn scrape_machines_health(
     let iteration_latency_histogram = api_meter
         .f64_histogram("forge_hardware_health_iteration_latency")
         .with_description("The time it took to perform one hardware health monitor iteration")
-        .with_unit("ms")
+        .with_unit("s")
+        .with_boundaries(vec![
+            0.0, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0, 90.0, 120.0, 180.0, 300.0, 600.0,
+            1800.0,
+        ])
         .build();
 
     loop {
@@ -594,7 +598,7 @@ pub async fn scrape_machines_health(
         .await;
 
         let elapsed = loop_start.elapsed();
-        iteration_latency_histogram.record(1000.0 * elapsed.as_secs_f64(), &[]);
+        iteration_latency_histogram.record(elapsed.as_secs_f64(), &[]);
 
         // If it took less than a minute to scrape all the machines, sleep the remainder of the
         // minute, or 5 seconds minimum.
