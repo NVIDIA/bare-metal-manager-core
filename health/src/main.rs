@@ -149,7 +149,7 @@ async fn create_forge_client(
     let client = ForgeApiClient::new(&api_config);
     // Test the connection now, so that we don't do it N times in N different workers.
     client
-        .connect_eagerly()
+        .connection()
         .await
         .map_err(|err| HealthError::ApiConnectFailed(err.to_string()))?;
     Ok(client)
