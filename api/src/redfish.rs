@@ -1423,6 +1423,10 @@ pub mod test_support {
             Ok(None)
         }
 
+        async fn set_nic_mode(&self, _mode: NicMode) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
         async fn is_infinite_boot_enabled(&self) -> Result<Option<bool>, RedfishError> {
             Ok(None)
         }
