@@ -2,6 +2,9 @@
 ## [Unreleased](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.03.14-rc2-0...trunk)
 
 ### Added
+
+- Added DHCP NAK support to forge-dhcp-server.
+
 ### Changed
 ### Fixed
 ### Removed
