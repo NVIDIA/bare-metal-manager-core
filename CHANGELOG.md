@@ -6,6 +6,9 @@
 - Added DHCP NAK support to forge-dhcp-server.
 
 ### Changed
+
+- Added a reboot after disabling lockdown for upgrades (Dell only) and force-delete, as they sometimes need a reboot to fully remove it.  This may help [FORGE-5180](https://jirasw.nvidia.com/browse/FORGE-5180).
+
 ### Fixed
 ### Removed
 ### Added
