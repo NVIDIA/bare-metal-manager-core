@@ -2130,6 +2130,7 @@ impl Forge for Api {
                     {
                         Ok(client) => {
                             let machine_id = machine.id;
+                            let mut host_restart_needed = false;
                             match client.lockdown_status().await {
                                 Ok(status) if status.is_fully_disabled() => {
                                     tracing::info!(%machine_id, "Bios is not locked down");
@@ -2148,6 +2149,8 @@ impl Forge for Api {
                                         response.initial_lockdown_state = status.to_string();
                                         response.machine_unlocked = true;
                                     }
+                                    // Dell, at least, needs a reboot after disabling lockdown.  Safest to just do this for everything.
+                                    host_restart_needed = true;
                                 }
                                 Err(e) => {
                                     tracing::warn!(%machine_id, error = %e, "Failed to fetch lockdown status");
@@ -2168,11 +2171,14 @@ impl Forge for Api {
 
                                 // TODO (spyda): have libredfish return whether the client needs to reboot the host after clearing the host uefi password
                                 if machine.bmc_vendor().is_lenovo() {
-                                    if let Err(e) =
-                                        client.power(SystemPowerControl::ForceRestart).await
-                                    {
-                                        tracing::warn!(%machine_id, error = %e, "Failed to reboot host (to clear the UEFI password on a Lenovo) while force deleting machine");
-                                    }
+                                    host_restart_needed = true;
+                                }
+                            }
+
+                            if host_restart_needed {
+                                if let Err(e) = client.power(SystemPowerControl::ForceRestart).await
+                                {
+                                    tracing::warn!(%machine_id, error = %e, "Failed to reboot host while force deleting machine");
                                 }
                             }
                         }

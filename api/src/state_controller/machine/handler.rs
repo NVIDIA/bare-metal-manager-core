@@ -1262,6 +1262,12 @@ impl MachineStateHandler {
     }
 }
 
+struct FullFirmwareInfo<'a> {
+    model: &'a str,
+    to_install: &'a FirmwareEntry,
+    component_type: &'a FirmwareComponentType,
+}
+
 /// need_host_fw_upgrade determines if the given endpoint needs a firmware upgrade based on the description in fw_info, and if so returns the FirmwareEntry matching the desired upgrade.
 fn need_host_fw_upgrade(
     endpoint: &ExploredEndpoint,
@@ -4623,10 +4629,13 @@ impl HostUpgradeState {
                 match self
                     .initiate_host_fw_update(
                         explored_endpoint.address,
+                        state,
                         services,
-                        &to_install,
-                        &state.host_snapshot,
-                        &firmware_type,
+                        FullFirmwareInfo {
+                            model: fw_info.model.as_str(),
+                            to_install: &to_install,
+                            component_type: &firmware_type,
+                        },
                         txn,
                     )
                     .await?
@@ -4713,12 +4722,15 @@ impl HostUpgradeState {
     async fn initiate_host_fw_update(
         &self,
         address: IpAddr,
+        state: &ManagedHostStateSnapshot,
         services: &StateHandlerServices,
-        to_install: &FirmwareEntry,
-        snapshot: &Machine,
-        component_type: &FirmwareComponentType,
+        fw_info: FullFirmwareInfo<'_>,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<Option<String>, StateHandlerError> {
+        let snapshot = &state.host_snapshot;
+        let to_install = fw_info.to_install;
+        let component_type = fw_info.component_type;
+
         if !self
             .downloader
             .available(
@@ -4765,12 +4777,24 @@ impl HostUpgradeState {
                 tracing::debug!("Host fw update: No need for disabling lockdown");
             }
             _ => {
-                tracing::debug!("Host fw update: Disabling lockdown");
+                tracing::info!(%address, "Host fw update: Disabling lockdown");
                 if let Err(e) = redfish_client
                     .lockdown(libredfish::EnabledDisabled::Disabled)
                     .await
                 {
                     tracing::warn!("Could not set lockdown for {}: {e}", address.to_string());
+                    return Ok(None);
+                }
+                if fw_info.model == "Dell" {
+                    tracing::info!(%address, "Host fw update: Rebooting after disabling lockdown because Dell");
+                    handler_host_power_control(
+                        state,
+                        services,
+                        SystemPowerControl::ForceRestart,
+                        txn,
+                    )
+                    .await?;
+                    // Wait until the next state machine iteration to let it restart
                     return Ok(None);
                 }
             }
