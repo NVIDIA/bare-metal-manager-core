@@ -291,9 +291,24 @@ fn create_dhcp_reply_packet(
         })
         .unwrap_or(config.dhcp_config.carbide_dhcp_server);
 
+    let allocated_address = Ipv4Addr::from_str(&forge_response.address)?;
     let reply_message_type = match dhcp_msg_type {
         MessageType::Discover => MessageType::Offer,
-        MessageType::Request => MessageType::Ack,
+        // This can be 0 as per the rfc2131. If 0, send the allocated address.
+        MessageType::Request if src.packet.ciaddr() == Ipv4Addr::from([0, 0, 0, 0]) => {
+            MessageType::Ack
+        }
+        // This is the case of IP renew.
+        // We are able to allocate the same IP to client as requested by it.
+        MessageType::Request if src.packet.ciaddr() == allocated_address => MessageType::Ack,
+        // This means allocated IP address is not same as requested by the client. Send NAK.
+        MessageType::Request => {
+            return nak_packet(
+                src,
+                config.dhcp_config.carbide_provisioning_server_ipv4,
+                config.dhcp_config.carbide_dhcp_server,
+            );
+        }
         MessageType::Decline => {
             return Err(DhcpError::DhcpDeclineMessage(
                 src.packet.ciaddr().to_string(),
@@ -348,7 +363,7 @@ fn create_dhcp_reply_packet(
         .set_secs(0)
         .set_flags(src.packet.flags())
         .set_ciaddr(src.packet.ciaddr())
-        .set_yiaddr(Ipv4Addr::from_str(&forge_response.address)?)
+        .set_yiaddr(allocated_address)
         .set_siaddr(config.dhcp_config.carbide_provisioning_server_ipv4)
         .set_giaddr(src.packet.giaddr())
         .set_chaddr(src.packet.chaddr());
@@ -392,7 +407,8 @@ fn create_dhcp_reply_packet(
         config.dhcp_config.rebinding_time_secs,
     ));
 
-    let mut client_identifier: Vec<u8> = vec![1]; // ethernet
+    let mut client_identifier: Vec<u8> = Vec::with_capacity(src.packet.chaddr().len() + 1);
+    client_identifier.push(1); // ethernet
     src.packet
         .chaddr()
         .iter()
@@ -456,6 +472,42 @@ fn create_dhcp_reply_packet(
 
     msg.opts_mut()
         .insert(DhcpOption::VendorExtensions(vendor_option));
+
+    Ok(msg)
+}
+
+fn nak_packet(
+    src: &DecodedPacket,
+    carbide_provisioning_server_ipv4: Ipv4Addr,
+    carbide_dhcp_server: Ipv4Addr,
+) -> Result<Message, DhcpError> {
+    // https://www.ietf.org/rfc/rfc2131.txt
+    let mut msg = Message::default();
+    msg.set_opcode(dhcproto::v4::Opcode::BootReply)
+        .set_htype(dhcproto::v4::HType::Eth)
+        .set_hops(0x0)
+        .set_xid(src.packet.xid())
+        .set_secs(0)
+        .set_flags(src.packet.flags())
+        .set_ciaddr(src.packet.ciaddr())
+        .set_yiaddr(Ipv4Addr::from([0, 0, 0, 0]))
+        .set_siaddr(carbide_provisioning_server_ipv4)
+        .set_giaddr(src.packet.giaddr())
+        .set_chaddr(src.packet.chaddr());
+
+    msg.opts_mut()
+        .insert(DhcpOption::MessageType(MessageType::Nak));
+
+    let mut client_identifier: Vec<u8> = Vec::with_capacity(src.packet.chaddr().len() + 1);
+    client_identifier.push(1); // ethernet
+    src.packet
+        .chaddr()
+        .iter()
+        .for_each(|x| client_identifier.push(*x));
+    msg.opts_mut()
+        .insert(DhcpOption::ClientIdentifier(client_identifier));
+    msg.opts_mut()
+        .insert(DhcpOption::ServerIdentifier(carbide_dhcp_server));
 
     Ok(msg)
 }
