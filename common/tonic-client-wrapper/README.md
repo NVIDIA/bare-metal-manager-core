@@ -69,7 +69,7 @@ request/response types.
 ### Automatic connecting and cert reloading
 
 Every RPC wrapper ensures a connection is made to the gRPC service, connecting on-demand on first use. Or you can use
-`your_wrapper.connect_eagerly().await` to connect eagerly.
+`your_wrapper.connection().await` to connect eagerly.
 
 Cert reloading is accomplished by letting callers implement a `ConnectionProvider` trait, which contains a method
 `connection_is_stale`:
