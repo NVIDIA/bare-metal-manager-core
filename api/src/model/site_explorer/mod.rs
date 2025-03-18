@@ -613,13 +613,8 @@ impl EndpointExplorationReport {
     }
 
     pub fn nic_mode(&self) -> Option<NicMode> {
-        if self.is_dpu()
-            && self
-                .systems
-                .first()
-                .is_some_and(|s| s.attributes.nic_mode.is_some())
-        {
-            Some(self.systems[0].attributes.nic_mode.unwrap())
+        if self.is_dpu() && !self.systems.is_empty() {
+            self.systems[0].attributes.nic_mode
         } else {
             None
         }
