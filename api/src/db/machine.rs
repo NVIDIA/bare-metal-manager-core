@@ -904,13 +904,30 @@ pub async fn update_network_status_observation(
              (network_status_observation IS NULL
                 OR (network_status_observation ? 'observed_at' AND network_status_observation->>'observed_at' <= $3)
             ) RETURNING id";
-    let _id: (MachineId,) = sqlx::query_as(query)
+    let _id: (MachineId,) = match sqlx::query_as(query)
         .bind(sqlx::types::Json(&observation))
         .bind(machine_id.to_string())
         .bind(observation.observed_at.to_rfc3339())
         .fetch_one(txn.deref_mut())
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    {
+        Ok(result) => result,
+        Err(e) if matches!(e.source, sqlx::Error::RowNotFound) => {
+            // This function is intended to be able to capture why the update sometimes fails in unit-test
+            // even though all prerequisite data is present.
+            // It compiles to a no-op in production environments.
+            debug_failed_machine_status_update(
+                txn,
+                machine_id,
+                "network_status_observation",
+                observation,
+            )
+            .await;
+            return Err(e);
+        }
+        Err(e) => return Err(e),
+    };
 
     Ok(())
 }
@@ -953,15 +970,64 @@ async fn update_health_report(
         .observed_at
         .map(|o| o.to_rfc3339())
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-    let _id: (MachineId,) = sqlx::query_as(&query)
+    let _id: (MachineId,) = match sqlx::query_as(&query)
         .bind(sqlx::types::Json(&health_report))
         .bind(machine_id.to_string())
         .bind(observed_at)
         .fetch_one(txn.deref_mut())
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "update health report", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "update health report", e))
+    {
+        Ok(result) => result,
+        Err(e) if matches!(e.source, sqlx::Error::RowNotFound) => {
+            // This function is intended to be able to capture why the update sometimes fails in unit-test
+            // even though all prerequisite data is present.
+            // It compiles to a no-op in production environments.
+            debug_failed_machine_status_update(txn, machine_id, column_name, health_report).await;
+            return Err(e);
+        }
+        Err(e) => return Err(e),
+    };
 
     Ok(())
+}
+
+#[cfg(test)]
+async fn debug_failed_machine_status_update(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+    column_name: &str,
+    column_data: &impl serde::Serialize,
+) {
+    let serialized_data =
+        serde_json::to_string_pretty(column_data).unwrap_or_else(|_| "Invalid".to_string());
+    tracing::error!(machine_id=%machine_id, column_name, "Failed to update column. New column data: {serialized_data}");
+    // Dump the raw Machine state for debugging purposes
+    let query = "SELECT * from machines WHERE id = $1";
+    match sqlx::query(query)
+        .bind(machine_id.to_string())
+        .fetch_optional(txn.deref_mut())
+        .await
+    {
+        Ok(Some(row)) => {
+            tracing::error!("Machine Data: {:?}", row);
+        }
+        Ok(None) => {
+            tracing::error!("No Machine Data");
+        }
+        Err(e) => {
+            tracing::error!("Failed to load Machine Data. Error: {e}");
+        }
+    }
+}
+
+#[cfg(not(test))]
+async fn debug_failed_machine_status_update(
+    _txn: &mut Transaction<'_, Postgres>,
+    _machine_id: &MachineId,
+    _column_name: &str,
+    _column_data: &impl serde::Serialize,
+) {
 }
 
 pub async fn update_dpu_agent_health_report(
