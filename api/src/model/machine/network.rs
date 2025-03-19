@@ -128,6 +128,77 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
 pub struct ManagedHostNetworkConfig {
     pub loopback_ip: Option<Ipv4Addr>,
     pub use_admin_network: Option<bool>,
+    pub quarantine_state: Option<ManagedHostQuarantineState>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManagedHostQuarantineState {
+    pub reason: Option<String>,
+    pub mode: ManagedHostQuarantineMode,
+}
+
+impl ManagedHostQuarantineState {
+    pub fn reason_str(&self) -> &str {
+        self.reason.as_deref().unwrap_or("")
+    }
+
+    pub fn mode_str(&self) -> &str {
+        self.mode.as_str()
+    }
+}
+
+impl From<ManagedHostQuarantineState> for rpc::ManagedHostQuarantineState {
+    fn from(m: ManagedHostQuarantineState) -> Self {
+        Self {
+            mode: rpc::ManagedHostQuarantineMode::from(m.mode) as i32,
+            reason: m.reason,
+        }
+    }
+}
+
+impl From<ManagedHostQuarantineMode> for rpc::ManagedHostQuarantineMode {
+    fn from(m: ManagedHostQuarantineMode) -> Self {
+        match m {
+            ManagedHostQuarantineMode::BlockAllTraffic => {
+                rpc::ManagedHostQuarantineMode::BlockAllTraffic
+            }
+        }
+    }
+}
+
+impl TryFrom<rpc::ManagedHostQuarantineState> for ManagedHostQuarantineState {
+    type Error = RpcDataConversionError;
+    fn try_from(value: rpc::ManagedHostQuarantineState) -> Result<Self, Self::Error> {
+        Ok(Self {
+            reason: value.reason,
+            mode: rpc::ManagedHostQuarantineMode::try_from(value.mode)
+                .map_err(|_| {
+                    RpcDataConversionError::InvalidValue(value.mode.to_string(), "mode".to_string())
+                })?
+                .into(),
+        })
+    }
+}
+
+impl From<rpc::ManagedHostQuarantineMode> for ManagedHostQuarantineMode {
+    fn from(m: rpc::ManagedHostQuarantineMode) -> Self {
+        match m {
+            rpc::ManagedHostQuarantineMode::BlockAllTraffic => Self::BlockAllTraffic,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ManagedHostQuarantineMode {
+    BlockAllTraffic,
+}
+
+impl ManagedHostQuarantineMode {
+    fn as_str(&self) -> &'static str {
+        match self {
+            ManagedHostQuarantineMode::BlockAllTraffic => "BlockAllTraffic",
+        }
+    }
 }
 
 impl Default for ManagedHostNetworkConfig {
@@ -135,6 +206,7 @@ impl Default for ManagedHostNetworkConfig {
         ManagedHostNetworkConfig {
             loopback_ip: None,
             use_admin_network: Some(true),
+            quarantine_state: None,
         }
     }
 }

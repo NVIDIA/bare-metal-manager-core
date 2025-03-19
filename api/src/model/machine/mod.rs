@@ -750,7 +750,7 @@ impl Machine {
 }
 
 impl From<Machine> for rpc::forge::Machine {
-    fn from(machine: Machine) -> Self {
+    fn from(mut machine: Machine) -> Self {
         let health = match machine.is_dpu() {
             true => {
                 let mut health = machine.dpu_agent_health_report.clone().unwrap_or_else(|| {
@@ -863,13 +863,18 @@ impl From<Machine> for rpc::forge::Machine {
             ib_status: Some(
                 machine
                     .infiniband_status_observation
-                    .as_ref()
-                    .map(|status: &MachineInfinibandStatusObservation| status.clone().into())
+                    .take()
+                    .map(|status| status.into())
                     .unwrap_or_default(),
             ),
             instance_network_restrictions,
             hw_sku: machine.hw_sku,
             hw_sku_status: machine.hw_sku_status.map(|s| s.into()),
+            quarantine_state: machine
+                .network_config
+                .quarantine_state
+                .take()
+                .map(Into::into),
         }
     }
 }

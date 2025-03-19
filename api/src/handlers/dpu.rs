@@ -411,6 +411,12 @@ pub(crate) async fn get_managed_host_network_config(
 
     let network_config = rpc::ManagedHostNetworkConfig {
         loopback_ip: loopback_ip.to_string(),
+        quarantine_state: snapshot
+            .host_snapshot
+            .network_config
+            .quarantine_state
+            .clone()
+            .map(Into::into),
     };
 
     let asn = if network_virtualization_type == VpcVirtualizationType::Fnn {
@@ -598,10 +604,6 @@ pub(crate) async fn record_dpu_network_status(
         &dpu_machine_id,
         MachineSearchConfig {
             include_dpus: true,
-            include_history: false,
-            include_predicted_host: false,
-            only_maintenance: false,
-            exclude_hosts: false,
             // We should probably be setting this to to true everywhere
             // or including FOR UPDATE on all SELECT queries, but
             // this wasn't being done up to now.  Based on the nature
@@ -611,6 +613,7 @@ pub(crate) async fn record_dpu_network_status(
             // here, but maybe someone with broader knowledge of
             // the codebase should re-examine that assumption.
             for_update: false,
+            ..Default::default()
         },
     )
     .await

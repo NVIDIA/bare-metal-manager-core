@@ -340,11 +340,8 @@ impl SiteExplorer {
                     ObjectFilter::One(*id),
                     MachineSearchConfig {
                         include_dpus: true,
-                        include_history: false,
                         include_predicted_host: true,
-                        only_maintenance: false,
-                        exclude_hosts: false,
-                        for_update: false,
+                        ..Default::default()
                     },
                 )
                 .await?

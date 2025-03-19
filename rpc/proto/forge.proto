@@ -484,6 +484,11 @@ service Forge {
   rpc DeleteSku(SkuIdList) returns (google.protobuf.Empty);
   rpc GetAllSkuIds(google.protobuf.Empty) returns (SkuIdList);
   rpc FindSkusByIds(SkusByIdsRequest) returns (SkuList);
+
+  // get/set/clear quarantine state on machines
+  rpc GetManagedHostQuarantineState(GetManagedHostQuarantineStateRequest) returns (GetManagedHostQuarantineStateResponse);
+  rpc SetManagedHostQuarantineState(SetManagedHostQuarantineStateRequest) returns (SetManagedHostQuarantineStateResponse);
+  rpc ClearManagedHostQuarantineState(ClearManagedHostQuarantineStateRequest) returns (ClearManagedHostQuarantineStateResponse);
 }
 
 message TpmCaAddedCaStatus{
@@ -1711,6 +1716,7 @@ message MachineSearchConfig {
   bool only_maintenance = 4;
   reserved 5; // Was: bool include_associated_machine_id = 5; Now always included
   bool exclude_hosts = 6;
+  bool only_quarantine = 7;
 }
 
 message MachineHealthHistoriesRequest {
@@ -1879,6 +1885,8 @@ message Machine {
   
   optional string hw_sku = 38;
   optional SkuStatus hw_sku_status = 39;
+
+  optional ManagedHostQuarantineState quarantine_state = 40;
 }
 
 message InstanceNetworkRestrictions {
@@ -2233,16 +2241,52 @@ message ManagedHostNetworkConfigResponse {
   optional uint32 internet_l3_vni = 106;
 }
 
+message ManagedHostQuarantineState {
+  ManagedHostQuarantineMode mode = 1;
+  optional string reason = 2;
+}
+
+enum ManagedHostQuarantineMode {
+  BLOCK_ALL_TRAFFIC = 0;
+  // other modes may come later
+}
+
 enum VpcIsolationBehaviorType {
   VPC_ISOLATION_INVALID = 0;
   VPC_ISOLATION_OPEN    = 1;
   VPC_ISOLATION_MUTUAL  = 2;
 }
 
+message GetManagedHostQuarantineStateRequest {
+  common.MachineId machine_id = 1;
+}
+
+message GetManagedHostQuarantineStateResponse {
+  optional ManagedHostQuarantineState quarantine_state = 1;
+}
+
+message SetManagedHostQuarantineStateRequest {
+  common.MachineId machine_id = 1;
+  ManagedHostQuarantineState quarantine_state = 2;
+}
+
+message SetManagedHostQuarantineStateResponse {
+  optional ManagedHostQuarantineState prior_quarantine_state = 1;
+}
+
+message ClearManagedHostQuarantineStateRequest {
+  common.MachineId machine_id = 1;
+}
+
+message ClearManagedHostQuarantineStateResponse {
+  optional ManagedHostQuarantineState prior_quarantine_state = 1;
+}
+
 // Network configuration for a managed host (host + DPU pair) managed by Forge
 message ManagedHostNetworkConfig {
   // DPU loopback IP
   string loopback_ip = 1;
+  optional ManagedHostQuarantineState quarantine_state = 2;
 }
 
 message FlatInterfaceConfig {

@@ -282,11 +282,8 @@ async fn test_find_all_machines_when_there_arent_any(pool: sqlx::PgPool) {
 async fn test_find_machine_ids(pool: sqlx::PgPool) {
     let config = crate::db::machine::MachineSearchConfig {
         include_dpus: true,
-        include_history: false,
-        only_maintenance: false,
         include_predicted_host: true,
-        exclude_hosts: false,
-        for_update: false,
+        ..Default::default()
     };
 
     let env = create_test_env(pool).await;
@@ -312,11 +309,8 @@ async fn test_find_machine_ids(pool: sqlx::PgPool) {
 async fn test_find_dpu_machine_ids(pool: sqlx::PgPool) {
     let config = crate::db::machine::MachineSearchConfig {
         include_dpus: true,
-        include_history: false,
-        only_maintenance: false,
-        include_predicted_host: false,
         exclude_hosts: true,
-        for_update: false,
+        ..Default::default()
     };
 
     let env = create_test_env(pool).await;
@@ -341,12 +335,8 @@ async fn test_find_dpu_machine_ids(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_find_predicted_host_machine_ids(pool: sqlx::PgPool) {
     let config = crate::db::machine::MachineSearchConfig {
-        include_dpus: false,
-        include_history: false,
-        only_maintenance: false,
         include_predicted_host: true,
-        exclude_hosts: true,
-        for_update: false,
+        ..Default::default()
     };
 
     let env = create_test_env(pool).await;
@@ -370,14 +360,7 @@ async fn test_find_predicted_host_machine_ids(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_find_host_machine_ids_when_predicted(pool: sqlx::PgPool) {
-    let config = crate::db::machine::MachineSearchConfig {
-        include_dpus: false,
-        include_history: false,
-        only_maintenance: false,
-        include_predicted_host: false,
-        exclude_hosts: false,
-        for_update: false,
-    };
+    let config = crate::db::machine::MachineSearchConfig::default();
 
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
@@ -394,14 +377,7 @@ async fn test_find_host_machine_ids_when_predicted(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_find_host_machine_ids(pool: sqlx::PgPool) {
-    let config = crate::db::machine::MachineSearchConfig {
-        include_dpus: false,
-        include_history: false,
-        only_maintenance: false,
-        include_predicted_host: false,
-        exclude_hosts: false,
-        for_update: false,
-    };
+    let config = crate::db::machine::MachineSearchConfig::default();
 
     let env = create_test_env(pool).await;
     let (host_machine_id, _) = create_managed_host(&env).await;
@@ -419,12 +395,8 @@ async fn test_find_host_machine_ids(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
     let config = crate::db::machine::MachineSearchConfig {
-        include_dpus: false,
-        include_history: false,
-        only_maintenance: false,
         include_predicted_host: true,
-        exclude_hosts: false,
-        for_update: false,
+        ..Default::default()
     };
 
     let env = create_test_env(pool).await;

@@ -21,7 +21,8 @@ use tracing::warn;
 use rpc::common::MachineIdList;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    ConnectedDevice, GetSiteExplorationRequest, MachineType, NetworkDevice, NetworkDeviceIdList,
+    ConnectedDevice, GetSiteExplorationRequest, MachineType, ManagedHostQuarantineState,
+    NetworkDevice, NetworkDeviceIdList,
 };
 use rpc::machine_discovery::MemoryDevice;
 use rpc::site_explorer::{EndpointExplorationReport, ExploredEndpoint, ExploredManagedHost};
@@ -167,6 +168,7 @@ pub struct ManagedHostOutput {
     pub dpus: Vec<ManagedHostAttachedDpu>,
     pub exploration_report: Option<EndpointExplorationReport>,
     pub failure_details: Option<String>,
+    pub quarantine_state: Option<ManagedHostQuarantineState>,
 }
 
 impl From<&Machine> for ManagedHostOutput {
@@ -242,6 +244,7 @@ impl From<&Machine> for ManagedHostOutput {
                     machine.last_reboot_requested_mode()
                 )
             }),
+            quarantine_state: machine.quarantine_state.clone(),
             ..Default::default()
         }
     }

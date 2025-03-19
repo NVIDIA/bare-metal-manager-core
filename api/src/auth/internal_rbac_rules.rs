@@ -399,6 +399,18 @@ impl InternalRBACRules {
         x.perm("FindSkusByIds", vec![ForgeAdminCLI]);
         x.perm("DeleteSku", vec![ForgeAdminCLI]);
         x.perm("UpdateMachineHardwareInfo", vec![ForgeAdminCLI]);
+        x.perm(
+            "GetManagedHostQuarantineState",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "SetManagedHostQuarantineState",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "ClearManagedHostQuarantineState",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
 
         x
     }

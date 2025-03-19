@@ -70,6 +70,7 @@ use crate::measured_boot;
 use crate::model::machine::machine_id::{
     from_hardware_info, host_id_from_dpu_hardware_info, try_parse_machine_id,
 };
+use crate::model::machine::network::ManagedHostQuarantineState;
 use crate::model::machine::{
     BomValidating, DpuInitState, DpuInitStates, FailureCause, FailureDetails, FailureSource,
     Machine, ManagedHostState, ManagedHostStateSnapshot, MeasuringState, get_action_for_dpu_state,
@@ -4776,6 +4777,138 @@ impl Forge for Api {
         crate::handlers::sku::find_skus_by_ids(self, request)
             .await
             .map_err(|e| e.into())
+    }
+
+    async fn set_managed_host_quarantine_state(
+        &self,
+        request: tonic::Request<rpc::SetManagedHostQuarantineStateRequest>,
+    ) -> Result<Response<rpc::SetManagedHostQuarantineStateResponse>, Status> {
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin set_managed_host_quarantine_state",
+                e,
+            ))
+        })?;
+        let rpc::SetManagedHostQuarantineStateRequest {
+            quarantine_state,
+            machine_id,
+        } = request.into_inner();
+        let Some(machine_id) = machine_id else {
+            return Err(CarbideError::MissingArgument("machine_id").into());
+        };
+        let machine_id: MachineId = machine_id
+            .try_into()
+            .map_err(|_| CarbideError::InvalidArgument("machine_id".to_string()))?;
+        let Some(quarantine_state) = quarantine_state else {
+            return Err(CarbideError::MissingArgument("quarantine_state").into());
+        };
+        let quarantine_state: ManagedHostQuarantineState =
+            quarantine_state.try_into().map_err(CarbideError::from)?;
+
+        let prior_quarantine_state =
+            db::machine::set_quarantine_state(&mut txn, &machine_id, quarantine_state)
+                .await
+                .map_err(CarbideError::from)?
+                .map(Into::into);
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit set_managed_host_quarantine_state",
+                e,
+            ))
+        })?;
+
+        Ok(tonic::Response::new(
+            rpc::SetManagedHostQuarantineStateResponse {
+                prior_quarantine_state,
+            },
+        ))
+    }
+
+    async fn get_managed_host_quarantine_state(
+        &self,
+        request: tonic::Request<rpc::GetManagedHostQuarantineStateRequest>,
+    ) -> Result<Response<rpc::GetManagedHostQuarantineStateResponse>, Status> {
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin get_managed_host_quarantine_state",
+                e,
+            ))
+        })?;
+
+        let rpc::GetManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
+        let Some(machine_id) = machine_id else {
+            return Err(CarbideError::MissingArgument("machine_id").into());
+        };
+        let machine_id: MachineId = machine_id
+            .try_into()
+            .map_err(|_| CarbideError::InvalidArgument("machine_id".to_string()))?;
+
+        let quarantine_state = db::machine::get_quarantine_state(&mut txn, &machine_id)
+            .await
+            .map_err(CarbideError::from)?
+            .map(Into::into);
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit get_managed_host_quarantine_state",
+                e,
+            ))
+        })?;
+
+        Ok(tonic::Response::new(
+            rpc::GetManagedHostQuarantineStateResponse { quarantine_state },
+        ))
+    }
+
+    async fn clear_managed_host_quarantine_state(
+        &self,
+        request: tonic::Request<rpc::ClearManagedHostQuarantineStateRequest>,
+    ) -> Result<Response<rpc::ClearManagedHostQuarantineStateResponse>, Status> {
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin clear_managed_host_quarantine_state",
+                e,
+            ))
+        })?;
+
+        let rpc::ClearManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
+        let Some(machine_id) = machine_id else {
+            return Err(CarbideError::MissingArgument("machine_id").into());
+        };
+        let machine_id: MachineId = machine_id
+            .try_into()
+            .map_err(|_| CarbideError::InvalidArgument("machine_id".to_string()))?;
+
+        let prior_quarantine_state = db::machine::clear_quarantine_state(&mut txn, &machine_id)
+            .await
+            .map_err(CarbideError::from)?
+            .map(Into::into);
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit clear_managed_host_quarantine_state",
+                e,
+            ))
+        })?;
+
+        Ok(tonic::Response::new(
+            rpc::ClearManagedHostQuarantineStateResponse {
+                prior_quarantine_state,
+            },
+        ))
     }
 }
 

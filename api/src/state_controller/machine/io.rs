@@ -60,12 +60,8 @@ impl StateControllerIO for MachineStateControllerIO {
         Ok(crate::db::machine::find_machine_ids(
             txn,
             MachineSearchConfig {
-                include_dpus: false,
-                include_history: false,
                 include_predicted_host: true,
-                only_maintenance: false,
-                exclude_hosts: false,
-                for_update: false,
+                ..Default::default()
             },
         )
         .await?)

@@ -1168,6 +1168,11 @@ pub enum ManagedHost {
         visible_alias = "fix"
     )]
     Maintenance(MaintenanceAction),
+    #[clap(
+        about = "Quarantine a host (disabling network access on host)",
+        subcommand
+    )]
+    Quarantine(QuarantineAction),
 }
 
 #[derive(Parser, Debug)]
@@ -1517,6 +1522,9 @@ pub struct ShowManagedHost {
 
     #[clap(long, action, help = "Show only hosts in maintenance mode")]
     pub fix: bool,
+
+    #[clap(long, action, help = "Show only hosts in quarantine")]
+    pub quarantine: bool,
 }
 
 /// Enable or disable maintenance mode on a managed host.
@@ -1527,6 +1535,35 @@ pub enum MaintenanceAction {
     On(MaintenanceOn),
     /// Return this machine to normal operation.
     Off(MaintenanceOff),
+}
+
+/// Enable or disable quarantine mode on a managed host.
+#[derive(Parser, Debug)]
+pub enum QuarantineAction {
+    /// Put this machine into quarantine. Prevents any network access on the host machine.
+    On(QuarantineOn),
+    /// Take this machine out of quarantine
+    Off(QuarantineOff),
+}
+
+#[derive(Parser, Debug)]
+pub struct QuarantineOn {
+    #[clap(long, required(true), help = "Managed Host ID")]
+    pub host: String,
+
+    #[clap(
+        long,
+        visible_alias = "reason",
+        required(true),
+        help = "Reason for quarantining this host"
+    )]
+    pub reason: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct QuarantineOff {
+    #[clap(long, required(true), help = "Managed Host ID")]
+    pub host: String,
 }
 
 #[derive(Parser, Debug)]

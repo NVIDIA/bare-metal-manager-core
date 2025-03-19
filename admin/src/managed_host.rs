@@ -10,14 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashSet;
-use std::fmt::Write;
-
 use crate::cfg::cli_options::ShowManagedHost;
 use crate::rpc::ApiClient;
 use ::rpc::{Machine, MachineId};
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
+use std::collections::HashSet;
+use std::fmt::Write;
 use tracing::warn;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
@@ -25,10 +24,17 @@ const UNKNOWN: &str = "Unknown";
 
 #[derive(Default, Serialize)]
 struct ManagedHostOutputWrapper {
+    options: ManagedHostOutputOptions,
+    managed_host_output: utils::ManagedHostOutput,
+}
+
+#[derive(Default, Clone, Copy, Serialize)]
+struct ManagedHostOutputOptions {
     show_ips: bool,
     more_details: bool,
     has_maintenance: bool,
-    managed_host_output: utils::ManagedHostOutput,
+    show_quarantine_reason: bool,
+    single_host_detail_view: bool,
 }
 
 macro_rules! concat_host_and_dpu_props {
@@ -97,7 +103,7 @@ impl From<ManagedHostOutputWrapper> for Row {
             state,
         ];
 
-        if src.has_maintenance {
+        if src.options.has_maintenance {
             row_data.extend_from_slice(&[format!(
                 "{}\n{}",
                 value.maintenance_reference.unwrap_or_default(),
@@ -105,16 +111,23 @@ impl From<ManagedHostOutputWrapper> for Row {
             )]);
         }
 
-        if src.show_ips {
+        if src.options.show_ips {
             row_data.extend_from_slice(&[bmc_ip, bmc_mac, ips, macs]);
         }
 
-        if src.more_details {
+        if src.options.more_details {
             row_data.extend_from_slice(&[
                 value.host_gpu_count.to_string(),
                 value.host_ib_ifs_count.to_string(),
                 value.host_memory.unwrap_or(UNKNOWN.to_owned()),
             ]);
+        }
+
+        if src.options.show_quarantine_reason {
+            row_data.extend_from_slice(&[value
+                .quarantine_state
+                .and_then(|s| s.reason)
+                .unwrap_or_default()]);
         }
 
         Row::new(row_data.into_iter().map(|x| Cell::new(&x)).collect())
@@ -123,8 +136,7 @@ impl From<ManagedHostOutputWrapper> for Row {
 
 fn convert_managed_hosts_to_nice_output(
     managed_hosts: Vec<utils::ManagedHostOutput>,
-    show_ips: bool,
-    more_details: bool,
+    options: ManagedHostOutputOptions,
 ) -> Box<Table> {
     let has_maintenance = managed_hosts
         .iter()
@@ -132,9 +144,7 @@ fn convert_managed_hosts_to_nice_output(
     let managed_hosts_wrapper = managed_hosts
         .into_iter()
         .map(|x| ManagedHostOutputWrapper {
-            show_ips,
-            more_details,
-            has_maintenance,
+            options,
             managed_host_output: x,
         })
         .collect::<Vec<ManagedHostOutputWrapper>>();
@@ -147,7 +157,7 @@ fn convert_managed_hosts_to_nice_output(
         headers.extend_from_slice(&["Maintenance reference/since"]);
     }
 
-    if show_ips {
+    if options.show_ips {
         headers.extend_from_slice(&[
             "BMC IP(H/D)",
             "BMC MAC(H/D)",
@@ -156,8 +166,12 @@ fn convert_managed_hosts_to_nice_output(
         ])
     }
 
-    if more_details {
+    if options.more_details {
         headers.extend_from_slice(&["GPU #", "IB IFs #", "Host Memory"]);
+    }
+
+    if options.show_quarantine_reason {
+        headers.extend_from_slice(&["Quarantine reason"]);
     }
 
     // TODO additional discovery work needed for remaining information
@@ -176,14 +190,12 @@ async fn show_managed_hosts(
     managed_host_data: utils::ManagedHostMetadata,
     output: &mut dyn std::io::Write,
     output_format: OutputFormat,
-    show_ips: bool,
-    more_details: bool,
-    single_host_detail_view: bool,
+    output_options: ManagedHostOutputOptions,
 ) -> CarbideCliResult<()> {
     let managed_hosts = utils::get_managed_host_output(managed_host_data);
     match output_format {
         OutputFormat::Json => {
-            if single_host_detail_view {
+            if output_options.single_host_detail_view {
                 // Print a single object, not an array
                 println!(
                     "{}",
@@ -197,7 +209,7 @@ async fn show_managed_hosts(
         }
         OutputFormat::Yaml => {
             // Print a single object, not an array
-            if single_host_detail_view {
+            if output_options.single_host_detail_view {
                 println!(
                     "{}",
                     serde_yaml::to_string(managed_hosts.first().ok_or(CarbideCliError::Empty)?)?
@@ -207,15 +219,14 @@ async fn show_managed_hosts(
             }
         }
         OutputFormat::Csv => {
-            let result =
-                convert_managed_hosts_to_nice_output(managed_hosts, show_ips, more_details);
+            let result = convert_managed_hosts_to_nice_output(managed_hosts, output_options);
 
             if let Err(error) = result.to_csv(output) {
                 warn!("Error writing csv data: {}", error);
             }
         }
         _ => {
-            if single_host_detail_view {
+            if output_options.single_host_detail_view {
                 show_managed_host_details_view(
                     managed_hosts
                         .into_iter()
@@ -223,8 +234,7 @@ async fn show_managed_hosts(
                         .ok_or(CarbideCliError::Empty)?,
                 )?;
             } else {
-                let result =
-                    convert_managed_hosts_to_nice_output(managed_hosts, show_ips, more_details);
+                let result = convert_managed_hosts_to_nice_output(managed_hosts, output_options);
                 if let Err(error) = result.print(output) {
                     warn!("Error writing table data: {}", error);
                 }
@@ -298,6 +308,14 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
         ("  Memory", m.host_memory.clone()),
         ("  Admin IP", m.host_admin_ip.clone()),
         ("  Admin MAC", m.host_admin_mac.clone()),
+        (
+            "  Quarantined",
+            Some(
+                m.quarantine_state
+                    .map(|q| format!("yes (reason: {})", q.reason.as_deref().unwrap_or("<none>")))
+                    .unwrap_or("no".to_string()),
+            ),
+        ),
     ];
     if m.failure_details.is_some() {
         data.push(("  Failure Details", m.failure_details))
@@ -435,7 +453,15 @@ pub async fn handle_show(
     let machines: Vec<Machine> = if show_all_machines {
         // Get all machines: DPUs will arrive as part of this request
         api_client
-            .get_all_machines(None, args.fix, page_size)
+            .get_all_machines(
+                rpc::forge::MachineSearchConfig {
+                    include_dpus: true,
+                    only_maintenance: args.fix,
+                    only_quarantine: args.quarantine,
+                    ..Default::default()
+                },
+                page_size,
+            )
             .await?
             .machines
     } else {
@@ -504,6 +530,14 @@ pub async fn handle_show(
         .await?
         .network_devices;
 
+    let output_options = ManagedHostOutputOptions {
+        show_ips: args.ips,
+        more_details: args.more,
+        has_maintenance: args.fix,
+        show_quarantine_reason: args.quarantine,
+        single_host_detail_view: !show_all_machines,
+    };
+
     show_managed_hosts(
         utils::ManagedHostMetadata {
             machines,
@@ -514,9 +548,7 @@ pub async fn handle_show(
         },
         output,
         output_format,
-        args.ips,
-        args.more,
-        !show_all_machines,
+        output_options,
     )
     .await
 }

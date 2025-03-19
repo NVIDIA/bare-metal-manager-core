@@ -156,15 +156,8 @@ async fn create_forge_client(
 }
 
 pub async fn get_machines(client: &ForgeApiClient) -> Result<rpc::MachineList, HealthError> {
-    let request = rpc::MachineSearchConfig {
-        include_dpus: false,
-        include_history: false,
-        include_predicted_host: false,
-        only_maintenance: false,
-        exclude_hosts: false,
-    };
     let machine_ids = client
-        .find_machine_ids(request)
+        .find_machine_ids(rpc::MachineSearchConfig::default())
         .await
         .map_err(HealthError::ApiInvocationError)?;
     let mut all_machines = rpc::MachineList {
