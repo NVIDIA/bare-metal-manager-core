@@ -65,7 +65,7 @@ pub async fn create(
             SELECT $1::varchar, $2::varchar, $3::jsonb, $4::varchar, $5::jsonb, $6::varchar
             WHERE NOT EXISTS
                 /* There should be a unique constraint on id.  The condition here is just defensive. */
-                (SELECT id FROM instance_types WHERE (id=$7::varchar OR name=$8::varchar) AND deleted IS NULL)
+                (SELECT id FROM instance_types WHERE id=$7::varchar OR (name=$8::varchar AND deleted IS NULL))
             RETURNING *";
 
     match sqlx::query_as::<Postgres, InstanceType>(query)

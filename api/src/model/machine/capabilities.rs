@@ -389,9 +389,10 @@ impl MachineCapabilitiesSet {
         //  Process CPU data
         //
 
-        // highest core number + 1 is the number of cores
-        // highest Number + 1 is thread count
-        // number of unique sockets is cpu count
+        // Number of unique sockets is cpu count.
+        // Highest core number + 1 is the number of cores.
+        // Highest Number + 1 is total thread count, which
+        // we'll divide by cpu count later.
 
         let mut cpu_map = HashMap::<String, MachineCapabilityCpu>::new();
         let mut cpu_socket_set = HashSet::<(String, u32)>::new();
@@ -400,7 +401,7 @@ impl MachineCapabilitiesSet {
         for cpu_info in hardware_info.cpus.into_iter() {
             match cpu_map.get_mut(&cpu_info.model) {
                 None => {
-                    // Insert into the socket map so don't keep incrementing cpu count
+                    // Insert into the socket map so we don't keep incrementing cpu count
                     // as we look for threads and cores.
                     cpu_socket_set.insert((cpu_info.model.clone(), cpu_info.socket));
 
@@ -417,8 +418,9 @@ impl MachineCapabilitiesSet {
                     );
                 }
                 Some(cpu_cap) => {
-                    // If the socket hasn't been seen yet, increment the cpu count
-                    if !cpu_socket_set.insert((cpu_info.model, cpu_info.socket)) {
+                    // If the socket hasn't been seen yet (i.e., if it's new to the set),
+                    // increment the cpu count.
+                    if cpu_socket_set.insert((cpu_info.model, cpu_info.socket)) {
                         cpu_cap.count += 1;
                     }
 
@@ -617,7 +619,18 @@ impl MachineCapabilitiesSet {
         }
 
         MachineCapabilitiesSet {
-            cpu: cpu_map.into_values().collect(),
+            cpu: cpu_map
+                .into_values()
+                .map(|mut c| {
+                    // Divide the total number of threads by the cpu count.
+                    if let Some(cnt) = c.threads {
+                        // This _should_ always divide evenly, but it doesn't
+                        // hurt to be safe.
+                        c.threads = Some(cnt.saturating_div(c.count));
+                    }
+                    c
+                })
+                .collect(),
             gpu: gpu_map.into_values().collect(),
             memory: mem_map.into_values().collect(),
             storage: storage_map.into_values().collect(),
@@ -929,7 +942,7 @@ mod tests {
             cpu: vec![
                 MachineCapabilityCpu {
                     name: "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz".to_string(),
-                    count: 71,
+                    count: 1,
                     vendor: Some("GenuineIntel".to_string()),
                     frequency: Some("800.191".to_string()),
                     cores: Some(18),
