@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 
-{% block title %}Explored Endpoint Detail{% endblock %}
+{% block title %}Explored Endpoint {{ endpoint.address }}{% endblock %}
 
 {% block content %}
-<h1>Endpoint</h1>
+<div id="json"><a id="json-link" href="">JSON</a></div>
+<h1>Endpoint {{ endpoint.address }}</h1>
 <table class="detailsview">
 	<tr>
 		<th>Address</th>

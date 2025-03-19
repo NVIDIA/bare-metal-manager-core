@@ -529,7 +529,7 @@ fn filter_expr(keys: &[GroupingKey], values: &[String]) -> String {
         .join("&")
 }
 
-pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
+pub async fn show_all_json(state: AxumState<Arc<Api>>) -> Response {
     let mut managed_hosts = match fetch_managed_hosts(state).await {
         Ok(m) => m,
         Err(err) => {

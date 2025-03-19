@@ -132,7 +132,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out = match fetch_instances(state).await {
         Ok(m) => m,
         Err(err) => {
