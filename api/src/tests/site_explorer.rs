@@ -2165,7 +2165,7 @@ async fn test_site_explorer_health_report(
             id: "BmcExplorationFailure".to_string(),
             target: Some(bmc_ip.to_string()),
             in_alert_since: None,
-            message: "Endpoint exploration failed: The endpoint was not reachable: None"
+            message: "Endpoint exploration failed: The endpoint was not reachable due to a generic network issue: None"
                 .to_string(),
             tenant_message: None,
             classifications: vec!["PreventAllocations".to_string()]

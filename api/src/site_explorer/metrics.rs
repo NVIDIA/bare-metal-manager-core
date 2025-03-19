@@ -472,6 +472,8 @@ impl SiteExplorerInstruments {
 /// level error information is copied and details are omitted.
 pub fn exploration_error_to_metric_label(error: &EndpointExplorationError) -> String {
     match error {
+        EndpointExplorationError::ConnectionRefused { .. } => "connection_refused",
+        EndpointExplorationError::ConnectionTimeout { .. } => "connection_timeout",
         EndpointExplorationError::Unreachable { .. } => "unreachable",
         EndpointExplorationError::UnsupportedVendor { .. } => "unsupported_vendor",
         EndpointExplorationError::RedfishError { .. } => "redfish_error",
