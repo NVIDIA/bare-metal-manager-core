@@ -33,9 +33,7 @@ mv /forge-scout /mnt/opt/forge
 chmod a+x /mnt/opt/forge/forge-scout
 mv /forge-dpu.deb /mnt/opt/forge
 mv /doca_container_configs /mnt/opt/forge
-mv /doca_telemetry.tar /mnt/opt/forge
 mv /doca_hbn.tar /mnt/opt/forge
-mv /pause.tar /mnt/opt/forge
 
 #begin nvinit setup
 #this step is done in the BFB to ensure that we can always log in to the box, even if cloud-init fails.
