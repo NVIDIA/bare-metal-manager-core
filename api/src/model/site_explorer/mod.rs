@@ -801,8 +801,35 @@ impl From<SiteExplorationReport> for rpc::site_explorer::SiteExplorationReport {
 #[derive(thiserror::Error, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "Type", rename_all = "PascalCase")]
 pub enum EndpointExplorationError {
-    /// It was not possible to establish a connection to the endpoint
-    #[error("The endpoint was not reachable: {details:?}")]
+    /// site-explorer timed out sending a request (or getting a response) from
+    /// this endpoint, either due to connectivity issues to the destination IP,
+    /// or the destination port [being up but] not responding in a timely
+    /// matter. This is ultimately tripped by a reqwest is_timeout error in
+    /// the current implementation. For cases where the destination IP *is*
+    /// reachable, but the  port is not listening, see ConnectionRefused.
+    #[error("site-explorer timed out communicating with the endpoint: {details:?}")]
+    #[serde(rename_all = "PascalCase")]
+    ConnectionTimeout { details: String },
+    /// The connection to the configured endpoint was refused. This indicates
+    /// that site-explorer probably has connectivity to the target IP (unless
+    /// a network device in the path is sending an RST), and is able to positively
+    /// confirm the endpoint is not listening on the target port (which probably
+    /// means no Redfish API is being exposed), OR, can ALSO mean there was a TLS
+    /// handshake failure (since reqwest is_connect errors capture TLS handshake
+    /// errors as well). A more common example here is if site-explorer is
+    /// [unknowingly] exploring a yet-unpaired DPU, and the IP it is attempting
+    /// to explore happens to be the DPU admin IP. Since the admin/host side of
+    /// a DPU doesn't expose a Redfish API, you will see ConnectionRefused. This
+    /// is ultimately tripped by a reqwest is_connect error in the current
+    /// implementation.
+    #[error("The connection to the endpoint was refused: {details:?}")]
+    #[serde(rename_all = "PascalCase")]
+    ConnectionRefused { details: String },
+    /// Some other generic error happened while attempting to connect
+    /// and make a request (or receive a response) from the endpoint
+    /// which was not otherwise handled by connection timeout or
+    /// connection refused handlers.
+    #[error("The endpoint was not reachable due to a generic network issue: {details:?}")]
     #[serde(rename_all = "PascalCase")]
     Unreachable { details: Option<String> },
     /// A Redfish variant we don't support, typically a new vendor

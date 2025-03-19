@@ -811,12 +811,16 @@ pub(crate) fn map_redfish_client_creation_error(
 
 pub(crate) fn map_redfish_error(error: RedfishError) -> EndpointExplorationError {
     match &error {
-        RedfishError::NetworkError { url, source }
-            if source.is_connect() || source.is_timeout() =>
-        {
-            // TODO: It might actually also be TLS related
-            EndpointExplorationError::Unreachable {
-                details: Some(format!("url: {url};\nsource: {source};\nerror: {error}",)),
+        RedfishError::NetworkError { url, source } => {
+            let details = format!("url: {url};\nsource: {source};\nerror: {error}");
+            if source.is_connect() {
+                EndpointExplorationError::ConnectionRefused { details }
+            } else if source.is_timeout() {
+                EndpointExplorationError::ConnectionTimeout { details }
+            } else {
+                EndpointExplorationError::Unreachable {
+                    details: Some(details),
+                }
             }
         }
         RedfishError::HTTPErrorCode {
