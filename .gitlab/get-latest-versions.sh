@@ -22,6 +22,7 @@ fi
 CARBIDE_VERSIONS="$(crane ls "${APPLICATION_DOCKER_IMAGE:-nvcr.io/nvidian/nvforge-devel/nvmetal-carbide}" | grep "${GREP_FLAG:-'-P'}" ${TESTABLE_VERSION_PATTERN} | sort -V | tail -n 20 | tac)"
 BOOT_AARCH64_VERSIONS="$(crane ls "${ARTIFACTS_DOCKER_IMAGE_AARCH64:-nvcr.io/nvidian/nvforge-devel/boot-artifacts-aarch64}" | grep "${GREP_FLAG:-'-P'}" ${TESTABLE_VERSION_PATTERN} | sort -V | tail -n 20 | tac)"
 BOOT_X86_VERSIONS="$(crane ls "${ARTIFACTS_DOCKER_IMAGE_X86_64:-nvcr.io/nvidian/nvforge-devel/boot-artifacts-x86_64}" | grep "${GREP_FLAG:-'-P'}" ${TESTABLE_VERSION_PATTERN} | sort -V | tail -n 20 | tac)"
+MACHINE_VALIDATION_VERSIONS="$(crane ls "${MACHINE_VALIDATION_ARTIFACTS_DOCKER_IMAGE:-nvcr.io/nvidian/nvforge-devel/machine_validation}" | grep "${GREP_FLAG:-'-P'}" ${TESTABLE_VERSION_PATTERN} | sort -V | tail -n 20 | tac)"
 SSH_CONSOLE_VERSIONS="$(crane ls "${DEV_NVCR_BASE:-nvcr.io/nvidian/nvforge-devel}"/ssh-console | grep "${GREP_FLAG:-'-P'}" ${TESTABLE_VERSION_PATTERN} | sort -V | tail -n 20 | tac)"
 
 # Find latest common version of carbide artifacts that exist in `trunk`
@@ -29,14 +30,14 @@ LATEST_COMMON_VERSION=""
 for version in ${CARBIDE_VERSIONS}; do
   git_hash=$(awk -F'-g' '{print $2}' <<< "$version")
   git log origin/trunk | grep "$git_hash" > /dev/null || continue
-  if [[ $(echo "${BOOT_AARCH64_VERSIONS}" | grep -c "\<$version\>") -gt 0 ]] && [[ $(echo "${BOOT_X86_VERSIONS}" | grep -c "\<$version\>") -gt 0 ]]; then
+  if [[ $(echo "${BOOT_AARCH64_VERSIONS}" | grep -c "\<$version\>") -gt 0 ]] && [[ $(echo "${BOOT_X86_VERSIONS}" | grep -c "\<$version\>") -gt 0 ]] && [[ $(echo "${MACHINE_VALIDATION_VERSIONS}" | grep -c "\<$version\>") -gt 0 ]]; then
     export LATEST_COMMON_VERSION=$version
     echo "Found latest version of carbide: ${LATEST_COMMON_VERSION}"
     break
   fi
 done
 if [[ -z "${LATEST_COMMON_VERSION}" ]]; then
-  echo "Error: There is no common version across the latest 20 versions of nvmetal-carbide, boot-artifacts-aarch64, and boot-artifacts-x86_64."
+  echo "Error: There is no common version across the latest 20 versions of nvmetal-carbide, boot-artifacts-aarch64, boot-artifacts-x86_64, and machine_validation"
   exit 1
 fi
 
