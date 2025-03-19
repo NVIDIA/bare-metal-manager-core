@@ -246,6 +246,48 @@ async fn show(
     (StatusCode::OK, Html(tmpl.render().unwrap()))
 }
 
+pub async fn fetch_machine(
+    api: &Api,
+    machine_id: String,
+) -> Result<::rpc::forge::Machine, Response> {
+    let request = tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        machine_ids: vec![rpc::common::MachineId {
+            id: machine_id.clone(),
+        }],
+        include_history: true,
+    });
+
+    let machine = match api
+        .find_machines_by_ids(request)
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(m) if m.machines.is_empty() => {
+            return Err(super::not_found_response(machine_id));
+        }
+        Ok(m) if m.machines.len() != 1 => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!(
+                    "Machine list for {machine_id} returned {} machines",
+                    m.machines.len()
+                ),
+            )
+                .into_response());
+        }
+        Ok(mut m) => m.machines.remove(0),
+        Err(err) if err.code() == tonic::Code::NotFound => {
+            return Err(super::not_found_response(machine_id));
+        }
+        Err(err) => {
+            tracing::error!(%err, %machine_id, "find_machines_by_ids");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response());
+        }
+    };
+
+    Ok(machine)
+}
+
 pub async fn fetch_machines(
     api: Arc<Api>,
     include_dpus: bool,
@@ -619,40 +661,19 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
 ) -> Response {
-    let request = tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-        machine_ids: vec![rpc::common::MachineId {
-            id: machine_id.clone(),
-        }],
-        include_history: true,
-    });
-
-    let machine = match state
-        .find_machines_by_ids(request)
-        .await
-        .map(|response| response.into_inner())
-    {
-        Ok(m) if m.machines.is_empty() => {
-            return super::not_found_response(machine_id);
-        }
-        Ok(m) if m.machines.len() != 1 => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!(
-                    "Machine list for {machine_id} returned {} machines",
-                    m.machines.len()
-                ),
-            )
-                .into_response();
-        }
-        Ok(mut m) => m.machines.remove(0),
-        Err(err) if err.code() == tonic::Code::NotFound => {
-            return super::not_found_response(machine_id);
-        }
-        Err(err) => {
-            tracing::error!(%err, %machine_id, "find_machines_by_ids");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
-        }
+    let (show_json, machine_id) = match machine_id.strip_suffix(".json") {
+        Some(machine_id) => (true, machine_id.to_string()),
+        None => (false, machine_id),
     };
+
+    let machine = match fetch_machine(&state, machine_id.clone()).await {
+        Ok(machine) => machine,
+        Err(response) => return response,
+    };
+
+    if show_json {
+        return (StatusCode::OK, Json(machine)).into_response();
+    }
 
     let mut display: MachineDetail = machine.into();
 

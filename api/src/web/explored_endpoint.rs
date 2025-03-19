@@ -202,7 +202,7 @@ pub async fn show_html_all(
     AxumState(state): AxumState<Arc<Api>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
-    let report = match fetch_explored_endpoints(state).await {
+    let report = match fetch_explored_endpoints(&state).await {
         Ok(report) => report,
         Err(err) => {
             tracing::error!(%err, "fetch_explored_endpoints");
@@ -236,7 +236,7 @@ pub async fn show_html_all(
 }
 
 pub async fn show_html_paired(AxumState(state): AxumState<Arc<Api>>) -> Response {
-    let report = match fetch_explored_endpoints(state).await {
+    let report = match fetch_explored_endpoints(&state).await {
         Ok(report) => report,
         Err(err) => {
             tracing::error!(%err, "fetch_explored_endpoints");
@@ -256,7 +256,7 @@ pub async fn show_html_unpaired(
     AxumState(state): AxumState<Arc<Api>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
-    let report = match fetch_explored_endpoints(state.clone()).await {
+    let report = match fetch_explored_endpoints(&state).await {
         Ok(report) => report,
         Err(err) => {
             tracing::error!(%err, "fetch_explored_endpoints");
@@ -326,8 +326,8 @@ pub async fn show_html_unpaired(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
-    let report = match fetch_explored_endpoints(state).await {
+pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+    let report = match fetch_explored_endpoints(&state).await {
         Ok(report) => report,
         Err(err) => {
             tracing::error!(%err, "fetch_explored_endpoints");
@@ -341,7 +341,7 @@ pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(report)).into_response()
 }
 
-async fn fetch_explored_endpoints(api: Arc<Api>) -> Result<SiteExplorationReport, tonic::Status> {
+async fn fetch_explored_endpoints(api: &Api) -> Result<SiteExplorationReport, tonic::Status> {
     let request = tonic::Request::new(forgerpc::GetSiteExplorationRequest {});
     api.get_site_exploration_report(request)
         .await
@@ -389,38 +389,56 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
     }
 }
 
-/// View details of an explored endpoint
-pub async fn detail(
-    AxumState(state): AxumState<Arc<Api>>,
-    AxumPath(endpoint_ip): AxumPath<String>,
-) -> Response {
-    let report = match fetch_explored_endpoints(state.clone()).await {
+/// Fetch a single explored endpoint
+/// TODO: The API is rather inefficient since it loads all of them and filters client side
+pub async fn fetch_explored_endpoint(
+    api: &Api,
+    endpoint_ip: String,
+) -> Result<ExploredEndpoint, Response> {
+    let report = match fetch_explored_endpoints(api).await {
         Ok(report) => report,
         Err(err) => {
             tracing::error!(%err, "fetch_explored_endpoints");
-            return (
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading site exploration report",
             )
-                .into_response();
+                .into_response());
         }
     };
 
-    let mut endpoint = match report
+    let endpoint: ExploredEndpoint = match report
         .endpoints
         .into_iter()
         .find(|ep| ep.address.trim() == endpoint_ip.trim())
     {
         Some(ep) => ep,
         None => {
-            tracing::error!(%endpoint_ip, "Could not find matching endpoint exploration report");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Could not find matching endpoint exploration report",
-            )
-                .into_response();
+            return Err(super::not_found_response(endpoint_ip).into_response());
         }
     };
+
+    Ok(endpoint)
+}
+
+/// View details of an explored endpoint
+pub async fn detail(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(endpoint_ip): AxumPath<String>,
+) -> Response {
+    let (show_json, endpoint_ip) = match endpoint_ip.strip_suffix(".json") {
+        Some(endpoint_ip) => (true, endpoint_ip.to_string()),
+        None => (false, endpoint_ip),
+    };
+
+    let mut endpoint = match fetch_explored_endpoint(&state, endpoint_ip.clone()).await {
+        Ok(endpoint) => endpoint,
+        Err(response) => return response,
+    };
+
+    if show_json {
+        return (StatusCode::OK, Json(endpoint)).into_response();
+    }
 
     // Site Explorer doesn't link Host Explored Endpoints with their machine, only DPUs.
     // So do it here.

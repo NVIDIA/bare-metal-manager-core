@@ -213,12 +213,15 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/", get(root))
             .route("/static/:filename", get(static_data))
             .route("/domain", get(domain::show_html))
-            .route("/domain.json", get(domain::show_json))
+            .route("/domain.json", get(domain::show_all_json))
             .route("/dpu", get(machine::show_dpus_html))
             .route("/dpu.json", get(machine::show_dpus_json))
             .route("/dpu/versions", get(dpu_versions::list_html))
+            .route(
+                "/explored-endpoint.json",
+                get(explored_endpoint::show_all_json),
+            )
             .route("/explored-endpoint", get(explored_endpoint::show_html_all))
-            .route("/explored-endpoint.json", get(explored_endpoint::show_json))
             .route(
                 "/explored-endpoint/paired",
                 get(explored_endpoint::show_html_paired),
@@ -258,13 +261,13 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/host", get(machine::show_hosts_html))
             .route("/host.json", get(machine::show_hosts_json))
             .route("/ib-partition", get(ib_partition::show_html))
-            .route("/ib-partition.json", get(ib_partition::show_json))
+            .route("/ib-partition.json", get(ib_partition::show_all_json))
             .route("/ib-partition/:partition_id", get(ib_partition::detail))
             .route("/instance", get(instance::show_html))
-            .route("/instance.json", get(instance::show_json))
+            .route("/instance.json", get(instance::show_all_json))
             .route("/instance/:instance_id", get(instance::detail))
             .route("/interface", get(interface::show_html))
-            .route("/interface.json", get(interface::show_json))
+            .route("/interface.json", get(interface::show_all_json))
             .route("/interface/:interface_id", get(interface::detail))
             .route("/machine", get(machine::show_all_html))
             .route("/machine.json", get(machine::show_all_json))
@@ -291,7 +294,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 post(health::remove_override),
             )
             .route("/managed-host", get(managed_host::show_html))
-            .route("/managed-host.json", get(managed_host::show_json))
+            .route("/managed-host.json", get(managed_host::show_all_json))
             .route("/managed-host/:machine_id", get(managed_host::detail))
             .route("/expected-machine", get(expected_machine::show_all_html))
             .route(
@@ -299,7 +302,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 get(expected_machine::show_expected_machine_raw_json),
             )
             .route("/network-device", get(network_device::show_html))
-            .route("/network-device.json", get(network_device::show_json))
+            .route("/network-device.json", get(network_device::show_all_json))
             .route("/network-security-group", get(network_security_group::show))
             .route(
                 "/network-security-group",
@@ -314,25 +317,25 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 post(network_security_group::update),
             )
             .route("/network-segment", get(network_segment::show_html))
-            .route("/network-segment.json", get(network_segment::show_json))
+            .route("/network-segment.json", get(network_segment::show_all_json))
             .route("/network-segment/:segment_id", get(network_segment::detail))
             .route("/network-status", get(network_status::show_html))
-            .route("/network-status.json", get(network_status::show_json))
+            .route("/network-status.json", get(network_status::show_all_json))
             .route("/resource-pool", get(resource_pool::show_html))
-            .route("/resource-pool.json", get(resource_pool::show_json))
+            .route("/resource-pool.json", get(resource_pool::show_all_json))
             .route("/vpc", get(vpc::show_html))
-            .route("/vpc.json", get(vpc::show_json))
+            .route("/vpc.json", get(vpc::show_all_json))
             .route("/vpc/:vpc_id", get(vpc::detail))
             .route("/redfish-browser", get(redfish_browser::query))
             .route("/search", get(search::find))
             .route("/sku", get(sku::show_html))
-            .route("/sku.json", get(sku::show_json))
+            .route("/sku.json", get(sku::show_all_json))
             .route("/sku/:sku_id", get(sku::detail))
             .route("/tenant", get(tenant::show_html))
-            .route("/tenant.json", get(tenant::show_json))
+            .route("/tenant.json", get(tenant::show_all_json))
             .route("/tenant/:organization_id", get(tenant::detail))
             .route("/tenant_keyset", get(tenant_keyset::show_html))
-            .route("/tenant_keyset.json", get(tenant_keyset::show_json))
+            .route("/tenant_keyset.json", get(tenant_keyset::show_all_json))
             .route(
                 "/tenant_keyset/:organization_id/:keyset_id",
                 get(tenant_keyset::detail),
