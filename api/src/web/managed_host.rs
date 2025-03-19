@@ -555,6 +555,7 @@ async fn fetch_managed_hosts(
             include_predicted_host: true,
             only_maintenance: false,
             exclude_hosts: false,
+            only_quarantine: false,
         }))
         .await?
         .into_inner()

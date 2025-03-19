@@ -24,6 +24,7 @@ use utils::managed_host_display::to_time;
 
 use super::filters;
 use crate::api::Api;
+use crate::model::machine::network::ManagedHostQuarantineState;
 
 #[derive(Template)]
 #[template(path = "machine_show.html")]
@@ -299,6 +300,7 @@ pub async fn fetch_machines(
         include_predicted_host: true,
         only_maintenance: false,
         exclude_hosts: false,
+        only_quarantine: false,
     });
 
     let machine_ids = api
@@ -367,6 +369,8 @@ struct MachineDetail {
     capabilities_json: String,
     validation_runs: Vec<ValidationRun>,
     hw_sku: String,
+    quarantine_state: Option<ManagedHostQuarantineState>,
+    quarantine_state_is_link: bool,
 }
 
 struct MachineCapability {
@@ -425,25 +429,22 @@ impl From<forgerpc::Machine> for MachineDetail {
         for (i, interface) in m.interfaces.into_iter().enumerate() {
             interfaces.push(MachineInterfaceDisplay {
                 index: i,
-                id: interface.id.clone().unwrap_or_default().to_string(),
+                id: interface.id.unwrap_or_default().to_string(),
                 dpu_id: interface
                     .attached_dpu_machine_id
-                    .clone()
                     .unwrap_or_else(super::invalid_machine_id)
                     .to_string(),
                 segment_id: interface
                     .segment_id
-                    .clone()
                     .unwrap_or_else(super::default_uuid)
                     .to_string(),
                 domain_id: interface
                     .domain_id
-                    .clone()
                     .unwrap_or_else(super::default_uuid)
                     .to_string(),
-                hostname: interface.hostname.clone(),
+                hostname: interface.hostname,
                 primary: interface.primary_interface.to_string(),
-                mac_address: interface.mac_address.clone(),
+                mac_address: interface.mac_address,
                 addresses: interface.address.join(","),
             });
         }
@@ -457,31 +458,41 @@ impl From<forgerpc::Machine> for MachineDetail {
         let mut sys_vendor = String::new();
         let mut ib_interfaces = Vec::new();
         let mut inventory = Vec::new();
-        if let Some(di) = m.discovery_info.as_ref() {
-            if let Some(dmi) = di.dmi_data.as_ref() {
-                product_name = dmi.product_name.clone();
-                product_serial = dmi.product_serial.clone();
-                board_serial = dmi.board_serial.clone();
-                chassis_serial = dmi.chassis_serial.clone();
-                sys_vendor = dmi.sys_vendor.clone();
-                bios_version = dmi.bios_version.clone();
-                board_version = dmi.board_version.clone();
+
+        let discovery_info_json = m
+            .discovery_info
+            .as_ref()
+            .map(|info| {
+                serde_json::to_string_pretty(info)
+                    .unwrap_or_else(|e| format!("Formatting error: {e}"))
+            })
+            .unwrap_or_else(|| "null".to_string());
+
+        if let Some(di) = m.discovery_info {
+            if let Some(dmi) = di.dmi_data {
+                product_name = dmi.product_name;
+                product_serial = dmi.product_serial;
+                board_serial = dmi.board_serial;
+                chassis_serial = dmi.chassis_serial;
+                sys_vendor = dmi.sys_vendor;
+                bios_version = dmi.bios_version;
+                board_version = dmi.board_version;
             }
 
-            for iface in di.infiniband_interfaces.iter() {
+            for iface in di.infiniband_interfaces.into_iter() {
                 let mut iface_display = MachineIbInterfaceDisplay {
-                    guid: iface.guid.clone(),
+                    guid: iface.guid,
                     ufm_visible: "unknown".to_string(),
                     ..Default::default()
                 };
-                if let Some(props) = iface.pci_properties.as_ref() {
-                    iface_display.device = props.device.clone();
-                    iface_display.vendor = props.vendor.clone();
+                if let Some(props) = iface.pci_properties {
+                    iface_display.device = props.device;
+                    iface_display.vendor = props.vendor;
                     iface_display.slot = props.slot.clone().unwrap_or_default();
                 }
                 if let Some(ib_status) = m.ib_status.as_ref() {
                     for iter_status in ib_status.ib_interfaces.iter() {
-                        if Some(iface_display.guid.clone()) == iter_status.guid {
+                        if Some(&iface_display.guid) == iter_status.guid.as_ref() {
                             iface_display.lid =
                                 format!("0x{:x}", iter_status.lid.unwrap_or_default());
                             if let Some(lid) = iter_status.lid {
@@ -502,11 +513,15 @@ impl From<forgerpc::Machine> for MachineDetail {
             // would sort them
             ib_interfaces.sort_by_key(|iface| iface.slot.clone());
         }
-        if let Some(inv) = m.inventory.as_ref() {
-            inventory.extend(inv.components.iter().cloned());
+        if let Some(inv) = m.inventory {
+            inventory.extend(inv.components);
         }
 
-        let machine_id = m.id.clone().unwrap_or_default().id;
+        let machine_id = m.id.unwrap_or_default().id;
+
+        let quarantine_state = m
+            .quarantine_state
+            .and_then(|q| ManagedHostQuarantineState::try_from(q).ok());
 
         MachineDetail {
             id: machine_id.clone(),
@@ -545,7 +560,7 @@ impl From<forgerpc::Machine> for MachineDetail {
             machine_type: get_machine_type(&machine_id),
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,
             network_config: String::new(), // filled in later
-            bmc_info: m.bmc_info.clone(),
+            bmc_info: m.bmc_info,
             history,
             bios_version,
             board_version,
@@ -563,16 +578,15 @@ impl From<forgerpc::Machine> for MachineDetail {
                 .map(|r| r.starts_with("http"))
                 .unwrap_or_default(),
             maintenance_reference: m.maintenance_reference.unwrap_or_default(),
-            maintenance_start_time: to_time(m.maintenance_start_time, &m.id.unwrap_or_default())
+            maintenance_start_time: to_time(m.maintenance_start_time, &machine_id.into())
                 .unwrap_or_default(),
             host_id: m
                 .associated_host_machine_id
                 .map_or_else(String::default, |id| id.to_string()),
             health: m
                 .health
-                .as_ref()
                 .map(|h| {
-                    health_report::HealthReport::try_from(h.clone())
+                    health_report::HealthReport::try_from(h)
                         .unwrap_or_else(health_report::HealthReport::malformed_report)
                 })
                 .unwrap_or_else(health_report::HealthReport::missing_report),
@@ -581,14 +595,7 @@ impl From<forgerpc::Machine> for MachineDetail {
                 .iter()
                 .map(|o| o.source.clone())
                 .collect(),
-            discovery_info_json: m
-                .discovery_info
-                .as_ref()
-                .map(|info| {
-                    serde_json::to_string_pretty(info)
-                        .unwrap_or_else(|e| format!("Formatting error: {e}"))
-                })
-                .unwrap_or_else(|| "null".to_string()),
+            discovery_info_json,
             capabilities_json: m
                 .capabilities
                 .as_ref()
@@ -652,6 +659,10 @@ impl From<forgerpc::Machine> for MachineDetail {
                 .unwrap_or_default(),
             validation_runs: Vec::new(),
             hw_sku: m.hw_sku.unwrap_or_default(),
+            quarantine_state_is_link: quarantine_state
+                .as_ref()
+                .is_some_and(|r| r.reason_str().starts_with("http")),
+            quarantine_state,
         }
     }
 }
@@ -786,6 +797,58 @@ pub async fn maintenance(
     {
         tracing::error!(%err, machine_id, "set_maintenance");
         return Redirect::to(&view_url);
+    }
+
+    Redirect::to(&view_url)
+}
+
+#[derive(Deserialize, Debug)]
+pub struct QuarantineAction {
+    action: String,
+    mode: Option<String>,
+    reason: Option<String>,
+}
+
+/// Enter / Exit quarantine
+pub async fn quarantine(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(machine_id): AxumPath<String>,
+    Form(form): Form<QuarantineAction>,
+) -> impl IntoResponse {
+    let view_url = format!("/admin/machine/{machine_id}");
+
+    let err = match form.action.as_str() {
+        "enable" => {
+            let mode = form
+                .mode
+                .as_deref()
+                .and_then(forgerpc::ManagedHostQuarantineMode::from_str_name)
+                .unwrap_or(forgerpc::ManagedHostQuarantineMode::BlockAllTraffic);
+            state
+                .set_managed_host_quarantine_state(tonic::Request::new(
+                    forgerpc::SetManagedHostQuarantineStateRequest {
+                        machine_id: Some(machine_id.clone().into()),
+                        quarantine_state: Some(forgerpc::ManagedHostQuarantineState {
+                            mode: mode as i32,
+                            reason: form.reason,
+                        }),
+                    },
+                ))
+                .await
+                .map(|_| ())
+        }
+        "disable" => state
+            .clear_managed_host_quarantine_state(tonic::Request::new(machine_id.clone().into()))
+            .await
+            .map(|_| ()),
+        unknown => {
+            tracing::error!("Expected action to be 'enable' or 'disable' but got {unknown}");
+            return Redirect::to(&view_url);
+        }
+    };
+
+    if let Err(error) = err {
+        tracing::error!(%error, machine_id, "quarantine");
     }
 
     Redirect::to(&view_url)

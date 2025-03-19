@@ -17,9 +17,9 @@ use ::rpc::forge::{
     FindNetworkSecurityGroupsByIdsRequest, GetNetworkSecurityGroupAttachmentsRequest,
     GetNetworkSecurityGroupPropagationStatusRequest, IpxeOperatingSystem,
     IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
-    MachineHardwareInfoUpdateType, MachineSearchConfig, MachineType,
-    NetworkSecurityGroupAttributes, NetworkSegmentSearchConfig, OperatingSystem,
-    UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest, VpcVirtualizationType,
+    MachineHardwareInfoUpdateType, NetworkSecurityGroupAttributes, NetworkSegmentSearchConfig,
+    OperatingSystem, UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest,
+    VpcVirtualizationType,
 };
 use std::net::IpAddr;
 use std::path::Path;
@@ -87,25 +87,12 @@ impl ApiClient {
     // exists for backwards compatability with older APIs
     async fn get_all_machines_deprecated(
         &self,
-        machine_type: Option<MachineType>,
-        only_maintenance: bool,
+        search_config: rpc::MachineSearchConfig,
     ) -> CarbideCliResult<rpc::MachineList> {
-        let include_dpus = machine_type.map(|t| t == MachineType::Dpu).unwrap_or(true);
-        let exclude_hosts = machine_type
-            .map(|t| t != MachineType::Host)
-            .unwrap_or(false);
-        let include_predicted_host = machine_type.map(|t| t == MachineType::Host).unwrap_or(true);
-
         let request = rpc::MachineSearchQuery {
             id: None,
             fqdn: None,
-            search_config: Some(rpc::MachineSearchConfig {
-                include_dpus,
-                include_history: true,
-                include_predicted_host,
-                only_maintenance,
-                exclude_hosts,
-            }),
+            search_config: Some(search_config),
         };
         let machine_details = self.0.find_machines(request).await?;
 
@@ -113,18 +100,22 @@ impl ApiClient {
             .machines
             .into_iter()
             .filter(|m| {
-                if only_maintenance && m.maintenance_reference.is_none() {
+                if search_config.only_maintenance && m.maintenance_reference.is_none() {
                     return false;
                 }
-                if !include_dpus && m.id.as_ref().is_some_and(|id| id.id.starts_with("fm100d")) {
+                if !search_config.include_dpus
+                    && m.id.as_ref().is_some_and(|id| id.id.starts_with("fm100d"))
+                {
                     return false;
                 }
-                if !include_predicted_host
+                if !search_config.include_predicted_host
                     && m.id.as_ref().is_some_and(|id| id.id.starts_with("fm100p"))
                 {
                     return false;
                 }
-                if exclude_hosts && m.id.as_ref().is_some_and(|id| !id.id.starts_with("fm100d")) {
+                if search_config.exclude_hosts
+                    && m.id.as_ref().is_some_and(|id| !id.id.starts_with("fm100d"))
+                {
                     return false;
                 }
                 true
@@ -135,20 +126,15 @@ impl ApiClient {
 
     pub async fn get_all_machines(
         &self,
-        machine_type: Option<MachineType>,
-        only_maintenance: bool,
+        request: rpc::MachineSearchConfig,
         page_size: usize,
     ) -> CarbideCliResult<rpc::MachineList> {
-        let all_machine_ids = match self.find_machine_ids(machine_type, only_maintenance).await {
+        let all_machine_ids = match self.0.find_machine_ids(request).await {
             Ok(all_machine_ids) => all_machine_ids,
-            Err(CarbideCliError::ApiInvocationError(status))
-                if status.code() == tonic::Code::Unimplemented =>
-            {
-                return self
-                    .get_all_machines_deprecated(machine_type, only_maintenance)
-                    .await;
+            Err(e) if e.code() == tonic::Code::Unimplemented => {
+                return self.get_all_machines_deprecated(request).await;
             }
-            Err(e) => return Err(e),
+            Err(e) => return Err(e.into()),
         };
         let mut all_machines = rpc::MachineList {
             machines: Vec::with_capacity(all_machine_ids.machine_ids.len()),
@@ -804,30 +790,6 @@ impl ApiClient {
         };
         self.0
             .bmc_credential_status(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
-    }
-
-    pub async fn find_machine_ids(
-        &self,
-        machine_type: Option<MachineType>,
-        only_maintenance: bool,
-    ) -> CarbideCliResult<::rpc::common::MachineIdList> {
-        let include_dpus = machine_type.map(|t| t == MachineType::Dpu).unwrap_or(true);
-        let exclude_hosts = machine_type
-            .map(|t| t != MachineType::Host)
-            .unwrap_or(false);
-        let include_predicted_host = machine_type.map(|t| t == MachineType::Host).unwrap_or(true);
-
-        let request = MachineSearchConfig {
-            include_dpus,
-            include_history: false,
-            include_predicted_host,
-            only_maintenance,
-            exclude_hosts,
-        };
-        self.0
-            .find_machine_ids(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)
     }

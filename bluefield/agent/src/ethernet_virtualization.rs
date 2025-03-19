@@ -1914,6 +1914,7 @@ mod tests {
 
         let netconf = rpc::ManagedHostNetworkConfig {
             loopback_ip: "10.217.5.39".to_string(),
+            quarantine_state: None,
         };
         rpc::ManagedHostNetworkConfigResponse {
             asn: 4259912557,
@@ -2263,6 +2264,7 @@ mod tests {
 
         let netconf = rpc::ManagedHostNetworkConfig {
             loopback_ip: "10.217.5.39".to_string(),
+            quarantine_state: None,
         };
 
         let dhcp_config = DhcpConfig {

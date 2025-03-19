@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::{BuildInfo, ManagedHostNetworkConfigResponse};
-use ::rpc::{Machine, MachineId, forge::MachineType};
+use ::rpc::{Machine, MachineId};
 use prettytable::{Row, Table, format, row};
 use serde::Serialize;
 
@@ -264,7 +264,14 @@ pub async fn handle_dpu_versions(
     };
 
     let dpus = api_client
-        .get_all_machines(Some(MachineType::Dpu), false, page_size)
+        .get_all_machines(
+            rpc::forge::MachineSearchConfig {
+                include_dpus: true,
+                exclude_hosts: true,
+                ..Default::default()
+            },
+            page_size,
+        )
         .await?
         .machines
         .into_iter()
@@ -452,7 +459,14 @@ pub async fn handle_dpu_status(
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let dpus = api_client
-        .get_all_machines(Some(MachineType::Dpu), false, page_size)
+        .get_all_machines(
+            rpc::forge::MachineSearchConfig {
+                include_dpus: true,
+                exclude_hosts: true,
+                ..Default::default()
+            },
+            page_size,
+        )
         .await?
         .machines;
 

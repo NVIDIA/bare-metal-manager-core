@@ -44,7 +44,9 @@ use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::MachineInventory;
 use crate::model::machine::health_override::HealthReportOverrides;
 use crate::model::machine::infiniband::MachineInfinibandStatusObservation;
-use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
+use crate::model::machine::network::{
+    MachineNetworkStatusObservation, ManagedHostNetworkConfig, ManagedHostQuarantineState,
+};
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
     FailureDetails, HostReprovisionRequest, Machine, MachineInterfaceSnapshot,
@@ -65,6 +67,8 @@ pub struct MachineSearchConfig {
     pub include_predicted_host: bool,
     /// Only include machines in maintenance mode
     pub only_maintenance: bool,
+    /// Only include quarantined machines
+    pub only_quarantine: bool,
     pub exclude_hosts: bool,
 
     /// Whether the query results will be later
@@ -85,6 +89,7 @@ impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
             include_history: value.include_history,
             include_predicted_host: value.include_predicted_host,
             only_maintenance: value.only_maintenance,
+            only_quarantine: value.only_quarantine,
             exclude_hosts: value.exclude_hosts,
             for_update: false, // This isn't exposed to API callers
         }
@@ -535,6 +540,10 @@ pub async fn find(
 
     if search_config.only_maintenance {
         builder.push(" AND m.maintenance_reference IS NOT NULL ");
+    }
+
+    if search_config.only_quarantine {
+        builder.push(" AND m.network_config->>'quarantine_state' IS NOT NULL ");
     }
 
     if search_config.for_update {
@@ -1793,6 +1802,26 @@ pub async fn find_machine_ids(
         has_where = true;
     }
 
+    if search_config.only_quarantine {
+        if has_where {
+            qb.push(" AND ");
+        } else {
+            qb.push(" WHERE ");
+        }
+
+        // If we're including DPU's, don't filter them out (DPU's don't get the quarantine state,
+        // only the managed host does.)
+        if search_config.include_dpus {
+            qb.push(
+                "(starts_with(id, 'fm100d') OR network_config->>'quarantine_state' IS NOT NULL) ",
+            );
+        } else {
+            qb.push("network_config->>'quarantine_state' IS NOT NULL ");
+        }
+
+        has_where = true;
+    }
+
     if !search_config.include_dpus {
         if has_where {
             qb.push(" AND ");
@@ -2167,6 +2196,63 @@ pub async fn update_sku_status(
         .map_err(|e| DatabaseError::new(file!(), line!(), "assign sku to machine", e))?;
 
     Ok(())
+}
+
+pub async fn get_network_config(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+) -> Result<Versioned<ManagedHostNetworkConfig>, DatabaseError> {
+    #[derive(FromRow)]
+    struct QueryResult {
+        network_config: sqlx::types::Json<ManagedHostNetworkConfig>,
+        network_config_version: ConfigVersion,
+    }
+
+    let query = "SELECT network_config, network_config_version FROM machines WHERE id=$1";
+
+    let QueryResult {
+        network_config,
+        network_config_version,
+    } = sqlx::query_as(query)
+        .bind(machine_id)
+        .fetch_one(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+    Ok(Versioned::new(network_config.0, network_config_version))
+}
+
+pub async fn get_quarantine_state(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
+    let network_config = get_network_config(txn, machine_id).await?;
+    Ok(network_config.value.quarantine_state)
+}
+
+pub async fn set_quarantine_state(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+    quarantine_state: ManagedHostQuarantineState,
+) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
+    let (mut network_config, network_config_version) =
+        get_network_config(txn, machine_id).await?.take();
+    let old_quarantine_state = network_config.quarantine_state.clone();
+    network_config.quarantine_state = Some(quarantine_state);
+    try_update_network_config(txn, machine_id, network_config_version, &network_config).await?;
+    Ok(old_quarantine_state)
+}
+
+pub async fn clear_quarantine_state(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
+    let (mut network_config, network_config_version) =
+        get_network_config(txn, machine_id).await?.take();
+    let old_quarantine_state = network_config.quarantine_state.clone();
+    network_config.quarantine_state = None;
+    try_update_network_config(txn, machine_id, network_config_version, &network_config).await?;
+    Ok(old_quarantine_state)
 }
 
 #[derive(Debug, Clone, PartialEq)]

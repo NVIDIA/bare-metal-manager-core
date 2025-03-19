@@ -299,11 +299,11 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
 async fn show_all_machines(
     json: bool,
     api_client: &ApiClient,
-    machine_type: Option<forgerpc::MachineType>,
+    search_config: rpc::forge::MachineSearchConfig,
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let machines = api_client
-        .get_all_machines(machine_type, false, page_size)
+        .get_all_machines(search_config, page_size)
         .await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&machines)?);
@@ -341,15 +341,13 @@ pub async fn handle_show(
     if !args.machine.is_empty() {
         show_machine_information(&args, is_json, api_client).await?;
     } else {
-        let machine_type = if args.dpus {
-            Some(forgerpc::MachineType::Dpu)
-        } else if args.hosts {
-            Some(forgerpc::MachineType::Host)
-        } else {
-            None
+        let search_config = rpc::forge::MachineSearchConfig {
+            include_dpus: args.dpus,
+            exclude_hosts: !args.hosts,
+            include_predicted_host: !args.dpus,
+            ..Default::default()
         };
-
-        show_all_machines(is_json, api_client, machine_type, page_size).await?;
+        show_all_machines(is_json, api_client, search_config, page_size).await?;
         // TODO(chet): Remove this ~March 2024.
         // Use tracing::warn for this so its both a little more
         // noticeable, and a little more annoying/naggy. If people

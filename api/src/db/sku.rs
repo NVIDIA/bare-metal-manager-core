@@ -146,12 +146,8 @@ pub async fn from_topology(
         txn,
         db::ObjectFilter::One(*machine_id),
         MachineSearchConfig {
-            include_dpus: false,
-            include_history: false,
             include_predicted_host: true,
-            only_maintenance: false,
-            exclude_hosts: false,
-            for_update: false,
+            ..Default::default()
         },
     )
     .await?

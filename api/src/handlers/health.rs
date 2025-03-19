@@ -48,24 +48,13 @@ pub async fn record_hardware_health_report(
         return Err(CarbideError::MissingArgument("report").into());
     };
 
-    let host_machine = db::machine::find_one(
-        &mut txn,
-        &machine_id,
-        MachineSearchConfig {
-            include_dpus: false,
-            include_history: false,
-            include_predicted_host: false,
-            only_maintenance: false,
-            exclude_hosts: false,
-            for_update: false,
-        },
-    )
-    .await
-    .map_err(CarbideError::from)?
-    .ok_or_else(|| CarbideError::NotFoundError {
-        kind: "machine",
-        id: machine_id.to_string(),
-    })?;
+    let host_machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
 
     let mut report = health_report::HealthReport::try_from(report.clone())
         .map_err(|e| CarbideError::internal(e.to_string()))?;
@@ -105,24 +94,13 @@ pub async fn get_hardware_health_report(
     let machine_id = try_parse_machine_id(&machine_id).map_err(CarbideError::from)?;
     log_machine_id(&machine_id);
 
-    let host_machine = db::machine::find_one(
-        &mut txn,
-        &machine_id,
-        MachineSearchConfig {
-            include_dpus: false,
-            include_history: false,
-            include_predicted_host: false,
-            only_maintenance: false,
-            exclude_hosts: false,
-            for_update: false,
-        },
-    )
-    .await
-    .map_err(CarbideError::from)?
-    .ok_or_else(|| CarbideError::NotFoundError {
-        kind: "machine",
-        id: machine_id.to_string(),
-    })?;
+    let host_machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -163,24 +141,13 @@ pub async fn list_health_report_overrides(
     let machine_id = try_parse_machine_id(&machine_id.into_inner()).map_err(CarbideError::from)?;
     log_machine_id(&machine_id);
 
-    let host_machine = db::machine::find_one(
-        &mut txn,
-        &machine_id,
-        MachineSearchConfig {
-            include_dpus: false,
-            include_history: false,
-            include_predicted_host: false,
-            only_maintenance: false,
-            exclude_hosts: false,
-            for_update: false,
-        },
-    )
-    .await
-    .map_err(CarbideError::from)?
-    .ok_or_else(|| CarbideError::NotFoundError {
-        kind: "machine",
-        id: machine_id.to_string(),
-    })?;
+    let host_machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -254,14 +221,10 @@ async fn remove_by_source(
         txn,
         &machine_id,
         MachineSearchConfig {
-            include_dpus: false,
-            include_history: false,
-            include_predicted_host: false,
-            only_maintenance: false,
-            exclude_hosts: false,
             // Technically,  an update is going to happen,
             // but we don't seem to need coordination/locking.
             for_update: false,
+            ..Default::default()
         },
     )
     .await

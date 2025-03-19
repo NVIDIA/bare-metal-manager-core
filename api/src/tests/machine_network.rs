@@ -17,6 +17,7 @@ use ::rpc::forge::{
 };
 use rpc::forge::forge_server::Forge;
 
+use crate::model::machine::network::ManagedHostQuarantineMode;
 use crate::tests::common;
 use common::api_fixtures::{
     self, create_managed_host, dpu, instance, network_configured_with_health,
@@ -302,4 +303,253 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     assert_eq!(reported_alert.in_alert_since.unwrap(), in_alert_since);
     reported_alert.in_alert_since = None;
     assert_eq!(reported_alert, dpu_health.alerts[0].clone());
+}
+
+#[crate::sqlx_test]
+async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+
+    let network_config_version =
+        crate::db::machine::get_network_config(&mut env.pool.begin().await?, &host_machine_id)
+            .await?
+            .version;
+
+    // Get, make sure it's not set yet
+    {
+        let quarantine_state = env
+            .api
+            .get_managed_host_quarantine_state(tonic::Request::new(
+                rpc::forge::GetManagedHostQuarantineStateRequest {
+                    machine_id: Some(host_machine_id.into()),
+                },
+            ))
+            .await?
+            .into_inner()
+            .quarantine_state;
+
+        assert!(
+            quarantine_state.is_none(),
+            "new host should not be quarantined"
+        );
+    }
+
+    // Make sure finding machine ID's in quarantine state does not include anything yet
+    {
+        let ids = env
+            .api
+            .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+                only_quarantine: true,
+                ..Default::default()
+            }))
+            .await?
+            .into_inner()
+            .machine_ids;
+        assert!(
+            ids.is_empty(),
+            "No machine ID's should be found in quarantine state yet"
+        );
+    }
+
+    // Set it, make sure we get None back for prior state
+    {
+        let set_result = env
+            .api
+            .set_managed_host_quarantine_state(tonic::Request::new(
+                rpc::forge::SetManagedHostQuarantineStateRequest {
+                    machine_id: Some(host_machine_id.into()),
+                    quarantine_state: Some(rpc::forge::ManagedHostQuarantineState {
+                        mode: rpc::forge::ManagedHostQuarantineMode::BlockAllTraffic as i32,
+                        reason: Some("test reason 1".to_string()),
+                    }),
+                },
+            ))
+            .await?
+            .into_inner();
+
+        assert!(
+            set_result.prior_quarantine_state.is_none(),
+            "prior quarantine state should be None"
+        );
+    }
+
+    // Make sure finding machine ID's in quarantine state includes the machine ID
+    {
+        let ids = env
+            .api
+            .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+                only_quarantine: true,
+                ..Default::default()
+            }))
+            .await?
+            .into_inner()
+            .machine_ids;
+        assert_eq!(
+            ids,
+            vec![host_machine_id.into()],
+            "Finding machine ID's with only_quarantine should have returned the quarantined host"
+        );
+    }
+
+    // Make sure the version got bumped
+    let network_config =
+        crate::db::machine::get_network_config(&mut env.pool.begin().await?, &host_machine_id)
+            .await?;
+    assert_eq!(
+        network_config.version.version_nr(),
+        network_config_version.version_nr() + 1,
+        "Setting quarantine should have bumped the network config version"
+    );
+    let network_config_version = network_config.version;
+
+    // Make sure the DPU will see a mode saying to block all traffic
+    assert_eq!(
+        network_config.quarantine_state.as_ref().unwrap().mode,
+        ManagedHostQuarantineMode::BlockAllTraffic
+    );
+
+    // Make sure we get back what we just set
+    {
+        let quarantine_state = env
+            .api
+            .get_managed_host_quarantine_state(tonic::Request::new(
+                rpc::forge::GetManagedHostQuarantineStateRequest {
+                    machine_id: Some(host_machine_id.into()),
+                },
+            ))
+            .await?
+            .into_inner()
+            .quarantine_state;
+
+        assert_eq!(
+            quarantine_state
+                .expect("we should get a quarantine state back after setting")
+                .reason
+                .expect("reason should be set")
+                .as_str(),
+            "test reason 1",
+            "getting quarantine state should return the value we just set"
+        );
+    }
+
+    // Set again, make sure the prior version matches what we set last time
+    {
+        let set_result = env
+            .api
+            .set_managed_host_quarantine_state(tonic::Request::new(
+                rpc::forge::SetManagedHostQuarantineStateRequest {
+                    machine_id: Some(host_machine_id.into()),
+                    quarantine_state: Some(rpc::forge::ManagedHostQuarantineState {
+                        mode: rpc::forge::ManagedHostQuarantineMode::BlockAllTraffic as i32,
+                        reason: Some("test reason 2".to_string()),
+                    }),
+                },
+            ))
+            .await?
+            .into_inner();
+
+        assert_eq!(
+            set_result
+                .prior_quarantine_state
+                .expect("prior quarantine state should now be set")
+                .reason,
+            Some("test reason 1".to_string()),
+            "prior quarantine state should match the first state we set"
+        );
+    }
+
+    // Make sure the version got bumped again
+    let network_config =
+        crate::db::machine::get_network_config(&mut env.pool.begin().await?, &host_machine_id)
+            .await?;
+    assert_eq!(
+        network_config.version.version_nr(),
+        network_config_version.version_nr() + 1,
+        "Setting quarantine should have bumped the network config version"
+    );
+    let network_config_version = network_config.version;
+
+    // Make sure the DPU will (still) see a mode saying to block all traffic
+    assert_eq!(
+        network_config.quarantine_state.as_ref().unwrap().mode,
+        ManagedHostQuarantineMode::BlockAllTraffic
+    );
+
+    // Make sure we get back what we set again
+    {
+        let quarantine_state = env
+            .api
+            .get_managed_host_quarantine_state(tonic::Request::new(
+                rpc::forge::GetManagedHostQuarantineStateRequest {
+                    machine_id: Some(host_machine_id.into()),
+                },
+            ))
+            .await?
+            .into_inner()
+            .quarantine_state;
+
+        assert_eq!(
+            quarantine_state
+                .expect("we should get a quarantine state back after setting")
+                .reason
+                .expect("reason should be set")
+                .as_str(),
+            "test reason 2",
+            "getting quarantine state should return the value we just set"
+        );
+    }
+
+    // Clear, making sure we got back what we set last time
+    {
+        let clear_result = env
+            .api
+            .clear_managed_host_quarantine_state(tonic::Request::new(
+                rpc::forge::ClearManagedHostQuarantineStateRequest {
+                    machine_id: Some(host_machine_id.into()),
+                },
+            ))
+            .await?
+            .into_inner();
+
+        assert_eq!(
+            clear_result
+                .prior_quarantine_state
+                .expect("prior quarantine state should be set when clearing")
+                .reason,
+            Some("test reason 2".to_string()),
+            "prior quarantine state should match the second state we set"
+        );
+    }
+
+    // Make sure the network config version bumps again on clear
+    let network_config =
+        crate::db::machine::get_network_config(&mut env.pool.begin().await?, &host_machine_id)
+            .await?;
+    assert_eq!(
+        network_config.version.version_nr(),
+        network_config_version.version_nr() + 1,
+        "Clearing quarantine should have bumped the network config version"
+    );
+
+    // Make sure the DPU no longer sees a quarantine state
+    assert!(network_config.quarantine_state.is_none());
+
+    // Make sure finding machine ID's in quarantine state does not include anything any more
+    {
+        let ids = env
+            .api
+            .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+                only_quarantine: true,
+                ..Default::default()
+            }))
+            .await?
+            .into_inner()
+            .machine_ids;
+        assert!(
+            ids.is_empty(),
+            "No machine ID's should be found in quarantine state after clearing"
+        );
+    }
+
+    Ok(())
 }

@@ -276,6 +276,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/machine/:machine_id/maintenance",
                 post(machine::maintenance),
             )
+            .route("/machine/:machine_id/quarantine", post(machine::quarantine))
             .route("/machine/:machine_id/health", get(health::health))
             .route(
                 "/machine/:machine_id/health-history",

@@ -219,7 +219,15 @@ pub async fn print_inventory(
     action: InventoryAction,
     page_size: usize,
 ) -> CarbideCliResult<()> {
-    let all_machines = api_client.get_all_machines(None, false, page_size).await?;
+    let all_machines = api_client
+        .get_all_machines(
+            rpc::forge::MachineSearchConfig {
+                include_predicted_host: true,
+                ..Default::default()
+            },
+            page_size,
+        )
+        .await?;
     let all_instances = api_client
         .get_all_instances(None, None, None, None, page_size)
         .await?;

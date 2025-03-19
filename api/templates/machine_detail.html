@@ -91,8 +91,7 @@
 </table>
 
 {% if is_host %}
-<h3>Maintenance Mode</h3>
-<i>Maintenance mode is replaced by Health Overrides. Consider using a <a href="/admin/machine/{{ id }}/health">Health Override</a> instead of entering Maintenance Mode.</i>
+<h3>Maintenance and Quarantine</h3>
 <table class="detailsview">
 	{% if !maintenance_reference.is_empty() %}
 	<tr>
@@ -110,16 +109,55 @@
 	<tr>
 		<th>Maintenance Action</th>
 		<td>
+			<p>
+				<i>Maintenance mode is replaced by Health Overrides. Consider using a <a href="/admin/machine/{{ id }}/health">Health Override</a> instead of entering Maintenance Mode.</i>
+			</p>
 			<form id="maintenance_action" method="POST" action="/admin/machine/{{ id }}/maintenance">
 				{% if maintenance_reference.is_empty() %}
-					<input type="hidden" name="action" value="enter"/>
-					<label for="ref">Reference:</label><input type=text id="ref" name="reference" />
-					<button type="submit">Enter maintenance</button>
-					<p>Machines in maintenance mode cannot be assigned an instance</p>
+				<input type="hidden" name="action" value="enter"/>
+				<label for="ref">Reference:</label><input type=text id="ref" name="reference" />
+				<button type="submit">Enter maintenance</button>
+				<p>Machines in maintenance mode cannot be assigned an instance</p>
 				{% else %}
-					<input type="hidden" name="action" value="exit"/>
-					<button style="margin-left: 0" type="submit">Exit maintenance</button>
+				<input type="hidden" name="action" value="exit"/>
+				<button style="margin-left: 0" type="submit">Exit maintenance</button>
 				{% endif %}
+			</form>
+		</td>
+	</tr>
+	<tr>
+		<th>Quarantine State</th>
+		<td>
+		{% if let Some(quarantine_state) = quarantine_state %}
+			<div class="unhealthy">
+				Host is quarantined! Mode: {{ quarantine_state.mode_str() }}, Reason:
+			{% if quarantine_state_is_link %}
+				<a href="{{ quarantine_state.reason_str() }}">{{ quarantine_state.reason_str() }}</a>
+			{% else %}
+				{{ quarantine_state.reason_str() }}
+			{% endif %}
+			</div>
+		{% endif %}
+			<form id="quarantine_action" method="POST" action="/admin/machine/{{ id }}/quarantine">
+			{% if quarantine_state.is_none() %}
+				<input type="hidden" name="action" value="enable"/>
+				<div>
+					<label for="reason">Reason:</label><input type=text id="reason" name="reason" />
+				</div>
+				<div>
+					<label for="mode">Mode:</label>
+					<select id="mode" name="mode">
+						<option value="{{ ::rpc::forge::ManagedHostQuarantineMode::BlockAllTraffic.as_str_name() }}">
+							Block all traffic
+						</option>
+					</select>
+				</div>
+				<button type="submit">Quarantine Host</button>
+				<p>Quarantined machines will have host networking disabled</p>
+			{% else %}
+				<input type="hidden" name="action" value="disable"/>
+				<button style="margin-left: 0" type="submit">End Quarantine</button>
+			{% endif %}
 			</form>
 		</td>
 	</tr>
@@ -331,26 +369,45 @@ Missing BMC Data
 </table>
 
 <script>
-	function are_you_sure(event) {
+	function are_you_sure_maintenance(event) {
 		event.preventDefault();
 		let form = document.getElementById("maintenance_action");
 		{% if maintenance_reference.is_empty() %}
-			if (!document.getElementById("ref").value) {
-				alert("Reference is required. It is usually a ticket tracker URL.");
-				return;
-			}
-			let confirm = window.confirm("Take machine out of service and put it into maintenance mode?");
+		if (!document.getElementById("ref").value) {
+			alert("Reference is required. It is usually a ticket tracker URL.");
+			return;
+		}
+		let confirm = window.confirm("Take machine out of service and put it into maintenance mode?");
 		{% else %}
-			let confirm = window.confirm("Put machine back into service, exiting maintenance mode?");
+		let confirm = window.confirm("Put machine back into service, exiting maintenance mode?");
 		{% endif %}
 		if (confirm) {
-			form.removeEventListener("submit", are_you_sure);
+			form.removeEventListener("submit", are_you_sure_maintenance);
+			form.submit();
+		}
+	}
+	function are_you_sure_quarantine(event) {
+		event.preventDefault();
+		let form = document.getElementById("quarantine_action");
+		{% if quarantine_state.is_none() %}
+			if (!document.getElementById("reason").value) {
+				alert("Quarantine reason is required.");
+				return;
+			}
+			let confirm = window.confirm("Quarantine host, disabling all tenant networking?");
+		{% else %}
+			let confirm = window.confirm("End quarantine for host, enabling tenant networking?");
+		{% endif %}
+		if (confirm) {
+			form.removeEventListener("submit", are_you_sure_quarantine);
 			form.submit();
 		}
 	}
 	document.addEventListener("DOMContentLoaded", function(event){
-		let form = document.getElementById("maintenance_action");
-		form.addEventListener("submit", are_you_sure);
+		let maintenance_form = document.getElementById("maintenance_action");
+		maintenance_form.addEventListener("submit", are_you_sure_maintenance);
+		let quarantine_form = document.getElementById("quarantine_action");
+		quarantine_form.addEventListener("submit", are_you_sure_quarantine);
 	});
 </script>
 

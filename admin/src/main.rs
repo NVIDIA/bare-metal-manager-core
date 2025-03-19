@@ -26,6 +26,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use crate::cfg::cli_options::QuarantineAction;
 use crate::cfg::storage::{
     OsImageActions, StorageActions, StorageClusterActions, StoragePoolActions, StorageVolumeActions,
 };
@@ -490,7 +491,11 @@ async fn main() -> color_eyre::Result<()> {
                     .into());
                 }
                 let mut machine_ids: VecDeque<_> = api_client
-                    .find_machine_ids(Some(forgerpc::MachineType::Host), false)
+                    .0
+                    .find_machine_ids(::rpc::forge::MachineSearchConfig {
+                        include_predicted_host: true,
+                        ..Default::default()
+                    })
                     .await?
                     .machine_ids
                     .into_iter()
@@ -574,6 +579,37 @@ async fn main() -> color_eyre::Result<()> {
                         reference: None,
                     };
                     api_client.0.set_maintenance(req).await?;
+                }
+            },
+            ManagedHost::Quarantine(quarantine_action) => match quarantine_action {
+                QuarantineAction::On(quarantine_on) => {
+                    let host = quarantine_on.host.clone();
+                    let req = forgerpc::SetManagedHostQuarantineStateRequest {
+                        machine_id: Some(quarantine_on.host.into()),
+                        quarantine_state: Some(forgerpc::ManagedHostQuarantineState {
+                            mode: forgerpc::ManagedHostQuarantineMode::BlockAllTraffic as i32,
+                            reason: Some(quarantine_on.reason),
+                        }),
+                    };
+                    let prior_state = api_client.0.set_managed_host_quarantine_state(req).await?;
+                    println!(
+                        "quarantine set for host {}, prior state: {:?}",
+                        host, prior_state.prior_quarantine_state
+                    );
+                }
+                QuarantineAction::Off(quarantine_off) => {
+                    let host = quarantine_off.host.clone();
+                    let req = forgerpc::ClearManagedHostQuarantineStateRequest {
+                        machine_id: Some(quarantine_off.host.into()),
+                    };
+                    let prior_state = api_client
+                        .0
+                        .clear_managed_host_quarantine_state(req)
+                        .await?;
+                    println!(
+                        "quarantine set for host {}, prior state: {:?}",
+                        host, prior_state.prior_quarantine_state
+                    );
                 }
             },
         },

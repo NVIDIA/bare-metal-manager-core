@@ -75,22 +75,12 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin backfill ek cert status", e))?;
 
-    let machines: Vec<forge_uuid::machine::MachineId> = db::machine::find(
-        &mut txn,
-        ObjectFilter::All,
-        MachineSearchConfig {
-            include_dpus: false,
-            include_history: false,
-            include_predicted_host: false,
-            only_maintenance: false,
-            exclude_hosts: false,
-            for_update: false,
-        },
-    )
-    .await?
-    .iter()
-    .map(|machine| machine.id)
-    .collect();
+    let machines: Vec<forge_uuid::machine::MachineId> =
+        db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+            .await?
+            .iter()
+            .map(|machine| machine.id)
+            .collect();
 
     if !machines.is_empty() {
         let topologies = MachineTopology::find_latest_by_machine_ids(&mut txn, &machines).await?;
