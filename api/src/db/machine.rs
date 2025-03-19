@@ -899,15 +899,15 @@ pub async fn update_network_status_observation(
     machine_id: &MachineId,
     observation: &MachineNetworkStatusObservation,
 ) -> Result<(), DatabaseError> {
-    let query =
-            "UPDATE machines SET network_status_observation = $1::json WHERE id = $2 AND
-             (network_status_observation IS NULL
-                OR (network_status_observation ? 'observed_at' AND network_status_observation->>'observed_at' <= $3)
-            ) RETURNING id";
+    let query = "UPDATE machines SET network_status_observation = $1::json WHERE id = $2 AND
+                (
+                    (network_status_observation->>'observed_at' IS NULL)
+                    OR ((network_status_observation->>'observed_at')::timestamp <= $3::timestamp)
+                ) RETURNING id";
     let _id: (MachineId,) = match sqlx::query_as(query)
         .bind(sqlx::types::Json(&observation))
         .bind(machine_id.to_string())
-        .bind(observation.observed_at.to_rfc3339())
+        .bind(observation.observed_at)
         .fetch_one(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -962,14 +962,12 @@ async fn update_health_report(
 ) -> Result<(), DatabaseError> {
     let query = format!(
         "UPDATE machines SET {column_name} = $1::json WHERE id = $2 AND
-             ({column_name} IS NULL
-                OR ({column_name} ? 'observed_at' AND {column_name}->>'observed_at' <= $3)
+            (
+                ({column_name}->>'observed_at' IS NULL)
+                OR (({column_name}->>'observed_at')::timestamp <= $3::timestamp)
             ) RETURNING id"
     );
-    let observed_at = health_report
-        .observed_at
-        .map(|o| o.to_rfc3339())
-        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+    let observed_at = health_report.observed_at.unwrap_or_else(chrono::Utc::now);
     let _id: (MachineId,) = match sqlx::query_as(&query)
         .bind(sqlx::types::Json(&health_report))
         .bind(machine_id.to_string())
