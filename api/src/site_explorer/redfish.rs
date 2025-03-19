@@ -606,6 +606,7 @@ impl From<libredfish::PowerState> for PowerState {
             libredfish::PowerState::PoweringOff => PowerState::PoweringOff,
             libredfish::PowerState::PoweringOn => PowerState::PoweringOn,
             libredfish::PowerState::Paused => PowerState::Paused,
+            libredfish::PowerState::Reset => PowerState::PoweringOn,
         }
     }
 }

@@ -1327,7 +1327,7 @@ impl From<Option<bool>> for MachineExpectation {
 }
 
 // is_bluefield_model returns true if the passed in string is a bluefield model
-fn is_bluefield_model(model: &str) -> bool {
+pub fn is_bluefield_model(model: &str) -> bool {
     let normalized_model = model.to_lowercase();
 
     normalized_model.contains("bluefield")

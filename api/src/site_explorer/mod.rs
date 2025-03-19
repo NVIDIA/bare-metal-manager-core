@@ -50,7 +50,7 @@ use crate::{
         site_explorer::{
             EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
             ExploredEndpoint, ExploredManagedHost, MachineExpectation, PowerState,
-            PreingestionState, Service,
+            PreingestionState, Service, is_bluefield_model,
         },
     },
     resource_pool::common::CommonPools,
@@ -786,6 +786,33 @@ impl SiteExplorer {
                                 host_pf_mac_address: get_host_pf_mac_address(dpu_ep),
                                 report: dpu_ep.report.clone(),
                             });
+                        }
+                    }
+                }
+            }
+
+            if expected_num_dpus_attached_to_host == 0 {
+                for chassis in ep.report.chassis.iter() {
+                    for network_adapter in chassis.network_adapters.iter() {
+                        if let Some(model) = network_adapter.part_number.as_ref() {
+                            if is_bluefield_model(model.trim()) {
+                                expected_num_dpus_attached_to_host += 1;
+                            }
+                        }
+
+                        if let Some(sn) = network_adapter.serial_number.as_ref() {
+                            if let Some(dpu_ep) = dpu_sn_to_endpoint.get(sn.trim()) {
+                                // We do not want to attach bluefields that are in NIC mode as DPUs to the host
+                                if is_dpu_in_nic_mode(dpu_ep, ep) {
+                                    expected_num_dpus_attached_to_host -= 1;
+                                    continue;
+                                }
+                                dpus_explored_for_host.push(ExploredDpu {
+                                    bmc_ip: dpu_ep.address,
+                                    host_pf_mac_address: get_host_pf_mac_address(dpu_ep),
+                                    report: dpu_ep.report.clone(),
+                                });
+                            }
                         }
                     }
                 }

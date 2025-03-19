@@ -16,7 +16,8 @@ use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
 };
 use libredfish::{
-    EnabledDisabled, Endpoint, Redfish, RedfishError, SystemPowerControl, model::BootProgress,
+    EnabledDisabled, Endpoint, PowerState, Redfish, RedfishError, SystemPowerControl,
+    model::BootProgress,
 };
 use std::net::IpAddr;
 use std::{collections::HashMap, str::FromStr, sync::Arc};
@@ -485,10 +486,45 @@ pub async fn host_power_control(
                     CarbideError::internal(format!("Failed to restart machine: {}", e))
                 })?;
         }
-        _ => redfish_client
-            .power(action)
-            .await
-            .map_err(CarbideError::RedfishError)?,
+
+        _ => {
+            if (action == SystemPowerControl::GracefulRestart)
+                || (action == SystemPowerControl::ForceRestart)
+            {
+                let power_result = redfish_client.get_power_state().await;
+                if let Ok(power_state) = power_result {
+                    tracing::info!(
+                        machine_id = machine.id.to_string(),
+                        action = power_state.to_string(),
+                        "Host Power State"
+                    );
+                    if power_state == PowerState::Off {
+                        tracing::info!(
+                            machine_id = machine.id.to_string(),
+                            action =
+                                "Manual intervention required to initiate power-on".to_string(),
+                            "Host Power Action"
+                        );
+                        /* // reserve for future proactive power on action
+                        redfish_client
+                        .power(SystemPowerControl::On)
+                        .await
+                        .map_err(CarbideError::RedfishError)?
+                        */
+                    } else {
+                        redfish_client
+                            .power(action)
+                            .await
+                            .map_err(CarbideError::RedfishError)?
+                    }
+                }
+            } else {
+                redfish_client
+                    .power(action)
+                    .await
+                    .map_err(CarbideError::RedfishError)?
+            }
+        }
     }
 
     db::machine::update_reboot_requested_time(&machine.id, txn, action.into()).await?;
