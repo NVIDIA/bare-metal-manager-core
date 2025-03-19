@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,20 +10,82 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::tests::common;
-
-use crate::cfg::file::HostHealthConfig;
-use crate::db::managed_host::LoadSnapshotOptions;
-use crate::tests::common::api_fixtures::TestEnvOverrides;
-use crate::{cfg::file::HardwareHealthReportsConfig, db};
-use common::api_fixtures::{
-    TestEnv, create_managed_host, create_test_env_with_overrides, get_config,
-    network_configured_with_health, remove_health_report_override, send_health_report_override,
-    simulate_hardware_health_report,
+use crate::{
+    cfg::file::{HardwareHealthReportsConfig, HostHealthConfig},
+    db::{self, machine::update_dpu_agent_health_report, managed_host::LoadSnapshotOptions},
+    tests::common::api_fixtures::{
+        TestEnv, TestEnvOverrides, create_managed_host, create_test_env_with_overrides, get_config,
+        network_configured_with_health, remove_health_report_override, send_health_report_override,
+        simulate_hardware_health_report,
+    },
 };
 use health_report::OverrideMode;
 use rpc::forge::{HealthOverrideOrigin, forge_server::Forge};
 use tonic::Request;
+
+/// Tests whether health reports can be stored if their timestamp is newer or equal
+/// to the last received report - and are dropped otherwise.
+#[crate::sqlx_test]
+async fn test_update_dpu_agent_health_report(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_env(pool).await;
+    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    // Start with a clean slate
+    sqlx::query("UPDATE machines SET dpu_agent_health_report=NULL where id=$1")
+        .bind(dpu_machine_id.to_string())
+        .execute(&env.pool)
+        .await?;
+
+    let mut health = hr("dpu-agent", vec![], vec![("Failure1", None, "Failure1")]);
+    // Start with a health report without timestamp. That update should also work
+    health.observed_at = None;
+    println!("Doing initial update");
+    let mut txn = env.pool.begin().await?;
+    update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health).await?;
+    txn.commit().await?;
+
+    let mut time: chrono::DateTime<chrono::Utc> = "2025-03-19T18:22:02+00:00".parse()?;
+
+    // Updating time to go forward should allow updates. Go for a total of 1s in updates
+    for _ in 0..51 {
+        time += chrono::Duration::milliseconds(20);
+        health.observed_at = Some(time);
+        println!("Health: {}, {}", time, time.to_rfc3339());
+        println!("{}", serde_json::to_string_pretty(&health).unwrap());
+
+        let mut txn = env.pool.begin().await?;
+        update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health).await?;
+        txn.commit().await?;
+    }
+
+    // Updating at the same time is allowed
+    println!("Update same time");
+    let mut txn = env.pool.begin().await?;
+    update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health).await?;
+    txn.commit().await?;
+
+    // Updating time to go backwards should not allow updates. Go for a total of 1s in updates
+
+    println!("Go backwards in time");
+    for _ in 0..51 {
+        time -= chrono::Duration::milliseconds(20);
+        health.observed_at = Some(time);
+        println!("Health: {}, {}", time, time.to_rfc3339());
+        println!("{}", serde_json::to_string_pretty(&health).unwrap());
+
+        let mut txn = env.pool.begin().await?;
+        assert!(
+            update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health)
+                .await
+                .is_err()
+        );
+        txn.commit().await?;
+    }
+
+    Ok(())
+}
 
 #[crate::sqlx_test]
 async fn test_machine_health_reporting(
@@ -555,7 +617,7 @@ fn hr(
 
 /// Loads machine snapshot
 async fn load_snapshot(
-    env: &common::api_fixtures::TestEnv,
+    env: &TestEnv,
     host_machine_id: &forge_uuid::machine::MachineId,
 ) -> Result<crate::model::machine::ManagedHostStateSnapshot, Box<dyn std::error::Error>> {
     let mut txn = env.pool.begin().await?;
@@ -576,10 +638,7 @@ async fn load_snapshot(
 }
 
 /// Calls get_machine api
-async fn get_machine(
-    env: &common::api_fixtures::TestEnv,
-    machine_id: &forge_uuid::machine::MachineId,
-) -> rpc::Machine {
+async fn get_machine(env: &TestEnv, machine_id: &forge_uuid::machine::MachineId) -> rpc::Machine {
     env.api
         .get_machine(Request::new(machine_id.to_string().into()))
         .await
@@ -588,7 +647,7 @@ async fn get_machine(
 }
 
 async fn load_host_health_history(
-    env: &common::api_fixtures::TestEnv,
+    env: &TestEnv,
     machine_id: &forge_uuid::machine::MachineId,
 ) -> Vec<::rpc::forge::MachineHealthHistoryRecord> {
     env.api
@@ -613,7 +672,7 @@ fn aggregate(m: rpc::Machine) -> Option<health_report::HealthReport> {
 
 /// Loads aggregate health via FindMachinesByIds api
 async fn load_health_via_find_machines_by_ids(
-    env: &common::api_fixtures::TestEnv,
+    env: &TestEnv,
     machine_id: &forge_uuid::machine::MachineId,
 ) -> Option<health_report::HealthReport> {
     env.api
@@ -632,7 +691,7 @@ async fn load_health_via_find_machines_by_ids(
 
 /// Loads aggregate health via FindMachines api
 async fn load_health_via_find_machines(
-    env: &common::api_fixtures::TestEnv,
+    env: &TestEnv,
     machine_id: &forge_uuid::machine::MachineId,
 ) -> Option<health_report::HealthReport> {
     env.api
