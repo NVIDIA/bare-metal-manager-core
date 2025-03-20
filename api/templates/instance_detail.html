@@ -3,7 +3,9 @@
 {% block title %}Instance Detail{% endblock %}
 
 {% block content %}
+<div id="json"><a id="json-link" href="">JSON</a></div>
 <h1>Instance {{ id }}</h1>
+
 <table class="detailsview">
 	<tr><th>Machine ID</th><td>{{ machine_id|machine_id_link|safe}}</td></tr>
 	<tr><th>Tenant Org</th><td><a href="/admin/tenant/{{ tenant_org }}">{{ tenant_org }}</a></td></tr>

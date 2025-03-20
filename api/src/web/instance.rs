@@ -413,6 +413,11 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(instance_id): AxumPath<String>,
 ) -> Response {
+    let (show_json, instance_id) = match instance_id.strip_suffix(".json") {
+        Some(instance_id) => (true, instance_id.to_string()),
+        None => (false, instance_id),
+    };
+
     let request = tonic::Request::new(forgerpc::InstancesByIdsRequest {
         instance_ids: vec![rpc::Uuid {
             value: instance_id.clone(),
@@ -445,6 +450,10 @@ pub async fn detail(
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading instances").into_response();
         }
     };
+
+    if show_json {
+        return (StatusCode::OK, Json(instance)).into_response();
+    }
 
     let instance_detail: InstanceDetail = instance.into();
     (StatusCode::OK, Html(instance_detail.render().unwrap())).into_response()

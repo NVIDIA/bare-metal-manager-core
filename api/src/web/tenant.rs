@@ -126,6 +126,11 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(organization_id): AxumPath<String>,
 ) -> Response {
+    let (show_json, organization_id) = match organization_id.strip_suffix(".json") {
+        Some(organization_id) => (true, organization_id.to_string()),
+        None => (false, organization_id),
+    };
+
     let request = tonic::Request::new(forgerpc::TenantByOrganizationIdsRequest {
         organization_ids: vec![organization_id.clone()],
     });
@@ -156,6 +161,10 @@ pub async fn detail(
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading tenants").into_response();
         }
     };
+
+    if show_json {
+        return (StatusCode::OK, Json(tenant)).into_response();
+    }
 
     let tenant_detail: TenantDetail = tenant.into();
     (StatusCode::OK, Html(tenant_detail.render().unwrap())).into_response()

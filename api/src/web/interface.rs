@@ -206,6 +206,11 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(interface_id): AxumPath<String>,
 ) -> Response {
+    let (show_json, interface_id) = match interface_id.strip_suffix(".json") {
+        Some(interface_id) => (true, interface_id.to_string()),
+        None => (false, interface_id),
+    };
+
     let request = tonic::Request::new(forgerpc::InterfaceSearchQuery {
         id: Some(::rpc::common::Uuid {
             value: interface_id.clone(),
@@ -240,6 +245,10 @@ pub async fn detail(
             .into_response();
     }
     let interface = machine_interfaces.interfaces.pop().unwrap(); // safe, we check above
+
+    if show_json {
+        return (StatusCode::OK, Json(interface)).into_response();
+    }
 
     let tmpl: InterfaceDetail = interface.into();
     // TODO tmpl.domain_name = domain_name;

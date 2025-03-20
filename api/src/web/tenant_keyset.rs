@@ -159,6 +159,11 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath((organization_id, keyset_id)): AxumPath<(String, String)>,
 ) -> Response {
+    let (show_json, keyset_id) = match keyset_id.strip_suffix(".json") {
+        Some(keyset_id) => (true, keyset_id.to_string()),
+        None => (false, keyset_id),
+    };
+
     let request = tonic::Request::new(forgerpc::TenantKeysetsByIdsRequest {
         keyset_ids: vec![forgerpc::TenantKeysetIdentifier {
             organization_id: organization_id.clone(),
@@ -193,6 +198,10 @@ pub async fn detail(
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading keyset").into_response();
         }
     };
+
+    if show_json {
+        return (StatusCode::OK, Json(keyset)).into_response();
+    }
 
     let keyset_detail: TenantKeysetDetail = keyset.into();
     (StatusCode::OK, Html(keyset_detail.render().unwrap())).into_response()

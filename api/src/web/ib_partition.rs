@@ -259,6 +259,11 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(partition_id): AxumPath<String>,
 ) -> Response {
+    let (show_json, partition_id) = match partition_id.strip_suffix(".json") {
+        Some(partition_id) => (true, partition_id.to_string()),
+        None => (false, partition_id),
+    };
+
     let request = tonic::Request::new(forgerpc::IbPartitionsByIdsRequest {
         ib_partition_ids: vec![rpc::Uuid {
             value: partition_id.clone(),
@@ -296,6 +301,10 @@ pub async fn detail(
                 .into_response();
         }
     };
+
+    if show_json {
+        return (StatusCode::OK, Json(partition)).into_response();
+    }
 
     let tmpl: IbPartitionDetail = partition.into();
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
