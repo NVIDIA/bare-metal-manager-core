@@ -149,7 +149,7 @@ pub async fn show(
                 tracing::error!(%err, "fetch_nsgs");
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Error loading network security groups",
+                    format!("Error loading network security groups: {}", err),
                 )
                     .into_response();
             }
@@ -194,6 +194,10 @@ async fn fetch_network_security_groups(
     } else {
         limit
     };
+
+    if all_ids.is_empty() {
+        return Ok((0, vec![]));
+    }
 
     let pages = all_ids.len().div_ceil(limit);
 
@@ -575,4 +579,37 @@ pub async fn update(
     };
 
     Redirect::to(&format!("/admin/network-security-group/{}", nsg.id)).into_response()
+}
+
+/// Struct for deserializing a request to delete
+/// an existing NSG
+#[derive(Deserialize, Debug)]
+pub struct DeleteNetworkSecurityGroupForm {
+    tenant_organization_id: String,
+}
+
+// Handler for deleting an existing NSG
+pub async fn delete(
+    AxumState(api): AxumState<Arc<Api>>,
+    AxumPath(network_security_group_id): AxumPath<String>,
+    Form(form): Form<DeleteNetworkSecurityGroupForm>,
+) -> Response {
+    if let Err(e) = api
+        .delete_network_security_group(tonic::Request::new(
+            forgerpc::DeleteNetworkSecurityGroupRequest {
+                id: network_security_group_id,
+                tenant_organization_id: form.tenant_organization_id,
+            },
+        ))
+        .await
+        .map(|response| response.into_inner())
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Unable to delete network security group: {}", e),
+        )
+            .into_response();
+    };
+
+    Redirect::to("/admin/network-security-group").into_response()
 }
