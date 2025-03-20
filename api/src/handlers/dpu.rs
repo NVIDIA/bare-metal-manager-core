@@ -623,24 +623,6 @@ pub(crate) async fn record_dpu_network_status(
         id: dpu_machine_id.to_string(),
     })?;
 
-    let observed_at = match request.observed_at {
-        Some(ts) => {
-            // Use DPU clock
-            let system_time = std::time::SystemTime::try_from(ts).map_err(|err| {
-                tracing::warn!(
-                    machine_id = %dpu_machine_id,
-                    "record_dpu_network_status invalid timestamp `observed_at`: {err}"
-                );
-                CarbideError::InvalidArgument("observed_at".to_string())
-            })?;
-            chrono::DateTime::from(system_time)
-        }
-        None => {
-            // Use carbide-api clock
-            chrono::Utc::now()
-        }
-    };
-
     let machine_obs = {
         let mut obs = MachineNetworkStatusObservation::try_from(request.clone())
             .map_err(CarbideError::from)?;
@@ -717,7 +699,7 @@ pub(crate) async fn record_dpu_network_status(
         let instance_obs = InstanceNetworkStatusObservation {
             config_version: version,
             instance_config_version,
-            observed_at,
+            observed_at: machine_obs.observed_at,
             interfaces,
         };
 
