@@ -5031,39 +5031,6 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
 }
 
 impl Api {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        config: Arc<CarbideConfig>,
-        credential_provider: Arc<dyn CredentialProvider>,
-        certificate_provider: Arc<dyn CertificateProvider>,
-        database_connection: sqlx::PgPool,
-        redfish_pool: Arc<dyn RedfishClientPool>,
-        nvmesh_pool: Arc<dyn NvmeshClientPool>,
-        eth_data: ethernet_virtualization::EthVirtData,
-        common_pools: Arc<CommonPools>,
-        ib_fabric_manager: Arc<dyn IBFabricManager>,
-        dynamic_settings: dynamic_settings::DynamicSettings,
-        endpoint_explorer: Arc<dyn EndpointExplorer>,
-    ) -> Self {
-        Self {
-            database_connection,
-            credential_provider,
-            certificate_provider,
-            redfish_pool,
-            nvmesh_pool,
-            eth_data,
-            common_pools,
-            ib_fabric_manager,
-            runtime_config: config,
-            dpu_health_log_limiter: LogLimiter::new(
-                std::time::Duration::from_secs(5 * 60),
-                std::time::Duration::from_secs(60 * 60),
-            ),
-            dynamic_settings,
-            endpoint_explorer,
-        }
-    }
-
     async fn load_machine(
         &self,
         machine_id: &MachineId,

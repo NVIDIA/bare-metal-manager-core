@@ -21,6 +21,8 @@ use std::{
     sync::Arc,
 };
 
+use crate::cfg::file::ListenMode;
+use crate::logging::log_limiter::LogLimiter;
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
     FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2, FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
@@ -775,6 +777,8 @@ pub fn get_config() -> CarbideConfig {
         bios_profiles: HashMap::default(),
         selected_profile: libredfish::BiosProfileType::Performance,
         bom_validation: BomValidationConfig::default(),
+        listen_mode: ListenMode::Tls,
+        listen_only: false,
     }
 }
 
@@ -922,19 +926,20 @@ pub async fn create_test_env_with_overrides(
         failure_retry_time: Duration::seconds(0),
     };
 
-    let api = Arc::new(Api::new(
-        config.clone(),
-        credential_provider.clone(),
-        certificate_provider.clone(),
-        db_pool.clone(),
-        redfish_sim.clone(),
-        nvmesh_sim.clone(),
-        eth_virt_data.clone(),
-        common_pools.clone(),
-        ib_fabric_manager.clone(),
-        dyn_settings,
-        bmc_explorer,
-    ));
+    let api = Arc::new(Api {
+        runtime_config: config.clone(),
+        credential_provider: credential_provider.clone(),
+        certificate_provider: certificate_provider.clone(),
+        database_connection: db_pool.clone(),
+        redfish_pool: redfish_sim.clone(),
+        nvmesh_pool: nvmesh_sim.clone(),
+        eth_data: eth_virt_data.clone(),
+        common_pools: common_pools.clone(),
+        ib_fabric_manager: ib_fabric_manager.clone(),
+        dynamic_settings: dyn_settings,
+        endpoint_explorer: bmc_explorer,
+        dpu_health_log_limiter: LogLimiter::default(),
+    });
 
     let attestation_enabled = config.attestation_enabled;
     let ipmi_tool = Arc::new(IPMIToolTestImpl {});

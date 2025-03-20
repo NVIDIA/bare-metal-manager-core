@@ -12,7 +12,7 @@
 
 use crate::{api::Api, auth, cfg::file::AuthConfig, logging::api_logs::LogLayer};
 use ::rpc::forge as rpc;
-use hyper::server::conn::http2;
+use hyper::server::conn::{http1, http2};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::service::TowerToHyperService;
 use opentelemetry::{KeyValue, metrics::Meter};
@@ -29,12 +29,17 @@ use tokio_rustls::{
 use tonic_reflection::server::Builder;
 use tower_http::{add_extension::AddExtensionLayer, auth::AsyncRequireAuthorizationLayer};
 
+pub enum ApiListenMode {
+    Tls(Arc<ApiTlsConfig>),
+    PlaintextHttp1,
+    PlaintextHttp2,
+}
+
 pub struct ApiTlsConfig {
     pub identity_pemfile_path: String,
     pub identity_keyfile_path: String,
     pub root_cafile_path: String,
     pub admin_root_cafile_path: String,
-    pub bypass_rbac: bool,
 }
 
 /// this function blocks, don't use it in a raw async context
@@ -159,7 +164,7 @@ impl ConnectionAttributes {
 #[tracing::instrument(skip_all)]
 pub async fn listen_and_serve(
     api_service: Arc<Api>,
-    tls_config: ApiTlsConfig,
+    listen_mode: ApiListenMode,
     listen_port: SocketAddr,
     auth_config: &Option<AuthConfig>,
     meter: Meter,
@@ -170,13 +175,18 @@ pub async fn listen_and_serve(
         .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
         .build_v1alpha()?;
 
-    let tls_config = Arc::new(tls_config);
-    let tls_config_clone = tls_config.clone();
-
-    let mut tls_acceptor = tokio::task::Builder::new()
-        .name("get_tls_acceptor init")
-        .spawn_blocking(move || get_tls_acceptor(&tls_config_clone))?
-        .await?;
+    let (tls_config, mut tls_acceptor, serve_plaintext_via_http1) = match listen_mode {
+        ApiListenMode::Tls(tls_config) => {
+            let tls_config_clone = tls_config.clone();
+            let tls_acceptor = tokio::task::Builder::new()
+                .name("get_tls_acceptor init")
+                .spawn_blocking(move || get_tls_acceptor(&tls_config_clone))?
+                .await?;
+            (Some(tls_config), tls_acceptor, false)
+        }
+        ApiListenMode::PlaintextHttp1 => (None, None, true),
+        ApiListenMode::PlaintextHttp2 => (None, None, false),
+    };
 
     let listener = TcpListener::bind(listen_port).await?;
     let http = http2::Builder::new(TokioExecutor::new());
@@ -205,7 +215,7 @@ pub async fn listen_and_serve(
     } else {
         None
     };
-    let internal_rbac_layer = if tls_config.bypass_rbac {
+    let internal_rbac_layer = if api_service.runtime_config.bypass_rbac {
         None
     } else {
         Some(AsyncRequireAuthorizationLayer::new(
@@ -277,9 +287,11 @@ pub async fn listen_and_serve(
 
         // hard refresh our certs every five minutes
         // they may have been rewritten on disk by cert-manager and we want to honor the new cert.
-        if initialize_tls_acceptor
-            || tls_acceptor_created.elapsed() > tokio::time::Duration::from_secs(5 * 60)
-        {
+        if let (Some(tls_config), true) = (
+            tls_config.as_ref(),
+            initialize_tls_acceptor
+                || tls_acceptor_created.elapsed() > tokio::time::Duration::from_secs(5 * 60),
+        ) {
             tracing::info!("Refreshing certs");
             initialize_tls_acceptor = false;
             tls_acceptor_created = Instant::now();
@@ -325,9 +337,9 @@ pub async fn listen_and_serve(
                             .layer(conn_attrs_extension_layer)
                             .service(app);
 
-                        // TODO: Why does this returns an error Io / UnexpectedEof on every single request?
-                        // `h2` already logs the error at DEBUG level
-                        let _ = http.serve_connection(conn, TowerToHyperService::new(app_with_ext)).await;
+                        if let Err(error) = http.serve_connection(conn, TowerToHyperService::new(app_with_ext)).await {
+                            tracing::debug!(%error, "error servicing tls http request: {error:?}");
+                        }
                     }
                     Err(error) => {
                         tracing::error!(%error, address = %addr, "error accepting tls connection");
@@ -338,8 +350,31 @@ pub async fn listen_and_serve(
             } else {
                 // servicing without tls -- HTTP only
                 connection_succeeded_counter.add(1, &[]);
-                if let Err(error) = http.serve_connection(TokioIo::new(conn), TowerToHyperService::new(app)).await {
-                    tracing::debug!(%error, "error servicing plain http connection");
+
+                let conn_attrs_extension_layer =
+                    AddExtensionLayer::new(Arc::new(ConnectionAttributes {
+                        peer_address: addr,
+                        peer_certificates: vec![],
+                    }));
+
+                let conn = TokioIo::new(conn);
+
+                let app_with_ext = tower::ServiceBuilder::new()
+                    .layer(conn_attrs_extension_layer)
+                    .service(app);
+
+                let result = if serve_plaintext_via_http1 {
+                    // Serve the connection as HTTP/1.1 and allow upgrading to HTTP/2
+                    http1::Builder::new().serve_connection(conn, TowerToHyperService::new(app_with_ext)).with_upgrades().await
+                } else {
+                    // Serve the connection as HTTP/2, which will fail if the initial
+                    // request is HTTP/1.1 (which is the default behavior for web browsers,
+                    // curl, etc.)
+                    http.serve_connection(conn, TowerToHyperService::new(app_with_ext)).await
+                };
+
+                if let Err(error) = result {
+                    tracing::debug!(%error, "error servicing plain http connection: {error:?}");
                 }
             }
         })?;
