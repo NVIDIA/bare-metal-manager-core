@@ -341,10 +341,11 @@ pub async fn handle_show(
     if !args.machine.is_empty() {
         show_machine_information(&args, is_json, api_client).await?;
     } else {
+        let dpus_only = args.dpus && !args.hosts;
         let search_config = rpc::forge::MachineSearchConfig {
             include_dpus: args.dpus,
-            exclude_hosts: !args.hosts,
-            include_predicted_host: !args.dpus,
+            exclude_hosts: dpus_only,
+            include_predicted_host: !dpus_only,
             ..Default::default()
         };
         show_all_machines(is_json, api_client, search_config, page_size).await?;
