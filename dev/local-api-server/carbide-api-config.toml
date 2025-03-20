@@ -1,0 +1,8 @@
+# Minimal possible carbide-api config which only listens on http and does not run any state controllers or other
+# background tasks
+listen = "[::]:1079"
+listen_mode = "plaintext_http1"
+listen_only = true
+metrics_endpoint = "[::]:1080"
+database_url = "<will be replaced by CARBIDE_API_DATABASE_URL env var>"
+asn = 4294967000

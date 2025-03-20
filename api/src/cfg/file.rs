@@ -44,6 +44,13 @@ pub struct CarbideConfig {
     #[serde(default = "default_listen")]
     pub listen: SocketAddr,
 
+    /// Set to true to run this instance "passively", ie. don't start any background services and
+    /// just listen for rpc/web connections. This is used in development mode when you want to run
+    /// an additional carbide instance, against a cluster that is already running a "full" carbide
+    /// instance.
+    #[serde(default)]
+    pub listen_only: bool,
+
     /// The socket address that is used for the HTTP server which serves
     /// prometheus metrics under /metrics
     pub metrics_endpoint: Option<SocketAddr>,
@@ -90,6 +97,9 @@ pub struct CarbideConfig {
 
     /// TLS related configuration
     pub tls: Option<TlsConfig>,
+
+    #[serde(default)]
+    pub listen_mode: ListenMode,
 
     /// Authentication related configuration
     pub auth: Option<AuthConfig>,
@@ -815,6 +825,16 @@ pub struct TlsConfig {
     pub admin_root_cafile_path: String,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ListenMode {
+    PlaintextHttp1,
+    PlaintextHttp2,
+    #[serde(other)]
+    #[default]
+    Tls,
+}
+
 /// Authentication related configuration
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AuthConfig {
@@ -1192,7 +1212,7 @@ impl Default for NetworkSecurityGroupConfig {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct FirmwareGlobal {
     #[serde(default)]
     pub autoupdate: bool,

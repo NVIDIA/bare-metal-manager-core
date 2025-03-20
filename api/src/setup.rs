@@ -16,8 +16,14 @@ use figment::{
     providers::{Env, Format, Toml},
 };
 use forge_secrets::{ForgeVaultClient, credentials::CredentialProvider};
+use futures_util::TryFutureExt;
+use opentelemetry::metrics::Meter;
 use sqlx::{ConnectOptions, PgPool, postgres::PgSslMode};
 use std::{collections::HashSet, sync::Arc};
+use tokio::sync::{
+    Semaphore, oneshot,
+    oneshot::{Receiver, Sender},
+};
 
 use crate::ib::DEFAULT_IB_FABRIC_NAME;
 use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
@@ -26,7 +32,10 @@ use crate::{
     db::expected_machine::ExpectedMachine, handlers::machine_validation::apply_config_on_startup,
 };
 
-use crate::cfg::file::HostHealthConfig;
+use crate::cfg::file::{HostHealthConfig, ListenMode};
+use crate::dynamic_settings::DynamicSettings;
+use crate::listener::ApiListenMode;
+use crate::logging::log_limiter::LogLimiter;
 use crate::{
     api::Api,
     attestation,
@@ -53,10 +62,6 @@ use crate::{
             handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO,
         },
     },
-};
-use tokio::sync::{
-    Semaphore,
-    oneshot::{Receiver, Sender},
 };
 
 pub fn parse_carbide_config(
@@ -147,8 +152,8 @@ async fn create_and_connect_postgres_pool(config: &CarbideConfig) -> eyre::Resul
 #[tracing::instrument(skip_all)]
 pub async fn start_api(
     carbide_config: Arc<CarbideConfig>,
-    meter: opentelemetry::metrics::Meter,
-    dynamic_settings: crate::dynamic_settings::DynamicSettings,
+    meter: Meter,
+    dynamic_settings: DynamicSettings,
     shared_redfish_pool: Arc<dyn RedfishClientPool>,
     vault_client: Arc<ForgeVaultClient>,
     stop_channel: Receiver<()>,
@@ -162,6 +167,170 @@ pub async fn start_api(
 
     let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
 
+    let ib_config = carbide_config.ib_config.clone().unwrap_or_default();
+    let fabric_manager_type = match ib_config.enabled {
+        true => ib::IBFabricManagerType::Rest,
+        false => ib::IBFabricManagerType::Disable,
+    };
+
+    let ib_fabric_ids = match ib_config.enabled {
+        false => HashSet::new(),
+        true => carbide_config.ib_fabrics.keys().cloned().collect(),
+    };
+
+    // Note: Normally we want initialize_and_start_controllers to be responsible for populating
+    // information into the database, but resource pools and route servers need to be defined first,
+    // since the controllers rely on a fully-hydrated Api object, which relies on route_servers and
+    // common_pools being populated. So if we're configured for listen_only, strictly read them from
+    // the database (assuming another instance has populated them), otherwise, populate them now.
+    let route_servers = if carbide_config.listen_only {
+        tracing::info!(
+            "Not populating resource pools or route_servers in database, as listen_only=true"
+        );
+        vec![]
+    } else {
+        let mut txn = db_pool
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "begin define resource pools", e))?;
+        resource_pool::define_all_from(
+            &mut txn,
+            carbide_config.pools.as_ref().ok_or_else(|| {
+                DefineResourcePoolError::InvalidArgument(String::from(
+                    "resource pools are not defined in carbide config",
+                ))
+            })?,
+        )
+        .await?;
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "commit define resource pools", e))?;
+        db_init::create_initial_route_servers(&db_pool, &carbide_config).await?
+    };
+    let common_pools = CommonPools::create(db_pool.clone(), ib_fabric_ids).await?;
+
+    let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
+        vault_client.clone(),
+        ib::IBFabricManagerConfig {
+            endpoints: if ib_config.enabled {
+                carbide_config
+                    .ib_fabrics
+                    .iter()
+                    .map(|(fabric_id, fabric_definition)| {
+                        (fabric_id.clone(), fabric_definition.endpoints.clone())
+                    })
+                    .collect()
+            } else {
+                Default::default()
+            },
+            allow_insecure_fabric_configuration: ib_config.allow_insecure,
+            manager_type: fabric_manager_type,
+            max_partition_per_tenant: ib_config.max_partition_per_tenant,
+            mtu: ib_config.mtu,
+            rate_limit: ib_config.rate_limit,
+            service_level: ib_config.service_level,
+            #[cfg(test)]
+            ports: None,
+        },
+    )?;
+
+    let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
+
+    let site_fabric_prefixes = ethernet_virtualization::SiteFabricPrefixList::from_ipv4_slice(
+        carbide_config.site_fabric_prefixes.as_slice(),
+    );
+
+    let eth_data = ethernet_virtualization::EthVirtData {
+        asn: carbide_config.asn,
+        dhcp_servers: carbide_config.dhcp_servers.clone(),
+        route_servers,
+        route_servers_enabled: carbide_config.enable_route_servers,
+        deny_prefixes: carbide_config.deny_prefixes.clone(),
+        site_fabric_prefixes,
+    };
+
+    let listen_mode = match &carbide_config.listen_mode {
+        ListenMode::Tls => {
+            let tls_ref = carbide_config.tls.as_ref().expect("Missing tls config");
+
+            let tls_config = Arc::new(listener::ApiTlsConfig {
+                identity_pemfile_path: tls_ref.identity_pemfile_path.clone(),
+                identity_keyfile_path: tls_ref.identity_keyfile_path.clone(),
+                root_cafile_path: tls_ref.root_cafile_path.clone(),
+                admin_root_cafile_path: tls_ref.admin_root_cafile_path.clone(),
+            });
+
+            ApiListenMode::Tls(tls_config)
+        }
+        ListenMode::PlaintextHttp1 => ApiListenMode::PlaintextHttp1,
+        ListenMode::PlaintextHttp2 => ApiListenMode::PlaintextHttp2,
+    };
+
+    let bmc_explorer = Arc::new(BmcEndpointExplorer::new(
+        shared_redfish_pool.clone(),
+        ipmi_tool.clone(),
+        vault_client.clone(),
+    ));
+
+    let api_service = Arc::new(Api {
+        certificate_provider: vault_client.clone(),
+        common_pools,
+        credential_provider: vault_client,
+        database_connection: db_pool,
+        dpu_health_log_limiter: LogLimiter::default(),
+        dynamic_settings,
+        endpoint_explorer: bmc_explorer,
+        eth_data,
+        ib_fabric_manager,
+        nvmesh_pool: shared_nvmesh_pool,
+        redfish_pool: shared_redfish_pool,
+        runtime_config: carbide_config.clone(),
+    });
+
+    let (controllers_stop_tx, controllers_stop_rx) = oneshot::channel();
+    let controllers_handle = if carbide_config.listen_only {
+        tracing::info!("Not starting background services, as listen_only=true");
+        tokio::spawn(controllers_stop_rx.map_err(|_| eyre::eyre!("joining noop task")))
+    } else {
+        tokio::spawn(initialize_and_start_controllers(
+            api_service.clone(),
+            meter.clone(),
+            ipmi_tool.clone(),
+            controllers_stop_rx,
+        ))
+    };
+
+    listener::listen_and_serve(
+        api_service,
+        listen_mode,
+        carbide_config.listen,
+        &carbide_config.auth,
+        meter,
+        stop_channel,
+        ready_channel,
+    )
+    .await?;
+
+    controllers_stop_tx.send(()).ok();
+    controllers_handle.await?
+}
+
+pub async fn initialize_and_start_controllers(
+    api_service: Arc<Api>,
+    meter: Meter,
+    ipmi_tool: Arc<dyn IPMITool>,
+    stop_rx: oneshot::Receiver<()>,
+) -> eyre::Result<()> {
+    let Api {
+        runtime_config: carbide_config,
+        endpoint_explorer: bmc_explorer,
+        common_pools,
+        database_connection: db_pool,
+        ib_fabric_manager,
+        nvmesh_pool: shared_nvmesh_pool,
+        redfish_pool: shared_redfish_pool,
+        ..
+    } = api_service.as_ref();
     // As soon as we get the database up, observe this version of forge so that we know when it was
     // first deployed
     {
@@ -231,17 +400,6 @@ pub async fn start_api(
     }
 
     let ib_config = carbide_config.ib_config.clone().unwrap_or_default();
-    let fabric_manager_type = match ib_config.enabled {
-        true => ib::IBFabricManagerType::Rest,
-        false => ib::IBFabricManagerType::Disable,
-    };
-
-    let ib_fabric_ids = match ib_config.enabled {
-        false => HashSet::new(),
-        true => carbide_config.ib_fabrics.keys().cloned().collect(),
-    };
-
-    let common_pools = CommonPools::create(db_pool.clone(), ib_fabric_ids).await?;
 
     if ib_config.enabled {
         // These are some sanity checks until full multi-fabric support is available
@@ -285,48 +443,6 @@ pub async fn start_api(
             .map_err(|e| DatabaseError::new(file!(), line!(), "commit define resource pools", e))?;
     }
 
-    let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
-        vault_client.clone(),
-        ib::IBFabricManagerConfig {
-            endpoints: if ib_config.enabled {
-                carbide_config
-                    .ib_fabrics
-                    .iter()
-                    .map(|(fabric_id, fabric_definition)| {
-                        (fabric_id.clone(), fabric_definition.endpoints.clone())
-                    })
-                    .collect()
-            } else {
-                Default::default()
-            },
-            allow_insecure_fabric_configuration: ib_config.allow_insecure,
-            manager_type: fabric_manager_type,
-            max_partition_per_tenant: ib_config.max_partition_per_tenant,
-            mtu: ib_config.mtu,
-            rate_limit: ib_config.rate_limit,
-            service_level: ib_config.service_level,
-            #[cfg(test)]
-            ports: None,
-        },
-    )?;
-
-    let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
-
-    let route_servers = db_init::create_initial_route_servers(&db_pool, &carbide_config).await?;
-
-    let site_fabric_prefixes = ethernet_virtualization::SiteFabricPrefixList::from_ipv4_slice(
-        carbide_config.site_fabric_prefixes.as_slice(),
-    );
-
-    let eth_data = ethernet_virtualization::EthVirtData {
-        asn: carbide_config.asn,
-        dhcp_servers: carbide_config.dhcp_servers.clone(),
-        route_servers,
-        route_servers_enabled: carbide_config.enable_route_servers,
-        deny_prefixes: carbide_config.deny_prefixes.clone(),
-        site_fabric_prefixes,
-    };
-
     let health_pool = db_pool.clone();
     start_export_service_health_metrics(ServiceHealthContext {
         meter: meter.clone(),
@@ -334,58 +450,28 @@ pub async fn start_api(
         resource_pool_stats: common_pools.pool_stats.clone(),
     });
 
-    let tls_ref = carbide_config.tls.as_ref().expect("Missing tls config");
-
-    let tls_config = listener::ApiTlsConfig {
-        identity_pemfile_path: tls_ref.identity_pemfile_path.clone(),
-        identity_keyfile_path: tls_ref.identity_keyfile_path.clone(),
-        root_cafile_path: tls_ref.root_cafile_path.clone(),
-        admin_root_cafile_path: tls_ref.admin_root_cafile_path.clone(),
-        bypass_rbac: carbide_config.bypass_rbac,
-    };
-
-    let bmc_explorer = Arc::new(BmcEndpointExplorer::new(
-        shared_redfish_pool.clone(),
-        ipmi_tool.clone(),
-        vault_client.clone(),
-    ));
-
-    let api_service = Arc::new(Api::new(
-        carbide_config.clone(),
-        vault_client.clone(),
-        vault_client.clone(),
-        db_pool.clone(),
-        shared_redfish_pool.clone(),
-        shared_nvmesh_pool.clone(),
-        eth_data,
-        common_pools.clone(),
-        ib_fabric_manager.clone(),
-        dynamic_settings,
-        bmc_explorer.clone(),
-    ));
-
     if let Some(networks) = carbide_config.networks.as_ref() {
-        db_init::create_initial_networks(&api_service, &db_pool, networks).await?;
+        db_init::create_initial_networks(&api_service, db_pool, networks).await?;
     }
 
     if let Some(fnn_config) = carbide_config.fnn.as_ref() {
         if let Some(admin) = fnn_config.admin_vpc.as_ref() {
             if admin.enabled {
-                db_init::create_admin_vpc(&db_pool, admin.vpc_vni).await?;
+                db_init::create_admin_vpc(db_pool, admin.vpc_vni).await?;
             }
         }
     }
 
     // Update SVI IP to segments which have VPC attached and type is FNN.
-    db_init::update_network_segments_svi_ip(&db_pool).await?;
+    db_init::update_network_segments_svi_ip(db_pool).await?;
 
     db_init::store_initial_dpu_agent_upgrade_policy(
-        &db_pool,
+        db_pool,
         carbide_config.initial_dpu_agent_upgrade_policy,
     )
     .await?;
 
-    if let Err(e) = update_dpu_asns(&db_pool, &common_pools).await {
+    if let Err(e) = update_dpu_asns(db_pool, common_pools).await {
         tracing::warn!("Failed to update ASN for DPUs: {e}");
     }
 
@@ -523,7 +609,7 @@ pub async fn start_api(
     let _measured_boot_collector_handle = measured_boot_collector.start()?;
 
     // we need to create ek_cert_status entries for all existing machines
-    attestation::backfill_ek_cert_status_for_existing_machines(&db_pool).await?;
+    attestation::backfill_ek_cert_status_for_existing_machines(db_pool).await?;
 
     let machine_validation_metric = crate::machine_validation::MachineValidationManager::new(
         db_pool.clone(),
@@ -538,15 +624,9 @@ pub async fn start_api(
     )
     .await?;
 
-    let listen_addr = carbide_config.listen;
-    listener::listen_and_serve(
-        api_service,
-        tls_config,
-        listen_addr,
-        &carbide_config.auth,
-        meter,
-        stop_channel,
-        ready_channel,
-    )
-    .await
+    // We have to sleep until the calling thread stops us, or else all the handles get dropped and
+    // the background tasks terminate.
+    stop_rx
+        .await
+        .context("error reading from stop channel, calling thread likely panicked")
 }

@@ -35,6 +35,15 @@ pub struct LogLimiter<K> {
     next_cleanup: AtomicU64,
 }
 
+impl<K: Hash + PartialEq + Eq + Clone> Default for LogLimiter<K> {
+    fn default() -> Self {
+        LogLimiter::new(
+            std::time::Duration::from_secs(5 * 60),
+            std::time::Duration::from_secs(60 * 60),
+        )
+    }
+}
+
 impl<K: Hash + PartialEq + Eq + Clone> LogLimiter<K> {
     pub fn new(suppress_period: Duration, clean_unused_keys_period: Duration) -> Self {
         assert!(
