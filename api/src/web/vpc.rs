@@ -148,6 +148,11 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(vpc_id): AxumPath<String>,
 ) -> Response {
+    let (show_json, vpc_id) = match vpc_id.strip_suffix(".json") {
+        Some(vpc_id) => (true, vpc_id.to_string()),
+        None => (false, vpc_id),
+    };
+
     let request = tonic::Request::new(forgerpc::VpcsByIdsRequest {
         vpc_ids: vec![rpc::Uuid {
             value: vpc_id.clone(),
@@ -174,6 +179,10 @@ pub async fn detail(
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading VPCs").into_response();
         }
     };
+
+    if show_json {
+        return (StatusCode::OK, Json(vpc)).into_response();
+    }
 
     let tmpl: VpcDetail = vpc.into();
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()

@@ -164,6 +164,11 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(sku_id): AxumPath<String>,
 ) -> Response {
+    let (show_json, sku_id) = match sku_id.strip_suffix(".json") {
+        Some(sku_id) => (true, sku_id.to_string()),
+        None => (false, sku_id),
+    };
+
     let request = tonic::Request::new(forgerpc::SkusByIdsRequest {
         ids: vec![sku_id.clone()],
     });
@@ -191,6 +196,10 @@ pub async fn detail(
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading SKUs").into_response();
         }
     };
+
+    if show_json {
+        return (StatusCode::OK, Json(sku)).into_response();
+    }
 
     let tmpl: SkuDetail = sku.into();
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()

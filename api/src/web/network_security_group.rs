@@ -16,6 +16,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use askama::Template;
+use axum::Json;
 use axum::extract::{Form, OriginalUri, Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use hyper::http::StatusCode;
@@ -233,6 +234,12 @@ pub async fn show_detail(
     AxumState(api): AxumState<Arc<Api>>,
     AxumPath(network_security_group_id): AxumPath<String>,
 ) -> Response {
+    let (show_json, network_security_group_id) =
+        match network_security_group_id.strip_suffix(".json") {
+            Some(network_security_group_id) => (true, network_security_group_id.to_string()),
+            None => (false, network_security_group_id),
+        };
+
     // Grab the basic details for the NSG
     let Some(nsg) = match api
         .find_network_security_groups_by_ids(tonic::Request::new(
@@ -261,6 +268,10 @@ pub async fn show_detail(
         )
             .into_response();
     };
+
+    if show_json {
+        return (StatusCode::OK, Json(nsg)).into_response();
+    }
 
     // Prepare some values for template vars
     let created = nsg.created_at().to_string();

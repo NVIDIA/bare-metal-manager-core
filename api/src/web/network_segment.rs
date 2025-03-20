@@ -300,6 +300,11 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(segment_id): AxumPath<String>,
 ) -> Response {
+    let (show_json, segment_id) = match segment_id.strip_suffix(".json") {
+        Some(segment_id) => (true, segment_id.to_string()),
+        None => (false, segment_id),
+    };
+
     let request = tonic::Request::new(forgerpc::NetworkSegmentsByIdsRequest {
         network_segments_ids: vec![rpc::Uuid {
             value: segment_id.clone(),
@@ -335,6 +340,10 @@ pub async fn detail(
                 .into_response();
         }
     };
+
+    if show_json {
+        return (StatusCode::OK, Json(segment)).into_response();
+    }
 
     let mut domain_name = String::new();
     if let Some(domain_id) = segment.subdomain_id.as_ref() {

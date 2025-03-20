@@ -3,7 +3,9 @@
 {% block title %}Keyset {{ keyset.organization_id}}/{{ keyset.keyset_id }}{% endblock %}
 
 {% block content %}
+<div id="json"><a id="json-link" href="">JSON</a></div>
 <h1>Keyset {{ keyset.organization_id}}/{{ keyset.keyset_id }}</h1>
+
 <table class="detailsview">
 	<tr><th>Organization ID</th><td><a href="/admin/tenant/{{ keyset.organization_id }}">{{ keyset.organization_id }}</a></td></tr>
 	<tr><th>Keyset ID</th><td>{{ keyset.keyset_id }}</td></tr>
