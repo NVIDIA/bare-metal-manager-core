@@ -4,7 +4,18 @@
 ### Added
 
 - Added DHCP NAK support to forge-dhcp-server.
-
+- Additional resources can be viewed in JSON format on carbide-web. The formatting of these resources matches exactly the gRPC responses that are provided by site controller APIs:
+  - `/admin/machine/:machine_id.json`: Shows the content of the `Machine` gRPC object for a given Machine ID
+  - `/admin/explored-endpoint/:endpoint_ip.json`. Shows the content of the `ExploredEndpoint` gRPC object for a given BMC address
+  - `/admin/ib-partition/:partition_id.json`: Shows the content of the `IBPartition` gRPC object for the given Partition ID
+  - `/admin/instance/:instance_id.json`: Shows the content of the `Instance` gRPC object for the given Instance ID
+  - `/admin/interface/:interface_id.json`: Shows the content of the `MachineInterface` gRPC object for the given Machine Interface ID
+  - `/admin/network-security-group/:network_security_group_id.json`: Shows the content of the `NetworkSecurityGroup` gRPC object for the given group ID
+  - `/admin/network-segment/:segment_id.json`: Shows the content of the `NetworkSegment` gRPC object for the given segment ID
+  - `/admin/sku/:sku_id.json`: Shows the content of the `Sku` gRPC object for the given SKU ID
+  - `/admin/tenant/:organization_id.json`: Shows the content of the `Tenant` gRPC object for the given tenant organization ID
+  - `/admin/tenant_keyset/:organization_id/:keyset_id.json`: Shows the content of the `TenantKeyset` gRPC object for the given tenant and keyset ID
+  - `/admin/vpc/:vpc_id.json`: Shows the content of the `VPC` gRPC object for the given VPC ID
 ### Changed
 
 - Added a reboot after disabling lockdown for upgrades (Dell only) and force-delete, as they sometimes need a reboot to fully remove it.  This may help [FORGE-5180](https://jirasw.nvidia.com/browse/FORGE-5180).
