@@ -317,6 +317,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/network-security-group/:network_security_group_id",
                 post(network_security_group::update),
             )
+            .route(
+                "/network-security-group/:network_security_group_id/delete",
+                post(network_security_group::delete),
+            )
             .route("/network-segment", get(network_segment::show_html))
             .route("/network-segment.json", get(network_segment::show_all_json))
             .route("/network-segment/:segment_id", get(network_segment::detail))
