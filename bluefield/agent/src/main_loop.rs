@@ -844,7 +844,8 @@ fn effective_virtualization_type(
     // to use ETV (EthernetVirtualizer), the pre-nvue one.
     let virtualization_type_from_remote = conf
         .network_virtualization_type
-        .and_then(|vi| rpc::VpcVirtualizationType::try_from(vi).ok())
+        .map(rpc::VpcVirtualizationType::try_from)
+        .transpose()?
         .map(|v| v.into());
 
     // And now see if the remote virtualization type should be overwritten

@@ -329,7 +329,9 @@ impl From<Vpc> for rpc::Vpc {
             deleted: src.deleted.map(|t| t.into()),
             tenant_keyset_id: src.tenant_keyset_id,
             vni: src.vni.map(|x| x as u32),
-            network_virtualization_type: Some(src.network_virtualization_type as i32),
+            network_virtualization_type: Some(
+                rpc::VpcVirtualizationType::from(src.network_virtualization_type).into(),
+            ),
             metadata: {
                 Some(rpc::Metadata {
                     name: src.metadata.name,
