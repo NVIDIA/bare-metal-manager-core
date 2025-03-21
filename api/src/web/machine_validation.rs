@@ -95,12 +95,15 @@ use super::filters;
 #[derive(Template)]
 #[template(path = "validation_result_details.html")]
 struct ValidationResultDetailDisplay {
+    test_id: String,
+    validation_id: String,
     validation_results: Vec<ValidationResultDetail>,
 }
 
 #[derive(Template)]
 #[template(path = "validation_results.html")]
 struct ValidationResults {
+    validation_id: String,
     validation_results: Vec<ValidationResult>,
 }
 
@@ -222,7 +225,10 @@ pub async fn results(
     };
     // tracing::info!(%validation_results, "results_details");
 
-    let tmpl = ValidationResults { validation_results };
+    let tmpl = ValidationResults {
+        validation_id,
+        validation_results,
+    };
 
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
@@ -273,7 +279,11 @@ pub async fn result_details(
         }
     };
 
-    let tmpl = ValidationResultDetailDisplay { validation_results };
+    let tmpl = ValidationResultDetailDisplay {
+        test_id,
+        validation_id,
+        validation_results,
+    };
 
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
@@ -354,6 +364,7 @@ pub async fn runs(AxumState(state): AxumState<Arc<Api>>) -> Response {
         Ok(results) => results
             .runs
             .into_iter()
+            .rev()
             .map(|vr| ValidationRun {
                 machine_id: vr.machine_id.unwrap_or_default().to_string(),
                 status:format!("{:?}", vr.status.unwrap_or_default().machine_validation_state.unwrap_or(
