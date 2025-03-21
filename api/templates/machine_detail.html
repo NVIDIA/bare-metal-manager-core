@@ -276,7 +276,6 @@ Missing BMC Data
                 <th>Start Time</th>
                 <th>End Time</th>
                 <th>State</th>
-				<th class="hide">Machine ID</th>
             </tr>
         </thead>
         <tbody>
@@ -286,8 +285,7 @@ Missing BMC Data
                 <td>{{ run.context }}</td>
                 <td>{{ run.start_time }}</td>
                 <td>{{ run.end_time }}</td>
-                <td>{{ run.status }}</td>
-				<td class="hide">{{ run.machine_id }}</td>
+                <td>{% if run.status == "Completed(Success)" %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}{{ run.status }}</div></td>
             </tr>
             {% endfor %}
         </tbody>

@@ -704,6 +704,7 @@ pub async fn detail(
         Ok(results) => results
             .runs
             .into_iter()
+            .rev() // Show the most recent run first
             .map(|vr| ValidationRun {
                 machine_id: machine_id.clone(),
                 status:format!("{:?}", vr.status.unwrap_or_default().machine_validation_state.unwrap_or(

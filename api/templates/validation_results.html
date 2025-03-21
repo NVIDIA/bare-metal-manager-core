@@ -1,13 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Machine Validation{% endblock %}
+{% block title %}Machine Validation Run {{ validation_id }}{% endblock %}
 
 {% block content %}
-<h1>Machine Validation</h1>
+<h1>Machine Validation Run {{ validation_id }}</h1>
 <table class="sortable overview">
 	<thead>
 		<tr>
-			<th>Validation ID</th>
 			<th>Test ID</th>
 			<th>Name</th>
 			<th>Context</th>
@@ -19,12 +18,11 @@
 	<tbody>
 		{% for result in validation_results %}
 		<tr>
-			<td>{{ result.validation_id }}</td>
 			<td><a href="/admin/machinevalidation/tests/{{ result.test_id }}">{{ result.test_id }}</a></td>
 			<td><a href="/admin/machinevalidation/resultdetails/{{ result.validation_id }}/{{ result.test_id }}">{{
 					result.name }}</a></td>
 			<td>{{ result.context }}</td>
-			<td>{{ result.status }}</td>
+			<td>{% if result.status == "0" %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}{{ result.status }}</div></td>
 			<td>{{ result.start_time }}</td>
 			<td>{{ result.end_time }}</td>
 
