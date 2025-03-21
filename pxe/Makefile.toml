@@ -33,14 +33,16 @@ DPU_AGENT_PKG_VERSION = { script = [
 BUILD_LOCATION = "/tmp/bfb-dump/initramfs-tmp"
 
 # https://confluence.nvidia.com/display/SW/BF2+BMC+Firmware+release
-# BF2-23.10-5
-MIN_BF2_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/BF2/BF2BMC-23.10-5/OPN/bf2-bmc-ota-23.10-5-OPN.tar"
-MIN_BF2_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/CEC1712/04.0f/prod/cec_ota_BMGP-04.0f_prod.bin"
+# BF2-24.10-9
+BF2_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic/BF2/BF2BMC-24.07-14/OPN/bf2-bmc-ota-24.07-14-opn.tar"
+BF2_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/CEC1712/04.0f/prod/cec_ota_BMGP-04.0f_prod.bin"
 
 # https://confluence.nvidia.com/display/SW/BF3+BMC+Firmware+release
-# BF3-23.10-5
-MIN_BF3_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/BF3/BF3BMC-23.10-5/OPN/bf3-bmc-23.10-5_opn.fwpkg"
-MIN_BF3_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/Glacier/00.02.0152.0000/sign/n02/rel-prod/cec1736-ecfw-00.02.0152.0000-n02-rel-prod.fwpkg"
+# BF3-24.10-9
+BF3_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic/BF3/BF3BMC-24.07-14/OPN/bf3-bmc-24.07-14_opn.fwpkg"
+BF3_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/Glacier/00.02.0182.0000/sign/n02/rel-prod/cec1736-ecfw-00.02.0182.0000-n02-rel-prod.fwpkg"
+
+BFB_FW_BUNDLE = "https://urm.nvidia.com/artifactory/sw-mlnx-bluefield-generic/doca_2.9.0/20241109/custom-images/bf-fwbundle-2.9.0-90_24.10-prod.bfb"
 
 [tasks.upload-bfb-artifacts-to-urm]
 env = { "BFB_LOCATION" = "${BFB_UPSTREAM_LOCATION}", "HBN_CONFIG_URL" = "${HBN_UPSTREAM_CONFIG_URL}" }
@@ -805,11 +807,16 @@ description = "Download vendor specific firmware packages"
 script = [
   "echo Downloading nvidia firmware",
   "mkdir -p nvidia/dpu",
+  "curl -L \"${BF2_BMC_PACKAGE}\" --output nvidia/dpu/bf2-bmc.fwpkg",
+  "curl -L \"${BF2_CEC_PACKAGE}\" --output nvidia/dpu/bf2-cec.fwpkg",
+  "curl -L \"${BF3_BMC_PACKAGE}\" --output nvidia/dpu/bf3-bmc.fwpkg",
+  "curl -L \"${BF3_CEC_PACKAGE}\" --output nvidia/dpu/bf3-cec.fwpkg",
   "cd nvidia/dpu",
-  "wget -nv \"${MIN_BF2_BMC_PACKAGE}\"",
-  "wget -nv \"${MIN_BF2_CEC_PACKAGE}\"",
-  "wget -nv \"${MIN_BF3_BMC_PACKAGE}\"",
-  "wget -nv \"${MIN_BF3_CEC_PACKAGE}\"",
+  "wget -nv \"${BF2_BMC_PACKAGE}\"",
+  "wget -nv \"${BF2_CEC_PACKAGE}\"",
+  "wget -nv \"${BF3_BMC_PACKAGE}\"",
+  "wget -nv \"${BF3_CEC_PACKAGE}\"",
+  "wget -nv \"${BFB_FW_BUNDLE}\"",
 ]
 cwd = "${REPO_ROOT}/pxe/static/blobs/internal/firmware"
 
