@@ -501,9 +501,9 @@ pub(crate) async fn get_managed_host_network_config(
                 .version_string()
         },
         remote_id: dpu_machine_id.remote_id(),
-        network_virtualization_type: Some(rpc::VpcVirtualizationType::from(
-            network_virtualization_type,
-        ) as i32),
+        network_virtualization_type: Some(
+            rpc::VpcVirtualizationType::from(network_virtualization_type).into(),
+        ),
         vpc_vni,
         // Deprecated: this field is always true now.
         // This should be removed in future version.

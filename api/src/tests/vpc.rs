@@ -64,7 +64,10 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
             tenant_organization_id: String::new(),
             tenant_keyset_id: None,
             network_security_group_id: None,
-            network_virtualization_type: Some(VpcVirtualizationType::EthernetVirtualizer as i32),
+            network_virtualization_type: Some(
+                rpc::forge::VpcVirtualizationType::from(VpcVirtualizationType::EthernetVirtualizer)
+                    .into(),
+            ),
             metadata: Some(rpc::forge::Metadata {
                 name: "Forge no Org".to_string(),
                 description: "".to_string(),

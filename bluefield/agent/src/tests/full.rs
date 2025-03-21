@@ -460,7 +460,9 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         tenant_interfaces: vec![tenant_interface],
         instance_network_config_version: config_version,
         instance_id: None,
-        network_virtualization_type: Some(virtualization_type as i32),
+        network_virtualization_type: Some(
+            rpc::forge::VpcVirtualizationType::from(virtualization_type).into(),
+        ),
         vpc_vni: None,
         route_servers: vec![],
         remote_id: "".to_string(),
