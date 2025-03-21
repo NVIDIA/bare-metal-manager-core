@@ -456,7 +456,7 @@ function main() {
 		return $ret;
 	fi
 
-	echo Fix | parted ---pretend-input-tty $image_disk print
+	sgdisk -epv $image_disk 2>&1 | tee $log_output
 	partprobe $image_disk 2>&1 | tee $log_output
 	if [ ! -z "$rootfs_uuid" -o ! -z "$rootfs_label" ]; then
 		# find the root partition/volume
