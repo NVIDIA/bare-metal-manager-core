@@ -1367,7 +1367,7 @@ dev-env-test-with-carbide:
     - job: export-docker-json-config
   variables:
     VAULT_NAMESPACE: ngc-forge
-    DEBUG_JUST: true
+    DEBUG_JUST: false
     LOG_ARGO: true
     DPU_NAME: no-dpu  # TODO: Set value when we get an Acorn managed-host to include in test
   id_tokens:
