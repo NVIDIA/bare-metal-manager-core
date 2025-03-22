@@ -294,12 +294,15 @@ impl BgpHealthData {
             failed(hr, probe_ids::BgpStats.clone(), None, err_msg);
         }
 
+        let num_unhealthy_tors = self.unhealthy_tor_peers.len();
+        // TODO: This is correct for environments with both DPU ports connected
+        let unhealthy_tors_critical = num_unhealthy_tors > 1;
         for (port_name, message) in self.unhealthy_tor_peers.into_iter() {
             hr.alerts.push(make_alert(
                 probe_ids::BgpPeeringTor.clone(),
                 Some(port_name),
                 message,
-                true,
+                unhealthy_tors_critical,
             ));
         }
 
@@ -456,7 +459,7 @@ mod tests {
                 probe_ids::BgpPeeringTor.clone(),
                 Some("p0_if".to_string()),
                 "Session p0_if is not Established, but in state Idle".to_string(),
-                true
+                false
             )
         );
         Ok(())
