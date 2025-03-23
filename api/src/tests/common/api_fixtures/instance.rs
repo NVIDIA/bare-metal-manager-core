@@ -16,7 +16,9 @@ use super::{
     TestEnv, forge_agent_control, inject_machine_measurements, persist_machine_validation_result,
 };
 use crate::db;
-use crate::model::machine::{CleanupState, MachineState, ManagedHostState};
+use crate::model::machine::{
+    CleanupState, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
+};
 use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
 use rpc::{
     InstanceReleaseRequest, Timestamp,
@@ -409,13 +411,15 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         host_machine_id,
         3,
         &mut txn,
-        ManagedHostState::HostInit {
-            machine_state: MachineState::MachineValidating {
-                context: "Cleanup".to_string(),
-                id: uuid::Uuid::default(),
-                completed: 1,
-                total: 1,
-                is_enabled: true,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "Cleanup".to_string(),
+                    id: uuid::Uuid::default(),
+                    completed: 1,
+                    total: 1,
+                    is_enabled: true,
+                },
             },
         },
     )

@@ -15,6 +15,7 @@
 use config_version::{ConfigVersion, Versioned};
 
 use crate::cfg::file::HostHealthConfig;
+use crate::model::machine::{MachineValidatingState, ValidationState};
 use crate::{
     db::{self, DatabaseError, machine::MachineSearchConfig},
     model::{
@@ -138,7 +139,6 @@ impl StateControllerIO for MachineStateControllerIO {
                 MachineState::WaitingForDiscovery => "waitingfordiscovery",
                 MachineState::Discovered { .. } => "discovered",
                 MachineState::WaitingForLockdown { .. } => "waitingforlockdown",
-                MachineState::MachineValidating { .. } => "machinevalidating",
                 MachineState::EnableIpmiOverLan => "enableipmioverlan",
                 MachineState::Measuring { .. } => "machinestatemeasuring",
             }
@@ -187,7 +187,14 @@ impl StateControllerIO for MachineStateControllerIO {
                 CleanupState::DisableBIOSBMCLockdown => "disablebmclockdown",
             }
         }
-
+        fn machine_validation_state_name(
+            validation_state: &MachineValidatingState,
+        ) -> &'static str {
+            match validation_state {
+                MachineValidatingState::MachineValidating { .. } => "machinevalidating",
+                MachineValidatingState::RebootHost { .. } => "reboothost",
+            }
+        }
         match state {
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
                 // Min state indicates the least processed DPU. The state machine is blocked
@@ -243,6 +250,12 @@ impl StateControllerIO for MachineStateControllerIO {
                 machine::BomValidating::WaitingForSkuAssignment(_) => {
                     ("bomvalidating", "waitingforskuassignment")
                 }
+            },
+            ManagedHostState::Validation { validation_state } => match validation_state {
+                ValidationState::MachineValidation { machine_validation } => (
+                    "validation",
+                    machine_validation_state_name(machine_validation),
+                ),
             },
         }
     }

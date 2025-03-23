@@ -40,3 +40,5 @@ pub const BOM_VALIDATION: u64 = 5 * 60;
 // ASSIGNED state, any substate other than Ready and BootingWithDiscoveryImage
 // Init WaitingForNetworkConfig WaitingForStorageConfig WaitingForRebootToReady SwitchToAdminNetwork WaitingForNetworkReconfig DPUReprovision Failed
 pub const ASSIGNED: u64 = 30 * 60;
+
+pub const VALIDATION: u64 = 30 * 60; // 30 minutes

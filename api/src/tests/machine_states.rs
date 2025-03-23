@@ -20,7 +20,7 @@ use crate::model::hardware_info::TpmEkCertificate;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::{
     DpuInitState, FailureDetails, LockdownInfo, LockdownMode, LockdownState, MachineState,
-    ManagedHostState, MeasuringState,
+    MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
 };
 use crate::state_controller::machine::handler::{
     MachineStateHandlerBuilder, handler_host_power_control,
@@ -563,19 +563,20 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     // We use forge_dpu_agent's health reporting as a signal that
     // DPU has rebooted.
     network_configured(&env, &dpu_machine_id).await;
-
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         3,
         &mut txn,
-        ManagedHostState::HostInit {
-            machine_state: MachineState::MachineValidating {
-                context: "Discovery".to_string(),
-                id: uuid::Uuid::default(),
-                completed: 1,
-                total: 1,
-                is_enabled: true,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "Discovery".to_string(),
+                    id: uuid::Uuid::default(),
+                    completed: 1,
+                    total: 1,
+                    is_enabled: true,
+                },
             },
         },
     )
@@ -1341,13 +1342,15 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         &host_machine_id,
         3,
         &mut txn,
-        ManagedHostState::HostInit {
-            machine_state: MachineState::MachineValidating {
-                context: "Discovery".to_string(),
-                id: uuid::Uuid::default(),
-                completed: 1,
-                total: 1,
-                is_enabled: env.config.machine_validation_config.enabled,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "Discovery".to_string(),
+                    id: uuid::Uuid::default(),
+                    completed: 1,
+                    total: 1,
+                    is_enabled: env.config.machine_validation_config.enabled,
+                },
             },
         },
     )

@@ -833,7 +833,6 @@ Show results
 To add a new platform for individual tests
 
 1) Get system sku id- 
-        
         # dmidecode -s system-sku-number | tr "[:upper:]" "[:lower:]"  
 2) 
         # forge-admin-cli machine-validation tests update  --test-id  <test_id> --version   <test version> --supported-platforms    <sku>

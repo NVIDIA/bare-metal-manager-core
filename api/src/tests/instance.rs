@@ -17,9 +17,8 @@ use std::{
 };
 
 use crate::{
-    db,
     db::{
-        ObjectColumnFilter,
+        self, ObjectColumnFilter,
         instance::Instance,
         instance_address::{InstanceAddress, UsedOverlayNetworkIpResolver},
         machine::MachineSearchConfig,
@@ -42,8 +41,8 @@ use crate::{
             },
         },
         machine::{
-            CleanupState, FailureDetails, InstanceState, MachineState, ManagedHostState,
-            MeasuringState, machine_id::try_parse_machine_id,
+            CleanupState, FailureDetails, InstanceState, MachineState, MachineValidatingState,
+            ManagedHostState, MeasuringState, ValidationState, machine_id::try_parse_machine_id,
         },
         metadata::Metadata,
         network_security_group::NetworkSecurityGroupStatusObservation,
@@ -657,13 +656,15 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         &host_machine_id,
         3,
         &mut txn,
-        ManagedHostState::HostInit {
-            machine_state: MachineState::MachineValidating {
-                context: "Cleanup".to_string(),
-                id: uuid::Uuid::default(),
-                completed: 1,
-                total: 1,
-                is_enabled: true,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "Cleanup".to_string(),
+                    id: uuid::Uuid::default(),
+                    completed: 1,
+                    total: 1,
+                    is_enabled: true,
+                },
             },
         },
     )

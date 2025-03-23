@@ -23,8 +23,8 @@ use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
 use health_report::HealthProbeId;
 use itertools::Itertools;
-use libredfish::model::task::TaskState;
-use libredfish::{Boot, Redfish, RedfishError, SystemPowerControl};
+use libredfish::{Boot, Redfish, RedfishError, SystemPowerControl, model::task::TaskState};
+use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
 use sku::{handle_bom_validation_requested, handle_bom_validation_state};
 use tokio::sync::Semaphore;
@@ -36,13 +36,8 @@ use crate::{
         FirmwareConfig, FirmwareEntry, MachineValidationConfig,
     },
     db::{
-        self,
-        explored_endpoints::DbExploredEndpoint,
-        instance::DeleteInstance,
-        machine_topology::MachineTopology,
-        machine_validation::{MachineValidation, MachineValidationState, MachineValidationStatus},
-        network_segment::NetworkSegment,
-        vpc::VpcDpuLoopback,
+        self, explored_endpoints::DbExploredEndpoint, instance::DeleteInstance,
+        machine_topology::MachineTopology, network_segment::NetworkSegment, vpc::VpcDpuLoopback,
     },
     firmware_downloader::FirmwareDownloader,
     ib::IBFabricManagerType,
@@ -56,7 +51,8 @@ use crate::{
             LockdownState, Machine, MachineLastRebootRequestedMode, MachineNextStateResolver,
             MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
             NextReprovisionState, PerformPowerOperation, PowerDrainState, ReprovisionState,
-            RetryInfo, StateMachineArea, UefiSetupInfo, UefiSetupState, all_equal, get_display_ids,
+            RetryInfo, StateMachineArea, UefiSetupInfo, UefiSetupState, ValidationState, all_equal,
+            get_display_ids,
         },
         site_explorer::ExploredEndpoint,
     },
@@ -75,6 +71,7 @@ use crate::{
 };
 
 mod ib;
+mod machine_validation;
 mod sku;
 mod storage;
 
@@ -620,58 +617,12 @@ impl MachineStateHandler {
                         ));
                     }
                 }
-                if is_machine_validation_requested(mh_snapshot).await {
-                    //reboot the machine with new scout image
-                    handler_host_power_control(
-                        mh_snapshot,
-                        ctx.services,
-                        SystemPowerControl::ForceRestart,
-                        txn,
-                    )
-                    .await?;
-                    let machine_validation =
-                        match MachineValidation::find_active_machine_validation_by_machine_id(
-                            txn,
-                            host_machine_id,
-                        )
-                        .await
-                        {
-                            Ok(data) => data,
-                            Err(e) => {
-                                tracing::info!(
-                                    error = %e,
-                                    "find_active_machine_validation_by_machine_id"
-                                );
-                                db::machine::set_machine_validation_request(
-                                    txn,
-                                    host_machine_id,
-                                    true,
-                                )
-                                .await
-                                .map_err(StateHandlerError::from)?;
-                                // Health Alert ?
-                                // Rare screnario, if something googfed up in DB
-                                return Ok(StateHandlerOutcome::DoNothingWithDetails(
-                                    DoNothingDetails { line: line!() },
-                                ));
-                            }
-                        };
-
-                    let next_state = ManagedHostState::HostInit {
-                        machine_state: MachineState::MachineValidating {
-                            context: "OnDemand".to_string(),
-                            id: machine_validation.id,
-                            completed: 1,
-                            total: 1,
-                            is_enabled: self
-                                .host_handler
-                                .host_handler_params
-                                .machine_validation_config
-                                .enabled,
-                        },
-                    };
-                    return Ok(StateHandlerOutcome::Transition(next_state));
+                if let Some(outcome) =
+                    handle_machine_validation_requested(txn, mh_snapshot, false).await?
+                {
+                    return Ok(outcome);
                 }
+
                 // Check if DPU reprovisioning is requested
                 if dpu_reprovisioning_needed(&mh_snapshot.dpu_snapshots) {
                     let mut dpus_for_reprov = vec![];
@@ -1001,59 +952,11 @@ impl MachineStateHandler {
                     FailureCause::MachineValidation { .. }
                         if machine_id.machine_type().is_host() =>
                     {
-                        if is_machine_validation_requested(mh_snapshot).await {
-                            //reboot the machine with new scout image
-                            handler_host_power_control(
-                                mh_snapshot,
-                                ctx.services,
-                                SystemPowerControl::ForceRestart,
-                                txn,
-                            )
-                            .await?;
-                            // Clear the error so that state machine doesnt get into loop
-                            db::machine::clear_failure_details(machine_id, txn)
-                                .await
-                                .map_err(StateHandlerError::from)?;
-                            let machine_validation =
-                            match MachineValidation::find_active_machine_validation_by_machine_id(
-                                txn,
-                                host_machine_id,
-                            )
-                            .await
-                            {
-                                Ok(data) => data,
-                                Err(e) => {
-                                    tracing::info!(
-                                        error = %e,
-                                        "find_active_machine_validation_by_machine_id"
-                                    );
-                                    db::machine::set_machine_validation_request(txn, host_machine_id, true)
-                                        .await
-                                        .map_err(StateHandlerError::from)?;
-                                    // Health Alert ?
-                                    // Rare screnario, if something googfed up in DB
-                                    return Ok(StateHandlerOutcome::DoNothingWithDetails( DoNothingDetails { line: line!() }));
-                                }
-                            };
-
-                            let next_state = ManagedHostState::HostInit {
-                                machine_state: MachineState::MachineValidating {
-                                    context: "OnDemand".to_string(),
-                                    id: machine_validation.id,
-                                    completed: 1,
-                                    total: 1,
-                                    is_enabled: self
-                                        .host_handler
-                                        .host_handler_params
-                                        .machine_validation_config
-                                        .enabled,
-                                },
-                            };
-                            Ok(StateHandlerOutcome::Transition(next_state))
-                        } else {
-                            Ok(StateHandlerOutcome::DoNothingWithDetails(
+                        match handle_machine_validation_requested(txn, mh_snapshot, true).await? {
+                            Some(outcome) => Ok(outcome),
+                            None => Ok(StateHandlerOutcome::DoNothingWithDetails(
                                 DoNothingDetails { line: line!() },
-                            ))
+                            )),
                         }
                     }
                     _ => {
@@ -1151,6 +1054,18 @@ impl MachineStateHandler {
                 )
                 .await
             }
+            ManagedHostState::Validation { validation_state } => match validation_state {
+                ValidationState::MachineValidation { machine_validation } => {
+                    handle_machine_validation_state(
+                        txn,
+                        ctx,
+                        machine_validation,
+                        &self.host_handler.host_handler_params,
+                        mh_snapshot,
+                    )
+                    .await
+                }
+            },
         }
     }
 
@@ -2956,14 +2871,14 @@ fn get_reboot_cycle(
 }
 
 #[derive(Debug)]
-struct RebootStatus {
+pub struct RebootStatus {
     increase_retry_count: bool, // the vague previous return value
     status: String,             // what we did or are waiting for
 }
 
 /// In case machine does not come up until a specified duration, this function tries to reboot
 /// it again. The reboot continues till 6 hours only. After that this function gives up.
-async fn trigger_reboot_if_needed(
+pub async fn trigger_reboot_if_needed(
     target: &Machine,
     state: &ManagedHostStateSnapshot,
     retry_count: Option<i64>,
@@ -3131,11 +3046,11 @@ async fn trigger_reboot_if_needed(
 /// This function waits until target machine is up or not. It relies on scout to identify if
 /// machine has come up or not after reboot.
 // True if machine is rebooted after state change.
-fn rebooted(target: &Machine) -> bool {
+pub fn rebooted(target: &Machine) -> bool {
     target.last_reboot_time.unwrap_or_default() > target.state.version.timestamp()
 }
 
-fn machine_validation_completed(target: &Machine) -> bool {
+pub fn machine_validation_completed(target: &Machine) -> bool {
     target.last_machine_validation_time.unwrap_or_default() > target.state.version.timestamp()
 }
 // Was machine rebooted after state change?
@@ -3599,7 +3514,6 @@ impl StateHandler for HostMachineStateHandler {
                                     )
                                     .await?
                                 };
-
                             Ok(StateHandlerOutcome::Wait(format!(
                                 "redfish forge_setup failed: {e}; triggered host reboot?: {reboot_status:#?}"
                             )))
@@ -3762,117 +3676,6 @@ impl StateHandler for HostMachineStateHandler {
                             status.status
                         )))
                     }
-                }
-                MachineState::MachineValidating {
-                    context,
-                    id,
-                    completed,
-                    total,
-                    is_enabled,
-                } => {
-                    tracing::trace!(
-                        "context = {} id = {} completed = {} total = {}, is_enabled = {} ",
-                        context,
-                        id,
-                        completed,
-                        total,
-                        is_enabled,
-                    );
-                    if !rebooted(&mh_snapshot.host_snapshot) {
-                        let status = trigger_reboot_if_needed(
-                            &mh_snapshot.host_snapshot,
-                            mh_snapshot,
-                            None,
-                            &self.host_handler_params.reachability_params,
-                            ctx.services,
-                            txn,
-                        )
-                        .await?;
-                        return Ok(StateHandlerOutcome::Wait(status.status));
-                    }
-                    if !*is_enabled {
-                        tracing::info!("Skipping Machine Validation");
-                        let _ = MachineValidation::mark_machine_validation_complete(
-                            txn,
-                            host_machine_id,
-                            id,
-                            MachineValidationStatus {
-                                state: MachineValidationState::Skipped,
-                                ..MachineValidationStatus::default()
-                            },
-                        )
-                        .await;
-                        let machine_validation = MachineValidation::find_by_id(txn, id)
-                            .await
-                            .map_err(|err| StateHandlerError::GenericError(err.into()))?;
-                        *ctx.metrics
-                            .last_machine_validation_list
-                            .entry((
-                                machine_validation.machine_id.to_string(),
-                                machine_validation.context.clone().unwrap_or_default(),
-                            ))
-                            .or_default() = 0_i32;
-                        return Ok(StateHandlerOutcome::Transition(
-                            ManagedHostState::HostInit {
-                                machine_state: MachineState::Discovered {
-                                    // Since we're skipping machine validation, we don't need to
-                                    // wait on *another* reboot. We already waited for the prior
-                                    // reboot to complete above, so tell the Discovered state to
-                                    // skip it.
-                                    skip_reboot_wait: true,
-                                },
-                            },
-                        ));
-                    }
-                    // Host validation completed
-                    if machine_validation_completed(&mh_snapshot.host_snapshot) {
-                        if mh_snapshot.host_snapshot.failure_details.cause == FailureCause::NoError
-                        {
-                            tracing::info!(
-                                "{} machine validation completed",
-                                mh_snapshot.host_snapshot.id
-                            );
-                            let machine_validation =
-                                MachineValidation::find_by_id(txn, id)
-                                    .await
-                                    .map_err(|err| StateHandlerError::GenericError(err.into()))?;
-                            let status = machine_validation.status.clone().unwrap_or_default();
-                            *ctx.metrics
-                                .last_machine_validation_list
-                                .entry((
-                                    machine_validation.machine_id.to_string(),
-                                    machine_validation.context.clone().unwrap_or_default(),
-                                ))
-                                .or_default() = status.total - status.completed;
-                            handler_host_power_control(
-                                mh_snapshot,
-                                ctx.services,
-                                SystemPowerControl::ForceRestart,
-                                txn,
-                            )
-                            .await?;
-                            return Ok(StateHandlerOutcome::Transition(
-                                ManagedHostState::HostInit {
-                                    machine_state: MachineState::Discovered {
-                                        skip_reboot_wait: false,
-                                    },
-                                },
-                            ));
-                        } else {
-                            tracing::info!(
-                                "{} machine validation failed",
-                                mh_snapshot.host_snapshot.id
-                            );
-                            return Ok(StateHandlerOutcome::Transition(ManagedHostState::Failed {
-                                details: mh_snapshot.host_snapshot.failure_details.clone(),
-                                machine_id: mh_snapshot.host_snapshot.id,
-                                retry_count: 0,
-                            }));
-                        }
-                    }
-                    Ok(StateHandlerOutcome::DoNothingWithDetails(
-                        DoNothingDetails { line: line!() },
-                    ))
                 }
             }
         } else {

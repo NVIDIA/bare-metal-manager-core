@@ -4,7 +4,9 @@ use super::{
     network_configured,
 };
 use crate::db::machine_interface::find_by_mac_address;
-use crate::model::machine::{BomValidating, BomValidatingContext, MeasuringState};
+use crate::model::machine::{
+    BomValidating, BomValidatingContext, MachineValidatingState, MeasuringState, ValidationState,
+};
 use crate::tests::common::api_fixtures::{
     TestEnv,
     dpu::DpuConfig,
@@ -657,23 +659,26 @@ impl<'a> MockExploredHost<'a> {
             }
         }
         let mut txn = self.test_env.pool.begin().await.unwrap();
-        let stop_state = self
-            .test_env
-            .run_machine_state_controller_iteration_until_state_condition(
-                &host_machine_id,
-                10,
-                &mut txn,
-                |machine| {
-                    machine.current_state() == &expected_state
-                        || matches!(
-                            *machine.current_state(),
-                            ManagedHostState::HostInit {
-                                machine_state: MachineState::MachineValidating { .. },
-                            }
-                        )
-                },
-            )
-            .await;
+        let stop_state =
+            self.test_env
+                .run_machine_state_controller_iteration_until_state_condition(
+                    &host_machine_id,
+                    10,
+                    &mut txn,
+                    |machine| {
+                        machine.current_state() == &expected_state
+                            || matches!(
+                                *machine.current_state(),
+                                ManagedHostState::Validation {
+                                    validation_state: ValidationState::MachineValidation {
+                                        machine_validation:
+                                            MachineValidatingState::MachineValidating { .. },
+                                    },
+                                }
+                            )
+                    },
+                )
+                .await;
         txn.commit().await.unwrap();
 
         if stop_state == expected_state {
@@ -817,13 +822,15 @@ impl<'a> MockExploredHost<'a> {
                 &host_machine_id,
                 3,
                 &mut txn,
-                ManagedHostState::HostInit {
-                    machine_state: MachineState::MachineValidating {
-                        context: "Discovery".to_string(),
-                        id: uuid::Uuid::default(),
-                        completed: 1,
-                        total: 1,
-                        is_enabled: self.test_env.config.machine_validation_config.enabled,
+                ManagedHostState::Validation {
+                    validation_state: ValidationState::MachineValidation {
+                        machine_validation: MachineValidatingState::MachineValidating {
+                            context: "Discovery".to_string(),
+                            id: uuid::Uuid::default(),
+                            completed: 1,
+                            total: 1,
+                            is_enabled: self.test_env.config.machine_validation_config.enabled,
+                        },
                     },
                 },
             )

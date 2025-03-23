@@ -3,7 +3,7 @@ use sqlx::{Postgres, Transaction};
 
 use crate::db::machine_boot_override::MachineBootOverride;
 use crate::model::machine::{
-    DpuInitState, FailureCause, FailureDetails, MeasuringState, ReprovisionState,
+    DpuInitState, FailureCause, FailureDetails, MeasuringState, ReprovisionState, ValidationState,
 };
 use crate::model::storage::OsImage;
 use crate::{
@@ -242,6 +242,9 @@ exit ||
                         ..
                     },
                 ..
+            }
+            | ManagedHostState::Validation {
+                validation_state: ValidationState::MachineValidation { .. },
             }
             | ManagedHostState::WaitingForCleanup { .. } => Self::get_pxe_instruction_for_arch(
                 arch,

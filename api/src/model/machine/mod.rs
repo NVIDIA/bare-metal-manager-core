@@ -915,6 +915,10 @@ pub enum ManagedHostState {
     HostInit {
         machine_state: MachineState,
     },
+    /// Host validation state for machine and DPU validation
+    Validation {
+        validation_state: ValidationState,
+    },
     /// Host is Ready for instance creation.
     Ready,
     /// Host is assigned to an Instance.
@@ -969,6 +973,38 @@ pub enum ManagedHostState {
     BomValidating {
         bom_validating_state: BomValidating,
     },
+}
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum MachineValidatingState {
+    RebootHost {
+        validation_id: uuid::Uuid,
+    },
+    MachineValidating {
+        context: String,
+        id: uuid::Uuid,
+        completed: usize,
+        total: usize,
+        #[serde(default = "default_true")]
+        is_enabled: bool,
+    },
+}
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "validation_type", rename_all = "lowercase")]
+pub enum ValidationState {
+    /// Host machine validation
+    /// placeholder for DPU machine validation
+    /// TODO: add DPU validation state
+    /// SKU validatioon can also be moved here, so that all validation done @ one place
+    MachineValidation {
+        machine_validation: MachineValidatingState,
+    },
+}
+
+impl std::fmt::Display for ValidationState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl ManagedHostState {
@@ -1325,14 +1361,7 @@ pub enum MachineState {
     WaitingForLockdown {
         lockdown_info: LockdownInfo,
     },
-    MachineValidating {
-        context: String,
-        id: uuid::Uuid,
-        completed: usize,
-        total: usize,
-        #[serde(default = "default_true")]
-        is_enabled: bool,
-    },
+    // MachineValidating has been moved to ValidationState
 }
 
 impl DpuInitState {
@@ -1683,6 +1712,9 @@ impl Display for ManagedHostState {
             } => {
                 write!(f, "BomValidating/{:?}", bom_validating_state)
             }
+            ManagedHostState::Validation { validation_state } => {
+                write!(f, "{}", validation_state)
+            }
         }
     }
 }
@@ -1750,6 +1782,9 @@ impl ManagedHostState {
             ManagedHostState::BomValidating {
                 bom_validating_state,
             } => format!("BomValidating/{:?}", bom_validating_state),
+            ManagedHostState::Validation { validation_state } => {
+                format!("Validation/{}", validation_state)
+            }
         }
     }
 }
@@ -2222,6 +2257,18 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
                 std::time::Duration::from_secs(slas::BOM_VALIDATION),
                 time_in_state,
             ),
+        },
+        ManagedHostState::Validation { validation_state } => match validation_state {
+            ValidationState::MachineValidation { machine_validation } => match machine_validation {
+                MachineValidatingState::MachineValidating { .. } => StateSla::with_sla(
+                    std::time::Duration::from_secs(slas::VALIDATION),
+                    time_in_state,
+                ),
+                MachineValidatingState::RebootHost { .. } => StateSla::with_sla(
+                    std::time::Duration::from_secs(slas::VALIDATION),
+                    time_in_state,
+                ),
+            },
         },
     }
 }

@@ -14,9 +14,10 @@ use crate::cfg::file::{
     MachineValidationConfig, MachineValidationTestConfig, MachineValidationTestSelectionMode,
 };
 use crate::handlers::machine_validation::apply_config_on_startup;
+use crate::model::machine::ValidationState;
 use crate::model::machine::{
-    FailureCause, FailureDetails, FailureSource, MachineState, MachineValidationFilter,
-    ManagedHostState, machine_id::try_parse_machine_id,
+    FailureCause, FailureDetails, FailureSource, MachineState, MachineValidatingState,
+    MachineValidationFilter, ManagedHostState, machine_id::try_parse_machine_id,
 };
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
@@ -196,13 +197,15 @@ async fn test_machine_validation_with_error(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         3,
         &mut txn,
-        ManagedHostState::HostInit {
-            machine_state: MachineState::MachineValidating {
-                context: "OnDemand".to_string(),
-                id: uuid::Uuid::default(),
-                completed: 1,
-                total: 1,
-                is_enabled: env.config.machine_validation_config.enabled,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "OnDemand".to_string(),
+                    id: uuid::Uuid::default(),
+                    completed: 1,
+                    total: 1,
+                    is_enabled: env.config.machine_validation_config.enabled,
+                },
             },
         },
     )
@@ -291,13 +294,15 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         3,
         &mut txn,
-        ManagedHostState::HostInit {
-            machine_state: MachineState::MachineValidating {
-                context: "OnDemand".to_string(),
-                id: uuid::Uuid::default(),
-                completed: 1,
-                total: 1,
-                is_enabled: env.config.machine_validation_config.enabled,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "OnDemand".to_string(),
+                    id: uuid::Uuid::default(),
+                    completed: 1,
+                    total: 1,
+                    is_enabled: env.config.machine_validation_config.enabled,
+                },
             },
         },
     )
@@ -559,18 +564,33 @@ async fn test_machine_validation_test_on_demand_filter(
     )
     .await;
 
+    let validation_id =
+        uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default()).unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         1,
         &mut txn,
-        ManagedHostState::HostInit {
-            machine_state: MachineState::MachineValidating {
-                context: "OnDemand".to_string(),
-                id: uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default())
-                    .unwrap(),
-                completed: 1,
-                total: 1,
-                is_enabled: env.config.machine_validation_config.enabled,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::RebootHost { validation_id },
+            },
+        },
+    )
+    .await;
+    let _ = reboot_completed(&env, host_machine_id.clone()).await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        1,
+        &mut txn,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "OnDemand".to_string(),
+                    id: validation_id,
+                    completed: 1,
+                    total: 1,
+                    is_enabled: env.config.machine_validation_config.enabled,
+                },
             },
         },
     )
@@ -650,18 +670,19 @@ async fn test_machine_validation_disabled(
     )
     .await;
     let mut txn = env.pool.begin().await?;
-
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         3,
         &mut txn,
-        ManagedHostState::HostInit {
-            machine_state: MachineState::MachineValidating {
-                context: "OnDemand".to_string(),
-                id: uuid::Uuid::default(),
-                completed: 1,
-                total: 1,
-                is_enabled: env.config.machine_validation_config.enabled,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "OnDemand".to_string(),
+                    id: uuid::Uuid::default(),
+                    completed: 1,
+                    total: 1,
+                    is_enabled: env.config.machine_validation_config.enabled,
+                },
             },
         },
     )
@@ -695,11 +716,7 @@ async fn test_machine_validation_disabled(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         3,
         &mut txn,
-        ManagedHostState::HostInit {
-            machine_state: MachineState::Discovered {
-                skip_reboot_wait: true,
-            },
-        },
+        ManagedHostState::Ready,
     )
     .await;
     txn.commit().await.unwrap();
@@ -1124,19 +1141,34 @@ async fn test_on_demant_un_verified_machine_validation(
         Vec::new(),
     )
     .await;
+    let validation_id =
+        uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default()).unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        1,
+        &mut txn,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::RebootHost { validation_id },
+            },
+        },
+    )
+    .await;
+    let _ = reboot_completed(&env, host_machine_id.clone()).await;
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         1,
         &mut txn,
-        ManagedHostState::HostInit {
-            machine_state: MachineState::MachineValidating {
-                context: "OnDemand".to_string(),
-                id: uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default())
-                    .unwrap(),
-                completed: 1,
-                total: 1,
-                is_enabled: env.config.machine_validation_config.enabled,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "OnDemand".to_string(),
+                    id: validation_id,
+                    completed: 1,
+                    total: 1,
+                    is_enabled: env.config.machine_validation_config.enabled,
+                },
             },
         },
     )
@@ -1304,18 +1336,33 @@ async fn test_on_demant_machine_validation_all_contexts(
         }
     }
 
+    let validation_id =
+        uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default()).unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         1,
         &mut txn,
-        ManagedHostState::HostInit {
-            machine_state: MachineState::MachineValidating {
-                context: "OnDemand".to_string(),
-                id: uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default())
-                    .unwrap(),
-                completed: 1,
-                total: 1,
-                is_enabled: env.config.machine_validation_config.enabled,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::RebootHost { validation_id },
+            },
+        },
+    )
+    .await;
+    let _ = reboot_completed(&env, host_machine_id.clone()).await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        1,
+        &mut txn,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "OnDemand".to_string(),
+                    id: validation_id,
+                    completed: 1,
+                    total: 1,
+                    is_enabled: env.config.machine_validation_config.enabled,
+                },
             },
         },
     )
