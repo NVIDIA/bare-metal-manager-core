@@ -5,8 +5,8 @@ use crate::{
     db::{self, machine_topology::MachineTopology, machine_validation::MachineValidation},
     model::{
         machine::{
-            BomValidating, BomValidatingContext, MachineState, MachineValidationFilter,
-            ManagedHostState, ManagedHostStateSnapshot,
+            BomValidating, BomValidatingContext, MachineState, MachineValidatingState,
+            ManagedHostState, ManagedHostStateSnapshot, ValidationState,
         },
         sku::diff_skus,
     },
@@ -94,7 +94,6 @@ async fn advance_to_updating_inventory(
 async fn advance_to_machine_validating(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     mh_snapshot: &mut ManagedHostStateSnapshot,
-    host_handler_params: &HostHandlerParams,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     // transitioning to machine validating with a None context is a bug.
     let context = get_machine_validation_context(mh_snapshot.host_snapshot.current_state());
@@ -109,22 +108,17 @@ async fn advance_to_machine_validating(
             },
         ));
     };
-
     let validation_id = MachineValidation::create_new_run(
         txn,
         &mh_snapshot.host_snapshot.id,
         context.clone(),
-        MachineValidationFilter::default(),
+        crate::model::machine::MachineValidationFilter::default(),
     )
     .await?;
     Ok(StateHandlerOutcome::Transition(
-        ManagedHostState::HostInit {
-            machine_state: MachineState::MachineValidating {
-                context,
-                id: validation_id,
-                completed: 1,
-                total: 1,
-                is_enabled: host_handler_params.machine_validation_config.enabled,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::RebootHost { validation_id },
             },
         },
     ))
@@ -148,7 +142,7 @@ async fn handle_bom_validation_disabled(
         &health_report,
     )
     .await?;
-    advance_to_machine_validating(txn, mh_snapshot, host_handler_params).await
+    advance_to_machine_validating(txn, mh_snapshot).await
 }
 
 pub(crate) async fn handle_bom_validation_state(
@@ -170,7 +164,7 @@ pub(crate) async fn handle_bom_validation_state(
                     db::machine::assign_sku(txn, &mh_snapshot.host_snapshot.id, &existing_sku.id)
                         .await?;
                     // Since a matchin SKU was found, that verified that its a match so move on to machine validation
-                    advance_to_machine_validating(txn, mh_snapshot, host_handler_params).await
+                    advance_to_machine_validating(txn, mh_snapshot).await
                 } else if host_handler_params
                     .bom_validation
                     .ignore_unassigned_machines
@@ -256,7 +250,7 @@ pub(crate) async fn handle_bom_validation_state(
                 )
                 .await?;
 
-                advance_to_machine_validating(txn, mh_snapshot, host_handler_params).await
+                advance_to_machine_validating(txn, mh_snapshot).await
             } else {
                 let health_report = HealthReport::sku_mismatch(diffs);
                 db::machine::update_sku_validation_health_report(

@@ -293,7 +293,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                 machine::wait_for_state(
                     carbide_api_addr,
                     &host_machine_id,
-                    "HostInitializing/MachineValidating",
+                    "MachineValidation",
                 )?;
 
                 machine::wait_for_state(carbide_api_addr, &host_machine_id, "Discovered")?;

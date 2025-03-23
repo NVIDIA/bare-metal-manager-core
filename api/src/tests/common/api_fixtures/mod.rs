@@ -23,6 +23,8 @@ use std::{
 
 use crate::cfg::file::ListenMode;
 use crate::logging::log_limiter::LogLimiter;
+use crate::model::machine::MachineValidatingState;
+use crate::model::machine::ValidationState;
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
     FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2, FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
@@ -258,27 +260,7 @@ impl TestEnv {
                     crate::model::machine::MachineState::Discovered { .. } => machine_state,
                     crate::model::machine::MachineState::WaitingForLockdown { .. } => machine_state,
                     crate::model::machine::MachineState::Measuring { .. } => machine_state,
-                    crate::model::machine::MachineState::MachineValidating {
-                        context,
-                        id: _,
-                        completed,
-                        total,
-                        is_enabled,
-                    } => {
-                        let mut id = machine.discovery_machine_validation_id.unwrap_or_default();
-                        if context == "Cleanup" {
-                            id = machine.cleanup_machine_validation_id.unwrap_or_default();
-                        } else if context == "OnDemand" {
-                            id = machine.on_demand_machine_validation_id.unwrap_or_default();
-                        }
-                        crate::model::machine::MachineState::MachineValidating {
-                            context,
-                            id,
-                            completed,
-                            total,
-                            is_enabled,
-                        }
-                    }
+
                     crate::model::machine::MachineState::EnableIpmiOverLan => machine_state,
                 };
                 ManagedHostState::HostInit { machine_state: mc }
@@ -306,6 +288,39 @@ impl TestEnv {
             ManagedHostState::PostAssignedMeasuring { .. } => state.clone(),
             ManagedHostState::HostReprovision { .. } => state.clone(),
             ManagedHostState::BomValidating { .. } => state.clone(),
+            ManagedHostState::Validation { validation_state } => match validation_state {
+                ValidationState::MachineValidation { machine_validation } => {
+                    match machine_validation {
+                        MachineValidatingState::MachineValidating {
+                            context,
+                            id: _,
+                            completed,
+                            total,
+                            is_enabled,
+                        } => {
+                            let mut id =
+                                machine.discovery_machine_validation_id.unwrap_or_default();
+                            if context == "Cleanup" {
+                                id = machine.cleanup_machine_validation_id.unwrap_or_default();
+                            } else if context == "OnDemand" {
+                                id = machine.on_demand_machine_validation_id.unwrap_or_default();
+                            }
+                            crate::model::machine::ManagedHostState::Validation {
+                                validation_state: ValidationState::MachineValidation {
+                                    machine_validation: MachineValidatingState::MachineValidating {
+                                        context,
+                                        id,
+                                        completed,
+                                        total,
+                                        is_enabled,
+                                    },
+                                },
+                            }
+                        }
+                        MachineValidatingState::RebootHost { .. } => state.clone(),
+                    }
+                }
+            },
         }
     }
 
@@ -366,7 +381,6 @@ impl TestEnv {
         .await
         .unwrap()
         .unwrap();
-
         panic!(
             "Expected Machine state condition not hit after {max_iterations} iterations; state is {:?}",
             machine.current_state()

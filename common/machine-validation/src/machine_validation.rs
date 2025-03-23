@@ -420,7 +420,10 @@ impl MachineValidation {
         machine_validation_filter: MachineValidationFilter,
     ) -> Result<(), MachineValidationError> {
         self.clone().get_container_auth_config().await?;
-        Self::get_container_images().await?;
+        match Self::get_container_images().await {
+            Ok(_) => info!("Successfully fetched container images"),
+            Err(e) => error!("{}", e.to_string()),
+        }
         if execute_tests_sequentially {
             for test in tests {
                 if !machine_validation_filter.allowed_tests.is_empty()

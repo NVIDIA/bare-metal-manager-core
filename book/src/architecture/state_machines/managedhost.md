@@ -93,4 +93,11 @@ if_state --> DpuDiscoveringState: True
   Ready --> HostReprovision
   HostReprovision_CheckingFirmware --> WaitingForLockdown
   HostReprovision_CheckingFirmware --> Ready
+
+  Host_Discovered --> Validation: Discovery completed
+  state Validation {
+    [*] --> MachineValidating
+    MachineValidating --> Ready: After machine validation
+  }
+  Validation --> Ready: Validation completed
 ```

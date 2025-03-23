@@ -24,8 +24,8 @@ use crate::{
         machine_validation_suites,
     },
     model::machine::{
-        FailureCause, FailureDetails, FailureSource, MachineState, MachineValidationFilter,
-        ManagedHostState, machine_id::try_parse_machine_id,
+        FailureCause, FailureDetails, FailureSource, MachineValidationFilter, ManagedHostState,
+        ValidationState, machine_id::try_parse_machine_id,
     },
 };
 use ::rpc::forge::{self as rpc, GetMachineValidationExternalConfigResponse};
@@ -219,15 +219,11 @@ pub(crate) async fn persist_validation_result(
         };
     // Check state
     match machine.current_state() {
-        ManagedHostState::HostInit { machine_state } => {
-            match machine_state {
-                MachineState::MachineValidating { .. } => {
+        ManagedHostState::Validation { validation_state } => {
+            match validation_state {
+                ValidationState::MachineValidation { .. } => {
                     tracing::info!("machine state is  {}", machine.current_state());
                     //Continue to persist data
-                }
-                _ => {
-                    tracing::error!("invalid machine state {}", machine.current_state());
-                    return Err(Status::invalid_argument("wrong machine state"));
                 }
             }
         }
@@ -487,6 +483,17 @@ pub(crate) async fn on_demand_machine_validation(
             // Check state
             match machine.current_state() {
                 ManagedHostState::Ready | ManagedHostState::Failed { .. } => {
+                    if machine
+                        .on_demand_machine_validation_request
+                        .unwrap_or(false)
+                    {
+                        // If triggere
+                        let msg = format!(
+                            "On demand machine validation for {machine_id} is already scheduled."
+                        );
+                        tracing::error!(msg);
+                        return Err(Status::invalid_argument(msg));
+                    }
                     let validation_id = MachineValidation::create_new_run(
                         &mut txn,
                         &machine_id,

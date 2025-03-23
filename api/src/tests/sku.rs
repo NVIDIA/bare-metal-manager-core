@@ -5,7 +5,10 @@ pub mod tests {
     use crate::{
         db::{self, DatabaseError, ObjectFilter, machine::MachineSearchConfig},
         model::{
-            machine::{BomValidating, BomValidatingContext, MachineState, ManagedHostState},
+            machine::{
+                BomValidating, BomValidatingContext, MachineState, MachineValidatingState,
+                ManagedHostState, ValidationState,
+            },
             sku::Sku,
         },
         tests::common::api_fixtures::{
@@ -447,12 +450,23 @@ pub mod tests {
         ));
 
         env.run_machine_state_controller_iteration().await;
-
         let state = get_machine_state(&pool, &machine_id).await?;
         assert!(matches!(
             state,
-            ManagedHostState::HostInit {
-                machine_state: MachineState::MachineValidating { .. }
+            ManagedHostState::Validation {
+                validation_state: ValidationState::MachineValidation {
+                    machine_validation: MachineValidatingState::RebootHost { .. }
+                }
+            }
+        ));
+        env.run_machine_state_controller_iteration().await;
+        let state = get_machine_state(&pool, &machine_id).await?;
+        assert!(matches!(
+            state,
+            ManagedHostState::Validation {
+                validation_state: ValidationState::MachineValidation {
+                    machine_validation: MachineValidatingState::MachineValidating { .. }
+                }
             }
         ));
 
@@ -497,8 +511,10 @@ pub mod tests {
             state = get_machine_state(&pool, &machine_id).await?;
             assert!(!matches!(
                 state,
-                ManagedHostState::HostInit {
-                    machine_state: MachineState::MachineValidating { .. }
+                ManagedHostState::Validation {
+                    validation_state: ValidationState::MachineValidation {
+                        machine_validation: MachineValidatingState::MachineValidating { .. }
+                    }
                 }
             ));
             if state == ManagedHostState::Ready {
@@ -583,8 +599,10 @@ pub mod tests {
             |machine| {
                 assert!(!matches!(
                     machine.current_state(),
-                    ManagedHostState::HostInit {
-                        machine_state: MachineState::MachineValidating { .. },
+                    ManagedHostState::Validation {
+                        validation_state: ValidationState::MachineValidation {
+                            machine_validation: MachineValidatingState::MachineValidating { .. }
+                        },
                     }
                 ));
                 matches!(
@@ -620,8 +638,10 @@ pub mod tests {
             |machine| {
                 assert!(!matches!(
                     machine.current_state(),
-                    ManagedHostState::HostInit {
-                        machine_state: MachineState::MachineValidating { .. }
+                    ManagedHostState::Validation {
+                        validation_state: ValidationState::MachineValidation {
+                            machine_validation: MachineValidatingState::MachineValidating { .. }
+                        }
                     }
                 ));
                 matches!(
@@ -644,8 +664,10 @@ pub mod tests {
             state = get_machine_state(&pool, &machine_id).await?;
             assert!(!matches!(
                 state,
-                ManagedHostState::HostInit {
-                    machine_state: MachineState::MachineValidating { .. }
+                ManagedHostState::Validation {
+                    validation_state: ValidationState::MachineValidation {
+                        machine_validation: MachineValidatingState::MachineValidating { .. }
+                    }
                 }
             ));
             if state == ManagedHostState::Ready {
