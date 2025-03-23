@@ -41,6 +41,8 @@ BF2_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/CEC17
 # BF3-24.10-9
 BF3_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic/BF3/BF3BMC-24.07-14/OPN/bf3-bmc-24.07-14_opn.fwpkg"
 BF3_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/Glacier/00.02.0182.0000/sign/n02/rel-prod/cec1736-ecfw-00.02.0182.0000-n02-rel-prod.fwpkg"
+# BF3-23.10-5
+BF3_PREINGESTION_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/BF3/BF3BMC-23.10-5/OPN/bf3-bmc-23.10-5_opn.fwpkg"
 
 BFB_FW_BUNDLE = "https://urm.nvidia.com/artifactory/sw-mlnx-bluefield-generic/doca_2.9.0/20241109/custom-images/bf-fwbundle-2.9.0-90_24.10-prod.bfb"
 
@@ -817,6 +819,7 @@ script = [
   "wget -nv \"${BF3_BMC_PACKAGE}\"",
   "wget -nv \"${BF3_CEC_PACKAGE}\"",
   "wget -nv \"${BFB_FW_BUNDLE}\"",
+  "wget -nv \"${BF3_PREINGESTION_BMC_PACKAGE}\"",
 ]
 cwd = "${REPO_ROOT}/pxe/static/blobs/internal/firmware"
 

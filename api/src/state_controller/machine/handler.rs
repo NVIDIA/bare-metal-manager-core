@@ -2082,14 +2082,21 @@ async fn check_bmc_fw_component_version(
 
         let model = identify_dpu(dpu_snapshot);
 
-        let update_version = hardware_models
+        let expected_version = hardware_models
             .find(bmc_vendor::BMCVendor::Nvidia, model.to_string())
             .and_then(|fw| fw.components.get(&component).cloned())
-            .and_then(|c| c.known_firmware.last().cloned())
+            .and_then(|fw_component| {
+                fw_component
+                    .known_firmware
+                    .iter()
+                    .filter(|fw_entry| !fw_entry.preingestion_exclusive_config)
+                    .last()
+                    .cloned()
+            })
             .map(|f| f.version.clone())
             .unwrap_or("Unknown current configured BMC FW version".to_string());
 
-        if cur_version != update_version {
+        if cur_version != expected_version {
             // CEC_MIN_RESET_VERSION="00.02.0180.0000"
             if component == FirmwareComponentType::Cec
                 && !host_power_cycle_done
@@ -2100,15 +2107,15 @@ async fn check_bmc_fw_component_version(
                 tracing::info!(
                     "Need to launch host power cycle to update CEC FW from {} to {}",
                     cur_version,
-                    update_version
+                    expected_version
                 );
                 return Ok(true);
             }
             return Err(StateHandlerError::FirmwareUpdateError(eyre::eyre!(
-                "{:#?} FW didn't update succesfully. Expected version: {}, got version: {}",
+                "{:#?} FW didn't update succesfully. Expected version: {}, Current version: {}",
                 component,
+                expected_version,
                 cur_version,
-                update_version
             )));
         }
     }

@@ -933,6 +933,9 @@ impl DpuConfig {
 }
 
 impl Default for DpuConfig {
+    // Preingestion is only enabled for BF3 BMC Firmware upgrades. This is to support ingesting DPUs that come
+    // with older BMC firmware versions than BF-23.10-5. BF-23.10-5 is the minimum BMC firmware that Site Explorer
+    // can support auto-ingestion for.
     fn default() -> Self {
         Self {
             dpu_nic_firmware_initial_update_enabled: false,
@@ -960,6 +963,7 @@ impl Default for DpuConfig {
                         checksum: None,
                         install_only_specified: false,
                         power_drains_needed: None,
+                        preingestion_exclusive_config: false,
                     }],
                 }),
                     (FirmwareComponentType::Cec, FirmwareComponent {
@@ -974,7 +978,8 @@ impl Default for DpuConfig {
                             checksum: None,
                             install_only_specified: false,
                             power_drains_needed: None,
-                        }],
+                            preingestion_exclusive_config: false,
+                            }],
                     })]),
 
             }), ("bluefield3".to_string(), Firmware {
@@ -983,16 +988,33 @@ impl Default for DpuConfig {
                 ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
                 components: HashMap::from([(FirmwareComponentType::Bmc, FirmwareComponent {
                     current_version_reported_as: Some(Regex::new("BMC_Firmware").unwrap()),
-                    preingest_upgrade_when_below: None,
-                    known_firmware: vec![FirmwareEntry {
+                    preingest_upgrade_when_below: Some("BF-23.10-5".to_string()),
+                    known_firmware: vec![
+                        // BF-23.10-5 (DOCA 2.5) is the minimum BMC firmware for BF3s that site explorer supports for auto-ingestion
+                        // Use this entry to facilitate BMC fw upgrades to BF-23.10-5 on DPUs that are at a lower BMC fw as part of
+                        // BF3 preingestion.
+                        FirmwareEntry {
+                            version: "BF-23.10-5".to_string(),
+                            mandatory_upgrade_from_priority: None,
+                            default: false,
+                            filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc-23.10-5_opn.fwpkg".to_string()),
+                            url: None,
+                            checksum: None,
+                            install_only_specified: false,
+                            power_drains_needed: None,
+                            preingestion_exclusive_config: true,
+                        },
+                        // BF-24.07-14 (DOCA 2.8) is the expected BMC FW that we expect on BF3s after ingesting them
+                        FirmwareEntry {
                         version: "BF-24.07-14".to_string(),
                         mandatory_upgrade_from_priority: None,
-                        default: true,
+                        default: false,
                         filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc-24.07-14_opn.fwpkg".to_string()),
                         url: None,
                         checksum: None,
                         install_only_specified: false,
                         power_drains_needed: None,
+                        preingestion_exclusive_config: false,
                     }],
                 }),
                     (FirmwareComponentType::Cec, FirmwareComponent {
@@ -1007,7 +1029,8 @@ impl Default for DpuConfig {
                             checksum: None,
                             install_only_specified: false,
                             power_drains_needed: None,
-                        }],
+                            preingestion_exclusive_config: false,
+                            }],
                     })]),
             })]),
         }
@@ -1157,6 +1180,11 @@ pub struct FirmwareEntry {
     // If set, we will pass the firmware type to libredfish which for some platforms will install only one part of a multi-firmware package.
     pub install_only_specified: bool,
     pub power_drains_needed: Option<u32>,
+    #[serde(default)]
+    // this firmware entry is only applicable in preingestion.
+    // BF3s are the only machine with multiple firmware entries for a given firmware compoanent type (BMC FWs).
+    // This flag is used to mark the firmware entry for BMC preingestion on BF3s.
+    pub preingestion_exclusive_config: bool,
 }
 
 impl FirmwareEntry {

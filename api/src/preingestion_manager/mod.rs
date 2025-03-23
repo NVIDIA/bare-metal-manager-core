@@ -1016,7 +1016,7 @@ fn need_upgrade(
         .get(&firmware_type)?
         .known_firmware
         .iter()
-        .find(|x| x.default && x.version != current_version)
+        .find(|x| (x.default || x.preingestion_exclusive_config) && x.version != current_version)
         .cloned()
 }
 
