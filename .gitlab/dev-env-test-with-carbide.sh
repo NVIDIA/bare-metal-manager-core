@@ -10,7 +10,7 @@
 # NOTE: Any changes made to this script must (likely) also be made to the script of the same name in the forged repo
 #
 
-set -xeuo pipefail
+set -euo pipefail
 echo "Current working directory is: $(pwd)"
 
 # Merge trunk into branch to improve test reliability

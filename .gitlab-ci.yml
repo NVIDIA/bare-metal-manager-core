@@ -1367,7 +1367,7 @@ dev-env-test-with-carbide:
     - job: export-docker-json-config
   variables:
     VAULT_NAMESPACE: ngc-forge
-    DEBUG_JUST: false
+    DEBUG_JUST: #true # Uncomment value for additional logs. Checks test for the presence of variable, therefore setting to false is not equivalent
     LOG_ARGO: true
     DPU_NAME: no-dpu  # TODO: Set value when we get an Acorn managed-host to include in test
   id_tokens:
@@ -1375,6 +1375,7 @@ dev-env-test-with-carbide:
       aud: $VAULT_ADDR
   before_script:
     - set -euo pipefail
+    - if [ -n "${DEBUG_JUST}" ] ; then set -xv; fi
     - mkdir -p ~/.docker
     - cp .docker/config.json ~/.docker/config.json
     - export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE
