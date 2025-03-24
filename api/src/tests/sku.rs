@@ -1,5 +1,4 @@
 pub mod tests {
-    use chrono::Utc;
     use forge_uuid::machine::MachineId;
 
     use crate::{
@@ -496,11 +495,7 @@ pub mod tests {
         .pop()
         .unwrap();
 
-        let mut sku_status = machine.hw_sku_status.clone().unwrap_or_default();
-
-        sku_status.verify_request_time = Some(Utc::now());
-
-        crate::db::machine::update_sku_status(&mut txn, &machine_id, sku_status).await?;
+        crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
         txn.commit().await?;
 
@@ -581,11 +576,7 @@ pub mod tests {
         db::machine::unassign_sku(&mut txn, &machine_id).await?;
         db::machine::assign_sku(&mut txn, &machine_id, &broken_sku.id).await?;
 
-        let mut sku_status = machine.hw_sku_status.clone().unwrap_or_default();
-
-        sku_status.verify_request_time = Some(Utc::now());
-
-        crate::db::machine::update_sku_status(&mut txn, &machine_id, sku_status).await?;
+        crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
         txn.commit().await?;
 
@@ -623,9 +614,7 @@ pub mod tests {
         db::machine::unassign_sku(&mut txn, &machine_id).await?;
         db::machine::assign_sku(&mut txn, &machine_id, &original_sku.id).await?;
 
-        let mut sku_status = machine.hw_sku_status.clone().unwrap_or_default();
-        sku_status.verify_request_time = Some(Utc::now());
-        crate::db::machine::update_sku_status(&mut txn, &machine_id, sku_status).await?;
+        crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
         txn.commit().await?;
 
         handle_inventory_update(&pool, &env, &machine_id).await;

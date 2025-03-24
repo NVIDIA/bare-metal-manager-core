@@ -38,7 +38,7 @@ pub async fn find_matching(
                 }
             }
             Err(sqlx::Error::RowNotFound) => {}
-            Err(e) => return Err(DatabaseError::new(file!(), line!(), "create sku", e)),
+            Err(e) => return Err(DatabaseError::new(file!(), line!(), "find matching sku", e)),
         }
     }
 

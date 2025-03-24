@@ -1815,6 +1815,19 @@ pub struct BomValidationConfig {
     /// Allow machines that do not have a sku to bypass sku validation
     #[serde(default)]
     pub ignore_unassigned_machines: bool,
+
+    #[serde(
+        default = "BomValidationConfig::default_find_match_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub find_match_interval: std::time::Duration,
+}
+
+impl BomValidationConfig {
+    const fn default_find_match_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(300)
+    }
 }
 
 #[cfg(test)]
