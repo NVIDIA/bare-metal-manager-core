@@ -1,3 +1,4 @@
+use chrono::Utc;
 use health_report::HealthReport;
 
 use super::{HostHandlerParams, discovered_after_state_transition};
@@ -19,8 +20,8 @@ fn get_machine_validation_context(state: &ManagedHostState) -> Option<String> {
     } = state
     {
         match bom_validating_state {
-            BomValidating::MatchingSku => Some("Discovery".to_string()),
-            BomValidating::UpdatingInventory(bom_validating_context)
+            BomValidating::MatchingSku(bom_validating_context)
+            | BomValidating::UpdatingInventory(bom_validating_context)
             | BomValidating::VerifyingSku(bom_validating_context)
             | BomValidating::SkuVerificationFailed(bom_validating_context)
             | BomValidating::WaitingForSkuAssignment(bom_validating_context) => {
@@ -32,21 +33,58 @@ fn get_machine_validation_context(state: &ManagedHostState) -> Option<String> {
     }
 }
 
+async fn match_sku_for_machine(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    host_handler_params: &HostHandlerParams,
+    mh_snapshot: &ManagedHostStateSnapshot,
+) -> Result<Option<crate::model::sku::Sku>, StateHandlerError> {
+    let sku_status = mh_snapshot.host_snapshot.hw_sku_status.as_ref();
+    if sku_status.is_none()
+        || sku_status.is_some_and(|ss| {
+            ss.last_match_attempt.is_some_and(|t| {
+                t < (Utc::now() - host_handler_params.bom_validation.find_match_interval)
+            })
+        })
+    {
+        db::machine::update_sku_status_last_match_attempt(txn, &mh_snapshot.host_snapshot.id)
+            .await?;
+        let machine_sku = db::sku::from_topology(txn, &mh_snapshot.host_snapshot.id).await?;
+        return Ok(db::sku::find_matching(txn, &machine_sku).await?);
+    }
+    Ok(None)
+}
+
 pub(crate) async fn handle_bom_validation_requested(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     host_handler_params: &HostHandlerParams,
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
-    if !host_handler_params.bom_validation.enabled
-        || (host_handler_params
-            .bom_validation
-            .ignore_unassigned_machines
-            && mh_snapshot.host_snapshot.hw_sku.is_none())
-    {
+    if !host_handler_params.bom_validation.enabled {
         return Ok(None);
     }
 
+    // If ignored_unassigned_machines is true, still try to find a matching SKU.
+    if host_handler_params
+        .bom_validation
+        .ignore_unassigned_machines
+        && mh_snapshot.host_snapshot.hw_sku.is_none()
+    {
+        if let Some(sku) = match_sku_for_machine(txn, host_handler_params, mh_snapshot).await? {
+            tracing::info!(machine_id=%mh_snapshot.host_snapshot.id, sku_id=sku.id, "Possible SKU match found, attempting verification");
+            // A possible match has been found but inventory may be out of date.  update the
+            // machines inventory and do the match again
+            return advance_to_updating_inventory(txn, mh_snapshot)
+                .await
+                .map(Some);
+        }
+
+        return Ok(None);
+    }
+
+    // if the sku was removed, move to waiting
     if mh_snapshot.host_snapshot.hw_sku.is_none() {
+        tracing::info!(machine_id=%mh_snapshot.host_snapshot.id, sku_id=mh_snapshot.host_snapshot.hw_sku, "SKU unassigned");
+
         Ok(Some(StateHandlerOutcome::Transition(
             ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
@@ -65,6 +103,8 @@ pub(crate) async fn handle_bom_validation_requested(
                 .is_some_and(|t| t > mh_snapshot.host_snapshot.state.version.timestamp())
         })
     {
+        tracing::info!(machine_id=%mh_snapshot.host_snapshot.id, sku_id=mh_snapshot.host_snapshot.hw_sku, "Verify SKU requested, attempting verification");
+
         advance_to_updating_inventory(txn, mh_snapshot)
             .await
             .map(Some)
@@ -89,6 +129,33 @@ async fn advance_to_updating_inventory(
             }),
         },
     ))
+}
+
+async fn advance_to_waiting_for_sku_assignment(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    mh_snapshot: &mut ManagedHostStateSnapshot,
+    host_handler_params: &HostHandlerParams,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    if host_handler_params
+        .bom_validation
+        .ignore_unassigned_machines
+        && mh_snapshot.host_snapshot.hw_sku.is_none()
+    {
+        handle_bom_validation_disabled(txn, host_handler_params, mh_snapshot).await
+    } else {
+        let machine_validation_context =
+            get_machine_validation_context(mh_snapshot.host_snapshot.current_state());
+
+        Ok(StateHandlerOutcome::Transition(
+            ManagedHostState::BomValidating {
+                bom_validating_state: BomValidating::WaitingForSkuAssignment(
+                    BomValidatingContext {
+                        machine_validation_context,
+                    },
+                ),
+            },
+        ))
+    }
 }
 
 async fn advance_to_machine_validating(
@@ -156,51 +223,19 @@ pub(crate) async fn handle_bom_validation_state(
     }
 
     match bom_validating_state {
-        BomValidating::MatchingSku => {
+        BomValidating::MatchingSku(bom_validating_context) => {
             if mh_snapshot.host_snapshot.hw_sku.is_none() {
-                let machine_sku =
-                    db::sku::from_topology(txn, &mh_snapshot.host_snapshot.id).await?;
-                if let Some(existing_sku) = db::sku::find_matching(txn, &machine_sku).await? {
-                    db::machine::assign_sku(txn, &mh_snapshot.host_snapshot.id, &existing_sku.id)
-                        .await?;
-                    // Since a matchin SKU was found, that verified that its a match so move on to machine validation
-                    advance_to_machine_validating(txn, mh_snapshot).await
-                } else if host_handler_params
-                    .bom_validation
-                    .ignore_unassigned_machines
+                if let Some(sku) =
+                    match_sku_for_machine(txn, host_handler_params, mh_snapshot).await?
                 {
-                    handle_bom_validation_disabled(txn, host_handler_params, mh_snapshot).await
+                    db::machine::assign_sku(txn, &mh_snapshot.host_snapshot.id, &sku.id).await?;
+                    // finding a match uses the same check as verifying the sku, so consider it verified.
+                    advance_to_machine_validating(txn, mh_snapshot).await
                 } else {
-                    let mv_context =
-                        get_machine_validation_context(mh_snapshot.host_snapshot.current_state());
-                    Ok(StateHandlerOutcome::Transition(
-                        ManagedHostState::BomValidating {
-                            bom_validating_state: BomValidating::WaitingForSkuAssignment(
-                                BomValidatingContext {
-                                    machine_validation_context: mv_context,
-                                },
-                            ),
-                        },
-                    ))
+                    advance_to_waiting_for_sku_assignment(txn, mh_snapshot, host_handler_params)
+                        .await
                 }
             } else {
-                // this should not happen.  only newly discovered machines go through 'MatchingSku' state and should not have a sku assigned.
-                advance_to_updating_inventory(txn, mh_snapshot).await
-            }
-        }
-        BomValidating::UpdatingInventory(bom_validating_context) => {
-            if mh_snapshot.host_snapshot.hw_sku.is_none() {
-                Ok(StateHandlerOutcome::Transition(
-                    ManagedHostState::BomValidating {
-                        bom_validating_state: BomValidating::WaitingForSkuAssignment(
-                            bom_validating_context.clone(),
-                        ),
-                    },
-                ))
-            } else if discovered_after_state_transition(
-                mh_snapshot.host_snapshot.state.version,
-                mh_snapshot.host_snapshot.last_discovery_time,
-            ) {
                 Ok(StateHandlerOutcome::Transition(
                     ManagedHostState::BomValidating {
                         bom_validating_state: BomValidating::VerifyingSku(BomValidatingContext {
@@ -210,15 +245,40 @@ pub(crate) async fn handle_bom_validation_state(
                         }),
                     },
                 ))
+            }
+        }
+        BomValidating::UpdatingInventory(bom_validating_context) => {
+            if !discovered_after_state_transition(
+                mh_snapshot.host_snapshot.state.version,
+                mh_snapshot.host_snapshot.last_discovery_time,
+            ) {
+                return Ok(StateHandlerOutcome::DoNothing);
+            }
+
+            if mh_snapshot.host_snapshot.hw_sku.is_none() {
+                Ok(StateHandlerOutcome::Transition(
+                    ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::MatchingSku(
+                            bom_validating_context.clone(),
+                        ),
+                    },
+                ))
             } else {
-                Ok(StateHandlerOutcome::DoNothing)
+                Ok(StateHandlerOutcome::Transition(
+                    ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::VerifyingSku(
+                            bom_validating_context.clone(),
+                        ),
+                    },
+                ))
             }
         }
         BomValidating::VerifyingSku(bom_validating_context) => {
             let Some(sku_id) = mh_snapshot.host_snapshot.hw_sku.clone() else {
+                // the sku got removed before it could be verified.  start over
                 return Ok(StateHandlerOutcome::Transition(
                     ManagedHostState::BomValidating {
-                        bom_validating_state: BomValidating::WaitingForSkuAssignment(
+                        bom_validating_state: BomValidating::MatchingSku(
                             bom_validating_context.clone(),
                         ),
                     },
@@ -293,7 +353,11 @@ pub(crate) async fn handle_bom_validation_state(
             }
         }
         BomValidating::WaitingForSkuAssignment(_) => {
-            if mh_snapshot.host_snapshot.hw_sku.is_some() {
+            if mh_snapshot.host_snapshot.hw_sku.is_some()
+                || match_sku_for_machine(txn, host_handler_params, mh_snapshot)
+                    .await?
+                    .is_some()
+            {
                 advance_to_updating_inventory(txn, mh_snapshot).await
             } else if host_handler_params
                 .bom_validation

@@ -4,7 +4,7 @@ use crate::{
     db::{self, DatabaseError, machine::MachineSearchConfig},
     model::{
         machine::{BomValidating, ManagedHostState, machine_id::try_parse_machine_id},
-        sku::{Sku, SkuStatus},
+        sku::Sku,
     },
 };
 
@@ -142,14 +142,8 @@ pub(crate) async fn assign_to_machine(
         ManagedHostState::Ready if machine.hw_sku.is_none() => {
             // if the host is in ready state without a sku, allow the assignment, but force a verification.
             // this can happen when 'ignore_unassigned_machines' is true
-            crate::db::machine::update_sku_status(
-                &mut txn,
-                &machine_id,
-                SkuStatus {
-                    verify_request_time: Some(Utc::now()),
-                },
-            )
-            .await?;
+            crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id)
+                .await?;
         }
         _ => {
             return Err(CarbideError::FailedPrecondition(
@@ -228,7 +222,7 @@ pub(crate) async fn verify_for_machine(
 
     sku_status.verify_request_time = Some(Utc::now());
 
-    crate::db::machine::update_sku_status(&mut txn, &machine_id, sku_status)
+    crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id)
         .await
         .map_err(CarbideError::from)?;
 

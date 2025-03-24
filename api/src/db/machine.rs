@@ -2181,19 +2181,34 @@ pub async fn unassign_sku(
     Ok(id)
 }
 
-pub async fn update_sku_status(
+pub async fn update_sku_status_last_match_attempt(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: &MachineId,
-    sku_status: SkuStatus,
 ) -> Result<(), DatabaseError> {
-    let query = "UPDATE machines SET hw_sku_status=$1 WHERE id=$2 RETURNING id";
+    let query = "UPDATE machines SET hw_sku_status=jsonb_set(coalesce(hw_sku_status, '{}'), '{last_match_attempt}', $1) WHERE id=$2 RETURNING id";
 
     let _: () = sqlx::query_as(query)
-        .bind(sqlx::types::Json(sku_status))
+        .bind(sqlx::types::Json(Utc::now()))
         .bind(machine_id)
         .fetch_one(&mut **txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "assign sku to machine", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "update sku last match attempt", e))?;
+
+    Ok(())
+}
+
+pub async fn update_sku_status_verify_request_time(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines SET hw_sku_status=jsonb_set(coalesce(hw_sku_status, '{}'), '{verify_request_time}', $1) WHERE id=$2 RETURNING id";
+
+    let _: () = sqlx::query_as(query)
+        .bind(sqlx::types::Json(Utc::now()))
+        .bind(machine_id)
+        .fetch_one(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "update sku status", e))?;
 
     Ok(())
 }

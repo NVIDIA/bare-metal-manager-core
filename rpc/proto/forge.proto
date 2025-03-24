@@ -4460,6 +4460,7 @@ message SkuIdList {
 
 message SkuStatus {
   optional google.protobuf.Timestamp verify_request_time = 1;
+  optional google.protobuf.Timestamp last_match_attempt = 2;
 }
 
 message SkusByIdsRequest {

@@ -239,7 +239,7 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::BomValidating {
                 bom_validating_state,
             } => match bom_validating_state {
-                machine::BomValidating::MatchingSku => ("bomvalidating", "matchingsku"),
+                machine::BomValidating::MatchingSku(_) => ("bomvalidating", "matchingsku"),
                 machine::BomValidating::UpdatingInventory(_) => {
                     ("bomvalidating", "updatinginventory")
                 }

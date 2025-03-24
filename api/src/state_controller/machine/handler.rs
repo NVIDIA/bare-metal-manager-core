@@ -3645,7 +3645,13 @@ impl StateHandler for HostMachineStateHandler {
                                 .await?;
                                 if LockdownMode::Enable == lockdown_info.mode {
                                     let next_state = ManagedHostState::BomValidating {
-                                        bom_validating_state: BomValidating::MatchingSku,
+                                        bom_validating_state: BomValidating::MatchingSku(
+                                            BomValidatingContext {
+                                                machine_validation_context: Some(
+                                                    "Discovery".to_string(),
+                                                ),
+                                            },
+                                        ),
                                     };
                                     Ok(StateHandlerOutcome::Transition(next_state))
                                 } else {

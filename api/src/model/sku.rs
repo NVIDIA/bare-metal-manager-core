@@ -286,6 +286,11 @@ pub struct SkuStatus {
     // used by the state machine to determing if a machine needs
     // to be validated against its assigned SKU
     pub verify_request_time: Option<DateTime<Utc>>,
+    // Periodically the state machine will attempt to find a match
+    // for this machine.  This is the last time an attempt was made.
+    // None means no attempt has been made.  This value is not valid
+    // if the machine has a SKU assigned.
+    pub last_match_attempt: Option<DateTime<Utc>>,
 }
 
 impl From<rpc::forge::SkuStatus> for SkuStatus {
@@ -293,9 +298,13 @@ impl From<rpc::forge::SkuStatus> for SkuStatus {
         let verify_request_time = value
             .verify_request_time
             .map(|t| DateTime::<Utc>::try_from(t).unwrap_or_default());
+        let last_match_attempt = value
+            .last_match_attempt
+            .map(|t| DateTime::<Utc>::try_from(t).unwrap_or_default());
 
         SkuStatus {
             verify_request_time,
+            last_match_attempt,
         }
     }
 }
@@ -304,6 +313,7 @@ impl From<SkuStatus> for rpc::forge::SkuStatus {
     fn from(value: SkuStatus) -> Self {
         rpc::forge::SkuStatus {
             verify_request_time: value.verify_request_time.map(|t| t.into()),
+            last_match_attempt: value.last_match_attempt.map(|t| t.into()),
         }
     }
 }

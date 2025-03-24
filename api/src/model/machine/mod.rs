@@ -2287,7 +2287,7 @@ pub struct BomValidatingContext {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum BomValidating {
-    MatchingSku,
+    MatchingSku(BomValidatingContext),
     UpdatingInventory(BomValidatingContext),
     VerifyingSku(BomValidatingContext),
     SkuVerificationFailed(BomValidatingContext),
