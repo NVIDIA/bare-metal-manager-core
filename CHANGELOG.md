@@ -19,6 +19,7 @@
 ### Changed
 
 - Added a reboot after disabling lockdown for upgrades (Dell only) and force-delete, as they sometimes need a reboot to fully remove it.  This may help [FORGE-5180](https://jirasw.nvidia.com/browse/FORGE-5180).
+- Display of Machine Validation Results and Runs is improved on carbide-web
 
 ### Fixed
 
