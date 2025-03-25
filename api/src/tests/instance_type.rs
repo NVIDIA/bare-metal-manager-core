@@ -51,6 +51,7 @@ async fn test_instance_type_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std
             hardware_revision: None,
             cores: Some(1),
             threads: Some(2),
+            inactive_devices: None,
         }],
     });
 
@@ -188,6 +189,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
             hardware_revision: None,
             cores: Some(1),
             threads: Some(2),
+            inactive_devices: None,
         }],
     });
 

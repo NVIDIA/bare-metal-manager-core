@@ -13,3 +13,7 @@ message MachineIdList {
 message UUID {
   string value = 1;
 }
+
+message Uint32List {
+  repeated uint32 items = 1;
+}

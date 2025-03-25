@@ -266,6 +266,7 @@ mod tests {
             hardware_revision: None,
             cores: Some(1),
             threads: Some(2),
+            inactive_devices: Some(vec![2, 4]),
         };
 
         let update_cap_attrs = InstanceTypeMachineCapabilityFilter {
@@ -278,6 +279,7 @@ mod tests {
             hardware_revision: None,
             cores: None,
             threads: None,
+            inactive_devices: None,
         };
 
         // Create a NewInstanceType to feed to the query

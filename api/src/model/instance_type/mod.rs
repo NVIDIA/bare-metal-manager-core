@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::forge as rpc;
+use ::rpc::{common as rpc_common, forge as rpc};
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use forge_uuid::instance_type::InstanceTypeId;
@@ -44,6 +44,7 @@ pub struct InstanceTypeMachineCapabilityFilter {
     pub hardware_revision: Option<String>,
     pub cores: Option<u32>,
     pub threads: Option<u32>,
+    pub inactive_devices: Option<Vec<u32>>,
 }
 
 impl InstanceTypeMachineCapabilityFilter {
@@ -157,6 +158,9 @@ impl InstanceTypeMachineCapabilityFilter {
         }) && (match (&self.vendor, &mac_cap.vendor) {
             (None, _) => true,
             (Some(c), mc) => c == mc,
+        }) && (match (&self.inactive_devices, &mac_cap.inactive_devices) {
+            (None, _) => true,
+            (Some(c), mc) => c == mc,
         })
     }
 
@@ -190,6 +194,7 @@ impl TryFrom<rpc::InstanceTypeMachineCapabilityFilterAttributes>
             hardware_revision: cap.hardware_revision,
             cores: cap.cores,
             threads: cap.threads,
+            inactive_devices: cap.inactive_devices.map(|l| l.items),
         })
     }
 }
@@ -210,6 +215,9 @@ impl TryFrom<InstanceTypeMachineCapabilityFilter>
             hardware_revision: cap.hardware_revision,
             cores: cap.cores,
             threads: cap.threads,
+            inactive_devices: cap
+                .inactive_devices
+                .map(|l| rpc_common::Uint32List { items: l }),
         })
     }
 }
@@ -493,6 +501,7 @@ mod tests {
                     hardware_revision: Some("rev 9001".to_string()),
                     cores: Some(1),
                     threads: Some(2),
+                    inactive_devices: Some(rpc_common::Uint32List { items: vec![2, 4] }),
                 }],
             }),
             created_at: Some("2023-01-01 00:00:00 UTC".to_string()),
@@ -518,6 +527,7 @@ mod tests {
                 hardware_revision: Some("rev 9001".to_string()),
                 cores: Some(1),
                 threads: Some(2),
+                inactive_devices: Some(vec![2, 4]),
             }],
         };
 
@@ -705,7 +715,7 @@ mod tests {
                 name: "connectx7".to_string(),
                 vendor: "nvidia".to_string(),
                 count: 1,
-                inactive_devices: Vec::new(),
+                inactive_devices: vec![2, 4],
             }],
             dpu: vec![capabilities::MachineCapabilityDpu {
                 name: "bluefield3".to_string(),
@@ -736,6 +746,7 @@ mod tests {
                 hardware_revision: None,
                 cores: Some(1),
                 threads: Some(2),
+                inactive_devices: None,
             }],
         };
 
@@ -764,6 +775,7 @@ mod tests {
                     hardware_revision: None,
                     cores: Some(1),
                     threads: Some(2),
+                    ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
                     capability_type: rpc::MachineCapabilityType::CapTypeGpu.try_into().unwrap(),
@@ -812,6 +824,7 @@ mod tests {
                     name: Some("connectx7".to_string()),
                     vendor: Some("nvidia".to_string()),
                     count: Some(1),
+                    inactive_devices: Some(vec![2, 4]),
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
@@ -849,6 +862,7 @@ mod tests {
                     hardware_revision: None,
                     cores: Some(1),
                     threads: Some(2),
+                    ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
                     capability_type: rpc::MachineCapabilityType::CapTypeGpu.try_into().unwrap(),
@@ -892,6 +906,7 @@ mod tests {
                         .unwrap(),
                     vendor: Some("nvidia".to_string()),
                     count: Some(1),
+                    inactive_devices: Some(vec![2, 4]),
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
