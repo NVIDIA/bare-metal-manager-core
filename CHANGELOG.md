@@ -109,12 +109,6 @@
 
 ### Changed
 
-- Host health status is recorded over time in health history. Whenever the health status (added/removed/changed alert or success) of a host changes, a new host health history record is created. Host health history can be retrieved via the `FindMachineHealthHistories` gRPC API.
-- The Host Health page on carbide-web have been improved:
-  - Host health history is presented directly on the health page (`/admin/machine/:id/health`), as well as on a dedicated health history page (`/admin/machine/:id/health-history`)
-  - The layout of the health page had been improved
-  - The list of health overrides now shows the full override definition in JSON format in an expandable `Details` column
-  - The health page is now loading without an error even in case the machine is not currently ingested. This allows viewing the health history for deleted machines
 - [FORGE-5695](https://jirasw.nvidia.com/browse/FORGE-5695) SKU auto matching now occurs when ignore_unassigned_machines is true
 - IPv4 egress rules for Network Security Groups are now stateful by default, and the behavior can be turned off in the site-controller config by setting `stateful_acls_enabled` to false under `network_security_group` config.
 - The handling of VPC-isolation behavior has been moved to the DPU agent.  `deny_prefixes` and `site_fabric_prefixes` are now sent separately to the DPU along with `vpc_isolation_behavior`, and the agent adjusts generated config as appropriate.  The old protobuf field has been renamed and is still populated with the original content for backward-compatibility.
@@ -138,7 +132,6 @@
     - Updates the protos to send along VPC isolation behavior type to the DPU as well.
     - Updates the FNN, pre-FNN etv, and pre-NVUE etv templates to add in site_fabric_prefixes to the deny policies when necessary.
       - If a security group is applied, site_fabric_prefixes is ignored. (default deny is applied if no security group rule matches.)
-- Improved consistency of Health Hash.  Corrects an issue where two health reports with different orderings of successes or alerts were compared, the health might have been different.
 - Fixed an issue where `forge-dpu-agent` upgrade installed `node-exporter` and `transceiver-exporter` services but not starting them.
 - Host firmware updates that have waited more than 20 minutes after a reset without seeing the version number update, will now try resetting it again.
 - All DPUs will now do a complete upgrade of Firmware, Software and BMC.
