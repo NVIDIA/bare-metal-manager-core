@@ -258,6 +258,15 @@ impl HealthReport {
             .collect();
         self.alerts = alerts.into_values().collect();
     }
+
+    /// Check if reboot from state machine is blocked.
+    pub fn is_reboot_blocked_in_state_machine(&self) -> bool {
+        self.alerts.iter().any(|x| {
+            x.classifications.iter().any(|a| {
+                *a == HealthAlertClassification::stop_reboot_for_automatic_recovery_from_state_machine()
+            })
+        })
+    }
 }
 
 fn merge_classifications(
@@ -575,6 +584,10 @@ impl HealthAlertClassification {
     /// will not take hosts with this classification into account
     pub fn suppress_external_alerting() -> Self {
         Self("SuppressExternalAlerting".to_string())
+    }
+
+    pub fn stop_reboot_for_automatic_recovery_from_state_machine() -> Self {
+        Self("StopRebootForAutomaticRecoveryFromStateMachine".to_string())
     }
 }
 

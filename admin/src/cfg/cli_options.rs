@@ -1156,6 +1156,7 @@ pub enum HealthOverrideTemplates {
     Validation,
     SuppressExternalAlerting,
     MarkHealthy,
+    StopRebootForAutomaticRecoveryFromStateMachine,
 }
 
 #[derive(Parser, Debug)]

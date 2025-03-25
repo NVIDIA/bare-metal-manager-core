@@ -411,6 +411,13 @@ fn get_health_report(template: HealthOverrideTemplates, message: Option<String>)
         HealthOverrideTemplates::InternalMaintenance => {
             report.source = "maintenance".to_string();
         }
+        HealthOverrideTemplates::StopRebootForAutomaticRecoveryFromStateMachine => {
+            report.source = "manual-maintenance".to_string();
+            report.alerts[0].target = Some("admin-cli".to_string());
+            report.alerts[0].classifications = vec![
+                HealthAlertClassification::stop_reboot_for_automatic_recovery_from_state_machine(),
+            ];
+        }
         HealthOverrideTemplates::OutForRepair => {
             report.source = "manual-maintenance".to_string();
             report.alerts[0].target = Some("OutForRepair".to_string());

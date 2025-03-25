@@ -24,6 +24,7 @@
 			<li><input type="submit" value="Blank Example" onclick="setOverrideTextBoxToTemplate(templateHealthReport)"></li>
 			<li><input type="submit" value="Host Update (To allow manual DPU Reprovisioning)" onclick="setOverrideTextBoxToTemplate(templateMergeHostUpdateMaintenance)"></li>
 			<li><input type="submit" value="Internal Maintenance" onclick="setOverrideTextBoxToTemplate(templateMergeInternalMaintenance)"></li>
+			<li><input type="submit" value="Do not reboot machine for recovery" onclick="setOverrideTextBoxToTemplate(templateStopRebootForRecovery)"></li>
 			<li><input type="submit" value="Out For Repair Maintenance" onclick="setOverrideTextBoxToTemplate(templateMergeOfrMaintenance)"></li>
 			<li><input type="submit" value="Degraded" onclick="setOverrideTextBoxToTemplate(templateMergeDegradedMaintenance)"></li>
 			<li><input type="submit" value="Validation" onclick="setOverrideTextBoxToTemplate(templateMergeValidationMaintenance)"></li>
@@ -108,6 +109,15 @@ const templateMergeHostUpdateMaintenance = {
 		source: "host-update",
 		successes: [],
 		alerts: [{id: "HostUpdateInProgress", target: "WebUi", message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
+	}
+};
+
+const templateStopRebootForRecovery = {
+	mode: "Merge",
+	health_report: {
+		source: "manual-maintenance",
+		successes: [],
+		alerts: [{id: "Maintenance", target: "WebUi", message: "", tenant_message: null, classifications: ["StopRebootForAutomaticRecoveryFromStateMachine"]}]
 	}
 };
 
