@@ -2951,6 +2951,21 @@ pub async fn trigger_reboot_if_needed(
         });
     }
 
+    // Check if reboot is prevented by health override.
+    if state.aggregate_health.is_reboot_blocked_in_state_machine() {
+        tracing::info!(
+            "Not trying to reboot {} since health override is set to prevent reboot.",
+            target.id,
+        );
+        return Ok(RebootStatus {
+            increase_retry_count: false,
+            status: format!(
+                "Not trying to reboot {} since health override is set to prevent reboot.",
+                target.id
+            ),
+        });
+    }
+
     let wait_period = reachability_params
         .failure_retry_time
         .max(Duration::minutes(1));
