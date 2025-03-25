@@ -222,7 +222,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         UseVpcIsolation: conf.use_vpc_isolation,
         Infrastructure: infra,
         HbnVersion: conf.hbn_version,
-        ComputeTENANTs: vec![TmplComputeTenant {
+        Tenant: TmplComputeTenant {
             VrfName: conf.ct_vrf_name,
             L3VNI: conf.ct_l3_vni.unwrap_or_default().to_string(),
             l3vniVLAN: 0, // unused -- TODO(chet): unique per DPU within a VPC
@@ -247,7 +247,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             EgressNetworkSecurityGroupRulesIpv4: egress_ipv4_rules,
             IngressNetworkSecurityGroupRulesIpv6: ingress_ipv6_rules,
             EgressNetworkSecurityGroupRulesIpv6: egress_ipv6_rules,
-        }],
+        },
         InternetL3VNI: conf.ct_internet_l3_vni.unwrap_or_default(),
         // XXX: Unused placeholders for later.
         IsStorageClient: false,                   // XXX (Classic, L3)
@@ -654,7 +654,7 @@ struct TmplNvue {
     StatefulAclsEnabled: bool,
 
     /// For when we have more than one tenant
-    ComputeTENANTs: Vec<TmplComputeTenant>,
+    Tenant: TmplComputeTenant,
 
     // InternetL3VNI is the side-wide GNI-supplied VNI to use so VPCs
     // can access the Internet. This is sent down via the internet_l3_vni

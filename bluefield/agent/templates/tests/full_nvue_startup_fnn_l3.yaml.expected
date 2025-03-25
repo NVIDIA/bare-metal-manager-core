@@ -20,7 +20,6 @@
         type: swp
       p1_if:
         type: swp
- 
       pf0hpf_if:
         type: swp
         acl: 
