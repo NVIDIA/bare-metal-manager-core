@@ -1080,14 +1080,7 @@ pub async fn create_test_env_with_overrides(
         // Prepare some attributes for creation and comparison later
         let desired_capabilities = vec![InstanceTypeMachineCapabilityFilter {
             capability_type: MachineCapabilityType::Cpu,
-            name: None,
-            frequency: None,
-            capacity: None,
-            vendor: None,
-            count: None,
-            hardware_revision: None,
-            cores: None,
-            threads: None,
+            ..Default::default()
         }];
 
         let metadata = Metadata {
