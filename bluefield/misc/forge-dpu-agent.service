@@ -12,7 +12,7 @@ Environment="RUST_LIB_BACKTRACE=0"
 #
 # Use this line for more agent logging
 #Environment="RUST_LOG=debug,agent=trace"
-Environment="RUST_LOG=debug"
+Environment="RUST_LOG=info"
 #
 # Enable core dumps (SIGABRT) limited to 100MiB. Currently an agent core dump is ~30MiB.
 LimitCORE=104857600
