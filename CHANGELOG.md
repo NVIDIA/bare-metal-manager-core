@@ -16,10 +16,12 @@
   - `/admin/tenant/:organization_id.json`: Shows the content of the `Tenant` gRPC object for the given tenant organization ID
   - `/admin/tenant_keyset/:organization_id/:keyset_id.json`: Shows the content of the `TenantKeyset` gRPC object for the given tenant and keyset ID
   - `/admin/vpc/:vpc_id.json`: Shows the content of the `VPC` gRPC object for the given VPC ID
+
 ### Changed
 
 - Added a reboot after disabling lockdown for upgrades (Dell only) and force-delete, as they sometimes need a reboot to fully remove it.  This may help [FORGE-5180](https://jirasw.nvidia.com/browse/FORGE-5180).
 - Display of Machine Validation Results and Runs is improved on carbide-web
+- InstanceType can now filter on IB inactive devices. 
 
 ### Fixed
 
