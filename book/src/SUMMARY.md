@@ -83,6 +83,7 @@
   - [Stuck in `WaitingForNetworkConfig` and DPU Health](playbooks/stuck_objects/waiting_for_network_config.md)
   - [Machine stuck in DPU `Reprovisioning`](playbooks/stuck_objects/dpu_reprovisioning.md)
   - [State is stuck in Forge Cloud](playbooks/stuck_objects/stuck_in_forge_cloud.md)
+  - [Adding new machines to an existing site](playbooks/stuck_objects/adding_new_machines.md)
 - [InfiniBand setup](playbooks/ib_runbook.md)
 
 # NVMesh
