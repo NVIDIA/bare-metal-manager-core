@@ -20,7 +20,7 @@ use std::time::Duration;
 use ::rpc::common::MachineId;
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
-use cfg::Options;
+use cfg::{ConcurrencyOption, Options};
 use chrono::{DateTime, Utc};
 use eyre::Result;
 use forge_tls::client_config::ClientCert;
@@ -55,7 +55,7 @@ mod cfg;
 mod metrics;
 use crate::metrics::{HealthHashData, scrape_machine_health};
 
-const CONCURRENCY: usize = 16;
+const DEFAULT_CONCURRENCY: usize = 16;
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
@@ -181,7 +181,7 @@ pub async fn get_machines(client: &ForgeApiClient) -> Result<rpc::MachineList, H
 pub async fn get_machine_bmc_data(
     client: ForgeApiClient,
     id: &MachineId,
-    histogram: &Histogram<f64>,
+    histogram: Histogram<f64>,
 ) -> Result<libredfish::Endpoint, HealthError> {
     let request = rpc::BmcMetaDataGetRequest {
         machine_id: Some(id.clone()),
@@ -308,7 +308,7 @@ pub async fn scrape_single_machine(
         let endpoint = match get_machine_bmc_data(
             grpc_client.clone(),
             id,
-            &get_bmc_metadata_latency_histogram,
+            get_bmc_metadata_latency_histogram.clone(),
         )
         .await
         {
@@ -371,7 +371,7 @@ pub async fn scrape_single_machine(
             let dpu_endpoint = match get_machine_bmc_data(
                 grpc_client.clone(),
                 dpu_id,
-                &get_bmc_metadata_latency_histogram,
+                get_bmc_metadata_latency_histogram.clone(),
             )
             .await
             {
@@ -525,7 +525,14 @@ pub async fn scrape_machines_health(
     )
     .await?;
 
-    let grpc_clients: Vec<ForgeApiClient> = (0..CONCURRENCY).map(|_| grpc_client.clone()).collect();
+    let concurrency = match config.concurrency {
+        ConcurrencyOption::Default => DEFAULT_CONCURRENCY,
+        ConcurrencyOption::MachineCount => 0,
+        ConcurrencyOption::Custom(n) => n,
+    };
+
+    let mut grpc_clients: Vec<ForgeApiClient> =
+        (0..concurrency).map(|_| grpc_client.clone()).collect();
 
     let machines_map: Arc<Mutex<HashMap<String, Arc<Mutex<HealthHashData>>>>> =
         Arc::new(Mutex::new(HashMap::new()));
@@ -567,6 +574,12 @@ pub async fn scrape_machines_health(
                 continue;
             }
         };
+
+        if let ConcurrencyOption::MachineCount = config.concurrency {
+            while grpc_clients.len() < machines.machines.len() {
+                grpc_clients.push(grpc_client.clone());
+            }
+        }
 
         // Only keep active machines in machines_map
         let active_ids: HashSet<String> = machines

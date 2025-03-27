@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use clap::Parser;
+use std::str::FromStr;
 
 #[derive(Parser)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
@@ -46,10 +47,40 @@ pub struct Options {
         default_value_t = String::from("/var/run/secrets/spiffe.io/tls.key"),
     )]
     pub client_key: String,
+
+    #[clap(
+        long,
+        help = "Number of machines scraped concurrently: a positive integer, 'default', or 'machine_count'",
+        require_equals(true),
+        default_value = "default"
+    )]
+    pub concurrency: ConcurrencyOption,
 }
 
 impl Options {
     pub fn load() -> Self {
         Self::parse()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum ConcurrencyOption {
+    Default,
+    MachineCount,
+    Custom(usize),
+}
+
+impl FromStr for ConcurrencyOption {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "default" => Ok(ConcurrencyOption::Default),
+            "machine_count" => Ok(ConcurrencyOption::MachineCount),
+            s => match s.parse::<usize>() {
+                Ok(n) if n > 0 => Ok(ConcurrencyOption::Custom(n)),
+                _ => Err(format!("Invalid concurrency value: {}", s)),
+            },
+        }
     }
 }

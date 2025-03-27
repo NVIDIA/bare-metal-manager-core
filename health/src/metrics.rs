@@ -665,52 +665,52 @@ pub async fn scrape_machine_health(
     provider: SdkMeterProvider,
     logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
     machine_id: &str,
-    health_hash: &MutexGuard<'_, HealthHashData>,
+    health_data: &MutexGuard<'_, HealthHashData>,
 ) -> Result<(String, usize, i64, i64, bool, bool), HealthError> {
     let pool = RedfishClientPool::builder().build()?;
     let endpoint = libredfish::Endpoint {
-        host: health_hash.host.clone(),
-        port: match health_hash.port {
+        host: health_data.host.clone(),
+        port: match health_data.port {
             0 => None,
             x => Some(x),
         },
-        user: Some(health_hash.user.clone()),
-        password: Some(health_hash.password.clone()),
+        user: Some(health_data.user.clone()),
+        password: Some(health_data.password.clone()),
     };
     let redfish = pool.create_client(endpoint.clone()).await?;
     let model = redfish.get_system().await?.model.unwrap_or_default();
-    let health = get_metrics(redfish, health_hash.last_polled_ts).await;
+    let health = get_metrics(redfish, health_data.last_polled_ts).await;
 
     // try dpu metrics
     let mut scrape_dpu = true;
-    if health_hash.dpu_error_count > 0 {
+    if health_data.dpu_error_count > 0 {
         let now: DateTime<Utc> = Utc::now();
-        if health_hash.dpu_error_count < 24 {
+        if health_data.dpu_error_count < 24 {
             // try every 30 minutes for 12 hours
-            if (now.timestamp() - health_hash.last_dpu_error_ts) < (30 * 60) {
+            if (now.timestamp() - health_data.last_dpu_error_ts) < (30 * 60) {
                 scrape_dpu = false;
             }
-        } else if health_hash.dpu_error_count < 36 {
+        } else if health_data.dpu_error_count < 36 {
             // try every 60 minutes for next 12 hours
-            if (now.timestamp() - health_hash.last_dpu_error_ts) < (60 * 60) {
+            if (now.timestamp() - health_data.last_dpu_error_ts) < (60 * 60) {
                 scrape_dpu = false;
             }
         } else {
             // try once a day
-            if (now.timestamp() - health_hash.last_dpu_error_ts) < (24 * 60 * 60) {
+            if (now.timestamp() - health_data.last_dpu_error_ts) < (24 * 60 * 60) {
                 scrape_dpu = false;
             }
         }
     }
     let dpu_health = if scrape_dpu {
         let dpu_endpoint = libredfish::Endpoint {
-            host: health_hash.dpu.clone(),
-            port: match health_hash.dpu_port {
+            host: health_data.dpu.clone(),
+            port: match health_data.dpu_port {
                 0 => None,
                 x => Some(x),
             },
-            user: Some(health_hash.dpu_user.clone()),
-            password: Some(health_hash.dpu_password.clone()),
+            user: Some(health_data.dpu_user.clone()),
+            password: Some(health_data.dpu_password.clone()),
         };
 
         let dpu_redfish = pool.create_client(dpu_endpoint.clone()).await?;
@@ -741,10 +741,10 @@ pub async fn scrape_machine_health(
         logger,
         health,
         dpu_health,
-        health_hash.firmware_digest.clone(),
-        health_hash.sel_count,
-        health_hash.last_recorded_ts,
-        health_hash.description.clone(),
+        health_data.firmware_digest.clone(),
+        health_data.sel_count,
+        health_data.last_recorded_ts,
+        health_data.description.clone(),
         machine_id,
     )
     .await

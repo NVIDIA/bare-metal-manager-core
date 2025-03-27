@@ -11,4 +11,4 @@
  */
 mod command_line;
 
-pub(crate) use command_line::Options;
+pub(crate) use command_line::{ConcurrencyOption, Options};
