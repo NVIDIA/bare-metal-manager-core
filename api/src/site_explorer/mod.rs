@@ -788,6 +788,8 @@ impl SiteExplorer {
                                     Ok(is_dpu_mode_configured_correctly) => {
                                         if !is_dpu_mode_configured_correctly {
                                             all_dpus_configured_properly_in_host = false;
+                                            // we do not want to ingest a host with an incorrectly configured DPU
+                                            continue;
                                         }
                                     }
                                     Err(err) => {
@@ -838,6 +840,8 @@ impl SiteExplorer {
                                         Ok(is_dpu_mode_configured_correctly) => {
                                             if !is_dpu_mode_configured_correctly {
                                                 all_dpus_configured_properly_in_host = false;
+                                                // we do not want to ingest a host with an incorrectly configured DPU
+                                                continue;
                                             }
                                         }
                                         Err(err) => {
@@ -901,9 +905,36 @@ impl SiteExplorer {
                         tracing::warn!(
                             address = %ep.address,
                             exploration_report = ?ep,
-                            "cannot identify managed host because the site explorer has only discovered {} out of the {} attached DPUs:\n{:#?}",
+                            "cannot identify managed host because the site explorer has only discovered {} out of the {} attached DPUs (all_dpus_configured_properly_in_host={all_dpus_configured_properly_in_host}):\n{:#?}",
                             dpus_explored_for_host.len(), expected_num_dpus_attached_to_host, dpus_explored_for_host
                         );
+
+                        if !all_dpus_configured_properly_in_host {
+                            if ep.report.vendor.is_some_and(|vendor| vendor.is_dell()) {
+                                tracing::warn!(
+                                    "power cycling Dell {} to apply nic mode change for its incorrectly configured DPUs",
+                                    ep.address,
+                                );
+
+                                let time_since_redfish_powercycle = Utc::now()
+                                    .signed_duration_since(
+                                        ep.last_redfish_powercycle.unwrap_or_default(),
+                                    );
+                                if time_since_redfish_powercycle > self.config.reset_rate_limit {
+                                    let _ = self.redfish_powercycle(
+                                            ep.address,
+                                        )
+                                        .await.inspect_err(|err| tracing::warn!("site explorer failed to power cycle host {} to apply DPU mode changes: {err}", ep.address));
+                                }
+                            } else {
+                                tracing::warn!(
+                                    "wait for manual power cycle of host {}; site explorer doesn't support power cycling vendor {:#?}",
+                                    ep.address,
+                                    ep.report.vendor
+                                );
+                            }
+                        }
+
                         continue;
                     } else if !self.config.allow_zero_dpu_hosts {
                         tracing::warn!(
@@ -961,37 +992,6 @@ impl SiteExplorer {
                         .unwrap_or("".to_string())
                         .to_lowercase()
                 });
-            }
-
-            if !all_dpus_configured_properly_in_host {
-                tracing::warn!(
-                    address = %ep.address,
-                    exploration_report = ?ep,
-                    "Site explorer cannot ingest this host--some of the BF3s are not configured properly");
-
-                if ep.report.vendor.is_some_and(|vendor| vendor.is_dell()) {
-                    tracing::warn!(
-                        "power cycling Dell {} to apply nic mode change for its incorrectly configured DPUs",
-                        ep.address,
-                    );
-
-                    let time_since_redfish_powercycle = Utc::now()
-                        .signed_duration_since(ep.last_redfish_powercycle.unwrap_or_default());
-                    if time_since_redfish_powercycle > self.config.reset_rate_limit {
-                        let _ = self.redfish_powercycle(
-                                ep.address,
-                            )
-                            .await.inspect_err(|err| tracing::warn!("site explorer failed to power cycle host {} to apply DPU mode changes: {err}", ep.address));
-                    }
-                } else {
-                    tracing::warn!(
-                        "wait for manual power cycle of host {}; site explorer doesnt support power cycling vendor {:#?}",
-                        ep.address,
-                        ep.report.vendor
-                    );
-                }
-
-                continue;
             }
 
             managed_hosts.push((
