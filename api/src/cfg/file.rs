@@ -1023,7 +1023,7 @@ impl Default for DpuConfig {
                         known_firmware: vec![FirmwareEntry {
                             version: "00.02.0182.0000_n02".to_string(),
                             mandatory_upgrade_from_priority: None,
-                            default: true,
+                            default: false,
                             filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/cec1736-ecfw-00.02.0182.0000-n02-rel-prod.fwpkg".to_string()),
                             url: None,
                             checksum: None,
