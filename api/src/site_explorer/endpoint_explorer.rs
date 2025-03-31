@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use libredfish::model::oem::nvidia_dpu::NicMode;
+
 use crate::{
     db::expected_machine::ExpectedMachine,
     model::{
@@ -70,5 +72,12 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
         boot_interface_mac: Option<&str>,
+    ) -> Result<(), EndpointExplorationError>;
+
+    async fn set_nic_mode(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        mode: NicMode,
     ) -> Result<(), EndpointExplorationError>;
 }

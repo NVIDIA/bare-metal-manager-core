@@ -454,7 +454,7 @@ impl From<SystemPowerControl> for MachineLastRebootRequestedMode {
             SystemPowerControl::GracefulRestart => Self::Reboot,
             SystemPowerControl::ForceRestart => Self::Reboot,
             SystemPowerControl::ACPowercycle => Self::Reboot,
-            SystemPowerControl::PowerCycle => todo!(),
+            SystemPowerControl::PowerCycle => Self::Reboot,
         }
     }
 }

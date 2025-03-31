@@ -14,6 +14,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use forge_secrets::credentials::{CredentialProvider, Credentials};
+use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 
@@ -257,6 +258,21 @@ impl BmcEndpointExplorer {
             .forge_setup(bmc_ip_address, username, password, boot_interface_mac)
             .await
     }
+
+    pub async fn set_nic_mode(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+        mode: NicMode,
+    ) -> Result<(), EndpointExplorationError> {
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        self.redfish_client
+            .set_nic_mode(bmc_ip_address, username, password, mode)
+            .await
+    }
 }
 
 #[async_trait::async_trait]
@@ -405,6 +421,27 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 tracing::info!(
                     %bmc_ip_address,
                     "BMC endpoint explorer does not support starting forge_setup for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    bmc_mac_address,
+                );
+                Err(e)
+            }
+        }
+    }
+
+    async fn set_nic_mode(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        mode: NicMode,
+    ) -> Result<(), EndpointExplorationError> {
+        let bmc_mac_address = interface.mac_address;
+
+        match self.get_bmc_root_credentials(bmc_mac_address).await {
+            Ok(credentials) => self.set_nic_mode(bmc_ip_address, credentials, mode).await,
+            Err(e) => {
+                tracing::info!(
+                    %bmc_ip_address,
+                    "BMC endpoint explorer does not support set_nic_mode for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
                     bmc_mac_address,
                 );
                 Err(e)

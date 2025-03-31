@@ -17,7 +17,7 @@ use std::{
 use crate::dhcp::allocation::DhcpError;
 use crate::model::{
     ConfigValidationError, hardware_info::HardwareInfoError, network_devices::LldpError,
-    tenant::TenantError,
+    site_explorer::EndpointExplorationError, tenant::TenantError,
 };
 use crate::{db, resource_pool};
 use ::rpc::errors::RpcDataConversionError;
@@ -199,6 +199,13 @@ pub enum CarbideError {
 
     #[error("{0}")]
     FailedPrecondition(String),
+
+    #[error("EndpointExplorationError for {action}: {err}")]
+    EndpointExplorationError {
+        action: &'static str,
+        /// The actual BMC MAC address found associated with the endpoint IP
+        err: EndpointExplorationError,
+    },
 }
 
 impl CarbideError {

@@ -45,6 +45,8 @@ pub struct DbExploredEndpoint {
     last_ipmitool_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
     /// The last time site explorer issued a redfish call to reboot this endpoint
     last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
+    /// The last time site explorer issued a redfish call to power cycle this endpoint
+    last_redfish_powercycle: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
@@ -58,7 +60,7 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
         let last_redfish_bmc_reset = row.try_get("last_redfish_bmc_reset")?;
         let last_ipmitool_bmc_reset = row.try_get("last_ipmitool_bmc_reset")?;
         let last_redfish_reboot = row.try_get("last_redfish_reboot")?;
-
+        let last_redfish_powercycle = row.try_get("last_redfish_powercycle")?;
         Ok(DbExploredEndpoint {
             address: row.try_get("address")?,
             report: report.0,
@@ -69,6 +71,7 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
             last_redfish_bmc_reset,
             last_ipmitool_bmc_reset,
             last_redfish_reboot,
+            last_redfish_powercycle,
         })
     }
 }
@@ -85,6 +88,7 @@ impl From<DbExploredEndpoint> for ExploredEndpoint {
             last_redfish_bmc_reset: endpoint.last_redfish_bmc_reset,
             last_ipmitool_bmc_reset: endpoint.last_ipmitool_bmc_reset,
             last_redfish_reboot: endpoint.last_redfish_reboot,
+            last_redfish_powercycle: endpoint.last_redfish_powercycle,
         }
     }
 }
@@ -475,6 +479,20 @@ WHERE address = $3 AND version=$4";
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let query = "UPDATE explored_endpoints SET last_redfish_reboot=NOW() WHERE address = $1;";
+        sqlx::query(query)
+            .bind(address)
+            .execute(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
+
+    pub async fn set_last_redfish_powercycle(
+        address: IpAddr,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let query =
+            "UPDATE explored_endpoints SET last_redfish_powercycle=NOW() WHERE address = $1;";
         sqlx::query(query)
             .bind(address)
             .execute(txn.deref_mut())
