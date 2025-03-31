@@ -525,6 +525,18 @@ async fn get_pcie_device(
     };
 
     // Mock a BF3 for all mocked DPUs. Response modeled from a real Dell in dev (10.217.132.202)
+
+    // Set the BF3 Part Number based on whether the DPU is supposed to be in NIC mode or not
+    // Use a BF3 SuperNIC OPN if the DPU is supposed to be in NIC mode. Otherwise, use
+    // a BF3 DPU OPN. Site explorer assumes that BF3 SuperNICs must be in NIC mode and that
+    // BF3 DPUs must be in DPU mode. It will not ingest a host if any of the BF3 DPUs in the host
+    // are in NIC mode or if any of the BF3 SuperNICs in the host are in DPU mode.
+    // OPNs taken from: https://docs.nvidia.com/networking/display/bf3dpu
+    let part_number = match dpu.nic_mode {
+        true => "900-9D3B4-00CC-EA0",
+        false => "900-9D3B6-00CV-AA0",
+    };
+
     let pcie_device = PCIeDevice {
         odata: OData {
             odata_id: format!(
@@ -543,7 +555,7 @@ async fn get_pcie_device(
         manufacturer: Some("Mellanox Technologies".to_string()),
         gpu_vendor: None,
         name: Some("MT43244 BlueField-3 integrated ConnectX-7 network controller".to_string()),
-        part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+        part_number: Some(part_number.to_string()),
         serial_number: Some(dpu.serial.clone()),
         status: Some(libredfish::model::SystemStatus {
             health: Some("OK".to_string()),

@@ -13,6 +13,8 @@ use crate::{
     site_explorer::{EndpointExplorer, SiteExplorationMetrics},
 };
 
+use libredfish::model::oem::nvidia_dpu::NicMode;
+
 /// EndpointExplorer which returns predefined data
 #[derive(Clone, Default, Debug)]
 pub struct MockEndpointExplorer {
@@ -107,6 +109,15 @@ impl EndpointExplorer for MockEndpointExplorer {
         _address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
         _boot_interface_mac: Option<&str>,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn set_nic_mode(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        _mode: NicMode,
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
     }

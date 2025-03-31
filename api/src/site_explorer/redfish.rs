@@ -305,6 +305,23 @@ impl RedfishClient {
 
         Ok(())
     }
+
+    pub async fn set_nic_mode(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+        mode: NicMode,
+    ) -> Result<(), EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client.set_nic_mode(mode).await.map_err(map_redfish_error)?;
+
+        Ok(())
+    }
 }
 
 async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {

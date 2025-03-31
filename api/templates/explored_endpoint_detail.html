@@ -82,6 +82,8 @@
 				Last IPMI BMC Reset: {{ endpoint.last_ipmitool_bmc_reset }}
 				<br>
 				Last Redfish BMC Reboot: {{ endpoint.last_redfish_reboot }}
+				<br>
+				Last Redfish BMC Powercycle: {{ endpoint.last_redfish_powercycle }}
 			</div>
 			<div style="flex-shrink: 0;">
 				{% set bmc_ip = endpoint.address.clone() %}

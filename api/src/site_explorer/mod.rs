@@ -50,7 +50,7 @@ use crate::{
         site_explorer::{
             EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
             ExploredEndpoint, ExploredManagedHost, MachineExpectation, PowerState,
-            PreingestionState, Service, is_bluefield_model,
+            PreingestionState, Service, is_bf3_dpu, is_bf3_supernic, is_bluefield_model,
         },
     },
     resource_pool::common::CommonPools,
@@ -766,6 +766,7 @@ impl SiteExplorer {
             let mut dpus_explored_for_host: Vec<ExploredDpu> = Vec::new();
             // the number of DPUs that the host reports are attached to it
             let mut expected_num_dpus_attached_to_host = 0;
+            let mut all_dpus_configured_properly_in_host = true;
             for system in ep.report.systems.iter() {
                 for pcie_device in system.pcie_devices.iter() {
                     if pcie_device.is_bluefield() {
@@ -776,11 +777,35 @@ impl SiteExplorer {
                     if pcie_device.serial_number.is_some() {
                         let sn = pcie_device.serial_number.as_ref().unwrap().trim();
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.get(sn) {
+                            if let Some(model) = pcie_device.part_number.as_ref() {
+                                match self
+                                    .check_and_configure_dpu_mode(
+                                        (**dpu_ep).to_owned(),
+                                        model.to_string(),
+                                    )
+                                    .await
+                                {
+                                    Ok(is_dpu_mode_configured_correctly) => {
+                                        if !is_dpu_mode_configured_correctly {
+                                            all_dpus_configured_properly_in_host = false;
+                                        }
+                                    }
+                                    Err(err) => {
+                                        tracing::warn!(
+                                            "failed to check DPU mode against {}: {err}",
+                                            dpu_ep.address
+                                        );
+                                        continue;
+                                    }
+                                };
+                            }
+
                             // We do not want to attach bluefields that are in NIC mode as DPUs to the host
                             if is_dpu_in_nic_mode(dpu_ep, ep) {
                                 expected_num_dpus_attached_to_host -= 1;
                                 continue;
                             }
+
                             dpus_explored_for_host.push(ExploredDpu {
                                 bmc_ip: dpu_ep.address,
                                 host_pf_mac_address: get_host_pf_mac_address(dpu_ep),
@@ -802,6 +827,29 @@ impl SiteExplorer {
 
                         if let Some(sn) = network_adapter.serial_number.as_ref() {
                             if let Some(dpu_ep) = dpu_sn_to_endpoint.get(sn.trim()) {
+                                if let Some(model) = network_adapter.part_number.as_ref() {
+                                    match self
+                                        .check_and_configure_dpu_mode(
+                                            (**dpu_ep).to_owned(),
+                                            model.to_string(),
+                                        )
+                                        .await
+                                    {
+                                        Ok(is_dpu_mode_configured_correctly) => {
+                                            if !is_dpu_mode_configured_correctly {
+                                                all_dpus_configured_properly_in_host = false;
+                                            }
+                                        }
+                                        Err(err) => {
+                                            tracing::warn!(
+                                                "failed to check DPU mode against {}: {err}",
+                                                dpu_ep.address
+                                            );
+                                            continue;
+                                        }
+                                    };
+                                }
+
                                 // We do not want to attach bluefields that are in NIC mode as DPUs to the host
                                 if is_dpu_in_nic_mode(dpu_ep, ep) {
                                     expected_num_dpus_attached_to_host -= 1;
@@ -822,6 +870,8 @@ impl SiteExplorer {
                 || dpus_explored_for_host.len() != expected_num_dpus_attached_to_host
             {
                 // Check if there are dpu serial(s) specified in expected_machine table for this host
+                // Lets assume for now that if a DPU is specific in the expected machine table for the host
+                // it has been configured properly (DPU vs NIC mode).
                 let mut dpu_added = false;
                 if let Some(expected_machine) = matched_expected_machines.get(&ep.address) {
                     for dpu_sn in expected_machine.fallback_dpu_serial_numbers.clone() {
@@ -912,6 +962,38 @@ impl SiteExplorer {
                         .to_lowercase()
                 });
             }
+
+            if !all_dpus_configured_properly_in_host {
+                tracing::warn!(
+                    address = %ep.address,
+                    exploration_report = ?ep,
+                    "Site explorer cannot ingest this host--some of the BF3s are not configured properly");
+
+                if ep.report.vendor.is_some_and(|vendor| vendor.is_dell()) {
+                    tracing::warn!(
+                        "power cycling Dell {} to apply nic mode change for its incorrectly configured DPUs",
+                        ep.address,
+                    );
+
+                    let time_since_redfish_powercycle = Utc::now()
+                        .signed_duration_since(ep.last_redfish_powercycle.unwrap_or_default());
+                    if time_since_redfish_powercycle > self.config.reset_rate_limit {
+                        let _ = self.redfish_powercycle(
+                                ep.address,
+                            )
+                            .await.inspect_err(|err| tracing::warn!("site explorer failed to power cycle host {} to apply DPU mode changes: {err}", ep.address));
+                    }
+                } else {
+                    tracing::warn!(
+                        "wait for manual power cycle of host {}; site explorer doesnt support power cycling vendor {:#?}",
+                        ep.address,
+                        ep.report.vendor
+                    );
+                }
+
+                continue;
+            }
+
             managed_hosts.push((
                 ExploredManagedHost {
                     host_bmc_ip: ep.address,
@@ -2086,22 +2168,27 @@ impl SiteExplorer {
             return Ok(true);
         }
 
-        // DPU's in NIC mode do not have full redfish functionality,
-        // for example, we will not be able to retrieve the base GUID
-        // from the redfish response. Skip the next check because the DPUs
-        // in NIC mode will not expose a pf0 interface to the host.
-        if dpu_endpoint
-            .report
-            .nic_mode()
-            .is_some_and(|m| m == NicMode::Nic)
-        {
-            tracing::info!(
-                "Site explorer found an uningested DPU (bmc ip: {}) in NIC mode",
+        if let Some(nic_mode) = dpu_endpoint.report.nic_mode() {
+            // DPU's in NIC mode do not have full redfish functionality,
+            // for example, we will not be able to retrieve the base GUID
+            // from the redfish response. Skip the next check because the DPUs
+            // in NIC mode will not expose a pf0 interface to the host.
+            if nic_mode == NicMode::Nic {
+                tracing::info!(
+                    "Site explorer found an uningested DPU (bmc ip: {}) in NIC mode",
+                    dpu_endpoint.address
+                );
+                return Ok(true);
+            }
+        } else {
+            tracing::error!(
+                "Site explorer found an uningested DPU (bmc ip: {}) without being able to determine if it is in NIC mode",
                 dpu_endpoint.address
             );
-            return Ok(true);
+            return Ok(false);
         }
 
+        // This is a bluefield in DPU mode
         match find_host_pf_mac_address(dpu_endpoint) {
             Ok(_) => Ok(true),
             Err(error) => {
@@ -2109,6 +2196,66 @@ impl SiteExplorer {
                 Ok(false)
             }
         }
+    }
+
+    async fn set_nic_mode(
+        &self,
+        dpu_endpoint: ExploredEndpoint,
+        mode: NicMode,
+    ) -> CarbideResult<()> {
+        let bmc_target_port = self.config.override_target_port.unwrap_or(443);
+        let bmc_target_addr = SocketAddr::new(dpu_endpoint.address, bmc_target_port);
+
+        let interface = self
+            .find_machine_interface_for_ip(dpu_endpoint.address)
+            .await?;
+
+        self.endpoint_explorer
+            .set_nic_mode(bmc_target_addr, &interface, mode)
+            .await
+            .map_err(|err| CarbideError::EndpointExplorationError {
+                action: "set_nic_mode",
+                err,
+            })
+    }
+
+    async fn redfish_power_control(
+        &self,
+        bmc_ip_address: IpAddr,
+        action: libredfish::SystemPowerControl,
+    ) -> CarbideResult<()> {
+        let bmc_target_port = self.config.override_target_port.unwrap_or(443);
+        let bmc_target_addr = SocketAddr::new(bmc_ip_address, bmc_target_port);
+
+        let interface = self.find_machine_interface_for_ip(bmc_ip_address).await?;
+
+        self.endpoint_explorer
+            .redfish_power_control(bmc_target_addr, &interface, action)
+            .await
+            .map_err(|err| CarbideError::EndpointExplorationError {
+                action: "redfish_power_control",
+                err,
+            })
+    }
+
+    async fn redfish_powercycle(&self, bmc_ip_address: IpAddr) -> CarbideResult<()> {
+        self.redfish_power_control(bmc_ip_address, libredfish::SystemPowerControl::PowerCycle)
+            .await?;
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            DatabaseError::new(file!(), line!(), "begin set_last_redfish_powercycle", e)
+        })?;
+
+        DbExploredEndpoint::set_last_redfish_powercycle(bmc_ip_address, &mut txn).await?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::DBError(DatabaseError::new(
+                file!(),
+                line!(),
+                "end set_last_redfish_powercycle",
+                e,
+            ))
+        })
     }
 
     async fn find_machine_interface_for_ip(
@@ -2250,6 +2397,51 @@ impl SiteExplorer {
         }
 
         Ok(ingest_host)
+    }
+
+    // check_and_configure_dpu_mode returns a boolean indicating whether a DPU is configured correctly.
+    // check_and_configure_dpu_mode will always return true for BF2s
+    // check_and_configure_dpu_mode will return false if a BF3 SuperNIC is configured in DPU mode or if a BF3 DPU is configured in NIC mode. Otherwise, it will return true.
+    // if check_and_configure_dpu_mode returns false, it will try to configure the DPU appropriately (put a BF3 SuperNIC in NIC mode or put a BF3 DPU in DPU mode)
+    async fn check_and_configure_dpu_mode(
+        &self,
+        dpu_ep: ExploredEndpoint,
+        dpu_model: String,
+    ) -> CarbideResult<bool> {
+        match dpu_ep.report.nic_mode() {
+            Some(NicMode::Dpu) => {
+                if is_bf3_supernic(&dpu_model) {
+                    tracing::warn!(
+                        "site explorer found a BF3 SuperNIC ({}) that is in DPU mode; will try setting it into NIC mode",
+                        dpu_ep.address
+                    );
+                    self.set_nic_mode(dpu_ep.clone(), NicMode::Nic).await?;
+                    Ok(false)
+                } else {
+                    Ok(true)
+                }
+            }
+            Some(NicMode::Nic) => {
+                if is_bf3_dpu(&dpu_model) {
+                    tracing::warn!(
+                        "site explorer found a BF3 DPU ({}) that is in NIC mode; will try setting it into DPU mode",
+                        dpu_ep.address
+                    );
+                    self.set_nic_mode(dpu_ep.clone(), NicMode::Dpu).await?;
+                    Ok(false)
+                } else {
+                    Ok(true)
+                }
+            }
+            None => {
+                tracing::warn!(
+                    "Site explorer cannot determine this DPU's mode {}: {:#?}",
+                    dpu_ep.address,
+                    dpu_ep.report
+                );
+                Ok(true)
+            }
+        }
     }
 }
 
@@ -2439,6 +2631,7 @@ mod tests {
             last_redfish_bmc_reset: None,
             last_ipmitool_bmc_reset: None,
             last_redfish_reboot: None,
+            last_redfish_powercycle: None,
         };
 
         assert_eq!(

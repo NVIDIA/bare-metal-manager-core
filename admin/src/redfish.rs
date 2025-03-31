@@ -18,6 +18,7 @@ use libredfish::{
     RedfishError, RoleId, SystemPowerControl,
     model::{
         LinkStatus, ResourceStatus,
+        oem::nvidia_dpu::NicMode,
         software_inventory::SoftwareInventory,
         task::{Task, TaskState},
         update_service::ComponentType,
@@ -497,13 +498,24 @@ pub async fn action(api_client: &ApiClient, action: RedfishAction) -> color_eyre
             redfish.set_bios(attrmap).await?;
             println!("success");
         }
-        InNicMode => {
+        GetNicMode => {
             let is_dpu_in_nic_mode = redfish.get_nic_mode().await?;
             println!("{is_dpu_in_nic_mode:#?}");
         }
         IsInfiniteBootEnabled => {
             let is_infinite_boot_enabled = redfish.is_infinite_boot_enabled().await?;
             println!("{is_infinite_boot_enabled:#?}");
+        }
+        SetNicMode => {
+            redfish.set_nic_mode(NicMode::Nic).await?;
+        }
+        SetDpuMode => {
+            redfish.set_nic_mode(NicMode::Dpu).await?;
+        }
+        ChassisResetCard1Powercycle => {
+            redfish
+                .chassis_reset("Card1", SystemPowerControl::PowerCycle)
+                .await?;
         }
     }
     Ok(())

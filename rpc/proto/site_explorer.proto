@@ -51,6 +51,8 @@ message ExploredEndpoint {
   string last_ipmitool_bmc_reset = 7;
   // Last BMC redfish reboot time
   string last_redfish_reboot = 8;
+  // Last BMC redfish powercycle
+  string last_redfish_powercycle = 9;
 }
 
 // Information about explored DPU that was discovered via Site Exploration

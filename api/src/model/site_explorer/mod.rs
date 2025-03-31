@@ -163,6 +163,8 @@ pub struct ExploredEndpoint {
     pub last_ipmitool_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
     /// Last Reboot issued through redfish
     pub last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
+    /// Last Powercycle issued through redfish
+    pub last_redfish_powercycle: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl Display for ExploredEndpoint {
@@ -376,6 +378,10 @@ impl From<ExploredEndpoint> for rpc::site_explorer::ExploredEndpoint {
                 .unwrap_or_else(|| "no timestamp available".to_string()),
             last_redfish_reboot: endpoint
                 .last_redfish_reboot
+                .map(|time| time.to_string())
+                .unwrap_or_else(|| "no timestamp available".to_string()),
+            last_redfish_powercycle: endpoint
+                .last_redfish_powercycle
                 .map(|time| time.to_string())
                 .unwrap_or_else(|| "no timestamp available".to_string()),
         }
@@ -1326,21 +1332,40 @@ impl From<Option<bool>> for MachineExpectation {
     }
 }
 
+// returns true if the model is for a Bluefield-3 DPU
+pub fn is_bf3_dpu(model: &str) -> bool {
+    let normalized_model = model.to_lowercase();
+    // prefix matching for BlueField-3 DPUs (https://docs.nvidia.com/networking/display/bf3dpu)
+    normalized_model.starts_with("900-9d3b6") 
+    // looks like Lenovo ThinkSystem SR675 V3s will report the part number of NVIDIA BlueField-3 VPI QSFP112 2P 200G PCIe Gen5 x16 as SN37B36732
+    // https://windows-server.lenovo.com/repo/2024_05/html/SR675V3_7D9Q_7D9R-Windows_Server_2019.html
+    ||  normalized_model.starts_with("sn37b36732")
+}
+
+// returns true if the model is for a Bluefield-3 SuperNIC
+pub fn is_bf3_supernic(model: &str) -> bool {
+    let normalized_model = model.to_lowercase();
+    // prefix matching for BlueField-3 SuperNICs (https://docs.nvidia.com/networking/display/bf3dpu)
+    normalized_model.starts_with("900-9d3b4") || normalized_model.starts_with("900-9d3d4")
+}
+
+// returns true if the model is for a Bluefield-2
+fn is_bf2_dpu(model: &str) -> bool {
+    let normalized_model = model.to_lowercase();
+    // prefix matching for BlueField-2 DPU (https://docs.nvidia.com/nvidia-bluefield-2-ethernet-dpu-user-guide.pdf)
+    normalized_model.starts_with("mbf2")
+}
 // is_bluefield_model returns true if the passed in string is a bluefield model
 pub fn is_bluefield_model(model: &str) -> bool {
     let normalized_model = model.to_lowercase();
 
     normalized_model.contains("bluefield")
-        // prefix matching for BlueField-3 DPUs (https://docs.nvidia.com/networking/display/bf3dpu)
-        || normalized_model.starts_with("900-9d3b6")
+        || is_bf3_dpu(&normalized_model)
         // prefix matching for BlueField-3 SuperNICs (https://docs.nvidia.com/networking/display/bf3dpu)
-        || normalized_model.starts_with("900-9d3b4")
+        || is_bf3_supernic(&normalized_model)
         // prefix matching for BlueField-2 DPU (https://docs.nvidia.com/nvidia-bluefield-2-ethernet-dpu-user-guide.pdf)
         // TODO (sp): should we be matching on all the individual models listed ("MBF2M516C-CECOT", .. etc)
-        || normalized_model.starts_with("mbf2")
-        // looks like Lenovo ThinkSystem SR675 V3s will report the part number of NVIDIA BlueField-3 VPI QSFP112 2P 200G PCIe Gen5 x16 as SN37B36732
-        // https://windows-server.lenovo.com/repo/2024_05/html/SR675V3_7D9Q_7D9R-Windows_Server_2019.html
-        || normalized_model.starts_with("sn37b36732")
+        || is_bf2_dpu(&normalized_model)
 }
 
 #[cfg(test)]
