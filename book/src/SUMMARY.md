@@ -85,6 +85,7 @@
   - [State is stuck in Forge Cloud](playbooks/stuck_objects/stuck_in_forge_cloud.md)
   - [Adding new machines to an existing site](playbooks/stuck_objects/adding_new_machines.md)
 - [InfiniBand setup](playbooks/ib_runbook.md)
+- [Updating Expected Machines Manifest](playbooks/em_update.md)
 
 # NVMesh
 
