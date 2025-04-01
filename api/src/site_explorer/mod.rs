@@ -1924,6 +1924,24 @@ impl SiteExplorer {
             return;
         }
 
+        match self
+            .is_managed_host_created_for_endpoint(endpoint.address)
+            .await
+        {
+            Ok(managed_host_exists) => {
+                if managed_host_exists {
+                    tracing::info!(
+                        "Site explorer will not remediate error for {endpoint} because a managed host has already been created for this endpoint: {error}"
+                    );
+                    return;
+                }
+            }
+            Err(e) => {
+                tracing::error!(%e, "failed to retrieve whether managed host was created for endpoint: {endpoint}");
+                return;
+            }
+        };
+
         // Dont let site explorer issue either a force-restart or bmc-reset more than the rate limit.
         let reset_rate_limit = self.config.reset_rate_limit;
         let min_time_since_last_action_mins = 20;
@@ -1946,20 +1964,8 @@ impl SiteExplorer {
         }
 
         tracing::info!(
-            "Site explorer captured an error for {endpoint}: {error};\n time_since_redfish_reboot: {time_since_redfish_reboot}; time_since_redfish_bmc_reset: {time_since_redfish_bmc_reset}; time_since_ipmitool_bmc_reset: {time_since_ipmitool_bmc_reset}"
+            "Site explorer captured an error for {endpoint}: {error};\n time_since_redfish_reboot: {time_since_redfish_reboot}; time_since_redfish_bmc_reset: {time_since_redfish_bmc_reset}; time_since_ipmitool_bmc_reset: {time_since_ipmitool_bmc_reset}'"
         );
-
-        let is_managed_host_created_for_endpoint = match self
-            .is_managed_host_created_for_endpoint(endpoint.address)
-            .await
-        {
-            Ok(managed_host_exists) => managed_host_exists,
-            Err(e) => {
-                tracing::error!(%e, "failed to retrieve whether managed host was created for endpoint: {endpoint}");
-                // return true by default
-                true
-            }
-        };
 
         // If the endpoint is a DPU, and the error is that the BIOS attributes are coming up as empty for this DPU,
         // reboot the DPU as our first course of action. This is the official workaround from the DPU redfish team to mitigate empty UEFI attributes
@@ -1970,7 +1976,6 @@ impl SiteExplorer {
 
         if error.is_dpu_redfish_bios_response_invalid()
             && time_since_redfish_reboot > reset_rate_limit
-            && !is_managed_host_created_for_endpoint
             && self
                 .force_restart(&endpoint)
                 .await
