@@ -1704,9 +1704,14 @@ async fn main() -> color_eyre::Result<()> {
             } else {
                 Box::new(std::io::stdout()) as Box<dyn std::io::Write>
             };
-
-            sku::handle_sku_command(&api_client, &mut output_file, &config.format, sku_command)
-                .await?;
+            sku::handle_sku_command(
+                &api_client,
+                &mut output_file,
+                &config.format,
+                config.extended,
+                sku_command,
+            )
+            .await?;
         }
         CliCommand::DevEnv(command) => match command {
             cfg::cli_options::DevEnv::Config(dev_env_config) => match dev_env_config {

@@ -4443,8 +4443,9 @@ message Sku {
   optional string description = 2;
   google.protobuf.Timestamp created = 3;
   SkuComponents components = 4;
-  uint32 machines_associated_count = 5;
+  reserved 5;
   uint32 schema_version = 6;
+  repeated common.MachineId associated_machine_ids = 7;
 }
 
 message SkuMachinePair {

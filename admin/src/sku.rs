@@ -57,12 +57,18 @@ impl From<SkusWrapper> for Table {
     }
 }
 
-fn cpu_table(cpus: Vec<::rpc::forge::SkuComponentCpu>) -> Table {
+fn create_table(header: Vec<&str>) -> Table {
     let mut table = Table::new();
     let table_format = table.get_format();
     table_format.indent(10);
 
-    table.set_titles(Row::from(vec!["Vendor", "Model", "Threads", "Count"]));
+    table.set_titles(Row::from(header));
+    table
+}
+
+fn cpu_table(cpus: Vec<::rpc::forge::SkuComponentCpu>) -> Table {
+    let mut table = create_table(vec!["Vendor", "Model", "Threads", "Count"]);
+
     for cpu in cpus {
         table.add_row(Row::from(vec![
             cpu.vendor,
@@ -76,11 +82,7 @@ fn cpu_table(cpus: Vec<::rpc::forge::SkuComponentCpu>) -> Table {
 }
 
 fn gpu_table(gpus: Vec<::rpc::forge::SkuComponentGpu>) -> Table {
-    let mut table = Table::new();
-    let table_format = table.get_format();
-    table_format.indent(10);
-
-    table.set_titles(Row::from(vec!["Vendor", "Total Memory", "Model", "Count"]));
+    let mut table = create_table(vec!["Vendor", "Total Memory", "Model", "Count"]);
     for gpu in gpus {
         table.add_row(Row::from(vec![
             gpu.vendor,
@@ -94,11 +96,7 @@ fn gpu_table(gpus: Vec<::rpc::forge::SkuComponentGpu>) -> Table {
 }
 
 fn memory_table(memory: Vec<::rpc::forge::SkuComponentMemory>) -> Table {
-    let mut table = Table::new();
-    let table_format = table.get_format();
-    table_format.indent(10);
-
-    table.set_titles(Row::from(vec!["Type", "Capacity", "Count"]));
+    let mut table = create_table(vec!["Type", "Capacity", "Count"]);
     for m in memory {
         table.add_row(Row::from(vec![
             m.memory_type,
@@ -111,16 +109,7 @@ fn memory_table(memory: Vec<::rpc::forge::SkuComponentMemory>) -> Table {
 }
 
 fn ib_device_table(devices: Vec<::rpc::forge::SkuComponentInfinibandDevices>) -> Table {
-    let mut table = Table::new();
-    let table_format = table.get_format();
-    table_format.indent(10);
-
-    table.set_titles(Row::from(vec![
-        "Vendor",
-        "Model",
-        "Count",
-        "Inactive Devices",
-    ]));
+    let mut table = create_table(vec!["Vendor", "Model", "Count", "Inactive Devices"]);
     for dev in devices {
         let inactive_devices = serde_json::to_string(&dev.inactive_devices).unwrap();
         table.add_row(Row::from(vec![
@@ -186,6 +175,7 @@ fn show_skus_table(
 fn show_sku_details(
     output: &mut dyn std::io::Write,
     output_format: &OutputFormat,
+    extended: bool,
     sku: ::rpc::forge::Sku,
 ) -> CarbideCliResult<()> {
     match output_format {
@@ -261,6 +251,15 @@ fn show_sku_details(
                     storage_table(components.storage).print(output)?;
                 }
             }
+
+            if extended {
+                writeln!(output, "Assigned Machines")?;
+                let mut table: Table = create_table(vec!["Machine ID"]);
+                for machine_id in sku.associated_machine_ids {
+                    table.add_row(Row::from(vec![machine_id.id]));
+                }
+                table.print(output)?;
+            }
         }
         OutputFormat::Yaml => {
             return Err(CarbideCliError::GenericError(
@@ -272,18 +271,47 @@ fn show_sku_details(
     Ok(())
 }
 
+fn show_machine_table(
+    output: &mut dyn std::io::Write,
+    output_format: &OutputFormat,
+    skus: Vec<::rpc::forge::Sku>,
+) -> CarbideCliResult<()> {
+    if *output_format != OutputFormat::AsciiTable {
+        return Err(CarbideCliError::GenericError(
+            "Only ascii table format supported".to_string(),
+        ));
+    }
+
+    let mut table = Table::new();
+    table.set_titles(Row::from(vec!["SKU ID", "Assigned Machine IDs"]));
+
+    for sku in skus {
+        let machines = sku
+            .associated_machine_ids
+            .into_iter()
+            .map(|id| id.id)
+            .collect::<Vec<String>>()
+            .join("\n");
+        table.add_row(Row::from(vec![sku.id, machines]));
+    }
+    table.print(output)?;
+    Ok(())
+}
+
 pub async fn handle_sku_command(
     api_client: &ApiClient,
     output: &mut dyn std::io::Write,
     output_format: &OutputFormat,
+    extended: bool,
     sku_command: Sku,
 ) -> Result<(), CarbideCliError> {
     match sku_command {
         Sku::Show(show_sku) => {
             if let Some(sku_id) = show_sku.sku_id {
                 let skus = api_client.0.find_skus_by_ids(vec![sku_id]).await?;
+
                 if let Some(sku) = skus.skus.into_iter().next() {
-                    show_sku_details(output, output_format, sku)?;
+                    show_sku_details(output, output_format, extended, sku)?;
                 }
             } else {
                 let all_ids = api_client.0.get_all_sku_ids().await?;
@@ -296,6 +324,23 @@ pub async fn handle_sku_command(
                 show_skus_table(output, output_format, sku_list.skus)?;
             };
         }
+        Sku::ShowMachines(show_sku) => {
+            if let Some(sku_id) = show_sku.sku_id {
+                let skus = api_client.0.find_skus_by_ids(vec![sku_id]).await?;
+
+                show_machine_table(output, output_format, skus.skus)?;
+            } else {
+                let all_ids = api_client.0.get_all_sku_ids().await?;
+                let sku_list = if !all_ids.ids.is_empty() {
+                    api_client.0.find_skus_by_ids(all_ids.ids).await?
+                } else {
+                    SkuList::default()
+                };
+
+                show_machine_table(output, output_format, sku_list.skus)?;
+            };
+        }
+
         Sku::Generate(GenerateSku { machine_id, id }) => {
             let mut sku = api_client
                 .0
@@ -304,7 +349,7 @@ pub async fn handle_sku_command(
             if let Some(id) = id {
                 sku.id = id;
             }
-            show_sku_details(output, output_format, sku)?;
+            show_sku_details(output, output_format, extended, sku)?;
         }
         Sku::Create(CreateSku { filename, id }) => {
             let file_data = std::fs::read_to_string(filename)?;

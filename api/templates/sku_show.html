@@ -9,7 +9,7 @@
 <table class="sortable overview">
 	<thead>
 		<th>Id</th>
-		<th>Associated Machines</th>
+		<th>Associated Machine Count</th>
 		<th>Architecture</th>
 		<th>Model</th>
 		<th>Vendor</th>
@@ -22,7 +22,7 @@
 		{% for sku in skus %}
 		<tr>
 			<td><a href="/admin/sku/{{ sku.id }}">{{ sku.id }}</a></td>
-			<td>{{ sku.machines_associated_count }}</td>
+			<td>{{ sku.associated_machine_count }}</td>
 			<td>{{ sku.architecture }}</td>
 			<td>{{ sku.model }}</td>
 			<td>{{ sku.vendor }}</td>

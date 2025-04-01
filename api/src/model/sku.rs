@@ -44,7 +44,8 @@ impl From<Sku> for rpc::forge::Sku {
             description: Some(value.description),
             created: Some(value.created.into()),
             components: Some(value.components.into()),
-            machines_associated_count: 0,
+            // filled in afterwards
+            associated_machine_ids: Vec::default(),
         }
     }
 }

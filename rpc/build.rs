@@ -454,6 +454,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("Sku", "#[derive(serde::Serialize, serde::Deserialize)]")
         .field_attribute("Sku.schema_version", "#[serde(default)]")
+        .field_attribute("Sku.associated_machine_ids", "#[serde(default)]")
         .type_attribute("SkuList", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute(
             "SkuComponents",

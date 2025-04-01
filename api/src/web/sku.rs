@@ -30,7 +30,6 @@ struct SkuShow {
 
 struct SkuRowDisplay {
     id: String,
-    machines_associated_count: usize,
     architecture: String,
     model: String,
     vendor: String,
@@ -38,6 +37,7 @@ struct SkuRowDisplay {
     num_gpus: usize,
     num_ib_devices: usize,
     memory_capacity: String,
+    associated_machine_count: usize,
 }
 
 impl From<forgerpc::Sku> for SkuRowDisplay {
@@ -46,7 +46,6 @@ impl From<forgerpc::Sku> for SkuRowDisplay {
         let chassis = components.and_then(|c| c.chassis.as_ref());
         Self {
             id: sku.id,
-            machines_associated_count: sku.machines_associated_count as _,
             architecture: chassis.map(|c| c.architecture.clone()).unwrap_or_default(),
             model: chassis.map(|c| c.model.clone()).unwrap_or_default(),
             vendor: chassis.map(|c| c.vendor.clone()).unwrap_or_default(),
@@ -73,6 +72,7 @@ impl From<forgerpc::Sku> for SkuRowDisplay {
                 })
                 .map(|cap_mb| format!("{} GiB", cap_mb as f64 / 1024.0))
                 .unwrap_or_default(),
+            associated_machine_count: sku.associated_machine_ids.len(),
         }
     }
 }
@@ -139,7 +139,7 @@ struct SkuDetail {
     description: String,
     created: String,
     components_json: String,
-    machines_associated_count: usize,
+    associated_machines: String,
 }
 
 impl From<forgerpc::Sku> for SkuDetail {
@@ -154,7 +154,12 @@ impl From<forgerpc::Sku> for SkuDetail {
                     serde_json::to_string_pretty(&c).unwrap_or_else(|_e| "Invalid JSON".to_string())
                 })
                 .unwrap_or_default(),
-            machines_associated_count: sku.machines_associated_count as _,
+            associated_machines: sku
+                .associated_machine_ids
+                .into_iter()
+                .map(|id| id.id)
+                .collect::<Vec<String>>()
+                .join("\n"),
         }
     }
 }
