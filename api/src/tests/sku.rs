@@ -47,7 +47,6 @@ pub mod tests {
           ],
           "ethernet_devices": [],
           "infiniband_devices": [],
-          "storage": [],
           "memory": [
             {
               "memory_type": "DDR5",
@@ -55,8 +54,19 @@ pub mod tests {
               "count": 8
             }
           ],
+          "storage": [
+          {
+            "model": "Dell Ent NVMe CM6 RI 1.92TB",
+            "count": 9
+          },
+          {
+            "model": "DELLBOSS_VD",
+            "count": 3
+          }
+          ],
           "tpm": []
-        }
+        },
+        "schema_version": 1
     }"#;
 
     const SKU_DATA: &str = r#"
@@ -102,7 +112,17 @@ pub mod tests {
         "inactive_devices": [0,1,2,3]
       }
     ],
-    "storage": [],
+    "storage": [
+      {
+        "model": "DELLBOSS_VD",
+        "count": 3
+      },
+      {
+        "model": "Dell Ent NVMe CM6 RI 1.92TB",
+        "count": 9
+      }
+
+    ],
     "memory": [
       {
         "memory_type": "DDR4",
@@ -111,7 +131,8 @@ pub mod tests {
       }
     ],
     "tpm": []
-  }
+  },
+  "schema_version": 1
 }"#;
 
     #[crate::sqlx_test]
@@ -189,8 +210,10 @@ pub mod tests {
             .infiniband_devices
             .sort_by(|dev1, dev2| dev1.model.cmp(&dev2.model));
 
-        let actual_sku_json = serde_json::ser::to_string_pretty(&actual_sku)?;
+        let actual_sku_json: String = serde_json::ser::to_string_pretty(&actual_sku)?;
+        tracing::info!("actual_sku_json: {}", actual_sku_json);
         let expected_sku_json = serde_json::ser::to_string_pretty(&expected_sku)?;
+        tracing::info!("expected_sku_json: {}", expected_sku_json);
 
         assert_eq!(actual_sku_json, expected_sku_json);
 
@@ -773,6 +796,58 @@ pub mod tests {
         .unwrap();
 
         assert_eq!(machine2.hw_sku, Some(expected_sku.id));
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_match_sku_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
+        let env = create_test_env_for_sku(pool.clone(), false).await;
+
+        let (machine_id, _dpu_id) = create_managed_host(&env).await;
+
+        let mut txn = pool.begin().await?;
+        let machine = db::machine::find(
+            &mut txn,
+            ObjectFilter::One(machine_id),
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .pop()
+        .unwrap();
+
+        assert_eq!(machine.current_state(), &ManagedHostState::Ready);
+        assert!(machine.hw_sku.is_some());
+
+        let mut old_sku = crate::db::sku::from_topology(&mut txn, &machine_id).await?;
+        //fake an old sku
+        old_sku.schema_version = 0;
+        old_sku.components.storage = Vec::default();
+
+        let new_sku = crate::db::sku::find(&mut txn, &[machine.hw_sku.unwrap()])
+            .await?
+            .pop()
+            .unwrap();
+        assert_eq!(new_sku.schema_version, 1);
+        assert_ne!(new_sku.components.storage.len(), 0);
+
+        // diff does not check version.  comparing SKUs of different versions will fail
+        let diffs = crate::model::sku::diff_skus(&old_sku, &new_sku);
+        assert!(!diffs.is_empty());
+
+        // create an older version sku from new topology data will create a backwards compatible sku
+        let old_new_sku =
+            crate::db::sku::from_topology_with_version(&mut txn, &machine_id, 0).await?;
+        assert_eq!(old_new_sku.schema_version, 0);
+        assert!(old_new_sku.components.storage.is_empty());
+
+        let diffs = crate::model::sku::diff_skus(&old_sku, &old_new_sku);
+        assert!(diffs.is_empty());
+
+        let diffs = crate::model::sku::diff_skus(&old_new_sku, &new_sku);
+        assert!(!diffs.is_empty());
+
+        txn.commit().await?;
 
         Ok(())
     }

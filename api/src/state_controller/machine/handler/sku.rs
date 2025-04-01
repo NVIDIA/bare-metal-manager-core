@@ -285,8 +285,6 @@ pub(crate) async fn handle_bom_validation_state(
                 ));
             };
 
-            let actual_sku =
-                crate::db::sku::from_topology(txn, &mh_snapshot.host_snapshot.id).await?;
             let Some(expected_sku) = crate::db::sku::find(txn, &[sku_id.clone()]).await?.pop()
             else {
                 return Err(StateHandlerError::MissingData {
@@ -294,6 +292,13 @@ pub(crate) async fn handle_bom_validation_state(
                     missing: "Assigned SKU is missing",
                 });
             };
+
+            let actual_sku = crate::db::sku::from_topology_with_version(
+                txn,
+                &mh_snapshot.host_snapshot.id,
+                expected_sku.schema_version,
+            )
+            .await?;
 
             let diffs = diff_skus(&actual_sku, &expected_sku);
             for diff in &diffs {
