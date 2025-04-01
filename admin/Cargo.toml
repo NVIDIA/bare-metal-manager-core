@@ -27,6 +27,7 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 uuid = "1.0"
 x509-parser = { version = "0.17.0", features = ["validate"] }
+toml = "0.8.8"
 
 # [local-dependencies]
 bmc-vendor = { path = "../common/bmc-vendor" }

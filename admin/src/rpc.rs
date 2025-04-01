@@ -17,10 +17,12 @@ use ::rpc::forge::{
     FindNetworkSecurityGroupsByIdsRequest, GetNetworkSecurityGroupAttachmentsRequest,
     GetNetworkSecurityGroupPropagationStatusRequest, IpxeOperatingSystem,
     IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
-    MachineHardwareInfoUpdateType, NetworkSecurityGroupAttributes, NetworkSegmentSearchConfig,
-    OperatingSystem, UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest,
-    VpcVirtualizationType,
+    MachineHardwareInfoUpdateType, NetworkPrefix, NetworkSecurityGroupAttributes,
+    NetworkSegmentCreationRequest, NetworkSegmentSearchConfig, NetworkSegmentType, OperatingSystem,
+    UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest, VpcCreationRequest,
+    VpcSearchQuery, VpcVirtualizationType,
 };
+use ::rpc::{NetworkSegment, Uuid};
 use std::net::IpAddr;
 use std::path::Path;
 use std::str::FromStr;
@@ -954,6 +956,81 @@ impl ApiClient {
         };
 
         Ok(vpcs)
+    }
+
+    pub async fn get_vpc_by_name(&self, name: &str) -> CarbideCliResult<rpc::VpcList> {
+        let vpcs = match self
+            .0
+            .find_vpcs(VpcSearchQuery {
+                id: None,
+                name: Some(name.to_string()),
+            })
+            .await
+        {
+            Ok(vpcs) => vpcs,
+            Err(e) => return Err(e.into()),
+        };
+
+        Ok(vpcs)
+    }
+
+    pub async fn create_vpc(&self, name: &str, vpc_id: ::rpc::Uuid) -> CarbideCliResult<rpc::Vpc> {
+        let vpc = match self
+            .0
+            .create_vpc(VpcCreationRequest {
+                name: name.to_string(),
+                tenant_organization_id: "devenv_test_org".to_string(),
+                tenant_keyset_id: None,
+                network_virtualization_type: Some(
+                    VpcVirtualizationType::EthernetVirtualizerWithNvue as i32,
+                ),
+                id: Some(vpc_id),
+                metadata: Some(rpc::Metadata {
+                    name: name.to_string(),
+                    description: "test vpc".to_string(),
+                    labels: vec![],
+                }),
+                network_security_group_id: None,
+            })
+            .await
+        {
+            Ok(vpc) => vpc,
+            Err(e) => return Err(e.into()),
+        };
+
+        Ok(vpc)
+    }
+
+    pub async fn create_network_segment(
+        &self,
+        id: Uuid,
+        vpc_id: Option<Uuid>,
+        name: String,
+        prefix: String,
+        gateway: Option<String>,
+    ) -> CarbideCliResult<NetworkSegment> {
+        let request = NetworkSegmentCreationRequest {
+            vpc_id,
+            name,
+            subdomain_id: None,
+            mtu: Some(9000),
+            prefixes: vec![NetworkPrefix {
+                id: None,
+                prefix,
+                gateway,
+                reserve_first: 0,
+                state: None,
+                events: vec![],
+                free_ip_count: 1,
+                svi_ip: None,
+            }],
+            segment_type: NetworkSegmentType::Tenant as i32,
+            id: Some(id),
+        };
+        self.0
+            .create_network_segment(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
     }
 
     async fn get_vpc_ids(

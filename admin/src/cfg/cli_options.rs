@@ -218,6 +218,9 @@ pub enum CliCommand {
 
     #[clap(about = "Manage machine SKUs", subcommand)]
     Sku(Sku),
+
+    #[clap(about = "Dev Env related handling", subcommand)]
+    DevEnv(DevEnv),
 }
 
 #[derive(Parser, Debug)]
@@ -2574,6 +2577,35 @@ pub struct SetBios {
         help = "BIOS attributes to set in JSON, ex: {\"OperatingModes_ChooseOperatingMode\": \"MaximumPerformance\"}"
     )]
     pub attributes: String,
+}
+
+#[derive(Parser, Debug)]
+pub enum DevEnv {
+    #[clap(about = "Config related handling", visible_alias = "c", subcommand)]
+    Config(DevEnvConfig),
+}
+
+#[derive(Parser, Debug)]
+pub enum DevEnvConfig {
+    #[clap(about = "Apply devenv config", visible_alias = "a")]
+    Apply(DevEnvApplyConfig),
+}
+
+#[derive(Parser, Debug)]
+pub struct DevEnvApplyConfig {
+    #[clap(
+        help = "Path to devenv config file. Usually this is in forged repo at envs/local-dev/site/site-controller/files/generated/devenv_config.toml"
+    )]
+    pub path: String,
+
+    #[clap(long, short, help = "Vpc prefix or network segment?")]
+    pub mode: NetworkChoice,
+}
+
+#[derive(ValueEnum, Parser, Debug, Clone, PartialEq)]
+pub enum NetworkChoice {
+    NetworkSegment,
+    VpcPrefix,
 }
 
 #[derive(Parser, Debug)]
