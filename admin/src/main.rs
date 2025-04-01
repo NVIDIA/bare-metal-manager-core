@@ -69,6 +69,7 @@ use cfg::cli_options::{
 };
 use cfg::network_security_group::NetworkSecurityGroupActions;
 use clap::CommandFactory;
+use devenv::apply_devenv_config;
 use forge_secrets::credentials::Credentials;
 use forge_tls::client_config::get_carbide_api_url;
 use forge_tls::client_config::get_client_cert_info;
@@ -84,6 +85,7 @@ use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*
 use utils::admin_cli::{CarbideCliError, OutputFormat};
 
 mod cfg;
+mod devenv;
 mod domain;
 mod dpu;
 mod expected_machines;
@@ -1695,6 +1697,13 @@ async fn main() -> color_eyre::Result<()> {
             sku::handle_sku_command(&api_client, &mut output_file, &config.format, sku_command)
                 .await?;
         }
+        CliCommand::DevEnv(command) => match command {
+            cfg::cli_options::DevEnv::Config(dev_env_config) => match dev_env_config {
+                cfg::cli_options::DevEnvConfig::Apply(dev_env_config_apply) => {
+                    apply_devenv_config(dev_env_config_apply, &api_client).await?;
+                }
+            },
+        },
     }
 
     Ok(())

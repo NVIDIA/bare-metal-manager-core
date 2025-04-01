@@ -49,6 +49,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "tokio",
+ "toml 0.8.20",
  "tonic",
  "tracing",
  "tracing-subscriber",
