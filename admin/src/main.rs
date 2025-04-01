@@ -55,12 +55,14 @@ use cfg::cli_options::IbPartitionOptions;
 use cfg::cli_options::IpAction;
 use cfg::cli_options::MachineInterfaces;
 use cfg::cli_options::MachineMetadataCommand;
+use cfg::cli_options::RedfishCommand;
 use cfg::cli_options::RouteServer;
 use cfg::cli_options::SetAction;
 use cfg::cli_options::Shell;
 use cfg::cli_options::SiteExplorer;
 use cfg::cli_options::TenantKeySetOptions;
 use cfg::cli_options::TpmCa;
+use cfg::cli_options::UriInfo;
 use cfg::cli_options::VpcPrefixOptions;
 use cfg::cli_options::{
     CliCommand, CliOptions, Domain, Instance, Machine, MachineHardwareInfo,
@@ -163,6 +165,15 @@ async fn main() -> color_eyre::Result<()> {
         .with(env_filter)
         .try_init()?;
 
+    if let Some(CliCommand::Redfish(ref ra)) = config.commands {
+        match ra.command {
+            RedfishCommand::Browse(_) => {}
+            _ => {
+                return redfish::action(ra.clone()).await;
+            }
+        }
+    }
+
     let url = get_carbide_api_url(config.carbide_api, file_config.as_ref());
     let forge_root_ca_path =
         get_forge_root_ca_path(config.forge_root_ca_path, file_config.as_ref());
@@ -181,10 +192,6 @@ async fn main() -> color_eyre::Result<()> {
     // api_client is created here and subsequently
     // borrowed by all others.
     let api_client = ApiClient(ForgeApiClient::new(&ApiConfig::new(&url, &client_config)));
-
-    if let Some(CliCommand::Redfish(ra)) = config.commands {
-        return redfish::action(&api_client, ra).await;
-    }
 
     let command = match config.commands {
         None => {
@@ -783,7 +790,11 @@ async fn main() -> color_eyre::Result<()> {
                 HostReprovision::List => host::list_hosts_pending(&api_client).await?,
             },
         },
-        CliCommand::Redfish(_) => {
+        CliCommand::Redfish(action) => {
+            if let RedfishCommand::Browse(UriInfo { uri }) = &action.command {
+                return redfish::handle_browse_command(&api_client, uri).await;
+            }
+
             // Handled earlier
             unreachable!();
         }
