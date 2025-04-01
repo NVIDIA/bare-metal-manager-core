@@ -768,7 +768,7 @@ pub struct IpFind {
     pub ip: std::net::Ipv4Addr,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 pub struct RedfishAction {
     #[clap(subcommand)]
     pub command: RedfishCommand,

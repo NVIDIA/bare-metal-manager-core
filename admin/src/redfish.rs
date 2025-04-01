@@ -30,10 +30,10 @@ use serde::Serialize;
 use tracing::warn;
 
 use super::cfg::cli_options::RedfishCommand;
-use crate::cfg::cli_options::{DpuOperations, FwCommand, RedfishAction, ShowFw, ShowPort, UriInfo};
+use crate::cfg::cli_options::{DpuOperations, FwCommand, RedfishAction, ShowFw, ShowPort};
 use crate::rpc::ApiClient;
 
-async fn handle_browse_command(api_client: &ApiClient, uri: &str) -> color_eyre::Result<()> {
+pub async fn handle_browse_command(api_client: &ApiClient, uri: &str) -> color_eyre::Result<()> {
     let data = api_client.0.redfish_browse(uri.to_string()).await?;
     #[derive(Serialize, Debug)]
     struct Output {
@@ -58,11 +58,7 @@ async fn handle_browse_command(api_client: &ApiClient, uri: &str) -> color_eyre:
     Ok(())
 }
 
-pub async fn action(api_client: &ApiClient, action: RedfishAction) -> color_eyre::Result<()> {
-    if let RedfishCommand::Browse(UriInfo { uri }) = &action.command {
-        return handle_browse_command(api_client, uri).await;
-    }
-
+pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
     let endpoint = libredfish::Endpoint {
         host: match action.address {
             Some(a) => a,
@@ -491,7 +487,9 @@ pub async fn action(api_client: &ApiClient, action: RedfishAction) -> color_eyre
         ClearNvram => {
             redfish.clear_nvram().await?;
         }
-        Browse(_) => {}
+        Browse(_) => {
+            unreachable!();
+        }
         SetBios(set_bios) => {
             let attrmap: HashMap<String, serde_json::Value> =
                 serde_json::from_str(set_bios.attributes.as_str()).unwrap();
