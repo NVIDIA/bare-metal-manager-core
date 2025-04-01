@@ -1,7 +1,10 @@
 use crate::{
     CarbideError, CarbideResult,
     api::{Api, log_machine_id, log_request_data},
-    db::{self, DatabaseError, machine::MachineSearchConfig},
+    db::{
+        self, DatabaseError,
+        machine::{MachineSearchConfig, find_machine_ids_by_sku_id},
+    },
     model::{
         machine::{BomValidating, ManagedHostState, machine_id::try_parse_machine_id},
         sku::Sku,
@@ -347,7 +350,16 @@ pub(crate) async fn find_skus_by_ids(
         .await
         .map_err(CarbideError::from)?;
 
-    Ok(Response::new(rpc::forge::SkuList {
-        skus: skus.into_iter().map(std::convert::Into::into).collect(),
-    }))
+    let mut rpc_skus: Vec<rpc::forge::Sku> =
+        skus.into_iter().map(std::convert::Into::into).collect();
+
+    for rpc_sku in rpc_skus.iter_mut() {
+        rpc_sku.associated_machine_ids = find_machine_ids_by_sku_id(&mut txn, &rpc_sku.id)
+            .await?
+            .into_iter()
+            .map(std::convert::Into::into)
+            .collect();
+    }
+
+    Ok(Response::new(rpc::forge::SkuList { skus: rpc_skus }))
 }

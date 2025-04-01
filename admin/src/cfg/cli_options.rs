@@ -2612,6 +2612,8 @@ pub enum NetworkChoice {
 pub enum Sku {
     #[clap(about = "Show SKU information", visible_alias = "s")]
     Show(ShowSku),
+    #[clap(about = "Show what machines are assigned a SKU")]
+    ShowMachines(ShowSku),
     #[clap(
         about = "Generate SKU information from an existing machine",
         visible_alias = "g"

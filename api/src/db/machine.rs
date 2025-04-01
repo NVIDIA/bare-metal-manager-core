@@ -2213,6 +2213,21 @@ pub async fn update_sku_status_verify_request_time(
     Ok(())
 }
 
+pub async fn find_machine_ids_by_sku_id(
+    txn: &mut Transaction<'_, Postgres>,
+    sku_id: &str,
+) -> Result<Vec<MachineId>, DatabaseError> {
+    let query = "SELECT id FROM machines WHERE hw_sku=$1";
+
+    let ids: Vec<MachineId> = sqlx::query_as(query)
+        .bind(sku_id)
+        .fetch_all(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get assigned sku count", e))?;
+
+    Ok(ids)
+}
+
 pub async fn get_network_config(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: &MachineId,
