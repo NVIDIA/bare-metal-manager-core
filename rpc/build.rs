@@ -453,6 +453,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute("Sku", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .field_attribute("Sku.schema_version", "#[serde(default)]")
         .type_attribute("SkuList", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute(
             "SkuComponents",
@@ -486,6 +487,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "SkuComponentStorage",
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
+        .field_attribute("SkuComponentStorage.vendor", "#[serde(default)]")
+        .field_attribute("SkuComponentStorage.capacity_mb", "#[serde(default)]")
         .type_attribute(
             "SkuComponentTpm",
             "#[derive(serde::Serialize, serde::Deserialize)]",

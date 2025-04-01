@@ -9,6 +9,7 @@ use sqlx::{FromRow, Row, postgres::PgRow};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Sku {
+    pub schema_version: u32,
     pub id: String,
     pub description: String,
     pub created: DateTime<Utc>,
@@ -17,6 +18,7 @@ pub struct Sku {
 
 impl<'r> FromRow<'r, PgRow> for Sku {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let schema_version: u32 = row.try_get::<i32, &str>("schema_version")? as u32;
         let id: String = row.try_get("id")?;
         let description: String = row.try_get("description")?;
         let created: DateTime<Utc> = row.try_get("created")?;
@@ -25,6 +27,7 @@ impl<'r> FromRow<'r, PgRow> for Sku {
             .0;
 
         Ok(Sku {
+            schema_version,
             id,
             description,
             created,
@@ -36,6 +39,7 @@ impl<'r> FromRow<'r, PgRow> for Sku {
 impl From<Sku> for rpc::forge::Sku {
     fn from(value: Sku) -> Self {
         rpc::forge::Sku {
+            schema_version: value.schema_version,
             id: value.id,
             description: Some(value.description),
             created: Some(value.created.into()),
@@ -52,6 +56,7 @@ impl From<rpc::forge::Sku> for Sku {
         let created = DateTime::<Utc>::try_from(timestamp).unwrap_or_default();
 
         Sku {
+            schema_version: value.schema_version,
             id: value.id,
             description: value.description.unwrap_or_default(),
             created,
@@ -67,19 +72,38 @@ pub struct SkuComponents {
     pub gpus: Vec<SkuComponentGpu>,
     pub memory: Vec<SkuComponentMemory>,
     pub infiniband_devices: Vec<SkuComponentInfinibandDevices>,
+    #[serde(default)]
+    pub storage: Vec<SkuComponentStorage>,
 }
 
 impl From<rpc::forge::SkuComponents> for SkuComponents {
     fn from(value: rpc::forge::SkuComponents) -> Self {
         SkuComponents {
             chassis: value.chassis.unwrap_or_default().into(),
-            cpus: value.cpus.into_iter().map(|c| c.into()).collect(),
-            gpus: value.gpus.into_iter().map(|g| g.into()).collect(),
-            memory: value.memory.into_iter().map(|m| m.into()).collect(),
+            cpus: value
+                .cpus
+                .into_iter()
+                .map(std::convert::Into::into)
+                .collect(),
+            gpus: value
+                .gpus
+                .into_iter()
+                .map(std::convert::Into::into)
+                .collect(),
+            memory: value
+                .memory
+                .into_iter()
+                .map(std::convert::Into::into)
+                .collect(),
             infiniband_devices: value
                 .infiniband_devices
                 .into_iter()
-                .map(|m| m.into())
+                .map(std::convert::Into::into)
+                .collect(),
+            storage: value
+                .storage
+                .into_iter()
+                .map(std::convert::Into::into)
                 .collect(),
         }
     }
@@ -105,7 +129,11 @@ impl From<SkuComponents> for rpc::forge::SkuComponents {
                 .into_iter()
                 .map(std::convert::Into::into)
                 .collect(),
-            storage: Vec::default(),
+            storage: value
+                .storage
+                .into_iter()
+                .map(std::convert::Into::into)
+                .collect(),
             memory: value
                 .memory
                 .into_iter()
@@ -277,6 +305,38 @@ impl From<SkuComponentInfinibandDevices> for rpc::forge::SkuComponentInfinibandD
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SkuComponentStorage {
+    pub model: String,
+    pub count: u32,
+}
+
+impl From<rpc::forge::SkuComponentStorage> for SkuComponentStorage {
+    fn from(value: rpc::forge::SkuComponentStorage) -> Self {
+        SkuComponentStorage {
+            model: value.model,
+            count: value.count,
+        }
+    }
+}
+
+impl From<SkuComponentStorage> for rpc::forge::SkuComponentStorage {
+    fn from(value: SkuComponentStorage) -> Self {
+        rpc::forge::SkuComponentStorage {
+            vendor: String::default(),
+            model: value.model,
+            capacity_mb: 0u32,
+            count: value.count,
+        }
+    }
+}
+
+impl Display for SkuComponentStorage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "model: {} count {}", self.model, self.count)
+    }
+}
+
 // Store information for communication between the state
 // machine and other components.  This is kept as a json
 // field in the machines table
@@ -318,6 +378,10 @@ impl From<SkuStatus> for rpc::forge::SkuStatus {
     }
 }
 
+/// diff an actual sku against an expected sku and return the differences.
+///
+/// Note that the version check is done on the expected_sku so order of arguements is important.
+/// SKUs with different versions may match one way, but not the other.
 pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
     let mut diffs = Vec::default();
 
@@ -368,7 +432,7 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
             Some(expected_gpu) => {
                 if actual_gpu.count != expected_gpu.count {
                     diffs.push(format!(
-                        "Expected gpu count ({}) does not match actual ({}) for gpu model({})",
+                        "Expected gpu count ({}) does not match actual ({}) for gpu model ({})",
                         expected_gpu.count, actual_gpu.count, expected_gpu.model
                     ));
                 }
@@ -387,6 +451,7 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
     for ib_devices in expected_sku.components.infiniband_devices.iter() {
         expected_ib_device_by_name.insert((&ib_devices.vendor, &ib_devices.model), ib_devices);
     }
+
     for actual_ib_device_definition in actual_sku.components.infiniband_devices.iter() {
         match expected_ib_device_by_name.remove(&(
             &actual_ib_device_definition.vendor,
@@ -448,5 +513,29 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
             expected_total_memory, actual_total_memory
         ));
     }
+
+    let mut actual_storage: HashMap<String, SkuComponentStorage> = actual_sku
+        .components
+        .storage
+        .iter()
+        .map(|s| (s.model.clone(), s.clone()))
+        .collect();
+
+    for es in &expected_sku.components.storage {
+        if let Some(actual_storage) = actual_storage.remove(&es.model) {
+            if actual_storage.count != es.count {
+                diffs.push(format!(
+                    "Expected device count ({}) does not match actual ({}) for storage model ({})",
+                    es.count, actual_storage.count, actual_storage.model,
+                ));
+            }
+        } else {
+            diffs.push(format!("Missing storage config: {}", es));
+        };
+    }
+    for s in actual_storage.values() {
+        diffs.push(format!("Found unexpected storage config: {}", s));
+    }
+
     diffs
 }

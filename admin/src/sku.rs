@@ -134,6 +134,18 @@ fn ib_device_table(devices: Vec<::rpc::forge::SkuComponentInfinibandDevices>) ->
     table
 }
 
+fn storage_table(storage: Vec<::rpc::forge::SkuComponentStorage>) -> Table {
+    let mut table = Table::new();
+    let table_format = table.get_format();
+    table_format.indent(10);
+
+    table.set_titles(Row::from(vec!["Model", "Count"]));
+    for s in storage {
+        table.add_row(Row::from(vec![s.model, s.count.to_string()]));
+    }
+    table
+}
+
 fn show_skus_table(
     output: &mut dyn std::io::Write,
     output_format: &OutputFormat,
@@ -187,6 +199,7 @@ fn show_sku_details(
         }
         OutputFormat::AsciiTable => {
             writeln!(output, "ID:              {}", sku.id)?;
+            writeln!(output, "Schema Version:  {}", sku.schema_version)?;
             writeln!(
                 output,
                 "Description:     {}",
@@ -239,8 +252,14 @@ fn show_sku_details(
                     )?;
                 }
                 memory_table(components.memory).print(output)?;
+
                 writeln!(output, "IB Devices:")?;
                 ib_device_table(components.infiniband_devices).print(output)?;
+
+                if sku.schema_version >= 1 {
+                    writeln!(output, "Storage Devices:")?;
+                    storage_table(components.storage).print(output)?;
+                }
             }
         }
         OutputFormat::Yaml => {

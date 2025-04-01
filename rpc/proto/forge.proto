@@ -4444,6 +4444,7 @@ message Sku {
   google.protobuf.Timestamp created = 3;
   SkuComponents components = 4;
   uint32 machines_associated_count = 5;
+  uint32 schema_version = 6;
 }
 
 message SkuMachinePair {
