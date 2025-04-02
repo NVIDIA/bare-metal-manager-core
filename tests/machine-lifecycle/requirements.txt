@@ -221,6 +221,12 @@ mdurl==0.1.2 ; python_version >= "3.10" and python_version < "4.0" \
 paramiko==3.4.0 ; python_version >= "3.10" and python_version < "4.0" \
     --hash=sha256:43f0b51115a896f9c00f59618023484cb3a14b98bbceab43394a39c6739b7ee7 \
     --hash=sha256:aac08f26a31dc4dffd92821527d1682d99d52f9ef6851968114a8728f3c274d3
+pexpect==4.9.0 ; python_version >= "3.10" and python_version < "4.0" \
+    --hash=sha256:7236d1e080e4936be2dc3e326cec0af72acf9212a7e1d060210e70a47e253523 \
+    --hash=sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f
+ptyprocess==0.7.0 ; python_version >= "3.10" and python_version < "4.0" \
+    --hash=sha256:4b41f3967fce3af57cc7e94b888626c18bf37a083e3651ca8feeb66d492fef35 \
+    --hash=sha256:5c5d0a3b48ceee0b48485e0c26037c0acd7d29765ca3fbb5cb3831d347423220
 pycparser==2.22 ; python_version >= "3.10" and python_version < "4.0" \
     --hash=sha256:491c8be9c040f5390f5bf44a5b07752bd07f56edf992381b05c701439eec10f6 \
     --hash=sha256:c3702b6d3dd8c7abc1afa565d7e63d53a1d0bd86cdc24edd75470f4de499cfcc
