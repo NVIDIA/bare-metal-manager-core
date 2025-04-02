@@ -23,16 +23,18 @@
       pf0hpf_if:
         type: swp
         acl: 
-          deny_prefixes_ipv4:
+          p0000_deny_prefixes_ipv4:
             inbound: {}
-          security_group_ipv4_in: 
+          p0005_security_group_ipv4_in: 
             inbound: {}
-          security_group_ipv6_in:
+          p0005_security_group_ipv6_in:
             inbound: {}
-          security_group_ipv4_out: 
+          p0005_security_group_ipv4_out: 
             outbound: {}
-          security_group_ipv6_out: 
-            outbound: {} 
+          p0005_security_group_ipv6_out: 
+            outbound: {}
+          p0010_vpc_isolation_ipv4:
+            inbound: {} 
         ip:
           address:
             192.168.0.0/16: {} 
@@ -176,7 +178,7 @@
                 source-port:
                   '68': {}
         type: ipv4
-      deny_prefixes_ipv4:
+      p0000_deny_prefixes_ipv4:
         type: ipv4
         rule:
           '1001':
@@ -185,7 +187,16 @@
             match:
               ip:
                 dest-ip: 1.1.1.1/32
-      security_group_ipv4_in: 
+      p0010_vpc_isolation_ipv4:
+        type: ipv4
+        rule:
+          '1000':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 2.2.2.2/32
+      p0005_security_group_ipv4_in: 
         rule:
           '2000':
             action:
@@ -251,7 +262,7 @@
             action:
               deny: {}
         type: ipv4
-      security_group_ipv6_in: 
+      p0005_security_group_ipv6_in: 
         rule:
           '2000':
             action:
@@ -305,7 +316,7 @@
             action:
               deny: {}
         type: ipv6
-      security_group_ipv4_out: 
+      p0005_security_group_ipv4_out: 
         rule:
           '2000':
             action:
@@ -383,7 +394,7 @@
             action:
               deny: {}
         type: ipv4
-      security_group_ipv6_out: 
+      p0005_security_group_ipv6_out: 
         rule:
           '2000':
             action:
