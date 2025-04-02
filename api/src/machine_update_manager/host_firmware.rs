@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use super::machine_update_module::MachineUpdateModule;
+use super::machine_update_module::{HOST_FW_UPDATE_HEALTH_REPORT_SOURCE, MachineUpdateModule};
 use crate::{
     CarbideResult,
     cfg::file::{CarbideConfig, FirmwareConfig},
@@ -68,10 +68,14 @@ impl MachineUpdateModule for HostFirmwareUpdate {
                 continue;
             }
 
-            tracing::debug!("Moving {} to host reprovision", machine_update);
+            tracing::info!("Moving {} to host reprovision", machine_update);
 
-            db::machine::trigger_host_reprovisioning_request(txn, "Automated", machine_update)
-                .await?;
+            db::host_machine_update::trigger_host_reprovisioning_request(
+                txn,
+                "Automated",
+                machine_update,
+            )
+            .await?;
 
             updates_started.insert(*machine_update);
         }
@@ -82,15 +86,32 @@ impl MachineUpdateModule for HostFirmwareUpdate {
 
     async fn clear_completed_updates(
         &self,
-        _txn: &mut Transaction<'_, Postgres>,
+        txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<()> {
-        // This functionality doesn't match what we do with hosts and is unused for host_firmware.
+        let completed = HostMachineUpdate::find_completed_updates(txn).await?;
+
+        if !completed.is_empty() {
+            tracing::info!("Completed host firmware updates: {completed:?}");
+            for machine in completed {
+                db::machine::remove_health_report_override(
+                    txn,
+                    &machine,
+                    health_report::OverrideMode::Merge,
+                    HOST_FW_UPDATE_HEALTH_REPORT_SOURCE,
+                )
+                .await?;
+            }
+        }
         Ok(())
     }
 
     async fn update_metrics(&self, txn: &mut Transaction<'_, Postgres>) {
-        match HostMachineUpdate::find_upgrade_needed(txn, self.config.firmware_global.autoupdate)
-            .await
+        match HostMachineUpdate::find_upgrade_needed(
+            txn,
+            self.config.firmware_global.autoupdate,
+            self.config.firmware_global.instance_updates_manual_tagging,
+        )
+        .await
         {
             Ok(upgrade_needed) => {
                 self.metrics
@@ -141,9 +162,12 @@ impl HostFirmwareUpdate {
             return Ok(machines);
         };
         // find_upgrade_needed filters for just things that need upgrades
-        for update_needed in
-            HostMachineUpdate::find_upgrade_needed(txn, self.config.firmware_global.autoupdate)
-                .await?
+        for update_needed in HostMachineUpdate::find_upgrade_needed(
+            txn,
+            self.config.firmware_global.autoupdate,
+            self.config.firmware_global.instance_updates_manual_tagging,
+        )
+        .await?
         {
             if available_updates == 0 {
                 return Ok(machines);

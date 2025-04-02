@@ -1279,6 +1279,7 @@ async fn handle_legacy_maintenance_mode(
             &mh_snapshot.host_snapshot.id,
             health_alert_mode_for_maintenance_mode,
             &report,
+            false,
         )
         .await?;
 
@@ -4412,7 +4413,8 @@ impl HostUpgradeState {
                     instance_state: InstanceState::HostReprovision { .. },
                 } => {}
                 _ => {
-                    db::machine::clear_host_reprovisioning_request(txn, machine_id).await?;
+                    db::host_machine_update::clear_host_reprovisioning_request(txn, machine_id)
+                        .await?;
                 }
             };
         }
