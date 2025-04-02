@@ -49,6 +49,8 @@
   - [6f166cb](https://gitlab-master.nvidia.com/nvmetal/libredfish/-/commits/6f166cbd346c446af53c3978eb7fe88501922f22): Disabled unused HPE bios attribute that was being parsed incorrectly and may be inconsistent.
   - [3b40a45](https://gitlab-master.nvidia.com/nvmetal/libredfish/-/commits/3b40a45587c06f00fb69e074d6980eee2f3892fa): Fixed an issue to retrieve NIC mode
   - [1610f3b](https://gitlab-master.nvidia.com/nvmetal/libredfish/-/commits/1610f3b013a9c71e1b2ff3f57990172f0f53e112): Added the ability to set NIC mode on DPUs and use OEM-specific extension to retrieve NIC mode on BF3s
+- Host firmware does not need manual selection to get flagged for upgrades
+- Host firmware updates flagged for upgrades now have a health alert
 
 ### Fixed
 

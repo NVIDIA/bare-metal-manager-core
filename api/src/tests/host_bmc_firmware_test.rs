@@ -24,7 +24,9 @@ use crate::{
         host_machine_update::HostMachineUpdate, machine::MachineSearchConfig,
         machine_topology::MachineTopology,
     },
-    machine_update_manager::MachineUpdateManager,
+    machine_update_manager::{
+        MachineUpdateManager, machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE,
+    },
     model::{
         machine::{HostReprovisionState, InstanceState, ManagedHostState},
         site_explorer::{
@@ -334,14 +336,14 @@ fn build_exploration_report(
 #[crate::sqlx_test]
 async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
     // Create an environment with one managed host in the ready state.
-    let env = create_test_env(pool).await;
+    let env = create_test_env(pool.clone()).await;
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
 
     // Create and start an update manager
     let update_manager =
         MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
     // Update manager should notice that the host is underversioned, setting the request to update it
-    update_manager.run_single_iteration().await?;
+    update_manager.run_single_iteration().await.unwrap();
 
     // Check that we're properly marking it as upgrade needed
     let mut txn = env.pool.begin().await.unwrap();
@@ -406,7 +408,9 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // "Site explorer" pass
     let endpoints =
-        DbExploredEndpoint::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()]).await?;
+        DbExploredEndpoint::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
+            .await
+            .unwrap();
     let mut endpoint = endpoints.first().unwrap().clone();
     endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
     endpoint
@@ -419,7 +423,8 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         &endpoint.report,
         &mut txn,
     )
-    .await?;
+    .await
+    .unwrap();
     txn.commit().await.unwrap();
 
     // Another state machine pass
@@ -540,7 +545,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         .unwrap()
         .unwrap();
     let ManagedHostState::HostInit { .. } = host.current_state() else {
-        panic!("Not in HostINit");
+        panic!("Not in HostInit");
     };
     txn.commit().await.unwrap();
 
@@ -556,7 +561,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         .unwrap()
         .unwrap();
     assert!(host.host_reprovision_requested.is_none()); // Should be cleared or we'd right back in
-    let reqs = HostMachineUpdate::find_upgrade_needed(&mut txn, true).await?;
+    let reqs = HostMachineUpdate::find_upgrade_needed(&mut txn, true, false).await?;
     assert!(reqs.is_empty());
     txn.commit().await.unwrap();
 
@@ -944,29 +949,11 @@ async fn test_instance_upgrading(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     )
     .await;
 
-    // Create and start an update manager, it better not do anything though!
+    // Create and start an update manager
     let update_manager =
         MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
-    // Update manager should NOT notice that the host is underversioned, setting the request to update it
-    update_manager.run_single_iteration().await?;
-
-    // Check that we're properly NOT marking it as upgrade needed
-    let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(host.host_reprovision_requested.is_none());
-    txn.commit().await.unwrap();
-
-    // Now simulate someone marking it for an upgrade with forge-admin-cli
-    let request = rpc::forge::HostReprovisioningRequest {
-        machine_id: Some(host_machine_id.into()),
-        mode: rpc::forge::host_reprovisioning_request::Mode::Set.into(),
-        initiator: 0,
-    };
-    let request = Request::new(request);
-    env.api.trigger_host_reprovisioning(request).await.unwrap();
+    // Single iteration now starts it
+    update_manager.run_single_iteration().await.unwrap();
 
     // A tick of the state machine, but we don't start anything yet and it's still in assigned/ready
     env.run_machine_state_controller_iteration().await;
@@ -981,6 +968,12 @@ async fn test_instance_upgrading(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     let InstanceState::Ready = instance_state else {
         panic!("Unexpecte instance state {:?}", host.state);
     };
+    println!("{:?}", host.health_report_overrides);
+    assert!(
+        host.health_report_overrides
+            .merges
+            .contains_key(HOST_FW_UPDATE_HEALTH_REPORT_SOURCE)
+    );
     txn.commit().await.unwrap();
 
     // Simulate a tenant OKing the request
@@ -1097,7 +1090,9 @@ async fn test_instance_upgrading(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 
     // "Site explorer" pass
     let endpoints =
-        DbExploredEndpoint::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()]).await?;
+        DbExploredEndpoint::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
+            .await
+            .unwrap();
     let mut endpoint = endpoints.first().unwrap().clone();
     endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
     endpoint
@@ -1110,7 +1105,8 @@ async fn test_instance_upgrading(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         &endpoint.report,
         &mut txn,
     )
-    .await?;
+    .await
+    .unwrap();
     txn.commit().await.unwrap();
 
     // Another state machine pass
@@ -1176,7 +1172,9 @@ async fn test_instance_upgrading(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 
     // "Site explorer" pass to indicate that we're at the desired version
     let endpoints =
-        DbExploredEndpoint::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()]).await?;
+        DbExploredEndpoint::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
+            .await
+            .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
     endpoint
@@ -1189,14 +1187,16 @@ async fn test_instance_upgrading(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         &endpoint.report,
         &mut txn,
     )
-    .await?;
+    .await
+    .unwrap();
     MachineTopology::update_firmware_version_by_bmc_address(
         &mut txn,
         &host.bmc_info.ip_addr().unwrap(),
         "6.00.30.00",
         "1.2.3",
     )
-    .await?;
+    .await
+    .unwrap();
     txn.commit().await.unwrap();
     // Another state machine pass
     env.run_machine_state_controller_iteration().await;
@@ -1251,9 +1251,17 @@ async fn test_instance_upgrading(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         panic!("Unexpected state {:?}", host.state)
     };
 
+    update_manager.run_single_iteration().await.unwrap();
+
     assert!(host.host_reprovision_requested.is_none()); // Should be cleared
-    let reqs = HostMachineUpdate::find_upgrade_needed(&mut txn, true).await?;
+    let reqs = HostMachineUpdate::find_upgrade_needed(&mut txn, true, false)
+        .await
+        .unwrap();
     assert!(reqs.is_empty());
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
     txn.commit().await.unwrap();
 
     // Validate update_firmware_version_by_bmc_address behavior
@@ -1270,6 +1278,12 @@ async fn test_instance_upgrading(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
             .unwrap()
             .bios_version,
         "1.2.3".to_string()
+    );
+    assert!(
+        !host
+            .health_report_overrides
+            .merges
+            .contains_key(HOST_FW_UPDATE_HEALTH_REPORT_SOURCE)
     );
     Ok(())
 }

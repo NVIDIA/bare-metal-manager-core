@@ -264,32 +264,20 @@ impl DpuMachineUpdate {
         let health_override = create_host_update_health_report(
             Some("DpuFirmware".to_string()),
             initiator_host.to_string(),
+            false,
         );
 
         // Mark the Host as in update.
         // If an update is already scheduled (host-update field is set),
         // then the process is aborted
-        let query = r#"UPDATE machines SET health_report_overrides = jsonb_set(
-                coalesce(health_report_overrides, '{"merges": {}}'::jsonb),
-                '{merges,host-update}',
-                $1::jsonb
-            )
-            WHERE controller_state = '{"state": "ready"}' AND id=$2
-            AND coalesce(health_report_overrides, '{"merges": {}}'::jsonb)->'merges' ? 'host-update' = FALSE
-            RETURNING id"#;
-        sqlx::query(query)
-            .bind(sqlx::types::Json(&health_override))
-            .bind(host_machine_id.to_string())
-            .fetch_one(inner_txn.deref_mut())
-            .await
-            .map_err(|err: sqlx::Error| match err {
-                sqlx::Error::RowNotFound => CarbideError::NotFoundError {
-                    kind: "trigger_reprovisioning_for_managed_host",
-                    id: host_machine_id.to_string(),
-                },
-                _ => DatabaseError::new(file!(), line!(), query, err).into(),
-            })?;
-
+        crate::db::machine::insert_health_report_override(
+            &mut inner_txn,
+            host_machine_id,
+            health_report::OverrideMode::Merge,
+            &health_override,
+            true,
+        )
+        .await?;
         inner_txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),

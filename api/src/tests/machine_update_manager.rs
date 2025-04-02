@@ -409,14 +409,18 @@ async fn add_host_update_alert(
     machine_update: &DpuMachineUpdate,
     reference: &crate::machine_update_manager::machine_update_module::DpuReprovisionInitiator,
 ) -> CarbideResult<()> {
-    let health_override =
-        create_host_update_health_report(Some("DpuFirmware".to_string()), reference.to_string());
+    let health_override = create_host_update_health_report(
+        Some("DpuFirmware".to_string()),
+        reference.to_string(),
+        false,
+    );
 
     db::machine::insert_health_report_override(
         txn,
         &machine_update.host_machine_id,
         health_report::OverrideMode::Merge,
         &health_override,
+        false,
     )
     .await?;
 

@@ -57,14 +57,22 @@ lazy_static! {
 
 /// The name of the Health Override which will be used to indicate an ongoing host update
 pub const HOST_UPDATE_HEALTH_REPORT_SOURCE: &str = "host-update";
+pub const HOST_FW_UPDATE_HEALTH_REPORT_SOURCE: &str = "host-fw-update";
 
 /// Creates a Health override report that indicates that a host update is in progress
 pub fn create_host_update_health_report(
     target: Option<String>,
     message: String,
+    for_host_fw: bool,
 ) -> health_report::HealthReport {
+    let source = match for_host_fw {
+        false => HOST_UPDATE_HEALTH_REPORT_SOURCE,
+        true => HOST_FW_UPDATE_HEALTH_REPORT_SOURCE,
+    }
+    .to_string();
+
     health_report::HealthReport {
-        source: HOST_UPDATE_HEALTH_REPORT_SOURCE.to_string(),
+        source,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
         alerts: vec![health_report::HealthProbeAlert {

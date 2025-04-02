@@ -1119,21 +1119,36 @@ pub async fn insert_health_report_override(
     machine_id: &MachineId,
     mode: OverrideMode,
     health_report: &HealthReport,
+    no_overwrite: bool,
 ) -> Result<(), DatabaseError> {
     let column_name = "health_report_overrides";
     let path = match mode {
         OverrideMode::Merge => format!("merges,\"{}\"", health_report.source),
         OverrideMode::Replace => "replace".to_string(),
     };
-    let query = format!(
-        "UPDATE machines SET {column_name} = jsonb_set(
+
+    let query = if no_overwrite {
+        format!(
+            "UPDATE machines SET {column_name} = jsonb_set(
+                coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb),
+                '{{{}}}',
+                $1::jsonb
+            ) WHERE id = $2
+            AND coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb)->'merges' ? '{}' = FALSE
+            RETURNING id",
+            path, health_report.source
+        )
+    } else {
+        format!(
+            "UPDATE machines SET {column_name} = jsonb_set(
                 coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb),
                 '{{{}}}',
                 $1::jsonb
             ) WHERE id = $2
             RETURNING id",
-        path
-    );
+            path
+        )
+    };
 
     let _id: (MachineId,) = sqlx::query_as(&query)
         .bind(sqlx::types::Json(&health_report))
@@ -1532,43 +1547,6 @@ pub async fn update_host_reprovision_start_time(
         .bind(machine_id.to_string())
         .bind(sqlx::types::Json(current_time))
         .fetch_one(txn.deref_mut())
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-    Ok(())
-}
-
-pub async fn trigger_host_reprovisioning_request(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
-    initiator: &str,
-    machine_id: &MachineId,
-) -> Result<(), DatabaseError> {
-    let req = HostReprovisionRequest {
-        requested_at: chrono::Utc::now(),
-        started_at: None,
-        initiator: initiator.to_string(),
-        user_approval_received: false,
-    };
-
-    let query = "UPDATE machines SET host_reprovisioning_requested=$2 WHERE id=$1 RETURNING id";
-    let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
-        .bind(sqlx::types::Json(req))
-        .fetch_one(&mut **txn)
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-    Ok(())
-}
-
-pub async fn clear_host_reprovisioning_request(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
-    machine_id: &MachineId,
-) -> Result<(), DatabaseError> {
-    let query = "UPDATE machines SET host_reprovisioning_requested = NULL WHERE id=$1 RETURNING id";
-    let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
-        .fetch_one(&mut **txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

@@ -317,7 +317,7 @@ pub async fn insert_health_report_override(
         Err(e) => return Err(e.into()),
     }
 
-    db::machine::insert_health_report_override(&mut txn, &machine_id, mode, &report)
+    db::machine::insert_health_report_override(&mut txn, &machine_id, mode, &report, false)
         .await
         .map_err(CarbideError::from)?;
 

@@ -2724,12 +2724,16 @@ impl Forge for Api {
         match req.mode() {
             Mode::Set => {
                 let initiator = req.initiator().as_str_name();
-                db::machine::trigger_host_reprovisioning_request(&mut txn, initiator, &machine_id)
-                    .await
-                    .map_err(CarbideError::from)?;
+                db::host_machine_update::trigger_host_reprovisioning_request(
+                    &mut txn,
+                    initiator,
+                    &machine_id,
+                )
+                .await
+                .map_err(CarbideError::from)?;
             }
             Mode::Clear => {
-                db::machine::clear_host_reprovisioning_request(&mut txn, &machine_id)
+                db::host_machine_update::clear_host_reprovisioning_request(&mut txn, &machine_id)
                     .await
                     .map_err(CarbideError::from)?;
             }
