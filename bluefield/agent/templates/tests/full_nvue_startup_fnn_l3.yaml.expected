@@ -32,9 +32,7 @@
           p0005_security_group_ipv4_out: 
             outbound: {}
           p0005_security_group_ipv6_out: 
-            outbound: {}
-          p0010_vpc_isolation_ipv4:
-            inbound: {} 
+            outbound: {} 
         ip:
           address:
             192.168.0.0/16: {} 
@@ -187,15 +185,6 @@
             match:
               ip:
                 dest-ip: 1.1.1.1/32
-      p0010_vpc_isolation_ipv4:
-        type: ipv4
-        rule:
-          '1000':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 2.2.2.2/32
       p0005_security_group_ipv4_in: 
         rule:
           '2000':

@@ -49,8 +49,6 @@
             outbound: {}
           p0005_security_group_ipv6_out: 
             outbound: {}
-          p0010_vpc_isolation_ipv4:
-            inbound: {}
       vlan196:
         type: svi
         vlan: 196
@@ -76,8 +74,6 @@
             outbound: {}
           p0005_security_group_ipv6_out: 
             outbound: {}
-          p0010_vpc_isolation_ipv4:
-            inbound: {}
       vlan185:
         type: svi
         vlan: 185
