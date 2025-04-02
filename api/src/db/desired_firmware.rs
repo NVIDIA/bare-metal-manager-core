@@ -47,6 +47,23 @@ async fn snapshot_desired_firmware_for_model(
 ) -> Result<(), DatabaseError> {
     let query = "INSERT INTO desired_firmware (vendor, model, versions) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING";
 
+    let mut model = model.clone();
+    model.components = model
+        .components
+        .iter()
+        .filter_map(|(k, v)| {
+            if v.known_firmware.is_empty() {
+                None
+            } else {
+                Some((*k, v.clone()))
+            }
+        })
+        .collect();
+    if model.components.is_empty() {
+        // Nothing is defined - do not add to the table.
+        return Ok(());
+    }
+
     sqlx::query(query)
         .bind(model.vendor.to_pascalcase())
         .bind(model.model.clone())
@@ -88,6 +105,8 @@ struct AsStrings {
 #[cfg(test)]
 #[crate::sqlx_test]
 pub async fn test_build_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
+    let mut config: FirmwareConfig = Default::default();
+
     // Source config is hacky, but we just need to have 3 different components in unsorted order
     let src_cfg_str = r#"
     model = "PowerEdge R750"
@@ -119,7 +138,26 @@ pub async fn test_build_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> 
     url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE"
     default = true
         "#;
-    let mut config: FirmwareConfig = Default::default();
+    config.add_test_override(src_cfg_str.to_string());
+
+    // And empty ones to test that we don't add these to desired firmware
+    let src_cfg_str = r#"
+vendor = "Hpe"
+model = "ProLiant DL385 Gen10 Plus v2"
+[components.bmc]
+current_version_reported_as = "^1$"
+[components.uefi]
+current_version_reported_as = "^2$"
+"#;
+    config.add_test_override(src_cfg_str.to_string());
+    let src_cfg_str = r#"
+vendor = "Hpe"
+model = "ProLiant DL380a Gen11"
+[components.bmc]
+current_version_reported_as = "^1$"
+[components.uefi]
+current_version_reported_as = "^2$"
+"#;
     config.add_test_override(src_cfg_str.to_string());
 
     println!("{config:?}");
@@ -128,7 +166,8 @@ pub async fn test_build_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> 
     txn.commit().await?;
 
     let mut txn = pool.begin().await?;
-    let query = r#"SELECT versions->>'Versions' AS versions FROM desired_firmware;"#;
+    let query =
+        r#"SELECT versions->>'Versions' AS versions FROM desired_firmware WHERE vendor = 'Dell';"#;
 
     let versions_all: Vec<AsStrings> = sqlx::query_as(query).fetch_all(txn.deref_mut()).await?;
     let versions = versions_all.first().unwrap().versions.clone();
@@ -136,5 +175,10 @@ pub async fn test_build_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> 
     let expected = r#"{"bmc": "7.10.30.00", "cec": "8.10.30.00", "uefi": "1.13.3"}"#;
 
     assert_eq!(expected, versions);
+
+    let query = r#"SELECT COUNT(1) FROM desired_firmware;"#;
+    let count: (i64,) = sqlx::query_as(query).fetch_one(txn.deref_mut()).await?;
+    assert_eq!(count, (1,));
+
     Ok(())
 }
