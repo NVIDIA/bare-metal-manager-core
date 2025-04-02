@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashSet;
+
 use ::rpc::{errors::RpcDataConversionError, forge as rpc};
 use config_version::ConfigVersion;
 use forge_uuid::{
@@ -73,12 +75,8 @@ pub(crate) async fn create(
         .runtime_config
         .network_security_group
         .max_network_security_group_size as usize;
-    if !is_valid_expanded_rule_set_size(&rules, max_nsg_size) {
-        return Err(CarbideError::InvalidArgument(format!(
-            "expanded rule set contains more than {max_nsg_size} maximum number of rules"
-        ))
-        .into());
-    }
+
+    validate_expanded_rule_set(&rules, max_nsg_size)?;
 
     // Start a new transaction for a db write.
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -312,12 +310,8 @@ pub(crate) async fn update(
         .runtime_config
         .network_security_group
         .max_network_security_group_size as usize;
-    if !is_valid_expanded_rule_set_size(&rules, max_nsg_size) {
-        return Err(CarbideError::InvalidArgument(format!(
-            "expanded rule set contains more than {max_nsg_size} maximum number of rules"
-        ))
-        .into());
-    }
+
+    validate_expanded_rule_set(&rules, max_nsg_size)?;
 
     // Start a new transaction for a db write.
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -697,14 +691,28 @@ pub(crate) async fn get_attachments(
     Ok(Response::new(rpc_out))
 }
 
-fn is_valid_expanded_rule_set_size(rules: &[NetworkSecurityGroupRule], limit: usize) -> bool {
+fn validate_expanded_rule_set(
+    rules: &[NetworkSecurityGroupRule],
+    limit: usize,
+) -> Result<(), CarbideError> {
     let mut total_rules = 0u32;
 
+    let mut ids = HashSet::<Option<String>>::new();
+
     if rules.len() > limit {
-        return false;
+        return Err(CarbideError::InvalidArgument(format!(
+            "expanded rule set contains more than {limit} maximum number of rules"
+        )));
     }
 
     for rule in rules {
+        if !ids.insert(rule.id.clone()) {
+            return Err(CarbideError::InvalidArgument(format!(
+                "duplicate rule ID `{}` found in rule set",
+                rule.id.clone().unwrap_or_default()
+            )));
+        }
+
         match (&rule.src_net, &rule.dst_net) {
             (NetworkSecurityGroupRuleNet::Prefix(_), NetworkSecurityGroupRuleNet::Prefix(_)) => {
                 // Negative ranges are caught when we convert from rpc to internal struct.
@@ -718,16 +726,22 @@ fn is_valid_expanded_rule_set_size(rules: &[NetworkSecurityGroupRule], limit: us
                 );
 
                 total_rules = match total_rules.overflowing_add(rule_count) {
-                    (_, true) => return false,
+                    (_, true) => {
+                        return Err(CarbideError::InvalidArgument(format!(
+                            "expanded rule set contains more than {limit} maximum number of rules"
+                        )));
+                    }
                     (v, false) => v,
                 };
 
                 if total_rules as usize > limit {
-                    return false;
+                    return Err(CarbideError::InvalidArgument(format!(
+                        "expanded rule set contains more than {limit} maximum number of rules"
+                    )));
                 }
             }
         }
     }
 
-    true
+    Ok(())
 }

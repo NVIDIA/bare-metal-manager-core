@@ -141,6 +141,55 @@ async fn test_network_security_group_create(
         }; (default_max_network_security_group_size()+1) as usize],
         });
 
+    let duplicate_rule_ids =
+        Some(rpc::forge::NetworkSecurityGroupAttributes {
+            rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
+                id: Some("anything".to_string()),
+                direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                    .into(),
+                ipv6: false,
+                src_port_start: Some(80),
+                src_port_end: Some(80),
+                dst_port_start: Some(80),
+                dst_port_end: Some(80),
+                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                priority: 9001,
+                source_net: Some(
+                    rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        "0.0.0.0/0".to_string(),
+                    ),
+                ),
+                destination_net: Some(
+                    rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        "0.0.0.0/0".to_string(),
+                    ),
+                ),
+            },rpc::forge::NetworkSecurityGroupRuleAttributes {
+                id: Some("anything".to_string()),
+                direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                    .into(),
+                ipv6: false,
+                src_port_start: Some(80),
+                src_port_end: Some(80),
+                dst_port_start: Some(80),
+                dst_port_end: Some(80),
+                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                priority: 9001,
+                source_net: Some(
+                    rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        "0.0.0.0/0".to_string(),
+                    ),
+                ),
+                destination_net: Some(
+                    rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        "0.0.0.0/0".to_string(),
+                    ),
+                ),
+            }],
+        });
+
     // Prepare some attributes for creation and comparison later
     let network_security_group_attributes = Some(rpc::forge::NetworkSecurityGroupAttributes {
         rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
@@ -212,6 +261,21 @@ async fn test_network_security_group_create(
                 tenant_organization_id: default_tenant_org.to_string(),
                 metadata: metadata.clone(),
                 network_security_group_attributes: too_many_rules,
+            },
+        ))
+        .await
+        .unwrap_err();
+
+    // Then, attempt to create a new NSG that'has duplicate
+    // rule IDs
+    let _ = env
+        .api
+        .create_network_security_group(tonic::Request::new(
+            rpc::forge::CreateNetworkSecurityGroupRequest {
+                id: Some(id.to_string()),
+                tenant_organization_id: default_tenant_org.to_string(),
+                metadata: metadata.clone(),
+                network_security_group_attributes: duplicate_rule_ids,
             },
         ))
         .await
@@ -434,6 +498,55 @@ async fn test_network_security_group_update(
             }; (default_max_network_security_group_size()+1) as usize],
         });
 
+    let duplicate_rule_ids =
+        Some(rpc::forge::NetworkSecurityGroupAttributes {
+            rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
+                id: Some("anything".to_string()),
+                direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                    .into(),
+                ipv6: false,
+                src_port_start: Some(80),
+                src_port_end: Some(80),
+                dst_port_start: Some(80),
+                dst_port_end: Some(80),
+                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                priority: 9001,
+                source_net: Some(
+                    rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        "0.0.0.0/0".to_string(),
+                    ),
+                ),
+                destination_net: Some(
+                    rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        "0.0.0.0/0".to_string(),
+                    ),
+                ),
+            },rpc::forge::NetworkSecurityGroupRuleAttributes {
+                id: Some("anything".to_string()),
+                direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                    .into(),
+                ipv6: false,
+                src_port_start: Some(80),
+                src_port_end: Some(80),
+                dst_port_start: Some(80),
+                dst_port_end: Some(80),
+                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                priority: 9001,
+                source_net: Some(
+                    rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        "0.0.0.0/0".to_string(),
+                    ),
+                ),
+                destination_net: Some(
+                    rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        "0.0.0.0/0".to_string(),
+                    ),
+                ),
+            }],
+        });
+
     let update_network_security_group_attributes =
         Some(rpc::forge::NetworkSecurityGroupAttributes {
             rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
@@ -508,6 +621,23 @@ async fn test_network_security_group_update(
                 tenant_organization_id: default_tenant_org.to_string(),
                 metadata: metadata.clone(),
                 network_security_group_attributes: too_many_rules,
+                if_version_match: None,
+            },
+        ))
+        .await
+        .unwrap_err();
+
+    // One more update, and this time it should
+    // fail because we are trying to add duplicate rule IDs
+    // in the NSG.
+    let _ = env
+        .api
+        .update_network_security_group(tonic::Request::new(
+            rpc::forge::UpdateNetworkSecurityGroupRequest {
+                id: id.to_string(),
+                tenant_organization_id: default_tenant_org.to_string(),
+                metadata: metadata.clone(),
+                network_security_group_attributes: duplicate_rule_ids,
                 if_version_match: None,
             },
         ))
