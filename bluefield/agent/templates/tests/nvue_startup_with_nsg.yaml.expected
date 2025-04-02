@@ -37,18 +37,20 @@
             br_default:
               access: 196
         acl:
-          ACL_tenancy:
+          p0000_deny_prefixes_ipv4:
             inbound: {}
           drop_dhcp_flood_over_overlay:
             inbound: {}
-          security_group_ipv4_in: 
+          p0005_security_group_ipv4_in: 
             inbound: {}
-          security_group_ipv6_in:
+          p0005_security_group_ipv6_in:
             inbound: {}
-          security_group_ipv4_out: 
+          p0005_security_group_ipv4_out: 
             outbound: {}
-          security_group_ipv6_out: 
+          p0005_security_group_ipv6_out: 
             outbound: {}
+          p0010_vpc_isolation_ipv4:
+            inbound: {}
       vlan196:
         type: svi
         vlan: 196
@@ -62,18 +64,20 @@
             br_default:
               access: 185
         acl:
-          ACL_tenancy:
+          p0000_deny_prefixes_ipv4:
             inbound: {}
           drop_dhcp_flood_over_overlay:
             inbound: {}
-          security_group_ipv4_in: 
+          p0005_security_group_ipv4_in: 
             inbound: {}
-          security_group_ipv6_in:
+          p0005_security_group_ipv6_in:
             inbound: {}
-          security_group_ipv4_out: 
+          p0005_security_group_ipv4_out: 
             outbound: {}
-          security_group_ipv6_out: 
+          p0005_security_group_ipv6_out: 
             outbound: {}
+          p0010_vpc_isolation_ipv4:
+            inbound: {}
       vlan185:
         type: svi
         vlan: 185
@@ -232,7 +236,8 @@
                       allow-my-asn:
                         enable: on
     acl:
-      ACL_tenancy:
+      p0000_deny_prefixes_ipv4:
+        type: ipv4
         rule:
           '1001':
             action:
@@ -246,8 +251,7 @@
             match:
               ip:
                 dest-ip: 198.51.100.0/24
-        type: ipv4
-      security_group_ipv4_in: 
+      p0005_security_group_ipv4_in: 
         rule:
           '2000':
             action:
@@ -313,7 +317,7 @@
             action:
               deny: {}
         type: ipv4
-      security_group_ipv6_in: 
+      p0005_security_group_ipv6_in: 
         rule:
           '2000':
             action:
@@ -367,7 +371,7 @@
             action:
               deny: {}
         type: ipv6
-      security_group_ipv4_out: 
+      p0005_security_group_ipv4_out: 
         rule:
           '2000':
             action:
@@ -445,7 +449,7 @@
             action:
               deny: {}
         type: ipv4
-      security_group_ipv6_out: 
+      p0005_security_group_ipv6_out: 
         type: ipv6
         rule:
           '2000':

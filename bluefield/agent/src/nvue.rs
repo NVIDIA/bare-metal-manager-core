@@ -200,6 +200,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         Uplinks: conf.uplinks.clone(),
         RouteServers: conf.route_servers.clone(),
         DHCPServers: conf.dhcp_servers.clone(),
+        HasSiteFabricPrefixes: !conf.site_fabric_prefixes.is_empty(),
         SiteFabricPrefixes: conf
             .site_fabric_prefixes
             .iter()
@@ -209,6 +210,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                 Prefix: s.to_string(),
             })
             .collect(),
+        HasDenyPrefixes: !conf.deny_prefixes.is_empty(),
         DenyPrefixes: conf
             .deny_prefixes
             .iter()
@@ -634,10 +636,14 @@ struct TmplNvue {
     /// Format: CIDR of the infastructure prefixes to block. Origin is carbide-api config file.
     DenyPrefixes: Vec<Prefix>,
 
+    HasDenyPrefixes: bool,
+
     /// Format: CIDR of the site prefixes for tenant use.  If VPC isolation is applied,
     /// and there is no network security group applied overriding the behavior,
     /// these will be blocked as well.
     SiteFabricPrefixes: Vec<Prefix>,
+
+    HasSiteFabricPrefixes: bool,
 
     // Whether VPC-isolation should be applied.
     UseVpcIsolation: bool,
