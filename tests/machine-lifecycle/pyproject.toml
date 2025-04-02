@@ -10,6 +10,7 @@ rich = "^13.7.1"
 paramiko = "^3.4.0"
 hvac = "^2.2.0"
 scp = "^0.15.0"
+pexpect = "^4.9.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.4.2"
