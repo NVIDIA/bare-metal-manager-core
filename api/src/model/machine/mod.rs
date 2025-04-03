@@ -469,6 +469,8 @@ impl Display for MachineLastRebootRequestedMode {
 pub struct MachineLastRebootRequested {
     pub time: DateTime<Utc>,
     pub mode: MachineLastRebootRequestedMode,
+    pub restart_verified: Option<bool>,
+    pub verification_attempts: Option<i32>,
 }
 
 impl Default for MachineLastRebootRequested {
@@ -476,6 +478,8 @@ impl Default for MachineLastRebootRequested {
         MachineLastRebootRequested {
             time: Default::default(),
             mode: MachineLastRebootRequestedMode::Reboot,
+            restart_verified: None,
+            verification_attempts: None,
         }
     }
 }

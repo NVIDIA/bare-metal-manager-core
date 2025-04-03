@@ -3638,11 +3638,12 @@ dependencies = [
 
 [[package]]
 name = "libredfish"
-version = "0.29.15"
+version = "0.29.17"
 source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
-checksum = "0d08fa476bc7cf83bd7e966e09bdaeb7ea91c9f867947c93b30db0ce8f6b4f5a"
+checksum = "51e100e0d81ef6a6ac1fb1878c11964078ecfb949725ba7f76ab7cb4db43a3d7"
 dependencies = [
  "async-trait",
+ "chrono",
  "clap",
  "log",
  "regex",
@@ -3653,6 +3654,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "urlencoding",
  "version-compare 0.1.1",
 ]
 
@@ -5109,7 +5111,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -7619,6 +7621,12 @@ dependencies = [
  "percent-encoding",
  "serde",
 ]
+
+[[package]]
+name = "urlencoding"
+version = "2.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "utf16_iter"

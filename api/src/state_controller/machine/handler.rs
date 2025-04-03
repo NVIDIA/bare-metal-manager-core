@@ -12,7 +12,7 @@
 
 //! State Handler implementation for Machines
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::{mem::discriminant as enum_discr, net::IpAddr, sync::Arc};
 
 use chrono::{DateTime, Duration, Utc};
@@ -30,6 +30,7 @@ use sku::{handle_bom_validation_requested, handle_bom_validation_state};
 use tokio::sync::Semaphore;
 use version_compare::Cmp;
 
+use crate::db::machine::update_restart_verification_status;
 use crate::{
     cfg::file::{
         BomValidationConfig, CarbideConfig, DpuModel, Firmware, FirmwareComponentType,
@@ -479,6 +480,10 @@ impl MachineStateHandler {
         }
 
         if let Some(outcome) = handle_legacy_maintenance_mode(mh_snapshot, txn).await? {
+            return Ok(outcome);
+        }
+
+        if let Some(outcome) = handle_restart_verification(mh_snapshot, txn, ctx).await? {
             return Ok(outcome);
         }
 
@@ -1303,6 +1308,239 @@ async fn handle_legacy_maintenance_mode(
     }
 
     Ok(None)
+}
+
+async fn handle_restart_verification(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
+    const MAX_VERIFICATION_ATTEMPTS: i32 = 2;
+
+    // Check host first
+    if let Some(last_reboot) = &mh_snapshot.host_snapshot.last_reboot_requested {
+        if last_reboot.restart_verified == Some(false) {
+            let verification_attempts = last_reboot.verification_attempts.unwrap_or(0);
+
+            let host_redfish_client = ctx
+                .services
+                .redfish_client_pool
+                .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
+                .await?;
+
+            let restart_found = match check_restart_in_logs(
+                host_redfish_client.as_ref(),
+                last_reboot.time,
+            )
+            .await
+            {
+                Ok(found) => found,
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to fetch BMC logs for host {} during force-restart verification: {}",
+                        mh_snapshot.host_snapshot.id,
+                        err
+                    );
+                    update_restart_verification_status(
+                        &mh_snapshot.host_snapshot.id,
+                        last_reboot.clone(),
+                        None,
+                        0,
+                        txn,
+                    )
+                    .await?;
+                    return Ok(None); // Skip verification, continue with state transition
+                }
+            };
+
+            if restart_found {
+                update_restart_verification_status(
+                    &mh_snapshot.host_snapshot.id,
+                    last_reboot.clone(),
+                    Some(true),
+                    0,
+                    txn,
+                )
+                .await?;
+                tracing::info!("Restart verified for host {}", mh_snapshot.host_snapshot.id);
+                return Ok(None);
+            }
+
+            if verification_attempts >= MAX_VERIFICATION_ATTEMPTS {
+                host_redfish_client
+                    .power(SystemPowerControl::ForceRestart)
+                    .await
+                    .map_err(|e| StateHandlerError::RedfishError {
+                        operation: "restart host",
+                        error: e,
+                    })?;
+
+                update_restart_verification_status(
+                    &mh_snapshot.host_snapshot.id,
+                    last_reboot.clone(),
+                    None,
+                    0,
+                    txn,
+                )
+                .await?;
+
+                tracing::info!(
+                    "Issued force-restart for host {} after {} failed verifications",
+                    mh_snapshot.host_snapshot.id,
+                    verification_attempts
+                );
+                return Ok(None);
+            }
+
+            update_restart_verification_status(
+                &mh_snapshot.host_snapshot.id,
+                last_reboot.clone(),
+                Some(false),
+                verification_attempts + 1,
+                txn,
+            )
+            .await?;
+
+            return Ok(Some(StateHandlerOutcome::Wait(format!(
+                "Waiting for {} force-restart verification - attempt {}/{}",
+                mh_snapshot.host_snapshot.id,
+                verification_attempts + 1,
+                MAX_VERIFICATION_ATTEMPTS
+            ))));
+        }
+    }
+
+    // Check DPUs
+    let mut pending_message = Vec::new();
+
+    for dpu in &mh_snapshot.dpu_snapshots {
+        if let Some(last_reboot) = &dpu.last_reboot_requested {
+            if last_reboot.restart_verified == Some(false) {
+                let verification_attempts = last_reboot.verification_attempts.unwrap_or(0);
+
+                let dpu_redfish_client = ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client_from_machine(dpu, txn)
+                    .await?;
+
+                let restart_found = match check_restart_in_logs(
+                    dpu_redfish_client.as_ref(),
+                    last_reboot.time,
+                )
+                .await
+                {
+                    Ok(found) => found,
+                    Err(err) => {
+                        tracing::warn!(
+                            "Failed to fetch BMC logs for DPU {} during force-restart verification: {}",
+                            dpu.id,
+                            err
+                        );
+                        update_restart_verification_status(
+                            &dpu.id,
+                            last_reboot.clone(),
+                            None,
+                            0,
+                            txn,
+                        )
+                        .await?;
+                        continue; // Skip verification, continue with state transition
+                    }
+                };
+
+                if restart_found {
+                    update_restart_verification_status(
+                        &dpu.id,
+                        last_reboot.clone(),
+                        Some(true),
+                        0,
+                        txn,
+                    )
+                    .await?;
+                    tracing::info!("Restart verified for DPU {}", dpu.id);
+                } else if verification_attempts >= MAX_VERIFICATION_ATTEMPTS {
+                    dpu_redfish_client
+                        .power(SystemPowerControl::ForceRestart)
+                        .await
+                        .map_err(|e| StateHandlerError::RedfishError {
+                            operation: "reboot dpu",
+                            error: e,
+                        })?;
+
+                    update_restart_verification_status(&dpu.id, last_reboot.clone(), None, 0, txn)
+                        .await?;
+
+                    tracing::info!(
+                        "Issued force-restart for DPU {} after {} failed verifications",
+                        dpu.id,
+                        verification_attempts
+                    );
+                } else {
+                    update_restart_verification_status(
+                        &dpu.id,
+                        last_reboot.clone(),
+                        Some(false),
+                        verification_attempts + 1,
+                        txn,
+                    )
+                    .await?;
+                    pending_message.push(format!(
+                        "DPU {} force-restart verification - attempt {}/{}",
+                        dpu.id,
+                        verification_attempts + 1,
+                        MAX_VERIFICATION_ATTEMPTS
+                    ));
+                }
+            }
+        }
+    }
+
+    if !pending_message.is_empty() {
+        Ok(Some(StateHandlerOutcome::Wait(pending_message.join(", "))))
+    } else {
+        Ok(None)
+    }
+}
+
+pub async fn check_restart_in_logs(
+    redfish_client: &dyn Redfish,
+    restart_time: DateTime<Utc>,
+) -> Result<bool, RedfishError> {
+    lazy_static::lazy_static! {
+        // Vendor specific messages
+        static ref SPECIFIC_RESET_KEYWORDS: HashSet<&'static str> = HashSet::from([
+            "Server reset.",                                       // HPE
+            "Server power restored.",                              // HPE
+            "The server is restarted by chassis control command.", // Lenovo
+            "DPU Warm Reset",                                      // Bluefield
+            "BMC IP Address Deleted",                              // Bluefield
+        ]);
+
+        // Generic reset keywords
+        static ref GENERIC_RESET_KEYWORDS: Vec<&'static str> =
+            vec!["reset", "reboot", "restart", "power", "start"];
+    }
+
+    let logs = redfish_client.get_bmc_event_log(Some(restart_time)).await?;
+
+    for log in &logs {
+        tracing::debug!("BMC log message: {}", log.message);
+    }
+
+    let restart_found = logs.iter().any(|log| {
+        // First check exact matches
+        if SPECIFIC_RESET_KEYWORDS.contains(log.message.as_str()) {
+            return true;
+        }
+        // Then generic keywords
+        let lowercase_message = log.message.to_lowercase();
+        GENERIC_RESET_KEYWORDS
+            .iter()
+            .any(|keyword| lowercase_message.contains(keyword))
+    });
+
+    Ok(restart_found)
 }
 
 // Function to wait for some time in state machine.
@@ -5058,15 +5296,14 @@ async fn handler_restart_dpu(
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StateHandlerError> {
-    restart_dpu(machine, services, txn).await?;
-
     db::machine::update_reboot_requested_time(
         &machine.id,
         txn,
         crate::model::machine::MachineLastRebootRequestedMode::Reboot,
     )
-    .await
-    .map_err(|err| err.into())
+    .await?;
+
+    restart_dpu(machine, services, txn).await
     //handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn).await
 }
 
@@ -5115,6 +5352,7 @@ pub async fn handler_host_power_control(
             StateHandlerError::GenericError(eyre!("handler_host_power_control failed: {}", e))
         })?;
     }
+
     // If host is forcedOff/On, it will impact DPU also. So DPU timestamp should also be updated
     // here.
     if action == SystemPowerControl::ForceOff || action == SystemPowerControl::On {
