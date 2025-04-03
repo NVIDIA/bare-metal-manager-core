@@ -46,12 +46,20 @@ async fn match_sku_for_machine(
             })
         })
     {
-        db::machine::update_sku_status_last_match_attempt(txn, &mh_snapshot.host_snapshot.id)
-            .await?;
         let machine_sku = db::sku::from_topology(txn, &mh_snapshot.host_snapshot.id).await?;
-        return Ok(db::sku::find_matching(txn, &machine_sku).await?);
+        let matching_sku = db::sku::find_matching(txn, &machine_sku).await?;
+        if matching_sku.is_none() {
+            // only update the last attempt if there is no match
+            crate::db::machine::update_sku_status_last_match_attempt(
+                txn,
+                &mh_snapshot.host_snapshot.id,
+            )
+            .await?;
+        }
+        Ok(matching_sku)
+    } else {
+        Ok(None)
     }
-    Ok(None)
 }
 
 pub(crate) async fn handle_bom_validation_requested(
@@ -77,7 +85,6 @@ pub(crate) async fn handle_bom_validation_requested(
                 .await
                 .map(Some);
         }
-
         return Ok(None);
     }
 

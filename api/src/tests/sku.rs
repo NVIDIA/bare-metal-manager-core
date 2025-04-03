@@ -1,5 +1,8 @@
 pub mod tests {
+    use std::time::Duration;
+
     use forge_uuid::machine::MachineId;
+    use sqlx::{Postgres, Transaction};
 
     use crate::{
         db::{self, DatabaseError, ObjectFilter, machine::MachineSearchConfig},
@@ -274,11 +277,15 @@ pub mod tests {
     async fn create_test_env_for_sku(
         db_pool: sqlx::PgPool,
         ignore_unassigned_machines: bool,
+        find_match_interval: Option<Duration>,
     ) -> TestEnv {
         let mut overrides = TestEnvOverrides::default();
         let mut config = get_config();
         config.bom_validation.enabled = true;
         config.bom_validation.ignore_unassigned_machines = ignore_unassigned_machines;
+        if let Some(find_match_interval) = find_match_interval {
+            config.bom_validation.find_match_interval = find_match_interval;
+        }
         overrides.config = Some(config);
 
         let test_env = create_test_env_with_overrides(db_pool, overrides).await;
@@ -292,7 +299,7 @@ pub mod tests {
     async fn test_machine_is_ignored_when_not_assigned(
         pool: sqlx::PgPool,
     ) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), true).await;
+        let env = create_test_env_for_sku(pool.clone(), true, None).await;
 
         let (_machine_id, _dpu_id) = create_managed_host(&env).await;
 
@@ -303,7 +310,7 @@ pub mod tests {
     async fn test_stays_in_waiting_state_when_not_assigned(
         pool: sqlx::PgPool,
     ) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false).await;
+        let env = create_test_env_for_sku(pool.clone(), false, None).await;
         let managed_host_config =
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
@@ -342,7 +349,7 @@ pub mod tests {
 
     #[crate::sqlx_test]
     async fn test_leave_waiting_when_assigned(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false).await;
+        let env = create_test_env_for_sku(pool.clone(), false, None).await;
         let managed_host_config =
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
@@ -437,7 +444,7 @@ pub mod tests {
     async fn test_discovery_moves_to_machine_validation_state(
         pool: sqlx::PgPool,
     ) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false).await;
+        let env = create_test_env_for_sku(pool.clone(), false, None).await;
         let managed_host_config =
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
@@ -499,7 +506,7 @@ pub mod tests {
     async fn test_manual_verify_skips_machine_validation(
         pool: sqlx::PgPool,
     ) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false).await;
+        let env = create_test_env_for_sku(pool.clone(), false, None).await;
 
         let (machine_id, _dpu_id) = create_managed_host(&env).await;
 
@@ -562,7 +569,7 @@ pub mod tests {
     async fn test_manual_verify_to_failed_to_passed_skips_machine_validation(
         pool: sqlx::PgPool,
     ) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false).await;
+        let env = create_test_env_for_sku(pool.clone(), false, None).await;
 
         let (machine_id, _dpu_id) = create_managed_host(&env).await;
 
@@ -693,7 +700,7 @@ pub mod tests {
 
     #[crate::sqlx_test]
     async fn test_auto_match_sku(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false).await;
+        let env = create_test_env_for_sku(pool.clone(), false, None).await;
         let managed_host_config =
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
@@ -756,9 +763,24 @@ pub mod tests {
         Ok(())
     }
 
+    pub async fn clear_sku_status(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE machines SET hw_sku_status=null WHERE id=$1 RETURNING id";
+
+        let _: () = sqlx::query_as(query)
+            .bind(machine_id)
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "clear sku last match attempt", e))?;
+
+        Ok(())
+    }
+
     #[crate::sqlx_test]
     async fn test_auto_match_sku_with_ignore(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), true).await;
+        let env = create_test_env_for_sku(pool.clone(), true, Some(Duration::from_secs(10))).await;
 
         let (machine_id, _dpu_id) = create_managed_host(&env).await;
 
@@ -786,7 +808,7 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let machine2 = db::machine::find(
+        let machine = db::machine::find(
             &mut txn,
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
@@ -795,14 +817,59 @@ pub mod tests {
         .pop()
         .unwrap();
 
-        assert_eq!(machine2.hw_sku, Some(expected_sku.id));
+        assert_eq!(machine.hw_sku, Some(expected_sku.id.clone()));
+        assert_eq!(machine.current_state(), &ManagedHostState::Ready);
+
+        clear_sku_status(&mut txn, &machine_id).await?;
+        // test that an unassigned can find and assign a machine.
+        crate::db::machine::unassign_sku(&mut txn, &machine_id).await?;
+        txn.commit().await?;
+
+        let mut txn = pool.begin().await?;
+        env.run_machine_state_controller_iteration_until_state_condition(
+            &machine_id,
+            10,
+            &mut txn,
+            |machine| machine.current_state() != &ManagedHostState::Ready,
+        )
+        .await;
+        txn.commit().await?;
+
+        let mut txn = pool.begin().await.unwrap();
+        crate::db::machine::update_discovery_time(&machine_id, &mut txn)
+            .await
+            .unwrap();
+        txn.commit().await.unwrap();
+
+        let mut txn = pool.begin().await?;
+        env.run_machine_state_controller_iteration_until_state_condition(
+            &machine_id,
+            10,
+            &mut txn,
+            |machine| machine.current_state() == &ManagedHostState::Ready,
+        )
+        .await;
+        txn.commit().await?;
+
+        let mut txn = pool.begin().await?;
+        let machine = db::machine::find(
+            &mut txn,
+            ObjectFilter::One(machine_id),
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .pop()
+        .unwrap();
+
+        assert_eq!(machine.hw_sku, Some(expected_sku.id));
+        assert_eq!(machine.current_state(), &ManagedHostState::Ready);
 
         Ok(())
     }
 
     #[crate::sqlx_test]
     async fn test_match_sku_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false).await;
+        let env = create_test_env_for_sku(pool.clone(), false, None).await;
 
         let (machine_id, _dpu_id) = create_managed_host(&env).await;
 
