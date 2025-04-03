@@ -51,7 +51,7 @@ pub async fn handle_show_version(
     );
     // Same as running `forge-admin-cli --version`
     println!();
-    println!("forge-admin-cli:\n\t {}", forge_version::version!());
+    println!("forge-admin-cli:\n\t{}", forge_version::version!());
 
     if version.show_runtime_config {
         let config = v
