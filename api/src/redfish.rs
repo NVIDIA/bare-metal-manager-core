@@ -407,7 +407,7 @@ pub async fn host_power_control(
         action = action.to_string(),
         "Host Power Control"
     );
-
+    db::machine::update_reboot_requested_time(&machine.id, txn, action.into()).await?;
     match machine.bmc_vendor() {
         bmc_vendor::BMCVendor::Lenovo => {
             // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
@@ -527,7 +527,6 @@ pub async fn host_power_control(
         }
     }
 
-    db::machine::update_reboot_requested_time(&machine.id, txn, action.into()).await?;
     Ok(())
 }
 
@@ -1308,6 +1307,15 @@ pub mod test_support {
             &self,
         ) -> Result<Vec<libredfish::model::sel::LogEntry>, RedfishError> {
             Ok(Vec::new())
+        }
+
+        async fn get_bmc_event_log(
+            &self,
+            _from: Option<chrono::DateTime<chrono::Utc>>,
+        ) -> Result<Vec<libredfish::model::sel::LogEntry>, RedfishError> {
+            Err(RedfishError::NotSupported(
+                "BMC Event Log not supported for tests".to_string(),
+            ))
         }
 
         async fn get_tasks(&self) -> Result<Vec<String>, RedfishError> {

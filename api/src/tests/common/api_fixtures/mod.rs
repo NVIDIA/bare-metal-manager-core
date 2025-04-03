@@ -1665,6 +1665,8 @@ pub async fn update_time_params(
             machine.last_reboot_requested.as_ref().unwrap().time - Duration::minutes(1)
         },
         mode: machine.last_reboot_requested.as_ref().unwrap().mode,
+        restart_verified: None,
+        verification_attempts: None,
     };
 
     let last_reboot_time = machine.last_reboot_time.unwrap() - Duration::minutes(2i64);

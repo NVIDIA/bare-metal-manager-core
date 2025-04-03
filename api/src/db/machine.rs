@@ -768,14 +768,40 @@ pub async fn update_reboot_requested_time(
     txn: &mut sqlx::Transaction<'_, Postgres>,
     mode: MachineLastRebootRequestedMode,
 ) -> Result<(), DatabaseError> {
+    let mut restart_verified = None;
+    if matches!(mode, MachineLastRebootRequestedMode::Reboot) {
+        restart_verified = Some(false);
+    }
     let data = MachineLastRebootRequested {
         time: chrono::Utc::now(),
         mode,
+        restart_verified,
+        verification_attempts: Some(0),
     };
 
     let query = "UPDATE machines SET last_reboot_requested=$1 WHERE id=$2 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(sqlx::types::Json(&data))
+        .bind(machine_id.to_string())
+        .fetch_one(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+    Ok(())
+}
+
+pub async fn update_restart_verification_status(
+    machine_id: &MachineId,
+    mut current_reboot: MachineLastRebootRequested,
+    verified: Option<bool>,
+    attempts: i32,
+    txn: &mut sqlx::Transaction<'_, Postgres>,
+) -> Result<(), DatabaseError> {
+    current_reboot.restart_verified = verified;
+    current_reboot.verification_attempts = Some(attempts);
+
+    let query = "UPDATE machines SET last_reboot_requested=$1 WHERE id=$2 RETURNING id";
+    let _id = sqlx::query_as::<_, MachineId>(query)
+        .bind(sqlx::types::Json(&current_reboot))
         .bind(machine_id.to_string())
         .fetch_one(txn.deref_mut())
         .await
