@@ -105,6 +105,9 @@ pub enum CarbideCliError {
     #[error("Host machine with id {0} not found")]
     MachineNotFound(MachineId),
 
+    #[error("Instance with id {0} not found")]
+    InstanceNotFound(rpc::Uuid),
+
     #[error("I/O error. Does the file exist? {0}")]
     IOError(#[from] std::io::Error),
 

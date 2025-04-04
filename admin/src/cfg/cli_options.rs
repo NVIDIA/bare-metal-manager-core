@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 
-use clap::{ArgGroup, Parser, ValueEnum};
+use clap::{ArgGroup, Parser, ValueEnum, ValueHint};
 use ipnet::IpNet;
 use mac_address::MacAddress;
 
@@ -21,6 +21,7 @@ use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::machine::MachineId;
 use forge_uuid::vpc::{VpcId, VpcPrefixId};
 use libredfish::model::update_service::ComponentType;
+use rpc::forge::OperatingSystem;
 use serde::{Deserialize, Serialize};
 use utils::{admin_cli::OutputFormat, has_duplicates};
 
@@ -44,10 +45,11 @@ pub struct CliOptions {
 
     #[clap(
         long,
-        default_value = "false",
+        value_hint = ValueHint::Username,
+        value_name = "USERNAME",
         help = "Never should be used against a production site. Use this flag only if you undrestand the impacts of inconsistencies with cloud db."
     )]
-    pub cloud_unsafe_op: bool,
+    pub cloud_unsafe_op: Option<String>,
 
     #[clap(short, long, env = "CARBIDE_API_URL")]
     #[clap(
@@ -1603,6 +1605,8 @@ pub enum Instance {
     Release(ReleaseInstance),
     #[clap(about = "Allocate instance")]
     Allocate(AllocateInstance),
+    #[clap(about = "Update instance OS")]
+    UpdateOS(UpdateInstanceOS),
 }
 
 /// ShowInstance is used for `cli instance show` configuration,
@@ -1704,11 +1708,21 @@ pub struct AllocateInstance {
     )]
     pub instance_type_id: Option<String>,
 
-    #[clap(long, help = "the PXE script")]
-    pub custom_ipxe: Option<String>,
+    #[clap(long, help = "OS definition in JSON format", value_name = "OS_JSON")]
+    pub os: Option<OperatingSystem>,
+}
 
-    #[clap(long, help = "the cloud-init script")]
-    pub user_data: Option<String>,
+#[derive(Parser, Debug)]
+pub struct UpdateInstanceOS {
+    #[clap(short, long, required(true))]
+    pub instance: String,
+    #[clap(
+        long,
+        required(true),
+        help = "OS definition in JSON format",
+        value_name = "OS_JSON"
+    )]
+    pub os: OperatingSystem,
 }
 
 #[derive(Parser, Debug)]

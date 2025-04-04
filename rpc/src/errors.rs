@@ -64,4 +64,6 @@ pub enum RpcDataConversionError {
     InvalidCidr(String),
     #[error("Label is not valid: {0}")]
     InvalidLabel(String),
+    #[error("Could not obtain object from json: {0}")]
+    JsonConversionFailure(String),
 }
