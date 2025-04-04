@@ -946,6 +946,14 @@ impl Default for DpuConfig {
                     "BlueField-3 SmartNIC Main Card".to_string(),
                     "32.42.1000".to_string(),
                 ),
+                (
+                    "BlueField 3 SmartNIC Main Card".to_string(),
+                    "32.42.1000".to_string(),
+                ),
+                (
+                    "BlueField-3 DPU".to_string(),
+                    "32.42.1000".to_string(),
+                ),
             ]),
             dpu_models: HashMap::from([("bluefield2".to_string(), Firmware {
                 vendor: BMCVendor::Nvidia,
