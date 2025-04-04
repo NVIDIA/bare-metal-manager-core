@@ -220,6 +220,7 @@ impl InstanceNetworkConfig {
             iface.ip_addrs.clear();
             iface.interface_prefixes.clear();
             iface.network_segment_gateways.clear();
+            iface.host_inband_mac_address = None;
         }
 
         if current != *new_config {

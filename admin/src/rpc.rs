@@ -15,12 +15,11 @@ use ::rpc::forge::{
     self as rpc, BmcCredentialStatusResponse, BmcEndpointRequest,
     CreateNetworkSecurityGroupRequest, DeleteNetworkSecurityGroupRequest,
     FindNetworkSecurityGroupsByIdsRequest, GetNetworkSecurityGroupAttachmentsRequest,
-    GetNetworkSecurityGroupPropagationStatusRequest, IpxeOperatingSystem,
-    IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
-    MachineHardwareInfoUpdateType, NetworkPrefix, NetworkSecurityGroupAttributes,
-    NetworkSegmentCreationRequest, NetworkSegmentSearchConfig, NetworkSegmentType, OperatingSystem,
-    UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest, VpcCreationRequest,
-    VpcSearchQuery, VpcVirtualizationType,
+    GetNetworkSecurityGroupPropagationStatusRequest, IsBmcInManagedHostResponse,
+    MachineBootOverride, MachineHardwareInfo, MachineHardwareInfoUpdateType, NetworkPrefix,
+    NetworkSecurityGroupAttributes, NetworkSegmentCreationRequest, NetworkSegmentSearchConfig,
+    NetworkSegmentType, UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest,
+    VpcCreationRequest, VpcSearchQuery, VpcVirtualizationType,
 };
 use ::rpc::{NetworkSegment, Uuid};
 use std::net::IpAddr;
@@ -28,6 +27,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use crate::cfg::cli_options::{self, AllocateInstance, ForceDeleteMachineQuery, MachineAutoupdate};
+use crate::rpc::cli_options::UpdateInstanceOS;
 use ::rpc::forge_api_client::ForgeApiClient;
 use mac_address::MacAddress;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult};
@@ -312,7 +312,7 @@ impl ApiClient {
                 if tenant_org_id.is_some() {
                     return Err(CarbideCliError::GenericError(
                         "Filtering by Tenant Org or VPC ID is not supported for this site.\
-                        \nIt does not have a required version of the Carbide API."
+                         \nIt does not have a required version of the Carbide API."
                             .to_string(),
                     ));
                 }
@@ -397,7 +397,7 @@ impl ApiClient {
                 if tenant_org_id.is_some() || name.is_some() {
                     return Err(CarbideCliError::GenericError(
                         "Filtering by Tenant Org ID or Name is not supported for this site.\
-                \nIt does not have a required version of the Carbide API."
+                 \nIt does not have a required version of the Carbide API."
                             .to_string(),
                     ));
                 }
@@ -926,7 +926,7 @@ impl ApiClient {
                 if tenant_org_id.is_some() {
                     return Err(CarbideCliError::GenericError(
                         "Filtering by Tenant Org ID is not supported for this site.\
-                \nIt does not have a required version of the Carbide API."
+                 \nIt does not have a required version of the Carbide API."
                             .to_string(),
                     ));
                 }
@@ -1108,7 +1108,7 @@ impl ApiClient {
                 if tenant_org_id.is_some() || name.is_some() {
                     return Err(CarbideCliError::GenericError(
                         "Filtering by Tenant Org ID or Name is not supported for this site.\
-                \nIt does not have a required version of the Carbide API."
+                 \nIt does not have a required version of the Carbide API."
                             .to_string(),
                     ));
                 }
@@ -1316,6 +1316,7 @@ impl ApiClient {
         host_machine_id: &str,
         allocate_instance: &AllocateInstance,
         instance_name: &str,
+        modified_by: Option<String>,
     ) -> CarbideCliResult<rpc::Instance> {
         let (interface_config, tenant_org) = if let Some(network_segment_name) =
             &allocate_instance.subnet
@@ -1391,21 +1392,9 @@ impl ApiClient {
             hostname: None,
         };
 
-        let variant = allocate_instance.custom_ipxe.as_ref().map(|ipxe_script| {
-            rpc::operating_system::Variant::Ipxe(IpxeOperatingSystem {
-                user_data: allocate_instance.user_data.clone(),
-                ipxe_script: ipxe_script.clone(),
-            })
-        });
-
         let instance_config = rpc::InstanceConfig {
             tenant: Some(tenant_config),
-            os: Some(OperatingSystem {
-                phone_home_enabled: false,
-                run_provisioning_instructions_on_every_boot: false,
-                user_data: None,
-                variant,
-            }),
+            os: allocate_instance.os.clone(),
             network: Some(rpc::InstanceNetworkConfig {
                 interfaces: vec![interface_config],
             }),
@@ -1414,10 +1403,16 @@ impl ApiClient {
             storage: None,
         };
 
-        let mut labels = vec![rpc::Label {
-            key: "cloud-unsafe-op".to_string(),
-            value: Some("true".to_string()),
-        }];
+        let mut labels = vec![
+            rpc::Label {
+                key: String::from("cloud-unsafe-op"),
+                value: None,
+            },
+            rpc::Label {
+                key: String::from("admin-cli-last-modified-by"),
+                value: modified_by,
+            },
+        ];
 
         match (&allocate_instance.label_key, &allocate_instance.label_value) {
             (None, Some(_)) => {
@@ -1447,6 +1442,64 @@ impl ApiClient {
 
         self.0
             .allocate_instance(instance_request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn update_instance_os(
+        &self,
+        update_instance: UpdateInstanceOS,
+        modified_by: Option<String>,
+    ) -> CarbideCliResult<rpc::Instance> {
+        let instance_uuid = ::rpc::Uuid {
+            value: update_instance.instance,
+        };
+
+        let find_response = self
+            .0
+            .find_instances_by_ids(vec![instance_uuid.clone()])
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        let instance = find_response
+            .instances
+            .first()
+            .ok_or_else(|| CarbideCliError::InstanceNotFound(instance_uuid.clone()))?;
+
+        let config = instance.config.clone().map(|mut c| {
+            c.os = Some(update_instance.os);
+            c
+        });
+
+        tracing::info!("{:?}", config);
+
+        let metadata = instance.metadata.clone().map(|mut m| {
+            let mut labels: Vec<rpc::Label> = m
+                .labels
+                .into_iter()
+                .filter(|l| l.key != "cloud-unsafe-op" && l.key != "admin-cli-last-modified-by")
+                .collect();
+            labels.push(rpc::Label {
+                key: String::from("cloud-unsafe-op"),
+                value: None,
+            });
+            labels.push(rpc::Label {
+                key: String::from("admin-cli-last-modified-by"),
+                value: modified_by,
+            });
+            m.labels = labels;
+
+            m
+        });
+
+        let update_instance_request = rpc::InstanceConfigUpdateRequest {
+            instance_id: Some(instance_uuid),
+            if_version_match: Some(instance.config_version.clone()),
+            config,
+            metadata,
+        };
+        self.0
+            .update_instance_config(update_instance_request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)
     }

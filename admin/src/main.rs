@@ -443,7 +443,7 @@ async fn main() -> color_eyre::Result<()> {
                 instance::handle_reboot(reboot_request, &api_client).await?
             }
             Instance::Release(release_request) => {
-                if !config.cloud_unsafe_op {
+                if config.cloud_unsafe_op.is_none() {
                     return Err(CarbideCliError::GenericError(
                         "Operation not allowed due to potential inconsistencies with cloud database.".to_owned(),
                     )
@@ -492,7 +492,7 @@ async fn main() -> color_eyre::Result<()> {
                 api_client.release_instances(instance_ids).await?
             }
             Instance::Allocate(allocate_request) => {
-                if !config.cloud_unsafe_op {
+                if config.cloud_unsafe_op.is_none() {
                     return Err(CarbideCliError::GenericError(
                         "Operation not allowed due to potential inconsistencies with cloud database."
                             .to_owned(),
@@ -524,17 +524,38 @@ async fn main() -> color_eyre::Result<()> {
                             &hid_for_instance,
                             &allocate_request,
                             &format!("{}_{}", allocate_request.prefix_name.clone(), i),
+                            config.cloud_unsafe_op.clone(),
                         )
                         .await
                     {
-                        Ok(_) => {
-                            tracing::info!("allocate_instance was successful. ");
+                        Ok(i) => {
+                            tracing::info!("allocate was successful. Created instance: {:?} ", i);
                         }
                         Err(e) => {
-                            tracing::info!("allocate_instance failed with {} ", e);
+                            tracing::info!("allocate failed with {} ", e);
                         }
                     };
                 }
+            }
+            Instance::UpdateOS(update_request) => {
+                if config.cloud_unsafe_op.is_none() {
+                    return Err(CarbideCliError::GenericError(
+                        "Operation not allowed due to potential inconsistencies with cloud database.".to_owned(),
+                    )
+                    .into());
+                }
+
+                match api_client
+                    .update_instance_os(update_request, config.cloud_unsafe_op)
+                    .await
+                {
+                    Ok(i) => {
+                        tracing::info!("update-os was successful. Updated instance: {:?}", i);
+                    }
+                    Err(e) => {
+                        tracing::info!("update-os failed with {} ", e);
+                    }
+                };
             }
         },
         CliCommand::NetworkSegment(network) => match network {

@@ -25,6 +25,7 @@ use std::str::FromStr;
 
 use chrono::DateTime;
 use chrono::Utc;
+use errors::RpcDataConversionError;
 use mac_address::{MacAddress, MacParseError};
 use prost::Message;
 use prost::UnknownEnumValue;
@@ -512,6 +513,15 @@ impl From<forge::OverrideMode> for health_report::OverrideMode {
             forge::OverrideMode::Merge => health_report::OverrideMode::Merge,
             forge::OverrideMode::Replace => health_report::OverrideMode::Replace,
         }
+    }
+}
+
+impl FromStr for forge::OperatingSystem {
+    type Err = RpcDataConversionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s)
+            .map_err(|e| RpcDataConversionError::JsonConversionFailure(e.to_string()))
     }
 }
 
