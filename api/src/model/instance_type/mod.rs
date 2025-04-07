@@ -261,14 +261,17 @@ impl InstanceType {
             match cap.capability_type {
                 MachineCapabilityType::Cpu => {
                     if let Some(desired_cnt) = cap.count {
-                        match machine_caps.cpu.iter().try_fold(0, |found_cnt, c| {
+                        match machine_caps.cpu.iter().try_fold(0, |found_cnt: u32, c| {
                             if !cap.matches_machine_cpu_capability(c) {
                                 return Some(found_cnt);
                             }
-                            if found_cnt == desired_cnt {
-                                return None; // We're going to exceed the desired count.
+
+                            // Update the found count.
+                            match found_cnt.overflowing_add(c.count) {
+                                (_, true) => None, // overflow
+                                (found_cnt, _) if found_cnt > desired_cnt => None,
+                                (found_cnt, _) => Some(found_cnt),
                             }
-                            Some(found_cnt + 1) // Increment the found count.
                         }) {
                             Some(found_cnt) if found_cnt == desired_cnt => {} // Do nothing.
                             _ => return false, // Desired count was exceeded or count mismatch
@@ -283,14 +286,17 @@ impl InstanceType {
                 }
                 MachineCapabilityType::Gpu => {
                     if let Some(desired_cnt) = cap.count {
-                        match machine_caps.gpu.iter().try_fold(0, |found_cnt, c| {
+                        match machine_caps.gpu.iter().try_fold(0, |found_cnt: u32, c| {
                             if !cap.matches_machine_gpu_capability(c) {
                                 return Some(found_cnt);
                             }
-                            if found_cnt == desired_cnt {
-                                return None; // We're going to exceed the desired count.
+
+                            // Update the found count.
+                            match found_cnt.overflowing_add(c.count) {
+                                (_, true) => None, // overflow
+                                (found_cnt, _) if found_cnt > desired_cnt => None,
+                                (found_cnt, _) => Some(found_cnt),
                             }
-                            Some(found_cnt + 1) // Increment the found count.
                         }) {
                             Some(found_cnt) if found_cnt == desired_cnt => {} // Do nothing.
                             _ => return false, // Desired count was exceeded or count mismatch.
@@ -305,14 +311,17 @@ impl InstanceType {
                 }
                 MachineCapabilityType::Memory => {
                     if let Some(desired_cnt) = cap.count {
-                        match machine_caps.memory.iter().try_fold(0, |found_cnt, c| {
+                        match machine_caps.memory.iter().try_fold(0, |found_cnt: u32, c| {
                             if !cap.matches_machine_memory_capability(c) {
                                 return Some(found_cnt);
                             }
-                            if found_cnt == desired_cnt {
-                                return None; // We're going to exceed the desired count.
+
+                            // Update the found count.
+                            match found_cnt.overflowing_add(c.count) {
+                                (_, true) => None, // overflow
+                                (found_cnt, _) if found_cnt > desired_cnt => None,
+                                (found_cnt, _) => Some(found_cnt),
                             }
-                            Some(found_cnt + 1) // Increment the found count.
                         }) {
                             Some(found_cnt) if found_cnt == desired_cnt => {} // Do nothing.
                             _ => return false, // Desired count was exceeded or count mismatch
@@ -327,15 +336,21 @@ impl InstanceType {
                 }
                 MachineCapabilityType::Storage => {
                     if let Some(desired_cnt) = cap.count {
-                        match machine_caps.storage.iter().try_fold(0, |found_cnt, c| {
-                            if !cap.matches_machine_storage_capability(c) {
-                                return Some(found_cnt);
-                            }
-                            if found_cnt == desired_cnt {
-                                return None; // We're going to exceed the desired count.
-                            }
-                            Some(found_cnt + 1) // Increment the found count.
-                        }) {
+                        match machine_caps
+                            .storage
+                            .iter()
+                            .try_fold(0, |found_cnt: u32, c| {
+                                if !cap.matches_machine_storage_capability(c) {
+                                    return Some(found_cnt);
+                                }
+
+                                // Update the found count.
+                                match found_cnt.overflowing_add(c.count) {
+                                    (_, true) => None, // overflow
+                                    (found_cnt, _) if found_cnt > desired_cnt => None,
+                                    (found_cnt, _) => Some(found_cnt),
+                                }
+                            }) {
                             Some(found_cnt) if found_cnt == desired_cnt => {} // Do nothing.
                             _ => return false, // Desired count was exceeded or count mismatch
                         }
@@ -350,15 +365,21 @@ impl InstanceType {
 
                 MachineCapabilityType::Network => {
                     if let Some(desired_cnt) = cap.count {
-                        match machine_caps.network.iter().try_fold(0, |found_cnt, c| {
-                            if !cap.matches_machine_network_capability(c) {
-                                return Some(found_cnt);
-                            }
-                            if found_cnt == desired_cnt {
-                                return None; // We're going to exceed the desired count.
-                            }
-                            Some(found_cnt + 1) // Increment the found count.
-                        }) {
+                        match machine_caps
+                            .network
+                            .iter()
+                            .try_fold(0, |found_cnt: u32, c| {
+                                if !cap.matches_machine_network_capability(c) {
+                                    return Some(found_cnt);
+                                }
+
+                                // Update the found count.
+                                match found_cnt.overflowing_add(c.count) {
+                                    (_, true) => None, // overflow
+                                    (found_cnt, _) if found_cnt > desired_cnt => None,
+                                    (found_cnt, _) => Some(found_cnt),
+                                }
+                            }) {
                             Some(found_cnt) if found_cnt == desired_cnt => {} // Do nothing.
                             _ => return false, // Desired count was exceeded or count mismatch
                         }
@@ -373,15 +394,21 @@ impl InstanceType {
 
                 MachineCapabilityType::Infiniband => {
                     if let Some(desired_cnt) = cap.count {
-                        match machine_caps.infiniband.iter().try_fold(0, |found_cnt, c| {
-                            if !cap.matches_machine_infiniband_capability(c) {
-                                return Some(found_cnt);
-                            }
-                            if found_cnt == desired_cnt {
-                                return None; // We're going to exceed the desired count.
-                            }
-                            Some(found_cnt + 1) // Increment the found count.
-                        }) {
+                        match machine_caps
+                            .infiniband
+                            .iter()
+                            .try_fold(0, |found_cnt: u32, c| {
+                                if !cap.matches_machine_infiniband_capability(c) {
+                                    return Some(found_cnt);
+                                }
+
+                                // Update the found count.
+                                match found_cnt.overflowing_add(c.count) {
+                                    (_, true) => None, // overflow
+                                    (found_cnt, _) if found_cnt > desired_cnt => None,
+                                    (found_cnt, _) => Some(found_cnt),
+                                }
+                            }) {
                             Some(found_cnt) if found_cnt == desired_cnt => {} // Do nothing.
                             _ => return false, // Desired count was exceeded or count mismatch
                         }
@@ -396,14 +423,17 @@ impl InstanceType {
 
                 MachineCapabilityType::Dpu => {
                     if let Some(desired_cnt) = cap.count {
-                        match machine_caps.dpu.iter().try_fold(0, |found_cnt, c| {
+                        match machine_caps.dpu.iter().try_fold(0, |found_cnt: u32, c| {
                             if !cap.matches_machine_dpu_capability(c) {
                                 return Some(found_cnt);
                             }
-                            if found_cnt == desired_cnt {
-                                return None; // We're going to exceed the desired count.
+
+                            // Update the found count.
+                            match found_cnt.overflowing_add(c.count) {
+                                (_, true) => None, // overflow
+                                (found_cnt, _) if found_cnt > desired_cnt => None,
+                                (found_cnt, _) => Some(found_cnt),
                             }
-                            Some(found_cnt + 1) // Increment the found count.
                         }) {
                             Some(found_cnt) if found_cnt == desired_cnt => {} // Do nothing.
                             _ => return false, // Desired count was exceeded or count mismatch
@@ -703,7 +733,7 @@ mod tests {
                 capabilities::MachineCapabilityNetwork {
                     name: "e1000".to_string(),
                     vendor: Some("intel".to_string()),
-                    count: 1,
+                    count: 2,
                 },
                 capabilities::MachineCapabilityNetwork {
                     name: "e10000".to_string(),
@@ -897,7 +927,8 @@ mod tests {
                         .try_into()
                         .unwrap(),
                     vendor: Some("intel".to_string()),
-                    count: Some(2),
+                    count: Some(3), // There are two intel nics of different speeds.  2x of one and 1x of the other.
+
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
