@@ -12,6 +12,7 @@
   ],
   "gpus": [],
   "machine_type": "aarch64",
+  "machine_arch": 0,
   "nvme_devices": [],
   "memory_devices": [],
   "block_devices": [

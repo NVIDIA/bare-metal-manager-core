@@ -23,6 +23,7 @@
     }
   ],
   "machine_type": "x86_64",
+  "machine_arch": 1,
   "nvme_devices": [],
   "memory_devices": [
     {
