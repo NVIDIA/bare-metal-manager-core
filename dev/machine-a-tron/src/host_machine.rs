@@ -1,3 +1,4 @@
+use futures::future::join_all;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -6,8 +7,9 @@ use tokio::time::Interval;
 use tracing::instrument;
 use uuid::Uuid;
 
+use crate::config::PersistedHostMachine;
 use crate::dpu_machine::DpuMachineActor;
-use crate::machine_state_machine::MachineStateMachine;
+use crate::machine_state_machine::{MachineStateMachine, PersistedMachine};
 use crate::machine_utils::create_random_self_signed_cert;
 use crate::{
     config::{MachineATronContext, MachineConfig},
@@ -25,6 +27,7 @@ use rpc::MachineId;
 #[derive(Debug)]
 pub struct HostMachine {
     mat_id: Uuid,
+    machine_config_section: String,
     host_info: HostMachineInfo,
     app_context: Arc<MachineATronContext>,
     state_machine: MachineStateMachine,
@@ -46,8 +49,71 @@ pub struct HostMachine {
 }
 
 impl HostMachine {
+    pub fn from_persisted(
+        persisted_host_machine: PersistedHostMachine,
+        machine_config_section: String,
+        app_context: Arc<MachineATronContext>,
+        config: Arc<MachineConfig>,
+        dhcp_client: DhcpRelayClient,
+    ) -> Self {
+        let mat_id = persisted_host_machine.mat_id;
+        let dpu_machines = persisted_host_machine
+            .dpus
+            .iter()
+            .map(|dpu| {
+                DpuMachine::from_persisted(
+                    dpu.clone(),
+                    persisted_host_machine.mat_id,
+                    app_context.clone(),
+                    config.clone(),
+                    dhcp_client.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let host_info = HostMachineInfo {
+            bmc_mac_address: persisted_host_machine.bmc_mac_address,
+            serial: persisted_host_machine.serial.clone(),
+            dpus: persisted_host_machine
+                .dpus
+                .iter()
+                .cloned()
+                .map(Into::into)
+                .collect(),
+            non_dpu_mac_address: persisted_host_machine.non_dpu_mac_address,
+        };
+        let dpus = dpu_machines.into_iter().map(|d| d.start(true)).collect();
+        let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
+
+        let state_machine = MachineStateMachine::from_persisted(
+            PersistedMachine::Host(persisted_host_machine),
+            config,
+            app_context.clone(),
+            dhcp_client.clone(),
+            bmc_control_tx.clone(),
+        );
+
+        HostMachine {
+            mat_id,
+            machine_config_section,
+            host_info,
+            state_machine,
+            app_context,
+            dpus,
+            api_state: "Unknown".to_owned(),
+
+            dpus_previously_ready: false,
+            bmc_control_rx,
+            observed_machine_id: None,
+            state_waiters: HashMap::new(),
+            tui_event_tx: None,
+            paused: true,
+            sleep_until: Instant::now(),
+            api_refresh_interval: tokio::time::interval(Duration::from_secs(2)),
+        }
+    }
     pub fn new(
         app_context: Arc<MachineATronContext>,
+        machine_config_section: String,
         config: Arc<MachineConfig>,
         dhcp_client: DhcpRelayClient,
     ) -> Self {
@@ -75,11 +141,12 @@ impl HostMachine {
             app_context.clone(),
             dhcp_client.clone(),
             bmc_control_tx.clone(),
-            Some(create_random_self_signed_cert().unwrap()),
+            Some(create_random_self_signed_cert()),
         );
 
         HostMachine {
             mat_id,
+            machine_config_section,
             host_info,
             state_machine,
             app_context,
@@ -281,6 +348,10 @@ impl HostMachine {
                 self.api_state = api_state;
                 HandleMessageResult::ContinuePolling
             }
+            HostMachineMessage::GetPersisted(reply) => {
+                reply.send(self.persisted().await).ok();
+                HandleMessageResult::ContinuePolling
+            }
         }
     }
 
@@ -417,6 +488,25 @@ impl HostMachine {
             .await?;
         Ok(())
     }
+
+    async fn persisted(&self) -> eyre::Result<PersistedHostMachine> {
+        Ok(PersistedHostMachine {
+            mat_id: self.mat_id,
+            machine_config_section: self.machine_config_section.clone(),
+            bmc_mac_address: self.host_info.bmc_mac_address,
+            serial: self.host_info.serial.clone(),
+            dpus: join_all(self.dpus.iter().map(|d| d.persisted()))
+                .await
+                .into_iter()
+                .collect::<Result<_, _>>()?,
+            non_dpu_mac_address: self.host_info.non_dpu_mac_address,
+            observed_machine_id: self.observed_machine_id.clone(),
+            installed_os: self.state_machine.installed_os(),
+            tpm_ek_certificate: self.state_machine.tpm_ek_certificate.clone(),
+            machine_dhcp_id: self.state_machine.machine_dhcp_id,
+            bmc_dhcp_id: self.state_machine.bmc_dhcp_id,
+        })
+    }
 }
 
 // Shared with DpuMachine
@@ -433,6 +523,7 @@ enum HostMachineMessage {
     AttachToUI(Option<mpsc::Sender<UiEvent>>),
     SetPaused(bool),
     SetApiState(String),
+    GetPersisted(oneshot::Sender<eyre::Result<PersistedHostMachine>>),
     Stop(bool, oneshot::Sender<()>),
 }
 
@@ -491,5 +582,11 @@ impl HostMachineActor {
     pub fn resume(&self) -> eyre::Result<()> {
         self.message_tx.send(HostMachineMessage::SetPaused(false))?;
         Ok(())
+    }
+
+    pub async fn persisted(&self) -> eyre::Result<PersistedHostMachine> {
+        let (tx, rx) = oneshot::channel();
+        self.message_tx.send(HostMachineMessage::GetPersisted(tx))?;
+        rx.await?
     }
 }

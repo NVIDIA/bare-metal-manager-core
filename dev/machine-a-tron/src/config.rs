@@ -1,19 +1,24 @@
-use crate::BmcRegistrationMode;
 use crate::api_client::ApiClient;
 use crate::api_throttler::ApiThrottler;
+use crate::machine_state_machine::OsImage;
+use crate::{BmcRegistrationMode, HostMachineActor};
 use axum::Router;
+use bmc_mock::{DpuMachineInfo, HostMachineInfo};
 use clap::Parser;
 use duration_str::deserialize_duration;
+use mac_address::MacAddress;
+use rpc::MachineId;
 use rpc::forge::DesiredFirmwareVersionEntry;
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::ForgeClientConfig;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use uuid::Uuid;
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
 #[clap(name = "machine-sim")]
@@ -180,6 +185,140 @@ pub struct MachineATronConfig {
     pub sudo_command: Option<String>,
     /// Set this to a hostname or IP If you want machine-a-tron to register its BMC-mock as the bmc_proxy host (this will be combined with bmc_mock_port.)
     pub configure_carbide_bmc_proxy_host: Option<String>,
+
+    #[serde(default)]
+    /// Set this to the path of a directory that can be used to persist machine info between runs
+    pub persist_dir: Option<PathBuf>,
+
+    #[serde(default)]
+    /// Set this to true to delete created machines from the API on quit
+    pub cleanup_on_quit: bool,
+}
+
+impl MachineATronConfig {
+    pub fn read_persisted_machines(
+        &self,
+    ) -> eyre::Result<Option<HashMap<String, Vec<PersistedHostMachine>>>> {
+        let Some(machines_persist_dir) = &self.machines_persist_dir() else {
+            return Ok(None);
+        };
+
+        let machines_by_config_section: HashMap<String, Vec<PersistedHostMachine>> =
+            std::fs::read_dir(machines_persist_dir)?
+                .map(|f| {
+                    let f = f?;
+                    let filename = f.file_name().to_string_lossy().into_owned();
+                    let Some(config_section) = filename.strip_suffix(".json") else {
+                        return Ok(None);
+                    };
+                    Ok(Some((
+                        config_section.to_string(),
+                        serde_json::from_reader(std::fs::File::open(f.path())?)?,
+                    )))
+                })
+                // Ensure no errors
+                .collect::<eyre::Result<Vec<_>>>()?
+                // Drop None's
+                .into_iter()
+                .flatten()
+                // Build the HashMap
+                .collect();
+        Ok(Some(machines_by_config_section))
+    }
+
+    pub async fn write_persisted_machines(
+        &self,
+        machines: &[HostMachineActor],
+    ) -> eyre::Result<()> {
+        let Some(machines_persist_dir) = &self.machines_persist_dir() else {
+            return Ok(());
+        };
+
+        std::fs::create_dir_all(machines_persist_dir)?;
+
+        let mut persisted_machines_by_section: HashMap<String, Vec<PersistedHostMachine>> =
+            HashMap::new();
+        for machine in machines {
+            let persisted = machine.persisted().await?;
+            if let Some(machines) =
+                persisted_machines_by_section.get_mut(&persisted.machine_config_section)
+            {
+                machines.push(persisted);
+            } else {
+                persisted_machines_by_section
+                    .insert(persisted.machine_config_section.clone(), vec![persisted]);
+            }
+        }
+
+        for (config_section, persisted_machines) in persisted_machines_by_section {
+            std::fs::write(
+                machines_persist_dir.join(format!("{}.json", config_section)),
+                serde_json::to_vec(&persisted_machines)?,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn machines_persist_dir(&self) -> Option<PathBuf> {
+        self.persist_dir.as_ref().map(|d| d.join("machines"))
+    }
+}
+
+/// A subset of the information about a HostMachine which is persisted to JSON to be recovered in
+/// subsequent runs of machine-a-tron.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PersistedHostMachine {
+    pub mat_id: Uuid,
+    pub machine_config_section: String,
+    pub bmc_mac_address: MacAddress,
+    pub serial: String,
+    pub dpus: Vec<PersistedDpuMachine>,
+    pub non_dpu_mac_address: Option<MacAddress>,
+    pub observed_machine_id: Option<MachineId>,
+    pub installed_os: OsImage,
+    pub tpm_ek_certificate: Option<Vec<u8>>,
+    pub machine_dhcp_id: Uuid,
+    pub bmc_dhcp_id: Uuid,
+}
+
+impl From<PersistedHostMachine> for HostMachineInfo {
+    fn from(value: PersistedHostMachine) -> Self {
+        Self {
+            bmc_mac_address: value.bmc_mac_address,
+            serial: value.serial,
+            dpus: value.dpus.into_iter().map(Into::into).collect(),
+            non_dpu_mac_address: value.non_dpu_mac_address,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedDpuMachine {
+    pub mat_id: Uuid,
+    pub bmc_mac_address: MacAddress,
+    pub host_mac_address: MacAddress,
+    pub oob_mac_address: MacAddress,
+    pub serial: String,
+    pub nic_mode: bool,
+    pub firmware_versions: bmc_mock::DpuFirmwareVersions,
+    pub installed_os: OsImage,
+    pub dpu_index: u8,
+    pub machine_dhcp_id: Uuid,
+    pub bmc_dhcp_id: Uuid,
+}
+
+impl From<PersistedDpuMachine> for DpuMachineInfo {
+    fn from(value: PersistedDpuMachine) -> Self {
+        Self {
+            bmc_mac_address: value.bmc_mac_address,
+            host_mac_address: value.host_mac_address,
+            oob_mac_address: value.oob_mac_address,
+            serial: value.serial,
+            nic_mode: value.nic_mode,
+            firmware_versions: value.firmware_versions,
+        }
+    }
 }
 
 fn default_bmc_mock_port() -> u16 {

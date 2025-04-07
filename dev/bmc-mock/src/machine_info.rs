@@ -1,4 +1,5 @@
 use mac_address::MacAddress;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 static NEXT_MAC_ADDRESS: AtomicU32 = AtomicU32::new(1);
@@ -12,7 +13,7 @@ pub enum MachineInfo {
     Dpu(DpuMachineInfo),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostMachineInfo {
     pub bmc_mac_address: MacAddress,
     pub serial: String,
@@ -20,7 +21,7 @@ pub struct HostMachineInfo {
     pub non_dpu_mac_address: Option<MacAddress>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DpuMachineInfo {
     pub bmc_mac_address: MacAddress,
     pub host_mac_address: MacAddress,
@@ -30,7 +31,7 @@ pub struct DpuMachineInfo {
     pub firmware_versions: DpuFirmwareVersions,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DpuFirmwareVersions {
     pub bmc: Option<String>,
     pub uefi: Option<String>,
