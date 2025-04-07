@@ -30,24 +30,58 @@ impl MachineATron {
         dhcp_client: &DhcpRelayClient,
         paused: bool,
     ) -> eyre::Result<Vec<HostMachineActor>> {
-        let machines = self
+        let mut persisted_machines = self
+            .app_context
+            .app_config
+            .read_persisted_machines()
+            .inspect_err(|e| {
+                tracing::info!(error=?e, "could not read persisted machines, may be the first run")
+            })
+            .unwrap_or_default();
+
+        // If we've persisted the machine info on a previous run, use that
+        let machines: Vec<HostMachineActor> = self
             .app_context
             .app_config
             .machines
             .iter()
             .flat_map(|(config_name, config)| {
-                tracing::info!("Constructing machines for config {}", config_name);
-                (0..config.host_count).map(|_| {
-                    let host_machine = HostMachine::new(
-                        self.app_context.clone(),
-                        config.clone(),
-                        dhcp_client.clone(),
-                    );
+                if let Some(persisted_machines) = persisted_machines
+                    .as_mut()
+                    .and_then(|m| m.remove(config_name.as_str()))
+                {
+                    tracing::info!("Recovering persisted machines for config {}", config_name);
+                    persisted_machines
+                        .into_iter()
+                        .map(|persisted| {
+                            let host_machine = HostMachine::from_persisted(
+                                persisted,
+                                config_name.clone(),
+                                self.app_context.clone(),
+                                config.clone(),
+                                dhcp_client.clone(),
+                            );
 
-                    host_machine.start(paused)
-                })
+                            host_machine.start(paused)
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    tracing::info!("Constructing machines for config {}", config_name);
+                    (0..config.host_count)
+                        .map(move |_| {
+                            let host_machine = HostMachine::new(
+                                self.app_context.clone(),
+                                config_name.clone(),
+                                config.clone(),
+                                dhcp_client.clone(),
+                            );
+
+                            host_machine.start(paused)
+                        })
+                        .collect::<Vec<_>>()
+                }
             })
-            .collect::<Vec<_>>();
+            .collect();
 
         for machine in &machines {
             // Inform the API that we have finished our reboot (ie. scout is now running)
@@ -57,7 +91,11 @@ impl MachineATron {
                     machine.host_machine_info.bmc_mac_address.to_string(),
                     machine.host_machine_info.serial.clone(),
                 )
-                .await?;
+                .await
+                .inspect_err(|e| {
+                    tracing::warn!(error=?e, "error adding expected machine, likely already ingested");
+                })
+                .ok();
         }
 
         // Useful for comparing values in logs with machine-a-tron's state
@@ -134,8 +172,19 @@ impl MachineATron {
             match msg {
                 AppEvent::Quit => {
                     tracing::info!("quit");
+                    // Persist the current state of the machines before quitting
+                    self.app_context
+                        .app_config
+                        .write_persisted_machines(&machine_actors)
+                        .await
+                        .inspect_err(|e| {
+                            tracing::warn!(error = ?e, "Error writing persisted machines");
+                        })
+                        .ok();
                     for machine_actor in machine_actors.into_iter() {
-                        machine_actor.stop(true).await?;
+                        machine_actor
+                            .stop(self.app_context.app_config.cleanup_on_quit)
+                            .await?;
                     }
                     break;
                 }
@@ -176,30 +225,32 @@ impl MachineATron {
 
         // Following block does not remove the entries from the VPC table due to possible references by other places.
         // It rather soft deletes the VPCs by updating the deleted column of a vpc.
-        for vpc in vpc_handles {
-            tracing::info!("Attempting to delete VPC with id: {} from db.", vpc.vpc_id);
-            if let Err(e) = self
-                .app_context
-                .forge_api_client
-                .delete_vpc(vpc.vpc_id)
-                .await
-            {
-                tracing::error!("Delete VPC Api call failed with {}", e)
+        if self.app_context.app_config.cleanup_on_quit {
+            for vpc in vpc_handles {
+                tracing::info!("Attempting to delete VPC with id: {} from db.", vpc.vpc_id);
+                if let Err(e) = self
+                    .app_context
+                    .forge_api_client
+                    .delete_vpc(vpc.vpc_id)
+                    .await
+                {
+                    tracing::error!("Delete VPC Api call failed with {}", e)
+                }
             }
-        }
 
-        for subnet in subnet_handles {
-            tracing::info!(
-                "Attempting to delete network segment with id: {} from db.",
-                subnet.segment_id
-            );
-            if let Err(e) = self
-                .app_context
-                .forge_api_client
-                .delete_network_segment(subnet.segment_id)
-                .await
-            {
-                tracing::error!("Delete network segment Api call failed with {}", e)
+            for subnet in subnet_handles {
+                tracing::info!(
+                    "Attempting to delete network segment with id: {} from db.",
+                    subnet.segment_id
+                );
+                if let Err(e) = self
+                    .app_context
+                    .forge_api_client
+                    .delete_network_segment(subnet.segment_id)
+                    .await
+                {
+                    tracing::error!("Delete network segment Api call failed with {}", e)
+                }
             }
         }
 

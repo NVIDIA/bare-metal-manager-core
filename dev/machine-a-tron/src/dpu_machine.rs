@@ -6,8 +6,9 @@ use tokio::time::Interval;
 use tracing::instrument;
 use uuid::Uuid;
 
+use crate::config::PersistedDpuMachine;
 use crate::host_machine::HandleMessageResult;
-use crate::machine_state_machine::MachineStateMachine;
+use crate::machine_state_machine::{MachineStateMachine, PersistedMachine};
 use crate::tui::HostDetails;
 use crate::{
     MachineConfig, config::MachineATronContext, dhcp_relay::DhcpRelayClient,
@@ -38,6 +39,50 @@ pub struct DpuMachine {
 }
 
 impl DpuMachine {
+    pub fn from_persisted(
+        persisted_dpu_machine: PersistedDpuMachine,
+        mat_host: Uuid,
+        app_context: Arc<MachineATronContext>,
+        config: Arc<MachineConfig>,
+        dhcp_client: DhcpRelayClient,
+    ) -> Self {
+        let mat_id = persisted_dpu_machine.mat_id;
+        let dpu_index = persisted_dpu_machine.dpu_index;
+        let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
+
+        let dpu_info = DpuMachineInfo {
+            bmc_mac_address: persisted_dpu_machine.bmc_mac_address,
+            host_mac_address: persisted_dpu_machine.host_mac_address,
+            oob_mac_address: persisted_dpu_machine.oob_mac_address,
+            serial: persisted_dpu_machine.serial.clone(),
+            nic_mode: persisted_dpu_machine.nic_mode,
+            firmware_versions: persisted_dpu_machine.firmware_versions.clone(),
+        };
+        let state_machine = MachineStateMachine::from_persisted(
+            PersistedMachine::Dpu(persisted_dpu_machine),
+            config,
+            app_context.clone(),
+            dhcp_client,
+            bmc_control_tx.clone(),
+        );
+        DpuMachine {
+            mat_id,
+            dpu_index,
+            host_id: mat_host,
+            dpu_info,
+            state_machine,
+            app_context,
+
+            api_state: "Unknown".to_string(),
+            bmc_control_rx,
+            observed_machine_id: None,
+            paused: true,
+            sleep_until: Instant::now(),
+            api_refresh_interval: tokio::time::interval(Duration::from_secs(2)),
+            state_waiters: HashMap::new(),
+        }
+    }
+
     pub fn new(
         mat_host: Uuid,
         dpu_index: u8,
@@ -218,6 +263,10 @@ impl DpuMachine {
                 }
                 HandleMessageResult::ContinuePolling
             }
+            DpuMachineMessage::GetPersisted(reply) => {
+                reply.send(self.persisted()).ok();
+                HandleMessageResult::ContinuePolling
+            }
         }
     }
 
@@ -255,6 +304,22 @@ impl DpuMachine {
     pub fn dpu_info(&self) -> &DpuMachineInfo {
         &self.dpu_info
     }
+
+    fn persisted(&self) -> PersistedDpuMachine {
+        PersistedDpuMachine {
+            mat_id: self.mat_id,
+            bmc_mac_address: self.dpu_info.bmc_mac_address,
+            host_mac_address: self.dpu_info.host_mac_address,
+            oob_mac_address: self.dpu_info.oob_mac_address,
+            serial: self.dpu_info.serial.clone(),
+            nic_mode: self.dpu_info.nic_mode,
+            firmware_versions: self.dpu_info.firmware_versions.clone(),
+            installed_os: self.state_machine.installed_os(),
+            dpu_index: self.dpu_index,
+            bmc_dhcp_id: self.state_machine.bmc_dhcp_id,
+            machine_dhcp_id: self.state_machine.machine_dhcp_id,
+        }
+    }
 }
 
 enum DpuMachineMessage {
@@ -269,6 +334,7 @@ enum DpuMachineMessage {
     IsUp(oneshot::Sender<bool>),
     SetPaused(bool),
     SetApiState(String),
+    GetPersisted(oneshot::Sender<PersistedDpuMachine>),
 }
 
 /// DpuMachineActor presents a friendly, actor-style interface for various methods a HostMachine
@@ -336,6 +402,12 @@ impl DpuMachineActor {
     pub fn resume(&self) -> eyre::Result<()> {
         self.message_tx.send(DpuMachineMessage::SetPaused(false))?;
         Ok(())
+    }
+
+    pub async fn persisted(&self) -> eyre::Result<PersistedDpuMachine> {
+        let (tx, rx) = oneshot::channel();
+        self.message_tx.send(DpuMachineMessage::GetPersisted(tx))?;
+        Ok(rx.await?)
     }
 }
 

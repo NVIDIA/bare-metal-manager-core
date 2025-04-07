@@ -15,10 +15,13 @@ mod tui_host_logs;
 mod vpc;
 
 pub use bmc_mock_wrapper::BmcMockRegistry;
-pub use config::{MachineATronArgs, MachineATronConfig, MachineATronContext, MachineConfig};
+pub use config::{
+    MachineATronArgs, MachineATronConfig, MachineATronContext, MachineConfig, PersistedDpuMachine,
+    PersistedHostMachine,
+};
 pub use dhcp_relay::DhcpRelayService;
 pub use host_machine::HostMachineActor;
-pub use machine_a_tron::MachineATron;
+pub use machine_a_tron::{AppEvent, MachineATron};
 pub use machine_state_machine::BmcRegistrationMode;
 use std::time::{Duration, Instant};
 pub use tui::{Tui, UiEvent};

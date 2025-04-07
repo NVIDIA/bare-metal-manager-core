@@ -224,10 +224,12 @@ async fn interface_has_address(interface: &str, address: &str) -> Result<bool, A
     }
 }
 
-pub fn create_random_self_signed_cert() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+pub fn create_random_self_signed_cert() -> Vec<u8> {
     let subject_alt_names = vec!["hello.world.example".to_string(), "localhost".to_string()];
 
-    let CertifiedKey { cert, .. } = generate_simple_self_signed(subject_alt_names)?;
+    let CertifiedKey { cert, .. } = generate_simple_self_signed(subject_alt_names).expect(
+        "BUG: Keypair generation should not fail, subject alt names are static and must be valid",
+    );
 
-    Ok(cert.der().to_vec())
+    cert.der().to_vec()
 }

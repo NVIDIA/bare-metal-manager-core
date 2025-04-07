@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use mac_address::MacAddress;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 use uuid::Uuid;
@@ -18,9 +19,10 @@ use crate::machine_utils::{
     PxeError, PxeResponse, forge_agent_control, get_fac_action, get_validation_id,
     send_pxe_boot_request,
 };
+use crate::{PersistedDpuMachine, PersistedHostMachine};
 use bmc_mock::{
-    BmcCommand, BmcMockError, BmcMockHandle, MachineInfo, SetSystemPowerError, SetSystemPowerReq,
-    SetSystemPowerResult, SystemPowerControl,
+    BmcCommand, BmcMockError, BmcMockHandle, HostMachineInfo, MachineInfo, SetSystemPowerError,
+    SetSystemPowerReq, SetSystemPowerResult, SystemPowerControl,
 };
 use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, MachineType};
 use rpc::forge_agent_control_response::Action;
@@ -35,17 +37,18 @@ const POWER_CYCLE_DELAY: Duration = Duration::from_secs(5);
 #[derive(Debug)]
 pub struct MachineStateMachine {
     state: MachineState,
+    initial_os_image: OsImage,
     power_state: PowerState, // reflects the "desired" power state of the machine. Affects whether next_state will boot the machine or not.
 
     machine_info: MachineInfo,
-    machine_dhcp_id: Uuid,
-    bmc_dhcp_id: Uuid,
+    pub machine_dhcp_id: Uuid,
+    pub bmc_dhcp_id: Uuid,
     bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
 
     config: Arc<MachineConfig>,
     app_context: Arc<MachineATronContext>,
     dhcp_client: DhcpRelayClient,
-    tpm_ek_certificate: Option<Vec<u8>>,
+    pub tpm_ek_certificate: Option<Vec<u8>>,
 }
 
 /// BmcRegistrationMode configures how each mock machine registers its BMC mock so that carbide can find it.
@@ -87,7 +90,57 @@ enum NextState {
     SleepFor(Duration),
 }
 
+pub enum PersistedMachine {
+    Host(PersistedHostMachine),
+    Dpu(PersistedDpuMachine),
+}
+
 impl MachineStateMachine {
+    pub fn from_persisted(
+        persisted_machine: PersistedMachine,
+        config: Arc<MachineConfig>,
+        app_context: Arc<MachineATronContext>,
+        dhcp_client: DhcpRelayClient,
+        bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
+    ) -> MachineStateMachine {
+        let (initial_os_image, tpm_ek_certificate, bmc_dhcp_id, machine_dhcp_id, machine_info) =
+            match persisted_machine {
+                PersistedMachine::Host(h) => (
+                    h.installed_os,
+                    h.tpm_ek_certificate,
+                    h.bmc_dhcp_id,
+                    h.machine_dhcp_id,
+                    MachineInfo::Host(HostMachineInfo {
+                        bmc_mac_address: h.bmc_mac_address,
+                        serial: h.serial,
+                        dpus: h.dpus.into_iter().map(Into::into).collect(),
+                        non_dpu_mac_address: h.non_dpu_mac_address,
+                    }),
+                ),
+                PersistedMachine::Dpu(d) => (
+                    d.installed_os,
+                    None,
+                    d.bmc_dhcp_id,
+                    d.machine_dhcp_id,
+                    MachineInfo::Dpu(d.into()),
+                ),
+            };
+
+        MachineStateMachine {
+            state: MachineState::BmcInit,
+            power_state: PowerState::On,
+            machine_info,
+            bmc_command_channel,
+            machine_dhcp_id,
+            bmc_dhcp_id,
+            config,
+            app_context,
+            dhcp_client,
+            tpm_ek_certificate,
+            initial_os_image,
+        }
+    }
+
     pub fn new(
         machine_info: MachineInfo,
         config: Arc<MachineConfig>,
@@ -96,14 +149,12 @@ impl MachineStateMachine {
         bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
         tpm_ek_certificate: Option<Vec<u8>>,
     ) -> MachineStateMachine {
-        // TODO: we want to support cases where machines are racked and plugged in but powered off,
-        // but currently the machine state controller doesn't appear to turn machines on, and they
-        // get stuck in WaitingForDiscovery. Once this is fixed, we can start initially-off.
-        let initial_power_state = PowerState::On;
-
         MachineStateMachine {
             state: MachineState::BmcInit,
-            power_state: initial_power_state,
+            // TODO: we want to support cases where machines are racked and plugged in but powered off,
+            // but currently the machine state controller doesn't appear to turn machines on, and they
+            // get stuck in WaitingForDiscovery. Once this is fixed, we can start initially-off.
+            power_state: PowerState::On,
             machine_info,
             bmc_command_channel,
             machine_dhcp_id: Uuid::new_v4(),
@@ -112,6 +163,7 @@ impl MachineStateMachine {
             app_context,
             dhcp_client,
             tpm_ek_certificate,
+            initial_os_image: OsImage::default(),
         }
     }
 
@@ -201,13 +253,13 @@ impl MachineStateMachine {
                     Ok(NextState::Advance(match self.power_state {
                         PowerState::On => MachineState::Init(InitState {
                             bmc_state,
-                            installed_os: OsImage::default(),
+                            installed_os: self.initial_os_image,
                         }),
                         PowerState::Off | PowerState::PowerCycling { .. } => {
                             MachineState::MachineDown(MachineDownState {
                                 since: start,
                                 bmc_state,
-                                installed_os: OsImage::default(),
+                                installed_os: self.initial_os_image,
                                 bmc_only: false,
                             })
                         }
@@ -313,7 +365,7 @@ impl MachineStateMachine {
             MachineState::MachineUp(inner_state) => match inner_state.booted_os {
                 OsImage::DpuAgent => self.run_dpu_agent_iteration(inner_state).await,
                 OsImage::Scout => self.run_scout_iteration(inner_state).await,
-                OsImage::NoOs => {
+                OsImage::None => {
                     match self.machine_info {
                         MachineInfo::Host(_) => {
                             tracing::debug!("Host booted to tenant OS")
@@ -422,7 +474,7 @@ impl MachineStateMachine {
 
             return Ok(NextState::Advance(
                 machine_up_state
-                    .install_os_with_discovery_result(OsImage::NoOs, machine_discovery_result),
+                    .install_os_with_discovery_result(OsImage::None, machine_discovery_result),
             ));
         };
 
@@ -721,9 +773,9 @@ impl MachineStateMachine {
         Some(bmc_state)
     }
 
-    fn installed_os(&self) -> OsImage {
+    pub fn installed_os(&self) -> OsImage {
         match &self.state {
-            MachineState::BmcInit | MachineState::BmcOnly(_) => OsImage::NoOs,
+            MachineState::BmcInit | MachineState::BmcOnly(_) => self.initial_os_image,
             MachineState::MachineDown(s) => s.installed_os,
             MachineState::Init(s) => s.installed_os,
             MachineState::DhcpComplete(s) => s.installed_os,
@@ -895,20 +947,16 @@ impl Display for MachineStateMachine {
 }
 
 /// Represents the image that can be booted to via PXE or installed on-device
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OsImage {
+    /// Default installed OS, will sleep forever when booted to.
+    #[default]
+    None,
     /// This is the carbide.efi image and should only run on DPUs. It can be run via PXE or installed.
     DpuAgent,
     /// This is the scout image and can be run on hosts via PXE but should not be installed
     Scout,
-    /// Default installed OS, will sleep forever when booted to.
-    NoOs,
-}
-
-impl Default for OsImage {
-    fn default() -> Self {
-        Self::NoOs
-    }
 }
 
 impl Display for OsImage {
@@ -916,7 +964,7 @@ impl Display for OsImage {
         match self {
             OsImage::DpuAgent => f.write_str("Dpu Agent"),
             OsImage::Scout => f.write_str("Scout"),
-            OsImage::NoOs => f.write_str("No OS"),
+            OsImage::None => f.write_str("No OS"),
         }
     }
 }

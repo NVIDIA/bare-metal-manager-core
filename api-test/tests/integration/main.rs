@@ -562,6 +562,8 @@ where
         use_dhcp_api: true,
         use_single_bmc_mock: false, // unused, we're constructing machines ourselves
         configure_carbide_bmc_proxy_host: None,
+        persist_dir: None,
+        cleanup_on_quit: false,
     };
 
     let (machine_actors, mat_handle) = machine_a_tron::run_local(

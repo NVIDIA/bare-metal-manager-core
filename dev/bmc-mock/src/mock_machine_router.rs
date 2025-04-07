@@ -831,7 +831,7 @@ async fn get_dpu_bmc_firmware(
 
     let mut inventory: SoftwareInventory = serde_json::from_slice(&inner_response)?;
     let Some(desired_bmc_version) = dpu_machine.firmware_versions.bmc else {
-        tracing::warn!(
+        tracing::debug!(
             "Unknown desired BMC firmware version for {}, not rewriting response",
             dpu_machine.serial
         );
@@ -853,7 +853,7 @@ async fn get_dpu_erot_firmware(
     let mut inventory: SoftwareInventory = serde_json::from_slice(&inner_response)?;
     // We expect to see the cec firmware version in .../FirmwareInventory/Bluefield_FW_ERoT
     let Some(desired_bmc_version) = dpu_machine.firmware_versions.cec else {
-        tracing::warn!(
+        tracing::debug!(
             "Unknown desired CEC firmware version for {}, not rewriting response",
             dpu_machine.serial
         );
@@ -874,7 +874,7 @@ async fn get_dpu_uefi_firmware(
 
     let mut inventory: SoftwareInventory = serde_json::from_slice(&inner_response)?;
     let Some(desired_bmc_version) = dpu_machine.firmware_versions.uefi else {
-        tracing::warn!(
+        tracing::debug!(
             "Unknown desired UEFI firmware version for {}, not rewriting response",
             dpu_machine.serial
         );
@@ -895,7 +895,7 @@ async fn get_dpu_nic_firmware(
 
     let mut inventory: SoftwareInventory = serde_json::from_slice(&inner_response)?;
     let Some(desired_nic_version) = dpu_machine.firmware_versions.nic else {
-        tracing::warn!(
+        tracing::debug!(
             "Unknown desired NIC firmware version for {}, not rewriting response",
             dpu_machine.serial
         );

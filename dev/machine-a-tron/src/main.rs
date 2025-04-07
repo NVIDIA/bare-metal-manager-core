@@ -5,7 +5,7 @@ use figment::providers::{Format, Toml};
 use forge_tls::client_config::{
     get_client_cert_info, get_config_from_file, get_forge_root_ca_path, get_proxy_info,
 };
-use machine_a_tron::{BmcMockRegistry, BmcRegistrationMode, MachineATron};
+use machine_a_tron::{AppEvent, BmcMockRegistry, BmcRegistrationMode, MachineATron};
 use machine_a_tron::{
     DhcpRelayService, MachineATronArgs, MachineATronConfig, MachineATronContext, Tui, TuiHostLogs,
     UiEvent, api_throttler,
@@ -17,6 +17,7 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::mpsc;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*, registry};
 
@@ -175,6 +176,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let machine_actors = mat.make_machines(&dhcp_client, true).await?;
 
+    // Persist them once in case of unclean shutdown
+    app_context
+        .app_config
+        .write_persisted_machines(&machine_actors)
+        .await?;
+
     // Run TUI
     let (app_tx, app_rx) = mpsc::channel(5000);
     let (tui_handle, tui_event_tx) = if tui_enabled {
@@ -191,6 +198,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }));
         (tui_handle, Some(ui_tx))
     } else {
+        // Create a signal stream for SIGTERM and SIGINT.
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("Failed to create SIGTERM signal stream");
+        let mut sigint =
+            signal(SignalKind::interrupt()).expect("Failed to create SIGINT signal stream");
+
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = sigterm.recv() => {}
+                _ = sigint.recv() => {}
+            }
+            app_tx.send(AppEvent::Quit).await.ok();
+        });
+
         (None, None)
     };
 

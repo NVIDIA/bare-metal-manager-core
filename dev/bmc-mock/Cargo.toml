@@ -25,7 +25,7 @@ hyper = { workspace = true }
 http-body = "1.0.0"
 regex = "1.10.5"
 lazy_static = "1.5.0"
-mac_address = "1"
+mac_address = { version = "1", features = ["serde"] }
 chrono = "0.4"
 tower-http = { version = "0.6", features = ["normalize-path"] }
 bytes = { version = "1" }
