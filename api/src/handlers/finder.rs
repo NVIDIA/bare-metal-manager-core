@@ -135,12 +135,6 @@ pub(crate) async fn identify_serial(
     let machine_ids = MachineTopology::find_freetext(&mut txn, &req.serial_number)
         .await
         .map_err(CarbideError::from)?;
-    if machine_ids.len() == 1 {
-        return Ok(tonic::Response::new(rpc::IdentifySerialResponse {
-            serial_number: req.serial_number,
-            machine_id: Some(machine_ids[0].into()),
-        }));
-    }
 
     if machine_ids.len() > 1 {
         tracing::warn!(
@@ -150,11 +144,10 @@ pub(crate) async fn identify_serial(
         );
     }
 
-    Err(CarbideError::NotFoundError {
-        kind: "serial_number",
-        id: req.serial_number.to_string(),
-    }
-    .into())
+    Ok(tonic::Response::new(rpc::IdentifySerialResponse {
+        serial_number: req.serial_number,
+        machine_id: machine_ids.into_iter().next().map(Into::into),
+    }))
 }
 
 #[derive(Debug, Copy, Clone)]

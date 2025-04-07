@@ -131,6 +131,7 @@ pub fn wrap_router_with_mock_machine(
         .route(rf!("UpdateService/FirmwareInventory/Bluefield_FW_ERoT"), get(get_dpu_erot_firmware))
         .route(rf!("UpdateService/FirmwareInventory/DPU_UEFI"), get(get_dpu_uefi_firmware))
         .route(rf!("UpdateService/FirmwareInventory/DPU_NIC"), get(get_dpu_nic_firmware))
+        .route(rf!("Systems/Bluefield/Oem/Nvidia"), get(get_oem_nvidia))
         .fallback(fallback_to_inner_router)
         .with_state(MockWrapperState {
             machine_info,
@@ -903,6 +904,32 @@ async fn get_dpu_nic_firmware(
     };
     inventory.version = Some(desired_nic_version);
     Ok(Bytes::from(serde_json::to_string(&inventory)?))
+}
+
+async fn get_oem_nvidia(
+    State(mut state): State<MockWrapperState>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let inner_response = state.call_inner_router(request).await?;
+    let MachineInfo::Dpu(dpu_machine) = state.machine_info else {
+        return Ok(inner_response);
+    };
+
+    let mut system: serde_json::Value = serde_json::from_slice(&inner_response)?;
+    if let serde_json::Value::Object(map) = &mut system {
+        map.insert(
+            "Mode".to_string(),
+            serde_json::Value::String(
+                if dpu_machine.nic_mode {
+                    "NicMode"
+                } else {
+                    "DpuMode"
+                }
+                .to_string(),
+            ),
+        );
+    }
+    Ok(Bytes::from(serde_json::to_string(&system)?))
 }
 
 async fn patch_dpu_settings(

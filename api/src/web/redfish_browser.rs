@@ -10,16 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
+use super::filters;
+use crate::api::Api;
 use askama::Template;
 use axum::extract::{Query as AxumQuery, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use http::HeaderMap;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
-use std::sync::Arc;
-
-use super::filters;
-use crate::api::Api;
 use serde::Deserialize;
+use std::sync::Arc;
+use url::Url;
+use utils::HostPortPair;
 
 #[derive(Template)]
 #[template(path = "redfish_browser.html")]
@@ -168,9 +170,37 @@ pub async fn query(
         }
     };
 
+    let (url, headers) = match state.dynamic_settings.bmc_proxy.load().as_ref().clone() {
+        Some(proxy) => {
+            // We're configured for a proxy for talking to BMC's: Talk to the proxy URL and use a forwarded: header to specify the original host.
+
+            // Unwrap safety: It's a valid `Uri`, so parsing/setting fields on a Url must work.
+            let mut proxy_url: Url = uri.to_string().parse().unwrap();
+            let orig_host = browser.bmc_ip.clone();
+            match proxy {
+                HostPortPair::HostOnly(h) => {
+                    proxy_url.set_host(Some(&h)).unwrap();
+                }
+                HostPortPair::PortOnly(p) => {
+                    proxy_url.set_port(Some(p)).unwrap();
+                }
+                HostPortPair::HostAndPort(h, p) => {
+                    proxy_url.set_host(Some(&h)).unwrap();
+                    proxy_url.set_port(Some(p)).unwrap();
+                }
+            }
+
+            let mut headers = HeaderMap::new();
+            headers.insert("forwarded", format!("host={orig_host}",).parse().unwrap());
+            (proxy_url, headers)
+        }
+        None => (browser.url.clone().parse().unwrap(), HeaderMap::new()),
+    };
+
     let response = match http_client
-        .request(http::Method::GET, browser.url.clone())
+        .request(http::Method::GET, url)
         .basic_auth(metadata.user.clone(), Some(metadata.password.clone()))
+        .headers(headers)
         .send()
         .await
     {
