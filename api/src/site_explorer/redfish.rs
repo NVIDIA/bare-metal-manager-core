@@ -383,14 +383,15 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
         Err(e) => {
             // this call should only ever return an error for DPUs--this check is just defensive
             if is_dpu {
-                return Err(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
-                    details: e.to_string(),
-                    response_body: None,
-                    response_code: None,
-                });
+                // return Err(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
+                //     details: e.to_string(),
+                //     response_body: None,
+                //     response_code: None,
+                // });
+                None
+            } else {
+                return Err(map_redfish_error(e));
             }
-
-            return Err(map_redfish_error(e));
         }
     };
 
