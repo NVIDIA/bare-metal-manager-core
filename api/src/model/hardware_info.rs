@@ -94,6 +94,8 @@ pub struct BlockDevice {
     pub revision: String,
     #[serde(default)]
     pub serial: String,
+    #[serde(default)]
+    pub device_type: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,6 +104,8 @@ pub struct NvmeDevice {
     pub model: String,
     #[serde(default)]
     pub firmware_rev: String,
+    #[serde(default)]
+    pub serial: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -287,6 +291,7 @@ impl TryFrom<rpc::machine_discovery::BlockDevice> for BlockDevice {
             model: dev.model,
             revision: dev.revision,
             serial: dev.serial,
+            device_type: dev.device_type,
         })
     }
 }
@@ -299,6 +304,7 @@ impl TryFrom<BlockDevice> for rpc::machine_discovery::BlockDevice {
             model: dev.model,
             revision: dev.revision,
             serial: dev.serial,
+            device_type: dev.device_type,
         })
     }
 }
@@ -310,6 +316,7 @@ impl TryFrom<rpc::machine_discovery::NvmeDevice> for NvmeDevice {
         Ok(Self {
             model: dev.model,
             firmware_rev: dev.firmware_rev,
+            serial: dev.serial,
         })
     }
 }
@@ -321,6 +328,7 @@ impl TryFrom<NvmeDevice> for rpc::machine_discovery::NvmeDevice {
         Ok(Self {
             model: dev.model,
             firmware_rev: dev.firmware_rev,
+            serial: dev.serial,
         })
     }
 }
@@ -823,6 +831,7 @@ mod tests {
                 model: "".to_string(),
                 revision: "".to_string(),
                 serial: "".to_string(),
+                device_type: "".to_string(),
             }
         );
 
@@ -830,12 +839,13 @@ mod tests {
             model: "disk".to_string(),
             revision: "rev1".to_string(),
             serial: "001".to_string(),
+            device_type: "device_type".to_string(),
         };
 
         let serialized = serde_json::to_string(&dev1).unwrap();
         assert_eq!(
             serialized,
-            "{\"model\":\"disk\",\"revision\":\"rev1\",\"serial\":\"001\"}"
+            r#"{"model":"disk","revision":"rev1","serial":"001","device_type":"device_type"}"#
         );
         assert_eq!(
             serde_json::from_str::<BlockDevice>(&serialized).unwrap(),

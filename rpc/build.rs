@@ -517,6 +517,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.ManagedHostQuarantineMode",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
+        .field_attribute("machine_discovery.BlockDevice.device_type", "#[serde(default)]")
+        .field_attribute("machine_discovery.NvmeDevice.serial", "#[serde(default)]")
+
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

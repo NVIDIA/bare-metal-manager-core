@@ -473,9 +473,9 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
 
     for device in devices {
         tracing::debug!("Block device syspath: {:?}", device.syspath());
-        //for p in device.properties() {
-        //    tracing::trace!("{:?} - {:?}", p.name(), p.value());
-        //}
+        // for p in device.properties() {
+        //     tracing::info!("{:?} - {:?}", p.name(), p.value());
+        // }
 
         if device
             .property_value(PCI_DEV_PATH)
@@ -492,6 +492,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
                     .to_string(),
                 serial: convert_property_to_string("ID_SERIAL_SHORT", "NO_SERIAL", &device)?
                     .to_string(),
+                device_type: convert_property_to_string("DEVTYPE", "NO_TYPE", &device)?.to_string(),
             });
         }
     }
@@ -505,6 +506,10 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
 
     for device in devices {
         tracing::debug!("NVME device syspath: {:?}", device.syspath());
+        // for p in device.attributes() {
+        //     tracing::info!("{:?} - {:?}", p.name(), p.value());
+        // }
+
         if device
             .property_value(PCI_DEV_PATH)
             .map(|v| v.to_str())
@@ -517,6 +522,9 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
             nvmes.push(rpc_discovery::NvmeDevice {
                 model: convert_sysattr_to_string("model", &device)?.to_string(),
                 firmware_rev: convert_sysattr_to_string("firmware_rev", &device)?.to_string(),
+                serial: convert_sysattr_to_string("serial", &device)?
+                    .trim()
+                    .to_string(),
             });
         }
     }

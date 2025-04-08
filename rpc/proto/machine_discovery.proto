@@ -92,11 +92,13 @@ message BlockDevice {
   string model = 1;
   string revision = 2;
   string serial = 3;
+  string device_type = 4;
 }
 
 message NvmeDevice {
   string model = 1;
   string firmware_rev = 2;
+  string serial = 3;
 }
 
 message DmiData {
