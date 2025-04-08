@@ -749,6 +749,7 @@ impl Machine {
             MachineCapabilitiesSet::from_hardware_info(
                 info,
                 self.infiniband_status_observation.as_ref(),
+                self.associated_dpu_machine_ids(),
             )
         })
     }
