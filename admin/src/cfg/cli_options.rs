@@ -2487,7 +2487,7 @@ pub struct MachineValidationUpdateTestOptions {
     #[clap(long, help = "Run command using chroot in case of container")]
     pub execute_in_host: Option<bool>,
 
-    #[clap(long, help = "Container args")]
+    #[clap(long, help = "Container args", allow_hyphen_values = true)]
     pub container_arg: Option<String>,
 
     #[clap(long, help = "Description")]
@@ -2496,7 +2496,7 @@ pub struct MachineValidationUpdateTestOptions {
     #[clap(long, help = "Command ")]
     pub command: Option<String>,
 
-    #[clap(long, help = "Command args ")]
+    #[clap(long, help = "Command args", allow_hyphen_values = true)]
     pub args: Option<String>,
 
     #[clap(long, help = "Command output error file ")]
@@ -2535,7 +2535,7 @@ pub struct MachineValidationAddTestOptions {
     #[clap(long, help = "Command of the test case")]
     pub command: String,
 
-    #[clap(long, help = "Args for command")]
+    #[clap(long, help = "Command args", allow_hyphen_values = true)]
     pub args: String,
 
     #[clap(long, help = "List of contexts")]
@@ -2547,7 +2547,7 @@ pub struct MachineValidationAddTestOptions {
     #[clap(long, help = "Run command using chroot in case of container")]
     pub execute_in_host: Option<bool>,
 
-    #[clap(long, help = "Container args")]
+    #[clap(long, help = "Container args", allow_hyphen_values = true)]
     pub container_arg: Option<String>,
 
     #[clap(long, help = "Description")]
