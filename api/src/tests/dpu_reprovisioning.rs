@@ -199,7 +199,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         dpu.current_state(),
         &ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id, ReprovisionState::BufferTime)]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
             },
         }
     );
@@ -219,8 +219,26 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Reprovisioning/BufferTime")
+            .contains("exit into the OS in 5 seconds - Reprovisioning/PoweringOffHost")
     );
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
+            },
+        }
+    );
+    txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -469,7 +487,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         dpu.current_state(),
         &ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id, ReprovisionState::BufferTime)]),
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
             },
         }
     );
@@ -477,9 +495,26 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
         response.action,
-        rpc::forge::forge_agent_control_response::Action::Retry as i32
+        rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
 
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
+            },
+        }
+    );
+    txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
 
@@ -648,81 +683,6 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
                     states: HashMap::from([(
                         dpu_machine_id,
-                        crate::model::machine::ReprovisionState::FirmwareUpgrade
-                    )]),
-                },
-            }
-        }
-    );
-
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
-    assert_ne!(pxe.pxe_script, "exit".to_string());
-
-    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
-    let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
-    discovery_completed(&env, dpu_rpc_id.clone()).await;
-
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
-                },
-            }
-        }
-    );
-
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
-                },
-            }
-        }
-    );
-
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
                         ReprovisionState::WaitingForNetworkInstall
                     )]),
                 },
@@ -743,6 +703,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .into_inner();
 
     assert_ne!(pxe.pxe_script, "exit".to_string());
+    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
         response.action,
@@ -763,7 +724,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         &ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::BufferTime)]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
                 },
             }
         }
@@ -784,8 +745,28 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime")
+            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/PoweringOffHost")
     );
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: crate::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
+                },
+            }
+        }
+    );
+    txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -1043,22 +1024,6 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         }
     );
 
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
-    assert!(
-        !pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime")
-    );
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
         response.action,
@@ -1079,7 +1044,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         &ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::BufferTime)]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
                 },
             }
         }
@@ -1100,9 +1065,28 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
 
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime")
+            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/PoweringOffHost")
     );
 
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: crate::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
+                },
+            }
+        }
+    );
+    txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
 
@@ -1981,8 +1965,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         &ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (dpu_machine_id_1, ReprovisionState::BufferTime),
-                    (dpu_machine_id_2, ReprovisionState::BufferTime)
+                    (dpu_machine_id_1, ReprovisionState::PoweringOffHost),
+                    (dpu_machine_id_2, ReprovisionState::PoweringOffHost)
                 ]),
             },
         }
@@ -1990,6 +1974,28 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
 
     env.run_machine_state_controller_iteration().await;
 
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: HashMap::from([
+                    (dpu_machine_id_1, ReprovisionState::PowerDown),
+                    (dpu_machine_id_2, ReprovisionState::PowerDown)
+                ]),
+            },
+        }
+    );
+    txn.rollback().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
         .unwrap()
@@ -2001,7 +2007,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
                     (dpu_machine_id_1, ReprovisionState::WaitingForNetworkConfig),
-                    (dpu_machine_id_2, ReprovisionState::WaitingForNetworkConfig),
+                    (dpu_machine_id_2, ReprovisionState::NotUnderReprovision),
                 ]),
             },
         }
@@ -2038,7 +2044,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
                     (dpu_machine_id_1, ReprovisionState::WaitingForNetworkConfig),
-                    (dpu_machine_id_2, ReprovisionState::WaitingForNetworkConfig)
+                    (dpu_machine_id_2, ReprovisionState::NotUnderReprovision)
                 ]),
             },
         }
@@ -2235,8 +2241,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         &ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
-                    (dpu_machine_id_1, ReprovisionState::BufferTime),
-                    (dpu_machine_id_2, ReprovisionState::BufferTime)
+                    (dpu_machine_id_1, ReprovisionState::PoweringOffHost),
+                    (dpu_machine_id_2, ReprovisionState::PoweringOffHost)
                 ]),
             },
         }
@@ -2256,8 +2262,29 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
 
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Reprovisioning/BufferTime")
+            .contains("exit into the OS in 5 seconds - Reprovisioning/PoweringOffHost")
     );
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: HashMap::from([
+                    (dpu_machine_id_1, ReprovisionState::PowerDown),
+                    (dpu_machine_id_2, ReprovisionState::PowerDown)
+                ]),
+            },
+        }
+    );
+    txn.rollback().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
@@ -2564,7 +2591,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         &ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::BufferTime)]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
                 },
             }
         }
@@ -2585,9 +2612,28 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
 
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime")
+            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/PoweringOffHost")
     );
 
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: crate::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
+                },
+            }
+        }
+    );
+    txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
 
@@ -2732,10 +2778,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(
-        !pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime")
-    );
+    assert!(pxe.pxe_script.contains("internal/aarch64/carbide.efi"));
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
         response.action,
@@ -2756,7 +2799,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         &ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::BufferTime)]),
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
                 },
             }
         }
@@ -2777,9 +2820,28 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
 
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/BufferTime")
+            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/PoweringOffHost")
     );
 
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: crate::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
+                },
+            }
+        }
+    );
+    txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
 

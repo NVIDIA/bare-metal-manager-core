@@ -1036,14 +1036,17 @@ impl ManagedHostState {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 pub enum ReprovisionState {
+    // Deprecated
     BmcFirmwareUpgrade {
         substate: BmcFirmwareUpgradeSubstate,
     },
+    // Deprecated
     FirmwareUpgrade,
+    WaitingForNetworkInstall,
     PoweringOffHost,
     PowerDown,
+    // Deprecated
     BufferTime,
-    WaitingForNetworkInstall,
     WaitingForNetworkConfig,
     RebootHostBmc,
     RebootHost,
@@ -1518,6 +1521,7 @@ pub enum InstanceState {
 pub struct ReprovisionRequest {
     pub requested_at: DateTime<Utc>,
     pub initiator: String,
+    // Deprecated: Not used anymore. Now fw update is tried in every reprovision request.
     pub update_firmware: bool,
     #[serde(default)]
     pub started_at: Option<DateTime<Utc>>,
@@ -1894,11 +1898,17 @@ pub trait NextReprovisionState {
                     // Mark all DPUs in PowerDown state.
                     dpu_ids_for_reprov,
                 ),
-            ReprovisionState::FirmwareUpgrade => ReprovisionState::PoweringOffHost
+            ReprovisionState::FirmwareUpgrade => ReprovisionState::WaitingForNetworkInstall
                 .next_state_with_all_dpus_updated(
                     &state.managed_state,
                     &state.dpu_snapshots,
                     // Mark all DPUs in PowerDown state.
+                    all_machine_ids,
+                ),
+            ReprovisionState::WaitingForNetworkInstall => ReprovisionState::PoweringOffHost
+                .next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
                     all_machine_ids,
                 ),
             ReprovisionState::PoweringOffHost => ReprovisionState::PowerDown
@@ -1908,19 +1918,13 @@ pub trait NextReprovisionState {
                     // Mark all DPUs in PowerDown state.
                     all_machine_ids,
                 ),
-            ReprovisionState::PowerDown => ReprovisionState::WaitingForNetworkInstall
+            ReprovisionState::PowerDown => ReprovisionState::WaitingForNetworkConfig
                 .next_state_with_all_dpus_updated(
                     &state.managed_state,
                     &state.dpu_snapshots,
                     // Move only DPUs in WaitingForNetworkInstall for which reprovision is
                     // triggered.
                     dpu_ids_for_reprov,
-                ),
-            ReprovisionState::WaitingForNetworkInstall => ReprovisionState::BufferTime
-                .next_state_with_all_dpus_updated(
-                    &state.managed_state,
-                    &state.dpu_snapshots,
-                    all_machine_ids,
                 ),
             ReprovisionState::BufferTime => ReprovisionState::WaitingForNetworkConfig
                 .next_state_with_all_dpus_updated(
