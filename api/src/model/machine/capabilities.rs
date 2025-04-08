@@ -25,6 +25,7 @@ use crate::{
         machine::infiniband::MachineInfinibandStatusObservation,
     },
 };
+use forge_uuid::machine::MachineId;
 
 lazy_static::lazy_static! {
     static ref BLOCK_STORAGE_REGEX: regex::Regex = regex::Regex::new(r"(Virtual_CDROM\d+|Virtual_SD\d+|NO_MODEL|LOGICAL_VOLUME)").unwrap();
@@ -384,6 +385,7 @@ impl MachineCapabilitiesSet {
     pub fn from_hardware_info(
         hardware_info: HardwareInfo,
         ib_status: Option<&MachineInfinibandStatusObservation>,
+        dpu_machine_ids: Vec<MachineId>,
     ) -> Self {
         //
         //  Process CPU data
@@ -469,26 +471,17 @@ impl MachineCapabilitiesSet {
         //  Process memory data
         //
 
-        let mut mem_map = HashMap::<(String, u32), MachineCapabilityMemory>::new();
+        let mut mem_map = HashMap::<String, usize>::new();
 
         for mem_info in hardware_info.memory_devices.into_iter() {
             let name = mem_info.mem_type.unwrap_or("unknown".to_string());
-            match mem_map.get_mut(&(name.clone(), mem_info.size_mb.unwrap_or(0))) {
-                None => {
-                    mem_map.insert(
-                        (name.clone(), mem_info.size_mb.unwrap_or(0)),
-                        MachineCapabilityMemory {
-                            name: name.clone(),
-                            count: 1,
-                            vendor: None, // hardware_info doesn't provide this.
-                            capacity: mem_info.size_mb.map(|s| format!("{} MB", s)),
-                        },
-                    );
-                }
-                Some(mem_cap) => {
-                    mem_cap.count += 1;
-                }
-            };
+
+            mem_map
+                .entry(name.clone())
+                .and_modify(|e| {
+                    *e = e.saturating_add(mem_info.size_mb.unwrap_or_default() as usize)
+                })
+                .or_insert_with(|| mem_info.size_mb.unwrap_or_default() as usize);
         }
 
         //
@@ -594,30 +587,6 @@ impl MachineCapabilitiesSet {
             ib_status,
         );
 
-        //
-        // Process dpu data
-        //
-
-        let mut dpu_map = HashMap::<String, MachineCapabilityDpu>::new();
-
-        for dpu_info in hardware_info.dpu_info.into_iter() {
-            match dpu_map.get_mut(&dpu_info.part_description) {
-                None => {
-                    dpu_map.insert(
-                        dpu_info.part_description.clone(),
-                        MachineCapabilityDpu {
-                            name: dpu_info.part_description.clone(),
-                            count: 1,
-                            hardware_revision: Some(dpu_info.product_version),
-                        },
-                    );
-                }
-                Some(dpu_cap) => {
-                    dpu_cap.count += 1;
-                }
-            };
-        }
-
         MachineCapabilitiesSet {
             cpu: cpu_map
                 .into_values()
@@ -632,11 +601,35 @@ impl MachineCapabilitiesSet {
                 })
                 .collect(),
             gpu: gpu_map.into_values().collect(),
-            memory: mem_map.into_values().collect(),
+            memory: mem_map
+                .drain()
+                .map(|(mem_type, mem_sum_mb)| MachineCapabilityMemory {
+                    name: mem_type,
+                    vendor: None, // hardware_info doesn't provide this
+                    count: 1,     // We roll up all the memory we find
+                    capacity: Some(format!("{} MB", mem_sum_mb)),
+                })
+                .collect(),
             storage: storage_map.into_values().collect(),
             network: network_interface_map.into_values().collect(),
             infiniband,
-            dpu: dpu_map.into_values().collect(),
+            dpu: vec![MachineCapabilityDpu {
+                // This name value is what forge-cloud currently does/expects from machine capabilities.
+                // It needs to have _something_ that won't change.  If we decide to start
+                // pulling actual DPU details in the future, it would probably require
+                // forge cloud to also start allowing `name` as an optional field
+                // for instance type capability filters, and we'd have to update existing
+                // instance types in cloud to drop the `name` value while we transition.
+                name: "DPU".to_string(),
+                count: dpu_machine_ids.len().try_into().unwrap_or_else(|e| {
+                    tracing::warn!(
+                        error=%e,
+                        "associated_dpu_machine_ids length uncountable for DPU capability",
+                    );
+                    0
+                }),
+                hardware_revision: None,
+            }],
         }
     }
 }
@@ -647,12 +640,11 @@ impl MachineCapabilitiesSet {
 
 #[cfg(test)]
 mod tests {
-    use ::rpc::forge as rpc;
-
     use super::*;
     use crate::model::{
         hardware_info::*, machine::infiniband::MachineIbInterfaceStatusObservation,
     };
+    use ::rpc::forge as rpc;
 
     const X86_INFO_JSON: &[u8] = include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -968,9 +960,9 @@ mod tests {
             }],
             memory: vec![MachineCapabilityMemory {
                 name: "DDR4".to_string(),
-                count: 2,
+                count: 1,
                 vendor: None,
-                capacity: Some("1024 MB".to_string()),
+                capacity: Some("2048 MB".to_string()),
             }],
             storage: vec![
                 MachineCapabilityStorage {
@@ -1020,7 +1012,11 @@ mod tests {
                     inactive_devices: vec![0, 1, 2, 3],
                 },
             ],
-            dpu: vec![],
+            dpu: vec![MachineCapabilityDpu {
+                name: "DPU".to_string(),
+                count: 2,
+                hardware_revision: None,
+            }],
         };
 
         // The capabilities are built using hashmaps, so
@@ -1031,6 +1027,14 @@ mod tests {
         let mut compare_cap = MachineCapabilitiesSet::from_hardware_info(
             serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap(),
             None,
+            vec![
+                "fm100ds1mqf1l64lmr7vf5i2lg25s08ntul0lacrc84aqphb7qqat09cru0"
+                    .parse()
+                    .unwrap(),
+                "fm100ds5k5q9m3mdu4j8b5lnu50lq5ab84od0eqrid3dmte16uscr8vbpeg"
+                    .parse()
+                    .unwrap(),
+            ],
         );
 
         compare_cap.sort();
@@ -1089,6 +1093,7 @@ mod tests {
         let mut compare_cap = MachineCapabilitiesSet::from_hardware_info(
             serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap(),
             Some(&ib_status),
+            vec![],
         );
 
         compare_cap.sort();
@@ -1143,6 +1148,7 @@ mod tests {
         let mut compare_cap = MachineCapabilitiesSet::from_hardware_info(
             serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap(),
             Some(&ib_status),
+            vec![],
         );
 
         compare_cap.sort();
