@@ -138,7 +138,10 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
         // enumerate hardware and exit
         Some(AgentCommand::Hardware) => {
-            enumerate_hardware()?;
+            let info = enumerate_hardware()?;
+            let string_result = serde_json::to_string_pretty(&info)?;
+            // print to stderr so it can be re-directed to a file without logs
+            eprintln!("{}", string_result);
         }
 
         // One-off health check.
