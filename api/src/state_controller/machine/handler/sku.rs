@@ -46,7 +46,8 @@ async fn match_sku_for_machine(
             })
         })
     {
-        let machine_sku = db::sku::from_topology(txn, &mh_snapshot.host_snapshot.id).await?;
+        let machine_sku =
+            db::sku::generate_sku_from_machine(txn, &mh_snapshot.host_snapshot.id).await?;
         let matching_sku = db::sku::find_matching(txn, &machine_sku).await?;
         if matching_sku.is_none() {
             // only update the last attempt if there is no match
@@ -300,7 +301,7 @@ pub(crate) async fn handle_bom_validation_state(
                 });
             };
 
-            let actual_sku = crate::db::sku::from_topology_with_version(
+            let actual_sku = crate::db::sku::generate_sku_from_machine_at_version(
                 txn,
                 &mh_snapshot.host_snapshot.id,
                 expected_sku.schema_version,

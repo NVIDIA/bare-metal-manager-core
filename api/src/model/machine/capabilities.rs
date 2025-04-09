@@ -931,24 +931,14 @@ mod tests {
     #[test]
     fn test_model_capability_set_from_hw_info_conversion() {
         let mut machine_cap = MachineCapabilitiesSet {
-            cpu: vec![
-                MachineCapabilityCpu {
-                    name: "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz".to_string(),
-                    count: 1,
-                    vendor: Some("GenuineIntel".to_string()),
-                    frequency: Some("800.191".to_string()),
-                    cores: Some(18),
-                    threads: Some(72),
-                },
-                MachineCapabilityCpu {
-                    name: "Intel(R) Xeon(R) Gold6354 CPU @ 3.00GHz".to_string(),
-                    count: 1,
-                    vendor: Some("GenuineIntel".to_string()),
-                    frequency: Some("800.856".to_string()),
-                    cores: Some(7),
-                    threads: Some(25),
-                },
-            ],
+            cpu: vec![MachineCapabilityCpu {
+                name: "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz".to_string(),
+                count: 1,
+                vendor: Some("GenuineIntel".to_string()),
+                frequency: Some("800.191".to_string()),
+                cores: Some(18),
+                threads: Some(72),
+            }],
             gpu: vec![MachineCapabilityGpu {
                 name: "NVIDIA H100 PCIe".to_string(),
                 count: 1,

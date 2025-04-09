@@ -1034,7 +1034,7 @@ impl<'a> MockExploredHost<'a> {
         ) {
             let mut txn = self.test_env.pool.begin().await.unwrap();
             tracing::info!("generating sku");
-            let sku = crate::db::sku::from_topology(&mut txn, host_machine_id)
+            let sku = crate::db::sku::generate_sku_from_machine(&mut txn, host_machine_id)
                 .await
                 .unwrap();
             tracing::info!("creating sku: {}", sku.id);

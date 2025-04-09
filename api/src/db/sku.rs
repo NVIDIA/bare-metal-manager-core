@@ -3,13 +3,14 @@ use std::{collections::BTreeMap, fmt::Write};
 use chrono::Utc;
 use forge_uuid::machine::MachineId;
 use futures_util::stream::StreamExt;
+use itertools::Itertools;
 use sqlx::{Acquire, Postgres, Transaction};
 
 use crate::{
     CarbideError,
     db::{self, DatabaseError, machine::MachineSearchConfig},
     model::{
-        machine::capabilities::MachineCapabilityInfiniband,
+        machine::capabilities::{MachineCapabilitiesSet, MachineCapabilityInfiniband},
         sku::{
             Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu,
             SkuComponentInfinibandDevices, SkuComponentMemory, SkuComponentStorage, SkuComponents,
@@ -21,7 +22,7 @@ use crate::{
 /// The current version of the SKU format.  The state machine will create older
 /// versions from hardware using the currently assigned sku's version so that
 /// SKUs can maintain backward compatibility
-const CURRENT_SKU_VERSION: u32 = 1;
+pub const CURRENT_SKU_VERSION: u32 = 2;
 
 /// Find a SKU that matches the specified SKU using the same comparison that
 /// the SKU validation code uses. (i.e. the description, id and others are not compared)
@@ -148,14 +149,31 @@ pub async fn find(
     Ok(skus)
 }
 
-pub async fn from_topology(
+pub async fn generate_sku_from_machine(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: &MachineId,
 ) -> Result<Sku, DatabaseError> {
-    from_topology_with_version(txn, machine_id, CURRENT_SKU_VERSION).await
+    generate_sku_from_machine_at_version(txn, machine_id, CURRENT_SKU_VERSION).await
 }
 
-pub async fn from_topology_with_version(
+pub async fn generate_sku_from_machine_at_version(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+    schema_version: u32,
+) -> Result<Sku, DatabaseError> {
+    match schema_version {
+        0 | 1 => generate_sku_from_machine_at_version_0_or_1(txn, machine_id, schema_version).await,
+        2 => generate_sku_from_machine_at_version_2(txn, machine_id).await,
+        _ => Err(DatabaseError::new(
+            file!(),
+            line!(),
+            "generate_sku_from_machine_at_version",
+            sqlx::Error::RowNotFound,
+        )),
+    }
+}
+
+pub async fn generate_sku_from_machine_at_version_0_or_1(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: &MachineId,
     schema_version: u32,
@@ -308,6 +326,159 @@ pub async fn from_topology_with_version(
             gpus: gpu_components.into_values().collect(),
             memory: mem_components.into_values().collect(),
             infiniband_devices: ib_components,
+            storage: storage.into_values().collect(),
+        },
+    })
+}
+
+pub async fn generate_sku_from_machine_at_version_2(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+) -> Result<Sku, DatabaseError> {
+    let created = Utc::now();
+
+    let Some(machine) = db::machine::find(
+        txn,
+        db::ObjectFilter::One(*machine_id),
+        MachineSearchConfig {
+            include_predicted_host: true,
+            ..Default::default()
+        },
+    )
+    .await?
+    .into_iter()
+    .next() else {
+        return Err(DatabaseError::new(
+            file!(),
+            line!(),
+            "sku_from_topology",
+            sqlx::Error::RowNotFound,
+        ));
+    };
+
+    let Some(hardware_info) = machine.hardware_info.as_ref() else {
+        return Err(DatabaseError::new(
+            file!(),
+            line!(),
+            "sku_from_topology",
+            sqlx::Error::RowNotFound,
+        ));
+    };
+
+    let capabilities = MachineCapabilitiesSet::from_hardware_info(
+        hardware_info.clone(),
+        machine.infiniband_status_observation.as_ref(),
+        machine.associated_dpu_machine_ids(),
+    );
+
+    let chassis = SkuComponentChassis {
+        vendor: hardware_info
+            .dmi_data
+            .as_ref()
+            .map(|dd| dd.sys_vendor.clone())
+            .unwrap_or_default(),
+        model: hardware_info
+            .dmi_data
+            .as_ref()
+            .map(|dd| dd.product_name.clone())
+            .unwrap_or_default(),
+        architecture: hardware_info.machine_type.to_string(),
+    };
+
+    let cpus: Vec<SkuComponentCpu> = capabilities
+        .cpu
+        .into_iter()
+        .map(|c| SkuComponentCpu {
+            vendor: c.vendor.unwrap_or_default(),
+            model: c.name,
+            thread_count: c.threads.unwrap_or_default(),
+            count: c.count,
+        })
+        .sorted()
+        .collect();
+
+    let gpus: Vec<SkuComponentGpu> = capabilities
+        .gpu
+        .into_iter()
+        .map(|g| SkuComponentGpu {
+            vendor: g.vendor.unwrap_or("NVIDIA".to_owned()),
+            model: g.name,
+            total_memory: g.memory_capacity.unwrap_or_default(),
+            count: g.count,
+        })
+        .sorted()
+        .collect();
+
+    let mut mem_components: BTreeMap<(String, u32), SkuComponentMemory> = BTreeMap::default();
+    let mut total_mem = 0u64;
+    for mem in &hardware_info.memory_devices {
+        if let Some(cap) = mem.size_mb {
+            total_mem += cap as u64;
+            let key = (mem.mem_type.clone().unwrap_or_default(), cap);
+            mem_components
+                .entry(key.clone())
+                .and_modify(|entry| entry.count += 1)
+                .or_insert(SkuComponentMemory {
+                    capacity_mb: key.1,
+                    memory_type: key.0,
+                    count: 1,
+                });
+        }
+    }
+
+    let infiniband_devices: Vec<SkuComponentInfinibandDevices> = capabilities
+        .infiniband
+        .into_iter()
+        .map(|cap| SkuComponentInfinibandDevices {
+            vendor: cap.vendor,
+            model: cap.name,
+            count: cap.count,
+            inactive_devices: cap.inactive_devices,
+        })
+        .sorted()
+        .collect();
+
+    let mut description = format!(
+        "{}; {}xCPU; {}xGPU; {}",
+        chassis.model,
+        cpus.iter().map(|v| v.count).sum::<u32>(),
+        gpus.iter().map(|v| v.count).sum::<u32>(),
+        ::utils::sku::capacity_string(total_mem)
+    );
+    let num_ib_devices = infiniband_devices.iter().map(|c| c.count).sum::<u32>();
+    if num_ib_devices != 0 {
+        write!(&mut description, "; {}xIB", num_ib_devices).unwrap();
+    }
+
+    // Storage cannot be pulled from capabilities (yet).  The block device hardware inventory has duplicate entries
+    // for disk and partitions on that disk.  The NVME device inventory is a duplicate of the disk entries
+    // in the block device, and so is ignored.  TODO: move to use capabilities when available.
+    let mut storage: BTreeMap<String, SkuComponentStorage> = BTreeMap::default();
+    for s in hardware_info
+        .block_devices
+        .iter()
+        .filter(|s| s.device_type == "disk")
+    {
+        storage
+            .entry(s.model.clone())
+            .and_modify(|s| s.count += 1)
+            .or_insert(SkuComponentStorage {
+                model: s.model.clone(),
+                count: 1,
+            });
+    }
+
+    Ok(Sku {
+        schema_version: CURRENT_SKU_VERSION,
+        id: format!("{} {}", chassis.model.clone(), Utc::now()),
+        description,
+        created,
+        components: SkuComponents {
+            chassis,
+            cpus,
+            gpus,
+            memory: mem_components.into_values().collect(),
+            infiniband_devices,
             storage: storage.into_values().collect(),
         },
     })
