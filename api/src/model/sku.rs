@@ -172,7 +172,7 @@ impl From<SkuComponentChassis> for rpc::forge::SkuComponentChassis {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
 pub struct SkuComponentCpu {
     pub vendor: String,
     pub model: String,
@@ -202,7 +202,7 @@ impl From<SkuComponentCpu> for rpc::forge::SkuComponentCpu {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
 pub struct SkuComponentGpu {
     pub vendor: String,
     pub model: String,
@@ -238,7 +238,7 @@ impl From<SkuComponentGpu> for rpc::forge::SkuComponentGpu {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
 pub struct SkuComponentMemory {
     pub memory_type: String,
     pub capacity_mb: u32,
@@ -265,7 +265,7 @@ impl From<SkuComponentMemory> for rpc::forge::SkuComponentMemory {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Ord, PartialOrd)]
 pub struct SkuComponentInfinibandDevices {
     /// The Vendor of the InfiniBand device. E.g. `Mellanox`
     pub vendor: String,
@@ -306,7 +306,7 @@ impl From<SkuComponentInfinibandDevices> for rpc::forge::SkuComponentInfinibandD
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
 pub struct SkuComponentStorage {
     pub model: String,
     pub count: u32,

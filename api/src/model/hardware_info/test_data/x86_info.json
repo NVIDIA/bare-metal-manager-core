@@ -219,7 +219,7 @@
     {
       "core": 6,
       "node": 0,
-      "model": "Intel(R) Xeon(R) Gold6354 CPU @ 3.00GHz",
+      "model": "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
       "number": 24,
       "socket": 0,
       "vendor": "GenuineIntel",
@@ -653,7 +653,8 @@
   "nvme_devices": [
     {
       "model": "NO_MODEL",
-      "firmware_rev": "NO_FIRMWARE_REV"
+      "firmware_rev": "NO_FIRMWARE_REV",
+      "serial": "e932d5c34b090010"
     }
   ],
   "dmi_data": {
@@ -671,62 +672,74 @@
     {
       "model": "DELLBOSS_VD",
       "serial": "e932d5c34b090010",
-      "revision": "MV.R00-0"
+      "revision": "MV.R00-0",
+      "device_type": "disk"
     },
     {
       "model": "DELLBOSS_VD",
       "serial": "e932d5c34b090010",
-      "revision": "MV.R00-0"
+      "revision": "MV.R00-0",
+      "device_type": "partition"
     },
     {
       "model": "DELLBOSS_VD",
       "serial": "e932d5c34b090010",
-      "revision": "MV.R00-0"
+      "revision": "MV.R00-0",
+      "device_type": "partition"
     },
     {
       "model": "Dell Ent NVMe CM6 RI 1.92TB",
       "serial": "61M0A0D2TCD8",
-      "revision": "2.1.3"
+      "revision": "2.1.3",
+      "device_type": "disk"
     },
     {
       "model": "Dell Ent NVMe CM6 RI 1.92TB",
       "serial": "61M0A0D2TCD8",
-      "revision": "2.1.3"
+      "revision": "2.1.3",
+      "device_type": "partition"
     },
     {
       "model": "Dell Ent NVMe CM6 RI 1.92TB",
       "serial": "61M0A0D2TCD8",
-      "revision": "2.1.3"
+      "revision": "2.1.3",
+      "device_type": "partition"
     },
     {
       "model": "Dell Ent NVMe CM6 RI 1.92TB",
       "serial": "61M0A098TCD8",
-      "revision": "2.1.3"
+      "revision": "2.1.3",
+      "device_type": "partition"
     },
     {
       "model": "Dell Ent NVMe CM6 RI 1.92TB",
       "serial": "61M0A098TCD8",
-      "revision": "2.1.3"
+      "revision": "2.1.3",
+      "device_type": "partition"
     },
     {
       "model": "Dell Ent NVMe CM6 RI 1.92TB",
       "serial": "61M0A098TCD8",
-      "revision": "2.1.3"
+      "revision": "2.1.3",
+      "device_type": "partition"
     },
     {
       "model": "Dell Ent NVMe CM6 RI 1.92TB",
       "serial": "61M0A0B8TCD8",
-      "revision": "2.1.3"
+      "revision": "2.1.3",
+      "device_type": "partition"
     },
     {
       "model": "Dell Ent NVMe CM6 RI 1.92TB",
       "serial": "61M0A0B8TCD8",
-      "revision": "2.1.3"
+      "revision": "2.1.3",
+      "device_type": "partition"
     },
     {
       "model": "Dell Ent NVMe CM6 RI 1.92TB",
       "serial": "61M0A0B8TCD8",
-      "revision": "2.1.3"
+      "revision": "2.1.3",
+      "device_type": "partition"
     }
   ],
   "network_interfaces": [

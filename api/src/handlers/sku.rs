@@ -101,7 +101,7 @@ pub(crate) async fn generate_from_machine(
     let machine_id = try_parse_machine_id(&request.into_inner())?;
     log_machine_id(&machine_id);
 
-    let sku = crate::db::sku::from_topology(&mut txn, &machine_id)
+    let sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id)
         .await
         .map_err(CarbideError::from)?;
 

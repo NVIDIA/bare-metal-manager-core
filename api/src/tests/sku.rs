@@ -58,18 +58,18 @@ pub mod tests {
             }
           ],
           "storage": [
-          {
-            "model": "Dell Ent NVMe CM6 RI 1.92TB",
-            "count": 9
-          },
-          {
-            "model": "DELLBOSS_VD",
-            "count": 3
-          }
+            {
+              "model": "DELLBOSS_VD",
+              "count": 1
+            },
+            {
+              "model": "Dell Ent NVMe CM6 RI 1.92TB",
+              "count": 1
+            }
           ],
           "tpm": []
         },
-        "schema_version": 1
+        "schema_version": 2
     }"#;
 
     const SKU_DATA: &str = r#"
@@ -118,11 +118,11 @@ pub mod tests {
     "storage": [
       {
         "model": "DELLBOSS_VD",
-        "count": 3
+        "count": 1
       },
       {
         "model": "Dell Ent NVMe CM6 RI 1.92TB",
-        "count": 9
+        "count": 1
       }
 
     ],
@@ -135,7 +135,7 @@ pub mod tests {
     ],
     "tpm": []
   },
-  "schema_version": 1
+  "schema_version": 2
 }"#;
 
     #[crate::sqlx_test]
@@ -196,22 +196,18 @@ pub mod tests {
     }
 
     #[crate::sqlx_test]
-    async fn test_from_topology(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
+    async fn test_generate_sku_from_machine(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let env = create_test_env(pool.clone()).await;
         let (machine_id, _dpu_id) = create_managed_host(&env).await;
         let mut txn = pool.begin().await?;
 
         let expected_sku: Sku = serde_json::de::from_str::<rpc::forge::Sku>(SKU_DATA)?.into();
 
-        let mut actual_sku = crate::db::sku::from_topology(&mut txn, &machine_id).await?;
+        let mut actual_sku =
+            crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
         // cheat the created timestamp and id
         actual_sku.id = "sku id".to_string();
         actual_sku.created = expected_sku.created;
-        // Sort the IB devices by Model. Due to the hashmap, the actual order might be different
-        actual_sku
-            .components
-            .infiniband_devices
-            .sort_by(|dev1, dev2| dev1.model.cmp(&dev2.model));
 
         let actual_sku_json: String = serde_json::ser::to_string_pretty(&actual_sku)?;
         tracing::info!("actual_sku_json: {}", actual_sku_json);
@@ -229,7 +225,7 @@ pub mod tests {
         let (machine_id, _dpu_id) = create_managed_host(&env).await;
         let mut txn = pool.begin().await?;
 
-        let actual_sku = crate::db::sku::from_topology(&mut txn, &machine_id).await?;
+        let actual_sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
         crate::db::sku::create(&mut txn, &actual_sku).await?;
         let actual_sku = crate::db::sku::find(&mut txn, &[actual_sku.id])
             .await?
@@ -364,7 +360,7 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let actual_sku = crate::db::sku::from_topology(&mut txn, &machine_id).await?;
+        let actual_sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
         crate::db::sku::create(&mut txn, &actual_sku).await?;
 
         crate::db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
@@ -459,7 +455,7 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let actual_sku = crate::db::sku::from_topology(&mut txn, &machine_id).await?;
+        let actual_sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
         crate::db::sku::create(&mut txn, &actual_sku).await?;
 
         crate::db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
@@ -715,7 +711,7 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let actual_sku = crate::db::sku::from_topology(&mut txn, &machine_id).await?;
+        let actual_sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
         crate::db::sku::create(&mut txn, &actual_sku).await?;
 
         crate::db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
@@ -796,7 +792,7 @@ pub mod tests {
 
         assert_eq!(machine.current_state(), &ManagedHostState::Ready);
 
-        let expected_sku = crate::db::sku::from_topology(&mut txn, &machine_id).await?;
+        let expected_sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
         crate::db::sku::create(&mut txn, &expected_sku).await?;
 
         txn.commit().await?;
@@ -886,7 +882,7 @@ pub mod tests {
         assert_eq!(machine.current_state(), &ManagedHostState::Ready);
         assert!(machine.hw_sku.is_some());
 
-        let mut old_sku = crate::db::sku::from_topology(&mut txn, &machine_id).await?;
+        let mut old_sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
         //fake an old sku
         old_sku.schema_version = 0;
         old_sku.components.storage = Vec::default();
@@ -895,7 +891,7 @@ pub mod tests {
             .await?
             .pop()
             .unwrap();
-        assert_eq!(new_sku.schema_version, 1);
+        assert_eq!(new_sku.schema_version, db::sku::CURRENT_SKU_VERSION);
         assert_ne!(new_sku.components.storage.len(), 0);
 
         // diff does not check version.  comparing SKUs of different versions will fail
@@ -904,7 +900,7 @@ pub mod tests {
 
         // create an older version sku from new topology data will create a backwards compatible sku
         let old_new_sku =
-            crate::db::sku::from_topology_with_version(&mut txn, &machine_id, 0).await?;
+            crate::db::sku::generate_sku_from_machine_at_version(&mut txn, &machine_id, 0).await?;
         assert_eq!(old_new_sku.schema_version, 0);
         assert!(old_new_sku.components.storage.is_empty());
 
