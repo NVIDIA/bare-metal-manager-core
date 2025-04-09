@@ -73,3 +73,16 @@ In order for the sign in to succeed, users need to be members of the following D
 
 These group permissions can be reviewed at the bottom of the `Users and Groups` page in the
 [Forge Grafana Azure Portal](https://portal.azure.com/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Users/objectId/ccf37af4-c630-4025-9e87-cf59868ae205/appId/dda30e19-7fe7-415f-9750-adc7ee3e0ebd).
+
+*NOTE*
+When updating site Grafana dashboards the changes need to be committed into [forged](https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/bases/forge-dashboards?ref_type=heads)
+
+
+A development pattern you can use
+
+1. login to a site Grafana (it doesn't matter which)
+2. Make the changes that you want using the Grafana editor
+3. export the dashboard as json from Grafana.
+4. Copy and/or create the resulting json to a file in [forged](https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/bases/forge-dashboards)
+5. Open and MR
+
