@@ -33,6 +33,10 @@
 - [FORGE-16](https://jirasw.nvidia.com/browse/FORGE-16), [MR-3819](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3819): Added support for setting and clearing quarantine via gRPC, admin-CLI, and the web UI. Note: The DPU currently doesn't do anything with this flag yet.
 - [MR-3824](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3824): Added the new machine_validation container to the auto-update job.
 - [MR-3862](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3862): inactive_devices can now be used with InstanceType filters.
+- [FORGE-5839](https://jirasw.nvidia.com/browse/FORGE-5839) Adds support for storage in SKUs
+  - Adds a schema version to SKUs.  old SKUs will continue to work but cannot be created.  only new SKUs with storage info can be created.
+  - Moves SKU data (CPU and GPU) to be compatable with capabilities.
+  - Only uses physical storage devices in SKU (a previous version of storage support had issues with virtual devices and disk partitions)
 
 ### Changed
 
