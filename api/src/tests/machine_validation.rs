@@ -1037,7 +1037,7 @@ async fn test_machine_validation_test_disabled(
         .unwrap()
         .into_inner()
         .tests;
-    assert_eq!(existing_test_list.len(), 23);
+    assert_eq!(existing_test_list.len(), 24);
 
     let _ = env
         .api
