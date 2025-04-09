@@ -188,6 +188,15 @@ fn convert_machine_to_nice_format(
         }
     }
 
+    if let Some(health) = machine.health {
+        if !health.alerts.is_empty() {
+            writeln!(&mut lines, "ALERTS:")?;
+            for alert in health.alerts {
+                writeln!(&mut lines, "\t- {}", alert.message)?;
+            }
+        }
+    }
+
     Ok(lines)
 }
 
@@ -207,6 +216,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
     let default_metadata = Default::default();
 
     table.set_titles(row![
+        "",
         "Id",
         "State",
         "State Version",
@@ -279,7 +289,13 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             })
             .collect::<Vec<_>>();
 
+        let is_unhealthy = machine
+            .health
+            .map(|x| !x.alerts.is_empty())
+            .unwrap_or_default();
+
         table.add_row(row![
+            String::from(if is_unhealthy { "U" } else { "H" }),
             machine_id,
             machine.state.to_uppercase(),
             machine.state_version.clone(),
