@@ -97,7 +97,11 @@ impl From<ManagedHostOutputWrapper> for Row {
             .collect::<Vec<String>>()
             .join("\n");
 
+        let is_unhealthy = !value.health.alerts.is_empty()
+            | value.dpus.iter().any(|x| !x.health.alerts.is_empty());
+
         let mut row_data = vec![
+            String::from(if is_unhealthy { "U" } else { "H" }),
             value.hostname.unwrap_or(UNKNOWN.to_owned()),
             machine_ids,
             state,
@@ -138,9 +142,6 @@ fn convert_managed_hosts_to_nice_output(
     managed_hosts: Vec<utils::ManagedHostOutput>,
     options: ManagedHostOutputOptions,
 ) -> Box<Table> {
-    let has_maintenance = managed_hosts
-        .iter()
-        .any(|m| m.maintenance_reference.is_some());
     let managed_hosts_wrapper = managed_hosts
         .into_iter()
         .map(|x| ManagedHostOutputWrapper {
@@ -151,9 +152,9 @@ fn convert_managed_hosts_to_nice_output(
 
     let mut table = Table::new();
 
-    let mut headers = vec!["Hostname", "Machine IDs (H/D)", "State"];
+    let mut headers = vec!["", "Hostname", "Machine IDs (H/D)", "State"];
     // if any machines in the list are in maintenance mode we add the columns
-    if has_maintenance {
+    if options.has_maintenance {
         headers.extend_from_slice(&["Maintenance reference/since"]);
     }
 
