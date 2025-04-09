@@ -59,6 +59,7 @@ mod route_servers;
 mod service_health_metrics;
 mod site_explorer;
 mod sku;
+mod storage;
 mod tenant_keyset_find;
 mod tenants;
 mod test_meter;
