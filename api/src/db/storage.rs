@@ -574,9 +574,14 @@ impl OsImage {
         volume_id: Option<Uuid>,
     ) -> Result<Self, DatabaseError> {
         let timestamp: DateTime<Utc> = Utc::now();
+        let status = if volume_id.is_some() {
+            OsImageStatus::Uninitialized
+        } else {
+            OsImageStatus::Ready
+        };
         let os_image = OsImage {
             attributes: attrs.clone(),
-            status: OsImageStatus::Uninitialized,
+            status,
             status_message: None,
             created_at: Some(timestamp.to_string()),
             modified_at: None,
@@ -619,7 +624,7 @@ impl OsImage {
         update: bool,
     ) -> Result<Self, DatabaseError> {
         let os_image = if update {
-            let query = "UPDATE os_images SET name = $1, description = $2, auth_type = $3, auth_token = $4, rootfs_id = $5, rootfs_label = $6, boot_disk = $7, bootfs_id = $8, efifs_id = $9, modified_at = $10, status = $11::os_image_status, status_message = $12 WHERE id = $13 RETURNING *";
+            let query = "UPDATE os_images SET name = $1, description = $2, auth_type = $3, auth_token = $4, rootfs_id = $5, rootfs_label = $6, boot_disk = $7, bootfs_id = $8, efifs_id = $9, modified_at = $10, status = $11, status_message = $12 WHERE id = $13 RETURNING *";
             sqlx::query_as(query)
                 .bind(&self.attributes.name)
                 .bind(&self.attributes.description)
@@ -631,7 +636,7 @@ impl OsImage {
                 .bind(&self.attributes.bootfs_id)
                 .bind(&self.attributes.efifs_id)
                 .bind(&self.modified_at)
-                .bind(self.status.to_string().to_lowercase())
+                .bind(self.status.clone())
                 .bind(&self.status_message)
                 .bind(self.attributes.id)
                 .fetch_one(&mut **txn)
@@ -642,7 +647,7 @@ impl OsImage {
                 Some(x) => x as i64,
                 None => 0,
             };
-            let query = "INSERT INTO os_images(id, name, description, source_url, digest, organization_id, auth_type, auth_token, rootfs_id, rootfs_label, boot_disk, bootfs_id, efifs_id, capacity, volume_id, status, status_message, created_at, modified_at) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::os_image_status, $18, $19) RETURNING *";
+            let query = "INSERT INTO os_images(id, name, description, source_url, digest, organization_id, auth_type, auth_token, rootfs_id, rootfs_label, boot_disk, bootfs_id, efifs_id, capacity, volume_id, status, status_message, created_at, modified_at) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING *";
             sqlx::query_as(query)
                 .bind(self.attributes.id)
                 .bind(&self.attributes.name)
@@ -659,7 +664,7 @@ impl OsImage {
                 .bind(&self.attributes.efifs_id)
                 .bind(capacity)
                 .bind(self.volume_id)
-                .bind(self.status.to_string().to_lowercase())
+                .bind(self.status.clone())
                 .bind(&self.status_message)
                 .bind(&self.created_at)
                 .bind(&self.modified_at)
