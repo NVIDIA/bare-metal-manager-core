@@ -7,9 +7,12 @@ RUN apt-get update && \
     apt-get install -y \
     curl \
     jq \
+    openssh-client \
     python3.11-full \
     wget \
     unzip
+
+RUN rm -rf /var/lib/apt/lists/*
 
 RUN wget -qO vault.zip "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip" && \
     unzip vault.zip -d /usr/local/bin/ vault && \
