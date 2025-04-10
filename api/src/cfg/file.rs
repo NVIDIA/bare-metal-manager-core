@@ -904,15 +904,12 @@ pub struct DpuConfig {
     #[serde(default)]
     pub dpu_nic_firmware_reprovision_update_enabled: bool,
 
-    /// The version of DPU NIC firmware that is expected on the DPU.  If the actual DPU NIC firmware
-    /// does not match, the DPU will be updated during reprovisioning. This value is hardcoded in the API
-    /// so the operator does not need to know what to do but can be overridden.
-    #[serde(default)]
-    pub dpu_nic_firmware_update_version: HashMap<String, String>,
-
     /// DPU related configuration parameter
     #[serde(default)]
     pub dpu_models: HashMap<String, Firmware>,
+
+    #[serde(default)]
+    pub dpu_nic_firmware_update_versions: Vec<String>,
 }
 
 impl DpuConfig {
@@ -940,21 +937,6 @@ impl Default for DpuConfig {
         Self {
             dpu_nic_firmware_initial_update_enabled: false,
             dpu_nic_firmware_reprovision_update_enabled: true,
-            dpu_nic_firmware_update_version: HashMap::from([
-                ("BlueField SoC".to_string(), "24.42.1000".to_string()),
-                (
-                    "BlueField-3 SmartNIC Main Card".to_string(),
-                    "32.42.1000".to_string(),
-                ),
-                (
-                    "BlueField 3 SmartNIC Main Card".to_string(),
-                    "32.42.1000".to_string(),
-                ),
-                (
-                    "BlueField-3 DPU".to_string(),
-                    "32.42.1000".to_string(),
-                ),
-            ]),
             dpu_models: HashMap::from([("bluefield2".to_string(), Firmware {
                 vendor: BMCVendor::Nvidia,
                 model: "Bluefield 2 SmartNIC Main Card".to_string(),
@@ -1041,6 +1023,7 @@ impl Default for DpuConfig {
                             }],
                     })]),
             })]),
+            dpu_nic_firmware_update_versions: vec!["24.42.1000".to_string(), "32.42.1000".to_string()],
         }
     }
 }
@@ -1759,7 +1742,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .initial_dpu_agent_upgrade_policy
                 .unwrap_or(AgentUpgradePolicyChoice::Off)
                 .to_string(),
-            dpu_nic_firmware_update_version: DpuConfig::default().dpu_nic_firmware_update_version,
+            dpu_nic_firmware_update_version: HashMap::default(),
             dpu_nic_firmware_initial_update_enabled: DpuConfig::default()
                 .dpu_nic_firmware_initial_update_enabled,
             dpu_nic_firmware_reprovision_update_enabled: DpuConfig::default()
@@ -1780,6 +1763,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             bom_validation_ignore_unassigned_machines: value
                 .bom_validation
                 .ignore_unassigned_machines,
+            dpu_nic_firmware_update_versions: value.dpu_config.dpu_nic_firmware_update_versions,
         }
     }
 }

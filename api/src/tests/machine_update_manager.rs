@@ -158,7 +158,6 @@ async fn test_put_machine_in_maintenance(
         host_machine_id,
         dpu_machine_id,
         firmware_version: "1".to_owned(),
-        product_name: "product_x".to_owned(),
     };
 
     let reference = &DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
@@ -212,7 +211,6 @@ async fn test_remove_machine_update_markers(
         host_machine_id,
         dpu_machine_id,
         firmware_version: "1".to_owned(),
-        product_name: "product_x".to_owned(),
     };
 
     let reference = &DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
@@ -356,7 +354,6 @@ async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         host_machine_id: host_machine_id1,
         dpu_machine_id: dpu_machine_id1,
         firmware_version: "1".to_owned(),
-        product_name: "product_x".to_owned(),
     };
 
     let reference = &DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {

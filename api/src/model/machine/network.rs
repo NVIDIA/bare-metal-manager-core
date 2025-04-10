@@ -60,7 +60,7 @@ impl MachineNetworkStatusObservation {
                 }
             }
             None => {
-                tracing::warn!(
+                tracing::debug!(
                         machine_id = %self.machine_id,
                         agent_version = %agent_version,
                         "DPU is on a stale agent version which we don't know about. Cannot know how stale it is, will not prevent allocations");

@@ -203,8 +203,8 @@
   "dpu_info": {
     "part_number": "MBF2H536C-CECO_Ax_Bx",
     "firmware_date": "24.11.2022",
-    "product_version": "24.35.2000",
-    "firmware_version": "24.35.2000",
+    "product_version": "24.42.1000",
+    "firmware_version": "24.42.1000",
     "part_description": "NVIDIA BlueField-3 B3220 P-Series FHHL DPU; 200GbE (default mode) / NDR200 IB; Dual-port QSFP112; PCIe Gen5.0 x16 with x16 PCIe extension option; 16 Arm cores; 32GB on-board DDR; integrated BMC; Crypto Enabled",
     "factory_mac_address": "03:11:21:31:41:52 REPLACED BY TEST",
     "switches": [

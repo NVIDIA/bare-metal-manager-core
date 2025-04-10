@@ -11,7 +11,6 @@
  */
 use crate::tests::common;
 
-use crate::cfg::file::DpuConfig;
 use crate::db;
 use crate::db::machine::MachineSearchConfig;
 use crate::measured_boot::db as mbdb;
@@ -690,14 +689,7 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
         env.test_meter
             .formatted_metric("forge_dpu_firmware_version_count")
             .unwrap(),
-        format!(
-            r#"{{firmware_version="{}",fresh="true"}} 2"#,
-            DpuConfig::default()
-                .dpu_nic_firmware_update_version
-                .get("BlueField SoC")
-                .unwrap()
-                .to_owned()
-        )
+        r#"{firmware_version="24.42.1000",fresh="true"} 2"#,
     );
 
     assert_eq!(

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ops::DerefMut;
 
 use sqlx::{Acquire, FromRow, Postgres, Transaction};
@@ -15,12 +14,11 @@ use crate::{
 };
 use forge_uuid::machine::MachineId;
 
-#[derive(FromRow, Debug)]
+#[derive(Debug, FromRow)]
 pub struct DpuMachineUpdate {
     pub host_machine_id: MachineId,
     pub dpu_machine_id: MachineId,
     pub firmware_version: String,
-    pub product_name: String,
 }
 
 impl DpuMachineUpdate {
@@ -38,7 +36,6 @@ impl DpuMachineUpdate {
     ///
     pub async fn find_available_outdated_dpus(
         txn: &mut Transaction<'_, Postgres>,
-        expected_firmware_versions: &HashMap<String, String>,
         limit: Option<i32>,
         config: &CarbideConfig,
     ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
@@ -46,8 +43,7 @@ impl DpuMachineUpdate {
             return Ok(vec![]);
         }
 
-        let outdated_dpus =
-            Self::find_outdated_dpus(txn, expected_firmware_versions, config).await?;
+        let outdated_dpus = Self::find_outdated_dpus(txn, config).await?;
 
         let mut scheduled_host_updates = 0;
         let available_outdated_dpus: Vec<DpuMachineUpdate> = outdated_dpus
@@ -73,11 +69,9 @@ impl DpuMachineUpdate {
 
     pub async fn find_unavailable_outdated_dpus(
         txn: &mut Transaction<'_, Postgres>,
-        expected_firmware_versions: &HashMap<String, String>,
         config: &CarbideConfig,
     ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
-        let outdated_dpus =
-            Self::find_outdated_dpus(txn, expected_firmware_versions, config).await?;
+        let outdated_dpus = Self::find_outdated_dpus(txn, config).await?;
 
         let unavailable_outdated_dpus: Vec<DpuMachineUpdate> = outdated_dpus
             .into_iter()
@@ -95,20 +89,8 @@ impl DpuMachineUpdate {
 
     pub async fn find_outdated_dpus(
         txn: &mut Transaction<'_, Postgres>,
-        expected_firmware_versions: &HashMap<String, String>,
         config: &CarbideConfig,
     ) -> Result<Vec<OutdatedHost>, DatabaseError> {
-        if expected_firmware_versions.is_empty() {
-            return Err(DatabaseError::new(
-                file!(),
-                line!(),
-                "find_outdated_dpus",
-                sqlx::Error::Configuration(Box::new(CarbideError::InvalidArgument(
-                    "Missing expected_firmware_versions".to_string(),
-                ))),
-            ));
-        }
-
         let machine_ids = db::machine::find_machine_ids(
             txn,
             MachineSearchConfig {
@@ -139,20 +121,18 @@ impl DpuMachineUpdate {
                             .hardware_info
                             .as_ref()
                             .and_then(|info| info.dpu_info.as_ref())
-                            .map(|dpu_info| dpu_info.firmware_version.clone())
-                            .unwrap_or_default();
-                        let product_name = dpu
-                            .hardware_info
-                            .as_ref()
-                            .and_then(|info| info.dmi_data.as_ref())
-                            .map(|dmi_data| dmi_data.product_name.clone())
-                            .unwrap_or_default();
+                            .map(|dpu_info| dpu_info.firmware_version.trim().to_owned())?;
 
-                        let is_outdated = match expected_firmware_versions.get(&product_name) {
-                            Some(expected_version) => expected_version != &firmware_version,
-                            None => false,
-                        };
-                        if !is_outdated {
+                        tracing::info!(
+                            "checking machine {} with version {}",
+                            machine_id,
+                            firmware_version
+                        );
+                        if config
+                            .dpu_config
+                            .dpu_nic_firmware_update_versions
+                            .contains(&firmware_version)
+                        {
                             return None;
                         }
 
@@ -160,7 +140,6 @@ impl DpuMachineUpdate {
                             host_machine_id: machine_id,
                             dpu_machine_id: dpu.id,
                             firmware_version,
-                            product_name,
                         })
                     })
                     .collect();
@@ -197,7 +176,6 @@ impl DpuMachineUpdate {
         txn: &mut Transaction<'_, Postgres>,
         host_machine_id: &MachineId,
         machine_updates: &[DpuMachineUpdate],
-        expected_versions: &HashMap<String, String>,
     ) -> Result<(), CarbideError> {
         let mut inner_txn = txn.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -208,26 +186,10 @@ impl DpuMachineUpdate {
             ))
         })?;
 
-        let mut host_expected_version = None;
         for machine_update in machine_updates {
-            let expected_version = expected_versions
-                .get(&machine_update.product_name)
-                .ok_or_else(|| {
-                    DatabaseError::new(
-                        file!(),
-                        line!(),
-                        "",
-                        sqlx::Error::ColumnNotFound("product_name missing".to_owned()),
-                    )
-                })?;
-
-            if host_expected_version.is_none() {
-                host_expected_version = Some(expected_version.clone());
-            }
-
             let initiator = DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
                 from: machine_update.firmware_version.clone(),
-                to: expected_version.clone(),
+                to: "".to_string(),
             });
 
             let reprovision_time = chrono::Utc::now();
@@ -258,7 +220,7 @@ impl DpuMachineUpdate {
         let initiator_host = DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
             // In case of multidpu, DPUs can have different versions.
             from: "".to_string(),
-            to: host_expected_version.unwrap_or("".to_string()),
+            to: "".to_string(),
         });
 
         let health_override = create_host_update_health_report(
@@ -278,6 +240,7 @@ impl DpuMachineUpdate {
             true,
         )
         .await?;
+
         inner_txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
@@ -295,7 +258,7 @@ impl DpuMachineUpdate {
     ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
         let reference = AutomaticFirmwareUpdateReference::REF_NAME.to_string() + "%";
 
-        let query = r#"SELECT mi.machine_id AS host_machine_id, m.id AS dpu_machine_id, '' AS firmware_version, '' AS product_name
+        let query = r#"SELECT mi.machine_id AS host_machine_id, m.id AS dpu_machine_id, '' AS firmware_version
             FROM machines m
             INNER JOIN machine_interfaces mi ON m.id = mi.attached_dpu_machine_id
             WHERE m.reprovisioning_requested->>'initiator' like $1
@@ -367,12 +330,6 @@ impl DpuMachineUpdate {
                             .as_ref()
                             .and_then(|info| info.dpu_info.as_ref())
                             .map(|dpu_info| dpu_info.firmware_version.clone())
-                            .unwrap_or_default(),
-                        product_name: dpu
-                            .hardware_info
-                            .as_ref()
-                            .and_then(|info| info.dmi_data.as_ref())
-                            .map(|dmi_data| dmi_data.product_name.clone())
                             .unwrap_or_default(),
                     })
                     .collect();
