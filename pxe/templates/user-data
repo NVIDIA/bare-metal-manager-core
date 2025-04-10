@@ -17,6 +17,7 @@ pre_bmc_components_update() {
     ipmitool user enable $USER_ID
     ipmitool channel setaccess 1 $USER_ID ipmi=on
     ipmitool user priv $USER_ID 0x4 1
+    set +eE
 }
 
 post_bmc_components_update() {
