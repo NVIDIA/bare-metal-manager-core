@@ -4,6 +4,7 @@ use common::api_fixtures::TestEnv;
 use hyper::http::{Request, request::Builder};
 
 use crate::tests::common;
+mod machine_health;
 mod managed_host;
 
 fn make_test_app(env: &TestEnv) -> Router {
