@@ -35,6 +35,20 @@ pub async fn run(
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
     let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
+
+    // Reject config that contains overlaps between deny_prefixes and site_fabric_prefixes
+    for deny_prefix in carbide_config.deny_prefixes.iter() {
+        for site_fabric_prefix in carbide_config.site_fabric_prefixes.iter() {
+            if deny_prefix.overlaps(site_fabric_prefix.to_owned()) {
+                return Err(eyre::eyre!(
+                    "overlap found in deny_prefixes `{}` and site_fabric_prefixes `{}`",
+                    deny_prefix.to_owned(),
+                    site_fabric_prefix.to_owned(),
+                ));
+            }
+        }
+    }
+
     let tconf = if skip_logging_setup {
         Logging::default()
     } else {
