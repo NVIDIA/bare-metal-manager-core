@@ -1422,6 +1422,16 @@ impl FirmwareConfig {
         map
     }
 
+    pub fn config_update_time(&self) -> Option<std::time::SystemTime> {
+        if self.firmware_directory.to_string_lossy() == "" {
+            return None;
+        }
+
+        let metadata = std::fs::metadata(self.firmware_directory.clone()).ok()?;
+
+        metadata.modified().ok()
+    }
+
     fn merge_firmware_configs(
         &self,
         map: &mut HashMap<String, Firmware>,

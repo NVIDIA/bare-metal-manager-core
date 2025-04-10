@@ -29,7 +29,7 @@ pub struct HostFirmwareUpdate {
     pub metrics: HostFirmwareUpdateMetrics,
     config: Arc<CarbideConfig>,
     firmware_config: FirmwareConfig,
-    desired_firmware_set: Arc<Mutex<bool>>,
+    firmware_dir_last_read: Arc<Mutex<Option<std::time::SystemTime>>>,
 }
 
 #[async_trait]
@@ -49,13 +49,20 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         available_updates: i32,
         updating_host_machines: &HashSet<MachineId>,
     ) -> CarbideResult<HashSet<MachineId>> {
-        let mut desired_firmware_set = self.desired_firmware_set.lock().await;
-        if !*desired_firmware_set {
+        let mut firmware_dir_last_read = self.firmware_dir_last_read.lock().await;
+        let firmware_dir_mod_time = self.firmware_config.config_update_time();
+        if (firmware_dir_mod_time.is_none() && firmware_dir_last_read.is_none()) // Not using an auto firmware directory, one and done
+            || (firmware_dir_mod_time.is_some_and(|firmware_dir_mod_time| {
+                firmware_dir_last_read.unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                    < firmware_dir_mod_time // Using an auto firmware directory, and a new file has been created or this is the first run
+            }))
+        {
             // Save the firmware config in an SQL table so that we can filter for hosts with non-matching firmware there.
             desired_firmware::snapshot_desired_firmware(txn, &self.firmware_config).await?;
-            *desired_firmware_set = true;
+            *firmware_dir_last_read =
+                Some(firmware_dir_mod_time.unwrap_or(std::time::SystemTime::now()));
         }
-        drop(desired_firmware_set);
+        drop(firmware_dir_last_read);
 
         let machine_updates = self.check_for_updates(txn, available_updates).await?;
         let mut updates_started = HashSet::default();
@@ -148,7 +155,7 @@ impl HostFirmwareUpdate {
             firmware_config,
             config,
             metrics,
-            desired_firmware_set: Arc::new(Mutex::new(false)),
+            firmware_dir_last_read: Arc::new(Mutex::new(None)),
         })
     }
 
