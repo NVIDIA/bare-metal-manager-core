@@ -121,4 +121,20 @@ impl EndpointExplorer for MockEndpointExplorer {
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
     }
+
+    async fn is_viking(
+        &self,
+        _bmc_ip_address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<bool, EndpointExplorationError> {
+        Ok(false)
+    }
+
+    async fn clear_nvram(
+        &self,
+        _bmc_ip_address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
 }

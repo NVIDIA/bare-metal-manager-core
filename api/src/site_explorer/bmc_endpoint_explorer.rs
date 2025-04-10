@@ -273,6 +273,34 @@ impl BmcEndpointExplorer {
             .set_nic_mode(bmc_ip_address, username, password, mode)
             .await
     }
+
+    async fn is_viking(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+    ) -> Result<bool, EndpointExplorationError> {
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        self.redfish_client
+            .is_viking(bmc_ip_address, username, password)
+            .await
+    }
+
+    pub async fn clear_nvram(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+    ) -> Result<(), EndpointExplorationError> {
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        self.redfish_client
+            .clear_nvram(bmc_ip_address, username, password)
+            .await
+    }
 }
 
 #[async_trait::async_trait]
@@ -438,6 +466,46 @@ impl EndpointExplorer for BmcEndpointExplorer {
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => self.set_nic_mode(bmc_ip_address, credentials, mode).await,
+            Err(e) => {
+                tracing::info!(
+                    %bmc_ip_address,
+                    "BMC endpoint explorer does not support set_nic_mode for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    bmc_mac_address,
+                );
+                Err(e)
+            }
+        }
+    }
+
+    async fn is_viking(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<bool, EndpointExplorationError> {
+        let bmc_mac_address = interface.mac_address;
+
+        match self.get_bmc_root_credentials(bmc_mac_address).await {
+            Ok(credentials) => self.is_viking(bmc_ip_address, credentials).await,
+            Err(e) => {
+                tracing::info!(
+                    %bmc_ip_address,
+                    "BMC endpoint explorer does not support set_nic_mode for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    bmc_mac_address,
+                );
+                Err(e)
+            }
+        }
+    }
+
+    async fn clear_nvram(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        let bmc_mac_address = interface.mac_address;
+
+        match self.get_bmc_root_credentials(bmc_mac_address).await {
+            Ok(credentials) => self.clear_nvram(bmc_ip_address, credentials).await,
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,

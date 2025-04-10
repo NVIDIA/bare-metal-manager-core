@@ -80,4 +80,16 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         interface: &MachineInterfaceSnapshot,
         mode: NicMode,
     ) -> Result<(), EndpointExplorationError>;
+
+    async fn is_viking(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<bool, EndpointExplorationError>;
+
+    async fn clear_nvram(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError>;
 }
