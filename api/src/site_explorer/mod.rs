@@ -887,6 +887,15 @@ impl SiteExplorer {
                                 expected_num_dpus_attached_to_host -= 1;
                                 continue;
                             }
+
+                            // we found at least one DPU from expected machines for this host
+                            // assume that the expected machines is the source of truth. Clear the
+                            // contents of dpus_explored_for_host to discard the previous results of
+                            // iterating over the hosts pcie devices.
+                            if !dpu_added {
+                                dpus_explored_for_host.clear();
+                            }
+
                             dpu_added = true;
                             dpus_explored_for_host.push(ExploredDpu {
                                 bmc_ip: dpu_ep.address,
