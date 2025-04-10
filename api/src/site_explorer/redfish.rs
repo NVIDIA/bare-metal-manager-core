@@ -322,6 +322,42 @@ impl RedfishClient {
 
         Ok(())
     }
+
+    pub async fn is_viking(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+    ) -> Result<bool, EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
+        let system = client.get_system().await.map_err(map_redfish_error)?;
+        let manager = client.get_manager().await.map_err(map_redfish_error)?;
+        Ok(
+            service_root.vendor().unwrap_or(RedfishVendor::Unknown) == RedfishVendor::AMI
+                && system.id == "DGX"
+                && manager.id == "BMC",
+        )
+    }
+
+    pub async fn clear_nvram(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+    ) -> Result<(), EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client.clear_nvram().await.map_err(map_redfish_error)?;
+        Ok(())
+    }
 }
 
 async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {

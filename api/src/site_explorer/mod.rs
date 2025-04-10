@@ -1974,7 +1974,7 @@ impl SiteExplorer {
         // If this fails, and we continue seeing the BIOS attributes come up as empty after twenty minutes (providing plenty of time)
         // for the DPU to come back up after the reboot, lets try resetting the BMC to see if it helps.
 
-        if error.is_dpu_redfish_bios_response_invalid()
+        if (error.is_dpu_redfish_bios_response_invalid())
             && time_since_redfish_reboot > reset_rate_limit
             && self
                 .force_restart(&endpoint)
@@ -1990,6 +1990,22 @@ impl SiteExplorer {
         {
             metrics.bmc_reboot_count += 1;
             return;
+        }
+
+        if self.is_viking_bmc(&endpoint).await && time_since_redfish_reboot > reset_rate_limit {
+            match self.clear_nvram(&endpoint).await {
+                Ok(_) => {
+                    metrics.bmc_reboot_count += 1;
+                    return;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Site Explorer failed to clear nvram {}: {}",
+                        endpoint.address,
+                        e
+                    )
+                }
+            }
         }
 
         if time_since_redfish_bmc_reset > reset_rate_limit
@@ -2084,6 +2100,42 @@ impl SiteExplorer {
                 endpoint.address, e
             ))),
         }
+    }
+
+    pub async fn is_viking_bmc(&self, endpoint: &Endpoint) -> bool {
+        let bmc_target_port = self.config.override_target_port.unwrap_or(443);
+        let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
+        match self
+            .endpoint_explorer
+            .is_viking(bmc_target_addr, &endpoint.iface)
+            .await
+        {
+            Ok(is_viking) => is_viking,
+            Err(e) => {
+                tracing::warn!("could not retrieve vendor for {}: {e}", endpoint.address);
+                false
+            }
+        }
+    }
+    pub async fn clear_nvram(&self, endpoint: &Endpoint) -> CarbideResult<()> {
+        tracing::info!(
+            "SiteExplorer is issuing a clean_nvram through Redfish to IP {}",
+            endpoint.address
+        );
+        let bmc_target_port = self.config.override_target_port.unwrap_or(443);
+        let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
+
+        self.endpoint_explorer
+            .clear_nvram(bmc_target_addr, &endpoint.iface)
+            .await
+            .map_err(|err| {
+                CarbideError::internal(format!(
+                    "site-explorer failed to clear nvram {}: {:#?}",
+                    endpoint.address, err
+                ))
+            })?;
+
+        self.force_restart(endpoint).await
     }
 
     pub async fn force_restart(&self, endpoint: &Endpoint) -> CarbideResult<()> {
