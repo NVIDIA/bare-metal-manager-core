@@ -1,14 +1,38 @@
-use crate::tests::common;
+use std::ops::DerefMut;
 
-use std::collections::HashMap;
+use crate::db::DatabaseError;
+use crate::tests::common;
 
 use crate::model::machine::Machine;
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
+use crate::{CarbideError, CarbideResult};
 use crate::{
     db, db::dpu_machine_update::DpuMachineUpdate,
     model::machine::network::MachineNetworkStatusObservation,
 };
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
+use forge_uuid::machine::MachineId;
+use health_report::HealthReport;
+use sqlx::{Postgres, Transaction};
+
+pub async fn update_nic_firmware_version(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+    version: &str,
+) -> CarbideResult<()> {
+    let query = r#"UPDATE machine_topologies SET topology =
+                jsonb_set(topology, '{discovery_data, Info, dpu_info, firmware_version}', $1) 
+                WHERE machine_id=$2"#;
+
+    sqlx::query(query)
+        .bind(sqlx::types::Json(version))
+        .bind(machine_id)
+        .execute(txn.deref_mut())
+        .await
+        .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+
+    Ok(())
+}
 
 #[crate::sqlx_test]
 async fn test_find_available_outdated_dpus(
@@ -20,26 +44,16 @@ async fn test_find_available_outdated_dpus(
     let mut host_machine_ids = Vec::default();
     for _ in 0..10 {
         let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+        let mut txn = env.pool.begin().await?;
+        update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
+        txn.commit().await?;
         dpu_machine_ids.push(dpu_machine_id);
         host_machine_ids.push(host_machine_id);
     }
 
     let mut txn = env.pool.begin().await?;
 
-    let mut expected_dpu_firmware_versions = HashMap::new();
-    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "v9".to_owned());
-    expected_dpu_firmware_versions.insert(
-        "BlueField-3 SmartNIC Main Card".to_owned(),
-        "v49".to_owned(),
-    );
-
-    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
-        &mut txn,
-        &expected_dpu_firmware_versions,
-        None,
-        &env.config,
-    )
-    .await?;
+    let dpus = DpuMachineUpdate::find_available_outdated_dpus(&mut txn, None, &env.config).await?;
 
     assert_eq!(dpus.len(), dpu_machine_ids.len());
     Ok(())
@@ -55,6 +69,9 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
     let mut host_machine_ids = Vec::default();
     for _ in 0..10 {
         let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+        let mut txn = env.pool.begin().await?;
+        update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
+        txn.commit().await?;
         dpu_machine_ids.push(dpu_machine_id);
         host_machine_ids.push(host_machine_id);
     }
@@ -96,20 +113,7 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
     txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await?;
 
-    let mut expected_dpu_firmware_versions = HashMap::new();
-    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "v9".to_owned());
-    expected_dpu_firmware_versions.insert(
-        "BlueField-3 SmartNIC Main Card".to_owned(),
-        "v49".to_owned(),
-    );
-
-    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
-        &mut txn,
-        &expected_dpu_firmware_versions,
-        None,
-        &env.config,
-    )
-    .await?;
+    let dpus = DpuMachineUpdate::find_available_outdated_dpus(&mut txn, None, &env.config).await?;
 
     assert_eq!(dpus.len(), dpu_machine_ids.len() - 1);
     Ok(())
@@ -125,25 +129,17 @@ async fn test_find_available_outdated_dpus_limit(
     let mut host_machine_ids = Vec::default();
     for _ in 0..10 {
         let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+        let mut txn = env.pool.begin().await?;
+        update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
+        txn.commit().await?;
         dpu_machine_ids.push(dpu_machine_id);
         host_machine_ids.push(host_machine_id);
     }
 
     let mut txn = env.pool.begin().await?;
-    let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
-    expected_dpu_firmware_versions.insert(
-        "BlueField-3 SmartNIC Main Card".to_owned(),
-        "v49".to_owned(),
-    );
-    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "v9".to_owned());
 
-    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
-        &mut txn,
-        &expected_dpu_firmware_versions,
-        Some(1),
-        &env.config,
-    )
-    .await?;
+    let dpus =
+        DpuMachineUpdate::find_available_outdated_dpus(&mut txn, Some(1), &env.config).await?;
 
     assert_eq!(dpus.len(), 1);
     Ok(())
@@ -159,20 +155,25 @@ async fn test_find_unavailable_outdated_dpus_when_none(
     let mut host_machine_ids = Vec::default();
     for _ in 0..10 {
         let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+        let mut txn = env.pool.begin().await?;
+        crate::db::machine::update_hardware_health_report(
+            &mut txn,
+            &host_machine_id,
+            &HealthReport::heartbeat_timeout(
+                "test".to_owned(),
+                "test".to_owned(),
+                "test".to_owned(),
+            ),
+        )
+        .await?;
+        update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
+        txn.commit().await?;
         dpu_machine_ids.push(dpu_machine_id);
         host_machine_ids.push(host_machine_id);
     }
 
     let mut txn = env.pool.begin().await?;
-    let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
-    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "24.35.2000".to_owned());
-
-    let dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(
-        &mut txn,
-        &expected_dpu_firmware_versions,
-        &env.config,
-    )
-    .await?;
+    let dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(&mut txn, &env.config).await?;
 
     assert_eq!(dpus.len(), 0);
     Ok(())
@@ -195,17 +196,12 @@ async fn test_find_unavailable_outdated_dpus(
     let host_sim = env.start_managed_host_sim();
     let (dpu_machine_id, host_machine_id) =
         create_dpu_machine_in_waiting_for_network_install(&env, &host_sim.config).await;
+    let mut txn = env.pool.begin().await?;
+    update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
+    txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
-    let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
-    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "v9".to_owned());
-
-    let dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(
-        &mut txn,
-        &expected_dpu_firmware_versions,
-        &env.config,
-    )
-    .await?;
+    let dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(&mut txn, &env.config).await?;
 
     assert_eq!(dpus.len(), 1);
     assert_eq!(dpus.first().unwrap().dpu_machine_id, dpu_machine_id);
@@ -221,27 +217,18 @@ async fn test_find_available_outdated_dpus_multidpu(
     let env = create_test_env(pool).await;
 
     let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
-
     let mut txn = env.pool.begin().await?;
-
-    let mut expected_dpu_firmware_versions = HashMap::new();
-    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "v9".to_owned());
-    expected_dpu_firmware_versions.insert(
-        "BlueField-3 SmartNIC Main Card".to_owned(),
-        "v49".to_owned(),
-    );
-
-    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
-        &mut txn,
-        &expected_dpu_firmware_versions,
-        None,
-        &env.config,
-    )
-    .await?;
-
     let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
+
+    for dpu in &all_dpus {
+        update_nic_firmware_version(&mut txn, &dpu.id, "1.11.1000").await?;
+    }
+    txn.commit().await?;
+
+    let mut txn = env.pool.begin().await?;
+    let dpus = DpuMachineUpdate::find_available_outdated_dpus(&mut txn, None, &env.config).await?;
 
     assert_eq!(dpus.len(), all_dpus.len());
     Ok(())
@@ -254,13 +241,6 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     let env = create_test_env(pool).await;
 
     let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
-
-    let mut expected_dpu_firmware_versions = HashMap::new();
-    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "v9".to_owned());
-    expected_dpu_firmware_versions.insert(
-        "BlueField-3 SmartNIC Main Card".to_owned(),
-        "v49".to_owned(),
-    );
 
     let mut txn = env.pool.begin().await?;
     let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
@@ -275,9 +255,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
             host_machine_id,
             dpu_machine_id: all_dpus[0].id,
             firmware_version: "test_version".to_string(),
-            product_name: "BlueField SoC".to_string(),
         }],
-        &expected_dpu_firmware_versions,
     )
     .await
     .unwrap();
@@ -285,13 +263,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
 
     let mut txn = env.pool.begin().await?;
 
-    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
-        &mut txn,
-        &expected_dpu_firmware_versions,
-        None,
-        &env.config,
-    )
-    .await?;
+    let dpus = DpuMachineUpdate::find_available_outdated_dpus(&mut txn, None, &env.config).await?;
 
     assert!(dpus.is_empty());
 
@@ -318,13 +290,6 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
 
     let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
 
-    let mut expected_dpu_firmware_versions = HashMap::new();
-    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "v9".to_owned());
-    expected_dpu_firmware_versions.insert(
-        "BlueField-3 SmartNIC Main Card".to_owned(),
-        "v49".to_owned(),
-    );
-
     let mut txn = env.pool.begin().await?;
     let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
@@ -338,16 +303,13 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
                 host_machine_id,
                 dpu_machine_id: all_dpus[1].id,
                 firmware_version: "test_version".to_string(),
-                product_name: "BlueField SoC".to_string(),
             },
             DpuMachineUpdate {
                 host_machine_id,
                 dpu_machine_id: all_dpus[0].id,
                 firmware_version: "test_version".to_string(),
-                product_name: "BlueField SoC".to_string(),
             },
         ],
-        &expected_dpu_firmware_versions,
     )
     .await
     .unwrap();
@@ -355,13 +317,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
 
     let mut txn = env.pool.begin().await?;
 
-    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
-        &mut txn,
-        &expected_dpu_firmware_versions,
-        None,
-        &env.config,
-    )
-    .await?;
+    let dpus = DpuMachineUpdate::find_available_outdated_dpus(&mut txn, None, &env.config).await?;
 
     assert!(dpus.is_empty());
 

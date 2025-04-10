@@ -2297,7 +2297,10 @@ pub enum MaintenanceMode {
 
 #[cfg(test)]
 mod test {
-    use crate::model::{machine::ManagedHostState, metadata::Metadata};
+    use crate::{
+        db::machine::MachineSearchConfig,
+        model::{machine::ManagedHostState, metadata::Metadata},
+    };
     use forge_uuid::machine::MachineId;
     use std::str::FromStr;
 
@@ -2306,7 +2309,7 @@ mod test {
     async fn test_set_firmware_autoupdate(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut txn = pool.begin().await.unwrap();
+        let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
         let id =
             MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
         super::create(
@@ -2318,7 +2321,23 @@ mod test {
         )
         .await?;
         super::set_firmware_autoupdate(&mut txn, &id, Some(true)).await?;
+        txn.commit().await?;
+        let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
+
+        let host = crate::db::machine::find_one(&mut txn, &id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(host.firmware_autoupdate.is_some());
+
+        txn.commit().await?;
+        let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
         super::set_firmware_autoupdate(&mut txn, &id, None).await?;
+        let host = crate::db::machine::find_one(&mut txn, &id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(host.firmware_autoupdate.is_none());
         Ok(())
     }
 }

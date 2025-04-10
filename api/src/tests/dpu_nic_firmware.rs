@@ -2,8 +2,9 @@ use crate::machine_update_manager::machine_update_module::{
     HOST_UPDATE_HEALTH_PROBE_ID, HOST_UPDATE_HEALTH_REPORT_SOURCE,
 };
 use crate::tests::common;
+use crate::tests::dpu_machine_update::update_nic_firmware_version;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::str::FromStr;
 use std::string::ToString;
 
@@ -23,15 +24,10 @@ use rpc::forge::forge_server::Forge;
 async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-    let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
-    expected_dpu_firmware_versions.insert(
-        "BlueField-3 SmartNIC Main Card".to_owned(),
-        "v49".to_owned(),
-    );
-    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "2.0.1".to_owned());
-
+    let mut txn = env.pool.begin().await?;
+    update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
+    txn.commit().await?;
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
-        expected_dpu_firmware_versions,
         metrics: None,
         config: env.config.clone(),
     };
@@ -97,16 +93,12 @@ async fn test_start_updates_with_multidpu(
     let rpc_dpu_ids = host.associated_dpu_machine_ids;
     let dpu_machine_id = MachineId::from_str(&rpc_dpu_ids[0].id).unwrap();
     let dpu_machine_id2 = MachineId::from_str(&rpc_dpu_ids[1].id).unwrap();
-
-    let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
-    expected_dpu_firmware_versions.insert(
-        "BlueField-3 SmartNIC Main Card".to_owned(),
-        "v49".to_owned(),
-    );
-    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "2.0.1".to_owned());
+    let mut txn = env.pool.begin().await?;
+    update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
+    update_nic_firmware_version(&mut txn, &dpu_machine_id2, "11.10.1000").await?;
+    txn.commit().await?;
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
-        expected_dpu_firmware_versions,
         metrics: None,
         config: env.config.clone(),
     };
@@ -187,16 +179,11 @@ async fn test_get_updates_in_progress(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
-    let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
-    expected_dpu_firmware_versions.insert(
-        "BlueField-3 SmartNIC Main Card".to_owned(),
-        "v49".to_owned(),
-    );
-    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "2.0.1".to_owned());
-
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await?;
+    update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
+    txn.commit().await?;
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
-        expected_dpu_firmware_versions,
         metrics: None,
         config: env.config.clone(),
     };
@@ -231,18 +218,14 @@ async fn test_get_updates_in_progress(
 #[crate::sqlx_test]
 async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    create_managed_host(&env).await;
-    create_managed_host(&env).await;
-
-    let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
-    expected_dpu_firmware_versions.insert(
-        "BlueField-3 SmartNIC Main Card".to_owned(),
-        "v49".to_owned(),
-    );
-    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "2.0.1".to_owned());
+    let (_host_machine_id, dpu_machine_id1) = create_managed_host(&env).await;
+    let (_host_machine_id, dpu_machine_id2) = create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await?;
+    update_nic_firmware_version(&mut txn, &dpu_machine_id1, "11.10.1000").await?;
+    update_nic_firmware_version(&mut txn, &dpu_machine_id2, "11.10.1000").await?;
+    txn.commit().await?;
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
-        expected_dpu_firmware_versions,
         metrics: None,
         config: env.config.clone(),
     };
@@ -267,15 +250,11 @@ async fn test_clear_completed_updates(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-    let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
-    expected_dpu_firmware_versions.insert(
-        "BlueField-3 SmartNIC Main Card".to_owned(),
-        "v49".to_owned(),
-    );
-    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "2.0.1".to_owned());
+    let mut txn = env.pool.begin().await?;
+    update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
+    txn.commit().await?;
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
-        expected_dpu_firmware_versions,
         metrics: None,
         config: env.config.clone(),
     };
@@ -347,9 +326,10 @@ async fn test_clear_completed_updates(
         .begin()
         .await
         .expect("Failed to create transaction");
-    let query = r#"UPDATE machine_topologies SET topology=jsonb_set(topology, '{discovery_data,Info,dpu_info,firmware_version}', '"2.0.1"', false)
-     WHERE machine_id=$1"#;
+    let query = r#"UPDATE machine_topologies SET topology=jsonb_set(topology, '{discovery_data,Info,dpu_info,firmware_version}', $1, false)
+     WHERE machine_id=$2"#;
     sqlx::query::<_>(query)
+        .bind(sqlx::types::Json("24.42.1000"))
         .bind(dpu_machine_id.to_string())
         .execute(&mut *txn)
         .await

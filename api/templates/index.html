@@ -159,16 +159,8 @@
 		</td>
 	</tr>
 	<tr>
-		<th>DPU NIC Firmware Update Version</th>
+		<th>DPU Firmware Versions</th>
 		<td>
-			<table style="width: 100%;">
-				{% for (name, version) in carbide_config.dpu_config.dpu_nic_firmware_update_version %}
-				<tr>
-					<td>{{ name }}</td>
-					<td>{{ version }}</td>
-				</tr>
-				{% endfor %}
-			</table>
 			<table style="width: 100%;">
 			    {% match carbide_config.dpu_config.find_bf2_entry() %}
 			    {% when Some with (val) %}

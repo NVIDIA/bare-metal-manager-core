@@ -770,11 +770,10 @@ pub fn get_config() -> CarbideConfig {
             run_interval: std::time::Duration::from_secs(10),
         },
         dpu_config: InitialDpuConfig {
-            dpu_nic_firmware_update_version: InitialDpuConfig::default()
-                .dpu_nic_firmware_update_version,
             dpu_nic_firmware_initial_update_enabled: true,
             dpu_nic_firmware_reprovision_update_enabled: true,
             dpu_models: dpu_fw_example(),
+            dpu_nic_firmware_update_versions: vec!["24.42.1000".to_string()],
         },
         host_models: host_firmware_example(),
         firmware_global: FirmwareGlobal::test_default(),

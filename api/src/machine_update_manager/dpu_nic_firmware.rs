@@ -23,7 +23,6 @@ use forge_uuid::machine::MachineId;
 ///
 /// Note that if the version does not match in either direction, the DPU will be updated.
 pub struct DpuNicFirmwareUpdate {
-    pub expected_dpu_firmware_versions: HashMap<String, String>,
     pub metrics: Option<DpuNicFirmwareUpdateMetrics>,
     pub config: Arc<CarbideConfig>,
 }
@@ -80,6 +79,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
                 continue;
             }
 
+            tracing::info!("Starting DPU update for machine {}", host_machine_id);
             // If the reprovisioning failed to update the database for a
             // given {dpu,host}_machine_id, log it as a warning and don't
             // add it to updates_started.
@@ -88,7 +88,6 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
                     txn,
                     &host_machine_id,
                     &machine_updates,
-                    &self.expected_dpu_firmware_versions,
                 )
                 .await
             {
@@ -122,31 +121,25 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
         let updated_machines = DpuMachineUpdate::get_updated_machines(txn, &self.config).await?;
         tracing::debug!("found {} updated machines", updated_machines.len());
         for updated_machine in updated_machines {
-            if let Some(expected_dpu_firmware_version) = self
-                .expected_dpu_firmware_versions
-                .get(&updated_machine.product_name)
+            if self
+                .config
+                .dpu_config
+                .dpu_nic_firmware_update_versions
+                .contains(&updated_machine.firmware_version)
             {
-                if &updated_machine.firmware_version == expected_dpu_firmware_version {
-                    if let Err(e) =
-                        MachineUpdateManager::remove_machine_update_markers(txn, &updated_machine)
-                            .await
-                    {
-                        tracing::warn!(
-                            machine_id = %updated_machine.dpu_machine_id,
-                            "Failed to remove machine update markers: {}", e
-                        );
-                    }
-                } else {
+                if let Err(e) =
+                    MachineUpdateManager::remove_machine_update_markers(txn, &updated_machine).await
+                {
                     tracing::warn!(
                         machine_id = %updated_machine.dpu_machine_id,
-                        firmware_version = %updated_machine.firmware_version,
-                        "Incorrect firmware version after attempted update"
+                        "Failed to remove machine update markers: {}", e
                     );
                 }
             } else {
                 tracing::warn!(
-                    "Missing expected firmware version for product {}",
-                    updated_machine.product_name,
+                    machine_id = %updated_machine.dpu_machine_id,
+                    firmware_version = %updated_machine.firmware_version,
+                    "Incorrect firmware version after attempted update"
                 );
             }
         }
@@ -154,14 +147,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
     }
 
     async fn update_metrics(&self, txn: &mut Transaction<'_, Postgres>) {
-        match DpuMachineUpdate::find_available_outdated_dpus(
-            txn,
-            &self.expected_dpu_firmware_versions,
-            None,
-            &self.config,
-        )
-        .await
-        {
+        match DpuMachineUpdate::find_available_outdated_dpus(txn, None, &self.config).await {
             Ok(outdated_dpus) => {
                 if let Some(metrics) = &self.metrics {
                     metrics
@@ -172,13 +158,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
             Err(e) => tracing::warn!(error=%e, "Error geting outdated dpus for metrics"),
         }
 
-        match DpuMachineUpdate::find_unavailable_outdated_dpus(
-            txn,
-            &self.expected_dpu_firmware_versions,
-            &self.config,
-        )
-        .await
-        {
+        match DpuMachineUpdate::find_unavailable_outdated_dpus(txn, &self.config).await {
             Ok(outdated_dpus) => {
                 if let Some(metrics) = &self.metrics {
                     metrics
@@ -220,10 +200,6 @@ impl DpuNicFirmwareUpdate {
         let mut metrics = DpuNicFirmwareUpdateMetrics::new();
         metrics.register_callbacks(&meter);
         Some(DpuNicFirmwareUpdate {
-            expected_dpu_firmware_versions: config
-                .dpu_config
-                .dpu_nic_firmware_update_version
-                .clone(),
             metrics: Some(metrics),
             config: config.clone(),
         })
@@ -236,7 +212,6 @@ impl DpuNicFirmwareUpdate {
     ) -> Vec<DpuMachineUpdate> {
         match DpuMachineUpdate::find_available_outdated_dpus(
             txn,
-            &self.expected_dpu_firmware_versions,
             Some(available_updates),
             &self.config,
         )

@@ -337,6 +337,7 @@ fn build_exploration_report(
 async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
     // Create an environment with one managed host in the ready state.
     let env = create_test_env(pool.clone()).await;
+
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
 
     // Create and start an update manager
@@ -654,16 +655,21 @@ async fn test_host_fw_upgrade_enabledisable_global_disabled(
         .unwrap();
     assert!(host.host_reprovision_requested.is_none());
 
+    tracing::info!("setting update");
     // Now specifically enable it, and an update should be requested.
     db::machine::set_firmware_autoupdate(&mut txn, &host_machine_id, Some(true)).await?;
     txn.commit().await.unwrap();
 
+    tracing::info!("run iteration");
     update_manager.run_single_iteration().await?;
+
     let mut txn = env.pool.begin().await.unwrap();
     let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
+    tracing::info!("result: {:?}", host.host_reprovision_requested);
+
     assert!(host.host_reprovision_requested.is_some());
     txn.commit().await.unwrap();
 

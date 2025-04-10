@@ -96,11 +96,7 @@ impl From<&DpuConfig> for HardwareInfo {
     fn from(value: &DpuConfig) -> Self {
         let mut info = serde_json::from_slice::<HardwareInfo>(DPU_INFO_JSON).unwrap();
         info.dpu_info.as_mut().unwrap().factory_mac_address = value.host_mac_address.to_string();
-        info.dpu_info.as_mut().unwrap().firmware_version = InitialDpuConfig::default()
-            .dpu_nic_firmware_update_version
-            .get("BlueField SoC")
-            .unwrap()
-            .to_owned();
+        info.dpu_info.as_mut().unwrap().firmware_version = "24.42.1000".to_string();
         info.dmi_data.as_mut().unwrap().product_serial = value.serial.clone();
         assert!(info.is_dpu());
         info
