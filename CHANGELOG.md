@@ -4,6 +4,11 @@
 
 ### Added
 ### Changed
+- [MR-3910](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3910): Changed the version of libredfish from version 0.29.18 to version 0.29.22
+  - [nvmetal/libredfish!303] fix: fix up the machine_setup_status implementation for Vikings
+  - [nvmetal/libredfish!304] fix: query the bios attributes on BF3s with a BMC FW of BF-24.04-5
+  - [nvmetal/libredfish!305] fix: remove setting the boot order from the Viking implementation of machine_setup.
+  - [nvmetal/libredfish!306] fix: Return HTTPStatusCode if we can't parse error json - This avoids resetting BMC's every they return a 403 Forbidden message, which can happen randomly.
 ### Fixed
 ### Removed
 
