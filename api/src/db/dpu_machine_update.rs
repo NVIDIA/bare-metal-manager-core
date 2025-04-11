@@ -1,4 +1,4 @@
-use std::ops::DerefMut;
+use std::{collections::HashMap, ops::DerefMut};
 
 use sqlx::{Acquire, FromRow, Postgres, Transaction};
 
@@ -35,15 +35,15 @@ impl DpuMachineUpdate {
     ///       managedhost. This is done by confirming that Host is not marked for updates
     ///
     pub async fn find_available_outdated_dpus(
-        txn: &mut Transaction<'_, Postgres>,
         limit: Option<i32>,
         config: &CarbideConfig,
+        snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
         if limit.is_some_and(|l| l <= 0) {
             return Ok(vec![]);
         }
 
-        let outdated_dpus = Self::find_outdated_dpus(txn, config).await?;
+        let outdated_dpus = Self::find_outdated_dpus(config, snapshots).await;
 
         let mut scheduled_host_updates = 0;
         let available_outdated_dpus: Vec<DpuMachineUpdate> = outdated_dpus
@@ -68,10 +68,10 @@ impl DpuMachineUpdate {
     }
 
     pub async fn find_unavailable_outdated_dpus(
-        txn: &mut Transaction<'_, Postgres>,
         config: &CarbideConfig,
-    ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
-        let outdated_dpus = Self::find_outdated_dpus(txn, config).await?;
+        snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
+    ) -> Vec<DpuMachineUpdate> {
+        let outdated_dpus = Self::find_outdated_dpus(config, snapshots).await;
 
         let unavailable_outdated_dpus: Vec<DpuMachineUpdate> = outdated_dpus
             .into_iter()
@@ -84,34 +84,15 @@ impl DpuMachineUpdate {
             .flatten()
             .collect();
 
-        Ok(unavailable_outdated_dpus)
+        unavailable_outdated_dpus
     }
 
     pub async fn find_outdated_dpus(
-        txn: &mut Transaction<'_, Postgres>,
         config: &CarbideConfig,
-    ) -> Result<Vec<OutdatedHost>, DatabaseError> {
-        let machine_ids = db::machine::find_machine_ids(
-            txn,
-            MachineSearchConfig {
-                include_predicted_host: true,
-                ..Default::default()
-            },
-        )
-        .await?;
-        let snapshots = db::managed_host::load_by_machine_ids(
-            txn,
-            &machine_ids,
-            LoadSnapshotOptions {
-                include_history: false,
-                include_instance_data: false,
-                host_health_config: config.host_health,
-            },
-        )
-        .await?;
-
-        let outdated_hosts: Vec<OutdatedHost> = snapshots
-            .into_iter()
+        snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
+    ) -> Vec<OutdatedHost> {
+        snapshots
+            .iter()
             .filter_map(|(machine_id, managed_host)| {
                 let outdated_dpus: Vec<DpuMachineUpdate> = managed_host
                     .dpu_snapshots
@@ -123,11 +104,6 @@ impl DpuMachineUpdate {
                             .and_then(|info| info.dpu_info.as_ref())
                             .map(|dpu_info| dpu_info.firmware_version.trim().to_owned())?;
 
-                        tracing::info!(
-                            "checking machine {} with version {}",
-                            machine_id,
-                            firmware_version
-                        );
                         if config
                             .dpu_config
                             .dpu_nic_firmware_update_versions
@@ -137,7 +113,7 @@ impl DpuMachineUpdate {
                         }
 
                         Some(DpuMachineUpdate {
-                            host_machine_id: machine_id,
+                            host_machine_id: *machine_id,
                             dpu_machine_id: dpu.id,
                             firmware_version,
                         })
@@ -149,13 +125,11 @@ impl DpuMachineUpdate {
                 }
 
                 Some(OutdatedHost {
-                    managed_host,
+                    managed_host: managed_host.clone(),
                     outdated_dpus,
                 })
             })
-            .collect();
-
-        Ok(outdated_hosts)
+            .collect()
     }
 
     pub async fn get_fw_updates_running_count(
@@ -167,7 +141,7 @@ impl DpuMachineUpdate {
         let (count,): (i64,) = sqlx::query_as(query)
             .fetch_one(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "find_available_outdated_dpus", e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), "get_fw_updates_running_count", e))?;
 
         Ok(count)
     }

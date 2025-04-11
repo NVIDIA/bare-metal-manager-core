@@ -1,9 +1,12 @@
+use std::collections::HashMap;
 use std::ops::DerefMut;
 
 use crate::db::DatabaseError;
+use crate::db::machine::MachineSearchConfig;
+use crate::db::managed_host::LoadSnapshotOptions;
 use crate::tests::common;
 
-use crate::model::machine::Machine;
+use crate::model::machine::{Machine, ManagedHostStateSnapshot};
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
 use crate::{CarbideError, CarbideResult};
 use crate::{
@@ -12,8 +15,9 @@ use crate::{
 };
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
 use forge_uuid::machine::MachineId;
-use health_report::HealthReport;
 use sqlx::{Postgres, Transaction};
+
+use super::common::api_fixtures::TestEnv;
 
 pub async fn update_nic_firmware_version(
     txn: &mut Transaction<'_, Postgres>,
@@ -34,28 +38,77 @@ pub async fn update_nic_firmware_version(
     Ok(())
 }
 
+async fn create_machines(
+    test_env: &TestEnv,
+    machine_count: usize,
+) -> HashMap<MachineId, ManagedHostStateSnapshot> {
+    let mut machine_ids = Vec::default();
+    let mut dpu_machine_ids = Vec::default();
+    for _ in 0..machine_count {
+        let (host_machine_id, dpu_machine_id) = create_managed_host(test_env).await;
+        machine_ids.push(host_machine_id);
+        dpu_machine_ids.push(dpu_machine_id);
+    }
+    let mut txn = test_env.pool.begin().await.unwrap();
+
+    for dpu_machine_id in &dpu_machine_ids {
+        update_nic_firmware_version(&mut txn, dpu_machine_id, "11.10.1000")
+            .await
+            .unwrap();
+    }
+    txn.commit().await.unwrap();
+
+    let mut txn = test_env.pool.begin().await.unwrap();
+
+    crate::db::managed_host::load_by_machine_ids(
+        &mut txn,
+        &machine_ids,
+        LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: false,
+            host_health_config: test_env.config.host_health,
+        },
+    )
+    .await
+    .expect("Failed to load snapshots")
+}
+
+async fn get_all_snapshots(test_env: &TestEnv) -> HashMap<MachineId, ManagedHostStateSnapshot> {
+    let mut txn = test_env.pool.begin().await.unwrap();
+    let machine_ids = crate::db::machine::find_machine_ids(
+        &mut txn,
+        MachineSearchConfig {
+            include_predicted_host: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    crate::db::managed_host::load_by_machine_ids(
+        &mut txn,
+        &machine_ids,
+        LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: false,
+            host_health_config: test_env.config.host_health,
+        },
+    )
+    .await
+    .unwrap()
+}
+
 #[crate::sqlx_test]
 async fn test_find_available_outdated_dpus(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
+    let dpu_count: usize = 10;
+    let snapshots = create_machines(&env, dpu_count).await;
+    let dpus =
+        DpuMachineUpdate::find_available_outdated_dpus(None, &env.config, &snapshots).await?;
 
-    let mut dpu_machine_ids = Vec::default();
-    let mut host_machine_ids = Vec::default();
-    for _ in 0..10 {
-        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-        let mut txn = env.pool.begin().await?;
-        update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
-        txn.commit().await?;
-        dpu_machine_ids.push(dpu_machine_id);
-        host_machine_ids.push(host_machine_id);
-    }
-
-    let mut txn = env.pool.begin().await?;
-
-    let dpus = DpuMachineUpdate::find_available_outdated_dpus(&mut txn, None, &env.config).await?;
-
-    assert_eq!(dpus.len(), dpu_machine_ids.len());
+    assert_eq!(dpus.len(), dpu_count);
     Ok(())
 }
 
@@ -64,20 +117,11 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-
-    let mut dpu_machine_ids = Vec::default();
-    let mut host_machine_ids = Vec::default();
-    for _ in 0..10 {
-        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-        let mut txn = env.pool.begin().await?;
-        update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
-        txn.commit().await?;
-        dpu_machine_ids.push(dpu_machine_id);
-        host_machine_ids.push(host_machine_id);
-    }
+    let snapshots = create_machines(&env, 10).await;
+    let dpu_machine_id = snapshots.iter().next().unwrap().1.dpu_snapshots[0].id;
 
     let machine_obs = MachineNetworkStatusObservation {
-        machine_id: dpu_machine_ids.first().unwrap().to_string(),
+        machine_id: dpu_machine_id.to_string(),
         agent_version: None,
         observed_at: chrono::Utc::now(),
         network_config_version: None,
@@ -100,22 +144,23 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
             ],
         }],
     };
-
     let mut txn = env
         .pool
         .begin()
         .await
         .expect("Failed to create transaction");
-    let dpu_machine_id = dpu_machine_ids.first().unwrap();
-    db::machine::update_network_status_observation(&mut txn, dpu_machine_id, &machine_obs).await?;
-    db::machine::update_dpu_agent_health_report(&mut txn, dpu_machine_id, &health_report).await?;
+
+    db::machine::update_network_status_observation(&mut txn, &dpu_machine_id, &machine_obs).await?;
+    db::machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report).await?;
 
     txn.commit().await.unwrap();
-    let mut txn = env.pool.begin().await?;
 
-    let dpus = DpuMachineUpdate::find_available_outdated_dpus(&mut txn, None, &env.config).await?;
+    let snapshots = get_all_snapshots(&env).await;
 
-    assert_eq!(dpus.len(), dpu_machine_ids.len() - 1);
+    let dpus =
+        DpuMachineUpdate::find_available_outdated_dpus(None, &env.config, &snapshots).await?;
+
+    assert_eq!(dpus.len(), 9);
     Ok(())
 }
 
@@ -124,22 +169,9 @@ async fn test_find_available_outdated_dpus_limit(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-
-    let mut dpu_machine_ids = Vec::default();
-    let mut host_machine_ids = Vec::default();
-    for _ in 0..10 {
-        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-        let mut txn = env.pool.begin().await?;
-        update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
-        txn.commit().await?;
-        dpu_machine_ids.push(dpu_machine_id);
-        host_machine_ids.push(host_machine_id);
-    }
-
-    let mut txn = env.pool.begin().await?;
-
+    let snapshots = create_machines(&env, 10).await;
     let dpus =
-        DpuMachineUpdate::find_available_outdated_dpus(&mut txn, Some(1), &env.config).await?;
+        DpuMachineUpdate::find_available_outdated_dpus(Some(1), &env.config, &snapshots).await?;
 
     assert_eq!(dpus.len(), 1);
     Ok(())
@@ -150,30 +182,9 @@ async fn test_find_unavailable_outdated_dpus_when_none(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
+    let snapshots = create_machines(&env, 10).await;
 
-    let mut dpu_machine_ids = Vec::default();
-    let mut host_machine_ids = Vec::default();
-    for _ in 0..10 {
-        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-        let mut txn = env.pool.begin().await?;
-        crate::db::machine::update_hardware_health_report(
-            &mut txn,
-            &host_machine_id,
-            &HealthReport::heartbeat_timeout(
-                "test".to_owned(),
-                "test".to_owned(),
-                "test".to_owned(),
-            ),
-        )
-        .await?;
-        update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
-        txn.commit().await?;
-        dpu_machine_ids.push(dpu_machine_id);
-        host_machine_ids.push(host_machine_id);
-    }
-
-    let mut txn = env.pool.begin().await?;
-    let dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(&mut txn, &env.config).await?;
+    let dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(&env.config, &snapshots).await;
 
     assert_eq!(dpus.len(), 0);
     Ok(())
@@ -185,23 +196,18 @@ async fn test_find_unavailable_outdated_dpus(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let mut dpu_machine_ids = Vec::default();
-    let mut host_machine_ids = Vec::default();
-    for _ in 0..2 {
-        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-        dpu_machine_ids.push(dpu_machine_id);
-        host_machine_ids.push(host_machine_id);
-    }
+    let mut txn = env.pool.begin().await?;
 
     let host_sim = env.start_managed_host_sim();
     let (dpu_machine_id, host_machine_id) =
         create_dpu_machine_in_waiting_for_network_install(&env, &host_sim.config).await;
-    let mut txn = env.pool.begin().await?;
     update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
-    txn.commit().await?;
+    txn.commit().await.unwrap();
 
-    let mut txn = env.pool.begin().await?;
-    let dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(&mut txn, &env.config).await?;
+    create_machines(&env, 2).await;
+    let snapshots = get_all_snapshots(&env).await;
+
+    let dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(&env.config, &snapshots).await;
 
     assert_eq!(dpus.len(), 1);
     assert_eq!(dpus.first().unwrap().dpu_machine_id, dpu_machine_id);
@@ -225,10 +231,23 @@ async fn test_find_available_outdated_dpus_multidpu(
     for dpu in &all_dpus {
         update_nic_firmware_version(&mut txn, &dpu.id, "1.11.1000").await?;
     }
+
+    let snapshots = crate::db::managed_host::load_by_machine_ids(
+        &mut txn,
+        &[host_machine_id],
+        LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: false,
+            host_health_config: env.config.host_health,
+        },
+    )
+    .await
+    .expect("Failed to load snapshots");
+
     txn.commit().await?;
 
-    let mut txn = env.pool.begin().await?;
-    let dpus = DpuMachineUpdate::find_available_outdated_dpus(&mut txn, None, &env.config).await?;
+    let dpus =
+        DpuMachineUpdate::find_available_outdated_dpus(None, &env.config, &snapshots).await?;
 
     assert_eq!(dpus.len(), all_dpus.len());
     Ok(())
@@ -247,13 +266,14 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
         .await
         .unwrap();
 
-    let dpu_machine_id = all_dpus[0].id;
+    let dpu_machine_id = all_dpus.first().unwrap().id;
+
     DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
         &mut txn,
         &host_machine_id,
         &[DpuMachineUpdate {
             host_machine_id,
-            dpu_machine_id: all_dpus[0].id,
+            dpu_machine_id,
             firmware_version: "test_version".to_string(),
         }],
     )
@@ -262,8 +282,20 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
+    let snapshots = crate::db::managed_host::load_by_machine_ids(
+        &mut txn,
+        &[host_machine_id],
+        LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: false,
+            host_health_config: env.config.host_health,
+        },
+    )
+    .await
+    .unwrap();
 
-    let dpus = DpuMachineUpdate::find_available_outdated_dpus(&mut txn, None, &env.config).await?;
+    let dpus =
+        DpuMachineUpdate::find_available_outdated_dpus(None, &env.config, &snapshots).await?;
 
     assert!(dpus.is_empty());
 
@@ -316,8 +348,20 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
+    let snapshots = crate::db::managed_host::load_by_machine_ids(
+        &mut txn,
+        &[host_machine_id],
+        LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: false,
+            host_health_config: env.config.host_health,
+        },
+    )
+    .await
+    .unwrap();
 
-    let dpus = DpuMachineUpdate::find_available_outdated_dpus(&mut txn, None, &env.config).await?;
+    let dpus =
+        DpuMachineUpdate::find_available_outdated_dpus(None, &env.config, &snapshots).await?;
 
     assert!(dpus.is_empty());
 
