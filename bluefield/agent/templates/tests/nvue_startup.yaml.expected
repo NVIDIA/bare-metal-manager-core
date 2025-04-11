@@ -41,6 +41,10 @@
             inbound: {}
           drop_dhcp_flood_over_overlay:
             inbound: {}
+          p0009_vpc_peer_egress_from_host:
+            inbound: {}
+          p0009_vpc_peer_ingress_to_host:
+            outbound: {}
           p0010_vpc_isolation_ipv4:
             inbound: {}
       vlan196:
@@ -60,6 +64,10 @@
             inbound: {}
           drop_dhcp_flood_over_overlay:
             inbound: {}
+          p0009_vpc_peer_egress_from_host:
+            inbound: {}
+          p0009_vpc_peer_ingress_to_host:
+            outbound: {}
           p0010_vpc_isolation_ipv4:
             inbound: {}
       vlan185:
@@ -289,6 +297,22 @@
             match:
               ip:
                 dest-ip: 10.217.0.0/16
+      p0009_vpc_peer_egress_from_host:
+        rule:
+          '1':
+            action:
+              permit: {}
+            match:
+              ip:
+                dest-ip: 10.217.6.176/29
+      p0009_vpc_peer_ingress_to_host:
+        rule:
+          '1':
+            action:
+              permit: {}
+            match:
+              ip:
+                source-ip: 10.217.6.176/29
       drop_dhcp_flood_over_overlay:
         rule:
           '10':

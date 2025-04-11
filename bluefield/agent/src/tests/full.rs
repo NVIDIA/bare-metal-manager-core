@@ -287,6 +287,27 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     let virtualization_type = state.lock().await.virtualization_type;
     let config_version = format!("V{}-T{}", 1, now().timestamp_micros());
 
+    let vpc_peer_prefixes = match virtualization_type {
+        VpcVirtualizationType::EthernetVirtualizer
+        | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+            vec!["10.217.6.176/29".to_string()]
+        }
+        VpcVirtualizationType::Fnn => {
+            vec![]
+        }
+    };
+
+    let vpc_peer_vnis = match virtualization_type {
+        VpcVirtualizationType::EthernetVirtualizer
+        | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+            vec![]
+        }
+        VpcVirtualizationType::Fnn => {
+            println!("Setting vpc_peer_vnis to fnn");
+            vec![1025186, 1025197]
+        }
+    };
+
     let admin_interface_prefix: IpNetwork = "192.168.0.12/32".parse().unwrap();
     let svi_ip = IpAddr::from_str("192.168.0.3").unwrap();
 
@@ -300,6 +321,8 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         interface_prefix: admin_interface_prefix.to_string(),
         virtual_function_id: None,
         vpc_prefixes: vec![],
+        vpc_peer_prefixes: vec![],
+        vpc_peer_vnis: vec![1025186, 1025197],
         prefix: "192.168.0.1/32".to_string(),
         fqdn: "host1".to_string(),
         booturl: None,
@@ -324,6 +347,8 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         interface_prefix: tenant_interface_prefix.to_string(),
         virtual_function_id: None,
         vpc_prefixes: vec![],
+        vpc_peer_prefixes,
+        vpc_peer_vnis,
         prefix: "192.168.1.1/32".to_string(),
         fqdn: "host1".to_string(),
         booturl: None,

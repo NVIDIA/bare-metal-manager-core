@@ -21,7 +21,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::cfg::file::ListenMode;
+use crate::cfg::file::{ListenMode, VpcPeeringPolicy};
 use crate::logging::log_limiter::LogLimiter;
 use crate::model::machine::MachineValidatingState;
 use crate::model::machine::ValidationState;
@@ -111,7 +111,7 @@ use rcgen::{CertifiedKey, generate_simple_self_signed};
 use regex::Regex;
 use rpc::forge::{
     HealthReportOverride, InsertHealthReportOverrideRequest, RemoveHealthReportOverrideRequest,
-    forge_server::Forge,
+    VpcVirtualizationType, forge_server::Forge,
 };
 use site_explorer::new_host_with_machine_validation;
 use sqlx::{PgPool, postgres::PgConnectOptions};
@@ -487,6 +487,88 @@ impl TestEnv {
         tenant_network_id
     }
 
+    pub async fn create_vpc_and_peer_vpc_with_tenant_segments(
+        &self,
+        vtype1: VpcVirtualizationType,
+        vtype2: VpcVirtualizationType,
+    ) -> (
+        Option<rpc::Uuid>,
+        Option<u32>,
+        NetworkSegmentId,
+        Option<rpc::Uuid>,
+        Option<u32>,
+        NetworkSegmentId,
+    ) {
+        let vpc_details = rpc::forge::VpcCreationRequest {
+            id: None,
+            name: "test vpc".to_string(),
+            tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: Some(vtype1 as i32),
+            metadata: None,
+            network_security_group_id: None,
+        };
+
+        let vpc = self
+            .api
+            .create_vpc(tonic::Request::new(vpc_details))
+            .await
+            .unwrap()
+            .into_inner();
+
+        let tenant_network_id = create_tenant_network_segment(
+            &self.api,
+            vpc.id.clone(),
+            *FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
+            "TENANT1",
+            true,
+        )
+        .await;
+
+        // Get the tenant segment into ready state
+        self.run_network_segment_controller_iteration().await;
+        self.run_network_segment_controller_iteration().await;
+
+        let peer_vpc_details = rpc::forge::VpcCreationRequest {
+            id: None,
+            name: "test peer vpc".to_string(),
+            tenant_organization_id: "e65a9d69-39d2-4872-a53e-e5cb87c84e75".to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: Some(vtype2 as i32),
+            metadata: None,
+            network_security_group_id: None,
+        };
+
+        let peer_vpc = self
+            .api
+            .create_vpc(tonic::Request::new(peer_vpc_details))
+            .await
+            .unwrap()
+            .into_inner();
+
+        let peer_tenant_network_id = create_tenant_network_segment(
+            &self.api,
+            peer_vpc.id.clone(),
+            *FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2,
+            "TENANT2",
+            true,
+        )
+        .await;
+
+        // Get the tenant segment into ready state
+        self.run_network_segment_controller_iteration().await;
+        self.run_network_segment_controller_iteration().await;
+
+        (
+            vpc.id,
+            vpc.vni,
+            tenant_network_id,
+            peer_vpc.id,
+            peer_vpc.vni,
+            peer_tenant_network_id,
+        )
+    }
+
     pub async fn create_vpc_and_tenant_segment(&self) -> NetworkSegmentId {
         self.create_vpc_and_tenant_segment_with_vpc_details(rpc::forge::VpcCreationRequest {
             id: None,
@@ -736,6 +818,8 @@ pub fn get_config() -> CarbideConfig {
             ..Default::default()
         },
         nvue_enabled: true,
+        vpc_peering_policy: Some(VpcPeeringPolicy::Mixed),
+        vpc_peering_policy_on_existing: None,
         attestation_enabled: false,
         tpm_required: true,
         ib_config: None,

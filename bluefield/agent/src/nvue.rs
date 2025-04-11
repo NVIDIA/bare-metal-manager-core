@@ -66,7 +66,36 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
 
     let mut port_configs = Vec::with_capacity(conf.ct_port_configs.len());
 
+    let mut has_vpc_peer_prefixes = false;
+    let mut vpc_peer_prefixes = vec![];
+    let mut has_vpc_peer_vnis = false;
+    let mut vpc_peer_vnis = vec![];
     for (base_i, network) in conf.ct_port_configs.into_iter().enumerate() {
+        // We makes assumption here that there is only one tenant interfaces with
+        // but we should beaware this might change in the future.
+        if has_vpc_peer_prefixes {
+            tracing::warn!("Found more than one tenant interface");
+        }
+        if !has_vpc_peer_prefixes && !network.vpc_peer_prefixes.is_empty() {
+            has_vpc_peer_prefixes = true;
+            vpc_peer_prefixes = network
+                .vpc_peer_prefixes
+                .iter()
+                .enumerate()
+                .map(|(i, prefix)| Prefix {
+                    Index: format!("{}", i + 1),
+                    Prefix: prefix.to_string(),
+                })
+                .collect();
+        }
+        if !has_vpc_peer_vnis && !network.vpc_peer_vnis.is_empty() {
+            has_vpc_peer_vnis = true;
+            vpc_peer_vnis = network
+                .vpc_peer_vnis
+                .iter()
+                .map(|vni| TmplVni { Vni: *vni })
+                .collect()
+        }
         let svi_mac = vni_to_svi_mac(network.vni.unwrap_or(0))?.to_string();
         port_configs.push(TmplConfigPort {
             InterfaceName: network.interface_name.clone(),
@@ -249,6 +278,10 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             EgressNetworkSecurityGroupRulesIpv4: egress_ipv4_rules,
             IngressNetworkSecurityGroupRulesIpv6: ingress_ipv6_rules,
             EgressNetworkSecurityGroupRulesIpv6: egress_ipv6_rules,
+            HasVpcPeerPrefixes: has_vpc_peer_prefixes,
+            VpcPeerPrefixes: vpc_peer_prefixes,
+            HasVpcPeerVnis: has_vpc_peer_vnis,
+            VpcPeerVnis: vpc_peer_vnis,
         },
         InternetL3VNI: conf.ct_internet_l3_vni.unwrap_or_default(),
         // XXX: Unused placeholders for later.
@@ -610,6 +643,8 @@ pub struct PortConfig {
     pub l3_vni: Option<u32>, // admin network doesn't have one
     pub gateway_cidr: String,
     pub vpc_prefixes: Vec<String>,
+    pub vpc_peer_prefixes: Vec<String>,
+    pub vpc_peer_vnis: Vec<u32>,
     pub svi_ip: Option<String>,
     pub tenant_vrf_loopback_ip: Option<String>,
     pub is_l2_segment: bool,
@@ -750,6 +785,12 @@ struct TmplComputeTenant {
     HasIpv4EgressSecurityGroupRules: bool,
     HasIpv6IngressSecurityGroupRules: bool,
     HasIpv6EgressSecurityGroupRules: bool,
+
+    HasVpcPeerPrefixes: bool,
+    VpcPeerPrefixes: Vec<Prefix>,
+
+    HasVpcPeerVnis: bool,
+    VpcPeerVnis: Vec<TmplVni>,
 }
 
 #[allow(non_snake_case)]
@@ -830,4 +871,10 @@ struct TmplL3Domain {
 struct Prefix {
     Index: String,
     Prefix: String,
+}
+
+#[allow(non_snake_case)]
+#[derive(Clone, Gtmpl, Debug)]
+struct TmplVni {
+    Vni: u32,
 }

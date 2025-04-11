@@ -66,6 +66,7 @@ mod test_meter;
 mod tpm_ca;
 mod vpc;
 mod vpc_find;
+mod vpc_peering;
 mod vpc_prefix;
 mod web;
 

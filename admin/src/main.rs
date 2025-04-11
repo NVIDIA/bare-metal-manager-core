@@ -63,6 +63,7 @@ use cfg::cli_options::SiteExplorer;
 use cfg::cli_options::TenantKeySetOptions;
 use cfg::cli_options::TpmCa;
 use cfg::cli_options::UriInfo;
+use cfg::cli_options::VpcPeeringOptions;
 use cfg::cli_options::VpcPrefixOptions;
 use cfg::cli_options::{
     CliCommand, CliOptions, Domain, Instance, Machine, MachineHardwareInfo,
@@ -115,6 +116,7 @@ mod tpm;
 mod uefi;
 mod version;
 mod vpc;
+mod vpc_peering;
 mod vpc_prefix;
 
 pub fn default_uuid() -> ::rpc::common::Uuid {
@@ -1188,6 +1190,20 @@ async fn main() -> color_eyre::Result<()> {
                 vpc::set_network_virtualization_type(&api_client, set_vpc_virt).await?
             }
         },
+        CliCommand::VpcPeering(vpc_peering_command) => {
+            use VpcPeeringOptions::*;
+            match vpc_peering_command {
+                Create(create_options) => {
+                    vpc_peering::handle_create(create_options, config.format, &api_client).await?;
+                }
+                Get(get_options) => {
+                    vpc_peering::handle_get(get_options, config.format, &api_client).await?;
+                }
+                Delete(delete_options) => {
+                    vpc_peering::handle_delete(delete_options, config.format, &api_client).await?;
+                }
+            }
+        }
         CliCommand::VpcPrefix(vpc_prefix_command) => {
             use VpcPrefixOptions::*;
             match vpc_prefix_command {

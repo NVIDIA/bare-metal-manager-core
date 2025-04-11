@@ -159,6 +159,8 @@
                 route-target:
                   11414:1337: {}
                   11414:0: {}
+                  11414:1025186: {}
+                  11414:1025197: {}
                   auto: {}
     acl:
       dhcp_flood_prevention:

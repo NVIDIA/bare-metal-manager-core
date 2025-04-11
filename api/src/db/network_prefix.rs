@@ -186,6 +186,25 @@ impl NetworkPrefix {
         Ok(prefixes)
     }
 
+    // Return a list of network segment prefixes that are associated with any VPC in the list
+    // but are _not_ associated with a VPC prefix.
+    pub async fn find_by_vpcs(
+        txn: &mut Transaction<'_, Postgres>,
+        vpc_ids: &Vec<VpcId>,
+    ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
+        let query = "SELECT np.* FROM network_prefixes np
+            INNER JOIN network_segments ns ON np.segment_id = ns.id
+            WHERE np.vpc_prefix_id IS NULL AND ns.vpc_id = ANY($1) ORDER BY ns.created";
+
+        let prefixes = sqlx::query_as(query)
+            .bind(vpc_ids)
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(prefixes)
+    }
+
     /*
      * Create a prefix for a given segment id.
      *

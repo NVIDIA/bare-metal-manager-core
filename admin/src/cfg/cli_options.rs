@@ -175,6 +175,8 @@ pub enum CliCommand {
     ExpectedMachine(ExpectedMachineAction),
     #[clap(about = "VPC related handling", subcommand)]
     Vpc(VpcOptions),
+    #[clap(about = "VPC peering handling", subcommand)]
+    VpcPeering(VpcPeeringOptions),
     #[clap(about = "VPC prefix handling", subcommand)]
     VpcPrefix(VpcPrefixOptions),
     #[clap(
@@ -2156,6 +2158,41 @@ pub struct SetVpcVirt {
     pub id: String,
     #[clap(help = "The virtualizer to use for this VPC")]
     pub virtualizer: VpcVirtualizationType,
+}
+
+#[derive(Parser, Debug)]
+pub enum VpcPeeringOptions {
+    #[clap(about = "Create VPC peering.")]
+    Create(VpcPeeringCreate),
+    #[clap(about = "Get list of peers of a VPC")]
+    Get(VpcPeeringGet),
+    #[clap(about = "Delete VPC peering.")]
+    Delete(VpcPeeringDelete),
+}
+
+#[derive(Parser, Debug)]
+pub struct VpcPeeringCreate {
+    #[clap(long, required(true), help = "The ID of first VPC in a VPC peering")]
+    pub vpc1_id: VpcId,
+
+    #[clap(long, required(true), help = "The ID of second VPC in a VPC peering")]
+    pub vpc2_id: VpcId,
+}
+
+#[derive(Parser, Debug)]
+pub struct VpcPeeringGet {
+    #[clap(
+        long,
+        required(true),
+        help = "The ID of VPC to get list of related VPC peerings"
+    )]
+    pub vpc_id: VpcId,
+}
+
+#[derive(Parser, Debug)]
+pub struct VpcPeeringDelete {
+    #[clap(long, required(true), help = "The ID of the VPC peering to delete")]
+    pub id: String,
 }
 
 #[derive(Parser, Debug)]

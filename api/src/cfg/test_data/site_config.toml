@@ -5,6 +5,8 @@ max_database_connections = 1333
 max_find_by_ids = 50
 dpu_network_monitor_pinger_type = "OobNetBind"
 nvue_enabled = false
+vpc_peering_policy = "exclusive"
+
 
 [tls]
 identity_pemfile_path = "/patched/path/to/cert"

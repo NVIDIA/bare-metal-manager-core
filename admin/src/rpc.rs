@@ -19,7 +19,7 @@ use ::rpc::forge::{
     MachineBootOverride, MachineHardwareInfo, MachineHardwareInfoUpdateType, NetworkPrefix,
     NetworkSecurityGroupAttributes, NetworkSegmentCreationRequest, NetworkSegmentSearchConfig,
     NetworkSegmentType, UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest,
-    VpcCreationRequest, VpcSearchQuery, VpcVirtualizationType,
+    VpcCreationRequest, VpcPeeringDeletionResult, VpcSearchQuery, VpcVirtualizationType,
 };
 use ::rpc::{NetworkSegment, Uuid};
 use std::net::IpAddr;
@@ -1089,6 +1089,54 @@ impl ApiClient {
         self.0.update_vpc_virtualization(request).await?;
 
         Ok(())
+    }
+
+    pub async fn create_vpc_peering(
+        &self,
+        vpc_id: Option<::rpc::common::Uuid>,
+        peer_vpc_id: Option<::rpc::common::Uuid>,
+    ) -> CarbideCliResult<rpc::VpcPeering> {
+        let request = rpc::VpcPeeringCreationRequest {
+            vpc_id,
+            peer_vpc_id,
+        };
+        self.0
+            .create_vpc_peering(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn find_vpc_peering_ids(
+        &self,
+        vpc_id: Option<::rpc::common::Uuid>,
+    ) -> CarbideCliResult<rpc::VpcPeeringIdList> {
+        let request = rpc::VpcPeeringSearchFilter { vpc_id };
+        self.0
+            .find_vpc_peering_ids(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn find_vpc_peerings_by_ids(
+        &self,
+        vpc_peering_ids: Vec<::rpc::common::Uuid>,
+    ) -> CarbideCliResult<rpc::VpcPeeringList> {
+        let request = rpc::VpcPeeringsByIdsRequest { vpc_peering_ids };
+        self.0
+            .find_vpc_peerings_by_ids(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn delete_vpc_peering(
+        &self,
+        id: Option<::rpc::common::Uuid>,
+    ) -> CarbideCliResult<VpcPeeringDeletionResult> {
+        let request = rpc::VpcPeeringDeletionRequest { id };
+        self.0
+            .delete_vpc_peering(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
     }
 
     pub async fn get_all_ib_partitions(

@@ -14,6 +14,8 @@ dpu_ipmi_tool_impl = "fake"
 dpu_ipmi_reboot_attempts = 1
 max_find_by_ids = 75
 nvue_enabled = true
+vpc_peering_policy = "exclusive"
+vpc_peering_policy_on_existing = "mixed"
 internet_l3_vni = 1337
 selected_profile = "powerefficiency"
 
