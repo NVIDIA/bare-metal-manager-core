@@ -1,3 +1,6 @@
+use crate::db::machine::MachineSearchConfig;
+use crate::db::managed_host::LoadSnapshotOptions;
+use crate::model::machine::ManagedHostStateSnapshot;
 use crate::{
     CarbideError, CarbideResult, cfg::file::CarbideConfig,
     db::dpu_machine_update::DpuMachineUpdate, machine_update_manager::MachineUpdateManager,
@@ -54,8 +57,27 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
         available_updates: i32,
         updating_host_machines: &HashSet<MachineId>,
     ) -> CarbideResult<HashSet<MachineId>> {
+        let machine_ids = crate::db::machine::find_machine_ids(
+            txn,
+            MachineSearchConfig {
+                include_predicted_host: true,
+                ..Default::default()
+            },
+        )
+        .await?;
+        let snapshots = crate::db::managed_host::load_by_machine_ids(
+            txn,
+            &machine_ids,
+            LoadSnapshotOptions {
+                include_history: false,
+                include_instance_data: false,
+                host_health_config: self.config.host_health,
+            },
+        )
+        .await?;
+
         let machine_updates: Vec<DpuMachineUpdate> = self
-            .check_for_updates(txn, available_updates)
+            .check_for_updates(&snapshots, available_updates)
             .await
             .into_iter()
             .filter(|u| updating_host_machines.get(&u.host_machine_id).is_none())
@@ -79,7 +101,15 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
                 continue;
             }
 
-            tracing::info!("Starting DPU update for machine {}", host_machine_id);
+            let dpu_update_string = machine_updates.iter().fold("".to_string(), |output, dpu| {
+                output + format!("{} ({}) ", dpu.dpu_machine_id, dpu.firmware_version).as_str()
+            });
+
+            tracing::info!(
+                "Starting DPU updates for host {}: {}",
+                host_machine_id,
+                dpu_update_string
+            );
             // If the reprovisioning failed to update the database for a
             // given {dpu,host}_machine_id, log it as a warning and don't
             // add it to updates_started.
@@ -108,8 +138,6 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
 
             updates_started.insert(host_machine_id);
         }
-
-        self.update_metrics(txn).await;
 
         Ok(updates_started)
     }
@@ -147,7 +175,41 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
     }
 
     async fn update_metrics(&self, txn: &mut Transaction<'_, Postgres>) {
-        match DpuMachineUpdate::find_available_outdated_dpus(txn, None, &self.config).await {
+        let machine_ids = match crate::db::machine::find_machine_ids(
+            txn,
+            MachineSearchConfig {
+                include_predicted_host: true,
+                ..Default::default()
+            },
+        )
+        .await
+        {
+            Ok(ids) => ids,
+            Err(e) => {
+                tracing::error!("Failed to load machine ids to update metrics: {e}");
+                return;
+            }
+        };
+
+        let snapshots = match crate::db::managed_host::load_by_machine_ids(
+            txn,
+            &machine_ids,
+            LoadSnapshotOptions {
+                include_history: false,
+                include_instance_data: false,
+                host_health_config: self.config.host_health,
+            },
+        )
+        .await
+        {
+            Ok(snapshots) => snapshots,
+            Err(e) => {
+                tracing::error!("Failed to load machine snapshots to update metrics: {e}");
+                return;
+            }
+        };
+
+        match DpuMachineUpdate::find_available_outdated_dpus(None, &self.config, &snapshots).await {
             Ok(outdated_dpus) => {
                 if let Some(metrics) = &self.metrics {
                     metrics
@@ -158,18 +220,12 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
             Err(e) => tracing::warn!(error=%e, "Error geting outdated dpus for metrics"),
         }
 
-        match DpuMachineUpdate::find_unavailable_outdated_dpus(txn, &self.config).await {
-            Ok(outdated_dpus) => {
-                if let Some(metrics) = &self.metrics {
-                    metrics
-                        .unavailable_dpu_updates
-                        .store(outdated_dpus.len() as u64, Ordering::Relaxed);
-                }
-            }
-            Err(e) => tracing::warn!(
-                error=%e,
-                "Error geting outdated and unavailable dpus for metrics",
-            ),
+        let outdated_dpus =
+            DpuMachineUpdate::find_unavailable_outdated_dpus(&self.config, &snapshots).await;
+        if let Some(metrics) = &self.metrics {
+            metrics
+                .unavailable_dpu_updates
+                .store(outdated_dpus.len() as u64, Ordering::Relaxed);
         }
 
         match DpuMachineUpdate::get_fw_updates_running_count(txn).await {
@@ -207,13 +263,13 @@ impl DpuNicFirmwareUpdate {
 
     pub async fn check_for_updates(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
         available_updates: i32,
     ) -> Vec<DpuMachineUpdate> {
         match DpuMachineUpdate::find_available_outdated_dpus(
-            txn,
             Some(available_updates),
             &self.config,
+            snapshots,
         )
         .await
         {

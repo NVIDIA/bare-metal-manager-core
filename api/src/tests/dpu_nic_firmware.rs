@@ -1,3 +1,4 @@
+use crate::db::managed_host::LoadSnapshotOptions;
 use crate::machine_update_manager::machine_update_module::{
     HOST_UPDATE_HEALTH_PROBE_ID, HOST_UPDATE_HEALTH_REPORT_SOURCE,
 };
@@ -218,8 +219,11 @@ async fn test_get_updates_in_progress(
 #[crate::sqlx_test]
 async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let (_host_machine_id, dpu_machine_id1) = create_managed_host(&env).await;
-    let (_host_machine_id, dpu_machine_id2) = create_managed_host(&env).await;
+    let mut machine_ids = Vec::default();
+    let (host_machine_id, dpu_machine_id1) = create_managed_host(&env).await;
+    machine_ids.push(host_machine_id);
+    let (host_machine_id, dpu_machine_id2) = create_managed_host(&env).await;
+    machine_ids.push(host_machine_id);
     let mut txn = env.pool.begin().await?;
     update_nic_firmware_version(&mut txn, &dpu_machine_id1, "11.10.1000").await?;
     update_nic_firmware_version(&mut txn, &dpu_machine_id2, "11.10.1000").await?;
@@ -230,14 +234,21 @@ async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         config: env.config.clone(),
     };
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Failed to create transaction");
+    let mut txn = env.pool.begin().await?;
+    let snapshots = crate::db::managed_host::load_by_machine_ids(
+        &mut txn,
+        &machine_ids,
+        LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: false,
+            host_health_config: env.config.host_health,
+        },
+    )
+    .await
+    .unwrap();
 
     let machine_updates = dpu_nic_firmware_update
-        .check_for_updates(&mut txn, 10)
+        .check_for_updates(&snapshots, 10)
         .await;
     assert_eq!(machine_updates.len(), 2);
 
