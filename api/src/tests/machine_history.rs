@@ -41,6 +41,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "waitingfornetworkconfig"}}}},
         {"state": "hostinit", "machine_state": {"state": "enableipmioverlan"}},
         {"state": "hostinit", "machine_state": {"state": "waitingforplatformconfiguration"}},
+        {"state": "hostinit", "machine_state": {"state": "setbootorder"}},
         {"state": "hostinit", "machine_state": {"state": "waitingfordiscovery"}},
     ]);
     let expected_initial_states: Vec<serde_json::Value> =

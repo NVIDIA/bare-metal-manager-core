@@ -1354,6 +1354,7 @@ pub enum MachineState {
     Init,
     EnableIpmiOverLan,
     WaitingForPlatformConfiguration,
+    SetBootOrder,
     UefiSetup {
         uefi_setup_info: UefiSetupInfo,
     },

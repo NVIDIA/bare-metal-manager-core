@@ -135,6 +135,7 @@ impl StateControllerIO for MachineStateControllerIO {
             match machine_state {
                 MachineState::Init => "init",
                 MachineState::WaitingForPlatformConfiguration => "waitingforplatformconfiguration",
+                MachineState::SetBootOrder => "setbootorder",
                 MachineState::UefiSetup { .. } => "uefisetup",
                 MachineState::WaitingForDiscovery => "waitingfordiscovery",
                 MachineState::Discovered { .. } => "discovered",
