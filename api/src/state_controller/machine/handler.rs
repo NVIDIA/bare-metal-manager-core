@@ -3156,13 +3156,12 @@ pub async fn trigger_reboot_if_needed(
                 if target.id.machine_type().is_dpu() {
                     handler_restart_dpu(target, services, txn).await?;
                 } else {
-                    handler_host_power_control(
-                        state,
-                        services,
-                        SystemPowerControl::ForceRestart,
-                        txn,
-                    )
-                    .await?;
+                    let power_control_action = match target.bmc_vendor() {
+                        bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
+                        _ => SystemPowerControl::ForceRestart,
+                    };
+
+                    handler_host_power_control(state, services, power_control_action, txn).await?;
                 }
                 format!(
                     "Has not come up after {} minutes. Rebooting again, cycle: {cycle}.",
@@ -3559,18 +3558,6 @@ impl StateHandler for HostMachineStateHandler {
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 MachineState::WaitingForPlatformConfiguration => {
-                    let next_state = if self.host_handler_params.attestation_enabled {
-                        ManagedHostState::HostInit {
-                            machine_state: MachineState::Measuring {
-                                measuring_state: MeasuringState::WaitingForMeasurements,
-                            },
-                        }
-                    } else {
-                        ManagedHostState::HostInit {
-                            machine_state: MachineState::WaitingForDiscovery,
-                        }
-                    };
-
                     tracing::info!(
                         machine_id = %host_machine_id,
                         "Starting UEFI / BMC setup");
@@ -3602,7 +3589,12 @@ impl StateHandler for HostMachineStateHandler {
                         None
                     };
 
-                    match call_forge_setup_and_handle_no_dpu_error(
+                    let power_control_action = match mh_snapshot.host_snapshot.bmc_vendor() {
+                        bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
+                        _ => SystemPowerControl::ForceRestart,
+                    };
+
+                    if let Err(e) = call_forge_setup_and_handle_no_dpu_error(
                         redfish_client.as_ref(),
                         boot_interface_mac.as_deref(),
                         mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
@@ -3610,62 +3602,156 @@ impl StateHandler for HostMachineStateHandler {
                     )
                     .await
                     {
-                        Ok(_) => {
-                            // Host needs to be rebooted to pick up the changes after calling forge_setup
-                            handler_host_power_control(
-                                mh_snapshot,
-                                ctx.services,
-                                SystemPowerControl::ForceRestart,
-                                txn,
-                            )
-                            .await?;
+                        tracing::warn!(
+                            "redfish forge_setup failed for {host_machine_id}, potentially due to known race condition between UEFI POST and BMC. triggering force-restart if needed. err: {}",
+                            e
+                        );
 
-                            Ok(StateHandlerOutcome::Transition(next_state))
+                        // if forge_setup failed, rebooted to potentially work around
+                        // a known race between the DPU UEFI and the BMC, where if
+                        // the BMC is not up when DPU UEFI runs, then Attributes might
+                        // not come through. The fix is to force-restart the DPU to
+                        // re-POST.
+                        //
+                        // As of July 2024, Josh Price said there's an NBU FR to fix
+                        // this, but it wasn't target to a release yet.
+                        let reboot_status =
+                            if mh_snapshot.host_snapshot.last_reboot_requested.is_none() {
+                                handler_host_power_control(
+                                    mh_snapshot,
+                                    ctx.services,
+                                    power_control_action,
+                                    txn,
+                                )
+                                .await?;
+
+                                RebootStatus {
+                                    increase_retry_count: true,
+                                    status: "Restarted host".to_string(),
+                                }
+                            } else {
+                                trigger_reboot_if_needed(
+                                    &mh_snapshot.host_snapshot,
+                                    mh_snapshot,
+                                    None,
+                                    &self.host_handler_params.reachability_params,
+                                    ctx.services,
+                                    txn,
+                                )
+                                .await?
+                            };
+                        return Ok(StateHandlerOutcome::Wait(format!(
+                            "redfish forge_setup failed: {e}; triggered host reboot?: {reboot_status:#?}"
+                        )));
+                    };
+
+                    // Host needs to be rebooted to pick up the changes after calling forge_setup
+                    handler_host_power_control(
+                        mh_snapshot,
+                        ctx.services,
+                        power_control_action,
+                        txn,
+                    )
+                    .await?;
+
+                    Ok(StateHandlerOutcome::Transition(
+                        ManagedHostState::HostInit {
+                            machine_state: MachineState::SetBootOrder,
+                        },
+                    ))
+                }
+                MachineState::SetBootOrder => {
+                    let next_state = if self.host_handler_params.attestation_enabled {
+                        ManagedHostState::HostInit {
+                            machine_state: MachineState::Measuring {
+                                measuring_state: MeasuringState::WaitingForMeasurements,
+                            },
                         }
-                        Err(e) => {
-                            tracing::warn!(
-                                "redfish forge_setup failed for {host_machine_id}, potentially due to known race condition between UEFI POST and BMC. triggering force-restart if needed. err: {}",
-                                e
-                            );
-
-                            // if forge_setup failed, rebooted to potentially work around
-                            // a known race between the DPU UEFI and the BMC, where if
-                            // the BMC is not up when DPU UEFI runs, then Attributes might
-                            // not come through. The fix is to force-restart the DPU to
-                            // re-POST.
-                            //
-                            // As of July 2024, Josh Price said there's an NBU FR to fix
-                            // this, but it wasn't target to a release yet.
-                            let reboot_status =
-                                if mh_snapshot.host_snapshot.last_reboot_requested.is_none() {
-                                    handler_host_power_control(
-                                        mh_snapshot,
-                                        ctx.services,
-                                        SystemPowerControl::ForceRestart,
-                                        txn,
-                                    )
-                                    .await?;
-
-                                    RebootStatus {
-                                        increase_retry_count: true,
-                                        status: "Restarted host".to_string(),
-                                    }
-                                } else {
-                                    trigger_reboot_if_needed(
-                                        &mh_snapshot.host_snapshot,
-                                        mh_snapshot,
-                                        None,
-                                        &self.host_handler_params.reachability_params,
-                                        ctx.services,
-                                        txn,
-                                    )
-                                    .await?
-                                };
-                            Ok(StateHandlerOutcome::Wait(format!(
-                                "redfish forge_setup failed: {e}; triggered host reboot?: {reboot_status:#?}"
-                            )))
+                    } else {
+                        ManagedHostState::HostInit {
+                            machine_state: MachineState::WaitingForDiscovery,
                         }
+                    };
+
+                    if wait(
+                        &mh_snapshot.host_snapshot.state.version.timestamp(),
+                        self.host_handler_params.reachability_params.dpu_wait_time,
+                    ) {
+                        return Ok(StateHandlerOutcome::Wait(format!(
+                            "Forced wait of {} for Host BIOS changes to take effect",
+                            self.host_handler_params.reachability_params.dpu_wait_time
+                        )));
                     }
+
+                    tracing::info!(
+                        machine_id = %host_machine_id,
+                        "Starting Boot Order Configuration");
+
+                    let boot_interface_mac = if mh_snapshot.dpu_snapshots.len() > 1 {
+                        // Multi DPU case. Reason it is kept separate is that forge_setup/setting
+                        // booting device based on MAC is not tested yet. Soon when it is tested,
+                        // and confirmed to work with all hardware, this `if` condition can be removed.
+                        let primary_interface = mh_snapshot
+                            .host_snapshot
+                            .interfaces
+                            .iter()
+                            .find(|x| x.primary_interface)
+                            .ok_or_else(|| {
+                                StateHandlerError::GenericError(eyre::eyre!(
+                                    "Missing primary interface from host: {}",
+                                    mh_snapshot.host_snapshot.id
+                                ))
+                            })?;
+                        Some(primary_interface.mac_address.to_string())
+                    } else {
+                        // libredfish will choose the DPU
+                        None
+                    };
+
+                    let redfish_client = ctx
+                        .services
+                        .redfish_client_pool
+                        .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
+                        .await?;
+
+                    match set_boot_order_dpu_first_and_handle_no_dpu_error(
+                        redfish_client.as_ref(),
+                        boot_interface_mac.as_deref(),
+                        mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
+                        &ctx.services.site_config,
+                    )
+                    .await
+                    {
+                        Ok(_) => {}
+                        Err(e) => match e {
+                            RedfishError::UnnecessaryOperation => {
+                                // No need to reboot the host again if there was no action taken in this state
+                                return Ok(StateHandlerOutcome::Transition(next_state));
+                            }
+                            _ => {
+                                return Err(StateHandlerError::RedfishError {
+                                    operation: "set_boot_order_dpu_first",
+                                    error: e,
+                                });
+                            }
+                        },
+                    }
+
+                    let power_control_action = match mh_snapshot.host_snapshot.bmc_vendor() {
+                        bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
+                        _ => SystemPowerControl::ForceRestart,
+                    };
+
+                    // Host needs to be rebooted to pick up the changes after calling forge_setup
+                    handler_host_power_control(
+                        mh_snapshot,
+                        ctx.services,
+                        power_control_action,
+                        txn,
+                    )
+                    .await?;
+
+                    Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 MachineState::Measuring { measuring_state } => {
                     match handle_measuring_state(
@@ -5416,6 +5502,31 @@ async fn call_forge_setup_and_handle_no_dpu_error(
         (Err(RedfishError::NoDpu), 0, true) => {
             tracing::info!(
                 "redfish forge_setup failed due to there being no DPUs on the host. This is expected as the host has no DPUs, and we are configured to allow this."
+            );
+            Ok(())
+        }
+        (Ok(()), _, _) => Ok(()),
+        (Err(e), _, _) => Err(e),
+    }
+}
+
+async fn set_boot_order_dpu_first_and_handle_no_dpu_error(
+    redfish_client: &dyn Redfish,
+    boot_interface_mac: Option<&str>,
+    expected_dpu_count: usize,
+    site_config: &CarbideConfig,
+) -> Result<(), RedfishError> {
+    let setup_result = redfish_client
+        .set_boot_order_dpu_first(boot_interface_mac)
+        .await;
+    match (
+        setup_result,
+        expected_dpu_count,
+        site_config.site_explorer.allow_zero_dpu_hosts,
+    ) {
+        (Err(RedfishError::NoDpu), 0, true) => {
+            tracing::info!(
+                "redfish set_boot_order_dpu_first failed due to there being no DPUs on the host. This is expected as the host has no DPUs, and we are configured to allow this."
             );
             Ok(())
         }
