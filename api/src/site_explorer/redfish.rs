@@ -155,8 +155,14 @@ impl RedfishClient {
             }
             // Handle Vikings
             RedfishVendor::AMI => {
+                /*
+                https://docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html
+
+                You should set the password after the first boot. The following curl command changes the password for the admin user.
+                curl -k -u <bmc-user>:<password> --request PATCH 'https://<bmc-ip-address>/redfish/v1/AccountService/Accounts/2' --header 'If-Match: *'  --header 'Content-Type: application/json' --data-raw '{ "Password" : "<password>" }'
+                */
                 client
-                    .change_password(curr_user.as_str(), new_password.as_str())
+                    .change_password_by_id("2", new_password.as_str())
                     .await
                     .map_err(map_redfish_error)?;
             }
