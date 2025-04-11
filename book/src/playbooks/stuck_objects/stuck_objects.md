@@ -197,7 +197,7 @@ STATE     : Ready
 ### 2.2 Using the Forge dashboard
 
 In order to get a first impression of whether an object might be stuck in a
-state and why, you can use the [Forge Grafana Dashboard](https://ngcobservability-grafana.thanos.nvidiangn.net/d/WzX_VErVk/argo-forge-sites?orgId=1).
+state and why, you can use the [Forge Grafana Dashboard](https://ngcobservability-grafana.thanos.nvidiangn.net/d/WzX_VErVk/forge-site?orgId=1).
 
 On the Dashboard, search for the graph which shows the amount of objects
 in a certain state. E.g. for ManagedHosts/Instances, check "ManagedHost States".
@@ -343,7 +343,7 @@ been emitted as part of the same RPC request or the same state handler iteration
 
 ### 3.3 Learning more about failures from the Forge Grafana Dashboard
 
-The [Forge Grafana Dashboard](https://ngcobservability-grafana.thanos.nvidiangn.net/d/WzX_VErVk/argo-forge-sites?orgId=1)
+The [Forge Grafana Dashboard](https://ngcobservability-grafana.thanos.nvidiangn.net/d/WzX_VErVk/forge-site?orgId=1)
 can also provide a quick overview of why state transitions have failed.
 In case the state handler of a certain object returned an error, the error type
 will also be shown in the diagram which summarizes the amount of objects in a
