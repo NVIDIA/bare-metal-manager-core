@@ -24,7 +24,7 @@ The Forge [State of the World dashboard](https://ngcobservability-grafana.thanos
 
 ### Site dashboard
 
-The Forge [Site dashboard](https://ngcobservability-grafana.thanos.nvidiangn.net/d/WzX_VErVk/argo-forge-sites?orgId=1) provides additional details for each site. These details can help in further understanding site behavior - e.g. in case a problem was identified on the [State of the World dashboard](https://ngcobservability-grafana.thanos.nvidiangn.net/d/0nr2HwVSk/forge-state-of-the-world?orgId=1).
+The Forge [Site dashboard](https://ngcobservability-grafana.thanos.nvidiangn.net/d/WzX_VErVk/forge-site?orgId=1) provides additional details for each site. These details can help in further understanding site behavior - e.g. in case a problem was identified on the [State of the World dashboard](https://ngcobservability-grafana.thanos.nvidiangn.net/d/0nr2HwVSk/forge-state-of-the-world?orgId=1).
 
 ### Forge PostgreSQL Patroni
 
@@ -54,7 +54,7 @@ Note that these dashboards are not available for sites which don't allow for inc
 
 ### Forge site
 
-[Forge site](https://grafana-dev3.frg.nvidia.com/d/WzX_VErVk/forge-site?orgId=1) shows similar metrics as the thanos [Site dashboard](https://ngcobservability-grafana.thanos.nvidiangn.net/d/WzX_VErVk/argo-forge-sites?orgId=1). However the dashboards are not in sync, and it is therefore likely the dashboard deployed on the site is missing some information. If you require any information not found on the dashboard, you can copy the thanos query for a certain dashboard into the [Explore](https://grafana-dev3.frg.nvidia.com/explore) panel on Forge sites.
+[Forge site](https://grafana-dev3.frg.nvidia.com/d/WzX_VErVk/forge-site?orgId=1) shows similar metrics as the thanos [Site dashboard](https://ngcobservability-grafana.thanos.nvidiangn.net/d/WzX_VErVk/forge-site?orgId=1). However the dashboards are not in sync, and it is therefore likely the dashboard deployed on the site is missing some information. If you require any information not found on the dashboard, you can copy the thanos query for a certain dashboard into the [Explore](https://grafana-dev3.frg.nvidia.com/explore) panel on Forge sites.
 
 ### Hardware-Health - Hardware health metrics
 
