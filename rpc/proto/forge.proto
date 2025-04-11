@@ -41,6 +41,12 @@ service Forge {
   rpc UpdateVpcPrefix(VpcPrefixUpdateRequest) returns (VpcPrefix);
   rpc DeleteVpcPrefix(VpcPrefixDeletionRequest) returns (VpcPrefixDeletionResult);
 
+  // VPC peering
+  rpc CreateVpcPeering(VpcPeeringCreationRequest) returns (VpcPeering);
+  rpc FindVpcPeeringIds(VpcPeeringSearchFilter) returns (VpcPeeringIdList);
+  rpc FindVpcPeeringsByIds(VpcPeeringsByIdsRequest) returns (VpcPeeringList);
+  rpc DeleteVpcPeering(VpcPeeringDeletionRequest) returns (VpcPeeringDeletionResult);
+
   // Segments - i.e. Overlay Networks
   rpc FindNetworkSegmentIds(NetworkSegmentSearchFilter) returns (NetworkSegmentIdList);
   rpc FindNetworkSegmentsByIds(NetworkSegmentsByIdsRequest) returns (NetworkSegmentList);
@@ -934,6 +940,40 @@ message VpcPrefixDeletionRequest {
 }
 
 message VpcPrefixDeletionResult {
+}
+
+message VpcPeering {
+  common.UUID id = 1;
+  common.UUID vpc_id = 2;
+  common.UUID peer_vpc_id = 3;
+}
+
+message VpcPeeringIdList {
+  repeated common.UUID vpc_peering_ids = 1;
+}
+
+message VpcPeeringList {
+  repeated VpcPeering vpc_peerings = 1;
+}
+
+message VpcPeeringCreationRequest {
+  common.UUID vpc_id = 1;
+  common.UUID peer_vpc_id = 2;
+}
+
+message VpcPeeringSearchFilter {
+  optional common.UUID vpc_id = 1;
+}
+
+message VpcPeeringsByIdsRequest {
+  repeated common.UUID vpc_peering_ids = 1;
+}
+
+message VpcPeeringDeletionRequest {
+  common.UUID id = 1;
+}
+
+message VpcPeeringDeletionResult {
 }
 
 // Enumerates possible instance states from the view of a tenant
@@ -2366,6 +2406,9 @@ message FlatInterfaceConfig {
 
   // Is this interface using L2 or L3.
   bool is_l2_segment = 15;
+
+  repeated string vpc_peer_prefixes = 16;
+  repeated uint32 vpc_peer_vnis = 17;
 
   // The details of the network security group associated with
   // either the instance or its parent VPC.

@@ -153,6 +153,13 @@ pub struct CarbideConfig {
     #[serde(default = "default_to_true")]
     pub nvue_enabled: bool,
 
+    /// The policy to decide whether two VPCs are allowed to peer with each other based on their
+    /// network virtualization type during creation
+    pub vpc_peering_policy: Option<VpcPeeringPolicy>,
+
+    /// The policy to decide whether a VPC peering should be active
+    pub vpc_peering_policy_on_existing: Option<VpcPeeringPolicy>,
+
     /// Controls whether or not machine attestion is required before a machine
     /// can go from Discovered -> Ready (and, when enabled, introduces the new
     /// `Measuring` state to the flow).
@@ -1836,6 +1843,20 @@ impl BomValidationConfig {
     }
 }
 
+/// Defines the policy for VPC peering based on network virtualization type.
+#[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VpcPeeringPolicy {
+    /// Only VPCs with the same network virtualization type can peer.
+    Exclusive,
+
+    /// VPCs with any network virtualization type can peer with each other.
+    Mixed,
+
+    /// VPC peering is not allowed.
+    None,
+}
+
 #[cfg(test)]
 mod tests {
     use figment::{
@@ -2020,6 +2041,7 @@ mod tests {
             }
         });
         assert!(config.nvue_enabled);
+        assert!(config.vpc_peering_policy.is_none());
         assert!(config.site_explorer.enabled);
         assert!(*config.site_explorer.create_machines.load_full());
         assert_eq!(
@@ -2059,6 +2081,8 @@ mod tests {
         assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
         assert!(config.route_servers.is_empty());
         assert!(!config.nvue_enabled);
+        assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
+        assert_eq!(config.vpc_peering_policy_on_existing, None);
         assert_eq!(
             config.tls.as_ref().unwrap().identity_pemfile_path,
             "/patched/path/to/cert"
@@ -2176,6 +2200,11 @@ mod tests {
             vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
         );
         assert!(config.nvue_enabled);
+        assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
+        assert_eq!(
+            config.vpc_peering_policy_on_existing,
+            Some(VpcPeeringPolicy::Mixed)
+        );
         assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
         assert_eq!(
             config.tls.as_ref().unwrap().identity_pemfile_path,

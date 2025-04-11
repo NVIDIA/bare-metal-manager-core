@@ -11,6 +11,7 @@ pub mod network;
 pub mod network_security_group;
 pub mod typed_uuids;
 pub mod vpc;
+pub mod vpc_peering;
 
 #[derive(Debug)]
 pub struct UuidEmptyStringError;

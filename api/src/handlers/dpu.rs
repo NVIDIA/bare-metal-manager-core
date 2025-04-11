@@ -381,7 +381,11 @@ pub(crate) async fn get_managed_host_network_config(
                         tenant_loopback_ip.clone(),
                         network_virtualization_type,
                         network_security_group_details.clone(),
-                        segment
+                        segment,
+                        match api.runtime_config.vpc_peering_policy_on_existing {
+                            None => api.runtime_config.vpc_peering_policy,
+                            Some(vpc_peering_policy) => Some(vpc_peering_policy)
+                        }
                     )
                     .await?,
                 );

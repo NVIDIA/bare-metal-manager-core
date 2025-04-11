@@ -75,6 +75,20 @@ impl VpcPrefix {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
+    // Find all prefixes associated with any VPC in the list.
+    pub async fn find_by_vpcs(
+        txn: &mut Transaction<'_, Postgres>,
+        vpc_ids: &Vec<VpcId>,
+    ) -> Result<Vec<Self>, DatabaseError> {
+        let query = "SELECT * FROM network_vpc_prefixes WHERE vpc_id=ANY($1) \
+                ORDER BY prefix";
+        sqlx::query_as(query)
+            .bind(vpc_ids)
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
     // Update last used prefix.
     pub async fn update_last_used_prefix(
         txn: &mut Transaction<'_, Postgres>,

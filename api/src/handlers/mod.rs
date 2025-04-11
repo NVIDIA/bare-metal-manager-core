@@ -37,4 +37,5 @@ pub mod tenant;
 pub mod tenant_keyset;
 pub mod tpm_ca;
 pub mod vpc;
+pub mod vpc_peering;
 pub mod vpc_prefix;

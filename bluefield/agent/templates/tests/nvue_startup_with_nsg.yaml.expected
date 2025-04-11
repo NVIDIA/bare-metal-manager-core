@@ -49,6 +49,10 @@
             outbound: {}
           p0005_security_group_ipv6_out: 
             outbound: {}
+          p0009_vpc_peer_egress_from_host:
+            inbound: {}
+          p0009_vpc_peer_ingress_to_host:
+            outbound: {}
       vlan196:
         type: svi
         vlan: 196
@@ -73,6 +77,10 @@
           p0005_security_group_ipv4_out: 
             outbound: {}
           p0005_security_group_ipv6_out: 
+            outbound: {}
+          p0009_vpc_peer_egress_from_host:
+            inbound: {}
+          p0009_vpc_peer_ingress_to_host:
             outbound: {}
       vlan185:
         type: svi
@@ -499,6 +507,22 @@
           '65535':
             action:
               deny: {}
+      p0009_vpc_peer_egress_from_host:
+        rule:
+          '1':
+            action:
+              permit: {}
+            match:
+              ip:
+                dest-ip: 10.217.6.176/29
+      p0009_vpc_peer_ingress_to_host:
+        rule:
+          '1':
+            action:
+              permit: {}
+            match:
+              ip:
+                source-ip: 10.217.6.176/29
       drop_dhcp_flood_over_overlay:
         rule:
           '10':

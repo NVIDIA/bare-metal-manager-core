@@ -12,12 +12,15 @@
 use std::borrow::Borrow;
 
 use ::rpc::forge as rpc;
+use forge_uuid::vpc::VpcId;
 use ipnetwork::{IpNetwork, Ipv4Network};
 use sqlx::{Postgres, Transaction};
 use tonic::Status;
 
+use crate::cfg::file::VpcPeeringPolicy;
 use crate::db::ObjectColumnFilter;
 use crate::db::vpc::VpcDpuLoopback;
+use crate::db::vpc_peering::{VpcPeering, get_prefixes_by_vpcs};
 use crate::db::vpc_prefix::VpcPrefix;
 use crate::model::network_security_group::NetworkSecurityGroupRuleNet;
 use crate::resource_pool::common::CommonPools;
@@ -250,6 +253,8 @@ pub async fn admin_network(
         svi_ip,
         tenant_vrf_loopback_ip,
         is_l2_segment: true,
+        vpc_peer_prefixes: vec![],
+        vpc_peer_vnis: vec![],
         network_security_group: None,
     };
     Ok((cfg, interface.id))
@@ -265,6 +270,7 @@ pub async fn tenant_network(
     network_virtualization_type: VpcVirtualizationType,
     network_security_group_details: Option<(i32, NetworkSecurityGroup)>,
     segment: &NetworkSegment,
+    vpc_peering_policy_on_existing: Option<VpcPeeringPolicy>,
 ) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
     // Any stretchable segment is treated as L2 segment by FNN.
     let is_l2_segment = segment.can_stretch.unwrap_or(true);
@@ -326,6 +332,45 @@ pub async fn tenant_network(
         None => vec![v4_prefix.prefix.to_string()],
     };
 
+    let mut vpc_peer_vnis = vec![];
+    let mut vpc_peer_prefixes = vec![];
+    if let Some(policy) = vpc_peering_policy_on_existing {
+        if let Some(vpc_id) = segment.vpc_id {
+            match policy {
+                VpcPeeringPolicy::Exclusive => {
+                    // VPC only allowed to peer with VPC of same network virtualization type
+                    let vpc_peers: Vec<(VpcId, i32)> =
+                        VpcPeering::get_vpc_peer_vnis(txn, vpc_id, network_virtualization_type)
+                            .await
+                            .map_err(CarbideError::from)?;
+                    let vpc_peer_ids = vpc_peers.iter().map(|(vpc_id, _)| *vpc_id).collect();
+                    vpc_peer_prefixes = get_prefixes_by_vpcs(txn, &vpc_peer_ids).await?;
+                    if network_virtualization_type == VpcVirtualizationType::Fnn {
+                        vpc_peer_vnis = vpc_peers.iter().map(|(_, vni)| *vni as u32).collect();
+                    }
+                }
+                VpcPeeringPolicy::Mixed => {
+                    // Any combination of VPC peering allowed
+                    let vpc_peer_ids = VpcPeering::get_vpc_peer_ids(txn, vpc_id)
+                        .await
+                        .map_err(CarbideError::from)?;
+                    vpc_peer_prefixes = get_prefixes_by_vpcs(txn, &vpc_peer_ids).await?;
+                    if network_virtualization_type == VpcVirtualizationType::Fnn {
+                        // Get vnis of all FNN peers for route import
+                        vpc_peer_vnis =
+                            VpcPeering::get_vpc_peer_vnis(txn, vpc_id, VpcVirtualizationType::Fnn)
+                                .await
+                                .map_err(CarbideError::from)?
+                                .iter()
+                                .map(|(_, vni)| *vni as u32)
+                                .collect();
+                    }
+                }
+                VpcPeeringPolicy::None => {}
+            }
+        }
+    }
+
     let vpc_vni = match segment.vpc_id {
         Some(vpc_id) => {
             let vpcs = Vpc::find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
@@ -378,6 +423,8 @@ pub async fn tenant_network(
         svi_ip,
         tenant_vrf_loopback_ip: loopback_ip,
         is_l2_segment,
+        vpc_peer_prefixes,
+        vpc_peer_vnis,
         network_security_group: network_security_group_details
             .map(|(source, nsg)| {
                 Ok(

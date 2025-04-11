@@ -253,6 +253,34 @@ impl Forge for Api {
         crate::handlers::vpc_prefix::delete(self, request).await
     }
 
+    async fn create_vpc_peering(
+        &self,
+        request: Request<rpc::VpcPeeringCreationRequest>,
+    ) -> Result<Response<rpc::VpcPeering>, Status> {
+        crate::handlers::vpc_peering::create(self, request).await
+    }
+
+    async fn find_vpc_peering_ids(
+        &self,
+        request: Request<rpc::VpcPeeringSearchFilter>,
+    ) -> Result<Response<rpc::VpcPeeringIdList>, Status> {
+        crate::handlers::vpc_peering::find_ids(self, request).await
+    }
+
+    async fn find_vpc_peerings_by_ids(
+        &self,
+        request: Request<rpc::VpcPeeringsByIdsRequest>,
+    ) -> Result<Response<rpc::VpcPeeringList>, Status> {
+        crate::handlers::vpc_peering::find_by_ids(self, request).await
+    }
+
+    async fn delete_vpc_peering(
+        &self,
+        request: Request<rpc::VpcPeeringDeletionRequest>,
+    ) -> Result<Response<rpc::VpcPeeringDeletionResult>, Status> {
+        crate::handlers::vpc_peering::delete(self, request).await
+    }
+
     async fn find_ib_partition_ids(
         &self,
         request: Request<rpc::IbPartitionSearchFilter>,

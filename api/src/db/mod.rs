@@ -53,6 +53,7 @@ pub mod sku;
 pub mod storage;
 pub mod tenant;
 pub mod vpc;
+pub mod vpc_peering;
 pub mod vpc_prefix;
 
 use sqlx::Postgres;
