@@ -3568,10 +3568,7 @@ impl StateHandler for HostMachineStateHandler {
                         .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
                         .await?;
 
-                    let boot_interface_mac = if mh_snapshot.dpu_snapshots.len() > 1 {
-                        // Multi DPU case. Reason it is kept separate is that forge_setup/setting
-                        // booting device based on MAC is not tested yet. Soon when it is tested,
-                        // and confirmed to work with all hardware, this `if` condition can be removed.
+                    let boot_interface_mac = if !mh_snapshot.dpu_snapshots.is_empty() {
                         let primary_interface = mh_snapshot
                             .host_snapshot
                             .interfaces
@@ -3585,7 +3582,7 @@ impl StateHandler for HostMachineStateHandler {
                             })?;
                         Some(primary_interface.mac_address.to_string())
                     } else {
-                        // libredfish will choose the DPU
+                        // This is the Zero-DPU case
                         None
                     };
 
@@ -3673,24 +3670,22 @@ impl StateHandler for HostMachineStateHandler {
                         }
                     };
 
-                    if wait(
-                        &mh_snapshot.host_snapshot.state.version.timestamp(),
-                        self.host_handler_params.reachability_params.dpu_wait_time,
-                    ) {
-                        return Ok(StateHandlerOutcome::Wait(format!(
-                            "Forced wait of {} for Host BIOS changes to take effect",
-                            self.host_handler_params.reachability_params.dpu_wait_time
-                        )));
-                    }
+                    // This step is a NO-OP if there arent any DPUs in the host
+                    if !mh_snapshot.dpu_snapshots.is_empty() {
+                        if wait(
+                            &mh_snapshot.host_snapshot.state.version.timestamp(),
+                            self.host_handler_params.reachability_params.dpu_wait_time,
+                        ) {
+                            return Ok(StateHandlerOutcome::Wait(format!(
+                                "Forced wait of {} for Host BIOS changes to take effect",
+                                self.host_handler_params.reachability_params.dpu_wait_time
+                            )));
+                        }
 
-                    tracing::info!(
-                        machine_id = %host_machine_id,
-                        "Starting Boot Order Configuration");
+                        tracing::info!(
+                            machine_id = %host_machine_id,
+                            "Starting Boot Order Configuration");
 
-                    let boot_interface_mac = if mh_snapshot.dpu_snapshots.len() > 1 {
-                        // Multi DPU case. Reason it is kept separate is that forge_setup/setting
-                        // booting device based on MAC is not tested yet. Soon when it is tested,
-                        // and confirmed to work with all hardware, this `if` condition can be removed.
                         let primary_interface = mh_snapshot
                             .host_snapshot
                             .interfaces
@@ -3702,54 +3697,50 @@ impl StateHandler for HostMachineStateHandler {
                                     mh_snapshot.host_snapshot.id
                                 ))
                             })?;
-                        Some(primary_interface.mac_address.to_string())
-                    } else {
-                        // libredfish will choose the DPU
-                        None
-                    };
 
-                    let redfish_client = ctx
-                        .services
-                        .redfish_client_pool
-                        .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
+                        let redfish_client = ctx
+                            .services
+                            .redfish_client_pool
+                            .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
+                            .await?;
+
+                        match set_boot_order_dpu_first_and_handle_no_dpu_error(
+                            redfish_client.as_ref(),
+                            Some(&primary_interface.mac_address.to_string()),
+                            mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
+                            &ctx.services.site_config,
+                        )
+                        .await
+                        {
+                            Ok(_) => {}
+                            Err(e) => match e {
+                                RedfishError::UnnecessaryOperation => {
+                                    // No need to reboot the host again if there was no action taken in this state
+                                    return Ok(StateHandlerOutcome::Transition(next_state));
+                                }
+                                _ => {
+                                    return Err(StateHandlerError::RedfishError {
+                                        operation: "set_boot_order_dpu_first",
+                                        error: e,
+                                    });
+                                }
+                            },
+                        }
+
+                        let power_control_action = match mh_snapshot.host_snapshot.bmc_vendor() {
+                            bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
+                            _ => SystemPowerControl::ForceRestart,
+                        };
+
+                        // Host needs to be rebooted to pick up the changes after calling forge_setup
+                        handler_host_power_control(
+                            mh_snapshot,
+                            ctx.services,
+                            power_control_action,
+                            txn,
+                        )
                         .await?;
-
-                    match set_boot_order_dpu_first_and_handle_no_dpu_error(
-                        redfish_client.as_ref(),
-                        boot_interface_mac.as_deref(),
-                        mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
-                        &ctx.services.site_config,
-                    )
-                    .await
-                    {
-                        Ok(_) => {}
-                        Err(e) => match e {
-                            RedfishError::UnnecessaryOperation => {
-                                // No need to reboot the host again if there was no action taken in this state
-                                return Ok(StateHandlerOutcome::Transition(next_state));
-                            }
-                            _ => {
-                                return Err(StateHandlerError::RedfishError {
-                                    operation: "set_boot_order_dpu_first",
-                                    error: e,
-                                });
-                            }
-                        },
                     }
-
-                    let power_control_action = match mh_snapshot.host_snapshot.bmc_vendor() {
-                        bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
-                        _ => SystemPowerControl::ForceRestart,
-                    };
-
-                    // Host needs to be rebooted to pick up the changes after calling forge_setup
-                    handler_host_power_control(
-                        mh_snapshot,
-                        ctx.services,
-                        power_control_action,
-                        txn,
-                    )
-                    .await?;
 
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
