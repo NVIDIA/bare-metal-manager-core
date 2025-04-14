@@ -42,7 +42,36 @@ Then run
 ```
 sops -e -i bases/carbide/api/secrets/azure-carbide-web-sso.enc.yaml
 ```
-And then commit your changes
+And then commit your changes.
+
+If using ArgoCD to update the deployment, Argo will not see the secret as "changed" and you'll need to take the following steps:
+
+- Uncheck `respect ignore differences`
+- Select only the /Secret/forge-system/azure-sso-carbide-web-client-secret resource
+- Sync
+- Perform another sync as you normally would
+
+If the _only_ thing you are changing is the secret, you might have to force a redeploy of the Carbide API service, or delete the existing pods so they get recreated and pick up the change in secret.
+
+
+
+# Alternative Auth Flow
+
+Some teams use gitlab automation to pull data from the Web UI.
+
+To provide access using the alternative auth flow, perform the following steps:
+- Create a new secret for the team/process: https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Credentials/appId/5ae5fa35-be8e-44cc-be7b-01ff76af5315/isMSAApp~/false
+- Securely provide the team the new secret.  https://privatebin.nvidia.com/ should be fine, but remember to select `Burn after reading` and a short expiration (1hr or less).
+
+The automated process will then be able to fetch an encrypted cookie that will grant access for 10 minutes.
+
+Example:
+
+```
+curl --cookie-jar /tmp/cjar --cookie /tmp/cjar --header 'client_secret: ...' 'https://<the_web_ui_address>/admin/auth-callback'
+curl --cookie /tmp/cjar 'https://<the_web_ui_address>/admin/managed-host.json'
+```
+
 
 
 
