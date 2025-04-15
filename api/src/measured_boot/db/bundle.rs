@@ -15,6 +15,8 @@
  *  tables in the database, leveraging the bundle-specific record types.
 */
 
+use std::collections::{BTreeMap, HashMap};
+
 use crate::db::DatabaseError;
 use crate::measured_boot::db;
 use crate::measured_boot::db::machine::bundle_state_to_machine_state;
@@ -441,21 +443,10 @@ async fn match_bundle(
     // Get all bundles, and figure out which *active* bundles intersect
     // with the provided journal. After that, we'll attempt to find the
     // most specific match (if there are multiple matches).
-    let mut all_bundles = get_all_for_profile_id(txn, profile_id).await?;
 
-    // TODO(chet): This could be moved somewhere more formal.
-    let allowed_states = [
-        MeasurementBundleState::Active,
-        MeasurementBundleState::Obsolete,
-    ];
+    let all_bundles = get_all_for_profile_id(txn, profile_id).await?;
 
-    let mut matching: Vec<MeasurementBundle> = Vec::new();
-    for bundle in all_bundles.drain(..) {
-        if allowed_states.contains(&bundle.state) && intersects(&bundle, values)? {
-            matching.push(bundle);
-        }
-    }
-
+    let mut matching = get_matching_bundles(&all_bundles, values).await?;
     // If there are no matching bundles, or a single matching
     // bundle, it's simple to handle here.
     if matching.is_empty() {
@@ -534,9 +525,623 @@ fn pcr_values_to_string(pcr_values: &[PcrRegisterValue]) -> String {
         .join(",")
 }
 
+pub async fn find_closest_match_with_txn(
+    txn: &mut Transaction<'_, Postgres>,
+    profile_id: MeasurementSystemProfileId,
+    values: &[PcrRegisterValue],
+) -> CarbideResult<Option<MeasurementBundle>> {
+    let bundle_id = match find_closest_bundle(txn, profile_id, values).await? {
+        Some(bundle_id) => bundle_id,
+        None => {
+            return Ok(None);
+        }
+    };
+    Ok(Some(from_id_with_txn(txn, bundle_id).await?))
+}
+
+async fn find_closest_bundle(
+    txn: &mut Transaction<'_, Postgres>,
+    profile_id: MeasurementSystemProfileId,
+    values: &[PcrRegisterValue],
+) -> CarbideResult<Option<MeasurementBundleId>> {
+    // FIRST, make sure there are no matching bundles at all
+    // but that there are active/obsolete bundles for that profile
+    // SECOND, remove all bundles that are subsets: same or less PCR slots
+    // AND the same values
+    // THIRD, use a BTreeMap and for each bundle specify how many unmasked elements
+    // there are in total = (bundle len - elements to remove/mask)
+    // FOURTH, always keep the map sorted with the highest number of
+    // unmasked elements on top
+    // FIFTH, going from the top, do the intersection by leaving the specified
+    // amount of unmasked elements, if no match, decrease the number and
+    // remove, re-add the bundle to the map
+    // repeat the fifth step until the map is empty or until there is a match
+
+    // FIRST
+    let all_bundles = get_all_for_profile_id(txn, profile_id).await?;
+
+    let matching = get_matching_bundles(&all_bundles, values).await?;
+    if !matching.is_empty() {
+        let matching_bundle_ids = matching.iter().fold(String::new(), |acc, bundle| {
+            acc + " " + bundle.bundle_id.to_string().as_str()
+        });
+        return Err(CarbideError::InvalidArgument(format!(
+            "Fully matching bundle(s) found: {0}",
+            matching_bundle_ids
+        )));
+    }
+
+    let mut active_bundles = get_active_bundles(&all_bundles);
+
+    if active_bundles.is_empty() {
+        tracing::info!(
+            "No Active or Obsolete bundles were found for profile_id {0}",
+            profile_id
+        );
+        return Ok(None);
+    }
+
+    // SECOND
+    remove_all_subsets(&mut active_bundles);
+
+    // THIRD, FOURTH
+    let mut ordered_bundles: BTreeMap<usize, Vec<MeasurementBundle>> = BTreeMap::new();
+
+    active_bundles
+        .iter()
+        .for_each(|elem| add_bundle_to_map(&mut ordered_bundles, elem));
+
+    // FIFTH
+    match_closest_bundle(&mut ordered_bundles, values)
+}
+
+fn match_closest_bundle(
+    ordered_bundles: &mut BTreeMap<usize, Vec<MeasurementBundle>>,
+    values: &[PcrRegisterValue],
+) -> CarbideResult<Option<MeasurementBundleId>> {
+    // Keep popping off the largest bundles and see
+    // if any of them match. If one does, return it!
+    while let Some((key, mut bundles)) = ordered_bundles.pop_last() {
+        for bundle in &bundles {
+            if try_match_masked_bundle(&key, bundle, values)? {
+                return Ok(Some(bundle.bundle_id));
+            }
+        }
+
+        // If unsuccessful, then reinsert the same vector but
+        // with a (length - 1) key (either to existing bundles or
+        // to a brand new vector).
+        //
+        // Note: Since key is a usize, use saturating_sub.
+        let new_key = key.saturating_sub(1);
+        if new_key > 0 {
+            ordered_bundles
+                .entry(new_key)
+                .or_default()
+                .append(&mut bundles);
+        }
+    }
+
+    Ok(None)
+}
+
+fn try_match_masked_bundle(
+    key: &usize,
+    bundle: &MeasurementBundle,
+    values: &[PcrRegisterValue],
+) -> CarbideResult<bool> {
+    // convert values to hashmap to avoid doing so on every match attempt
+    let values_map = pcr_register_values_to_map(values)?;
+
+    // the size of a "sub-bundle" that we will use to for matching
+    let match_size = *key;
+    let mut sub_bundle_match_array: Vec<MeasurementBundleValueRecord> =
+        vec![MeasurementBundleValueRecord::default(); match_size];
+
+    Ok(recursive_match(
+        &bundle.values,
+        &mut sub_bundle_match_array,
+        0,
+        &values_map,
+    ))
+}
+
+// try all unique sub-permutations of bundle_values
+// match_array will always be less than bundle_values
+//
+// Example: given bundle_values: [0, 1, 2] and sub_bundle_match_array
+// with capacity 2
+// this algorithm with generate the following sub_bundle_match_arrays
+// counter == 0 => [0, 1], [0, 2]
+// counter == 1 => [1, 2]
+// the base condition will be met at counter == 2, where the intersection
+// check will be made
+fn recursive_match(
+    bundle_values: &[MeasurementBundleValueRecord],
+    sub_bundle_match_array: &mut Vec<MeasurementBundleValueRecord>,
+    counter: usize,
+    values_map: &HashMap<i16, PcrRegisterValue>,
+) -> bool {
+    // base condition - the match_array is full
+    // so we need to see if there is a match (intersection)
+    if counter == sub_bundle_match_array.capacity() {
+        return sub_bundle_intersects(sub_bundle_match_array, values_map);
+    }
+
+    for i in 0..bundle_values.len() {
+        sub_bundle_match_array[counter] = bundle_values[i].clone();
+
+        if recursive_match(
+            &bundle_values[i + 1..],
+            sub_bundle_match_array,
+            counter + 1,
+            values_map,
+        ) {
+            return true;
+        } else {
+            continue;
+        }
+    }
+
+    false
+}
+
+// this is the same as intersects(), but slightly optimised
+pub fn sub_bundle_intersects(
+    match_array: &[MeasurementBundleValueRecord],
+    register_map: &HashMap<i16, PcrRegisterValue>,
+) -> bool {
+    match_array.iter().all(|value_record| {
+        if let Some(register_value) = register_map.get(&value_record.pcr_register) {
+            register_value.sha256 == value_record.sha256
+        } else {
+            false
+        }
+    })
+}
+
+fn add_bundle_to_map(
+    ordered_bundles: &mut BTreeMap<usize, Vec<MeasurementBundle>>,
+    bundle: &MeasurementBundle,
+) {
+    // since none of the bundles matched originally, we need to start
+    // masking some of their pcr slots and we start with just one
+    let key = if bundle.values.len() > 1 {
+        bundle.values.len() - 1
+    } else {
+        // if this is a bundle with just one value and even that did not
+        // match, we just exclude it
+        return;
+    };
+
+    ordered_bundles.entry(key).or_default().push(bundle.clone());
+}
+
+// it is rather unlikely that there will be any subsets of a given bundle
+// for existing profile, so it's ok to keep it as a vector
+fn remove_all_subsets(bundles: &mut Vec<MeasurementBundle>) {
+    // 1. sort bundles by len of values in descending order
+    // 2. starting with the longest one do the retain algo for each one of the "shorter" bundles
+    // 3. if the shorter bundle is the subset, then remove it from the vector
+
+    // 1.
+    bundles.sort_by(|a, b| b.values.len().cmp(&a.values.len()));
+
+    // 2.
+    let mut indices_to_be_removed = Vec::<usize>::new();
+    for (i, senior_bundle) in bundles.iter().enumerate() {
+        let senior_values_map: HashMap<i16, String> = senior_bundle
+            .pcr_values()
+            .iter()
+            .map(|v| (v.pcr_register, v.sha256.clone()))
+            .collect();
+
+        for (j, candidate_to_be_removed) in bundles.iter().enumerate().skip(i + 1) {
+            // create a hash map out of the values
+            // call retain on the hash map, with current_bundle as reference
+            // if the hash map is empty, it's a subset - remove it from bundles
+
+            let mut candidate_values_map: HashMap<i16, String> = candidate_to_be_removed
+                .pcr_values()
+                .iter()
+                .map(|v| (v.pcr_register, v.sha256.clone()))
+                .collect();
+
+            candidate_values_map.retain(|k, v| !is_same_kv(k, v, &senior_values_map));
+            if candidate_values_map.is_empty() {
+                indices_to_be_removed.push(j);
+            }
+        }
+    }
+
+    // 3.
+    indices_to_be_removed.sort();
+    indices_to_be_removed.dedup();
+    // reverse iterator, so that indices wouldn't get shifted due to calling .remove()
+    for idx in indices_to_be_removed.iter().rev() {
+        bundles.remove(*idx);
+    }
+}
+
+fn is_same_kv(k: &i16, v: &str, reference_map: &HashMap<i16, String>) -> bool {
+    if let Some(value) = reference_map.get(k) {
+        value == v
+    } else {
+        false
+    }
+}
+
+fn get_active_bundles(bundles: &Vec<MeasurementBundle>) -> Vec<MeasurementBundle> {
+    let allowed_states = [
+        MeasurementBundleState::Active,
+        MeasurementBundleState::Obsolete,
+    ];
+
+    let mut active: Vec<MeasurementBundle> = Vec::new();
+    for bundle in bundles {
+        if allowed_states.contains(&bundle.state) {
+            active.push(bundle.clone());
+        }
+    }
+
+    active
+}
+
+async fn get_matching_bundles(
+    all_bundles: &Vec<MeasurementBundle>,
+    values: &[PcrRegisterValue],
+) -> CarbideResult<Vec<MeasurementBundle>> {
+    let active = get_active_bundles(all_bundles);
+
+    let mut matching: Vec<MeasurementBundle> = Vec::new();
+    for bundle in &active {
+        if intersects(bundle, values)? {
+            matching.push(bundle.clone());
+        }
+    }
+
+    Ok(matching)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use forge_uuid::measured_boot::MeasurementBundleValueId;
+
+    const MEASUREMENT_BUNDLE_UUID_1: uuid::Uuid = uuid::Uuid::from_bytes([
+        0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7,
+        0xd8,
+    ]);
+
+    const MEASUREMENT_BUNDLE_UUID_2: uuid::Uuid = uuid::Uuid::from_bytes([
+        0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7,
+        0xa8,
+    ]);
+    const MEASUREMENT_BUNDLE_UUID_3: uuid::Uuid = uuid::Uuid::from_bytes([
+        0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xa7,
+        0xa8,
+    ]);
+    const MEASUREMENT_BUNDLE_UUID_4: uuid::Uuid = uuid::Uuid::from_bytes([
+        0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xa6, 0xa7,
+        0xa8,
+    ]);
+
+    // for the sake of simplicity we just copy the values
+    const MEASUREMENT_PROFILE_UUID_1: uuid::Uuid = MEASUREMENT_BUNDLE_UUID_1;
+
+    const MEASUREMENT_RECORD_UUID_1: uuid::Uuid = MEASUREMENT_BUNDLE_UUID_1;
+    const MEASUREMENT_RECORD_UUID_2: uuid::Uuid = MEASUREMENT_BUNDLE_UUID_2;
+    const MEASUREMENT_RECORD_UUID_3: uuid::Uuid = MEASUREMENT_BUNDLE_UUID_3;
+
+    fn create_generic_bundle(
+        bundle_uuid: uuid::Uuid,
+        profile_uuid: uuid::Uuid,
+        values: Vec<MeasurementBundleValueRecord>,
+    ) -> MeasurementBundle {
+        MeasurementBundle {
+            bundle_id: MeasurementBundleId(bundle_uuid),
+            profile_id: MeasurementSystemProfileId(profile_uuid),
+            name: "funny-rabbit".to_string(),
+            state: MeasurementBundleState::Active,
+            values,
+            ts: chrono::DateTime::from_timestamp(1431648000, 0).unwrap(),
+        }
+    }
+
+    fn create_value_record(
+        record_uuid: uuid::Uuid,
+        bundle_uuid: uuid::Uuid,
+        pcr_register: i16,
+        sha256: &str,
+    ) -> MeasurementBundleValueRecord {
+        MeasurementBundleValueRecord {
+            value_id: MeasurementBundleValueId(record_uuid),
+            bundle_id: MeasurementBundleId(bundle_uuid),
+            pcr_register,
+            sha256: sha256.to_string(),
+            ts: chrono::DateTime::from_timestamp(1431648000, 0).unwrap(),
+        }
+    }
+
+    #[test]
+    fn test_remove_all_subsets() {
+        // set up
+        let mut measurement_bundles = vec![
+            create_generic_bundle(
+                MEASUREMENT_BUNDLE_UUID_1,
+                MEASUREMENT_PROFILE_UUID_1,
+                vec![
+                    create_value_record(
+                        MEASUREMENT_RECORD_UUID_1,
+                        MEASUREMENT_BUNDLE_UUID_1,
+                        0,
+                        "18e93333a0543b6b6192ec5b3ea31e3f05acf31f121855188f9849f9e568c161",
+                    ),
+                    create_value_record(
+                        MEASUREMENT_RECORD_UUID_2,
+                        MEASUREMENT_BUNDLE_UUID_1,
+                        1,
+                        "07aa618176b5874efe473c7ae90c3f9838fa5c3c81c13bf6e78454d4cd546042",
+                    ),
+                ],
+            ),
+            create_generic_bundle(
+                MEASUREMENT_BUNDLE_UUID_2,
+                MEASUREMENT_PROFILE_UUID_1,
+                vec![create_value_record(
+                    MEASUREMENT_RECORD_UUID_1,
+                    MEASUREMENT_BUNDLE_UUID_2,
+                    0,
+                    "18e93333a0543b6b6192ec5b3ea31e3f05acf31f121855188f9849f9e568c161",
+                )],
+            ),
+            create_generic_bundle(
+                MEASUREMENT_BUNDLE_UUID_3,
+                MEASUREMENT_PROFILE_UUID_1,
+                vec![
+                    create_value_record(
+                        MEASUREMENT_RECORD_UUID_1,
+                        MEASUREMENT_BUNDLE_UUID_3,
+                        0,
+                        "18e93333a0543b6b6192ec5b3ea31e3f05acf31f121855188f9849f9e568c161",
+                    ),
+                    create_value_record(
+                        MEASUREMENT_RECORD_UUID_2,
+                        MEASUREMENT_BUNDLE_UUID_3,
+                        1,
+                        "07aa618176b5874efe473c7ae90c3f9838fa5c3c81c13bf6e78454d4cd546042",
+                    ),
+                ],
+            ),
+        ];
+        // execute
+        remove_all_subsets(&mut measurement_bundles);
+        // verify
+        assert_eq!(measurement_bundles.len(), 1);
+        println!("Measurement bundle is {:?}", measurement_bundles[0]);
+    }
+
+    fn create_bundle_no_matches() -> MeasurementBundle {
+        create_generic_bundle(
+            MEASUREMENT_BUNDLE_UUID_1,
+            MEASUREMENT_PROFILE_UUID_1,
+            vec![
+                create_value_record(
+                    MEASUREMENT_RECORD_UUID_1,
+                    MEASUREMENT_BUNDLE_UUID_1,
+                    0,
+                    "18e93333a0543b6b6192ec5b3ea31e3f05acf31f121855188f9849f9e568c161", // no matches
+                ),
+                create_value_record(
+                    MEASUREMENT_RECORD_UUID_2,
+                    MEASUREMENT_BUNDLE_UUID_1,
+                    1,
+                    "07aa618176b5874efe473c7ae90c3f9838fa5c3c81c13bf6e78454d4cd546042", // no matches
+                ),
+            ],
+        )
+    }
+
+    fn create_bundle_one_matching() -> MeasurementBundle {
+        create_generic_bundle(
+            MEASUREMENT_BUNDLE_UUID_2,
+            MEASUREMENT_PROFILE_UUID_1,
+            vec![
+                create_value_record(
+                    MEASUREMENT_RECORD_UUID_1,
+                    MEASUREMENT_BUNDLE_UUID_2,
+                    0,
+                    "18e93333a0543b6b6192ec5b3ea31e3f05acf31f121855188f9849f9e568c161", // non matching
+                ),
+                create_value_record(
+                    MEASUREMENT_RECORD_UUID_2,
+                    MEASUREMENT_BUNDLE_UUID_2,
+                    1,
+                    "07aa618176b5874efe473c7ae90c3f9838fa5c3c81c13bf6e78454d4cd546042", // non matching
+                ),
+                create_value_record(
+                    MEASUREMENT_RECORD_UUID_3,
+                    MEASUREMENT_BUNDLE_UUID_2,
+                    2,
+                    "e90f1be07663d4fbe85248ad906b2ce419aa45acc30d8372f0e6477939851c5b", // matching
+                ),
+            ],
+        )
+    }
+
+    fn create_bundle_two_matching() -> MeasurementBundle {
+        create_generic_bundle(
+            MEASUREMENT_BUNDLE_UUID_3,
+            MEASUREMENT_PROFILE_UUID_1,
+            vec![
+                create_value_record(
+                    MEASUREMENT_RECORD_UUID_1,
+                    MEASUREMENT_BUNDLE_UUID_3,
+                    0,
+                    "18e93333a0543b6b6192ec5b3ea31e3f05acf31f121855188f9849f9e568c161", // non matching
+                ),
+                create_value_record(
+                    MEASUREMENT_RECORD_UUID_2,
+                    MEASUREMENT_BUNDLE_UUID_3,
+                    1,
+                    "605fb593f71f163f2537351a6f9dd1aeed89aa9118302ea91b4a9ce672d8c245", // matching
+                ),
+                create_value_record(
+                    MEASUREMENT_RECORD_UUID_3,
+                    MEASUREMENT_BUNDLE_UUID_3,
+                    2,
+                    "e90f1be07663d4fbe85248ad906b2ce419aa45acc30d8372f0e6477939851c5b", // matching
+                ),
+            ],
+        )
+    }
+
+    fn create_pcr_register_values() -> [PcrRegisterValue; 5] {
+        [
+            PcrRegisterValue {
+                pcr_register: 0,
+                sha256: "6bc7446ebe68990ca674a8c05321f36a278c5f111f6066fa79aafd4060b7f15f"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                // matching
+                pcr_register: 1,
+                sha256: "605fb593f71f163f2537351a6f9dd1aeed89aa9118302ea91b4a9ce672d8c245"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                // matching
+                pcr_register: 2,
+                sha256: "e90f1be07663d4fbe85248ad906b2ce419aa45acc30d8372f0e6477939851c5b"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 5,
+                sha256: "07aa618176b5874efe473c7ae90c3f9838fa5c3c81c13bf6e78454d4cd546042"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 8,
+                sha256: "605fb593f71f163f2537351a6f9dd1aeed89aa9118302ea91b4a9ce672d8c245"
+                    .to_string(),
+            },
+        ]
+    }
+
+    #[test]
+    fn test_match_closest_bundle_better_match() {
+        let measurement_bundles = vec![
+            create_bundle_no_matches(),
+            create_bundle_one_matching(),
+            create_bundle_two_matching(),
+        ];
+        // create 5 pcr values
+        let pcr_register_values = create_pcr_register_values();
+
+        let mut ordered_bundles: BTreeMap<usize, Vec<MeasurementBundle>> = BTreeMap::new();
+
+        measurement_bundles
+            .iter()
+            .for_each(|elem| add_bundle_to_map(&mut ordered_bundles, elem));
+
+        // execute and verify
+        if let Some(bundle_id) = match_closest_bundle(&mut ordered_bundles, &pcr_register_values)
+            .ok()
+            .flatten()
+        {
+            assert_eq!(
+                MEASUREMENT_BUNDLE_UUID_3, bundle_id.0,
+                "Incorrect bundle was selected"
+            );
+        } else {
+            assert_eq!(true, false, "A bundle had to be selected");
+        }
+    }
+
+    #[test]
+    #[allow(clippy::useless_vec)]
+    fn test_match_closest_bundle_no_matches() {
+        let measurement_bundles = vec![create_bundle_no_matches()];
+        // create 5 pcr values
+        let pcr_register_values = create_pcr_register_values();
+
+        let mut ordered_bundles: BTreeMap<usize, Vec<MeasurementBundle>> = BTreeMap::new();
+
+        measurement_bundles
+            .iter()
+            .for_each(|elem| add_bundle_to_map(&mut ordered_bundles, elem));
+
+        // execute and verify
+
+        assert_eq!(
+            None,
+            match_closest_bundle(&mut ordered_bundles, &pcr_register_values)
+                .ok()
+                .flatten()
+        );
+    }
+
+    #[test]
+    #[allow(clippy::useless_vec)]
+    fn test_match_closest_bundle_the_only_match() {
+        let measurement_bundles = vec![create_bundle_no_matches(), create_bundle_one_matching()];
+        // create 5 pcr values
+        let pcr_register_values = create_pcr_register_values();
+
+        let mut ordered_bundles: BTreeMap<usize, Vec<MeasurementBundle>> = BTreeMap::new();
+
+        measurement_bundles
+            .iter()
+            .for_each(|elem| add_bundle_to_map(&mut ordered_bundles, elem));
+
+        // execute and verify
+        if let Some(bundle_id) = match_closest_bundle(&mut ordered_bundles, &pcr_register_values)
+            .ok()
+            .flatten()
+        {
+            assert_eq!(
+                MEASUREMENT_BUNDLE_UUID_2, bundle_id.0,
+                "Incorrect bundle was selected"
+            );
+        } else {
+            assert_eq!(true, false, "A bundle had to be selected");
+        }
+    }
+
+    #[test]
+    #[allow(clippy::useless_vec)]
+    fn test_match_closest_bundle_two_same_matches() {
+        let bundle_one = create_bundle_one_matching();
+        let bundle_two = create_generic_bundle(
+            MEASUREMENT_BUNDLE_UUID_4,
+            MEASUREMENT_PROFILE_UUID_1,
+            bundle_one.values.clone(),
+        );
+
+        let measurement_bundles = vec![bundle_one, bundle_two];
+        // create 5 pcr values
+        let pcr_register_values = create_pcr_register_values();
+
+        let mut ordered_bundles: BTreeMap<usize, Vec<MeasurementBundle>> = BTreeMap::new();
+
+        measurement_bundles
+            .iter()
+            .for_each(|elem| add_bundle_to_map(&mut ordered_bundles, elem));
+
+        // execute and verify
+        if let Some(bundle_id) = match_closest_bundle(&mut ordered_bundles, &pcr_register_values)
+            .ok()
+            .flatten()
+        {
+            // the correct bundle just happens to be the first one added
+            assert_eq!(
+                MEASUREMENT_BUNDLE_UUID_2, bundle_id.0,
+                "Incorrect bundle was selected"
+            );
+        } else {
+            assert_eq!(true, false, "A bundle had to be selected");
+        }
+    }
 
     #[test]
     fn test_pcr_values_to_string() {

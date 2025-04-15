@@ -464,7 +464,7 @@ impl TryFrom<MeasurementBundleRecordPb> for MeasurementBundleRecord {
 /// from the measurement_bundles_values table.
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "sqlx", derive(FromRow))]
 pub struct MeasurementBundleValueRecord {
     // value_id is the auto-generated UUID for this record.

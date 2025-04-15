@@ -16,13 +16,13 @@
 
 use crate::measurement::MachineIdList;
 use crate::measurement::bundle::args::{
-    CmdBundle, Create, Delete, List, ListMachines, Rename, SetState, Show,
+    CmdBundle, Create, Delete, FindClosestMatch, List, ListMachines, Rename, SetState, Show,
 };
 use crate::measurement::global;
 use crate::measurement::global::cmds::{IdentifierType, get_identifier};
 use crate::rpc::ApiClient;
 use ::rpc::protos::measured_boot::{
-    CreateMeasurementBundleRequest, DeleteMeasurementBundleRequest,
+    CreateMeasurementBundleRequest, DeleteMeasurementBundleRequest, FindClosestBundleMatchRequest,
     ListMeasurementBundleMachinesRequest, MeasurementBundleStatePb, RenameMeasurementBundleRequest,
     ShowMeasurementBundleRequest, UpdateMeasurementBundleRequest,
 };
@@ -90,6 +90,16 @@ pub async fn dispatch(
                     utils::admin_cli::Destination::Stdout(),
                 )?;
             }
+        }
+        CmdBundle::FindClosestMatch(local_args) => {
+            match find_closest_match(cli.grpc_conn, local_args).await? {
+                Some(measurement_bundle) => cli_output(
+                    measurement_bundle,
+                    &cli.args.format,
+                    utils::admin_cli::Destination::Stdout(),
+                )?,
+                None => tracing::info!("No partially matching bundle found"),
+            };
         }
         CmdBundle::List(selector) => match selector {
             List::Machines(local_args) => {
@@ -387,6 +397,35 @@ pub async fn list_machines(
                     .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
             })
             .collect::<CarbideCliResult<Vec<MachineId>>>()?,
+    ))
+}
+
+pub async fn find_closest_match(
+    grpc_conn: &ApiClient,
+    args: &FindClosestMatch,
+) -> CarbideCliResult<Option<MeasurementBundle>> {
+    // At the moment, the request only contains report id
+    // but this can be expanded to contain journal id also
+    let request = match args {
+        FindClosestMatch::Report(report_id) => FindClosestBundleMatchRequest {
+            report_id: Some(report_id.id.into()),
+        },
+    };
+
+    // Response.
+    let response = grpc_conn
+        .0
+        .find_closest_bundle_match(request)
+        .await
+        .map_err(CarbideCliError::ApiInvocationError)?;
+
+    if response.bundle.is_none() {
+        return Ok(None);
+    }
+
+    Ok(Some(
+        MeasurementBundle::from_grpc(response.bundle.as_ref())
+            .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?,
     ))
 }
 

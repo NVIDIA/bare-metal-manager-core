@@ -3971,6 +3971,19 @@ impl Forge for Api {
         ))
     }
 
+    async fn find_closest_bundle_match(
+        &self,
+        request: Request<measured_boot_pb::FindClosestBundleMatchRequest>,
+    ) -> Result<Response<measured_boot_pb::ShowMeasurementBundleResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::bundle::handle_find_closest_match(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
     async fn delete_measurement_journal(
         &self,
         request: Request<measured_boot_pb::DeleteMeasurementJournalRequest>,

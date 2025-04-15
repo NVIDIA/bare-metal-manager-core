@@ -80,6 +80,26 @@ pub async fn get_measurement_journal_record_by_id(
         })
 }
 
+/// get_measurement_journal_record_by_report_id returns a populated
+/// MeasurementJournalRecord for the given `report_id`,
+/// if it exists. This leverages the generic get_object_for_id
+/// function since its a simple/common pattern.
+pub async fn get_measurement_journal_record_by_report_id(
+    txn: &mut Transaction<'_, Postgres>,
+    report_id: MeasurementReportId,
+) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
+    common::get_object_for_id(txn, report_id)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_journal_record_by_report_id",
+                e.source,
+            )
+        })
+}
+
 /// get_measurement_journal_records returns all MeasurementJournalRecord
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.

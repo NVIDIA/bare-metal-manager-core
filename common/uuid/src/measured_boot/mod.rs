@@ -265,7 +265,7 @@ impl TryFrom<Option<Uuid>> for MeasurementSystemProfileAttrId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, ToTable for printing via prettytable,
 /// as well as other various trait impls as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, Default)]
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementBundleId(pub uuid::Uuid);
@@ -338,7 +338,7 @@ impl TryFrom<Option<Uuid>> for MeasurementBundleId {
 /// a single measurement that is part of a measurement bundle.
 ///
 /// Includes code for various implementations.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementBundleValueId(pub uuid::Uuid);

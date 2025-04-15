@@ -23,7 +23,7 @@ use crate::measured_boot::interface::bundle::{
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use rpc::protos::measured_boot::{
     CreateMeasurementBundleRequest, CreateMeasurementBundleResponse,
-    DeleteMeasurementBundleRequest, DeleteMeasurementBundleResponse,
+    DeleteMeasurementBundleRequest, DeleteMeasurementBundleResponse, FindClosestBundleMatchRequest,
     ListMeasurementBundleMachinesRequest, ListMeasurementBundleMachinesResponse,
     ListMeasurementBundlesRequest, ListMeasurementBundlesResponse, MeasurementBundleRecordPb,
     RenameMeasurementBundleRequest, RenameMeasurementBundleResponse, ShowMeasurementBundleRequest,
@@ -32,8 +32,10 @@ use rpc::protos::measured_boot::{
 };
 use sqlx::{Pool, Postgres};
 
-use crate::measured_boot::db;
-use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use crate::measured_boot::db::{self, bundle};
+use forge_uuid::measured_boot::{
+    MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId,
+};
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleState;
 use rpc::protos::measured_boot::delete_measurement_bundle_request;
@@ -274,4 +276,39 @@ pub async fn handle_list_measurement_bundle_machines(
     };
 
     Ok(ListMeasurementBundleMachinesResponse { machine_ids })
+}
+
+pub async fn handle_find_closest_match(
+    db_conn: &Pool<Postgres>,
+    req: &FindClosestBundleMatchRequest,
+) -> Result<ShowMeasurementBundleResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
+
+    let report_id = MeasurementReportId::from_grpc(req.report_id.clone())?;
+
+    let report = db::report::from_id_with_txn(&mut txn, report_id)
+        .await
+        .map_err(|e| Status::internal(format!("{}", e)))?;
+
+    // get profile
+    let journal = db::journal::get_journal_for_report_id(&mut txn, report_id).await?;
+
+    let bundle = match bundle::find_closest_match_with_txn(
+        &mut txn,
+        journal.profile_id.ok_or(Status::invalid_argument(
+            "A journal without profile detected",
+        ))?,
+        &report.pcr_values(),
+    )
+    .await?
+    {
+        Some(matched_bundle) => matched_bundle,
+        None => {
+            return Ok(ShowMeasurementBundleResponse { bundle: None });
+        }
+    };
+
+    Ok(ShowMeasurementBundleResponse {
+        bundle: Some(bundle.into()),
+    })
 }
