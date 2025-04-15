@@ -5364,41 +5364,6 @@ async fn lockdown_host(
         .create_client_from_machine(host_snapshot, txn)
         .await?;
 
-    // the forge_setup call includes the equivalent of these calls internally in libredfish
-    // - serial setup (bios, bmc)
-    // - tpm clear (bios)
-    // - boot once to pxe
-    let boot_interface_mac = if state.dpu_snapshots.len() > 1 {
-        // Multi DPU case
-        let primary_interface = state
-            .host_snapshot
-            .interfaces
-            .iter()
-            .find(|x| x.primary_interface)
-            .ok_or_else(|| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "Missing primary interface from host: {}",
-                    state.host_snapshot.id
-                ))
-            })?;
-        Some(primary_interface.mac_address.to_string())
-    } else {
-        // libredfish will choose the DPU
-        None
-    };
-
-    call_forge_setup_and_handle_no_dpu_error(
-        redfish_client.as_ref(),
-        boot_interface_mac.as_deref(),
-        state.host_snapshot.associated_dpu_machine_ids().len(),
-        &services.site_config,
-    )
-    .await
-    .map_err(|e| StateHandlerError::RedfishError {
-        operation: "forge_setup",
-        error: e,
-    })?;
-
     redfish_client
         .lockdown(libredfish::EnabledDisabled::Enabled)
         .await
