@@ -216,6 +216,7 @@ impl InternalRBACRules {
         x.perm("ShowMeasurementBundles", vec![ForgeAdminCLI]);
         x.perm("ListMeasurementBundles", vec![ForgeAdminCLI]);
         x.perm("ListMeasurementBundleMachines", vec![ForgeAdminCLI]);
+        x.perm("FindClosestBundleMatch", vec![ForgeAdminCLI]);
         x.perm("DeleteMeasurementJournal", vec![ForgeAdminCLI]);
         x.perm("ShowMeasurementJournal", vec![ForgeAdminCLI]);
         x.perm("ShowMeasurementJournals", vec![ForgeAdminCLI]);

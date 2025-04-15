@@ -26,7 +26,9 @@
 use crate::cfg::measurement::parse_pcr_register_values;
 use crate::measurement::global::cmds::IdNameIdentifier;
 use clap::Parser;
-use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use forge_uuid::measured_boot::{
+    MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId,
+};
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleState;
 
@@ -51,6 +53,13 @@ pub enum CmdBundle {
 
     #[clap(about = "Show a bundle (or all).", visible_alias = "s")]
     Show(Show),
+
+    #[clap(
+        subcommand,
+        about = "Get closest bundle to a report.",
+        visible_alias = "g"
+    )]
+    FindClosestMatch(FindClosestMatch),
 
     #[clap(
         subcommand,
@@ -221,4 +230,16 @@ impl IdNameIdentifier for ListMachines {
     fn is_name(&self) -> bool {
         self.is_name
     }
+}
+
+#[derive(Parser, Debug)]
+pub enum FindClosestMatch {
+    #[clap(about = "The existing report ID.")]
+    Report(ReportId),
+}
+
+#[derive(Parser, Debug)]
+pub struct ReportId {
+    #[clap(help = "Report ID.")]
+    pub id: MeasurementReportId,
 }

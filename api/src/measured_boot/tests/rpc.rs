@@ -732,6 +732,378 @@ mod tests {
         Ok(())
     }
 
+    //  this tests the ability to find a the closest matching bundle to a
+    // a given report
+    #[crate::sqlx_test]
+    pub async fn test_get_closest_match(
+        db_conn: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // A machine is needed for sending a report, so lets inject one.
+        let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
+        let mut txn = db_conn.begin().await?;
+        let princess_network = create_test_machine(
+            &mut txn,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+            &lenovo_sr670_topology,
+        )
+        .await?;
+        txn.commit().await?;
+
+        // create values for a report
+        let pcr_values: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 0,
+                sha256: "d86624ca1c77f5420c4a13f3cbca22044230adaeb23f313e5f2e0c903bff522e"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 1,
+                sha256: "4a43aa687655d3a36a3dbec7bd48894f08f51a87f1027fdc5d325748797099c9"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 2,
+                sha256: "1a279c880e6b1ba9c9b0d980760f97801af3d6e84aff0cd33e4fea28e6818d7e"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 3,
+                sha256: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 4,
+                sha256: "60dd6f85e62e1e6250f3632c918457f05f1ba88f5b2fe55554d012c5a70d2ca2"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 5,
+                sha256: "f2023fe2729073c1b3c175bd4e6206883661ad21c923bca43c20fc8b503ade09"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 6,
+                sha256: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 7,
+                sha256: "59fc09fad43fa9527c3366b820d1f9068392e731992895a4f9654785c300128f"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 8,
+                sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 9,
+                sha256: "d3cab16f23b70f856f44efdb01dd2fdf96d3c80c56c5ebef25077347691e3227"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 10,
+                sha256: "60a8e8fec245e25100b86608a7cf2a284e22db5f90ec49dbe7a1725affef155b"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 11,
+                sha256: "0a41386a6ec4387d5a41229a28e6369cd75325082371e3e18e6338dcb578c783"
+                    .to_string(),
+            },
+        ];
+
+        // Make the report.
+        let req = mbrpc::CreateMeasurementReportRequest {
+            machine_id: princess_network.machine_id.to_string(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
+        };
+        let result = report::handle_create_measurement_report(&db_conn, &req).await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert!(resp.report.is_some());
+        let report = resp.report.unwrap();
+
+        // Make sure a profile was created (and wired to the machine).
+        let req = mbrpc::ShowMeasurementSystemProfilesRequest {};
+        let resp = profile::handle_show_measurement_system_profiles(&db_conn, &req).await?;
+        assert_eq!(1, resp.system_profiles.len());
+        let profile = &resp.system_profiles[0];
+        let req = mbrpc::ListMeasurementSystemProfileMachinesRequest {
+            selector: Some(
+                mbrpc::list_measurement_system_profile_machines_request::Selector::ProfileId(
+                    profile.profile_id.as_ref().unwrap().clone(),
+                ),
+            ),
+        };
+        let resp = profile::handle_list_measurement_system_profile_machines(&db_conn, &req).await?;
+        assert_eq!(1, resp.machine_ids.len());
+        assert_eq!(princess_network.machine_id.to_string(), resp.machine_ids[0]);
+
+        // Create four partial bundles + 1 full bundle
+
+        // 3 elements, 3 matching
+        let pcr_values: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 3,
+                sha256: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 9,
+                sha256: "d3cab16f23b70f856f44efdb01dd2fdf96d3c80c56c5ebef25077347691e3227"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 11,
+                sha256: "0a41386a6ec4387d5a41229a28e6369cd75325082371e3e18e6338dcb578c783"
+                    .to_string(),
+            },
+        ];
+        let req = mbrpc::CreateMeasurementBundleRequest {
+            name: Some(String::from("3-elem_3m")),
+            profile_id: profile.profile_id.clone(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
+            state: mbrpc::MeasurementBundleStatePb::Active.into(),
+        };
+        let resp = bundle::handle_create_measurement_bundle(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+        let bundle = resp.bundle.unwrap();
+        assert_eq!(bundle.name, String::from("3-elem_3m"));
+        assert_eq!(bundle.values.len(), pcr_values.len());
+        assert_eq!(bundle.state, mbrpc::MeasurementBundleStatePb::Active as i32,);
+
+        // 5 elements, 2 matching
+        let pcr_values: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 1,
+                sha256: "20".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 2,
+                sha256: "1a279c880e6b1ba9c9b0d980760f97801af3d6e84aff0cd33e4fea28e6818d7e"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 3,
+                sha256: "30".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 4,
+                sha256: "60dd6f85e62e1e6250f3632c918457f05f1ba88f5b2fe55554d012c5a70d2ca2"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 5,
+                sha256: "50".to_string(),
+            },
+        ];
+        let req = mbrpc::CreateMeasurementBundleRequest {
+            name: Some(String::from("5-elem_2m")),
+            profile_id: profile.profile_id.clone(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
+            state: mbrpc::MeasurementBundleStatePb::Active.into(),
+        };
+        let resp = bundle::handle_create_measurement_bundle(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+        let bundle = resp.bundle.unwrap();
+        assert_eq!(bundle.name, String::from("5-elem_2m"));
+        assert_eq!(bundle.values.len(), pcr_values.len());
+        assert_eq!(bundle.state, mbrpc::MeasurementBundleStatePb::Active as i32,);
+
+        // 5 elements, 0 matching
+        let pcr_values: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 0,
+                sha256: "10".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 1,
+                sha256: "20".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 2,
+                sha256: "30".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 3,
+                sha256: "30".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 4,
+                sha256: "40".to_string(),
+            },
+        ];
+        let req = mbrpc::CreateMeasurementBundleRequest {
+            name: Some(String::from("5-elem_0m")),
+            profile_id: profile.profile_id.clone(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
+            state: mbrpc::MeasurementBundleStatePb::Active.into(),
+        };
+        let resp = bundle::handle_create_measurement_bundle(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+        let bundle = resp.bundle.unwrap();
+        assert_eq!(bundle.name, String::from("5-elem_0m"));
+        assert_eq!(bundle.values.len(), pcr_values.len());
+        assert_eq!(bundle.state, mbrpc::MeasurementBundleStatePb::Active as i32,);
+
+        // 4 elements, 3 matching
+        let pcr_values: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 1,
+                sha256: "20".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 3,
+                sha256: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 9,
+                sha256: "d3cab16f23b70f856f44efdb01dd2fdf96d3c80c56c5ebef25077347691e3227"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 11,
+                sha256: "0a41386a6ec4387d5a41229a28e6369cd75325082371e3e18e6338dcb578c783"
+                    .to_string(),
+            },
+        ];
+        let req = mbrpc::CreateMeasurementBundleRequest {
+            name: Some(String::from("4-elem_3m")),
+            profile_id: profile.profile_id.clone(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
+            state: mbrpc::MeasurementBundleStatePb::Active.into(),
+        };
+        let resp = bundle::handle_create_measurement_bundle(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+        let bundle = resp.bundle.unwrap();
+        assert_eq!(bundle.name, String::from("4-elem_3m"));
+        assert_eq!(bundle.values.len(), pcr_values.len());
+        assert_eq!(bundle.state, mbrpc::MeasurementBundleStatePb::Active as i32,);
+
+        // 3 elements, 1 matching
+        let pcr_values: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 1,
+                sha256: "20".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 3,
+                sha256: "40".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 6,
+                sha256: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
+                    .to_string(),
+            },
+        ];
+        let req = mbrpc::CreateMeasurementBundleRequest {
+            name: Some(String::from("3-elem_1m")),
+            profile_id: profile.profile_id.clone(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
+            state: mbrpc::MeasurementBundleStatePb::Active.into(),
+        };
+        let resp = bundle::handle_create_measurement_bundle(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+        let bundle = resp.bundle.unwrap();
+        assert_eq!(bundle.name, String::from("3-elem_1m"));
+        assert_eq!(bundle.values.len(), pcr_values.len());
+        assert_eq!(bundle.state, mbrpc::MeasurementBundleStatePb::Active as i32,);
+
+        // test 0 - call get closest match -> error as fully matching bundle found
+        let req = mbrpc::FindClosestBundleMatchRequest {
+            report_id: report.report_id.clone(),
+        };
+        let res = bundle::handle_find_closest_match(&db_conn, &req).await;
+        assert!(res.is_err());
+        assert_eq!(
+            &res.err().unwrap().message()[..31],
+            "Fully matching bundle(s) found:"
+        );
+
+        // retire fully matching bundle
+        let req = mbrpc::UpdateMeasurementBundleRequest {
+            selector: Some(
+                mbrpc::update_measurement_bundle_request::Selector::BundleName(
+                    "3-elem_3m".to_string(),
+                ),
+            ),
+            state: mbrpc::MeasurementBundleStatePb::Retired.into(),
+        };
+        let resp = bundle::handle_update_measurement_bundle(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+
+        // test 1 - call get closest match -> 4-elem-3m
+        let req = mbrpc::FindClosestBundleMatchRequest {
+            report_id: report.report_id.clone(),
+        };
+        let resp = bundle::handle_find_closest_match(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+        let bundle = resp.bundle.unwrap();
+        assert_eq!(bundle.name, String::from("4-elem_3m"));
+
+        // disable 4-elem-3m, match again -> 5-elem-2m
+        let req = mbrpc::UpdateMeasurementBundleRequest {
+            selector: Some(
+                mbrpc::update_measurement_bundle_request::Selector::BundleId(
+                    bundle.bundle_id.unwrap(),
+                ),
+            ),
+            state: mbrpc::MeasurementBundleStatePb::Retired.into(),
+        };
+        let resp = bundle::handle_update_measurement_bundle(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+
+        let req = mbrpc::FindClosestBundleMatchRequest {
+            report_id: report.report_id.clone(),
+        };
+        let resp = bundle::handle_find_closest_match(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+        let bundle = resp.bundle.unwrap();
+        assert_eq!(bundle.name, String::from("5-elem_2m"));
+
+        // disable 5-elem-2m, match again -> 3-elem-1m
+        let req = mbrpc::UpdateMeasurementBundleRequest {
+            selector: Some(
+                mbrpc::update_measurement_bundle_request::Selector::BundleId(
+                    bundle.bundle_id.unwrap(),
+                ),
+            ),
+            state: mbrpc::MeasurementBundleStatePb::Retired.into(),
+        };
+        let resp = bundle::handle_update_measurement_bundle(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+
+        let req = mbrpc::FindClosestBundleMatchRequest {
+            report_id: report.report_id.clone(),
+        };
+        let resp = bundle::handle_find_closest_match(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+        let bundle = resp.bundle.unwrap();
+        assert_eq!(bundle.name, String::from("3-elem_1m"));
+
+        // disable 3-elem-1m, match again -> none
+        let req = mbrpc::UpdateMeasurementBundleRequest {
+            selector: Some(
+                mbrpc::update_measurement_bundle_request::Selector::BundleId(
+                    bundle.bundle_id.unwrap(),
+                ),
+            ),
+            state: mbrpc::MeasurementBundleStatePb::Retired.into(),
+        };
+        let resp = bundle::handle_update_measurement_bundle(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+
+        let req = mbrpc::FindClosestBundleMatchRequest {
+            report_id: report.report_id.clone(),
+        };
+        let resp = bundle::handle_find_closest_match(&db_conn, &req).await?;
+        assert!(resp.bundle.is_none());
+
+        Ok(())
+    }
+
     // test_measurement_site is used to test all of the API handler
     // functions for site-specific management handlers for measured
     // boot, including import/export, and management of trusted

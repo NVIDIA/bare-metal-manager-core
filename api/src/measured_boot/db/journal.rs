@@ -19,7 +19,7 @@ use crate::db::DatabaseError;
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::journal::{
     delete_journal_where_id, get_measurement_journal_record_by_id,
-    insert_measurement_journal_record,
+    get_measurement_journal_record_by_report_id, insert_measurement_journal_record,
 };
 use crate::{CarbideError, CarbideResult};
 use forge_uuid::{
@@ -123,6 +123,27 @@ async fn get_measurement_journal_by_id(
         None => Err(CarbideError::NotFoundError {
             kind: "MeasurementJournal",
             id: journal_id.to_string(),
+        }),
+    }
+}
+
+pub async fn get_journal_for_report_id(
+    txn: &mut Transaction<'_, Postgres>,
+    report_id: MeasurementReportId,
+) -> CarbideResult<MeasurementJournal> {
+    match get_measurement_journal_record_by_report_id(txn, report_id).await? {
+        Some(info) => Ok(MeasurementJournal {
+            journal_id: info.journal_id,
+            machine_id: info.machine_id,
+            report_id: info.report_id,
+            profile_id: info.profile_id,
+            bundle_id: info.bundle_id,
+            state: info.state,
+            ts: info.ts,
+        }),
+        None => Err(CarbideError::NotFoundError {
+            kind: "MeasurementJournal",
+            id: report_id.to_string(),
         }),
     }
 }

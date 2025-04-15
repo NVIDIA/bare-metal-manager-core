@@ -28,7 +28,7 @@ use utils::admin_cli::ToTable;
 /// whose attributes are essentially copied directly it, as well as
 /// the associated attributes (which are complete instances of
 /// MeasurementBundleValueRecord, along with its UUID and timestamp).
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct MeasurementBundle {
     // bundle_id is the auto-generated UUID for a measurement bundle,
     // and is used as a reference ID for all measurement_bundle_value
