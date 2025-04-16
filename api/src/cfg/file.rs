@@ -738,7 +738,7 @@ impl SiteExplorerConfig {
     }
 
     pub const fn default_machines_created_per_run() -> u64 {
-        1
+        4
     }
 
     pub const fn default_reset_rate_limit() -> Duration {
