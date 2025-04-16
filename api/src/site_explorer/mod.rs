@@ -26,6 +26,7 @@ use managed_host::ManagedHost;
 use sqlx::{PgPool, Postgres, Transaction};
 use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
+use version_compare::Cmp;
 
 use crate::{
     CarbideError, CarbideResult,
@@ -2415,6 +2416,60 @@ impl SiteExplorer {
                 });
 
             ingest_host = false;
+        }
+
+        if host_endpoint.report.vendor.unwrap_or_default().is_nvidia() {
+            let Some(manager) = host_endpoint.report.managers.first() else {
+                tracing::warn!(
+                    "Site Explorer could not find the system report for a Nvidia host (bmc_ip_address: {})",
+                    host_endpoint.address,
+                );
+
+                return Ok(false);
+            };
+
+            // Viking
+            if system.id == "DGX" && manager.id == "BMC" {
+                for service in host_endpoint.report.service.iter() {
+                    if let Some(cpldmb_0_inventory) =
+                        service.inventories.iter().find(|&x| x.id == "CPLDMB_0")
+                    {
+                        let current_cpldmb_0_version =
+                            cpldmb_0_inventory.version.clone().unwrap_or_default();
+                        let expected_cpldmb_0_version = "0.2.1.9";
+                        match version_compare::compare_to(
+                            &current_cpldmb_0_version,
+                            expected_cpldmb_0_version,
+                            Cmp::Eq,
+                        ) {
+                            Ok(is_cpldmb_version_at_expected) => {
+                                if !is_cpldmb_version_at_expected {
+                                    tracing::warn!(
+                                        "Site Explorer found a Viking (bmc_ip_address: {}) with a CPLDMB_0 version of {current_cpldmb_0_version}, which is less than the expected version of {expected_cpldmb_0_version}. A DC Power Cycle may be needed",
+                                        host_endpoint.address,
+                                    );
+
+                                    return Ok(false);
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Site Explorer found a Viking (bmc_ip_address: {}) with a CPLDMB_0 version of {current_cpldmb_0_version} and could not compare it to the current CPLDMB_0 version of {expected_cpldmb_0_version}: {e:#?}",
+                                    host_endpoint.address,
+                                );
+
+                                return Ok(false);
+                            }
+                        }
+                    } else {
+                        tracing::warn!(
+                            "Site Explorer could not find the CPLDMB_0 inventory for a Viking (bmc_ip_address: {})",
+                            host_endpoint.address,
+                        );
+                        return Ok(false);
+                    };
+                }
+            }
         }
 
         if host_endpoint.report.vendor.unwrap_or_default().is_lenovo()

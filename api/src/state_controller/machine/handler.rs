@@ -5061,14 +5061,17 @@ impl HostUpgradeState {
                     }
                 }
                 Some(PowerDrainState::Off) => {
-                    tracing::info!("Doing powercycle now for {}", &endpoint.address);
-                    handler_host_power_control(
-                        state,
-                        services,
-                        SystemPowerControl::ACPowercycle,
-                        txn,
-                    )
-                    .await?;
+                    // AC Power Cycle is an action that is only supported by Lenovos
+                    if endpoint.report.vendor.unwrap_or_default().is_lenovo() {
+                        tracing::info!("Doing powercycle now for {}", &endpoint.address);
+                        handler_host_power_control(
+                            state,
+                            services,
+                            SystemPowerControl::ACPowercycle,
+                            txn,
+                        )
+                        .await?;
+                    }
 
                     let delay = if *power_drains_needed < 1000 { 90 } else { 0 };
                     let reprovision_state = HostReprovisionState::ResetForNewFirmware {

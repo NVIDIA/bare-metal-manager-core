@@ -776,10 +776,13 @@ impl PreingestionManagerStatic {
                     }
                 }
                 Some(PowerDrainState::Off) => {
-                    tracing::info!("Doing powercycle now for {}", &endpoint.address);
-                    if let Err(e) = redfish_client.power(SystemPowerControl::ACPowercycle).await {
-                        tracing::error!("Failed to power cycle {}: {e}", &endpoint.address);
-                        return Ok(());
+                    if endpoint.report.vendor.unwrap_or_default().is_lenovo() {
+                        tracing::info!("Doing powercycle now for {}", &endpoint.address);
+                        if let Err(e) = redfish_client.power(SystemPowerControl::ACPowercycle).await
+                        {
+                            tracing::error!("Failed to power cycle {}: {e}", &endpoint.address);
+                            return Ok(());
+                        }
                     }
                     let delay = if *power_drains_needed < 1000 {
                         time::Duration::seconds(90)
