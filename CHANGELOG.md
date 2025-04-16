@@ -4,6 +4,7 @@
 
 ### Added
 ### Changed
+- [MR-3931](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3931): Changed the DPU HBN version to 2.9.2, including accompanying BFB and BMC firmwares
 - [MR-3910](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3910): Changed the version of libredfish from version 0.29.18 to version 0.29.22
   - [nvmetal/libredfish!303] fix: fix up the machine_setup_status implementation for Vikings
   - [nvmetal/libredfish!304] fix: query the bios attributes on BF3s with a BMC FW of BF-24.04-5
