@@ -515,6 +515,11 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 .chassis_reset("Card1", SystemPowerControl::PowerCycle)
                 .await?;
         }
+        SetBootOrderDpuFirst(args) => {
+            redfish
+                .set_boot_order_dpu_first(&args.boot_interface_mac)
+                .await?;
+        }
     }
     Ok(())
 }

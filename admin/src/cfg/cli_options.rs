@@ -918,6 +918,7 @@ pub enum RedfishCommand {
     SetNicMode,
     SetDpuMode,
     ChassisResetCard1Powercycle,
+    SetBootOrderDpuFirst(SetBootOrderDpuFirstArgs),
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
@@ -1028,6 +1029,12 @@ pub struct ForgeSetupArgs {
     pub bios_profiles: Option<String>,
     #[clap(long, help = "BIOS profile to use")]
     pub selected_profile: Option<libredfish::BiosProfileType>,
+}
+
+#[derive(Parser, Debug, PartialEq, Clone)]
+pub struct SetBootOrderDpuFirstArgs {
+    #[clap(long, help = "boot_interface_mac:")]
+    pub boot_interface_mac: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
