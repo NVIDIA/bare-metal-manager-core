@@ -244,8 +244,7 @@ async fn create_vpc_peering(
         vpc_id: Some(vpc_id),
         peer_vpc_id: Some(peer_vpc_id),
     });
-    let response = env.api.create_vpc_peering(vpc_peering_request).await;
-    assert!(response.is_ok());
+    let _ = env.api.create_vpc_peering(vpc_peering_request).await?;
 
     // Add an instance
     let instance_network = Some(rpc::InstanceNetworkConfig {
@@ -299,9 +298,56 @@ async fn test_vpc_peering_network_config_mixed(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = api_fixtures::create_test_env(pool).await;
 
-    let (_, _, dpu_machine_id) = create_vpc_peering(
+    let response = create_vpc_peering(
         &env,
         VpcVirtualizationType::Fnn,
+        VpcVirtualizationType::EthernetVirtualizerWithNvue,
+    )
+    .await;
+
+    assert!(response.is_err());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_vpc_peering_network_config_exclusive_etv(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+
+    let (_, _, dpu_machine_id) = create_vpc_peering(
+        &env,
+        VpcVirtualizationType::EthernetVirtualizer,
+        VpcVirtualizationType::EthernetVirtualizer,
+    )
+    .await?;
+
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(response.tenant_interfaces.len(), 1);
+    assert_eq!(response.tenant_interfaces[0].vpc_peer_prefixes.len(), 1);
+    assert_eq!(response.tenant_interfaces[0].vpc_peer_vnis.len(), 0);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_vpc_peering_network_config_exclusive_etv_with_nvue(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+
+    let (_, _, dpu_machine_id) = create_vpc_peering(
+        &env,
+        VpcVirtualizationType::EthernetVirtualizer,
         VpcVirtualizationType::EthernetVirtualizerWithNvue,
     )
     .await?;

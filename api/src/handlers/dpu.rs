@@ -379,6 +379,7 @@ pub(crate) async fn get_managed_host_network_config(
                         // DPU agent reads loopback ip only from 0th interface.
                         // function build in nvue.rs
                         tenant_loopback_ip.clone(),
+                        api.runtime_config.nvue_enabled,
                         network_virtualization_type,
                         network_security_group_details.clone(),
                         segment,

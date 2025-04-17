@@ -818,7 +818,7 @@ pub fn get_config() -> CarbideConfig {
             ..Default::default()
         },
         nvue_enabled: true,
-        vpc_peering_policy: Some(VpcPeeringPolicy::Mixed),
+        vpc_peering_policy: Some(VpcPeeringPolicy::Exclusive),
         vpc_peering_policy_on_existing: None,
         attestation_enabled: false,
         tpm_required: true,
