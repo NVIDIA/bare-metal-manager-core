@@ -14,33 +14,12 @@
 //!
 
 use crate::cfg::file::HostHealthConfig;
-use crate::db::machine::{MACHINE_SNAPSHOT_QUERY, MACHINE_SNAPSHOT_WITH_HISTORY_QUERY};
+use crate::db::queries;
 use crate::{db::DatabaseError, model::machine::ManagedHostStateSnapshot};
 use forge_uuid::{instance::InstanceId, machine::MachineId};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
-
-const MANAGED_HOST_SNAPSHOTS_QUERY_TEMPLATE: &str = r#"
-    WITH
-    machine_snapshots AS (
-        __MACHINE_SNAPSHOT_QUERY__
-    ),
-    dpu_snapshots AS (
-        SELECT i.machine_id AS managed_host_id, m.*
-        FROM machine_interfaces i
-        INNER JOIN machine_snapshots m ON m.id = i.attached_dpu_machine_id
-        WHERE i.attached_dpu_machine_id <> i.machine_id
-    ),
-    dpu_snapshots_agg AS (
-        SELECT dpus.managed_host_id, JSON_AGG(dpus.*) AS json
-        FROM dpu_snapshots dpus
-        GROUP BY dpus.managed_host_id
-    )
-    SELECT m.id, row_to_json(m.*) AS host_snapshot, COALESCE(dpu_snapshots_agg.json, '[]') AS dpu_snapshots
-    FROM machine_snapshots m
-    LEFT JOIN dpu_snapshots_agg ON dpu_snapshots_agg.managed_host_id = m.id
-    "#;
 
 /// Loads a ManagedHost snapshot from the database
 pub async fn load_snapshot(
@@ -168,8 +147,7 @@ pub async fn load_by_instance_ids(
     load_snapshot_options: LoadSnapshotOptions,
 ) -> Result<Vec<ManagedHostStateSnapshot>, DatabaseError> {
     let query = format!(
-        r#"WITH managed_host_snapshots AS ({})
-        SELECT m.* FROM managed_host_snapshots m
+        r#"SELECT m.* FROM ({}) m
         INNER JOIN instances i ON i.machine_id = m.id
         WHERE i.id = ANY(
     "#,
@@ -221,33 +199,21 @@ impl LoadSnapshotOptions {
 fn managed_host_snapshots_query(options: &LoadSnapshotOptions) -> &str {
     // Use lazy_static so we don't have to interpolate strings every time
     lazy_static! {
-        static ref managed_host_snapshots_query: String = MANAGED_HOST_SNAPSHOTS_QUERY_TEMPLATE
-            .replace(
-                "__MACHINE_SNAPSHOT_QUERY__",
-                MACHINE_SNAPSHOT_QUERY.as_ref()
-            );
-        static ref managed_host_snapshots_with_history_query: String =
-            MANAGED_HOST_SNAPSHOTS_QUERY_TEMPLATE.replace(
-                "__MACHINE_SNAPSHOT_QUERY__",
-                MACHINE_SNAPSHOT_WITH_HISTORY_QUERY.as_ref()
-            );
         static ref managed_host_snapshots_with_instances_query: String = format!(
             r#"
-        WITH machine_snapshots AS ({})
         SELECT m.*, COALESCE(row_to_json(i.*), 'null') AS instance
-        FROM machine_snapshots m
+        FROM ({}) m
         LEFT JOIN instances i ON i.machine_id = m.id
         "#,
-            managed_host_snapshots_query.deref()
+            queries::MANAGED_HOSTS_NO_HISTORY.as_str(),
         );
         static ref managed_host_snapshots_with_instances_and_history_query: String = format!(
             r#"
-        WITH machine_snapshots AS ({})
         SELECT m.*, COALESCE(row_to_json(i.*), 'null') AS instance
-        FROM machine_snapshots m
+        FROM ({}) m
         LEFT JOIN instances i ON i.machine_id = m.id
         "#,
-            managed_host_snapshots_with_history_query.deref()
+            queries::MANAGED_HOSTS_WITH_HISTORY.as_str(),
         );
     }
 
@@ -258,8 +224,8 @@ fn managed_host_snapshots_query(options: &LoadSnapshotOptions) -> &str {
             managed_host_snapshots_with_instances_query.deref()
         }
     } else if options.include_history {
-        managed_host_snapshots_with_history_query.deref()
+        &queries::MANAGED_HOSTS_WITH_HISTORY
     } else {
-        managed_host_snapshots_query.deref()
+        &queries::MANAGED_HOSTS_NO_HISTORY
     }
 }

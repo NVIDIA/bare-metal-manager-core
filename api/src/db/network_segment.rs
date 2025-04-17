@@ -201,39 +201,36 @@ impl fmt::Display for NetworkSegmentType {
 }
 
 const NETWORK_SEGMENT_SNAPSHOT_QUERY_TEMPLATE: &str = r#"
-    WITH
-        prefixes_agg AS (
-            SELECT np.segment_id,
-                json_agg(np.*) AS json
-            FROM network_prefixes np
-            GROUP BY np.segment_id
-        )
-        __HISTORY_AGG__
      SELECT
         ns.*,
         COALESCE(prefixes_agg.json, '[]'::json) AS prefixes
         __HISTORY_SELECT__
      FROM network_segments ns
-     LEFT JOIN prefixes_agg ON prefixes_agg.segment_id = ns.id
+     LEFT JOIN LATERAL (
+        SELECT np.segment_id,
+            json_agg(np.*) AS json
+        FROM network_prefixes np
+        WHERE np.segment_id = ns.id
+        GROUP BY np.segment_id
+     ) AS prefixes_agg ON true
      __HISTORY_JOIN__
 "#;
 
 lazy_static! {
     static ref NETWORK_SEGMENT_SNAPSHOT_QUERY: String = NETWORK_SEGMENT_SNAPSHOT_QUERY_TEMPLATE
-        .replace("__HISTORY_AGG__", "")
         .replace("__HISTORY_SELECT__", "")
         .replace("__HISTORY_JOIN__", "");
 
     static ref NETWORK_SEGMENT_SNAPSHOT_WITH_HISTORY_QUERY: String = NETWORK_SEGMENT_SNAPSHOT_QUERY_TEMPLATE
-        .replace("__HISTORY_AGG__", r#"
-            , history_agg AS (
+        .replace("__HISTORY_JOIN__", r#"
+            LEFT JOIN LATERAL (
                 SELECT h.segment_id,
                     json_agg(json_build_object('segment_id', h.segment_id, 'state', h.state::text, 'state_version', h.state_version, 'timestamp', h."timestamp")) AS json
                 FROM network_segment_state_history h
+                WHERE h.segment_id = ns.id
                 GROUP BY h.segment_id
-            )"#)
-        .replace("__HISTORY_SELECT__", ", COALESCE(history_agg.json, '[]'::json) AS history")
-        .replace("__HISTORY_JOIN__", "LEFT JOIN history_agg ON history_agg.segment_id = ns.id");
+            ) AS history_agg ON true"#)
+        .replace("__HISTORY_SELECT__", ", COALESCE(history_agg.json, '[]'::json) AS history");
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive

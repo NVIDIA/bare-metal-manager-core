@@ -35,9 +35,8 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use super::{DatabaseError, ObjectFilter};
+use super::{DatabaseError, ObjectFilter, queries};
 use crate::db;
-use crate::db::machine_interface::MACHINE_INTERFACE_SNAPSHOT_QUERY;
 use crate::db::machine_topology::MachineTopology;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
@@ -103,78 +102,14 @@ struct ReprovisionRequestRestart {
 }
 
 lazy_static! {
-    // This is a denormalized view of a machine that includes its interfaces (including their
-    // denormalized address/vendors), its most recent topology, and optionally its history, in a
-    // single query, using CTE's and JSON_AGG.
-    static ref MACHINE_SNAPSHOT_QUERY_TEMPLATE: String = r#"
-        WITH
-        interface_snapshots AS (__INTERFACE_SNAPSHOTS__),
-        interfaces_agg AS (
-            SELECT i.machine_id, JSON_AGG(i.*) AS json
-            FROM interface_snapshots AS i
-            GROUP BY i.machine_id
-        ),
-        partitioned_topologies AS (
-            SELECT mt.*, ROW_NUMBER()
-            OVER (PARTITION BY mt.machine_id ORDER BY mt.created DESC) as row_num
-            FROM machine_topologies mt
-        ),
-        most_recent_topology AS (
-            SELECT t.machine_id, t.topology, t.created, t.updated, t.topology_update_needed
-            FROM partitioned_topologies t
-            WHERE row_num = 1
-        ),
-        topology_agg AS (
-            SELECT mt.machine_id, JSON_AGG(mt.*) AS json
-            FROM most_recent_topology mt
-            GROUP BY mt.machine_id
-        )
-        __HISTORY_AGG__
-        SELECT
-            m.*,
-            COALESCE(interfaces_agg.json, '[]') AS interfaces,
-            COALESCE(topology_agg.json, '[]') AS topology
-            __HISTORY_SELECT__
-        FROM machines m
-        LEFT JOIN interfaces_agg ON interfaces_agg.machine_id = m.id
-        LEFT JOIN topology_agg ON topology_agg.machine_id = m.id
-        __HISTORY_JOIN__
-    "#
-    // MACHINE_INTERFACE_SNAPSHOT_QUERY is the query we use in machine_interfaces.rs to denormalize
-    // the machine_interfaces table. Use that as a subquery for machine snapshots.
-        .replace("__INTERFACE_SNAPSHOTS__", MACHINE_INTERFACE_SNAPSHOT_QUERY);
-
-    pub static ref MACHINE_SNAPSHOT_WITH_HISTORY_QUERY: String = MACHINE_SNAPSHOT_QUERY_TEMPLATE
-        .replace(
-            "__HISTORY_AGG__",
-            r#", history_agg AS (
-                SELECT mh.machine_id, JSON_AGG(json_build_object('machine_id', mh.machine_id, 'state', mh.state::TEXT, 'state_version', mh.state_version)) AS json
-                FROM machine_state_history mh
-                GROUP BY machine_id
-            )"#)
-        .replace("__HISTORY_SELECT__", ", COALESCE(history_agg.json, '[]') AS history")
-        .replace("__HISTORY_JOIN__", "LEFT JOIN history_agg ON history_agg.machine_id = m.id");
-
-    pub static ref MACHINE_SNAPSHOT_QUERY: String = MACHINE_SNAPSHOT_QUERY_TEMPLATE
-        .replace("__HISTORY_AGG__", "")
-        .replace("__HISTORY_SELECT__", "")
-        .replace("__HISTORY_JOIN__", "");
-
-    pub static ref JSON_MACHINE_SNAPSHOT_WITH_HISTORY_QUERY: String = format!("WITH machine_snapshots AS ({}) SELECT row_to_json(m.*) FROM machine_snapshots m", MACHINE_SNAPSHOT_QUERY_TEMPLATE.deref())
-        .replace(
-            "__HISTORY_AGG__",
-            r#", history_agg AS (
-                SELECT mh.machine_id, JSON_AGG(json_build_object('machine_id', mh.machine_id, 'state', mh.state::TEXT, 'state_version', mh.state_version)) AS json
-                FROM machine_state_history mh
-                GROUP BY machine_id
-            )"#)
-        .replace("__HISTORY_SELECT__", ", COALESCE(history_agg.json, '[]') AS history")
-        .replace("__HISTORY_JOIN__", "LEFT JOIN history_agg ON history_agg.machine_id = m.id");
-
-    pub static ref JSON_MACHINE_SNAPSHOT_QUERY: String = format!("WITH machine_snapshots AS ({}) SELECT row_to_json(m.*) FROM machine_snapshots m", MACHINE_SNAPSHOT_QUERY_TEMPLATE.deref())
-        .replace("__HISTORY_AGG__", "")
-        .replace("__HISTORY_SELECT__", "")
-        .replace("__HISTORY_JOIN__", "");
+    pub static ref JSON_MACHINE_SNAPSHOT_WITH_HISTORY_QUERY: String = format!(
+        "SELECT row_to_json(m.*) FROM ({}) m INNER JOIN machines ON machines.id = m.id",
+        queries::MACHINE_SNAPSHOTS_WITH_HISTORY.as_str(),
+    );
+    pub static ref JSON_MACHINE_SNAPSHOT_QUERY: String = format!(
+        "SELECT row_to_json(m.*) FROM ({}) m INNER JOIN machines ON machines.id = m.id",
+        queries::MACHINE_SNAPSHOTS_NO_HISTORY.as_str(),
+    );
 }
 
 /// This represents the structure of a machine we get from postgres via the row_to_json or
@@ -547,7 +482,7 @@ pub async fn find(
     }
 
     if search_config.for_update {
-        builder.push(" FOR UPDATE ");
+        builder.push(" FOR UPDATE OF machines");
     };
 
     let all_machines: Vec<Machine> = builder
