@@ -84,7 +84,7 @@ os.environ["NGC_CLI_ORG"] = ngc_environment.tenant_org_name
 os.environ["NGC_CLI_DEBUG_LOG"] = "ngc_cli_debug.log"
 
 # Collect machine info
-machine = admin_cli.get_machine(machine_under_test)
+machine = admin_cli.get_machine_from_mh_show(machine_under_test)
 host_bmc_ip = machine["host_bmc_ip"]
 # Create a dictionary of DPU IDs to their BMC IPs
 dpu_ids: list[str] = []
