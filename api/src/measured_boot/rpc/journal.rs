@@ -63,14 +63,32 @@ pub async fn handle_show_measurement_journal(
 ) -> Result<ShowMeasurementJournalResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     let journal = match &req.selector {
-        Some(show_measurement_journal_request::Selector::JournalId(journal_uuid)) => {
-            db::journal::from_id(
-                &mut txn,
-                MeasurementJournalId::from_grpc(Some(journal_uuid.clone()))?,
-            )
-            .await
-            .map_err(|e| Status::internal(format!("{}", e)))?
-        }
+        Some(selector) => match selector {
+            show_measurement_journal_request::Selector::JournalId(journal_uuid) => {
+                db::journal::from_id(
+                    &mut txn,
+                    MeasurementJournalId::from_grpc(Some(journal_uuid.clone()))?,
+                )
+                .await
+                .map_err(|e| Status::internal(format!("{}", e)))?
+            }
+            show_measurement_journal_request::Selector::LatestForMachineId(machine_id) => {
+                match db::journal::get_latest_journal_for_id(
+                    &mut txn,
+                    MachineId::from_str(machine_id).map_err(|e| {
+                        Status::invalid_argument(format!("Could not parse MachineId: {}", e))
+                    })?,
+                )
+                .await
+                .map_err(|e| Status::internal(format!("{}", e)))?
+                {
+                    Some(journal) => journal,
+                    None => {
+                        return Ok(ShowMeasurementJournalResponse { journal: None });
+                    }
+                }
+            }
+        },
         None => return Err(Status::invalid_argument("selector must be provided")),
     };
 

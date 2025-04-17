@@ -44,6 +44,7 @@ use crate::CarbideError;
 use crate::api::Api;
 use crate::cfg::file::CarbideConfig;
 
+mod attestation;
 mod auth;
 mod domain;
 mod dpu_versions;
@@ -293,6 +294,18 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route(
                 "/machine/:machine_id/health/override/remove",
                 post(health::remove_override),
+            )
+            .route(
+                "/machine/:machine_id/attestation-results",
+                get(attestation::show_attestation_results),
+            )
+            .route(
+                "/attestation-summary",
+                get(attestation::show_attestation_summary),
+            )
+            .route(
+                "/machine/:machine_id/attestation-submit-report-promotion",
+                get(attestation::submit_report_promotion),
             )
             .route("/managed-host", get(managed_host::show_html))
             .route("/managed-host.json", get(managed_host::show_all_json))

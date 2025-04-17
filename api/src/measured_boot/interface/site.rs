@@ -27,6 +27,7 @@ use forge_uuid::measured_boot::{
 use measured_boot::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
 };
+use measured_boot::site::MachineAttestationSummary;
 use sqlx::{Postgres, Transaction};
 
 pub async fn insert_into_approved_machines(
@@ -177,4 +178,15 @@ pub async fn get_approval_for_profile_id(
         .fetch_optional(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_approval_for_profile_id", e))
+}
+
+pub async fn list_attestation_summary(
+    txn: &mut Transaction<'_, Postgres>,
+) -> Result<Vec<MachineAttestationSummary>, DatabaseError> {
+    let query = "select distinct on (mj.machine_id) mj.machine_id, mj.ts, msp.name, mj.bundle_id from measurement_journal mj, measurement_system_profiles msp WHERE mj.profile_id = msp.profile_id order by mj.machine_id, mj.ts desc";
+
+    sqlx::query_as(query)
+        .fetch_all(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "list_attestation_summary", e))
 }

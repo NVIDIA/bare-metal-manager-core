@@ -4192,6 +4192,19 @@ impl Forge for Api {
         ))
     }
 
+    async fn list_attestation_summary(
+        &self,
+        request: Request<measured_boot_pb::ListAttestationSummaryRequest>,
+    ) -> Result<Response<measured_boot_pb::ListAttestationSummaryResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::site::handle_list_attestation_summary(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
     // Host has rebooted
     async fn reboot_completed(
         &self,

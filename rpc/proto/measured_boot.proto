@@ -243,6 +243,7 @@ message DeleteMeasurementJournalResponse {
 message ShowMeasurementJournalRequest {
   oneof selector {
     UUID journal_id = 1;
+    string latest_for_machine_id = 2;
   }
 }
 
@@ -928,6 +929,21 @@ message ListMeasurementTrustedProfilesResponse {
 enum ImportSiteResult {
   Success = 0;
   Failed = 1;
+}
+
+message ListAttestationSummaryRequest {
+  
+}
+
+message ListAttestationSummaryResponse {
+  repeated MachineAttestationSummaryPb attestation_outcomes = 1;
+}
+
+message MachineAttestationSummaryPb{
+  string machine_id = 1;
+  optional UUID bundle_id = 2;
+  string profile_name = 3;
+  google.protobuf.Timestamp ts = 4;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
