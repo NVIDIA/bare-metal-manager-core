@@ -12,7 +12,6 @@
 use std::borrow::Borrow;
 
 use ::rpc::forge as rpc;
-use forge_uuid::vpc::VpcId;
 use ipnetwork::{IpNetwork, Ipv4Network};
 use sqlx::{Postgres, Transaction};
 use tonic::Status;
@@ -267,6 +266,7 @@ pub async fn tenant_network(
     iface: &InstanceInterfaceConfig,
     fqdn: String,
     loopback_ip: Option<String>,
+    nvue_enabled: bool,
     network_virtualization_type: VpcVirtualizationType,
     network_security_group_details: Option<(i32, NetworkSecurityGroup)>,
     segment: &NetworkSegment,
@@ -338,11 +338,27 @@ pub async fn tenant_network(
         if let Some(vpc_id) = segment.vpc_id {
             match policy {
                 VpcPeeringPolicy::Exclusive => {
-                    // VPC only allowed to peer with VPC of same network virtualization type
-                    let vpc_peers: Vec<(VpcId, i32)> =
-                        VpcPeering::get_vpc_peer_vnis(txn, vpc_id, network_virtualization_type)
-                            .await
-                            .map_err(CarbideError::from)?;
+                    // Under exclusive policy, VPC only allowed to peer with VPC of same network virtualization type.
+                    // If nvue_enabled, ETHERNET_VIRTUALIZER is same as ETHERNET_VIRTUALIZER_NVUE.
+                    let allowed_network_virtualization_types =
+                        match (nvue_enabled, network_virtualization_type) {
+                            (true, t) if t != VpcVirtualizationType::Fnn => {
+                                vec![
+                                    VpcVirtualizationType::EthernetVirtualizer,
+                                    VpcVirtualizationType::EthernetVirtualizerWithNvue,
+                                ]
+                            }
+                            _ => vec![network_virtualization_type],
+                        };
+                    let vpc_peers = VpcPeering::get_vpc_peer_vnis(
+                        txn,
+                        vpc_id,
+                        allowed_network_virtualization_types,
+                    )
+                    .await
+                    .map_err(CarbideError::from)?;
+
+                    tracing::info!("vpc_peers length {}", vpc_peers.len());
                     let vpc_peer_ids = vpc_peers.iter().map(|(vpc_id, _)| *vpc_id).collect();
                     vpc_peer_prefixes = get_prefixes_by_vpcs(txn, &vpc_peer_ids).await?;
                     if network_virtualization_type == VpcVirtualizationType::Fnn {
@@ -357,13 +373,16 @@ pub async fn tenant_network(
                     vpc_peer_prefixes = get_prefixes_by_vpcs(txn, &vpc_peer_ids).await?;
                     if network_virtualization_type == VpcVirtualizationType::Fnn {
                         // Get vnis of all FNN peers for route import
-                        vpc_peer_vnis =
-                            VpcPeering::get_vpc_peer_vnis(txn, vpc_id, VpcVirtualizationType::Fnn)
-                                .await
-                                .map_err(CarbideError::from)?
-                                .iter()
-                                .map(|(_, vni)| *vni as u32)
-                                .collect();
+                        vpc_peer_vnis = VpcPeering::get_vpc_peer_vnis(
+                            txn,
+                            vpc_id,
+                            vec![VpcVirtualizationType::Fnn],
+                        )
+                        .await
+                        .map_err(CarbideError::from)?
+                        .iter()
+                        .map(|(_, vni)| *vni as u32)
+                        .collect();
                     }
                 }
                 VpcPeeringPolicy::None => {}

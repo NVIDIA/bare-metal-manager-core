@@ -154,7 +154,7 @@ impl VpcPeering {
     pub async fn get_vpc_peer_vnis(
         txn: &mut Transaction<'_, Postgres>,
         vpc_id: VpcId,
-        virtualization_type: VpcVirtualizationType,
+        virtualization_types: Vec<VpcVirtualizationType>,
     ) -> Result<Vec<(VpcId, i32)>, DatabaseError> {
         let query = r#"
             SELECT vpcs.id, vpcs.vni
@@ -164,13 +164,13 @@ impl VpcPeering {
                 ELSE vp.vpc1_id
             END
             WHERE (vp.vpc1_id = $1 OR vp.vpc2_id = $1)
-              AND vpcs.network_virtualization_type = $2
+              AND vpcs.network_virtualization_type = ANY($2)
         "#;
 
         let vpc_id: Uuid = vpc_id.into();
         let peer_vpc_vnis = sqlx::query_as(query)
             .bind(vpc_id)
-            .bind(virtualization_type)
+            .bind(virtualization_types)
             .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

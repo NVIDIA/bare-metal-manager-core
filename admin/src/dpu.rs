@@ -655,6 +655,19 @@ pub async fn show_dpu_network_config(
                 table.add_row(row!["Is L2 Segment", tintf.is_l2_segment]);
                 table.add_row(row!["FQDN", tintf.fqdn]);
                 table.add_row(row!["VPC Prefixes", tintf.vpc_prefixes.join(", ")]);
+                table.add_row(row![
+                    "VPC Peer Prefixes",
+                    tintf.vpc_peer_prefixes.join(", ")
+                ]);
+                table.add_row(row![
+                    "VPC Peer VNIs",
+                    tintf
+                        .vpc_peer_vnis
+                        .iter()
+                        .map(|vni| vni.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                ]);
                 table.add_row(row!["VPC VNI", tintf.vpc_vni]);
                 table.add_row(row!["SVI IP", tintf.svi_ip()]);
                 table.add_row(row!["Tenant VRF Loopback", tintf.tenant_vrf_loopback_ip()]);

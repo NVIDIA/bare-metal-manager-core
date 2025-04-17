@@ -19,6 +19,7 @@ use crate::{
     db::DatabaseError,
 };
 use ::rpc::forge as rpc;
+use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::vpc::VpcId;
 use tonic::{Request, Response, Status};
 
@@ -84,10 +85,16 @@ pub async fn create(
                 kind: "VPC",
                 id: peer_vpc_id.clone().to_string(),
             })?;
-            if vpc1.network_virtualization_type != vpc2.network_virtualization_type {
+            // If nvue_enabled, then ETHERNET_VIRTUALIZER = ETHERNET_VIRTUALIZER_WITH_NVUE and
+            // only type of peering not allowed is between Fnn <-> ETV/ETV_WITH_NVUE
+            if vpc1.network_virtualization_type != vpc2.network_virtualization_type
+                && (!api.runtime_config.nvue_enabled
+                    || (vpc1.network_virtualization_type == VpcVirtualizationType::Fnn
+                        || vpc2.network_virtualization_type == VpcVirtualizationType::Fnn))
+            {
                 return Err(CarbideError::internal(
-                    "VPC peering between VPCs of different network virtualization type not allowed.".to_string(),
-                ).into());
+                            "VPC peering between VPCs of different network virtualization type not allowed.".to_string(),
+                        ).into());
             }
         }
         Some(VpcPeeringPolicy::Mixed) => {
