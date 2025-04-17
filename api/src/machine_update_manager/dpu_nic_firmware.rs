@@ -1,5 +1,3 @@
-use crate::db::machine::MachineSearchConfig;
-use crate::db::managed_host::LoadSnapshotOptions;
 use crate::model::machine::ManagedHostStateSnapshot;
 use crate::{
     CarbideError, CarbideResult, cfg::file::CarbideConfig,
@@ -56,28 +54,10 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
         txn: &mut Transaction<'_, Postgres>,
         available_updates: i32,
         updating_host_machines: &HashSet<MachineId>,
+        snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) -> CarbideResult<HashSet<MachineId>> {
-        let machine_ids = crate::db::machine::find_machine_ids(
-            txn,
-            MachineSearchConfig {
-                include_predicted_host: true,
-                ..Default::default()
-            },
-        )
-        .await?;
-        let snapshots = crate::db::managed_host::load_by_machine_ids(
-            txn,
-            &machine_ids,
-            LoadSnapshotOptions {
-                include_history: false,
-                include_instance_data: false,
-                host_health_config: self.config.host_health,
-            },
-        )
-        .await?;
-
         let machine_updates: Vec<DpuMachineUpdate> = self
-            .check_for_updates(&snapshots, available_updates)
+            .check_for_updates(snapshots, available_updates)
             .await
             .into_iter()
             .filter(|u| updating_host_machines.get(&u.host_machine_id).is_none())
@@ -174,42 +154,12 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
         Ok(())
     }
 
-    async fn update_metrics(&self, txn: &mut Transaction<'_, Postgres>) {
-        let machine_ids = match crate::db::machine::find_machine_ids(
-            txn,
-            MachineSearchConfig {
-                include_predicted_host: true,
-                ..Default::default()
-            },
-        )
-        .await
-        {
-            Ok(ids) => ids,
-            Err(e) => {
-                tracing::error!("Failed to load machine ids to update metrics: {e}");
-                return;
-            }
-        };
-
-        let snapshots = match crate::db::managed_host::load_by_machine_ids(
-            txn,
-            &machine_ids,
-            LoadSnapshotOptions {
-                include_history: false,
-                include_instance_data: false,
-                host_health_config: self.config.host_health,
-            },
-        )
-        .await
-        {
-            Ok(snapshots) => snapshots,
-            Err(e) => {
-                tracing::error!("Failed to load machine snapshots to update metrics: {e}");
-                return;
-            }
-        };
-
-        match DpuMachineUpdate::find_available_outdated_dpus(None, &self.config, &snapshots).await {
+    async fn update_metrics(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
+    ) {
+        match DpuMachineUpdate::find_available_outdated_dpus(None, &self.config, snapshots).await {
             Ok(outdated_dpus) => {
                 if let Some(metrics) = &self.metrics {
                     metrics
@@ -221,7 +171,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
         }
 
         let outdated_dpus =
-            DpuMachineUpdate::find_unavailable_outdated_dpus(&self.config, &snapshots).await;
+            DpuMachineUpdate::find_unavailable_outdated_dpus(&self.config, snapshots).await;
         if let Some(metrics) = &self.metrics {
             metrics
                 .unavailable_dpu_updates

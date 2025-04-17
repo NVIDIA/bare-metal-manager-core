@@ -18,6 +18,7 @@ pub mod metrics;
 use host_firmware::HostFirmwareUpdate;
 use machine_update_module::{HOST_UPDATE_HEALTH_REPORT_SOURCE, machine_updates_in_progress};
 use sqlx::{PgPool, Postgres, Transaction};
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::{collections::HashSet, sync::Arc, time::Duration};
 use tokio::sync::oneshot;
@@ -27,6 +28,9 @@ use self::{
     machine_update_module::{AutomaticFirmwareUpdateReference, MachineUpdateModule},
     metrics::MachineUpdateManagerMetrics,
 };
+use crate::cfg::file::HostHealthConfig;
+use crate::db::managed_host::LoadSnapshotOptions;
+use crate::model::machine::ManagedHostStateSnapshot;
 use crate::{
     CarbideError, CarbideResult,
     cfg::file::CarbideConfig,
@@ -54,6 +58,7 @@ pub struct MachineUpdateManager {
     run_interval: Duration,
     update_modules: Vec<Box<dyn MachineUpdateModule>>,
     metrics: Option<MachineUpdateManagerMetrics>,
+    host_health: HostHealthConfig,
 }
 
 impl MachineUpdateManager {
@@ -77,6 +82,7 @@ impl MachineUpdateManager {
             run_interval: Duration::from_secs(config.machine_update_run_interval.unwrap_or(300)),
             update_modules: modules,
             metrics: None,
+            host_health: config.host_health,
         }
     }
 
@@ -109,6 +115,7 @@ impl MachineUpdateManager {
             run_interval: Duration::from_secs(config.machine_update_run_interval.unwrap_or(300)),
             update_modules,
             metrics: Some(machine_update_metrics),
+            host_health: config.host_health,
         }
     }
 
@@ -140,6 +147,31 @@ impl MachineUpdateManager {
                 }
             }
         }
+    }
+
+    async fn get_all_snapshots(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
+        let machine_ids = crate::db::machine::find_machine_ids(
+            txn,
+            MachineSearchConfig {
+                include_predicted_host: true,
+                ..Default::default()
+            },
+        )
+        .await?;
+        crate::db::managed_host::load_by_machine_ids(
+            txn,
+            &machine_ids,
+            LoadSnapshotOptions {
+                include_history: false,
+                include_instance_data: false,
+                host_health_config: self.host_health,
+            },
+        )
+        .await
+        .map_err(CarbideError::from)
     }
 
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
@@ -182,6 +214,8 @@ impl MachineUpdateManager {
                     .collect();
             }
 
+            let snapshots = self.get_all_snapshots(&mut txn).await?;
+
             for update_module in self.update_modules.iter() {
                 if (current_updating_machines.len() as i32) >= self.max_concurrent_machine_updates {
                     break;
@@ -191,7 +225,12 @@ impl MachineUpdateManager {
                     self.max_concurrent_machine_updates - current_updating_machines.len() as i32;
 
                 let updates_started = update_module
-                    .start_updates(&mut txn, available_updates, &current_updating_machines)
+                    .start_updates(
+                        &mut txn,
+                        available_updates,
+                        &current_updating_machines,
+                        &snapshots,
+                    )
                     .await?;
 
                 tracing::debug!("started: {:?}", updates_started);
@@ -205,8 +244,11 @@ impl MachineUpdateManager {
             }
             current_updating_count = current_updating_machines.len();
 
+            //refresh snapshots for metrics
+            let snapshots = self.get_all_snapshots(&mut txn).await?;
+
             for update_module in self.update_modules.iter() {
-                update_module.update_metrics(&mut txn).await;
+                update_module.update_metrics(&mut txn, &snapshots).await;
             }
 
             txn.commit().await.map_err(|e| {

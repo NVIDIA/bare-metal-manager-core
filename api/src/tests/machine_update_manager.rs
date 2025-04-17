@@ -2,6 +2,7 @@ use crate::{
     machine_update_manager::machine_update_module::{
         HOST_UPDATE_HEALTH_REPORT_SOURCE, create_host_update_health_report,
     },
+    model::machine::ManagedHostStateSnapshot,
     tests::common,
 };
 
@@ -27,7 +28,7 @@ use figment::{
 use forge_uuid::machine::MachineId;
 use sqlx::{Postgres, Row, Transaction};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fmt,
     sync::{Arc, Mutex},
     time::Duration,
@@ -57,6 +58,7 @@ impl MachineUpdateModule for TestUpdateModule {
         _txn: &mut Transaction<'_, Postgres>,
         _available_updates: i32,
         _updating_machines: &HashSet<MachineId>,
+        _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) -> CarbideResult<HashSet<MachineId>> {
         if let Ok(mut guard) = self.start_updates_called.lock() {
             (*guard) += 1;
@@ -75,7 +77,12 @@ impl MachineUpdateModule for TestUpdateModule {
         Ok(())
     }
 
-    async fn update_metrics(&self, _txn: &mut Transaction<'_, Postgres>) {}
+    async fn update_metrics(
+        &self,
+        _txn: &mut Transaction<'_, Postgres>,
+        _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
+    ) {
+    }
 }
 
 impl TestUpdateModule {
