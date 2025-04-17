@@ -85,7 +85,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let host_snapshot: sqlx::types::Json<MachineSnapshotPgJson> =
             row.try_get("host_snapshot")?;
-        let dpu_snapshots: sqlx::types::Json<Vec<MachineSnapshotPgJson>> =
+        let dpu_snapshots: sqlx::types::Json<Vec<Option<MachineSnapshotPgJson>>> =
             row.try_get("dpu_snapshots")?;
 
         let instance = if let Some(column) = row.columns().iter().find(|c| c.name() == "instance") {
@@ -101,6 +101,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
         let dpu_snapshots: Vec<Machine> = dpu_snapshots
             .0
             .into_iter()
+            .flatten()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
 

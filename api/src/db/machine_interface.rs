@@ -80,26 +80,26 @@ impl ColumnInfo<'_> for MachineIdColumn {
 /// JSON_AGG. This query is also used by machines.rs as a subquery when collecting machine
 /// snapshots.
 pub const MACHINE_INTERFACE_SNAPSHOT_QUERY: &str = r#"
-    WITH addresses_agg AS (
-        SELECT a.interface_id,
-            json_agg(a.address) AS json
-        FROM machine_interface_addresses a
-        GROUP BY a.interface_id
-    ),
-    vendors_agg AS (
-        SELECT d.machine_interface_id,
-            json_agg(d.vendor_string) AS json
-        FROM dhcp_entries d
-        GROUP BY d.machine_interface_id
-    )
     SELECT mi.*,
         COALESCE(addresses_agg.json, '[]'::json) AS addresses,
         COALESCE(vendors_agg.json, '[]'::json) AS vendors,
         ns.network_segment_type
     FROM machine_interfaces mi
     JOIN network_segments ns ON ns.id = mi.segment_id
-    LEFT JOIN addresses_agg ON addresses_agg.interface_id = mi.id
-    LEFT JOIN vendors_agg ON vendors_agg.machine_interface_id = mi.id
+    LEFT JOIN LATERAL (
+        SELECT a.interface_id,
+            json_agg(a.address) AS json
+        FROM machine_interface_addresses a
+        WHERE a.interface_id = mi.id
+        GROUP BY a.interface_id
+    ) AS addresses_agg ON true
+    LEFT JOIN LATERAL (
+        SELECT d.machine_interface_id,
+            json_agg(d.vendor_string) AS json
+        FROM dhcp_entries d
+        WHERE d.machine_interface_id = mi.id
+        GROUP BY d.machine_interface_id
+    ) AS vendors_agg ON true
 "#;
 
 impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {

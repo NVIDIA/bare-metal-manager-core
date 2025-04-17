@@ -45,6 +45,7 @@ pub mod network_security_group;
 pub mod network_segment;
 pub mod network_segment_state_history;
 pub mod predicted_machine_interface;
+pub mod queries;
 pub mod resource_pool;
 pub mod resource_record;
 pub mod route_servers;
