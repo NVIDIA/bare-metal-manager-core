@@ -29,6 +29,13 @@ bfb_modify_os()
 {
 # set errexit so that if any command fails, we exit the script
 set -e
+ilog "======== Start of bfb_modify_os ============"
+ilog "$(/usr/sbin/fdisk -l)"
+ilog "$(/usr/bin/lsblk)"
+ilog "$(/usr/sbin/blkid)"
+ilog "$(/usr/bin/efibootmgr -v)"
+ilog "==================================="
+ilog "==================================="
 # move the files out of the installer and into the installed OS
 mkdir -p /mnt/opt/forge
 mv /forge-scout /mnt/opt/forge
@@ -217,6 +224,13 @@ runcmd:
   - [ bash, -c, '/opt/forge/runcmds.sh' ]
 EOF
 
+ilog "======== End of bfb_modify_os ============"
+ilog "$(/usr/sbin/fdisk -l)"
+ilog "$(/usr/bin/lsblk)"
+ilog "$(/usr/sbin/blkid)"
+ilog "$(/usr/bin/efibootmgr -v)"
+ilog "==================================="
+ilog "==================================="
 # restore previous errexit behavior
 set +e
 }
