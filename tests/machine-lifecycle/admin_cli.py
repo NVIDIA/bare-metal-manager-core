@@ -95,7 +95,7 @@ def check_machine_ready(machine_id: str) -> bool:
 
 def get_machine_state(machine_id: str, allow_missing_machine: bool = False) -> str:
     """Get the current state for the specified machine."""
-    machine = get_machine(machine_id, allow_missing_machine)
+    machine = get_machine_from_m_show(machine_id, allow_missing_machine)
     if machine is None and allow_missing_machine:
         print(f"Machine with id {machine_id} not found, retry later.")
         return "<Missing>"
@@ -140,14 +140,14 @@ def check_machine_not_updating(host_id: str) -> bool:
     :param host_id: Note: must not be the DPU ID
     """
     update_alert = "HostUpdateInProgress"
-    machine = get_machine(host_id)
+    machine = get_machine_from_mh_show(host_id)
     health_alerts = [alert["id"] for alert in machine["health"]["alerts"]]
     return update_alert not in health_alerts
 
 
 def check_machine_not_in_maintenance(machine_id: str) -> bool:
     """Check once if the specified machine is in ready state."""
-    machine = get_machine(machine_id)
+    machine = get_machine_from_mh_show(machine_id)
     print(
         f"{machine_id} maintenance_start_time '{machine['maintenance_start_time']}'"
         f" maintenance_reference '{machine['maintenance_reference']}'"
@@ -174,13 +174,26 @@ def put_machine_into_maintenance_mode(machine_id: str) -> None:
     )
 
 
-def get_machine(machine_id: str, allow_missing: bool = False) -> dict | None:
-    """Get JSON formatted machine information."""
+def get_machine_from_mh_show(machine_id: str, allow_missing: bool = False) -> dict | None:
+    """Get JSON formatted machine information from `managed-host show` output.
+    This will only work after the host and DPU have been paired to create a managed host."""
     result = run_forge_admin_cli(["managed-host", "show"])
     machine = _get_machine_from_json(machine_id, result)
     if machine is None:
         if not allow_missing:
             raise Exception(f"Machine with id {machine_id} not found.")
+    return machine
+
+
+def get_machine_from_m_show(machine_id: str, allow_missing: bool = False) -> dict | None:
+    """Get JSON formatted machine information from `machine show` output.
+    This will work at any point once the machine has been discovered and given an ID"""
+    try:
+        machine = run_forge_admin_cli(["machine", "show", machine_id])
+    except subprocess.CalledProcessError:
+        if allow_missing:
+            return None
+        raise Exception(f"Machine with id {machine_id} not found.")
     return machine
 
 
