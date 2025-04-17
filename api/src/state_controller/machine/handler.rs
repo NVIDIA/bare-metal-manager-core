@@ -3706,7 +3706,7 @@ impl StateHandler for HostMachineStateHandler {
 
                         match set_boot_order_dpu_first_and_handle_no_dpu_error(
                             redfish_client.as_ref(),
-                            Some(&primary_interface.mac_address.to_string()),
+                            &primary_interface.mac_address.to_string(),
                             mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
                             &ctx.services.site_config,
                         )
@@ -5471,7 +5471,7 @@ async fn call_forge_setup_and_handle_no_dpu_error(
 
 async fn set_boot_order_dpu_first_and_handle_no_dpu_error(
     redfish_client: &dyn Redfish,
-    boot_interface_mac: Option<&str>,
+    boot_interface_mac: &str,
     expected_dpu_count: usize,
     site_config: &CarbideConfig,
 ) -> Result<(), RedfishError> {

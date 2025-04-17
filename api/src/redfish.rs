@@ -1390,10 +1390,7 @@ pub mod test_support {
             })
         }
 
-        async fn set_boot_order_dpu_first(
-            &self,
-            _mac_address: Option<&str>,
-        ) -> Result<(), RedfishError> {
+        async fn set_boot_order_dpu_first(&self, _mac_address: &str) -> Result<(), RedfishError> {
             Ok(())
         }
 
