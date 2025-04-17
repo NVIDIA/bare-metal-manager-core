@@ -73,7 +73,7 @@ async fn create_machines(
     .expect("Failed to load snapshots")
 }
 
-async fn get_all_snapshots(test_env: &TestEnv) -> HashMap<MachineId, ManagedHostStateSnapshot> {
+pub async fn get_all_snapshots(test_env: &TestEnv) -> HashMap<MachineId, ManagedHostStateSnapshot> {
     let mut txn = test_env.pool.begin().await.unwrap();
     let machine_ids = crate::db::machine::find_machine_ids(
         &mut txn,

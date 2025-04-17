@@ -3,7 +3,7 @@ use crate::machine_update_manager::machine_update_module::{
     HOST_UPDATE_HEALTH_PROBE_ID, HOST_UPDATE_HEALTH_REPORT_SOURCE,
 };
 use crate::tests::common;
-use crate::tests::dpu_machine_update::update_nic_firmware_version;
+use crate::tests::dpu_machine_update::{get_all_snapshots, update_nic_firmware_version};
 
 use std::collections::HashSet;
 use std::str::FromStr;
@@ -33,6 +33,8 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         config: env.config.clone(),
     };
 
+    let snapshots = get_all_snapshots(&env).await;
+
     let mut txn = env
         .pool
         .begin()
@@ -40,7 +42,7 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         .expect("Failed to create transaction");
 
     let started_count = dpu_nic_firmware_update
-        .start_updates(&mut txn, 10, &HashSet::default())
+        .start_updates(&mut txn, 10, &HashSet::default(), &snapshots)
         .await?;
 
     assert_eq!(started_count.len(), 1);
@@ -104,6 +106,8 @@ async fn test_start_updates_with_multidpu(
         config: env.config.clone(),
     };
 
+    let snapshots = get_all_snapshots(&env).await;
+
     let mut txn = env
         .pool
         .begin()
@@ -111,7 +115,7 @@ async fn test_start_updates_with_multidpu(
         .expect("Failed to create transaction");
 
     let dpus_started = dpu_nic_firmware_update
-        .start_updates(&mut txn, 10, &HashSet::default())
+        .start_updates(&mut txn, 10, &HashSet::default(), &snapshots)
         .await?;
 
     assert_eq!(dpus_started.len(), 1);
@@ -189,6 +193,8 @@ async fn test_get_updates_in_progress(
         config: env.config.clone(),
     };
 
+    let snapshots = get_all_snapshots(&env).await;
+
     let mut txn = env
         .pool
         .begin()
@@ -202,7 +208,7 @@ async fn test_get_updates_in_progress(
     assert!(updating_count.is_empty());
 
     let started_count = dpu_nic_firmware_update
-        .start_updates(&mut txn, 10, &HashSet::default())
+        .start_updates(&mut txn, 10, &HashSet::default(), &snapshots)
         .await?;
 
     let updating_count = dpu_nic_firmware_update
@@ -270,6 +276,8 @@ async fn test_clear_completed_updates(
         config: env.config.clone(),
     };
 
+    let snapshots = get_all_snapshots(&env).await;
+
     let mut txn = env
         .pool
         .begin()
@@ -277,7 +285,7 @@ async fn test_clear_completed_updates(
         .expect("Failed to create transaction");
 
     let started_count = dpu_nic_firmware_update
-        .start_updates(&mut txn, 10, &HashSet::default())
+        .start_updates(&mut txn, 10, &HashSet::default(), &snapshots)
         .await?;
 
     assert!(!started_count.contains(&dpu_machine_id));

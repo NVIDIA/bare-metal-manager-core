@@ -14,14 +14,17 @@ use super::machine_update_module::{HOST_FW_UPDATE_HEALTH_REPORT_SOURCE, MachineU
 use crate::{
     CarbideResult,
     cfg::file::{CarbideConfig, FirmwareConfig},
-    db,
-    db::{desired_firmware, host_machine_update::HostMachineUpdate},
+    db::{self, desired_firmware, host_machine_update::HostMachineUpdate},
+    model::machine::ManagedHostStateSnapshot,
 };
 use async_trait::async_trait;
 use forge_uuid::machine::MachineId;
 use opentelemetry::metrics::Meter;
 use sqlx::{Postgres, Transaction};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicU64, Ordering},
+};
 use std::{collections::HashSet, fmt, sync::Arc};
 use tokio::sync::Mutex;
 
@@ -48,6 +51,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         txn: &mut Transaction<'_, Postgres>,
         available_updates: i32,
         updating_host_machines: &HashSet<MachineId>,
+        _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) -> CarbideResult<HashSet<MachineId>> {
         let mut firmware_dir_last_read = self.firmware_dir_last_read.lock().await;
         let firmware_dir_mod_time = self.firmware_config.config_update_time();
@@ -87,7 +91,6 @@ impl MachineUpdateModule for HostFirmwareUpdate {
             updates_started.insert(*machine_update);
         }
 
-        self.update_metrics(txn).await;
         Ok(updates_started)
     }
 
@@ -112,7 +115,11 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         Ok(())
     }
 
-    async fn update_metrics(&self, txn: &mut Transaction<'_, Postgres>) {
+    async fn update_metrics(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
+    ) {
         match HostMachineUpdate::find_upgrade_needed(
             txn,
             self.config.firmware_global.autoupdate,
