@@ -732,25 +732,9 @@ mod tests {
         Ok(())
     }
 
-    //  this tests the ability to find a the closest matching bundle to a
-    // a given report
-    #[crate::sqlx_test]
-    pub async fn test_get_closest_match(
-        db_conn: sqlx::PgPool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // A machine is needed for sending a report, so lets inject one.
-        let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
-        let mut txn = db_conn.begin().await?;
-        let princess_network = create_test_machine(
-            &mut txn,
-            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
-            &lenovo_sr670_topology,
-        )
-        .await?;
-        txn.commit().await?;
-
+    fn report_pcr_values() -> Vec<PcrRegisterValue> {
         // create values for a report
-        let pcr_values: Vec<PcrRegisterValue> = vec![
+        vec![
             PcrRegisterValue {
                 pcr_register: 0,
                 sha256: "d86624ca1c77f5420c4a13f3cbca22044230adaeb23f313e5f2e0c903bff522e"
@@ -811,12 +795,50 @@ mod tests {
                 sha256: "0a41386a6ec4387d5a41229a28e6369cd75325082371e3e18e6338dcb578c783"
                     .to_string(),
             },
-        ];
+        ]
+    }
+
+    fn three_elem_3matching_pcr_values() -> Vec<PcrRegisterValue> {
+        vec![
+            PcrRegisterValue {
+                pcr_register: 3,
+                sha256: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 9,
+                sha256: "d3cab16f23b70f856f44efdb01dd2fdf96d3c80c56c5ebef25077347691e3227"
+                    .to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 11,
+                sha256: "0a41386a6ec4387d5a41229a28e6369cd75325082371e3e18e6338dcb578c783"
+                    .to_string(),
+            },
+        ]
+    }
+
+    //  this tests the ability to find a the closest matching bundle to a
+    // a given report
+    #[crate::sqlx_test]
+    pub async fn test_get_closest_match(
+        db_conn: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // A machine is needed for sending a report, so lets inject one.
+        let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
+        let mut txn = db_conn.begin().await?;
+        let princess_network = create_test_machine(
+            &mut txn,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+            &lenovo_sr670_topology,
+        )
+        .await?;
+        txn.commit().await?;
 
         // Make the report.
         let req = mbrpc::CreateMeasurementReportRequest {
             machine_id: princess_network.machine_id.to_string(),
-            pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
+            pcr_values: PcrRegisterValue::to_pb_vec(&report_pcr_values()),
         };
         let result = report::handle_create_measurement_report(&db_conn, &req).await;
         assert!(result.is_ok());
@@ -842,7 +864,7 @@ mod tests {
 
         // Create four partial bundles + 1 full bundle
 
-        // 3 elements, 3 matching
+        // 3 elements, 3 matching - full bundle
         let pcr_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 3,
@@ -1100,6 +1122,156 @@ mod tests {
         };
         let resp = bundle::handle_find_closest_match(&db_conn, &req).await?;
         assert!(resp.bundle.is_none());
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    pub async fn test_list_attestation_summary(
+        db_conn: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // create two machines and submit report for one of them
+        // list_attestation_summary() should return one entry with no bundle id
+        // submit report for othe second one, followed by the bundle for that second machine
+        // the matching will happen, when the bundle is submitted
+        // list_attestation_summary() should return two entries, with the second
+        // machine containing the bundle id, but the first one still missing it
+
+        let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
+        let mut txn = db_conn.begin().await?;
+        let princess_network = create_test_machine(
+            &mut txn,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+            &lenovo_sr670_topology,
+        )
+        .await?;
+        txn.commit().await?;
+
+        let lenovo_sr670_topology = load_topology_json("dell_r750.json");
+        let mut txn = db_conn.begin().await?;
+        let beer_louisiana = create_test_machine(
+            &mut txn,
+            "fm100htrh18t1lrjg2pqagkh3sfigr9m65dejvkq168ako07sc0uibpp5q0",
+            &lenovo_sr670_topology,
+        )
+        .await?;
+        txn.commit().await?;
+
+        // Make the report.
+        let req = mbrpc::CreateMeasurementReportRequest {
+            machine_id: princess_network.machine_id.to_string(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&report_pcr_values()),
+        };
+        let result = report::handle_create_measurement_report(&db_conn, &req).await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert!(resp.report.is_some());
+        let _report = resp.report.unwrap();
+
+        // Make sure a profile was created (and wired to the machine).
+        let req = mbrpc::ShowMeasurementSystemProfilesRequest {};
+        let resp = profile::handle_show_measurement_system_profiles(&db_conn, &req).await?;
+        assert_eq!(1, resp.system_profiles.len());
+        let profile = &resp.system_profiles[0];
+        let princess_network_profile_name = resp.system_profiles[0].name.clone();
+        let req = mbrpc::ListMeasurementSystemProfileMachinesRequest {
+            selector: Some(
+                mbrpc::list_measurement_system_profile_machines_request::Selector::ProfileId(
+                    profile.profile_id.as_ref().unwrap().clone(),
+                ),
+            ),
+        };
+        let resp = profile::handle_list_measurement_system_profile_machines(&db_conn, &req).await?;
+        assert_eq!(1, resp.machine_ids.len());
+        assert_eq!(princess_network.machine_id.to_string(), resp.machine_ids[0]);
+
+        // execute
+        let req = mbrpc::ListAttestationSummaryRequest {};
+        let resp = site::handle_list_attestation_summary(&db_conn, &req).await?;
+
+        // verify
+        assert_eq!(resp.attestation_outcomes.len(), 1);
+        assert!(resp.attestation_outcomes[0].bundle_id.is_none());
+        assert_eq!(
+            &resp.attestation_outcomes[0].machine_id,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530"
+        );
+        assert_eq!(
+            resp.attestation_outcomes[0].profile_name,
+            princess_network_profile_name
+        );
+
+        // Make the report for another machine
+        let req = mbrpc::CreateMeasurementReportRequest {
+            machine_id: beer_louisiana.machine_id.to_string(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&three_elem_3matching_pcr_values()),
+        };
+        let result = report::handle_create_measurement_report(&db_conn, &req).await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert!(resp.report.is_some());
+        let _report = resp.report.unwrap();
+
+        // Make sure a profile was created (and wired to the machine).
+        let req = mbrpc::ShowMeasurementSystemProfilesRequest {};
+        let resp = profile::handle_show_measurement_system_profiles(&db_conn, &req).await?;
+        assert_eq!(2, resp.system_profiles.len());
+
+        let (beer_louisiana_profile_name, beer_louisiana_profile_id) =
+            if resp.system_profiles[0].name == princess_network_profile_name {
+                (
+                    resp.system_profiles[1].name.clone(),
+                    resp.system_profiles[1].profile_id.clone(),
+                )
+            } else {
+                (
+                    resp.system_profiles[0].name.clone(),
+                    resp.system_profiles[0].profile_id.clone(),
+                )
+            };
+
+        // create fully matching bundle and use the second machine's profile
+        let req = mbrpc::CreateMeasurementBundleRequest {
+            name: Some(String::from("3-elem_3m")),
+            profile_id: beer_louisiana_profile_id,
+            pcr_values: PcrRegisterValue::to_pb_vec(&three_elem_3matching_pcr_values()),
+            state: mbrpc::MeasurementBundleStatePb::Active.into(),
+        };
+        let resp = bundle::handle_create_measurement_bundle(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+        let bundle = resp.bundle.unwrap();
+        assert_eq!(bundle.name, String::from("3-elem_3m"));
+        assert_eq!(bundle.values.len(), three_elem_3matching_pcr_values().len());
+        assert_eq!(bundle.state, mbrpc::MeasurementBundleStatePb::Active as i32,);
+
+        // execute
+        let req = mbrpc::ListAttestationSummaryRequest {};
+        let resp = site::handle_list_attestation_summary(&db_conn, &req).await?;
+        assert_eq!(resp.attestation_outcomes.len(), 2);
+
+        // verify
+        let mut attestation_outcomes_sorted = resp.attestation_outcomes.clone();
+        attestation_outcomes_sorted.sort_by(|a, b| a.machine_id.cmp(&b.machine_id));
+
+        assert!(resp.attestation_outcomes[0].bundle_id.is_none());
+        assert_eq!(
+            &resp.attestation_outcomes[0].machine_id,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530"
+        );
+        assert_eq!(
+            resp.attestation_outcomes[0].profile_name,
+            princess_network_profile_name
+        );
+
+        assert_eq!(
+            attestation_outcomes_sorted[1].profile_name,
+            beer_louisiana_profile_name
+        );
+        assert!(attestation_outcomes_sorted[1].bundle_id.is_some());
+        assert_eq!(
+            &resp.attestation_outcomes[1].machine_id,
+            "fm100htrh18t1lrjg2pqagkh3sfigr9m65dejvkq168ako07sc0uibpp5q0"
+        );
 
         Ok(())
     }

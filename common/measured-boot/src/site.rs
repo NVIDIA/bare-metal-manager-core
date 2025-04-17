@@ -21,10 +21,22 @@ use crate::records::{
     MeasurementBundleRecord, MeasurementBundleValueRecord, MeasurementSystemProfileAttrRecord,
     MeasurementSystemProfileRecord,
 };
-use rpc::protos::measured_boot::{ImportSiteMeasurementsResponse, SiteModelPb};
+use chrono::Utc;
+use forge_uuid::{machine::MachineId, measured_boot::MeasurementBundleId};
+use rpc::protos::measured_boot::{
+    ImportSiteMeasurementsResponse, ListAttestationSummaryResponse, MachineAttestationSummaryPb,
+    SiteModelPb,
+};
 use serde::{Deserialize, Serialize};
+use std::convert::{From, Into};
+use std::str::FromStr;
+use std::vec::Vec;
+
 #[cfg(feature = "cli")]
 use utils::admin_cli::ToTable;
+
+#[cfg(feature = "sqlx")]
+use sqlx::FromRow;
 
 #[derive(Serialize)]
 pub struct ImportResult {
@@ -133,5 +145,90 @@ impl SiteModel {
             measurement_bundles,
             measurement_bundles_values,
         })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "sqlx", derive(FromRow))]
+pub struct MachineAttestationSummary {
+    pub machine_id: MachineId,
+    pub bundle_id: Option<MeasurementBundleId>,
+    #[cfg_attr(feature = "sqlx", sqlx(rename = "name"))]
+    pub profile_name: String,
+    pub ts: chrono::DateTime<Utc>,
+}
+
+pub struct MachineAttestationSummaryList(pub Vec<MachineAttestationSummary>);
+
+// we need methods to convert this to gRPC messages and back
+impl From<MachineAttestationSummaryList> for ListAttestationSummaryResponse {
+    fn from(val: MachineAttestationSummaryList) -> Self {
+        MachineAttestationSummaryList::to_grpc(&val.0)
+    }
+}
+
+impl MachineAttestationSummaryList {
+    pub fn to_grpc(val: &[MachineAttestationSummary]) -> ListAttestationSummaryResponse {
+        ListAttestationSummaryResponse {
+            attestation_outcomes: val
+                .iter()
+                .map(|e| MachineAttestationSummaryPb {
+                    machine_id: e.machine_id.to_string(),
+                    bundle_id: if e.bundle_id.is_none() {
+                        None
+                    } else {
+                        Some(e.bundle_id.unwrap().into())
+                    },
+                    profile_name: e.profile_name.clone(),
+                    ts: Some(e.ts.into()),
+                })
+                .collect(),
+        }
+    }
+
+    pub fn from_grpc(val: &ListAttestationSummaryResponse) -> crate::Result<Self> {
+        let mut attestation_summary_list = Vec::<MachineAttestationSummary>::new();
+
+        for pb in &val.attestation_outcomes {
+            attestation_summary_list.push(MachineAttestationSummary {
+                machine_id: MachineId::try_from(rpc::MachineId { id: pb.machine_id.clone() }).map_err(
+                    |err| {
+                        crate::Error::RpcConversion(format!(
+                            "Could not deserialize ListAttestationSummaryResponse(machine_id): {}",
+                            err
+                        ))
+                    },
+                )?,
+                bundle_id: if pb.bundle_id.is_none() {
+                    None
+                } else {
+                    Some(
+                        MeasurementBundleId::from_str(&pb.bundle_id.as_ref().unwrap().value).map_err(
+                            |err| {
+                                crate::Error::RpcConversion(format!(
+                                    "Could not deserialize ListAttestationSummaryResponse(bundle_id): {}",
+                                    err
+                                ))
+                            },
+                        )?,
+                    )
+                },
+                profile_name: pb.profile_name.clone(),
+                ts: if pb.ts.is_none() {
+                    chrono::DateTime::<Utc>::default()
+                } else {
+                    chrono::DateTime::<Utc>::try_from(pb.ts.unwrap()).map_err(
+                        |err| {
+                            crate::Error::RpcConversion(format!(
+                                "Could not deserialize ListAttestationSummaryResponse(timestamp): {}",
+                                err
+                            ))
+                        },
+                    )?
+                },
+            });
+        }
+
+        Ok(Self(attestation_summary_list))
     }
 }

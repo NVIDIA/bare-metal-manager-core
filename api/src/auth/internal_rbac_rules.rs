@@ -277,6 +277,7 @@ impl InternalRBACRules {
             "ListMeasurementTrustedProfiles",
             vec![ForgeAdminCLI, SiteAgent],
         );
+        x.perm("ListAttestationSummary", vec![SiteAgent]);
         x.perm("ImportStorageCluster", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteStorageCluster", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("ListStorageCluster", vec![ForgeAdminCLI, SiteAgent]);

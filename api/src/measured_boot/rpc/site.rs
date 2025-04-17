@@ -18,9 +18,9 @@ use tonic::Status;
 
 use crate::measured_boot::interface::site::{
     get_approved_machines, get_approved_profiles, insert_into_approved_machines,
-    insert_into_approved_profiles, remove_from_approved_machines_by_approval_id,
-    remove_from_approved_machines_by_machine_id, remove_from_approved_profiles_by_approval_id,
-    remove_from_approved_profiles_by_profile_id,
+    insert_into_approved_profiles, list_attestation_summary,
+    remove_from_approved_machines_by_approval_id, remove_from_approved_machines_by_machine_id,
+    remove_from_approved_profiles_by_approval_id, remove_from_approved_profiles_by_profile_id,
 };
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use forge_uuid::measured_boot::{
@@ -31,7 +31,6 @@ use measured_boot::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
 };
 
-use rpc::protos::measured_boot::remove_measurement_trusted_machine_request;
 use rpc::protos::measured_boot::remove_measurement_trusted_profile_request;
 use rpc::protos::measured_boot::{
     AddMeasurementTrustedMachineRequest, AddMeasurementTrustedMachineResponse,
@@ -44,12 +43,16 @@ use rpc::protos::measured_boot::{
     RemoveMeasurementTrustedMachineResponse, RemoveMeasurementTrustedProfileRequest,
     RemoveMeasurementTrustedProfileResponse,
 };
+use rpc::protos::measured_boot::{
+    ListAttestationSummaryRequest, ListAttestationSummaryResponse,
+    remove_measurement_trusted_machine_request,
+};
 
 use crate::CarbideError;
 use crate::measured_boot::db;
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::machine::MachineId;
-use measured_boot::site::SiteModel;
+use measured_boot::site::{MachineAttestationSummaryList, SiteModel};
 use sqlx::{Pool, Postgres};
 use std::str::FromStr;
 
@@ -266,4 +269,16 @@ pub async fn handle_list_measurement_trusted_profiles(
         .collect();
 
     Ok(ListMeasurementTrustedProfilesResponse { approval_records })
+}
+
+pub async fn handle_list_attestation_summary(
+    db_conn: &Pool<Postgres>,
+    _req: &ListAttestationSummaryRequest,
+) -> Result<ListAttestationSummaryResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
+    let attestation_summary = list_attestation_summary(&mut txn)
+        .await
+        .map_err(|e| Status::internal(format!("failed to fetch attestation summary: {}", e)))?;
+
+    Ok(MachineAttestationSummaryList::to_grpc(&attestation_summary))
 }
