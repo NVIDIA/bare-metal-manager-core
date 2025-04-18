@@ -48,6 +48,9 @@ pub enum AgentCommand {
     #[clap(about = "One-off network monitor")]
     Network(NetworkOptions),
 
+    #[clap(about = "Do a duppet run for duppet-managed files")]
+    Duppet(DuppetOptions),
+
     #[clap(about = "Write a templated config file", subcommand)]
     Write(WriteTarget),
 }
@@ -229,6 +232,31 @@ pub struct NetworkOptions {
         help = "Use this network_pinger_type for the interface used for pinging."
     )]
     pub network_pinger_type: Option<NetworkPingerType>,
+}
+
+#[derive(Parser, Debug)]
+pub struct DuppetOptions {
+    #[arg(
+        long,
+        help = "Do everything, including logging, but don't actually create/update files or permissions."
+    )]
+    pub dry_run: bool,
+
+    #[arg(
+        long,
+        help = "Don't log anything, but still dump out a report summary at the end."
+    )]
+    pub quiet: bool,
+
+    #[arg(
+        long = "no-color",
+        help = "Don't show pretty colors with log messages, if that's how you feel."
+    )]
+    pub no_color: bool,
+
+    /// Output format for the final summary: plaintext, json, or yaml
+    #[arg(long, default_value = "plaintext", value_parser = ["plaintext", "json", "yaml"], help="The format to use for the report summary at the end of the run.")]
+    pub summary_format: String,
 }
 
 impl Options {

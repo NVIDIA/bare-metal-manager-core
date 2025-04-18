@@ -9,7 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
@@ -28,6 +29,7 @@ use network_monitor::{NetworkPingerType, Ping};
 use utils::models::arch::CpuArchitecture;
 use version_compare::{Part, Version};
 
+use crate::duppet::{SummaryFormat, SyncOptions};
 use crate::frr::FrrVlanConfig;
 
 pub mod dpu;
@@ -39,7 +41,10 @@ pub mod containerd;
 mod daemons;
 mod dhcp;
 mod ethernet_virtualization;
+use crate::main_loop::build_otel_machine_id_file;
 pub use ethernet_virtualization::FPath;
+
+pub mod duppet;
 mod frr;
 mod hbn;
 mod health;
@@ -187,7 +192,41 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 .run_onetime(&agent.forge_system.api_server, &forge_client_config)
                 .await;
         }
+        // The duppet subcommand does a single duppet run for duppet-managed files
+        // (these *should* be kept in sync with the same files from setup_and_run,
+        // so we should probably just put the hashmap of files in a common place).
+        Some(AgentCommand::Duppet(duppet_options)) => {
+            let parsed_format = match duppet_options.summary_format.as_str() {
+                "json" => SummaryFormat::Json,
+                "yaml" => SummaryFormat::Yaml,
+                _ => SummaryFormat::PlainText,
+            };
+            let sync_options = SyncOptions {
+                dry_run: duppet_options.dry_run,
+                quiet: duppet_options.quiet,
+                no_color: duppet_options.no_color,
+                summary_format: parsed_format,
+            };
 
+            // Since the duppet sync also syncs out the otel machine_id
+            // file, we need to make a registration call to get the machine_id.
+            let Registration { machine_id, .. } =
+                register(&agent).await.wrap_err("registration error")?;
+
+            let duppet_files: HashMap<PathBuf, duppet::FileSpec> = HashMap::from([
+                (
+                    "/etc/cron.daily/apt-clean".into(),
+                    duppet::FileSpec::new_with_perms(include_str!("../templates/apt-clean"), 0o755),
+                ),
+                (
+                    "/run/otelcol-contrib/machine-id".into(),
+                    duppet::FileSpec::new_with_content(build_otel_machine_id_file(&machine_id)),
+                ),
+            ]);
+            if let Err(e) = duppet::sync(duppet_files, sync_options) {
+                tracing::error!("error during duppet run: {}", e)
+            }
+        }
         // Output a templated file
         // Normally this is (will be) done when receiving requests from carbide-api
         Some(AgentCommand::Write(target)) => match target {
