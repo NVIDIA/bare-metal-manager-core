@@ -422,22 +422,42 @@ pub async fn host_power_control(
                 .map_err(CarbideError::RedfishError)?;
         }
         bmc_vendor::BMCVendor::Supermicro => {
-            // We need to unlock BMC to perform boot modification, and relock it later
-            let lstatus = redfish_client.lockdown_status().await?;
-            if lstatus.is_fully_enabled() {
-                redfish_client.lockdown(EnabledDisabled::Disabled).await?;
-            }
-            // Supermicro will boot the users OS if we don't do this
-            let boot_result = redfish_client
-                .boot_once(libredfish::Boot::Pxe)
-                .await
-                .map_err(CarbideError::RedfishError);
-            if lstatus.is_fully_enabled() {
-                redfish_client.lockdown(EnabledDisabled::Enabled).await?;
-            }
+            match machine.current_state() {
+                /*
+                    These two states will add pending BIOS settings prior to calling host_power_control
+                    On Supermicros, this will result in the following error from calling boot_once:
+                        Failed to advance state: handler_host_power_control failed:
+                        Error in libredfish: HTTP 400 Bad Request at https://10.217.155.10:443/redfish/v1/Systems/1:
+                        {"error":{"code":"Base.v1_10_3.GeneralError","message":"A general error has occurred. See ExtendedInfo for more information.",
+                        "@Message.ExtendedInfo": [{"MessageId":"SMC.v1_0_0.OemBiosSettingFileAlreadyExists","Severity":"Warning","Resolution":"No resolution is required.",
+                        "Message":"Bios setting file already exists.","MessageArgs":[""],"RelatedProperties":[""]}]}}
+                */
+                crate::model::machine::ManagedHostState::HostInit {
+                    machine_state:
+                        crate::model::machine::MachineState::WaitingForPlatformConfiguration,
+                }
+                | crate::model::machine::ManagedHostState::HostInit {
+                    machine_state: crate::model::machine::MachineState::SetBootOrder,
+                } => {}
+                _ => {
+                    // We need to unlock BMC to perform boot modification, and relock it later
+                    let lstatus = redfish_client.lockdown_status().await?;
+                    if lstatus.is_fully_enabled() {
+                        redfish_client.lockdown(EnabledDisabled::Disabled).await?;
+                    }
+                    // Supermicro will boot the users OS if we don't do this
+                    let boot_result = redfish_client
+                        .boot_once(libredfish::Boot::Pxe)
+                        .await
+                        .map_err(CarbideError::RedfishError);
+                    if lstatus.is_fully_enabled() {
+                        redfish_client.lockdown(EnabledDisabled::Enabled).await?;
+                    }
 
-            // We error only after lockdown is reinstaited
-            boot_result?;
+                    // We error only after lockdown is reinstaited
+                    boot_result?;
+                }
+            }
 
             redfish_client
                 .power(action)
