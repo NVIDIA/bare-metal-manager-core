@@ -10,12 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
-use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
 use std::ops::Add;
-use std::path::Path;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -39,6 +38,7 @@ use version_compare::Version;
 use crate::dpu::DpuNetworkInterfaces;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
+use crate::duppet::{self, SummaryFormat, SyncOptions};
 use crate::ethernet_virtualization::ServiceAddresses;
 use crate::instance_metadata_endpoint::InstanceMetadataRouterStateImpl;
 use crate::instrumentation::{create_metrics, get_dpu_agent_meter};
@@ -72,8 +72,34 @@ pub async fn setup_and_run(
     let client_cert_renewer =
         ClientCertRenewer::new(forge_api_server.clone(), forge_client_config.clone());
 
-    if let Err(e) = write_machine_id("/run/otelcol-contrib", &machine_id) {
-        tracing::error!(error = %e, "Failed to write machine ID");
+    let duppet_options = SyncOptions {
+        dry_run: false,
+        quiet: false,
+        no_color: false,
+        summary_format: SummaryFormat::PlainText,
+    };
+
+    // Sync out all duppet-managed config files. This can be called as part of
+    // main_loop running if we want (and can also be called willy nilly with
+    // ad-hoc sets of files, including whenever the nvue config changes if we
+    // wanted to pull it in), but for now we just do this one duppet sync
+    // during setup_and_run. Current files being managed are:
+    //
+    // - /etc/cron.daily/apt.clean
+    // - /run/otelcol-contrib/machine-id
+    let duppet_files: HashMap<PathBuf, duppet::FileSpec> = HashMap::from([
+        (
+            "/etc/cron.daily/apt-clean".into(),
+            duppet::FileSpec::new_with_perms(include_str!("../templates/apt-clean"), 0o755),
+        ),
+        (
+            "/run/otelcol-contrib/machine-id".into(),
+            duppet::FileSpec::new_with_content(build_otel_machine_id_file(&machine_id)),
+        ),
+    ]);
+
+    if let Err(e) = duppet::sync(duppet_files, duppet_options) {
+        tracing::error!("error during duppet sync: {}", e);
     }
 
     let instance_metadata_fetcher =
@@ -1032,11 +1058,8 @@ fn dt(d: Duration) -> humantime::FormattedDuration {
 
 // Write "machine.id=<value>" to a file so the OpenTelemetry collector can
 // apply it as a resource attribute.
-fn write_machine_id(dir_path: &str, machine_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    fs::create_dir_all(dir_path)?;
-    let file_path = Path::new(dir_path).join("machine-id");
-    fs::write(file_path, format!("machine.id={}\n", machine_id))?;
-    Ok(())
+pub fn build_otel_machine_id_file(machine_id: &str) -> String {
+    format!("machine.id={}\n", machine_id)
 }
 
 #[cfg(test)]
