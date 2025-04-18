@@ -122,6 +122,7 @@ pub async fn nsg_show(
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
+    verbose: bool,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
@@ -143,7 +144,7 @@ pub async fn nsg_show(
     } else if nsgs.len() == 1 {
         convert_nsgs_to_table(&nsgs, true)?.printstd();
     } else {
-        convert_nsgs_to_table(&nsgs, false)?.printstd();
+        convert_nsgs_to_table(&nsgs, verbose)?.printstd();
     }
 
     Ok(())

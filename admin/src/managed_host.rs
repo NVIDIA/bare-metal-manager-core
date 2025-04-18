@@ -124,6 +124,7 @@ impl From<ManagedHostOutputWrapper> for Row {
                 value.host_gpu_count.to_string(),
                 value.host_ib_ifs_count.to_string(),
                 value.host_memory.unwrap_or(UNKNOWN.to_owned()),
+                value.instance_type_id.unwrap_or_default(),
             ]);
         }
 
@@ -168,7 +169,7 @@ fn convert_managed_hosts_to_nice_output(
     }
 
     if options.more_details {
-        headers.extend_from_slice(&["GPU #", "IB IFs #", "Host Memory"]);
+        headers.extend_from_slice(&["GPU #", "IB IFs #", "Host Memory", "Instance Type"]);
     }
 
     if options.show_quarantine_reason {
@@ -246,7 +247,7 @@ async fn show_managed_hosts(
 }
 
 fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResult<()> {
-    let width = 24;
+    let width = 27;
     let mut lines = String::new();
 
     writeln!(
@@ -309,6 +310,10 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
         ("  Memory", m.host_memory.clone()),
         ("  Admin IP", m.host_admin_ip.clone()),
         ("  Admin MAC", m.host_admin_mac.clone()),
+        (
+            "  Associated Instance Type",
+            Some(m.instance_type_id.unwrap_or("Unassociated".to_string())),
+        ),
         (
             "  Quarantined",
             Some(

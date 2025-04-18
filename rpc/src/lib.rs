@@ -648,6 +648,50 @@ impl forge::NetworkSecurityGroupRuleAction {
     }
 }
 
+impl forge::MachineCapabilityType {
+    pub fn from_string<'de, D>(deserializer: D) -> Result<i32, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s: &str = serde::Deserialize::deserialize(deserializer)?;
+
+        match s.to_uppercase().as_str() {
+            "CPU " => Ok(forge::MachineCapabilityType::CapTypeCpu as i32),
+            "GPU" => Ok(forge::MachineCapabilityType::CapTypeGpu as i32),
+            "MEMORY" => Ok(forge::MachineCapabilityType::CapTypeMemory as i32),
+            "STORAGE" => Ok(forge::MachineCapabilityType::CapTypeStorage as i32),
+            "NETWORK" => Ok(forge::MachineCapabilityType::CapTypeNetwork as i32),
+            "INFINIBAND" => Ok(forge::MachineCapabilityType::CapTypeInfiniband as i32),
+            "DPU" => Ok(forge::MachineCapabilityType::CapTypeDpu as i32),
+            _ => Ok(0),
+        }
+    }
+
+    pub fn serialize_from_enum_i32<S>(v: &i32, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        s.serialize_str(
+            &forge::MachineCapabilityType::to_string_from_enum_i32(*v).map_err(Error::custom)?,
+        )
+    }
+
+    pub fn to_string_from_enum_i32(v: i32) -> Result<String, UnknownEnumValue> {
+        let t: forge::MachineCapabilityType = (v).try_into()?;
+
+        Ok(match t {
+            forge::MachineCapabilityType::CapTypeCpu => "CPU".to_string(),
+            forge::MachineCapabilityType::CapTypeGpu => "GPU".to_string(),
+            forge::MachineCapabilityType::CapTypeMemory => "MEMORY".to_string(),
+            forge::MachineCapabilityType::CapTypeStorage => "STORAGE".to_string(),
+            forge::MachineCapabilityType::CapTypeNetwork => "NETWORK".to_string(),
+            forge::MachineCapabilityType::CapTypeInfiniband => "INFINIBAND".to_string(),
+            forge::MachineCapabilityType::CapTypeDpu => "DPU".to_string(),
+            forge::MachineCapabilityType::CapTypeInvalid => "INVALID".to_string(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;

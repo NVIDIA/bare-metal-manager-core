@@ -202,6 +202,7 @@ pub(crate) async fn update_virtualization(
             label: None,
             tenant_org_id: None,
             vpc_id: Some(updater.id.to_string()),
+            instance_type_id: None,
         },
     )
     .await?;

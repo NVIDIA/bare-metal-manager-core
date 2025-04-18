@@ -226,48 +226,42 @@ impl Instance {
         txn: &mut Transaction<'_, Postgres>,
         filter: rpc::InstanceSearchFilter,
     ) -> Result<Vec<InstanceId>, CarbideError> {
-        let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances ");
-        let mut has_filter = false;
-        let mut has_tenant_org_id = false;
+        let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances WHERE TRUE "); // The TRUE will be optimized away.
 
         if let Some(label) = filter.label {
             if label.key.is_empty() && label.value.is_some() {
                 builder.push(
-                    "WHERE EXISTS (
+                    " AND EXISTS (
                         SELECT 1
                         FROM jsonb_each_text(labels) AS kv
                         WHERE kv.value = ",
                 );
                 builder.push_bind(label.value.unwrap());
                 builder.push(")");
-                has_filter = true;
             } else if label.key.is_empty() && label.value.is_none() {
                 return Err(CarbideError::InvalidArgument(
                     "finding instances based on label needs either key or a value.".to_string(),
                 ));
             } else if !label.key.is_empty() && label.value.is_none() {
-                builder.push("WHERE labels ->> ");
+                builder.push(" AND labels ->> ");
                 builder.push_bind(label.key);
                 builder.push(" IS NOT NULL");
-                has_filter = true;
             } else if !label.key.is_empty() && label.value.is_some() {
-                builder.push("WHERE labels ->> ");
+                builder.push(" AND labels ->> ");
                 builder.push_bind(label.key);
                 builder.push(" = ");
                 builder.push_bind(label.value.unwrap());
-                has_filter = true;
             }
         }
 
         if let Some(tenant_org_id) = filter.tenant_org_id {
-            has_tenant_org_id = true;
-            if has_filter {
-                builder.push(" AND ");
-            } else {
-                builder.push("WHERE ");
-            }
-            builder.push("tenant_org = ");
+            builder.push(" AND tenant_org = ");
             builder.push_bind(tenant_org_id);
+        }
+
+        if let Some(instance_type_id) = filter.instance_type_id {
+            builder.push(" AND instance_type_id = ");
+            builder.push_bind(instance_type_id);
         }
 
         if let Some(vpc_id) = filter.vpc_id {
@@ -276,12 +270,7 @@ impl Instance {
             // correct to convert it into a VpcId (which is what it
             // *actually* is, and has the necessary sqlx bindings).
             let vpc_id = VpcId::from_str(&vpc_id).map_err(CarbideError::from)?;
-            if has_filter || has_tenant_org_id {
-                builder.push(" AND ");
-            } else {
-                builder.push("WHERE ");
-            }
-            builder.push("id IN (");
+            builder.push(" AND id IN (");
             builder.push(
                 "SELECT instances.id FROM instances
 INNER JOIN instance_addresses ON instance_addresses.instance_id = instances.id

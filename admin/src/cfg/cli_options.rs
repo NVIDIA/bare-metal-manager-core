@@ -25,6 +25,7 @@ use rpc::forge::OperatingSystem;
 use serde::{Deserialize, Serialize};
 use utils::{admin_cli::OutputFormat, has_duplicates};
 
+use crate::cfg::instance_type;
 use crate::cfg::measurement;
 use crate::cfg::network_security_group;
 use crate::cfg::storage::{OsImageActions, StorageActions};
@@ -225,6 +226,9 @@ pub enum CliCommand {
 
     #[clap(about = "Dev Env related handling", subcommand)]
     DevEnv(DevEnv),
+
+    #[clap(about = "Instance type management", visible_alias = "it", subcommand)]
+    InstanceType(instance_type::InstanceTypeActions),
 }
 
 #[derive(Parser, Debug)]
@@ -1485,6 +1489,18 @@ pub struct ShowMachine {
     pub hosts: bool,
 
     #[clap(
+        short = 't',
+        long,
+        action,
+        // DPUs don't get associated with instance types.
+        // Wouldn't hurt to allow the query, but might as well
+        // be helpful here.
+        conflicts_with = "dpus",
+        help = "Show only machines for this instance type"
+    )]
+    pub instance_type_id: Option<String>,
+
+    #[clap(
         default_value(""),
         help = "The machine to query, leave empty for all (default)"
     )]
@@ -1528,6 +1544,14 @@ pub struct ShowManagedHost {
         conflicts_with = "machine"
     )]
     pub ips: bool,
+
+    #[clap(
+        short = 't',
+        long,
+        action,
+        help = "Show only hosts for this instance type"
+    )]
+    pub instance_type_id: Option<String>,
 
     #[clap(
         short,
@@ -1646,6 +1670,9 @@ pub struct ShowInstance {
 
     #[clap(long, help = "The value of label instance to query")]
     pub label_value: Option<String>,
+
+    #[clap(long, help = "The instance type ID to query.")]
+    pub instance_type_id: Option<String>,
 }
 
 #[derive(Parser, Debug)]

@@ -613,23 +613,27 @@ impl MachineCapabilitiesSet {
             storage: storage_map.into_values().collect(),
             network: network_interface_map.into_values().collect(),
             infiniband,
-            dpu: vec![MachineCapabilityDpu {
-                // This name value is what forge-cloud currently does/expects from machine capabilities.
-                // It needs to have _something_ that won't change.  If we decide to start
-                // pulling actual DPU details in the future, it would probably require
-                // forge cloud to also start allowing `name` as an optional field
-                // for instance type capability filters, and we'd have to update existing
-                // instance types in cloud to drop the `name` value while we transition.
-                name: "DPU".to_string(),
-                count: dpu_machine_ids.len().try_into().unwrap_or_else(|e| {
-                    tracing::warn!(
-                        error=%e,
-                        "associated_dpu_machine_ids length uncountable for DPU capability",
-                    );
-                    0
-                }),
-                hardware_revision: None,
-            }],
+            dpu: if dpu_machine_ids.is_empty() {
+                vec![]
+            } else {
+                vec![MachineCapabilityDpu {
+                    // This name value is what forge-cloud currently does/expects from machine capabilities.
+                    // It needs to have _something_ that won't change.  If we decide to start
+                    // pulling actual DPU details in the future, it would probably require
+                    // forge cloud to also start allowing `name` as an optional field
+                    // for instance type capability filters, and we'd have to update existing
+                    // instance types in cloud to drop the `name` value while we transition.
+                    name: "DPU".to_string(),
+                    count: dpu_machine_ids.len().try_into().unwrap_or_else(|e| {
+                        tracing::warn!(
+                            error=%e,
+                            "associated_dpu_machine_ids length uncountable for DPU capability",
+                        );
+                        0
+                    }),
+                    hardware_revision: None,
+                }]
+            },
         }
     }
 }

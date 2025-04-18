@@ -1147,7 +1147,10 @@ impl Forge for Api {
             ))
         })?;
 
-        let search_config = request.into_inner().into();
+        let search_config = request
+            .into_inner()
+            .try_into()
+            .map_err(CarbideError::from)?;
 
         let machine_ids = db::machine::find_machine_ids(&mut txn, search_config)
             .await
@@ -1376,7 +1379,9 @@ impl Forge for Api {
 
         let search_config = request
             .search_config
-            .map(MachineSearchConfig::from)
+            .map(MachineSearchConfig::try_from)
+            .transpose()
+            .map_err(CarbideError::from)?
             .unwrap_or_default();
 
         let machine_ids: Vec<MachineId> = match (request.id, request.fqdn) {
@@ -1394,7 +1399,7 @@ impl Forge for Api {
                     None => vec![],
                 }
             }
-            (None, None) => db::machine::find_machine_ids(&mut txn, search_config)
+            (None, None) => db::machine::find_machine_ids(&mut txn, search_config.clone())
                 .await
                 .map_err(CarbideError::from)?,
         };
