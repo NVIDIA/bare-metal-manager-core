@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 pub mod cli_options;
+pub mod instance_type;
 pub mod measurement;
 pub mod network_security_group;
 pub mod storage;

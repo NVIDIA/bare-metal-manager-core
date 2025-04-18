@@ -229,7 +229,7 @@ pub async fn print_inventory(
         )
         .await?;
     let all_instances = api_client
-        .get_all_instances(None, None, None, None, page_size)
+        .get_all_instances(None, None, None, None, None, page_size)
         .await?;
 
     let (instances, used_machine) = create_inventory_for_instances(all_instances, &all_machines)?;

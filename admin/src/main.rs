@@ -70,6 +70,7 @@ use cfg::cli_options::{
     MachineHardwareInfoCommand, MaintenanceAction, ManagedHost, NetworkCommand, NetworkSegment,
     ResourcePool, VpcOptions,
 };
+use cfg::instance_type::InstanceTypeActions;
 use cfg::network_security_group::NetworkSecurityGroupActions;
 use clap::CommandFactory;
 use devenv::apply_devenv_config;
@@ -95,6 +96,7 @@ mod expected_machines;
 mod host;
 mod ib_partition;
 mod instance;
+mod instance_type;
 mod inventory;
 mod machine;
 mod machine_interfaces;
@@ -477,6 +479,7 @@ async fn main() -> color_eyre::Result<()> {
                                 None,
                                 Some(key),
                                 release_request.label_value,
+                                None,
                                 config.internal_page_size,
                             )
                             .await?;
@@ -1257,6 +1260,7 @@ async fn main() -> color_eyre::Result<()> {
                         hosts: false,
                         all: false,
                         dpus: false,
+                        instance_type_id: None,
                         history_count: 5,
                     },
                     config.format,
@@ -1304,6 +1308,7 @@ async fn main() -> color_eyre::Result<()> {
                                     vpc_id: None,
                                     label_key: None,
                                     label_value: None,
+                                    instance_type_id: None,
                                 },
                                 config_format,
                                 &api_client,
@@ -1321,6 +1326,7 @@ async fn main() -> color_eyre::Result<()> {
                                     hosts: false,
                                     all: false,
                                     dpus: false,
+                                    instance_type_id: None,
                                     history_count: 5
                                 },
                                 config_format,
@@ -1399,6 +1405,7 @@ async fn main() -> color_eyre::Result<()> {
                                     vpc_id: None,
                                     label_key: None,
                                     label_value: None,
+                                    instance_type_id: None,
                                 },
                                 config.format,
                                 &api_client,
@@ -1499,6 +1506,7 @@ async fn main() -> color_eyre::Result<()> {
                         hosts: false,
                         all: false,
                         dpus: false,
+                        instance_type_id: None,
                         history_count: 5,
                     },
                     config.format,
@@ -1710,6 +1718,7 @@ async fn main() -> color_eyre::Result<()> {
                     config.format,
                     &api_client,
                     config.internal_page_size,
+                    config.extended,
                 )
                 .await?
             }
@@ -1756,6 +1765,25 @@ async fn main() -> color_eyre::Result<()> {
                     apply_devenv_config(dev_env_config_apply, &api_client).await?;
                 }
             },
+        },
+        CliCommand::InstanceType(action) => match action {
+            InstanceTypeActions::Create(args) => {
+                instance_type::create(args, config.format, &api_client).await?
+            }
+            InstanceTypeActions::Show(args) => {
+                instance_type::show(
+                    args,
+                    config.format,
+                    &api_client,
+                    config.internal_page_size,
+                    config.extended,
+                )
+                .await?
+            }
+            InstanceTypeActions::Update(args) => {
+                instance_type::update(args, config.format, &api_client).await?
+            }
+            InstanceTypeActions::Delete(args) => instance_type::delete(args, &api_client).await?,
         },
     }
 

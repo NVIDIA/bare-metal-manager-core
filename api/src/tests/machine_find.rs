@@ -33,7 +33,10 @@ use common::{
     },
     mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL,
 };
-use rpc::forge::{MachinesByIdsRequest, forge_server::Forge};
+use rpc::forge::{
+    AssociateMachinesWithInstanceTypeRequest, FindInstanceTypeIdsRequest, MachinesByIdsRequest,
+    forge_server::Forge,
+};
 
 #[crate::sqlx_test]
 async fn test_find_machine_by_id(pool: sqlx::PgPool) {
@@ -303,6 +306,47 @@ async fn test_find_machine_ids(pool: sqlx::PgPool) {
     assert_eq!(machine_ids.len(), 2);
     assert!(machine_ids.contains(&dpu_machine_id));
     assert!(machine_ids.contains(&host_machine_id));
+
+    // Create a managed host
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+
+    // Find an existing instance type in the test env
+    let instance_type_id = env
+        .api
+        .find_instance_type_ids(tonic::Request::new(FindInstanceTypeIdsRequest {}))
+        .await
+        .unwrap()
+        .into_inner()
+        .instance_type_ids
+        .first()
+        .unwrap()
+        .to_owned();
+
+    // Associate the machine with the instance type
+    let _ = env
+        .api
+        .associate_machines_with_instance_type(tonic::Request::new(
+            AssociateMachinesWithInstanceTypeRequest {
+                instance_type_id: instance_type_id.clone(),
+                machine_ids: vec![host_machine_id.to_string()],
+            },
+        ))
+        .await
+        .unwrap();
+
+    // Create a config to test searching by instance type id
+    let config = crate::db::machine::MachineSearchConfig {
+        instance_type_id: Some(instance_type_id.parse().unwrap()),
+        ..Default::default()
+    };
+
+    // Try to find machines for the instance type.
+    let machine_ids = db::machine::find_machine_ids(&mut txn, config)
+        .await
+        .unwrap();
+
+    assert_eq!(machine_ids.len(), 1);
+    assert_eq!(machine_ids[0], host_machine_id);
 }
 
 #[crate::sqlx_test]

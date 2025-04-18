@@ -106,6 +106,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                     only_maintenance: false,
                     exclude_hosts: false,
                     only_quarantine: false,
+                    instance_type_id: None,
                 }),
             }))
             .await?

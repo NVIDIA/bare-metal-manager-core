@@ -521,6 +521,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .field_attribute("machine_discovery.BlockDevice.device_type", "#[serde(default)]")
         .field_attribute("machine_discovery.NvmeDevice.serial", "#[serde(default)]")
+        .type_attribute(
+            "forge.InstanceTypeAttributes",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.InstanceType",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .field_attribute(
+            "forge.InstanceTypeMachineCapabilityFilterAttributes.capability_type",
+            "#[serde(deserialize_with = \"MachineCapabilityType::from_string\", serialize_with = \"MachineCapabilityType::serialize_from_enum_i32\")]",
+        )
+        .type_attribute(
+            "forge.InstanceTypeMachineCapabilityFilterAttributes",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
+            "common.Uint32List",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+
 
         .build_server(true)
         .build_client(true)

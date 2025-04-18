@@ -25,10 +25,35 @@ use rpc::forge_server::Forge;
 async fn test_find_instance_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    // Find an existing instance type in the test env
+    let instance_type_id = env
+        .api
+        .find_instance_type_ids(tonic::Request::new(rpc::FindInstanceTypeIdsRequest {}))
+        .await
+        .unwrap()
+        .into_inner()
+        .instance_type_ids
+        .first()
+        .unwrap()
+        .to_owned();
+
     for i in 0..10 {
         let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
         if i % 2 == 0 {
+            // Associate the machine with the instance type
+            let _ = env
+                .api
+                .associate_machines_with_instance_type(tonic::Request::new(
+                    rpc::AssociateMachinesWithInstanceTypeRequest {
+                        instance_type_id: instance_type_id.clone(),
+                        machine_ids: vec![host_machine_id.to_string()],
+                    },
+                ))
+                .await
+                .unwrap();
+
             let (_instance_id, _instance) = create_instance(
                 &env,
                 &dpu_machine_id,
@@ -79,8 +104,20 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 label: None,
                 tenant_org_id: None,
                 vpc_id: None,
+                instance_type_id: None,
             }),
             10,
+        ),
+        // Test getting all based on instance type.
+        (
+            "request_instance_type_id",
+            tonic::Request::new(rpc::InstanceSearchFilter {
+                label: None,
+                tenant_org_id: None,
+                vpc_id: None,
+                instance_type_id: Some(instance_type_id.clone()),
+            }),
+            5,
         ),
         // Test getting IDs based on label key.
         (
@@ -92,6 +129,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 }),
                 tenant_org_id: None,
                 vpc_id: None,
+                instance_type_id: None,
             }),
             5,
         ),
@@ -105,6 +143,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 }),
                 tenant_org_id: None,
                 vpc_id: None,
+                instance_type_id: None,
             }),
             1,
         ),
@@ -118,6 +157,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 }),
                 tenant_org_id: None,
                 vpc_id: None,
+                instance_type_id: None,
             }),
             1,
         ),
@@ -128,6 +168,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 label: None,
                 tenant_org_id: Some(default_tenant_config().tenant_organization_id),
                 vpc_id: None,
+                instance_type_id: None,
             }),
             10,
         ),
@@ -141,6 +182,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 }),
                 tenant_org_id: Some(default_tenant_config().tenant_organization_id),
                 vpc_id: None,
+                instance_type_id: None,
             }),
             5,
         ),
@@ -154,6 +196,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 }),
                 tenant_org_id: Some(default_tenant_config().tenant_organization_id),
                 vpc_id: None,
+                instance_type_id: None,
             }),
             1,
         ),
@@ -167,6 +210,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 }),
                 tenant_org_id: Some(default_tenant_config().tenant_organization_id),
                 vpc_id: None,
+                instance_type_id: None,
             }),
             1,
         ),
@@ -183,6 +227,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 label: None,
                 tenant_org_id: None,
                 vpc_id: Some(vpc_id.to_string()),
+                instance_type_id: None,
             }),
             10,
         ),
@@ -196,6 +241,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 }),
                 tenant_org_id: None,
                 vpc_id: Some(vpc_id.to_string()),
+                instance_type_id: None,
             }),
             5,
         ),
@@ -209,6 +255,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 }),
                 tenant_org_id: None,
                 vpc_id: Some(vpc_id.to_string()),
+                instance_type_id: None,
             }),
             1,
         ),
@@ -219,6 +266,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 label: None,
                 tenant_org_id: Some(default_tenant_config().tenant_organization_id),
                 vpc_id: Some(vpc_id.to_string()),
+                instance_type_id: None,
             }),
             10,
         ),
@@ -233,6 +281,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 }),
                 tenant_org_id: Some(default_tenant_config().tenant_organization_id),
                 vpc_id: Some(vpc_id.to_string()),
+                instance_type_id: None,
             }),
             5,
         ),
@@ -302,6 +351,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
         }),
         tenant_org_id: None,
         vpc_id: None,
+        instance_type_id: None,
     });
 
     let instance_id_list = env

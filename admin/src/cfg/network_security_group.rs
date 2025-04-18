@@ -150,7 +150,7 @@ pub struct UpdateNetworkSecurityGroup {
 
 #[derive(Parser, Debug, Clone)]
 pub struct DeleteNetworkSecurityGroup {
-    #[clap(short = 'i', long, help = "Network security group ID to update")]
+    #[clap(short = 'i', long, help = "Network security group ID to delete")]
     pub id: String,
 
     #[clap(

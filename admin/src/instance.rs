@@ -62,6 +62,10 @@ fn convert_instance_to_nice_format(
                 .unwrap_or_default(),
         ),
         (
+            "INSTANCE TYPE ID",
+            instance.instance_type_id.clone().unwrap_or_default(),
+        ),
+        (
             "CONFIGS SYNCED",
             instance
                 .status
@@ -207,6 +211,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
         "MachineId",
         "TenantOrg",
         "TenantState",
+        "InstanceTypeId",
         "ConfigsSynced",
         "IPAddresses",
         "Labels",
@@ -265,6 +270,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
             instance.machine_id.unwrap_or_else(invalid_machine_id),
             tenant_org,
             tenant_state,
+            instance.instance_type_id.unwrap_or_default(),
             configs_synced,
             instance_addresses.join(","),
             labels.join(", ")
@@ -272,36 +278,6 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
     }
 
     table.into()
-}
-
-async fn show_instances(
-    json: bool,
-    api_client: &ApiClient,
-    tenant_org_id: Option<String>,
-    vpc_id: Option<String>,
-    label_key: Option<String>,
-    label_value: Option<String>,
-    page_size: usize,
-) -> CarbideCliResult<()> {
-    let all_instances = match api_client
-        .get_all_instances(
-            tenant_org_id.clone(),
-            vpc_id.clone(),
-            label_key.clone(),
-            label_value.clone(),
-            page_size,
-        )
-        .await
-    {
-        Ok(all_instance_ids) => all_instance_ids,
-        Err(e) => return Err(e),
-    };
-    if json {
-        println!("{}", serde_json::to_string_pretty(&all_instances)?);
-    } else {
-        convert_instances_to_nice_table(all_instances).printstd();
-    }
-    Ok(())
 }
 
 async fn show_instance_details(
@@ -349,16 +325,22 @@ pub async fn handle_show(
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.id.is_empty() {
-        show_instances(
-            is_json,
-            api_client,
-            args.tenant_org_id,
-            args.vpc_id,
-            args.label_key,
-            args.label_value,
-            page_size,
-        )
-        .await?;
+        let all_instances = api_client
+            .get_all_instances(
+                args.tenant_org_id,
+                args.vpc_id,
+                args.label_key,
+                args.label_value,
+                args.instance_type_id,
+                page_size,
+            )
+            .await?;
+
+        if is_json {
+            println!("{}", serde_json::to_string_pretty(&all_instances)?);
+        } else {
+            convert_instances_to_nice_table(all_instances).printstd();
+        }
         return Ok(());
     }
     show_instance_details(args.id, is_json, api_client, args.extrainfo).await?;

@@ -14,12 +14,13 @@ use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
     self as rpc, BmcCredentialStatusResponse, BmcEndpointRequest,
     CreateNetworkSecurityGroupRequest, DeleteNetworkSecurityGroupRequest,
-    FindNetworkSecurityGroupsByIdsRequest, GetNetworkSecurityGroupAttachmentsRequest,
-    GetNetworkSecurityGroupPropagationStatusRequest, IsBmcInManagedHostResponse,
-    MachineBootOverride, MachineHardwareInfo, MachineHardwareInfoUpdateType, NetworkPrefix,
-    NetworkSecurityGroupAttributes, NetworkSegmentCreationRequest, NetworkSegmentSearchConfig,
-    NetworkSegmentType, UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest,
-    VpcCreationRequest, VpcPeeringDeletionResult, VpcSearchQuery, VpcVirtualizationType,
+    FindInstanceTypesByIdsRequest, FindNetworkSecurityGroupsByIdsRequest,
+    GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
+    IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
+    MachineHardwareInfoUpdateType, NetworkPrefix, NetworkSecurityGroupAttributes,
+    NetworkSegmentCreationRequest, NetworkSegmentSearchConfig, NetworkSegmentType,
+    UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest, VpcCreationRequest,
+    VpcPeeringDeletionResult, VpcSearchQuery, VpcVirtualizationType,
 };
 use ::rpc::{NetworkSegment, Uuid};
 use std::net::IpAddr;
@@ -94,7 +95,7 @@ impl ApiClient {
         let request = rpc::MachineSearchQuery {
             id: None,
             fqdn: None,
-            search_config: Some(search_config),
+            search_config: Some(search_config.clone()),
         };
         let machine_details = self.0.find_machines(request).await?;
 
@@ -131,7 +132,7 @@ impl ApiClient {
         request: rpc::MachineSearchConfig,
         page_size: usize,
     ) -> CarbideCliResult<rpc::MachineList> {
-        let all_machine_ids = match self.0.find_machine_ids(request).await {
+        let all_machine_ids = match self.0.find_machine_ids(request.clone()).await {
             Ok(all_machine_ids) => all_machine_ids,
             Err(e) if e.code() == tonic::Code::Unimplemented => {
                 return self.get_all_machines_deprecated(request).await;
@@ -294,6 +295,7 @@ impl ApiClient {
         vpc_id: Option<String>,
         label_key: Option<String>,
         label_value: Option<String>,
+        instance_type_id: Option<String>,
         page_size: usize,
     ) -> CarbideCliResult<rpc::InstanceList> {
         let all_ids = match self
@@ -302,6 +304,7 @@ impl ApiClient {
                 vpc_id.clone(),
                 label_key.clone(),
                 label_value.clone(),
+                instance_type_id,
             )
             .await
         {
@@ -361,10 +364,12 @@ impl ApiClient {
         vpc_id: Option<String>,
         label_key: Option<String>,
         label_value: Option<String>,
+        instance_type_id: Option<String>,
     ) -> CarbideCliResult<rpc::InstanceIdList> {
         let request = rpc::InstanceSearchFilter {
             tenant_org_id,
             vpc_id,
+            instance_type_id,
             label: if label_key.is_none() && label_value.is_none() {
                 None
             } else {
@@ -2146,5 +2151,33 @@ impl ApiClient {
             })
             .await
             .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn get_all_instance_types(
+        &self,
+        page_size: usize,
+    ) -> CarbideCliResult<Vec<rpc::InstanceType>> {
+        let all_ids = self
+            .0
+            .find_instance_type_ids()
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .instance_type_ids;
+
+        let mut all_itypes = Vec::with_capacity(all_ids.len());
+
+        for ids in all_ids.chunks(page_size) {
+            let itypes = self
+                .0
+                .find_instance_types_by_ids(FindInstanceTypesByIdsRequest {
+                    instance_type_ids: ids.to_vec(),
+                })
+                .await
+                .map_err(CarbideCliError::ApiInvocationError)?
+                .instance_types;
+            all_itypes.extend(itypes);
+        }
+
+        Ok(all_itypes)
     }
 }

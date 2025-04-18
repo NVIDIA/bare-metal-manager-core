@@ -1266,6 +1266,7 @@ message InstanceSearchFilter {
   optional Label label = 1;
   optional string tenant_org_id = 2;
   optional string vpc_id = 3;
+  optional string instance_type_id = 4;
 }
 
 message InstanceIdList {
@@ -1762,6 +1763,7 @@ message MachineSearchConfig {
   reserved 5; // Was: bool include_associated_machine_id = 5; Now always included
   bool exclude_hosts = 6;
   bool only_quarantine = 7;
+  optional string instance_type_id = 8;
 }
 
 message MachineHealthHistoriesRequest {

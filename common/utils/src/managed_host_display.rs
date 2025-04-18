@@ -169,6 +169,7 @@ pub struct ManagedHostOutput {
     pub exploration_report: Option<EndpointExplorationReport>,
     pub failure_details: Option<String>,
     pub quarantine_state: Option<ManagedHostQuarantineState>,
+    pub instance_type_id: Option<String>,
 }
 
 impl From<&Machine> for ManagedHostOutput {
@@ -245,6 +246,7 @@ impl From<&Machine> for ManagedHostOutput {
                 )
             }),
             quarantine_state: machine.quarantine_state.clone(),
+            instance_type_id: machine.instance_type_id.clone(),
             ..Default::default()
         }
     }

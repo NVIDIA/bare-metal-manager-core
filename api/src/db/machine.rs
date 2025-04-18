@@ -19,6 +19,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
+use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, DpuInfo};
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
@@ -59,7 +60,7 @@ use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 use crate::{CarbideError, CarbideResult, resource_pool};
 
 /// MachineSearchConfig: Search parameters
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct MachineSearchConfig {
     pub include_dpus: bool,
     pub include_history: bool,
@@ -69,6 +70,7 @@ pub struct MachineSearchConfig {
     /// Only include quarantined machines
     pub only_quarantine: bool,
     pub exclude_hosts: bool,
+    pub instance_type_id: Option<InstanceTypeId>,
 
     /// Whether the query results will be later
     /// used for updates in the same transaction.
@@ -81,17 +83,26 @@ pub struct MachineSearchConfig {
     pub for_update: bool,
 }
 
-impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
-    fn from(value: rpc::MachineSearchConfig) -> Self {
-        MachineSearchConfig {
+impl TryFrom<rpc::MachineSearchConfig> for MachineSearchConfig {
+    type Error = RpcDataConversionError;
+
+    fn try_from(value: rpc::MachineSearchConfig) -> Result<Self, Self::Error> {
+        Ok(MachineSearchConfig {
             include_dpus: value.include_dpus,
             include_history: value.include_history,
             include_predicted_host: value.include_predicted_host,
             only_maintenance: value.only_maintenance,
             only_quarantine: value.only_quarantine,
             exclude_hosts: value.exclude_hosts,
+            instance_type_id: value
+                .instance_type_id
+                .map(|t| {
+                    t.parse::<InstanceTypeId>()
+                        .map_err(|_| RpcDataConversionError::InvalidInstanceTypeId(t.clone()))
+                })
+                .transpose()?,
             for_update: false, // This isn't exposed to API callers
-        }
+        })
     }
 }
 
@@ -484,6 +495,11 @@ pub async fn find(
     if search_config.for_update {
         builder.push(" FOR UPDATE OF machines");
     };
+
+    if let Some(id) = search_config.instance_type_id {
+        builder.push(" AND m.instance_type_id = ");
+        builder.push_bind(id);
+    }
 
     let all_machines: Vec<Machine> = builder
         .build_query_as()
