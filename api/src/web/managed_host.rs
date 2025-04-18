@@ -297,7 +297,7 @@ pub async fn show_html(
     state: AxumState<Arc<Api>>,
     Query(mut params): Query<HashMap<String, String>>,
 ) -> Response {
-    let managed_hosts = match fetch_managed_hosts(state).await {
+    let managed_hosts = match fetch_managed_hosts(state, false).await {
         Ok(m) => m,
         Err(err) => {
             tracing::error!(%err, "fetch_managed_hosts");
@@ -530,7 +530,7 @@ fn filter_expr(keys: &[GroupingKey], values: &[String]) -> String {
 }
 
 pub async fn show_all_json(state: AxumState<Arc<Api>>) -> Response {
-    let mut managed_hosts = match fetch_managed_hosts(state).await {
+    let mut managed_hosts = match fetch_managed_hosts(state, true).await {
         Ok(m) => m,
         Err(err) => {
             tracing::error!(%err, "fetch_managed_hosts");
@@ -547,6 +547,7 @@ pub async fn show_all_json(state: AxumState<Arc<Api>>) -> Response {
 
 async fn fetch_managed_hosts(
     AxumState(api): AxumState<Arc<Api>>,
+    include_history: bool,
 ) -> eyre::Result<Vec<utils::ManagedHostOutput>> {
     let machine_ids = api
         .find_machine_ids(tonic::Request::new(forgerpc::MachineSearchConfig {
@@ -569,7 +570,7 @@ async fn fetch_managed_hosts(
         let next_ids = &machine_ids[offset..offset + page_size];
         let request = tonic::Request::new(forgerpc::MachinesByIdsRequest {
             machine_ids: next_ids.to_vec(),
-            include_history: true,
+            include_history,
         });
         let next_machines = api.find_machines_by_ids(request).await?.into_inner();
 
