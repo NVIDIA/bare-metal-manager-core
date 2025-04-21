@@ -23,6 +23,7 @@ use serde::Deserialize;
 use utils::managed_host_display::to_time;
 
 use super::filters;
+use super::machine_state_history::{MachineStateHistoryRecord, MachineStateHistoryTable};
 use crate::api::Api;
 use crate::model::machine::network::ManagedHostQuarantineState;
 
@@ -264,7 +265,10 @@ pub async fn fetch_machine(
         .map(|response| response.into_inner())
     {
         Ok(m) if m.machines.is_empty() => {
-            return Err(super::not_found_response(machine_id));
+            return Err(super::not_found_response(format!(
+                "{}\n<a href=\"/admin/machine/{}/state-history\">View State history for Machine</a>",
+                machine_id, machine_id
+            )));
         }
         Ok(m) if m.machines.len() != 1 => {
             return Err((
@@ -345,7 +349,7 @@ struct MachineDetail {
     machine_type: String,
     is_host: bool,
     network_config: String,
-    history: Vec<MachineHistoryDisplay>,
+    history: MachineStateHistoryTable,
     bios_version: String,
     board_version: String,
     product_name: String,
@@ -377,11 +381,6 @@ struct MachineCapability {
     ty: &'static str,
     name: String,
     count: u32,
-}
-
-struct MachineHistoryDisplay {
-    event: String,
-    version: String,
 }
 
 struct MachineInterfaceDisplay {
@@ -417,13 +416,16 @@ pub struct ValidationRun {
 
 impl From<forgerpc::Machine> for MachineDetail {
     fn from(m: forgerpc::Machine) -> Self {
-        let mut history = Vec::new();
+        let mut history_records = Vec::new();
         for e in m.events.into_iter().rev() {
-            history.push(MachineHistoryDisplay {
+            history_records.push(MachineStateHistoryRecord {
                 event: e.event,
                 version: e.version,
             });
         }
+        let history = MachineStateHistoryTable {
+            records: history_records,
+        };
 
         let mut interfaces = Vec::new();
         for (i, interface) in m.interfaces.into_iter().enumerate() {

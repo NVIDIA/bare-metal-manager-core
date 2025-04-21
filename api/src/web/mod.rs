@@ -56,6 +56,7 @@ mod ib_partition;
 mod instance;
 mod interface;
 mod machine;
+mod machine_state_history;
 mod machine_validation;
 mod managed_host;
 mod network_device;
@@ -285,6 +286,14 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route(
                 "/machine/:machine_id/health-history.json",
                 get(health_history::show_health_history_json),
+            )
+            .route(
+                "/machine/:machine_id/state-history",
+                get(machine_state_history::show_state_history),
+            )
+            .route(
+                "/machine/:machine_id/state-history.json",
+                get(machine_state_history::show_state_history_json),
             )
             .route(
                 "/machine/:machine_id/health/override/add",

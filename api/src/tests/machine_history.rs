@@ -79,6 +79,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         // Check that RPC APIs returns the History if asked for
         // - GetMachine always returns history
         // - FindMachines and FindMachinesById should do so if asked for it
+        // - FindMachineStateHistories returns the expected history
         let rpc_machine = env
             .api
             .get_machine(tonic::Request::new(machine_id.to_string().into()))
@@ -141,6 +142,30 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             rpc_history[..expected_initial_states.len()].to_vec(),
             expected_initial_states
         );
+
+        let mut rpc_histories = env
+            .api
+            .find_machine_state_histories(tonic::Request::new(
+                rpc::forge::MachineStateHistoriesRequest {
+                    machine_ids: vec![machine_id.to_string().into()],
+                },
+            ))
+            .await?
+            .into_inner();
+        assert_eq!(rpc_histories.histories.len(), 1);
+        let rpc_history = rpc_histories
+            .histories
+            .remove(&machine_id.to_string())
+            .unwrap();
+        let rpc_history: Vec<serde_json::Value> = rpc_history
+            .records
+            .into_iter()
+            .map(|ev| serde_json::from_str::<serde_json::Value>(&ev.event))
+            .collect::<Result<_, _>>()?;
+        assert_eq!(
+            rpc_history[..expected_initial_states.len()].to_vec(),
+            expected_initial_states
+        );
     }
 
     // Check if older history entries get deleted
@@ -186,6 +211,45 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .unwrap();
 
     assert_eq!(machine.history.len(), 250);
+
+    // Test whether history is retrievable for a forced deleted Machine
+    env.api
+        .admin_force_delete_machine(tonic::Request::new(
+            ::rpc::forge::AdminForceDeleteMachineRequest {
+                host_query: host_machine_id.to_string(),
+                delete_interfaces: false,
+                delete_bmc_interfaces: false,
+                delete_bmc_credentials: false,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(
+        env.find_machines(Some(host_machine_id.to_string().into()), None, true)
+            .await
+            .machines
+            .is_empty()
+    );
+
+    let mut rpc_histories = env
+        .api
+        .find_machine_state_histories(tonic::Request::new(
+            rpc::forge::MachineStateHistoriesRequest {
+                machine_ids: vec![host_machine_id.to_string().into()],
+            },
+        ))
+        .await?
+        .into_inner();
+    assert_eq!(rpc_histories.histories.len(), 1);
+    let rpc_history = rpc_histories
+        .histories
+        .remove(&host_machine_id.to_string())
+        .unwrap();
+
+    assert!(!rpc_history.records.is_empty());
+
     Ok(())
 }
 
