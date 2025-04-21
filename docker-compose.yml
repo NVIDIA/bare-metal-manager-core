@@ -241,6 +241,35 @@ services:
       options:
         loki-url: "http://172.20.0.25:3100/loki/api/v1/push"
 
+  # Unless testing dns, this container is not necessary
+  #
+  #powerdns:
+  #  depends_on:
+  #    - carbide-dns
+  #    - postgresql
+  #    - carbide-api
+  #  build:
+  #    dockerfile: dev/docker/Dockerfile-powerdns
+  #  networks:
+  #    carbide:
+  #      ipv4_address: 172.20.0.53
+  #  volumes:
+  #    - dns_socket:/tmp
+  #    - .:/app/code 
+  #  command: 
+  #  - sh 
+  #  - -c
+  #  - >
+  #    mkdir -p /etc/services.d/pdns
+
+  #    cp -f /app/code/dev/docker-env/pdns.conf /etc/powerdns
+
+  #    chmod +x /etc/services.d/pdns/run
+
+  #    /bin/s6-svscan /var/services
+  #  ports:
+  #   - "1053:53/udp"
+
   carbide-dns:
     depends_on:
       - postgresql
@@ -253,12 +282,12 @@ services:
     volumes:
       - $HOME/docker_cargo_home:/docker_cargo_home
       - .:/app/code
-    ports:
-      - "1053:1053/udp"
+      - dns_socket:/tmp
     environment:
+      - RUST_LOG=debug
       - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
-    command: cargo watch -C dns -x "run --target-dir /tmp/carbide-dns -- run --carbide-url=http://172.20.0.14:1079"
+    command: cargo watch -C dns -x "run --target-dir /tmp/carbide-dns -- --config-path=/app/code/dev/docker-env/carbide-dns-config.toml run"
     logging:
       driver: loki
       options:
@@ -320,6 +349,8 @@ services:
         ipv4_address: 172.20.0.25
 
 volumes:
+  dns_socket:
+    driver: local
   ca-certificate: {}
   db-data: {}
   grafana-data: {}

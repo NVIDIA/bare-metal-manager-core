@@ -20,6 +20,8 @@ variables:
   ARTIFACTS_DOCKER_IMAGE_X86_64_PRODUCTION: nvcr.io/nvidian/nvforge/boot-artifacts-x86_64
   MACHINE_VALIDATION_ARTIFACTS_DOCKER_IMAGE_PRODUCTION: nvcr.io/nvidian/nvforge/machine_validation
   MACHINE_VALIDATION_RUNNER_DOCKER_IMAGE_PRODUCTION: nvcr.io/nvidian/nvforge/machine-validation-runner
+  POWERDNS_DOCKER_IMAGE: nvcr.io/nvidian/nvforge/powerdns
+  POWERDNS_VERSION: "4.9.3"
 
   TEST_API_IMAGE: stg.nvcr.io/rkafbrtf9ezb/test-api
 
@@ -853,6 +855,36 @@ proto-police:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
         - "**/*.proto"
+
+build-powerdns-container:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  needs:
+    - job: prepare-ci
+      optional: false
+    - job: export-docker-json-config
+      optional: false
+    - job: build-runtime-container-x86_64
+      optional: true
+  dependencies:
+    - prepare-ci
+    - export-docker-json-config
+  variables:
+    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile-powerdns
+  before_script: |
+    mkdir -p /kaniko/.docker
+    cp .docker/config.json /kaniko/.docker/config.json
+  script: |
+    set -euo pipefail
+      /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $DOCKER_FILE --build-arg "CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA"  --destination "$POWERDNS_DOCKER_IMAGE:$POWERDNS_VERSION"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-powerdns/
+    - changes:
+        - dev/docker/Dockerfile-powerdns
 
 nspect-source-scan-x86_64:
   stage: .pre
