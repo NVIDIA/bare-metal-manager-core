@@ -59,7 +59,7 @@ extern "C" {
 				// TODO: handle invalid data type for carbide-api-url
 				return (1);
 			} else {
-				// TOOD: proper logging
+				// TODO: proper logging
 				carbide_set_config_api(api_endpoint->stringValue().c_str());
 			}
 		}
@@ -70,7 +70,7 @@ extern "C" {
                 // TODO: handle invalid data type for ntpserver
                 return (1);
             } else {
-                // TOOD: proper logging
+                // TODO: proper logging
                 carbide_set_config_ntp(ntpservers->stringValue().c_str());
             }
         }
@@ -81,8 +81,19 @@ extern "C" {
                 // TODO: handle invalid data type for nameservers
                 return (1);
             } else {
-                // TOOD: proper logging
+                // TODO: proper logging
                 carbide_set_config_name_servers(nameservers->stringValue().c_str());
+            }
+        }
+
+        ConstElementPtr mqtt_server = handle->getParameter("carbide-mqtt-server");
+        if (mqtt_server) {
+            if(mqtt_server->getType() != Element::string) {
+                // TODO: handle invalid data type for mqtt_server.
+                return (1);
+            } else {
+                // TODO: proper logging
+                carbide_set_config_mqtt_server(mqtt_server->stringValue().c_str());
             }
         }
 
@@ -92,7 +103,7 @@ extern "C" {
                 // TODO: handle invalid data type for carbide-metrics-endpoint
                 return (1);
             } else {
-                // TOOD: proper logging
+                // TODO: proper logging
                 carbide_set_config_metrics_endpoint(metrics_endpoint->stringValue().c_str());
             }
         }

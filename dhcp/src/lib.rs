@@ -44,6 +44,7 @@ static LOGGER: kea_logger::KeaLogger = kea_logger::KeaLogger;
 pub struct CarbideDhcpContext {
     api_endpoint: String,
     nameservers: String,
+    mqtt_server: Option<String>,
     ntpservers: String,
     provisioning_server_ipv4: Option<Ipv4Addr>,
     forge_root_ca_path: String,
@@ -74,6 +75,7 @@ impl Default for CarbideDhcpContext {
             forge_client_key_path: std::env::var("FORGE_CLIENT_KEY_PATH")
                 .unwrap_or_else(|_| tls_default::CLIENT_KEY.to_string()),
             ntpservers: "172.20.0.24,172.20.0.26,172.20.0.27".to_string(), // local ntp servers
+            mqtt_server: None,
             provisioning_server_ipv4: None,
             metrics_endpoint: None,
             metrics: None,
@@ -137,6 +139,20 @@ pub unsafe extern "C" fn carbide_set_config_name_servers(nameservers: *const c_c
     unsafe {
         let nameserver_str = CStr::from_ptr(nameservers).to_str().unwrap().to_owned();
         CONFIG.write().unwrap().nameservers = nameserver_str;
+    }
+}
+
+/// Take the MQTT server for configuring mqtt_server in DHCP option 224.
+///
+/// # Safety
+/// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
+/// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
+///
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn carbide_set_config_mqtt_server(mqttserver: *const c_char) {
+    unsafe {
+        let mqttserver_str = CStr::from_ptr(mqttserver).to_str().unwrap().to_owned();
+        CONFIG.write().unwrap().mqtt_server = Some(mqttserver_str);
     }
 }
 
