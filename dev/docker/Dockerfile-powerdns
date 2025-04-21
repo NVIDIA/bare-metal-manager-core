@@ -1,0 +1,99 @@
+FROM debian:trixie
+
+RUN apt-get update && apt-get -y dist-upgrade && apt-get install -y --no-install-recommends \ 
+pdns-backend-remote \
+s6 \
+ca-certificates \
+curl \
+gnupg
+RUN curl https://packages.fluentbit.io/fluentbit.key | gpg --dearmor > /usr/share/keyrings/fluentbit-keyring.gpg && \
+echo "deb [signed-by=/usr/share/keyrings/fluentbit-keyring.gpg] https://packages.fluentbit.io/debian/bookworm bookworm main" > /etc/apt/sources.list.d/fluentbit.list
+RUN apt-get update
+RUN apt-get install -y fluent-bit &&  \
+apt-get clean
+RUN mv /etc/powerdns/pdns.conf /etc/powerdns/pdns.conf.orig
+
+RUN mkdir -p /etc/s6/service/powerdns/log
+RUN cat <<EOF > /etc/s6/service/powerdns/log/run
+#!/usr/bin/env bash
+#/etc/s6/service/powerdns/log/run
+
+# Rotate logs at 10MB, keep 5 old logs
+exec s6-log n10 s10000000 /var/log/powerdns
+EOF
+RUN chmod +x /etc/s6/service/powerdns/log/run
+RUN cat <<EOF > /etc/s6/service/powerdns/run
+#!/usr/bin/env bash
+#/etc/s6/service/powerdns/run
+
+# Start PowerDNS in the foreground for s6 supervision
+exec 2>&1
+exec /usr/sbin/pdns_server --daemon=no --loglevel-show=yes --config-dir=/etc/powerdns --guardian=no --write-pid=no
+EOF
+RUN chmod +x /etc/s6/service/powerdns/run
+
+RUN mkdir -p /etc/s6/service/fluent-bit
+RUN cat <<EOF > /etc/s6/service/fluent-bit/run
+#!/usr/bin/env bash
+# /etc/s6/service/fluent-bit/run
+
+# Start Fluent Bit with its config
+# Takes powerdns logs and converts to json
+exec /opt/fluent-bit/bin/fluent-bit --quiet -c /etc/fluent-bit/fluent-bit.conf
+EOF
+RUN chmod +x /etc/s6/service/fluent-bit/run
+
+RUN cat <<EOF > /etc/fluent-bit/fluent-bit.conf
+[SERVICE]
+    Flush        1
+    Log_Level    info
+    Daemon       off
+    parsers_file parsers.conf
+    plugins_file plugins.conf
+
+[INPUT]
+    Name         tail
+    Path         /var/log/powerdns/current
+    Tag          powerdns
+    Refresh_Interval 5
+    Read_from_Head true
+    Skip_Long_Lines On
+
+[FILTER]
+    Name         parser
+    Match        powerdns
+    Key_Name     log
+    Parser       powerdns_logs
+
+
+[OUTPUT]
+    Name         stdout
+    Match        *
+    Format       json_lines
+    Json_Date_Key date
+    Json_Date_Format iso8601
+EOF
+
+RUN cat <<EOF >> /etc/fluent-bit/parsers.conf
+[PARSER]
+    Name         powerdns_logs
+    Format       regex
+    Regex        ^(?<timestamp>\w{3} \d{1,2} \d{2}:\d{2}:\d{2}) (?<message>.+)$
+    Time_Key     timestamp
+    Time_Format  %b %d %H:%M:%S
+EOF
+
+RUN mkdir -p /var/service
+RUN ln -s /etc/s6/service/powerdns /var/service && ln -s /etc/s6/service/fluent-bit /var/service
+
+# One final clean / update in case update in the future
+RUN apt-get update && apt-get -y dist-upgrade && apt-get clean
+
+RUN apt-get purge --auto-remove -y && apt-get clean && rm -rf \ /tmp/* \ /var/lib/apt/lists/* \ /var/tmp/*
+
+# DNS ports
+EXPOSE 5353/udp
+EXPOSE 5353/tcp
+# webserver port
+EXPOSE 8081/tcp
+
