@@ -53,7 +53,6 @@ impl From<DbMachineStateHistory> for crate::model::machine::MachineStateHistory 
 ///
 /// * `txn` - A reference to an open Transaction
 ///
-#[cfg(test)] // only used in tests
 pub async fn find_by_machine_ids(
     txn: &mut Transaction<'_, Postgres>,
     ids: &[MachineId],

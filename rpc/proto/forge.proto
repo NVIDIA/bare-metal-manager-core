@@ -142,6 +142,7 @@ service Forge {
   rpc FindIpAddress(FindIpAddressRequest) returns (FindIpAddressResponse);
   rpc FindMachineIds(MachineSearchConfig) returns (common.MachineIdList);
   rpc FindMachinesByIds(MachinesByIdsRequest) returns (MachineList);
+  rpc FindMachineStateHistories(MachineStateHistoriesRequest) returns (MachineStateHistories);
   rpc FindMachineHealthHistories(MachineHealthHistoriesRequest) returns (MachineHealthHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
@@ -1764,6 +1765,20 @@ message MachineSearchConfig {
   bool exclude_hosts = 6;
   bool only_quarantine = 7;
   optional string instance_type_id = 8;
+}
+
+message MachineStateHistoriesRequest {
+  repeated common.MachineId machine_ids = 1;
+}
+
+message MachineStateHistories {
+  // The History for each Machine
+  map<string, MachineStateHistoryRecords> histories = 1;
+}
+
+// A list of Machine history records, starting by the oldest
+message MachineStateHistoryRecords {
+  repeated MachineEvent records = 1;
 }
 
 message MachineHealthHistoriesRequest {
