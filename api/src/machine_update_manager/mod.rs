@@ -232,7 +232,6 @@ impl MachineUpdateManager {
                         &snapshots,
                     )
                     .await?;
-
                 tracing::debug!("started: {:?}", updates_started);
 
                 updates_started_count += updates_started.len();
