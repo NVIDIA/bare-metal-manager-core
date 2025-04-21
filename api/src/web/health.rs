@@ -111,7 +111,7 @@ pub async fn health(
         Err(err) if err.code() == tonic::Code::NotFound => None,
         Err(err) => {
             tracing::error!(%err, %machine_id, "find_machines_by_ids");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
+            return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response();
         }
     };
 
@@ -134,7 +134,7 @@ pub async fn health(
         Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
         Err(err) => {
             tracing::error!(%err, %machine_id, "list_health_report_overrides");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
+            return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response();
         }
     };
     // Sort by type first and source name second.
@@ -167,7 +167,7 @@ pub async fn health(
         Err(err) if err.code() == tonic::Code::NotFound => None,
         Err(err) => {
             tracing::error!(%err, %machine_id, "get_hardware_health_report");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
+            return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response();
         }
     };
     component_health.push(LabeledHealthReport {
@@ -189,7 +189,7 @@ pub async fn health(
             Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
             Err(err) => {
                 tracing::error!(%err, %machine_id, "find_machines_by_ids");
-                return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
+                return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response();
             }
         };
         for dpu in dpus {
@@ -212,7 +212,7 @@ pub async fn health(
         Ok(records) => records,
         Err(err) => {
             tracing::error!(%err, %machine_id, "find_machine_health_histories");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
+            return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response();
         }
     };
 

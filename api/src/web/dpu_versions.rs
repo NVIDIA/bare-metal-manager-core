@@ -102,7 +102,7 @@ pub async fn list_html(AxumState(state): AxumState<Arc<Api>>) -> impl IntoRespon
         Ok(m) => m,
         Err(err) => {
             tracing::error!(%err, "find_machines");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new()));
+            return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string()));
         }
     };
     machines

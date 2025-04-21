@@ -565,7 +565,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         Ok(_) => "Unknown",
         Err(err) => {
             tracing::error!(%err, "dpu_agent_upgrade_policy_action");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new()));
+            return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string()));
         }
     };
 
