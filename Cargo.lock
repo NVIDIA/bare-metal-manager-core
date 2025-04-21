@@ -3653,9 +3653,9 @@ dependencies = [
 
 [[package]]
 name = "libredfish"
-version = "0.29.25"
+version = "0.29.27"
 source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
-checksum = "c41477a3261b5774522b3bba5ab96d25673ab0ccf4383f7e92d60ce7fd62e761"
+checksum = "52b2c22f5db049d6deb1140da511341d20bada5a8bb55b4f370fa594a0a6fc21"
 dependencies = [
  "async-trait",
  "chrono",
