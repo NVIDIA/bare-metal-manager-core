@@ -212,7 +212,7 @@ async fn show(
         Ok(m) => m,
         Err(err) => {
             tracing::error!(%err, "find_machines");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new()));
+            return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string()));
         }
     };
 
@@ -286,7 +286,7 @@ pub async fn fetch_machine(
         }
         Err(err) => {
             tracing::error!(%err, %machine_id, "find_machines_by_ids");
-            return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response());
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
         }
     };
 
