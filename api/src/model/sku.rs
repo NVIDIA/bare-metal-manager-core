@@ -420,6 +420,26 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
         ));
     }
 
+    let expected_thread_count = expected_sku
+        .components
+        .cpus
+        .iter()
+        .map(|c| c.thread_count)
+        .sum::<u32>();
+    let actual_thread_count = actual_sku
+        .components
+        .cpus
+        .iter()
+        .map(|c| c.thread_count)
+        .sum::<u32>();
+
+    if expected_thread_count != actual_thread_count {
+        diffs.push(format!(
+            "Number of CPU threads ({}) does not match expected ({})",
+            actual_cpu_count, expected_cpu_count
+        ));
+    }
+
     let mut expected_gpus: HashMap<(&str, &str), &SkuComponentGpu> = expected_sku
         .components
         .gpus

@@ -914,4 +914,24 @@ pub mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_thread_differences() -> Result<(), eyre::Error> {
+        let rpc_sku1: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+        let mut rpc_sku2: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+
+        let sku1 = rpc_sku1.into();
+        let sku2 = rpc_sku2.clone().into();
+
+        let diffs = crate::model::sku::diff_skus(&sku1, &sku2);
+        assert!(diffs.is_empty());
+
+        rpc_sku2.components.as_mut().unwrap().cpus[0].thread_count *= 2;
+        let sku2 = rpc_sku2.into();
+
+        let diffs = crate::model::sku::diff_skus(&sku1, &sku2);
+        assert!(!diffs.is_empty());
+
+        Ok(())
+    }
 }
