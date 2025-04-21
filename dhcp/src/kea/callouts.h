@@ -24,6 +24,9 @@ using namespace isc::hooks;
 using namespace isc::dhcp;
 using namespace std;
 
+// MQTT server currently is set in option 224.
+const uint16_t DHO_MQTT_SERVER = 224;
+
 template <typename T>
 boost::shared_ptr<T> get_and_delete_option(Pkt4Ptr response4_ptr, int option) {
   boost::shared_ptr<T> option_val =

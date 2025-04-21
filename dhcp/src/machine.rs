@@ -276,6 +276,22 @@ pub extern "C" fn machine_get_ntpservers(ctx: *mut Machine) -> *mut libc::c_char
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn machine_get_mqtt_server(ctx: *mut Machine) -> *mut libc::c_char {
+    assert!(!ctx.is_null());
+
+    match CONFIG.read().unwrap().mqtt_server.clone() {
+        Some(mqtt_server) => {
+            log::debug!("MQTT server is {:?}", mqtt_server);
+            CString::new(mqtt_server).unwrap().into_raw()
+        }
+        None => {
+            log::debug!("MQTT server is unset");
+            ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn machine_get_client_type(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
     let machine = unsafe { &mut *ctx };

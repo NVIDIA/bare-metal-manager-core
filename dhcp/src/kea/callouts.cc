@@ -73,6 +73,10 @@ void CDHCPOptionsHandler<Option>::resetAndAddOption(boost::any param) {
     response4_ptr->addOption(OptionPtr(new Option4AddrLst(
         option, getAddresses(boost::any_cast<std::string>(param)))));
     break;
+  case DHO_MQTT_SERVER:
+    response4_ptr->addOption(OptionPtr(new OptionString(
+        Option::V4, option, boost::any_cast<std::string>(param))));
+    break;
   case DHO_SUBNET_MASK:
   case DHO_BROADCAST_ADDRESS:
   case DHO_HOST_NAME:
@@ -259,6 +263,14 @@ void set_options(CalloutHandle &handle, Pkt4Ptr response4_ptr,
   std::string ntpservers(machine_ntpservers);
   update_option<Option>(handle, response4_ptr, DHO_NTP_SERVERS, ntpservers);
   machine_free_nameservers(machine_ntpservers);
+
+  // MQTT server
+  char *machine_mqtt_server = machine_get_mqtt_server(machine);
+  if (machine_mqtt_server != nullptr) {
+    std::string mqtt_server(machine_mqtt_server);
+    update_option<Option>(handle, response4_ptr, DHO_MQTT_SERVER, mqtt_server);
+    machine_free_nameservers(machine_mqtt_server);
+  }
 
   // Set Interface MTU
   uint16_t mtu = machine_get_interface_mtu(machine);
