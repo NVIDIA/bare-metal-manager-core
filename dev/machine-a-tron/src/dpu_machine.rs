@@ -1,3 +1,4 @@
+use eyre::Context;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -71,15 +72,17 @@ impl DpuMachine {
             host_id: mat_host,
             dpu_info,
             state_machine,
-            app_context,
 
             api_state: "Unknown".to_string(),
             bmc_control_rx,
             observed_machine_id: None,
             paused: true,
             sleep_until: Instant::now(),
-            api_refresh_interval: tokio::time::interval(Duration::from_secs(2)),
+            api_refresh_interval: tokio::time::interval(
+                app_context.app_config.api_refresh_interval,
+            ),
             state_waiters: HashMap::new(),
+            app_context,
         }
     }
 
@@ -116,15 +119,17 @@ impl DpuMachine {
             host_id: mat_host,
             dpu_info,
             state_machine,
-            app_context,
 
             api_state: "Unknown".to_string(),
             bmc_control_rx,
             observed_machine_id: None,
             paused: true,
             sleep_until: Instant::now(),
-            api_refresh_interval: tokio::time::interval(Duration::from_secs(2)),
+            api_refresh_interval: tokio::time::interval(
+                app_context.app_config.api_refresh_interval,
+            ),
             state_waiters: HashMap::new(),
+            app_context,
         }
     }
 
@@ -371,14 +376,20 @@ impl DpuMachineActor {
         Ok(rx.await?)
     }
 
-    pub async fn wait_until_machine_up_with_api_state(&self, state: &str) -> eyre::Result<()> {
+    pub async fn wait_until_machine_up_with_api_state(
+        &self,
+        state: &str,
+        timeout: Duration,
+    ) -> eyre::Result<()> {
         let (tx, rx) = oneshot::channel();
         self.message_tx
             .send(DpuMachineMessage::WaitUntilMachineUpWithApiState(
                 state.to_owned(),
                 tx,
             ))?;
-        Ok(rx.await?)
+        tokio::time::timeout(timeout, rx).await?.wrap_err(format!(
+            "timed out waiting for machine up with state {state}"
+        ))
     }
 
     pub async fn host_details(&self) -> eyre::Result<HostDetails> {

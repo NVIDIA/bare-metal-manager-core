@@ -231,7 +231,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         |machine_actor| {
             let db_pool = db_pool.clone();
             async move {
-                machine_actor.dpus[0].wait_until_machine_up_with_api_state("HostInitializing/WaitingForDiscovery").await?;
+                machine_actor.dpus[0].wait_until_machine_up_with_api_state("HostInitializing/WaitingForDiscovery", Duration::from_secs(90)).await?;
 
                 // After the host_bootstrap, the dns_records view
                 // should contain 8 entries:
@@ -370,7 +370,7 @@ async fn test_machine_a_tron_multidpu(
             let carbide_api_addr = test_env.carbide_api_addr;
             async move {
                 machine_actor
-                    .wait_until_machine_up_with_api_state("Ready")
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 let machine_id = machine_actor
                     .observed_machine_id()
@@ -388,7 +388,7 @@ async fn test_machine_a_tron_multidpu(
                 )?;
 
                 machine_actor
-                    .wait_until_machine_up_with_api_state("Assigned/Ready")
+                    .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(60))
                     .await?;
 
                 let instance_json = instance::get_instance_json_by_machine_id(
@@ -422,7 +422,7 @@ async fn test_machine_a_tron_multidpu(
                 instance::release(carbide_api_addr, &machine_id, &instance_id, false)?;
 
                 machine_actor
-                    .wait_until_machine_up_with_api_state("Ready")
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
                     .await?;
                 tracing::info!("Machine {machine_id} has made it to Ready again, all done");
                 Ok::<(), eyre::Report>(())
@@ -447,7 +447,7 @@ async fn test_machine_a_tron_zerodpu(
         |machine_actor| {
             async move {
                 machine_actor
-                    .wait_until_machine_up_with_api_state("Ready")
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 let machine_id = machine_actor
                     .observed_machine_id()
@@ -479,7 +479,7 @@ async fn test_machine_a_tron_singledpu_nic_mode(
         |machine_actor| {
             async move {
                 machine_actor
-                    .wait_until_machine_up_with_api_state("Ready")
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
                     .await?;
                 let machine_id = machine_actor
                     .observed_machine_id()
@@ -564,6 +564,7 @@ where
         configure_carbide_bmc_proxy_host: None,
         persist_dir: None,
         cleanup_on_quit: false,
+        api_refresh_interval: Duration::from_millis(500),
     };
 
     let (machine_actors, mat_handle) = machine_a_tron::run_local(

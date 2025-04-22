@@ -1,3 +1,4 @@
+use eyre::Context;
 use futures::future::join_all;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -97,7 +98,6 @@ impl HostMachine {
             machine_config_section,
             host_info,
             state_machine,
-            app_context,
             dpus,
             api_state: "Unknown".to_owned(),
 
@@ -108,7 +108,10 @@ impl HostMachine {
             tui_event_tx: None,
             paused: true,
             sleep_until: Instant::now(),
-            api_refresh_interval: tokio::time::interval(Duration::from_secs(2)),
+            api_refresh_interval: tokio::time::interval(
+                app_context.app_config.api_refresh_interval,
+            ),
+            app_context,
         }
     }
     pub fn new(
@@ -149,7 +152,6 @@ impl HostMachine {
             machine_config_section,
             host_info,
             state_machine,
-            app_context,
             dpus,
             api_state: "Unknown".to_owned(),
 
@@ -160,7 +162,10 @@ impl HostMachine {
             tui_event_tx: None,
             paused: true,
             sleep_until: Instant::now(),
-            api_refresh_interval: tokio::time::interval(Duration::from_secs(2)),
+            api_refresh_interval: tokio::time::interval(
+                app_context.app_config.api_refresh_interval,
+            ),
+            app_context,
         }
     }
 
@@ -551,14 +556,20 @@ impl HostMachineActor {
         Ok(rx.await?)
     }
 
-    pub async fn wait_until_machine_up_with_api_state(&self, state: &str) -> eyre::Result<()> {
+    pub async fn wait_until_machine_up_with_api_state(
+        &self,
+        state: &str,
+        timeout: Duration,
+    ) -> eyre::Result<()> {
         let (tx, rx) = oneshot::channel();
         self.message_tx
             .send(HostMachineMessage::WaitUntilMachineUpWithApiState(
                 state.to_owned(),
                 tx,
             ))?;
-        Ok(rx.await?)
+        tokio::time::timeout(timeout, rx).await?.wrap_err(format!(
+            "timed out waiting for machine up with state {state}"
+        ))
     }
 
     pub async fn stop(self, delete_from_api: bool) -> eyre::Result<()> {

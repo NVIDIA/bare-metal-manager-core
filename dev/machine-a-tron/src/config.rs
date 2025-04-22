@@ -193,6 +193,16 @@ pub struct MachineATronConfig {
     #[serde(default)]
     /// Set this to true to delete created machines from the API on quit
     pub cleanup_on_quit: bool,
+
+    /// How often to refresh the API state from the server. Longer durations are appropriate for
+    /// mocking lots of hosts, shorter durations are appropriate for integration tests where the
+    /// interval should be shorter than the state controller update interval
+    #[serde(
+        default = "default_api_refresh_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub api_refresh_interval: Duration,
 }
 
 impl MachineATronConfig {
@@ -341,6 +351,10 @@ fn default_run_interval_working() -> Duration {
 
 fn default_run_interval_idle() -> Duration {
     Duration::from_secs(30)
+}
+
+fn default_api_refresh_interval() -> Duration {
+    Duration::from_secs(2)
 }
 
 fn default_network_status_run_interval() -> Duration {
