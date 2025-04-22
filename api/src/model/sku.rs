@@ -436,7 +436,7 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
     if expected_thread_count != actual_thread_count {
         diffs.push(format!(
             "Number of CPU threads ({}) does not match expected ({})",
-            actual_cpu_count, expected_cpu_count
+            actual_thread_count, expected_thread_count
         ));
     }
 
