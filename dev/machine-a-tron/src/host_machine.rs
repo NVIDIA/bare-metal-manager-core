@@ -254,10 +254,6 @@ impl HostMachine {
                             _ = reply.send(response);
                         }
                     }
-                    BmcCommand::GetSystemPower(reply) => {
-                        _ = reply.send(self.state_machine.redfish_power_state());
-                        return true; // go back to sleeping
-                    }
                 }
                 // continue to process_state
             }

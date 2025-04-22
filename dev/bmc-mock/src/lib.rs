@@ -23,7 +23,6 @@ use axum::body::Body;
 use axum::http::{Request, Response, StatusCode};
 use axum_server::tls_rustls::RustlsConfig;
 use hyper::body::Incoming;
-use libredfish::PowerState;
 use rustls::ServerConfig;
 use rustls::pki_types::PrivateKeyDer;
 use rustls_pemfile::Item;
@@ -31,9 +30,11 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::sync::{RwLock, mpsc};
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 use tower::{Layer, Service};
 use tower_http::normalize_path::NormalizePathLayer;
 use tracing::{debug, error, info};
@@ -110,6 +111,32 @@ impl BmcMockHandle {
 #[serde(rename_all = "PascalCase")]
 pub struct SetSystemPowerReq {
     pub reset_type: SystemPowerControl,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum MockPowerState {
+    On,
+    Off,
+    PowerCycling { since: Instant },
+}
+
+// Simulate a 5-second power cycle
+pub const POWER_CYCLE_DELAY: Duration = Duration::from_secs(5);
+
+impl From<MockPowerState> for libredfish::PowerState {
+    fn from(val: MockPowerState) -> libredfish::PowerState {
+        match val {
+            MockPowerState::On => libredfish::PowerState::On,
+            MockPowerState::Off => libredfish::PowerState::Off,
+            MockPowerState::PowerCycling { since } => {
+                if since.elapsed() < POWER_CYCLE_DELAY {
+                    libredfish::PowerState::Off
+                } else {
+                    libredfish::PowerState::On
+                }
+            }
+        }
+    }
 }
 
 // https://www.dmtf.org/sites/default/files/standards/documents/DSP2046_2023.3.html
@@ -330,6 +357,7 @@ pub fn default_host_tar_router(
         tar_router,
         MachineInfo::Host(HostMachineInfo::new(vec![DpuMachineInfo::default()])),
         maybe_command_channel,
+        Arc::new(Mutex::new(MockPowerState::On)),
     )
 }
 
@@ -341,11 +369,6 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
                 break;
             };
             match command {
-                // Just return that it's on
-                BmcCommand::GetSystemPower(reply) => {
-                    _ = reply.send(PowerState::On);
-                    continue;
-                }
                 // Assume SetSystemPower is just a reboot
                 BmcCommand::SetSystemPower { .. } => {}
             }
