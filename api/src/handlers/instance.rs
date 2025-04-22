@@ -349,6 +349,7 @@ pub(crate) async fn update_phone_home_last_contact(
     api: &Api,
     request: Request<rpc::InstancePhoneHomeLastContactRequest>,
 ) -> Result<Response<rpc::InstancePhoneHomeLastContactResponse>, Status> {
+    log_request_data(&request);
     let request = request.into_inner();
     let instance_id = InstanceId::from_grpc(request.instance_id.clone())?;
 
@@ -637,6 +638,7 @@ pub(crate) async fn update_instance_config(
     api: &Api,
     request: tonic::Request<rpc::InstanceConfigUpdateRequest>,
 ) -> Result<tonic::Response<rpc::Instance>, Status> {
+    log_request_data(&request);
     let request = request.into_inner();
     let instance_id = InstanceId::from_grpc(request.instance_id.clone())?;
 
