@@ -1,5 +1,8 @@
 use crate::bmc_state::BmcState;
-use crate::{DpuMachineInfo, MachineInfo, SetSystemPowerReq, call_router_with_new_request, rf};
+use crate::{
+    DpuMachineInfo, MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerReq,
+    call_router_with_new_request, rf,
+};
 use axum::Router;
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, State};
@@ -10,7 +13,7 @@ use http_body_util::BodyExt;
 use lazy_static::lazy_static;
 use libredfish::model::software_inventory::SoftwareInventory;
 use libredfish::model::{BootOption, ComputerSystem, ODataId};
-use libredfish::{Chassis, EthernetInterface, NetworkAdapter, OData, PCIeDevice, PowerState};
+use libredfish::{Chassis, EthernetInterface, NetworkAdapter, OData, PCIeDevice};
 use regex::{Captures, Regex};
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -30,16 +33,15 @@ struct MockWrapperState {
     inner_router: Router,
     command_channel: Option<mpsc::UnboundedSender<BmcCommand>>,
     bmc_state: BmcState,
+    mock_power_state: Arc<Mutex<MockPowerState>>,
 }
 
 #[derive(Debug)]
-#[allow(clippy::enum_variant_names)] // they all *happen to* have the same suffix now
 pub enum BmcCommand {
     SetSystemPower {
         request: SetSystemPowerReq,
         reply: Option<oneshot::Sender<SetSystemPowerResult>>,
     },
-    GetSystemPower(oneshot::Sender<PowerState>),
 }
 
 pub type SetSystemPowerResult = Result<(), SetSystemPowerError>;
@@ -60,6 +62,7 @@ pub fn wrap_router_with_mock_machine(
     inner_router: Router,
     machine_info: MachineInfo,
     command_channel: Option<mpsc::UnboundedSender<BmcCommand>>,
+    mock_power_state: Arc<Mutex<MockPowerState>>,
 ) -> Router {
     Router::new()
         .route(
@@ -137,6 +140,7 @@ pub fn wrap_router_with_mock_machine(
             machine_info,
             command_channel,
             inner_router,
+            mock_power_state,
             bmc_state: BmcState{
                 jobs: Arc::new(Mutex::new(HashMap::new())),
             },
@@ -578,15 +582,7 @@ async fn get_system(
     let inner_response = state.call_inner_router(request).await?;
     let mut system = serde_json::from_slice::<ComputerSystem>(&inner_response)?;
     system.serial_number = state.machine_info.product_serial();
-
-    // Get the power state from the mock machine, if available
-    system.power_state = if let Some(command_channel) = &state.command_channel {
-        let (tx, rx) = oneshot::channel();
-        command_channel.send(BmcCommand::GetSystemPower(tx))?;
-        rx.await?
-    } else {
-        PowerState::On
-    };
+    system.power_state = (*state.mock_power_state.lock().unwrap()).into();
 
     let MachineInfo::Host(host) = state.machine_info.clone() else {
         return Ok(Bytes::from(serde_json::to_string(&system)?));
@@ -967,12 +963,52 @@ async fn post_reset_system(
     if let Some(command_channel) = &state.command_channel {
         let body = request.into_body().collect().await?.to_bytes();
         let power_request: SetSystemPowerReq = serde_json::from_slice(&body)?;
-        let (reply_tx, reply_rx) = oneshot::channel();
+        use crate::SystemPowerControl;
+
+        // Reply with a failure if the power request is invalid for the current state.
+        // Note: This logic is duplicated with that in machine-a-tron's MachineStateMachine, because
+        // we don't want to block waiting for the BMC command_channel to reply. Doing so may
+        // introduce a deadlock if the API server holds a lock on the row for this machine
+        // while issuing a redfish call, and MachineStateMachine is blocked waiting for the row lock
+        // to be released.
+        match (
+            power_request.reset_type,
+            *state.mock_power_state.lock().unwrap(),
+        ) {
+            (
+                SystemPowerControl::GracefulShutdown
+                | SystemPowerControl::ForceOff
+                | SystemPowerControl::GracefulRestart
+                | SystemPowerControl::ForceRestart,
+                MockPowerState::Off,
+            ) => {
+                return Err(MockWrapperError::SetSystemPower(
+                    SetSystemPowerError::BadRequest(
+                        "bmc-mock: cannot power off machine, it is already off".to_string(),
+                    ),
+                ));
+            }
+            (SystemPowerControl::On | SystemPowerControl::ForceOn, MockPowerState::On) => {
+                return Err(MockWrapperError::SetSystemPower(
+                    SetSystemPowerError::BadRequest(
+                        "bmc-mock: cannot power on machine, it is already on".to_string(),
+                    ),
+                ));
+            }
+            (_, MockPowerState::PowerCycling { since }) if since.elapsed() < POWER_CYCLE_DELAY => {
+                return Err(MockWrapperError::SetSystemPower(
+                    SetSystemPowerError::BadRequest(format!(
+                        "bmc-mock: cannot reset machine, it is in the middle of power cycling since {:?} ago",
+                        since.elapsed()
+                    )),
+                ));
+            }
+            _ => {}
+        }
         command_channel.send(BmcCommand::SetSystemPower {
             request: power_request,
-            reply: Some(reply_tx),
+            reply: None,
         })?;
-        reply_rx.await??;
         Ok("".into())
     } else {
         state.call_inner_router(request).await?;
