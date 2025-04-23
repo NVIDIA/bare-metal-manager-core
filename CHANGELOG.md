@@ -3,6 +3,8 @@
 ## [Unreleased (v2025.04.25-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.11-rc1-0...trunk)
 
 ### Added
+- [FORGE-5354](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3893): Added the VPC Peering feature to allow creation, deletion, and search of VPC peerings. Enabled network traffic between peered VPCs based on network virtualization type.
+
 ### Changed
 - [MR-3910](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3910): Changed the version of libredfish from version 0.29.18 to version 0.29.22
   - [nvmetal/libredfish!303] fix: fix up the machine_setup_status implementation for Vikings
