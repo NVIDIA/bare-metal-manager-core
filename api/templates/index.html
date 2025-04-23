@@ -159,6 +159,15 @@
 		</td>
 	</tr>
 	<tr>
+		<th>DPU NIC Firmware Versions</th>
+		<td>
+			{% for ver in carbide_config.dpu_config.dpu_nic_firmware_update_versions %}
+			{{ ver }},
+			{% endfor %}
+		</td>
+
+	</tr>
+	<tr>
 		<th>DPU Firmware Versions</th>
 		<td>
 			<table style="width: 100%;">
