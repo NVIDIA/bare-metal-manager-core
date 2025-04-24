@@ -11,7 +11,7 @@ use crate::{
     db::{self, instance::Instance, machine::MachineSearchConfig},
     model::machine::{InstanceState, ManagedHostState},
 };
-use forge_uuid::machine::MachineInterfaceId;
+use forge_uuid::machine::{MachineInterfaceId, MachineType};
 use mac_address::MacAddress;
 
 const QCOW_IMAGER_IPXE: &str =
@@ -73,14 +73,25 @@ impl PxeInstructions {
         machine_interface_id: MachineInterfaceId,
         mac_address: MacAddress,
         console: &str,
+        machine_type: MachineType,
     ) -> String {
+        tracing::info!("machine_type: {}", machine_type);
         match arch {
             rpc::MachineArchitecture::Arm => {
-                    // For the DPUs, bfks => BlueField Kick Start script
-                    InstructionGenerator::Arm {
+                if machine_type == MachineType::Host || machine_type == MachineType::PredictedHost {
+                    // For the Scout, bfks => BlueField Kick Start script
+                    InstructionGenerator::X86 {
+                        kernel: "${base-url}/internal/aarch64/scout.efi".to_string(),
+                        command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),
+                    }
+                }
+                else {
+                     // For the DPUs, bfks => BlueField Kick Start script
+                     InstructionGenerator::Arm {
                         kernel: "${base-url}/internal/aarch64/carbide.efi".to_string(),
                         command_line: format!("console=tty0 console=ttyS0,115200 console=ttyAMA0 console=hvc0 ip=dhcp cli_cmd=auto-detect bfnet=oob_net0:dhcp bfks=${{cloudinit-url}}/user-data machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),
                         initrd: "${base-url}/internal/aarch64/carbide.root".to_string(),
+                    }
                 }
             }
             rpc::MachineArchitecture::X86 => {
@@ -141,6 +152,7 @@ exit ||
                     interface_id,
                     interface.mac_address,
                     console,
+                    MachineType::PredictedHost,
                 ));
             }
             Some(machine_id) => machine_id,
@@ -174,6 +186,7 @@ exit ||
                         interface_id,
                         interface.mac_address,
                         console,
+                        machine.id.machine_type(),
                     ));
                 }
             }
@@ -191,6 +204,7 @@ exit ||
                                 interface_id,
                                 interface.mac_address,
                                 console,
+                                machine.id.machine_type(),
                             ));
                         }
                         _ => {
@@ -251,6 +265,7 @@ exit ||
                 interface_id,
                 interface.mac_address,
                 console,
+                machine.id.machine_type(),
             ),
             ManagedHostState::Assigned { instance_state } => match instance_state {
                 InstanceState::Ready => {
@@ -345,6 +360,7 @@ exit ||
                         interface_id,
                         interface.mac_address,
                         console,
+                        machine.id.machine_type(),
                     )
                 }
 

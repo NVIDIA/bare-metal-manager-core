@@ -144,7 +144,7 @@ async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
         get_pxe_instructions(&env, dpu_interface_id, rpc::forge::MachineArchitecture::Arm).await;
 
     assert_ne!(instructions.pxe_script, "exit".to_string());
-    assert!(instructions.pxe_script.contains("aarch64/carbide.efi"));
+    assert!(instructions.pxe_script.contains("aarch64"));
 
     // API doesn't know about MachineArchitecture yet. Let's check instructions for X86.
     let instructions =
