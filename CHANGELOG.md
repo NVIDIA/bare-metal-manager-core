@@ -4,6 +4,7 @@
 
 ### Added
 - [FORGE-5354](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3893): Added the VPC Peering feature to allow creation, deletion, and search of VPC peerings. Enabled network traffic between peered VPCs based on network virtualization type.
+- [FORGE-5497](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3964): Read-only support for InstanceType in carbide-web.
 
 ### Changed
 - [MR-3910](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3910): Changed the version of libredfish from version 0.29.18 to version 0.29.22
