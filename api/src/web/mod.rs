@@ -55,6 +55,7 @@ mod health;
 mod health_history;
 mod ib_partition;
 mod instance;
+mod instance_type;
 mod interface;
 mod machine;
 mod machine_state_history;
@@ -268,6 +269,11 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/instance", get(instance::show_html))
             .route("/instance.json", get(instance::show_all_json))
             .route("/instance/:instance_id", get(instance::detail))
+            .route("/instance-type", get(instance_type::show))
+            .route(
+                "/instance-type/:instance_type_id",
+                get(instance_type::show_detail),
+            )
             .route("/interface", get(interface::show_html))
             .route("/interface.json", get(interface::show_all_json))
             .route("/interface/:interface_id", get(interface::detail))

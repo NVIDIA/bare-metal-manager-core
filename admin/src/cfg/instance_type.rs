@@ -92,7 +92,7 @@ pub struct UpdateInstanceType {
     pub labels: Option<String>,
 
     #[clap(
-        short = 'r',
+        short = 'f',
         long,
         help = "Optional, JSON array containing a set of instance type capability filters - will COMPLETELY overwrite any existing filters"
     )]

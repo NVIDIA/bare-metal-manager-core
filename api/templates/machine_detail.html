@@ -43,6 +43,14 @@
 			{% endif %}
 		</td>
 	</tr>
+		{% if has_instance_type %}
+	<tr>
+		<th>Instance Type</th>
+		<td>
+			<a href="/admin/instance-type/{{ instance_type_id }}">{{ instance_type_id }}</a>
+		</td>
+	</tr>
+		{% endif %}
 	{% endif %}
 </table>
 
