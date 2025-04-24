@@ -228,6 +228,7 @@ processors:
           names:
             - component
             - log.file.path
+            - machine.id
             - systemd.unit
     labels:
       - name: component
