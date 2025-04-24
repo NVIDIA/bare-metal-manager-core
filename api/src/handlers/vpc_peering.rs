@@ -124,12 +124,12 @@ pub async fn find_ids(
 
     let rpc::VpcPeeringSearchFilter { vpc_id } = request.into_inner();
 
-    let vpc_id = vpc_id
-        .ok_or_else(|| CarbideError::MissingArgument("vpc_id cannot be null"))
-        .and_then(|id| {
-            VpcId::try_from(id)
-                .map_err(|_| CarbideError::InvalidArgument("Fail to convert vpc_id".into()))
-        })?;
+    let vpc_id = match vpc_id {
+        Some(id) => Some(VpcId::try_from(id).map_err(|_| {
+            CarbideError::InvalidArgument("Fail to convert vpc_id to type VpcId".into())
+        })?),
+        None => None,
+    };
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
