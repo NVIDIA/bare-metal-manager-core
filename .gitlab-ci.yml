@@ -795,6 +795,7 @@ build-release-artifacts-aarch64:
     - build-boot-artifacts-aarch64
     - prepare-ci
     - export-docker-json-config
+    - build-boot-artifacts-ephemeral-image-aarch64
   variables:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.release-artifacts-aarch64
   before_script: |
