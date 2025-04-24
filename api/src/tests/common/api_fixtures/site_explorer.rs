@@ -35,6 +35,7 @@ use crate::{
 };
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use forge_uuid::machine::MachineId;
+use futures_util::FutureExt;
 use health_report::HealthReport;
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{
@@ -1085,6 +1086,7 @@ impl<'a> MockExploredHost<'a> {
         }
     }
 }
+
 /// Use this function to make a new managed host with a given number of DPUs, using site-explorer
 /// to ingest it into the database. Returns a MockExploredHost that you can call more methods on
 /// before finishing.
@@ -1128,27 +1130,42 @@ pub async fn new_mock_host(
             .await;
     }
 
+    // Run through site explorer iterations to get it ready.
+    // NOTE: Calling `.boxed()` on each future here decreases the amount of stack space used by
+    // these futures. Prior to this we were hitting stack space limits (going over 2MB in stack) in
+    // unit tests. This buys us some savings so that we don't have to fiddle with adjusting the
+    // default stack size.
     Ok(mock_explored_host
         // ...Then run host BMC's DHCP
         .discover_dhcp_host_bmc(|_, _| Ok(()))
+        .boxed()
         .await?
         .insert_site_exploration_results()
+        .boxed()
         .await?
         .run_site_explorer_iteration()
+        .boxed()
         .await
         .mark_preingestion_complete()
+        .boxed()
         .await?
         .run_site_explorer_iteration()
+        .boxed()
         .await
         .discover_dhcp_host_primary_iface(|_, _| Ok(()))
+        .boxed()
         .await?
         .dpu_state_controller_iterations()
+        .boxed()
         .await
         .discover_machine(|_, _| Ok(()))
+        .boxed()
         .await?
         .run_site_explorer_iteration()
+        .boxed()
         .await
         .host_state_controller_iterations()
+        .boxed()
         .await)
 }
 
@@ -1200,27 +1217,37 @@ pub async fn new_host_with_machine_validation(
     mock_explored_host
         // ...Then run host BMC's DHCP
         .discover_dhcp_host_bmc(|_, _| Ok(()))
+        .boxed()
         .await?
         .insert_site_exploration_results()
+        .boxed()
         .await?
         .run_site_explorer_iteration()
+        .boxed()
         .await
         .mark_preingestion_complete()
+        .boxed()
         .await?
         .run_site_explorer_iteration()
+        .boxed()
         .await
         .discover_dhcp_host_primary_iface(|_, _| Ok(()))
+        .boxed()
         .await?
         .dpu_state_controller_iterations()
+        .boxed()
         .await
         .discover_machine(|_, _| Ok(()))
+        .boxed()
         .await?
         .run_site_explorer_iteration()
+        .boxed()
         .await
         .host_state_controller_iterations_with_machine_validation(
             machine_validation_result_data,
             error,
         )
+        .boxed()
         .await
         .finish(|mock| async move {
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
@@ -1234,6 +1261,7 @@ pub async fn new_host_with_machine_validation(
             .transpose()
             .unwrap()?)
         })
+        .boxed()
         .await
 }
 
@@ -1249,16 +1277,22 @@ pub async fn new_dpu(env: &TestEnv, config: ManagedHostConfig) -> eyre::Result<M
     mock_explored_host = mock_explored_host
         // ...Then run host BMC's DHCP
         .discover_dhcp_host_bmc(|_, _| Ok(()))
+        .boxed()
         .await?
         .insert_site_exploration_results()
+        .boxed()
         .await?
         .run_site_explorer_iteration()
+        .boxed()
         .await
         .mark_preingestion_complete()
+        .boxed()
         .await?
         .run_site_explorer_iteration()
+        .boxed()
         .await
         .dpu_state_controller_iterations()
+        .boxed()
         .await;
 
     Ok(mock_explored_host.dpu_machine_ids[&0])
@@ -1279,16 +1313,22 @@ pub async fn new_dpu_in_network_install(
     mock_explored_host = mock_explored_host
         // ...Then run host BMC's DHCP
         .discover_dhcp_host_bmc(|_, _| Ok(()))
+        .boxed()
         .await?
         .insert_site_exploration_results()
+        .boxed()
         .await?
         .run_site_explorer_iteration()
+        .boxed()
         .await
         .mark_preingestion_complete()
+        .boxed()
         .await?
         .run_site_explorer_iteration()
+        .boxed()
         .await
         .dpu_state_controller_iterations_to_network_install()
+        .boxed()
         .await;
 
     let mut txn = env.pool.begin().await.unwrap();
