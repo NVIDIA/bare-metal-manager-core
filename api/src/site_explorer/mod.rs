@@ -921,16 +921,16 @@ impl SiteExplorer {
 
                         if !all_dpus_configured_properly_in_host {
                             if ep.report.vendor.is_some_and(|vendor| vendor.is_dell()) {
-                                tracing::warn!(
-                                    "power cycling Dell {} to apply nic mode change for its incorrectly configured DPUs",
-                                    ep.address,
-                                );
-
                                 let time_since_redfish_powercycle = Utc::now()
                                     .signed_duration_since(
                                         ep.last_redfish_powercycle.unwrap_or_default(),
                                     );
                                 if time_since_redfish_powercycle > self.config.reset_rate_limit {
+                                    tracing::warn!(
+                                        "power cycling Dell {} to apply nic mode change for its incorrectly configured DPUs; time since last powercycle: {time_since_redfish_powercycle}",
+                                        ep.address,
+                                    );
+
                                     let _ = self.redfish_powercycle(
                                             ep.address,
                                         )
