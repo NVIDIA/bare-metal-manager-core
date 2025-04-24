@@ -86,15 +86,23 @@ impl VpcPeering {
 
     pub async fn find_ids(
         txn: &mut Transaction<'_, Postgres>,
-        vpc_id: VpcId,
+        vpc_id: Option<VpcId>,
     ) -> Result<Vec<VpcPeeringId>, DatabaseError> {
-        let vpc_id: Uuid = vpc_id.into();
-        let query = "SELECT id FROM vpc_peerings WHERE vpc1_id=$1 OR vpc2_id=$1";
-        let vpc_peering_ids = sqlx::query_as(query)
-            .bind(vpc_id)
+        let mut builder = sqlx::QueryBuilder::new("SELECT id FROM vpc_peerings");
+
+        if let Some(vpc_id) = vpc_id {
+            let vpc_id: Uuid = vpc_id.into();
+            builder.push(" WHERE vpc1_id = ");
+            builder.push_bind(vpc_id);
+            builder.push(" OR vpc2_id = ");
+            builder.push_bind(vpc_id);
+        }
+
+        let query = builder.build_query_as();
+        let vpc_peering_ids: Vec<VpcPeeringId> = query
             .fetch_all(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), "vpc_peering::find_ids", e))?;
 
         Ok(vpc_peering_ids)
     }

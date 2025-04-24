@@ -2217,10 +2217,17 @@ pub struct VpcPeeringCreate {
 pub struct VpcPeeringGet {
     #[clap(
         long,
-        required(true),
-        help = "The ID of VPC to get list of related VPC peerings"
+        conflicts_with = "vpc_id",
+        help = "Search by ID of the VPC peering"
     )]
-    pub vpc_id: VpcId,
+    pub id: Option<String>,
+
+    #[clap(
+        long,
+        conflicts_with = "id",
+        help = "Search by The ID of VPC to get list of related VPC peerings"
+    )]
+    pub vpc_id: Option<VpcId>,
 }
 
 #[derive(Parser, Debug)]
