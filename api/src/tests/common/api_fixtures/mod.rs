@@ -13,7 +13,6 @@
 //! Contains fixtures that use the Carbide API for setting up
 
 use std::{
-    cell::RefCell,
     collections::HashMap,
     default::Default,
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -201,10 +200,10 @@ pub struct TestEnv {
     pub nvmesh_sim: Arc<dyn NvmeshClientPool>,
     pub ib_fabric_manager: Arc<dyn IBFabricManager>,
     pub ipmi_tool: Arc<IPMIToolTestImpl>,
-    machine_state_controller: RefCell<StateController<MachineStateControllerIO>>,
+    machine_state_controller: Arc<Mutex<StateController<MachineStateControllerIO>>>,
     pub machine_state_handler: SwapHandler<MachineStateHandler>,
-    network_segment_controller: RefCell<StateController<NetworkSegmentStateControllerIO>>,
-    ib_partition_controller: RefCell<StateController<IBPartitionStateControllerIO>>,
+    network_segment_controller: Arc<Mutex<StateController<NetworkSegmentStateControllerIO>>>,
+    ib_partition_controller: Arc<Mutex<StateController<IBPartitionStateControllerIO>>>,
     pub reachability_params: ReachabilityParams,
     pub test_meter: TestMeter,
     pub attestation_enabled: bool,
@@ -357,7 +356,8 @@ impl TestEnv {
     ) -> ManagedHostState {
         for _ in 0..max_iterations {
             self.machine_state_controller
-                .borrow_mut()
+                .lock()
+                .await
                 .run_single_iteration()
                 .await;
 
@@ -393,7 +393,8 @@ impl TestEnv {
     #[allow(clippy::await_holding_refcell_ref)]
     pub async fn run_machine_state_controller_iteration(&self) {
         self.machine_state_controller
-            .borrow_mut()
+            .lock()
+            .await
             .run_single_iteration()
             .await;
     }
@@ -403,7 +404,8 @@ impl TestEnv {
     #[allow(clippy::await_holding_refcell_ref)]
     pub async fn run_network_segment_controller_iteration(&self) {
         self.network_segment_controller
-            .borrow_mut()
+            .lock()
+            .await
             .run_single_iteration()
             .await;
     }
@@ -413,7 +415,8 @@ impl TestEnv {
     #[allow(clippy::await_holding_refcell_ref)]
     pub async fn run_ib_partition_controller_iteration(&self) {
         self.ib_partition_controller
-            .borrow_mut()
+            .lock()
+            .await
             .run_single_iteration()
             .await;
     }
@@ -1225,10 +1228,10 @@ pub async fn create_test_env_with_overrides(
         nvmesh_sim,
         ib_fabric_manager,
         ipmi_tool,
-        machine_state_controller: RefCell::new(machine_controller),
+        machine_state_controller: Arc::new(Mutex::new(machine_controller)),
         machine_state_handler: machine_swap,
-        ib_partition_controller: RefCell::new(ib_controller),
-        network_segment_controller: RefCell::new(network_controller),
+        ib_partition_controller: Arc::new(Mutex::new(ib_controller)),
+        network_segment_controller: Arc::new(Mutex::new(network_controller)),
         reachability_params,
         attestation_enabled,
         test_meter,
