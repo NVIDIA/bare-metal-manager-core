@@ -656,7 +656,7 @@ impl forge::MachineCapabilityType {
         let s: &str = serde::Deserialize::deserialize(deserializer)?;
 
         match s.to_uppercase().as_str() {
-            "CPU " => Ok(forge::MachineCapabilityType::CapTypeCpu as i32),
+            "CPU" => Ok(forge::MachineCapabilityType::CapTypeCpu as i32),
             "GPU" => Ok(forge::MachineCapabilityType::CapTypeGpu as i32),
             "MEMORY" => Ok(forge::MachineCapabilityType::CapTypeMemory as i32),
             "STORAGE" => Ok(forge::MachineCapabilityType::CapTypeStorage as i32),

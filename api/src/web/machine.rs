@@ -376,6 +376,8 @@ struct MachineDetail {
     hw_sku: String,
     quarantine_state: Option<ManagedHostQuarantineState>,
     quarantine_state_is_link: bool,
+    instance_type_id: String,
+    has_instance_type: bool,
 }
 
 struct MachineCapability {
@@ -666,6 +668,8 @@ impl From<forgerpc::Machine> for MachineDetail {
                 .as_ref()
                 .is_some_and(|r| r.reason_str().starts_with("http")),
             quarantine_state,
+            has_instance_type: m.instance_type_id.is_some(),
+            instance_type_id: m.instance_type_id.unwrap_or_default(),
         }
     }
 }
