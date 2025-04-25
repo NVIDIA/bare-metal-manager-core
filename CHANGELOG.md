@@ -1,19 +1,60 @@
 # Changelog
 
-## [Unreleased (v2025.04.25-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.11-rc1-0...trunk)
+## [Unreleased (v2025.05.09-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.25-rc1-0...trunk)
 
 ### Added
-- [FORGE-5354](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3893): Added the VPC Peering feature to allow creation, deletion, and search of VPC peerings. Enabled network traffic between peered VPCs based on network virtualization type.
-- [FORGE-5497](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3964): Read-only support for InstanceType in carbide-web.
 
 ### Changed
-- [MR-3910](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3910): Changed the version of libredfish from version 0.29.18 to version 0.29.22
-  - [nvmetal/libredfish!303] fix: fix up the machine_setup_status implementation for Vikings
-  - [nvmetal/libredfish!304] fix: query the bios attributes on BF3s with a BMC FW of BF-24.04-5
-  - [nvmetal/libredfish!305] fix: remove setting the boot order from the Viking implementation of machine_setup.
-  - [nvmetal/libredfish!306] fix: Return HTTPStatusCode if we can't parse error json - This avoids resetting BMC's every they return a 403 Forbidden message, which can happen randomly.
+
 ### Fixed
+
 ### Removed
+
+## [v2025.04.25-rc1-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.11-rc1-0...v2025.04.25-rc1-0)
+
+### Added
+
+- [FORGE-5354](https://jirasw.nvidia.com/browse/FORGE-5354), [MR-3893](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3893): Added the VPC Peering feature to allow the creation, deletion, and search of VPC peerings. Enabled network traffic between peered VPCs based on the network virtualization type.
+- [FORGE-5497](https://jirasw.nvidia.com/browse/FORGE-5497), [MR-3964](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3964): Added the ability to view Instance Types in carbide-web.
+- [MR-3961](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3961): Added the ability to retrieve all VPC peerings or obtain peerings by ID in forge-admin-cli.
+- [MR-3956](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3956): Added the ability to view available DPU NIC Firmware versions in the carbide-web user interface on the configuration page.
+- [MR-3942](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3942): Added the ability to view Machine State History for deleted Machines via a new FindMachineStateHistories gRPC endpoint and a carbide-web URL `/admin/:machine_id/state-history`.
+- [MR-3946](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3946): Added the ability to check CPU threads for SKUs to ensure accurate reporting, especially on DGX systems where threads may be disabled by default.
+- [MR-3945](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3945): Added the ability to pass the MQTT server address via DHCP option 224 in carbide-dhcp for upcoming DPA provisioning work described in [DPA Underlay Configuration via DHCP](https://docs.google.com/document/d/1KABBIfhFQCT84IqIrmNgBoo-u4MZzZ418SSlFF2uwYI).
+- [MR-3928](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3928): Added the ability to manage instance types in forge-admin-cli and API queries, including CRUD support for instance types, extended output fields, and filtering.
+- [FORGE-4932](https://jirasw.nvidia.com/browse/FORGE-4932), [MR-3887](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3887): Added the ability to view attestation statuses for all machines in a site and access detailed attestation information for individual machines through the carbide-web UI.
+- [MR-3936](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3936): Added the ability to use `machine show` in forge-admin-cli during early discovery of machines (before pairing of host and DPU) to ensure correct polling of status in Machine Lifecycle Test.
+- [MR-3826](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3826): Added the ability to find the closest partially matching bundle to a report for measured boot.
+- [MR-3962](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3962): Added the ability to list DPUs by machine ID in the ["DPU Logging" dashboard](https://ngcobservability-grafana.thanos.nvidiangn.net/d/eejqgu1jm76rkf/dpu-logging?orgId=1) and added `machine_id` to `telemetry_stats_log_records_total` metric so it can be used in `no-dpu-logs-warning` alerts as well as the mentioned dashboard.
+
+### Fixed
+
+- [MR-3950](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3950): Fixed an issue where carbide-web would show an empty page for internal server errors (500) by displaying the API error in the body to help users understand the actual issue.
+- [MR-3963](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3963): Fixed an issue where the scout.efi image was not copied into the aarm64 container, causing ARM hosts to incorrectly use carbide.efi, by ensuring the scout image is available and correctly picked during the boot process.
+- [MR-3953](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3953): Fixed an issue where the thread count was reported incorrectly (CPU count was displayed).
+- [MR-3906](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3906): Fixed an issue where the root partition of a DPU could become full by adding a cron job for `apt clean`. Additionally, introduced a new capability to the dpu-agent to manage and sync files on the DPU with idempotency features.
+- [MR-3944](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3944): Fixed an issue where setting the boot order prior to rebooting Supermicro servers caused an error if the state machine was currently configuring the BIOS or boot order.
+- [MR-3938](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3938): Fixed a performance issue in carbide-web by preventing the fetching of managed host history from the database when displaying the HTML view, as it is only needed for the JSON data.
+- [MR-3941](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3941): Fixed an issue where VPC peering between `ETHERNET_VIRTUALIZER` and `ETHERNET_VIRTUALIZER_WITH_NVUE` was not permitted when NVUE is enabled, by allowing this peering when `vpc_peering_policy` is set to "exclusive".
+- [MR-3927](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3927): Fixed an issue with ingestion of Vikings that do not have `CPLDMB_0` version `0.2.1.9` by preventing their ingestion alltogether (as they would first require a physical power drain). Additionally, only issue an AC power cycle during preingestion for Lenovo servers, while using a regular power cycle for other server vendors.
+- [MR-3923](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3923): Fixed an issue with booting from the network in GPU nodes with multiple DPUs where booting from the first slot was unreliable by ensuring Carbide always specifies the `boot_interface_mac` when configuring the boot order on hosts.
+- [MR-3954](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3954): Fixed an issue where the new config in `UpdateInstanceConfig` requests was not logged by adding logging for this request data.
+- [MR-3935](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3935): Improved performance of machine and managed host snapshot queries by replacing Common Table Expressions (CTEs) with subselects and adding relevant indexes, significantly reducing query time from 200-300ms to 2-3ms.
+
+### Internal Changes
+
+- [MR-3937](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3937): Fixed an issue where VPC peer ACL did not specify their type.
+- [MR-3910](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3910): Updated libredfish from version [v0.29.18](https://gitlab-master.nvidia.com/nvmetal/libredfish/-/releases/v0.29.18) to version [0.29.32](https://gitlab-master.nvidia.com/nvmetal/libredfish/-/releases/0.29.32).
+- [MR-3960](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3960): Fixed an issue where carbide would write a power cycle log event even though the power cycle did not happen during NIC mode changes.
+- [MR-3965](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3965): Fixed an issue where site explorer fixtures were using excessive stack space by placing certain highly-used Futures on the heap and replacing RefCell with Mutex to make TestEnv Send+Sync as per the [Slack discussion](https://nvidia.slack.com/archives/C02RKLCN8BT/p1745455867937049).
+- [MR-3949](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3949): Fixed a deadlock in bmc-mock when used in machine-a-tron by sharing the mock machine's power state with bmc-mock, eliminating the need to call into MachineStateMachine to respond to redfish calls.
+- [MR-3955](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3955): Fixed an issue where integration tests could run indefinitely by reducing the API refresh interval to 500ms, half of the machine state controller interval, and introducing a timeout for wait_until_machine_up_with_api_state.
+- [MR-3466](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3466): Added the ability to build PowerDNS with a Dockerfile and provided configuration files for using PowerDNS in a local development environment.
+- [FORGE-5916](https://jirasw.nvidia.com/browse/FORGE-5916), [MR-3924](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3924): Improved snapshot loading by moving it up another level, allowing it to be used across all modules.
+- [FORGE-5883](https://jirasw.nvidia.com/browse/FORGE-5883), [MR-3930](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3930): Added debug logs in `bf.cfg` to assist with reproducing [FORGE-5883](https://jirasw.nvidia.com/browse/FORGE-5883) as suggested in [NVBUG 5208597](https://nvbugspro.nvidia.com/bug/5208597).
+- [MR-3929](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3929): Increased the default number of machines created per run from 1 to 4.
+- [MR-3925](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3925): Fixed an issue where an extraneous call to forge_setup was made when handling host lockdown by removing the redundant call, as it is done earlier in the ingestion process.
+- [MR-3926](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3926): Updated the documentation for the web UI to include 'system account' authentication and Argo details.
 
 ## [v2025.04.11-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.03.28-rc1-0...v2025.04.11-rc2-0)
 
