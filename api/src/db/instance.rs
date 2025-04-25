@@ -25,10 +25,7 @@ use crate::{
                 tenant_config::TenantConfig,
             },
             snapshot::InstanceSnapshot,
-            status::{
-                InstanceStatusObservations, network::InstanceNetworkStatusObservation,
-                storage::InstanceStorageStatusObservation,
-            },
+            status::{InstanceStatusObservations, storage::InstanceStorageStatusObservation},
         },
         metadata::Metadata,
         os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant},
@@ -97,7 +94,6 @@ pub struct InstanceSnapshotPgJson {
     storage_config: InstanceStorageConfig,
     storage_config_version: String,
     config_version: String,
-    network_status_observation: Option<InstanceNetworkStatusObservation>,
     storage_status_observation: Option<InstanceStorageStatusObservation>,
     phone_home_last_contact: Option<DateTime<Utc>>,
     use_custom_pxe_on_boot: bool,
@@ -196,7 +192,7 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
                 }
             })?,
             observations: InstanceStatusObservations {
-                network: value.network_status_observation,
+                network: None,
                 storage: value.storage_status_observation,
                 phone_home_last_contact: value.phone_home_last_contact,
             },
@@ -630,37 +626,6 @@ WHERE vpc_id = ",
         }
     }
 
-    /// Updates the latest network status observation for an instance
-    pub async fn update_network_status_observation(
-        txn: &mut Transaction<'_, Postgres>,
-        instance_id: InstanceId,
-        status: &InstanceNetworkStatusObservation,
-    ) -> Result<(), DatabaseError> {
-        // TODO: This might rather belong into the API layer
-        // We will move move it there once that code is in place
-        status.validate().map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "ioerror",
-                sqlx::Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                )),
-            )
-        })?;
-
-        let query = "UPDATE instances SET network_status_observation=$1::json where id = $2::uuid returning id";
-        let (_,): (InstanceId,) = sqlx::query_as(query)
-            .bind(sqlx::types::Json(status))
-            .bind(instance_id)
-            .fetch_one(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(())
-    }
-
     pub async fn update_storage_status_observation(
         txn: &mut Transaction<'_, Postgres>,
         instance_id: InstanceId,
@@ -708,8 +673,6 @@ impl NewInstance<'_> {
     ) -> CarbideResult<InstanceSnapshot> {
         // None means we haven't observed any network status from forge-dpu-agent yet
         // The first report from the agent will set the field
-        let network_status_observation = Option::<InstanceNetworkStatusObservation>::None;
-
         let mut os_ipxe_script = String::new();
         let os_user_data = self.config.os.user_data.clone();
         let mut os_image_id = None;
@@ -733,7 +696,6 @@ impl NewInstance<'_> {
                         use_custom_pxe_on_boot,
                         network_config,
                         network_config_version,
-                        network_status_observation,
                         ib_config,
                         ib_config_version,
                         keyset_ids,
@@ -750,10 +712,10 @@ impl NewInstance<'_> {
                         network_security_group_id
                     )
                     SELECT 
-                            $1, $2, $3, $4, $5, $6, $7, true, $8::json, $9, $10::json, $11::json,
-                            $12, $13, $14, $15, $16, $17::json, $18, $19, $20::json, $21, $22::json,
-                            m.instance_type_id, $25
-                    FROM machines m WHERE m.id=$23 AND ($24 IS NULL OR m.instance_type_id=$24) FOR UPDATE
+                            $1, $2, $3, $4, $5, $6, $7, true, $8::json, $9, $10::json, 
+                            $11, $12, $13, $14, $15, $16::json, $17, $18, $19::json, $20, $21::json,
+                            m.instance_type_id, $24
+                    FROM machines m WHERE m.id=$22 AND ($23 IS NULL OR m.instance_type_id=$23) FOR UPDATE
                     RETURNING row_to_json(instances.*)";
         match sqlx::query_as(query)
             .bind(self.instance_id)
@@ -765,7 +727,6 @@ impl NewInstance<'_> {
             .bind(self.config.tenant.tenant_organization_id.as_str())
             .bind(sqlx::types::Json(&self.config.network))
             .bind(self.network_config_version)
-            .bind(sqlx::types::Json(network_status_observation))
             .bind(sqlx::types::Json(&self.config.infiniband))
             .bind(self.ib_config_version)
             .bind(&self.config.tenant.tenant_keyset_ids)

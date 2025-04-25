@@ -357,7 +357,10 @@ pub(crate) async fn get_propagation_status(
         FROM
             instances i
         JOIN jsonb_array_elements(i.network_config #>'{interfaces}') with ordinality ifc on ifc.value->>'network_security_group_id' IS NULL
-        LEFT OUTER JOIN jsonb_array_elements(i.network_status_observation #>'{interfaces}') with ordinality ifco on ifco.ordinality = ifc.ordinality
+        JOIN machine_interfaces mi ON mi.machine_id = i.machine_id
+        JOIN machines m ON m.id = mi.attached_dpu_machine_id
+        /* network_status_observation is stored in dpu now. */
+        LEFT OUTER JOIN jsonb_array_elements(m.network_status_observation #>'{instance_network_observation,interfaces}') with ordinality ifco on ifco.ordinality = ifc.ordinality
         JOIN network_segments ns on ns.id=(ifc.value->>'network_segment_id')::uuid
         JOIN vpcs v on v.id=ns.vpc_id
         JOIN network_security_groups nsg on nsg.id=v.network_security_group_id
@@ -429,7 +432,10 @@ pub(crate) async fn get_propagation_status(
             instances i
         JOIN network_security_groups nsg on nsg.id=i.network_security_group_id
         JOIN jsonb_array_elements(i.network_config #>'{interfaces}') with ordinality ifc on ifc.value->>'network_security_group_id' IS NULL
-        LEFT OUTER JOIN jsonb_array_elements(i.network_status_observation #>'{interfaces}') with ordinality ifco on ifco.ordinality = ifc.ordinality
+        JOIN machine_interfaces mi ON mi.machine_id = i.machine_id
+        JOIN machines m ON m.id = mi.attached_dpu_machine_id
+        /* network_status_observation is stored in dpu now. */
+        LEFT OUTER JOIN jsonb_array_elements(m.network_status_observation #>'{instance_network_observation,interfaces}') with ordinality ifco on ifco.ordinality = ifc.ordinality
         WHERE i.deleted IS NULL"
     );
 

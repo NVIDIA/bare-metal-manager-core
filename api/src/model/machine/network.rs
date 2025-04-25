@@ -5,7 +5,12 @@ use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
 
-use crate::db::DatabaseError;
+use crate::{
+    db::DatabaseError,
+    model::instance::status::network::{
+        InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
+    },
+};
 use ::rpc::errors::RpcDataConversionError;
 use health_report::HealthReport;
 
@@ -19,6 +24,7 @@ pub struct MachineNetworkStatusObservation {
     pub network_config_version: Option<ConfigVersion>,
     pub client_certificate_expiry: Option<i64>,
     pub agent_version_superseded_at: Option<DateTime<Utc>>,
+    pub instance_network_observation: Option<InstanceNetworkStatusObservation>,
 }
 
 impl MachineNetworkStatusObservation {
@@ -82,6 +88,43 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
             }
             None => Utc::now(),
         };
+
+        // We're going to piggy-back on InstanceNetworkStatusObservation
+        // to get the instance_config_version for now.
+        let instance_config_version = match obs.instance_config_version {
+            Some(version_string) => match version_string.as_str().parse() {
+                Ok(version) => Some(version),
+                _ => {
+                    return Err(RpcDataConversionError::InvalidConfigVersion(format!(
+                        "applied_config.instance_config_version: {version_string}"
+                    )));
+                }
+            },
+            _ => None,
+        };
+
+        let instance_network_observation =
+            if let Some(version_string) = obs.instance_network_config_version {
+                let Ok(version) = version_string.as_str().parse() else {
+                    return Err(RpcDataConversionError::InvalidConfigVersion(format!(
+                        "applied_config.instance_network_config_version: {version_string}"
+                    )));
+                };
+                let mut interfaces: Vec<InstanceInterfaceStatusObservation> = vec![];
+                for iface in obs.interfaces {
+                    let v = iface.try_into()?;
+                    interfaces.push(v);
+                }
+                Some(InstanceNetworkStatusObservation {
+                    config_version: version,
+                    instance_config_version,
+                    observed_at,
+                    interfaces,
+                })
+            } else {
+                None
+            };
+
         Ok(MachineNetworkStatusObservation {
             observed_at,
             machine_id: obs
@@ -92,6 +135,7 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
             network_config_version: obs.network_config_version.and_then(|n| n.parse().ok()),
             client_certificate_expiry: obs.client_certificate_expiry_unix_epoch_secs,
             agent_version_superseded_at: None,
+            instance_network_observation,
         })
     }
 }
