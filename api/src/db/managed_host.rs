@@ -17,6 +17,7 @@ use crate::cfg::file::HostHealthConfig;
 use crate::db::queries;
 use crate::{db::DatabaseError, model::machine::ManagedHostStateSnapshot};
 use forge_uuid::{instance::InstanceId, machine::MachineId};
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
@@ -49,51 +50,46 @@ pub async fn load_by_machine_ids(
             .iter()
             .partition(|id| id.machine_type().is_dpu());
 
+    // Perf optimization: Joining through machine_interfaces to look up by DPU ID is slower by 100x
+    // or so. If we're searching for DPU ID's, resolve their host ID's now.
+    let requested_host_id_strings = requested_host_ids
+        .iter()
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>();
+    let host_ids = if !requested_dpu_ids.is_empty() {
+        [
+            requested_host_id_strings,
+            crate::db::machine::lookup_host_machine_ids_by_dpu_ids(txn, &requested_dpu_ids)
+                .await?
+                .into_iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>(),
+        ]
+        .concat()
+        .into_iter()
+        .unique()
+        .collect()
+    } else {
+        requested_host_id_strings
+    };
+
     // Index snapshots into a HashMap by their machine_id, while calling derive_aggregate_health on
     // each. It's mut because we are going to re-index by the ID's that the user requested, which
     // may be different from the managed_host ID.
-    let mut snapshots_by_host_id: HashMap<MachineId, ManagedHostStateSnapshot> = [
-        // Find host snapshots directly
-        if requested_host_ids.is_empty() {
-            vec![]
-        } else {
-            sqlx::QueryBuilder::new(format!(r#"{query} WHERE m.id = ANY("#))
-                .push_bind(&requested_host_ids)
-                .push(")")
-                .build_query_as::<ManagedHostStateSnapshot>()
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "managed_host::load_by_machine_ids", e)
-                })?
-        },
-        // Find snapshots by DPU ID by going through the machine_interfaces table
-        if requested_dpu_ids.is_empty() {
-            vec![]
-        } else {
-            sqlx::QueryBuilder::new(format!(
-                r#"{query}
-                  INNER JOIN machine_interfaces mi ON mi.machine_id = m.id
-                  WHERE mi.attached_dpu_machine_id <> mi.machine_id
-                  AND mi.attached_dpu_machine_id = ANY("#
-            ))
-            .push_bind(&requested_dpu_ids)
-            .push(")")
-            .build_query_as::<ManagedHostStateSnapshot>()
+    let mut snapshots_by_host_id: HashMap<MachineId, ManagedHostStateSnapshot> =
+        sqlx::query_as(&format!(r#"{query} WHERE m.id = ANY($1)"#))
+            .bind(host_ids)
             .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| {
                 DatabaseError::new(file!(), line!(), "managed_host::load_by_machine_ids", e)
             })?
-        },
-    ]
-    .concat()
-    .into_iter()
-    .map(|mut snapshot| {
-        snapshot.derive_aggregate_health(options.host_health_config);
-        (snapshot.host_snapshot.id, snapshot)
-    })
-    .collect();
+            .into_iter()
+            .map(|mut snapshot: ManagedHostStateSnapshot| {
+                snapshot.derive_aggregate_health(options.host_health_config);
+                (snapshot.host_snapshot.id, snapshot)
+            })
+            .collect();
 
     // Make another level of index that gets the host snapshot ID's by a DPU ID
     let host_ids_by_dpu_id: HashMap<MachineId, MachineId> = snapshots_by_host_id
