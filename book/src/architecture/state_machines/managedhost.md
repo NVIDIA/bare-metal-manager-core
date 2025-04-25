@@ -51,7 +51,7 @@ if_state --> DpuDiscoveringState: True
     A_BootingWithDiscoveryImage --> A_SwitchToAdminNetwork: Host rebooted with discovery image
     A_SwitchToAdminNetwork --> A_WaitingForNetworkReconfig: Configured to move to Admin Network
     A_BootingWithDiscoveryImage --> A_DPUReprovision: DPU reprovisioning in progress.  Roughly follows DPUReprovision.
-    A_DPUReprovision --> A_Ready: Various DPU reprovision states endint in ReprovisionState::RebootHost which then goes to A_Ready
+    A_DPUReprovision --> A_Ready: Various DPU reprovision states end in state ReprovisionState#58;#58;RebootHost which then goes to A_Ready
     A_BootingWithDiscoveryImage --> A_HostReprovision: Host firmware updates in progress.  Roughly follows HostReprovision.
     A_HostReprovision --> A_Ready: Completion of host firmware updates
   }
