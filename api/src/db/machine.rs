@@ -823,6 +823,27 @@ pub async fn find_host_by_dpu_machine_id(
     Ok(machine)
 }
 
+pub async fn lookup_host_machine_ids_by_dpu_ids(
+    txn: &mut Transaction<'_, Postgres>,
+    dpu_machine_ids: &[MachineId],
+) -> Result<Vec<MachineId>, DatabaseError> {
+    let query = r#"SELECT mi.machine_id
+        FROM machine_interfaces mi
+        WHERE mi.attached_dpu_machine_id != mi.machine_id
+        AND mi.attached_dpu_machine_id = ANY($1)"#;
+
+    sqlx::query_as(query)
+        .bind(
+            dpu_machine_ids
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>(),
+        )
+        .fetch_all(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+}
+
 pub async fn find_dpus_by_host_machine_id(
     txn: &mut Transaction<'_, Postgres>,
     host_machine_id: &MachineId,
