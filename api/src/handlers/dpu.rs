@@ -19,7 +19,6 @@ use crate::cfg::file::VpcIsolationBehaviorType;
 use crate::db;
 use crate::db::domain::Domain;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
-use crate::db::instance::Instance;
 use crate::db::machine::MachineSearchConfig;
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::db::network_security_group;
@@ -28,9 +27,6 @@ use crate::db::vpc::{Vpc, VpcDpuLoopback};
 use crate::db::{DatabaseError, ObjectColumnFilter, network_segment};
 use crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
 use crate::model::hardware_info::MachineInventory;
-use crate::model::instance::status::network::{
-    InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
-};
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
@@ -39,7 +35,7 @@ use crate::{CarbideError, ethernet_virtualization};
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use forge_network::virtualization::VpcVirtualizationType;
-use forge_uuid::{instance::InstanceId, machine::MachineId, machine::MachineInterfaceId};
+use forge_uuid::{machine::MachineId, machine::MachineInterfaceId};
 use itertools::Itertools;
 use tonic::{Request, Response, Status};
 
@@ -639,6 +635,8 @@ pub(crate) async fn record_dpu_network_status(
         }
         obs
     };
+
+    // Instance network observation is the part of network observation now.
     db::machine::update_network_status_observation(&mut txn, &dpu_machine_id, &machine_obs)
         .await
         .map_err(CarbideError::from)?;
@@ -670,49 +668,6 @@ pub(crate) async fn record_dpu_network_status(
     db::machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report)
         .await
         .map_err(CarbideError::from)?;
-
-    // We already persisted the machine parts of applied_config in
-    // update_network_status_observation above. Now do the instance parts.
-
-    // We're going to piggy-back on InstanceNetworkStatusObservation
-    // to get the instance_config_version for now.
-    let instance_config_version = match request.instance_config_version {
-        Some(version_string) => match version_string.as_str().parse() {
-            Ok(version) => Some(version),
-            _ => {
-                return Err(CarbideError::InvalidArgument(
-                    "applied_config.instance_config_version".to_string(),
-                )
-                .into());
-            }
-        },
-        _ => None,
-    };
-
-    if let Some(version_string) = request.instance_network_config_version {
-        let Ok(version) = version_string.as_str().parse() else {
-            return Err(CarbideError::InvalidArgument(
-                "applied_config.instance_network_config_version".to_string(),
-            )
-            .into());
-        };
-        let mut interfaces: Vec<InstanceInterfaceStatusObservation> = vec![];
-        for iface in request.interfaces {
-            let v = iface.try_into().map_err(CarbideError::from)?;
-            interfaces.push(v);
-        }
-        let instance_obs = InstanceNetworkStatusObservation {
-            config_version: version,
-            instance_config_version,
-            observed_at: machine_obs.observed_at,
-            interfaces,
-        };
-
-        let instance_id = InstanceId::from_grpc(request.instance_id)?;
-        Instance::update_network_status_observation(&mut txn, instance_id, &instance_obs)
-            .await
-            .map_err(CarbideError::from)?;
-    }
 
     for rpc::LastDhcpRequest {
         host_interface_id,

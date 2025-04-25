@@ -10,12 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::ops::DerefMut;
 use std::time::SystemTime;
 
 use super::{
     TestEnv, forge_agent_control, inject_machine_measurements, persist_machine_validation_result,
 };
 use crate::db;
+use crate::model::instance::status::network::InstanceNetworkStatusObservation;
 use crate::model::machine::{
     CleanupState, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
 };
@@ -501,4 +503,18 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     )
     .await;
     txn.commit().await.unwrap();
+}
+
+pub async fn update_instance_network_status_observation(
+    dpu_id: &MachineId,
+    obs: &InstanceNetworkStatusObservation,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) {
+    let query = "UPDATE machines SET network_status_observation = jsonb_set(network_status_observation, ARRAY['instance_network_observation'], $1) WHERE id=$2";
+    let _query_result = sqlx::query(query)
+        .bind(sqlx::types::Json(obs))
+        .bind(dpu_id.to_string())
+        .execute(txn.deref_mut())
+        .await
+        .unwrap();
 }

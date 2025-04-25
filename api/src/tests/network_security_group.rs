@@ -14,6 +14,7 @@ use std::time::SystemTime;
 
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
+use rpc::health::HealthReport;
 use tonic::Code;
 
 use crate::cfg::file::default_max_network_security_group_size;
@@ -23,6 +24,58 @@ use crate::tests::common::api_fixtures::{
     managed_host::ManagedHostConfig,
     populate_network_security_groups, site_explorer,
 };
+
+use super::common::api_fixtures::TestEnv;
+
+async fn update_network_status_observation(
+    env: &TestEnv,
+    instance_id: &str,
+    good_network_security_group_id: &str,
+    security_version: &str,
+    dpu_machine_id: &str,
+    source: rpc::forge::NetworkSecurityGroupSource,
+) {
+    let _ = env
+        .api
+        .record_dpu_network_status(tonic::Request::new(rpc::forge::DpuNetworkStatus {
+            instance_id: Some(rpc::Uuid {
+                value: instance_id.to_string(),
+            }),
+            observed_at: Some(SystemTime::now().into()),
+            interfaces: vec![rpc::forge::InstanceInterfaceStatusObservation {
+                gateways: vec!["10.180.125.1/27".to_string()],
+                prefixes: vec![],
+                addresses: vec!["10.180.125.5".to_string()],
+                function_type: rpc::forge::InterfaceFunctionType::Physical.into(),
+                mac_address: Some("A0:88:C2:4E:9B:78".to_string()),
+                virtual_function_id: None,
+                network_security_group: Some(rpc::forge::NetworkSecurityGroupStatus {
+                    id: good_network_security_group_id.to_string(),
+                    source: source.into(),
+                    version: security_version.to_string(),
+                }),
+            }],
+            dpu_machine_id: Some(rpc::MachineId {
+                id: dpu_machine_id.to_string(),
+            }),
+            network_config_version: Some("V1-T1".to_string()),
+            instance_network_config_version: Some("V1-T1".to_string()),
+            network_config_error: None,
+            dpu_agent_version: Some("V1-T1".to_string()),
+            client_certificate_expiry_unix_epoch_secs: Some(10000000),
+            dpu_health: Some(HealthReport {
+                source: "dpu-agent".to_string(),
+                observed_at: Some(SystemTime::now().into()),
+                successes: vec![],
+                alerts: vec![],
+            }),
+            instance_config_version: Some("V1-T1".to_string()),
+            fabric_interfaces: vec![],
+            last_dhcp_requests: vec![],
+        }))
+        .await
+        .unwrap();
+}
 
 #[crate::sqlx_test]
 async fn test_network_security_group_create(
@@ -1115,32 +1168,15 @@ async fn test_network_security_group_propagation(
     assert_eq!(prop_status, expected_results);
 
     // Now make a call to report status.
-    let _ = env
-        .api
-        .record_observed_instance_network_status(tonic::Request::new(
-            rpc::forge::InstanceNetworkStatusObservation {
-                instance_id: Some(rpc::Uuid {
-                    value: instance_id.to_string(),
-                }),
-                config_version: "V1-T1".to_string(),
-                observed_at: Some(SystemTime::now().into()),
-                interfaces: vec![rpc::forge::InstanceInterfaceStatusObservation {
-                    gateways: vec!["10.180.125.1/27".to_string()],
-                    prefixes: vec![],
-                    addresses: vec!["10.180.125.5".to_string()],
-                    function_type: rpc::forge::InterfaceFunctionType::Physical.into(),
-                    mac_address: Some("A0:88:C2:4E:9B:78".to_string()),
-                    virtual_function_id: None,
-                    network_security_group: Some(rpc::forge::NetworkSecurityGroupStatus {
-                        id: good_network_security_group_id.to_string(),
-                        source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance.into(),
-                        version: good_network_security_group.version.to_string(),
-                    }),
-                }],
-            },
-        ))
-        .await
-        .unwrap();
+    update_network_status_observation(
+        &env,
+        instance_id,
+        good_network_security_group_id,
+        &good_network_security_group.version,
+        &mh.dpu_snapshots[0].id.to_string(),
+        rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance,
+    )
+    .await;
 
     // Now that DPU status has been reported,
     // check propagation status again.
@@ -1234,32 +1270,15 @@ async fn test_network_security_group_propagation(
 
     // Now send an observation update to make it look like
     // the DPU updated and has the NSG with the VPC source
-    let _ = env
-        .api
-        .record_observed_instance_network_status(tonic::Request::new(
-            rpc::forge::InstanceNetworkStatusObservation {
-                instance_id: Some(rpc::Uuid {
-                    value: instance_id.to_string(),
-                }),
-                config_version: "V1-T1".to_string(),
-                observed_at: Some(SystemTime::now().into()),
-                interfaces: vec![rpc::forge::InstanceInterfaceStatusObservation {
-                    gateways: vec!["10.180.125.1/27".to_string()],
-                    prefixes: vec![],
-                    addresses: vec!["10.180.125.5".to_string()],
-                    function_type: rpc::forge::InterfaceFunctionType::Physical.into(),
-                    mac_address: Some("A0:88:C2:4E:9B:78".to_string()),
-                    virtual_function_id: None,
-                    network_security_group: Some(rpc::forge::NetworkSecurityGroupStatus {
-                        id: good_network_security_group_id.to_string(),
-                        source: rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc.into(),
-                        version: good_network_security_group.version.to_string(),
-                    }),
-                }],
-            },
-        ))
-        .await
-        .unwrap();
+    update_network_status_observation(
+        &env,
+        instance_id,
+        good_network_security_group_id,
+        &good_network_security_group.version,
+        &mh.dpu_snapshots[0].id.to_string(),
+        rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
+    )
+    .await;
 
     // Now check status again, and we should see the VPC with full propagation.
     let prop_status = env
@@ -1359,33 +1378,15 @@ async fn test_network_security_group_propagation(
     // Now send an observation update to make it look like
     // the DPU of the other instance updated and has the NSG
     // with the VPC source.
-    let _ = env
-        .api
-        .record_observed_instance_network_status(tonic::Request::new(
-            rpc::forge::InstanceNetworkStatusObservation {
-                instance_id: Some(rpc::Uuid {
-                    value: instance_id2.to_string(),
-                }),
-                config_version: "V1-T1".to_string(),
-                observed_at: Some(SystemTime::now().into()),
-                interfaces: vec![rpc::forge::InstanceInterfaceStatusObservation {
-                    gateways: vec!["10.180.125.1/27".to_string()],
-                    prefixes: vec![],
-                    addresses: vec!["10.180.125.6".to_string()],
-                    function_type: rpc::forge::InterfaceFunctionType::Physical.into(),
-                    mac_address: Some("AB:C8:D2:4E:9B:78".to_string()),
-                    virtual_function_id: None,
-                    network_security_group: Some(rpc::forge::NetworkSecurityGroupStatus {
-                        id: good_network_security_group_id.to_string(),
-                        source: rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc.into(),
-                        version: good_network_security_group.version.to_string(),
-                    }),
-                }],
-            },
-        ))
-        .await
-        .unwrap();
-
+    update_network_status_observation(
+        &env,
+        instance_id2,
+        good_network_security_group_id,
+        &good_network_security_group.version,
+        &mh2.dpu_snapshots[0].id.to_string(),
+        rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
+    )
+    .await;
     // Now check status again and we should see the VPC with full propagation again.
     let mut prop_status = env
         .api
@@ -1498,33 +1499,15 @@ async fn test_network_security_group_propagation(
     assert_eq!(prop_status, expected_results);
 
     // Now another observation with the new version.
-    let _ = env
-        .api
-        .record_observed_instance_network_status(tonic::Request::new(
-            rpc::forge::InstanceNetworkStatusObservation {
-                instance_id: Some(rpc::Uuid {
-                    value: instance_id.to_string(),
-                }),
-                config_version: "V1-T1".to_string(),
-                observed_at: Some(SystemTime::now().into()),
-                interfaces: vec![rpc::forge::InstanceInterfaceStatusObservation {
-                    gateways: vec!["10.180.125.1/27".to_string()],
-                    prefixes: vec![],
-                    addresses: vec!["10.180.125.6".to_string()],
-                    function_type: rpc::forge::InterfaceFunctionType::Physical.into(),
-                    mac_address: Some("AB:C8:D2:4E:9B:78".to_string()),
-                    virtual_function_id: None,
-                    network_security_group: Some(rpc::forge::NetworkSecurityGroupStatus {
-                        id: good_network_security_group_id.to_string(),
-                        source: rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc.into(),
-                        version: nsg_version.clone(),
-                    }),
-                }],
-            },
-        ))
-        .await
-        .unwrap();
-
+    update_network_status_observation(
+        &env,
+        instance_id,
+        good_network_security_group_id,
+        &nsg_version,
+        &mh.dpu_snapshots[0].id.to_string(),
+        rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
+    )
+    .await;
     // Now check status again and we should see the VPC with partial propagation again.
     let mut prop_status = env
         .api
@@ -1556,32 +1539,15 @@ async fn test_network_security_group_propagation(
     assert_eq!(prop_status, expected_results);
 
     // Now send an observation update for the second instance
-    let _ = env
-        .api
-        .record_observed_instance_network_status(tonic::Request::new(
-            rpc::forge::InstanceNetworkStatusObservation {
-                instance_id: Some(rpc::Uuid {
-                    value: instance_id2.to_string(),
-                }),
-                config_version: "V1-T1".to_string(),
-                observed_at: Some(SystemTime::now().into()),
-                interfaces: vec![rpc::forge::InstanceInterfaceStatusObservation {
-                    gateways: vec!["10.180.125.1/27".to_string()],
-                    prefixes: vec![],
-                    addresses: vec!["10.180.125.5".to_string()],
-                    function_type: rpc::forge::InterfaceFunctionType::Physical.into(),
-                    mac_address: Some("A0:88:C2:4E:9B:78".to_string()),
-                    virtual_function_id: None,
-                    network_security_group: Some(rpc::forge::NetworkSecurityGroupStatus {
-                        id: good_network_security_group_id.to_string(),
-                        source: rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc.into(),
-                        version: nsg_version,
-                    }),
-                }],
-            },
-        ))
-        .await
-        .unwrap();
+    update_network_status_observation(
+        &env,
+        instance_id2,
+        good_network_security_group_id,
+        &nsg_version,
+        &mh2.dpu_snapshots[0].id.to_string(),
+        rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
+    )
+    .await;
 
     // Now check status again and we should see the VPC with full propagation.
     let mut prop_status = env

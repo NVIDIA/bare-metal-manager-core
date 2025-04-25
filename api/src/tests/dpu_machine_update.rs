@@ -127,6 +127,7 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
         network_config_version: None,
         client_certificate_expiry: None,
         agent_version_superseded_at: None,
+        instance_network_observation: None,
     };
 
     let health_report = health_report::HealthReport {

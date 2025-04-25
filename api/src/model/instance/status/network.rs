@@ -29,6 +29,7 @@ use crate::model::{
         },
         status::SyncState,
     },
+    machine::Machine,
     network_security_group::NetworkSecurityGroupStatusObservation,
 };
 
@@ -325,6 +326,29 @@ impl InstanceNetworkStatusObservation {
             .map_err(StatusValidationError::InvalidValue)?;
 
         Ok(())
+    }
+
+    pub fn aggregate_instance_observation(
+        dpu_snapshots: &[Machine],
+        host_snapshot: &Machine,
+    ) -> Option<InstanceNetworkStatusObservation> {
+        // For now we shall have status observations only from primary DPU.
+        let primary_dpu = host_snapshot
+            .interfaces
+            .iter()
+            .find(|x| x.primary_interface)
+            .and_then(|x| x.attached_dpu_machine_id)?;
+
+        let dpu_snapshot = dpu_snapshots.iter().find(|x| x.id == primary_dpu);
+        dpu_snapshot
+            .and_then(|x| x.network_status_observation.as_ref())
+            .and_then(|x| x.instance_network_observation.as_ref())
+            .map(|m| InstanceNetworkStatusObservation {
+                config_version: m.config_version,
+                instance_config_version: m.instance_config_version,
+                interfaces: m.interfaces.clone(),
+                observed_at: m.observed_at,
+            })
     }
 }
 

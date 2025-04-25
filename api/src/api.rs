@@ -410,11 +410,14 @@ impl Forge for Api {
         crate::handlers::instance::release(self, request).await
     }
 
+    // TODO: Not used anymore. Cleanup is needed.
     async fn record_observed_instance_network_status(
         &self,
-        request: Request<rpc::InstanceNetworkStatusObservation>,
+        _request: Request<rpc::InstanceNetworkStatusObservation>,
     ) -> Result<Response<rpc::ObservedInstanceNetworkStatusRecordResult>, tonic::Status> {
-        crate::handlers::instance::record_observed_network_status(self, request).await
+        Ok(Response::new(
+            rpc::ObservedInstanceNetworkStatusRecordResult {},
+        ))
     }
 
     async fn update_instance_phone_home_last_contact(

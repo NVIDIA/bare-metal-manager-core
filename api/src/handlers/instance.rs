@@ -20,7 +20,6 @@ use crate::db::{
 use crate::instance::{InstanceAllocationRequest, allocate_instance};
 use crate::model::instance::config::InstanceConfig;
 use crate::model::instance::config::tenant_config::TenantConfig;
-use crate::model::instance::status::network::InstanceNetworkStatusObservation;
 use crate::model::machine::ManagedHostStateSnapshot;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::metadata::Metadata;
@@ -303,46 +302,6 @@ pub(crate) async fn release(
     })?;
 
     Ok(Response::new(rpc::InstanceReleaseResult {}))
-}
-
-pub(crate) async fn record_observed_network_status(
-    api: &Api,
-    request: Request<rpc::InstanceNetworkStatusObservation>,
-) -> Result<Response<rpc::ObservedInstanceNetworkStatusRecordResult>, Status> {
-    log_request_data(&request);
-
-    let request = request.into_inner();
-    let instance_id = InstanceId::from_grpc(request.instance_id.clone())?;
-
-    let observation =
-        InstanceNetworkStatusObservation::try_from(request).map_err(CarbideError::from)?;
-    observation
-        .validate()
-        .map_err(|e| Status::invalid_argument(e.to_string()))?;
-
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin record_observed_instance_network_status",
-            e,
-        ))
-    })?;
-    Instance::update_network_status_observation(&mut txn, instance_id, &observation)
-        .await
-        .map_err(CarbideError::from)?;
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit record_observed_instance_network_status",
-            e,
-        ))
-    })?;
-
-    Ok(Response::new(
-        rpc::ObservedInstanceNetworkStatusRecordResult {},
-    ))
 }
 
 pub(crate) async fn update_phone_home_last_contact(

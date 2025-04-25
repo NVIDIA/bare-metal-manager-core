@@ -11,6 +11,7 @@
  */
 use self::infiniband::MachineInfinibandStatusObservation;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
+use super::instance::status::network::InstanceNetworkStatusObservation;
 use super::sku::SkuStatus;
 use super::{
     StateSla, bmc_info::BmcInfo, controller_outcome::PersistentStateHandlerOutcome,
@@ -88,13 +89,14 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
         let dpu_snapshots: sqlx::types::Json<Vec<Option<MachineSnapshotPgJson>>> =
             row.try_get("dpu_snapshots")?;
 
-        let instance = if let Some(column) = row.columns().iter().find(|c| c.name() == "instance") {
-            let json: sqlx::types::Json<Option<InstanceSnapshotPgJson>> =
-                row.try_get(column.ordinal())?;
-            json.0.map(TryInto::try_into).transpose()?
-        } else {
-            None
-        };
+        let mut instance: Option<InstanceSnapshot> =
+            if let Some(column) = row.columns().iter().find(|c| c.name() == "instance") {
+                let json: sqlx::types::Json<Option<InstanceSnapshotPgJson>> =
+                    row.try_get(column.ordinal())?;
+                json.0.map(TryInto::try_into).transpose()?
+            } else {
+                None
+            };
 
         let host_snapshot: Machine = host_snapshot.0.try_into()?;
 
@@ -104,6 +106,15 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
             .flatten()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
+
+        // Instance network observation is fetched from dpu_snapshots.
+        if let Some(instance) = &mut instance {
+            instance.observations.network =
+                InstanceNetworkStatusObservation::aggregate_instance_observation(
+                    &dpu_snapshots,
+                    &host_snapshot,
+                );
+        }
 
         // TODO: consider dropping this field from ManagedHostStateSnapshot
         let managed_state = host_snapshot.state.value.clone();

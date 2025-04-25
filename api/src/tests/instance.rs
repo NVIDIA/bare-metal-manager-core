@@ -12,6 +12,7 @@
 use std::{
     collections::HashMap,
     net::Ipv4Addr,
+    ops::DerefMut,
     str::FromStr,
     time::{Duration, SystemTime},
 };
@@ -48,6 +49,7 @@ use crate::{
         network_security_group::NetworkSecurityGroupStatusObservation,
     },
     network_segment::allocate::Ipv4PrefixAllocator,
+    tests::common::api_fixtures::instance::update_instance_network_status_observation,
 };
 use ::rpc::forge::forge_server::Forge;
 use chrono::Utc;
@@ -64,7 +66,7 @@ use common::api_fixtures::{
     populate_network_security_groups, site_explorer,
     tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED},
 };
-use forge_uuid::instance::InstanceId;
+use forge_uuid::{instance::InstanceId, machine::MachineId};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -82,7 +84,6 @@ use crate::tests::common::api_fixtures::{
 use forge_uuid::vpc::VpcPrefixId;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use std::ops::DerefMut;
 
 #[crate::sqlx_test]
 async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnectOptions) {
@@ -96,7 +97,6 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
@@ -166,12 +166,16 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         .await
         .expect("Unable to create transaction on database pool");
 
-    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap()
-        .unwrap_or_else(|| {
-            panic!("find_by_relay_ip for loopback {dpu_loopback_ip} didn't find any instances")
-        });
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &host_machine_id,
+        db::managed_host::LoadSnapshotOptions::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let fetched_instance = snapshot.instance.unwrap();
     assert_eq!(fetched_instance.machine_id, host_machine_id);
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, segment_id)
@@ -199,12 +203,16 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
     let _ = Instance::use_custom_ipxe_on_next_boot(&host_machine_id, false, &mut txn).await;
-    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &host_machine_id,
+        db::managed_host::LoadSnapshotOptions::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
-    assert!(!fetched_instance.use_custom_pxe_on_boot);
+    let fetched_instance = snapshot.instance.unwrap();
     txn.commit().await.unwrap();
 
     let mut txn = env
@@ -319,7 +327,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
+    //let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
@@ -389,12 +397,16 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .await
         .expect("Unable to create transaction on database pool");
 
-    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap()
-        .unwrap_or_else(|| {
-            panic!("find_by_relay_ip for loopback {dpu_loopback_ip} didn't find any instances")
-        });
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &host_machine_id,
+        db::managed_host::LoadSnapshotOptions::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let fetched_instance = snapshot.instance.unwrap();
     assert_eq!(fetched_instance.machine_id, host_machine_id);
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, segment_id)
@@ -422,10 +434,16 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
     let _ = Instance::use_custom_ipxe_on_next_boot(&host_machine_id, false, &mut txn).await;
-    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &host_machine_id,
+        db::managed_host::LoadSnapshotOptions::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let fetched_instance = snapshot.instance.unwrap();
 
     assert!(!fetched_instance.use_custom_pxe_on_boot);
     txn.commit().await.unwrap();
@@ -846,13 +864,16 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
         .await
         .expect("Unable to create transaction on database pool");
 
-    let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
-    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap()
-        .unwrap_or_else(|| {
-            panic!("find_by_relay_ip for loopback {dpu_loopback_ip} didn't find any instances")
-        });
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &host_machine_id,
+        db::managed_host::LoadSnapshotOptions::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let fetched_instance = snapshot.instance.unwrap();
     assert_eq!(fetched_instance.machine_id, host_machine_id);
 
     assert_eq!(fetched_instance.metadata.name, "test_instance_with_labels");
@@ -984,13 +1005,16 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
         .await
         .expect("Unable to create transaction on database pool");
 
-    let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
-    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap()
-        .unwrap_or_else(|| {
-            panic!("find_by_relay_ip for loopback {dpu_loopback_ip} didn't find any instances")
-        });
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &host_machine_id,
+        db::managed_host::LoadSnapshotOptions::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let fetched_instance = snapshot.instance.unwrap();
 
     let returned_hostname = fetched_instance.config.tenant.hostname;
 
@@ -1620,10 +1644,16 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
 
     // When no network status has been observed, we report an interface
     // list with no IPs and MACs to the user
-    let snapshot = Instance::find_by_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &host_machine_id,
+        db::managed_host::LoadSnapshotOptions::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let snapshot = snapshot.instance.unwrap();
 
     let (pf_segment, pf_addr) = snapshot.config.network.interfaces[0]
         .ip_addrs
@@ -1662,14 +1692,19 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         observed_at: Utc::now(),
     };
 
-    Instance::update_network_status_observation(&mut txn, instance_id, &updated_network_status)
-        .await
-        .unwrap();
+    update_instance_network_status_observation(&dpu_machine_id, &updated_network_status, &mut txn)
+        .await;
 
-    let snapshot = Instance::find_by_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &host_machine_id,
+        db::managed_host::LoadSnapshotOptions::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let snapshot = snapshot.instance.unwrap();
 
     assert_eq!(
         snapshot.observations.network.as_ref(),
@@ -1710,14 +1745,20 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     let mut txn = env.pool.begin().await.unwrap();
     updated_network_status.interfaces[0].mac_address =
         Some(MacAddress::new([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]).into());
-    Instance::update_network_status_observation(&mut txn, instance_id, &updated_network_status)
-        .await
-        .unwrap();
+    update_instance_network_status_observation(&dpu_machine_id, &updated_network_status, &mut txn)
+        .await;
 
-    let snapshot = Instance::find_by_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &host_machine_id,
+        db::managed_host::LoadSnapshotOptions::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let snapshot = snapshot.instance.unwrap();
+
     assert_eq!(
         snapshot.observations.network.as_ref(),
         Some(&updated_network_status)
@@ -1765,10 +1806,16 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     .fetch_one(&mut *txn)
     .await
     .unwrap();
-    let snapshot = Instance::find_by_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &host_machine_id,
+        db::managed_host::LoadSnapshotOptions::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let snapshot = snapshot.instance.unwrap();
 
     assert_eq!(
         snapshot.observations.network.as_ref(),
@@ -1828,13 +1875,18 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             }),
         });
 
-    Instance::update_network_status_observation(&mut txn, instance_id, &updated_network_status)
-        .await
-        .unwrap();
-    let snapshot = Instance::find_by_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap()
-        .unwrap();
+    update_instance_network_status_observation(&dpu_machine_id, &updated_network_status, &mut txn)
+        .await;
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &host_machine_id,
+        db::managed_host::LoadSnapshotOptions::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let snapshot = snapshot.instance.unwrap();
     assert_eq!(
         snapshot.observations.network.as_ref(),
         Some(&updated_network_status)
@@ -1875,16 +1927,17 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     // object is OK (to emulate older agents not sending gateways and prefixes in the status
     // observations).
     let mut txn = env.pool.begin().await.unwrap();
-    let gateways_query = "UPDATE instances SET network_status_observation=jsonb_strip_nulls(jsonb_set(network_status_observation, '{interfaces,0,gateways}', 'null', false)) where id = $1::uuid returning id";
-    let prefixes_query = "UPDATE instances SET network_status_observation=jsonb_strip_nulls(jsonb_set(network_status_observation, '{interfaces,0,prefixes}', 'null', false)) where id = $1::uuid returning id";
+    let gateways_query = "UPDATE machines SET network_status_observation=jsonb_strip_nulls(jsonb_set(network_status_observation, '{instance_network_observation,interfaces,0,gateways}', 'null', false)) where id = $1 returning id";
+    let prefixes_query = "UPDATE machines SET network_status_observation=jsonb_strip_nulls(jsonb_set(network_status_observation, '{instance_network_observation,interfaces,0,prefixes}', 'null', false)) where id = $1 returning id";
 
-    let (_,): (InstanceId,) = sqlx::query_as(gateways_query)
-        .bind(instance_id)
+    let (_,): (MachineId,) = sqlx::query_as(gateways_query)
+        .bind(dpu_machine_id)
         .fetch_one(txn.deref_mut())
         .await
         .expect("Database error rewriting JSON");
-    let (_,): (InstanceId,) = sqlx::query_as(prefixes_query)
-        .bind(instance_id)
+
+    let (_,): (MachineId,) = sqlx::query_as(prefixes_query)
+        .bind(dpu_machine_id)
         .fetch_one(txn.deref_mut())
         .await
         .expect("Database error rewriting JSON");
@@ -2497,13 +2550,16 @@ async fn test_allocate_instance_with_old_network_segemnt(
         .await
         .expect("Unable to create transaction on database pool");
 
-    let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
-    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap()
-        .unwrap_or_else(|| {
-            panic!("find_by_relay_ip for loopback {dpu_loopback_ip} didn't find any instances")
-        });
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &host_machine_id,
+        db::managed_host::LoadSnapshotOptions::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let fetched_instance = snapshot.instance.unwrap();
     assert_eq!(fetched_instance.machine_id, host_machine_id);
 
     let network_config = fetched_instance.config.network.clone();
@@ -2634,7 +2690,6 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, segment_id)
             .await
@@ -2717,12 +2772,16 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .await
         .expect("Unable to create transaction on database pool");
 
-    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap()
-        .unwrap_or_else(|| {
-            panic!("find_by_relay_ip for loopback {dpu_loopback_ip} didn't find any instances")
-        });
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &host_machine_id,
+        db::managed_host::LoadSnapshotOptions::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let fetched_instance = snapshot.instance.unwrap();
     assert_eq!(fetched_instance.machine_id, host_machine_id);
     assert_eq!(
         InstanceAddress::count_by_segment_id(
@@ -2772,10 +2831,16 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
     let _ = Instance::use_custom_ipxe_on_next_boot(&host_machine_id, false, &mut txn).await;
-    let fetched_instance = Instance::find_by_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &host_machine_id,
+        db::managed_host::LoadSnapshotOptions::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let fetched_instance = snapshot.instance.unwrap();
 
     assert!(!fetched_instance.use_custom_pxe_on_boot);
     txn.commit().await.unwrap();
