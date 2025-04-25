@@ -1491,6 +1491,10 @@ pub mod test_support {
         async fn is_infinite_boot_enabled(&self) -> Result<Option<bool>, RedfishError> {
             Ok(None)
         }
+
+        async fn reset_bios(&self) -> Result<(), RedfishError> {
+            Ok(())
+        }
     }
 
     #[async_trait]
