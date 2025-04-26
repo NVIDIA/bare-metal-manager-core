@@ -1,6 +1,5 @@
 # Changelog
-
-## [Unreleased (v2025.05.09-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.25-rc1-0...trunk)
+## [Unreleased (v2025.05.09-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.25-rc2-0...trunk)
 
 ### Added
 
@@ -10,7 +9,7 @@
 
 ### Removed
 
-## [v2025.04.25-rc1-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.11-rc1-0...v2025.04.25-rc1-0)
+## [v2025.04.25-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.11-rc1-0...v2025.04.25-rc2-0)
 
 ### Added
 
@@ -55,6 +54,18 @@
 - [MR-3929](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3929): Increased the default number of machines created per run from 1 to 4.
 - [MR-3925](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3925): Fixed an issue where an extraneous call to forge_setup was made when handling host lockdown by removing the redundant call, as it is done earlier in the ingestion process.
 - [MR-3926](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3926): Updated the documentation for the web UI to include 'system account' authentication and Argo details.
+
+## [v2025.04.11-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.11-rc3-0...v2025.04.11-rc4-0):
+
+### Fixed
+
+- [MR-3935](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3935): Improved perfomance of query which loads machine snapshots
+
+## [v2025.04.11-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.11-rc2-0...v2025.04.11-rc3-0)
+
+### Fixed
+
+- [MR-3953](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3953): Fixed reporting of thread count.
 
 ## [v2025.04.11-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.03.28-rc1-0...v2025.04.11-rc2-0)
 
