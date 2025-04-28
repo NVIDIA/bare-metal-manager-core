@@ -11,7 +11,6 @@
  */
 
 use std::collections::HashMap;
-use std::ops::DerefMut;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
@@ -19,7 +18,7 @@ use config_version::{ConfigVersion, Versioned};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, PgConnection, Row};
 
 use crate::ib::IBFabricManagerConfig;
 use crate::ib::types::{IBMtu, IBNetwork, IBRateLimit, IBServiceLevel};
@@ -284,7 +283,7 @@ impl TryFrom<IBPartition> for rpc::IbPartition {
 impl NewIBPartition {
     pub async fn create(
         &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         ib_fabric_config: &IBFabricManagerConfig,
     ) -> Result<IBPartition, DatabaseError> {
         let version = ConfigVersion::initial();
@@ -317,7 +316,7 @@ impl NewIBPartition {
             .bind(version)
             .bind(sqlx::types::Json(state))
             .bind(ib_fabric_config.max_partition_per_tenant)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -331,11 +330,11 @@ impl IBPartition {
     /// * `txn` - A reference to a currently open database transaction
     ///
     pub async fn list_segment_ids(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Vec<IBPartitionId>, DatabaseError> {
         let query = "SELECT id FROM ib_partitions";
         let mut results = Vec::new();
-        let mut segment_id_stream = sqlx::query_as(query).fetch(txn.deref_mut());
+        let mut segment_id_stream = sqlx::query_as(query).fetch(txn);
         while let Some(maybe_id) = segment_id_stream.next().await {
             let id = maybe_id.map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
             results.push(id);
@@ -345,14 +344,14 @@ impl IBPartition {
     }
 
     pub async fn for_tenant(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         tenant_organization_id: String,
     ) -> Result<Vec<Self>, DatabaseError> {
         let results: Vec<IBPartition> = {
             let query = "SELECT * FROM ib_partitions WHERE organization_id=$1";
             sqlx::query_as(query)
                 .bind(tenant_organization_id)
-                .fetch_all(txn.deref_mut())
+                .fetch_all(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         };
@@ -361,7 +360,7 @@ impl IBPartition {
     }
 
     pub async fn find_ids(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: rpc::IbPartitionSearchFilter,
     ) -> Result<Vec<IBPartitionId>, CarbideError> {
         // build query
@@ -383,7 +382,7 @@ impl IBPartition {
 
         let query = builder.build_query_as();
         let ids: Vec<IBPartitionId> = query
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partition::find_ids", e))?;
 
@@ -391,7 +390,7 @@ impl IBPartition {
     }
 
     pub async fn find_by<'a, C: ColumnInfo<'a, TableType = IBPartition>>(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: ObjectColumnFilter<'a, C>,
         _search_config: IBPartitionSearchConfig,
     ) -> Result<Vec<Self>, DatabaseError> {
@@ -399,13 +398,13 @@ impl IBPartition {
 
         query
             .build_query_as()
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
     pub async fn find_pkey_by_partition_id(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         id: IBPartitionId,
     ) -> Result<Option<u16>, DatabaseError> {
         #[derive(Debug, Clone, Copy, FromRow)]
@@ -415,7 +414,7 @@ impl IBPartition {
             .filter(&ObjectColumnFilter::One(IdColumn, &id));
         let pkey = query
             .build_query_as::<Pkey>()
-            .fetch_optional(txn.deref_mut())
+            .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
 
@@ -425,7 +424,7 @@ impl IBPartition {
     /// Updates the IB partition state that is owned by the state controller
     /// under the premise that the curren controller state version didn't change.
     pub async fn try_update_controller_state(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         partition_id: IBPartitionId,
         expected_version: ConfigVersion,
         new_state: &IBPartitionControllerState,
@@ -438,7 +437,7 @@ impl IBPartition {
             .bind(sqlx::types::Json(new_state))
             .bind(partition_id)
             .bind(expected_version)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await;
 
         match query_result {
@@ -449,7 +448,7 @@ impl IBPartition {
     }
 
     pub async fn update_controller_state_outcome(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         partition_id: IBPartitionId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
@@ -457,20 +456,17 @@ impl IBPartition {
         sqlx::query(query)
             .bind(sqlx::types::Json(outcome))
             .bind(partition_id)
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
     }
 
-    pub async fn mark_as_deleted(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<IBPartition> {
+    pub async fn mark_as_deleted(&self, txn: &mut PgConnection) -> CarbideResult<IBPartition> {
         let query = "UPDATE ib_partitions SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
         let segment: IBPartition = sqlx::query_as(query)
             .bind(self.id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -484,22 +480,19 @@ impl IBPartition {
 
     pub async fn final_delete(
         partition_id: IBPartitionId,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<IBPartitionId, DatabaseError> {
         let query = "DELETE FROM ib_partitions WHERE id=$1::uuid RETURNING id";
         let partition: IBPartitionId = sqlx::query_as(query)
             .bind(partition_id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(partition)
     }
 
-    pub async fn update(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<IBPartition, DatabaseError> {
+    pub async fn update(&self, txn: &mut PgConnection) -> Result<IBPartition, DatabaseError> {
         let query = "UPDATE ib_partitions SET name=$1, organization_id=$2, status=$3::json, updated=NOW() WHERE id=$4::uuid RETURNING *";
 
         let segment: IBPartition = sqlx::query_as(query)
@@ -507,7 +500,7 @@ impl IBPartition {
             .bind(self.config.tenant_organization_id.to_string())
             .bind(sqlx::types::Json(&self.status))
             .bind(self.id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -516,7 +509,7 @@ impl IBPartition {
 }
 
 pub async fn allocate_port_guid(
-    _txn: &mut Transaction<'_, Postgres>,
+    _txn: &mut PgConnection,
     _instance_id: InstanceId,
     ib_config: &InstanceInfinibandConfig,
     machine: &Machine,

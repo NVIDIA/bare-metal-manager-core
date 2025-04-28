@@ -9,13 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{collections::HashMap, ops::DerefMut};
+use std::collections::HashMap;
 
 use config_version::ConfigVersion;
 use forge_uuid::{
     instance::InstanceId, network_security_group::NetworkSecurityGroupId, vpc::VpcId,
 };
-use sqlx::{Postgres, Row, Transaction, postgres::PgRow};
+use sqlx::{PgConnection, Postgres, Row, postgres::PgRow};
 
 use crate::{
     CarbideError,
@@ -112,7 +112,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for NetworkSecurityGroup {
 ///                              of the NetworkSecurityGroup
 ///
 pub async fn create(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     id: &NetworkSecurityGroupId,
     tenant_organization_id: &TenantOrganizationId,
     created_by: Option<&str>,
@@ -136,7 +136,7 @@ pub async fn create(
         .bind(sqlx::types::Json(rules))
         .bind(ConfigVersion::initial())
         .bind(created_by)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
     {
         Ok(network_security_group) => Ok(network_security_group),
@@ -166,7 +166,7 @@ pub async fn create(
 ///                              synchronization
 ///
 pub(crate) async fn find_ids(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     name: Option<&str>,
     tenant_organization_id: Option<&TenantOrganizationId>,
     for_update: bool,
@@ -190,7 +190,7 @@ pub(crate) async fn find_ids(
 
     Ok(builder
         .build_query_as()
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), builder.sql(), err))?)
 }
@@ -205,7 +205,7 @@ pub(crate) async fn find_ids(
 ///                                  tenant org to match against NetworkSecurityGroup records.
 /// * `for_update`                 - A boolean flag to acquire DB locks for synchronization
 pub(crate) async fn find_by_ids(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     network_security_group_ids: &[NetworkSecurityGroupId],
     tenant_organization_id: Option<&TenantOrganizationId>,
     for_update: bool,
@@ -228,7 +228,7 @@ pub(crate) async fn find_by_ids(
 
     Ok(builder
         .build_query_as()
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), builder.sql(), err))?)
 }
@@ -248,7 +248,7 @@ pub(crate) async fn find_by_ids(
 /// its results. This may or may not be acceptable depending on the use-case.
 ///          
 pub(crate) async fn find_objects_with_attachments(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     network_security_group_ids: Option<&[NetworkSecurityGroupId]>,
     tenant_organization_id: Option<&TenantOrganizationId>,
 ) -> Result<Vec<NetworkSecurityGroupAttachments>, CarbideError> {
@@ -280,7 +280,7 @@ pub(crate) async fn find_objects_with_attachments(
 
     Ok(builder
         .build_query_as()
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), builder.sql(), err))?)
 }
@@ -296,7 +296,7 @@ pub(crate) async fn find_objects_with_attachments(
 /// * `instance_ids`               - Optional list of InstanceId to query for propagation status
 ///          
 pub(crate) async fn get_propagation_status(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     network_security_group_ids: Option<&[NetworkSecurityGroupId]>,
     tenant_organization_id: Option<&TenantOrganizationId>,
     vpc_ids: Option<&[VpcId]>,
@@ -460,7 +460,7 @@ pub(crate) async fn get_propagation_status(
 
     let vpcs = vpc_query_builder
         .build_query_as()
-        .fetch_all(txn.deref_mut())
+        .fetch_all(&mut *txn)
         .await
         .map_err(|err: sqlx::Error| {
             DatabaseError::new(file!(), line!(), vpc_query_builder.sql(), err)
@@ -468,7 +468,7 @@ pub(crate) async fn get_propagation_status(
 
     let instances = instance_query_builder
         .build_query_as()
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|err: sqlx::Error| {
             DatabaseError::new(file!(), line!(), instance_query_builder.sql(), err)
@@ -500,7 +500,7 @@ pub(crate) async fn get_propagation_status(
 ///                              NetworkSecurityGroup
 ///
 pub(crate) async fn update(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     id: &NetworkSecurityGroupId,
     tenant_organization_id: &TenantOrganizationId,
     metadata: &Metadata,
@@ -539,7 +539,7 @@ pub(crate) async fn update(
         .bind(id)
         .bind(expected_version)
         .bind(tenant_organization_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
     {
         Ok(network_security_group) => Ok(network_security_group),
@@ -575,7 +575,7 @@ pub(crate) async fn update(
 ///                                 ***Callers are expected to verify the relationship prior to calling this function.***
 ///
 pub(crate) async fn soft_delete(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     network_security_group_id: &NetworkSecurityGroupId,
     tenant_organization_id: &TenantOrganizationId,
 ) -> Result<Option<NetworkSecurityGroupId>, CarbideError> {
@@ -584,7 +584,7 @@ pub(crate) async fn soft_delete(
     match sqlx::query_as(query)
         .bind(network_security_group_id)
         .bind(tenant_organization_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
     {
         Ok(network_security_group) => Ok(Some(network_security_group)),

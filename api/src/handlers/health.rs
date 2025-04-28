@@ -12,7 +12,7 @@
 
 use ::rpc::forge::{self as rpc, HealthReportOverride};
 use health_report::OverrideMode;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
 use crate::{
@@ -213,7 +213,7 @@ pub async fn record_log_parser_health_report(
 }
 
 async fn remove_by_source(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
     source: String,
 ) -> Result<(), CarbideError> {

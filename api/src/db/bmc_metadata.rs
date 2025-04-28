@@ -10,13 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 use std::fmt::{Display, Formatter};
-use std::ops::DerefMut;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 
 use super::DatabaseError;
 use crate::db;
@@ -84,7 +83,7 @@ impl FromStr for UserRoles {
 }
 
 pub async fn update_bmc_network_into_topologies(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     bmc_info: &BmcInfo,
 ) -> CarbideResult<()> {
@@ -102,7 +101,7 @@ pub async fn update_bmc_network_into_topologies(
     sqlx::query_as::<_, MachineId>(query)
         .bind(json!(bmc_info))
         .bind(machine_id.to_string())
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         .ok_or(CarbideError::NotFoundError {
@@ -118,7 +117,7 @@ pub async fn update_bmc_network_into_topologies(
 pub async fn enrich_mac_address(
     bmc_info: &mut BmcInfo,
     caller: String,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     persist: bool,
 ) -> CarbideResult<()> {

@@ -40,7 +40,7 @@ use common::api_fixtures::{self, TestEnv, create_test_env_with_overrides, get_co
 use forge_uuid::machine::MachineId;
 use rpc::forge::DhcpDiscovery;
 use rpc::forge::forge_server::Forge;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 use std::{
     collections::HashMap,
     fs,
@@ -224,7 +224,7 @@ async fn test_preingestion_bmc_upgrade(
 }
 
 async fn insert_endpoint_version(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     addr: &str,
     bmc_version: &str,
     uefi_version: &str,
@@ -248,7 +248,7 @@ async fn insert_endpoint_version(
 }
 
 async fn insert_endpoint(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     addr: &str,
     machine_id_str: &str,
     vendor: &str,

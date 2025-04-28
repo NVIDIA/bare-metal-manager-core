@@ -15,8 +15,6 @@
  *  tables in the database, leveraging the journal-specific record types.
 */
 
-use std::ops::DerefMut;
-
 use crate::db::DatabaseError;
 use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
@@ -24,14 +22,14 @@ use forge_uuid::measured_boot::{
     MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
 };
 use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 
 /// insert_measurement_journal_record is a very basic insert of a
 /// new row into the measurement_journals table. Is it expected that
 /// this is wrapped by a more formal call (where a txn is initialized)
 /// to also set corresponding value records.
 pub async fn insert_measurement_journal_record(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
     report_id: MeasurementReportId,
     profile_id: Option<MeasurementSystemProfileId>,
@@ -45,14 +43,14 @@ pub async fn insert_measurement_journal_record(
         .bind(profile_id)
         .bind(bundle_id)
         .bind(state)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "insert_measurement_journal_record", e))
 }
 
 /// delete_journal_where_id deletes a journal record.
 pub async fn delete_journal_where_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     journal_id: MeasurementJournalId,
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
     common::delete_object_where_id(txn, journal_id)
@@ -65,7 +63,7 @@ pub async fn delete_journal_where_id(
 /// if it exists. This leverages the generic get_object_for_id
 /// function since its a simple/common pattern.
 pub async fn get_measurement_journal_record_by_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     journal_id: MeasurementJournalId,
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
     common::get_object_for_id(txn, journal_id)
@@ -85,7 +83,7 @@ pub async fn get_measurement_journal_record_by_id(
 /// if it exists. This leverages the generic get_object_for_id
 /// function since its a simple/common pattern.
 pub async fn get_measurement_journal_record_by_report_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     report_id: MeasurementReportId,
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
     common::get_object_for_id(txn, report_id)
@@ -104,7 +102,7 @@ pub async fn get_measurement_journal_record_by_report_id(
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
 pub async fn get_measurement_journal_records(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementJournalRecord>, DatabaseError> {
     common::get_all_objects(txn).await.map_err(|e| {
         DatabaseError::new(
@@ -120,7 +118,7 @@ pub async fn get_measurement_journal_records(
 /// records for a given machine ID, which is used by the `journal list`
 /// CLI option.
 pub async fn get_measurement_journal_records_for_machine_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> Result<Vec<MeasurementJournalRecord>, DatabaseError> {
     common::get_objects_where_id(txn, machine_id)

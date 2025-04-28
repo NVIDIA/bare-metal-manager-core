@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use config_version::{ConfigVersion, Versioned};
+use sqlx::PgConnection;
 
 use crate::{
     db::DatabaseError,
@@ -52,20 +52,20 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     /// Resolves the list of objects that the state controller should act upon
     async fn list_objects(
         &self,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError>;
 
     /// Loads a state of an object
     async fn load_object_state(
         &self,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         object_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError>;
 
     /// Loads the object state that is owned by the state controller
     async fn load_controller_state(
         &self,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         state: &Self::State,
     ) -> Result<Versioned<Self::ControllerState>, DatabaseError>;
@@ -73,7 +73,7 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     /// Persists the object state that is owned by the state controller
     async fn persist_controller_state(
         &self,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         old_version: ConfigVersion,
         new_state: Self::ControllerState,
@@ -82,7 +82,7 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     /// Save the result of the most recent controller iteration
     async fn persist_outcome(
         &self,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError>;

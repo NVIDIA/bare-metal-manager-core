@@ -1,7 +1,6 @@
 use crate::db::DatabaseError;
 use chrono::{DateTime, Utc};
-use sqlx::{Postgres, Transaction};
-use std::ops::DerefMut;
+use sqlx::PgConnection;
 
 pub type IsFirstObservation = bool;
 
@@ -10,7 +9,7 @@ pub type IsFirstObservation = bool;
 /// Any other version (which is not already superseded) will be marked as superseded at the current
 /// date/time. This should lead to exactly one non-superseded version at any time.
 pub async fn observe_as_latest_version(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     version: &str,
 ) -> Result<IsFirstObservation, DatabaseError> {
     // Is this version already present?
@@ -18,7 +17,7 @@ pub async fn observe_as_latest_version(
         let query = "SELECT id FROM forge_versions WHERE version = $1 LIMIT 1";
         sqlx::query_scalar(query)
             .bind(version)
-            .fetch_optional(txn.deref_mut())
+            .fetch_optional(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
     };
@@ -31,7 +30,7 @@ pub async fn observe_as_latest_version(
     let superseded_count = {
         let query = "UPDATE forge_versions SET superseded = now() WHERE superseded IS NULL";
         sqlx::query(query)
-            .execute(txn.deref_mut())
+            .execute(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             .rows_affected()
@@ -53,7 +52,7 @@ pub async fn observe_as_latest_version(
         let query = "INSERT INTO forge_versions (version) VALUES ($1)";
         sqlx::query(query)
             .bind(version)
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     }
@@ -63,7 +62,7 @@ pub async fn observe_as_latest_version(
 
 /// Return the date the given version was superseded, if found.
 pub async fn date_superseded(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     version: &str,
 ) -> Result<Option<DateTime<Utc>>, DatabaseError> {
     let query = "SELECT superseded FROM forge_versions WHERE version = $1";
@@ -71,7 +70,7 @@ pub async fn date_superseded(
     // double-option here because it's a nullable value *and* the query may not return a row.
     let result: Option<Option<DateTime<Utc>>> = sqlx::query_scalar(query)
         .bind(version)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -81,7 +80,7 @@ pub async fn date_superseded(
 /// Tests only: Create a mock observation at a given date, optionally marked as already superseded
 #[cfg(test)]
 pub async fn make_mock_observation(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     version: &str,
     superseded: Option<DateTime<Utc>>,
 ) -> Result<(), DatabaseError> {
@@ -90,7 +89,7 @@ pub async fn make_mock_observation(
         .bind(version)
         .bind(superseded)
         .bind(superseded.unwrap_or(Utc::now()))
-        .execute(txn.deref_mut())
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     Ok(())

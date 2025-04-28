@@ -19,6 +19,7 @@ use libredfish::{
     EnabledDisabled, Endpoint, PowerState, Redfish, RedfishError, SystemPowerControl,
     model::BootProgress,
 };
+use sqlx::PgConnection;
 use std::net::IpAddr;
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use utils::HostPortPair;
@@ -79,7 +80,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
     async fn create_client_from_machine(
         &self,
         target: &Machine,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         let Some(addr) = target.bmc_addr() else {
             return if self.allow_proxy_to_unknown_host() {
@@ -113,7 +114,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         &self,
         ip: IpAddr,
         port: Option<u16>,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         let auth_key = db::machine_interface::find_by_ip(txn, ip)
             .await?
@@ -399,7 +400,7 @@ pub async fn host_power_control(
     machine: &Machine,
     action: SystemPowerControl,
     ipmi_tool: Arc<dyn IPMITool>,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
 ) -> CarbideResult<()> {
     // Always log to ensure we can see that forge is doing the power controlling
     tracing::info!(
@@ -1535,7 +1536,7 @@ pub mod test_support {
             &self,
             _ip: IpAddr,
             _port: Option<u16>,
-            _txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+            _txn: &mut PgConnection,
         ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
             self.create_client(
                 "fake",

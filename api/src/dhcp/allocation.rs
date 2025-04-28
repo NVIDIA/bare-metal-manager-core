@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 use std::collections::BTreeSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -27,10 +27,7 @@ use forge_uuid::instance::InstanceId;
 pub trait UsedIpResolver {
     // used_ips is expected to return used (or allocated)
     // IPs as reported by whoever implements this trait.
-    async fn used_ips(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<IpAddr>, DatabaseError>;
+    async fn used_ips(&self, txn: &mut PgConnection) -> Result<Vec<IpAddr>, DatabaseError>;
 
     // Method to get used/allocated IPs for implementor.
     // Since the allocated IPs may actually be allocated
@@ -39,10 +36,7 @@ pub trait UsedIpResolver {
     // type supports this, since `inet` supports the
     // ability to set a prefix length (with /32 being the
     // implied default).
-    async fn used_prefixes(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<IpNetwork>, DatabaseError>;
+    async fn used_prefixes(&self, txn: &mut PgConnection) -> Result<Vec<IpNetwork>, DatabaseError>;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -111,7 +105,7 @@ pub struct IpAllocator {
 
 impl IpAllocator {
     pub async fn new(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         segment: &NetworkSegment,
         used_ip_resolver: Box<dyn UsedIpResolver + Send>,
         address_strategy: AddressSelectionStrategy,

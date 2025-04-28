@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 
 use crate::{
     db::{
@@ -21,9 +21,7 @@ use crate::{
 };
 
 /// Fetches the latest site exploration report from the database
-pub async fn fetch(
-    txn: &mut Transaction<'_, Postgres>,
-) -> Result<SiteExplorationReport, DatabaseError> {
+pub async fn fetch(txn: &mut PgConnection) -> Result<SiteExplorationReport, DatabaseError> {
     let endpoints = DbExploredEndpoint::find_all(txn).await?;
     let managed_hosts = DbExploredManagedHost::find_all(txn).await?;
     Ok(SiteExplorationReport {

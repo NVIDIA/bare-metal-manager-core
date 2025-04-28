@@ -18,11 +18,10 @@
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::ops::DerefMut;
 use std::vec::Vec;
 
 use sqlx::postgres::PgRow;
-use sqlx::{Encode, Postgres, Transaction};
+use sqlx::{Encode, PgConnection, Postgres};
 
 use crate::db::DatabaseError;
 use crate::{CarbideError, CarbideResult};
@@ -80,7 +79,7 @@ pub fn generate_name() -> CarbideResult<String> {
 /// the DbPrimaryUuid and DbTable traits (which are traits defined in this
 /// crate) to build the query.
 pub async fn get_object_for_id<T, R>(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     id: T,
 ) -> Result<Option<R>, DatabaseError>
 where
@@ -100,7 +99,7 @@ where
 /// the DbPrimaryUuid and DbTable traits (which are traits defined in this
 /// crate) to build the query.
 pub async fn get_object_for_unique_column<T, R>(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     col_name: &str,
     value: T,
 ) -> Result<Option<R>, DatabaseError>
@@ -115,7 +114,7 @@ where
     );
     let result = sqlx::query_as::<_, R>(&query)
         .bind(value)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_object_for_unique_column", e))?;
     Ok(result)
@@ -129,7 +128,7 @@ where
 /// Similar to get_object_for_id above, this leverages a mixture of sqlx-based
 /// derive + traits to reduce the use of copy-pasta code + string literals.
 pub async fn get_objects_where_id<T, R>(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     id: T,
 ) -> Result<Vec<R>, DatabaseError>
 where
@@ -143,7 +142,7 @@ where
     );
     let result = sqlx::query_as::<_, R>(&query)
         .bind(id)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_objects_where_id", e))?;
     Ok(result)
@@ -155,15 +154,13 @@ where
 /// implementing the crate-specific DbName trait to make this possible,
 /// with the idea of reducing very boilerplate copy-pasta code and string
 /// literals.
-pub async fn get_all_objects<R>(
-    txn: &mut Transaction<'_, Postgres>,
-) -> Result<Vec<R>, DatabaseError>
+pub async fn get_all_objects<R>(txn: &mut PgConnection) -> Result<Vec<R>, DatabaseError>
 where
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
 {
     let query = format!("select * from {}", R::db_table_name());
     let result = sqlx::query_as::<_, R>(&query)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_all_objects", e))?;
     Ok(result)
@@ -178,7 +175,7 @@ where
 /// make this possible, with the idea of reducing very boilerplate copy-pasta
 /// code and string literals.
 pub async fn delete_objects_where_id<T, R>(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     id: T,
 ) -> Result<Vec<R>, DatabaseError>
 where
@@ -191,7 +188,7 @@ where
 }
 
 pub async fn delete_objects_where_unique_column<T, R>(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     col_name: &str,
     value: T,
 ) -> Result<Vec<R>, DatabaseError>
@@ -206,7 +203,7 @@ where
     );
     let result = sqlx::query_as::<_, R>(&query)
         .bind(value)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| {
             DatabaseError::new(file!(), line!(), "delete_objects_where_unique_column", e)
@@ -217,7 +214,7 @@ where
 /// delete_object_where_id is used for cases where only a single record
 /// is expected to be deleted.
 pub async fn delete_object_where_id<T, R>(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     id: T,
 ) -> Result<Option<R>, DatabaseError>
 where
@@ -230,7 +227,7 @@ where
 }
 
 pub async fn delete_object_where_unique_column<T, R>(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     col_name: &str,
     value: T,
 ) -> Result<Option<R>, DatabaseError>
@@ -245,7 +242,7 @@ where
     );
     let result = sqlx::query_as::<_, R>(&query)
         .bind(value)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| {
             DatabaseError::new(file!(), line!(), "delete_object_where_unique_column", e)
@@ -273,13 +270,13 @@ where
 /// you're done. If you want more control, you can
 /// use acquire_advisory_lock + release_advisory_lock.
 pub async fn acquire_advisory_txn_lock(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     key: &str,
 ) -> Result<(), DatabaseError> {
     let hash_key = advisory_lock_key_to_hash(key);
     sqlx::query("SELECT pg_advisory_xact_lock($1)")
         .bind(hash_key)
-        .execute(txn.deref_mut())
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "acquire_advisory_txn_lock", e))?;
     Ok(())

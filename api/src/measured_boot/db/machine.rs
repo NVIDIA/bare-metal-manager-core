@@ -32,7 +32,7 @@ use measured_boot::machine::CandidateMachine;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 use rpc::protos::measured_boot::CandidateMachineSummaryPb;
 use serde::Serialize;
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{FromRow, PgConnection};
 use std::collections::HashMap;
 
 /// CandidateMachineRecord defines a single row from
@@ -74,7 +74,7 @@ impl DbTable for CandidateMachineRecord {
 }
 
 pub async fn from_id_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> CarbideResult<CandidateMachine> {
     match get_candidate_machine_record_by_id(txn, machine_id).await? {
@@ -109,7 +109,7 @@ pub async fn from_id_with_txn(
     }
 }
 
-pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Vec<CandidateMachine>> {
+pub async fn get_all(txn: &mut PgConnection) -> CarbideResult<Vec<CandidateMachine>> {
     get_candidate_machines(txn).await
 }
 
@@ -137,7 +137,7 @@ pub fn bundle_state_to_machine_state(
 /// machine ID by checking its most recent bundle (or lack thereof), and
 /// using that result to give it a corresponding MeasurementMachineState.
 pub async fn get_measurement_machine_state(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> Result<MeasurementMachineState, DatabaseError> {
     get_candidate_machine_state(txn, machine_id).await
@@ -146,7 +146,7 @@ pub async fn get_measurement_machine_state(
 /// get_measurement_bundle_state returns the state of the current bundle
 /// associated with the machine, if one exists.
 pub async fn get_measurement_bundle_state(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> eyre::Result<Option<MeasurementBundleState>> {
     let result = get_latest_journal_for_id(&mut *txn, *machine_id).await?;
@@ -161,9 +161,7 @@ pub async fn get_measurement_bundle_state(
 }
 
 /// get_candidate_machines returns all populated CandidateMachine instances.
-async fn get_candidate_machines(
-    txn: &mut Transaction<'_, Postgres>,
-) -> CarbideResult<Vec<CandidateMachine>> {
+async fn get_candidate_machines(txn: &mut PgConnection) -> CarbideResult<Vec<CandidateMachine>> {
     let mut res: Vec<CandidateMachine> = Vec::new();
     let mut records = get_candidate_machine_records(txn).await?;
 

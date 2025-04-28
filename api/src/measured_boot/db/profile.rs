@@ -30,11 +30,11 @@ use forge_uuid::machine::MachineId;
 use forge_uuid::measured_boot::MeasurementSystemProfileId;
 use measured_boot::profile::MeasurementSystemProfile;
 use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 use std::collections::HashMap;
 
 pub async fn new_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     name: Option<String>,
     attrs: &HashMap<String, String>,
 ) -> CarbideResult<MeasurementSystemProfile> {
@@ -60,7 +60,7 @@ pub fn from_info_and_attrs(
 }
 
 pub async fn match_from_attrs_or_new_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     attrs: &HashMap<String, String>,
 ) -> CarbideResult<MeasurementSystemProfile> {
     match match_profile(txn, attrs).await? {
@@ -70,7 +70,7 @@ pub async fn match_from_attrs_or_new_with_txn(
 }
 
 pub async fn load_from_id_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> CarbideResult<MeasurementSystemProfile> {
     get_measurement_profile_by_id(txn, profile_id).await
@@ -81,7 +81,7 @@ pub async fn load_from_id_with_txn(
 /// attributes), returning a MeasurementSystemProfile instance.
 ////////////////////////////////////////////////////////////////
 pub async fn load_from_name(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     name: String,
 ) -> CarbideResult<MeasurementSystemProfile> {
     get_measurement_profile_by_name(txn, name).await
@@ -92,7 +92,7 @@ pub async fn load_from_name(
 /// its attributes), returning a MeasurementSystemProfile instance.
 ////////////////////////////////////////////////////////////////
 pub async fn load_from_attrs(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     attrs: &HashMap<String, String>,
 ) -> CarbideResult<Option<MeasurementSystemProfile>> {
     let info = get_measurement_profile_record_by_attrs(txn, attrs).await?;
@@ -131,14 +131,14 @@ pub fn intersects_with(
 }
 
 pub async fn delete_for_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> CarbideResult<Option<MeasurementSystemProfile>> {
     delete_profile_for_id(txn, profile_id).await
 }
 
 pub async fn delete_for_name(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     name: String,
 ) -> CarbideResult<Option<MeasurementSystemProfile>> {
     delete_profile_for_name(txn, name).await
@@ -146,7 +146,7 @@ pub async fn delete_for_name(
 
 /// rename_for_id renames a MeasurementSystemProfile based on its ID.
 pub async fn rename_for_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     system_profile_id: MeasurementSystemProfileId,
     new_system_profile_name: String,
 ) -> CarbideResult<MeasurementSystemProfile> {
@@ -162,7 +162,7 @@ pub async fn rename_for_id(
 
 /// rename_for_name renames a MeasurementSystemProfile based on its name.
 pub async fn rename_for_name(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     system_profile_name: String,
     new_system_profile_name: String,
 ) -> CarbideResult<MeasurementSystemProfile> {
@@ -179,9 +179,7 @@ pub async fn rename_for_name(
     from_info_and_attrs(info, attrs)
 }
 
-pub async fn get_all(
-    txn: &mut Transaction<'_, Postgres>,
-) -> CarbideResult<Vec<MeasurementSystemProfile>> {
+pub async fn get_all(txn: &mut PgConnection) -> CarbideResult<Vec<MeasurementSystemProfile>> {
     get_measurement_system_profiles_with_txn(txn).await
 }
 
@@ -189,7 +187,7 @@ pub async fn get_all(
 /// system measurement profile.
 pub async fn get_machines(
     profile: &MeasurementSystemProfile,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> CarbideResult<Vec<MachineId>> {
     get_machines_for_profile_id(txn, profile.profile_id)
         .await
@@ -204,7 +202,7 @@ pub async fn get_machines(
 /// of attributes, so if two matching profiles end up existing, it's because
 /// someone was messing around in the tables (or there's a bug).
 async fn match_profile(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     attrs: &HashMap<String, String>,
 ) -> CarbideResult<Option<MeasurementSystemProfileId>> {
     // Get all profiles, and figure out which one intersects
@@ -254,7 +252,7 @@ async fn match_profile(
 /// into both the measurement_system_profiles and measurement_system_profiles_attrs
 /// tables.
 pub async fn create_measurement_profile(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_name: String,
     attrs: &HashMap<String, String>,
 ) -> CarbideResult<MeasurementSystemProfile> {
@@ -313,7 +311,7 @@ pub async fn create_measurement_profile(
 /// get_measurement_profile_by_id returns a MeasurementSystemProfile
 /// for the given MeasurementSystemProfileId.
 pub async fn get_measurement_profile_by_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> CarbideResult<MeasurementSystemProfile> {
     match get_measurement_profile_record_by_id(txn, profile_id).await? {
@@ -336,7 +334,7 @@ pub async fn get_measurement_profile_by_id(
 /// get_measurement_profile_by_name returns a MeasurementSystemProfile
 /// for the given name.
 pub async fn get_measurement_profile_by_name(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     name: String,
 ) -> CarbideResult<MeasurementSystemProfile> {
     match get_measurement_profile_record_by_name(txn, name.clone()).await? {
@@ -361,7 +359,7 @@ pub async fn get_measurement_profile_by_name(
 /// delete_profile_for_id deletes a complete profile, including
 /// its attributes, by ID. It returns the deleted profile for display.
 pub async fn delete_profile_for_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> CarbideResult<Option<MeasurementSystemProfile>> {
     let attrs = delete_profile_attr_records_for_id(txn, profile_id)
@@ -384,7 +382,7 @@ pub async fn delete_profile_for_id(
 /// delete_profile_for_name deletes a complete profile, including
 /// its attributes, by name. It returns the deleted profile for display.
 pub async fn delete_profile_for_name(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     name: String,
 ) -> CarbideResult<Option<MeasurementSystemProfile>> {
     let profile = load_from_name(txn, name).await?;
@@ -392,7 +390,7 @@ pub async fn delete_profile_for_name(
 }
 
 pub async fn get_measurement_system_profiles_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> CarbideResult<Vec<MeasurementSystemProfile>> {
     let mut res: Vec<MeasurementSystemProfile> = Vec::new();
     let mut infos = get_all_measurement_profile_records(txn).await?;
@@ -426,7 +424,7 @@ fn attr_map_to_string(attr_map: &HashMap<String, String>) -> String {
 pub(crate) mod test_support {
     use super::*;
     use forge_uuid::measured_boot::MeasurementSystemProfileId;
-    use sqlx::Pool;
+    use sqlx::{Pool, Postgres};
     use std::collections::HashMap;
 
     ////////////////////////////////////////////////////////////////
@@ -471,7 +469,7 @@ pub(crate) mod test_support {
     }
 
     pub async fn match_from_attrs(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         attrs: &HashMap<String, String>,
     ) -> CarbideResult<Option<MeasurementSystemProfile>> {
         match match_profile(txn, attrs).await? {

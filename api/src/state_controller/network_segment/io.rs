@@ -13,6 +13,7 @@
 //! State Controller IO implementation for network segments
 
 use config_version::{ConfigVersion, Versioned};
+use sqlx::PgConnection;
 
 use crate::db::ObjectColumnFilter;
 use crate::{
@@ -50,7 +51,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
 
     async fn list_objects(
         &self,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
         NetworkSegment::list_segment_ids(txn, None).await
     }
@@ -58,7 +59,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
     /// Loads a state snapshot from the database
     async fn load_object_state(
         &self,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         segment_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
         let mut segments = NetworkSegment::find_by(
@@ -93,7 +94,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
 
     async fn load_controller_state(
         &self,
-        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _txn: &mut PgConnection,
         _object_id: &Self::ObjectId,
         state: &Self::State,
     ) -> Result<Versioned<Self::ControllerState>, DatabaseError> {
@@ -102,7 +103,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
 
     async fn persist_controller_state(
         &self,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         old_version: ConfigVersion,
         new_state: Self::ControllerState,
@@ -115,7 +116,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
 
     async fn persist_outcome(
         &self,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {

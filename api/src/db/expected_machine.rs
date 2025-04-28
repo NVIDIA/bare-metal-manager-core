@@ -10,13 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::{BTreeMap, HashMap};
-use std::ops::DerefMut;
 
 use itertools::Itertools;
 use mac_address::MacAddress;
 use serde::Deserialize;
 use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, PgConnection, Row};
 
 use super::DatabaseError;
 use crate::CarbideError;
@@ -103,25 +102,25 @@ impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
 
 impl ExpectedMachine {
     pub async fn find_by_bmc_mac_address(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         bmc_mac_address: MacAddress,
     ) -> Result<Option<ExpectedMachine>, DatabaseError> {
         let sql = "SELECT * FROM expected_machines WHERE bmc_mac_address=$1";
         sqlx::query_as(sql)
             .bind(bmc_mac_address)
-            .fetch_optional(txn.deref_mut())
+            .fetch_optional(txn)
             .await
             .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), sql, err))
     }
 
     pub async fn find_many_by_bmc_mac_address(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         bmc_mac_addresses: &[MacAddress],
     ) -> CarbideResult<HashMap<MacAddress, ExpectedMachine>> {
         let sql = "SELECT * FROM expected_machines WHERE bmc_mac_address=ANY($1)";
         let v: Vec<ExpectedMachine> = sqlx::query_as(sql)
             .bind(bmc_mac_addresses)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|err: sqlx::Error| {
                 CarbideError::from(DatabaseError::new(file!(), line!(), sql, err))
@@ -147,18 +146,16 @@ impl ExpectedMachine {
             .collect()
     }
 
-    pub async fn find_all(
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<Vec<ExpectedMachine>> {
+    pub async fn find_all(txn: &mut PgConnection) -> CarbideResult<Vec<ExpectedMachine>> {
         let sql = "SELECT * FROM expected_machines";
         sqlx::query_as(sql)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), sql, err).into())
     }
 
     pub async fn find_all_linked(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> CarbideResult<Vec<LinkedExpectedMachine>> {
         let sql = r#"
  SELECT
@@ -175,7 +172,7 @@ FROM expected_machines em
  ORDER BY em.bmc_mac_address
  "#;
         sqlx::query_as(sql)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), sql, err).into())
     }
@@ -183,7 +180,7 @@ FROM expected_machines em
     #[cfg(test)] // currently only used by tests
     pub async fn update_bmc_credentials(
         &mut self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         bmc_username: String,
         bmc_password: String,
     ) -> CarbideResult<&Self> {
@@ -193,7 +190,7 @@ FROM expected_machines em
             .bind(&bmc_username)
             .bind(&bmc_password)
             .bind(self.bmc_mac_address)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::RowNotFound => CarbideError::NotFoundError {
@@ -210,7 +207,7 @@ FROM expected_machines em
     }
 
     pub async fn create(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         bmc_mac_address: MacAddress,
         bmc_username: String,
         bmc_password: String,
@@ -232,7 +229,7 @@ FROM expected_machines em
             .bind(metadata.name)
             .bind(metadata.description)
             .bind(sqlx::types::Json(metadata.labels))
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
@@ -242,15 +239,12 @@ FROM expected_machines em
             })
     }
 
-    pub async fn delete(
-        bmc_mac_address: MacAddress,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<()> {
+    pub async fn delete(bmc_mac_address: MacAddress, txn: &mut PgConnection) -> CarbideResult<()> {
         let query = "DELETE FROM expected_machines WHERE bmc_mac_address=$1";
 
         let result = sqlx::query(query)
             .bind(bmc_mac_address)
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map_err(|err| DatabaseError::new(file!(), line!(), query, err))?;
 
@@ -264,11 +258,11 @@ FROM expected_machines em
         Ok(())
     }
 
-    pub async fn clear(txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
+    pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
         let query = "DELETE FROM expected_machines";
 
         sqlx::query(query)
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map(|_| ())
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -276,7 +270,7 @@ FROM expected_machines em
 
     pub async fn update(
         &mut self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         bmc_username: String,
         bmc_password: String,
         serial_number: String,
@@ -294,7 +288,7 @@ FROM expected_machines em
             .bind(&metadata.description)
             .bind(sqlx::types::Json(&metadata.labels))
             .bind(self.bmc_mac_address)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::RowNotFound => CarbideError::NotFoundError {
@@ -315,7 +309,7 @@ FROM expected_machines em
     /// fn will insert rows that are not currently present in DB for each expected_machine arg in list,
     /// but will NOT overwrite existing rows matching by MAC addr.
     pub async fn create_missing_from(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         expected_machines: &[ExpectedMachine],
     ) -> CarbideResult<()> {
         let existing_machines = ExpectedMachine::find_all(txn).await?;

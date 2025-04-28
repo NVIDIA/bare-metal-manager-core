@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, ops::DerefMut};
+use std::collections::HashMap;
 
 use config_version::ConfigVersion;
 use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, PgConnection, Row};
 
 use super::ObjectFilter;
 use super::instance::Instance;
@@ -35,7 +35,7 @@ impl Tenant {
     pub async fn create_and_persist(
         organization_id: String,
         metadata: Metadata,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Self, DatabaseError> {
         let version = ConfigVersion::initial();
         let query = "INSERT INTO tenants (organization_id, organization_name, version) VALUES ($1, $2, $3) RETURNING *";
@@ -44,19 +44,19 @@ impl Tenant {
             .bind(organization_id)
             .bind(metadata.name)
             .bind(version)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find<S: AsRef<str>>(
         organization_id: S,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Option<Self>, DatabaseError> {
         let query = "SELECT * FROM tenants WHERE organization_id = $1";
         let results = sqlx::query_as(query)
             .bind(organization_id.as_ref())
-            .fetch_optional(txn.deref_mut())
+            .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -67,7 +67,7 @@ impl Tenant {
         organization_id: String,
         metadata: Metadata,
         if_version_match: Option<ConfigVersion>,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> CarbideResult<Self> {
         let current_version = match if_version_match {
             Some(version) => version,
@@ -94,7 +94,7 @@ impl Tenant {
             .bind(metadata.name)
             .bind(organization_id)
             .bind(current_version)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|err| match err {
                 sqlx::Error::RowNotFound => {
@@ -105,7 +105,7 @@ impl Tenant {
     }
 
     pub async fn find_tenant_organization_ids(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         search_config: rpc::TenantSearchFilter,
     ) -> Result<Vec<OrganizationID>, DatabaseError> {
         let mut qb = sqlx::QueryBuilder::new("SELECT organization_id FROM tenants");
@@ -117,7 +117,7 @@ impl Tenant {
 
         let tenant_organization_ids: Vec<OrganizationID> = qb
             .build_query_as::<(String,)>()
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_tenant_organization_ids", e))?
             .into_iter()
@@ -183,10 +183,7 @@ impl From<TenantKeysetId> for rpc::TenantKeysetIdentifier {
 }
 
 impl TenantKeyset {
-    pub async fn create(
-        &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<Self, DatabaseError> {
+    pub async fn create(&self, txn: &mut PgConnection) -> Result<Self, DatabaseError> {
         let query = "INSERT INTO tenant_keysets VALUES($1, $2, $3, $4) RETURNING *";
 
         sqlx::query_as(query)
@@ -194,13 +191,13 @@ impl TenantKeyset {
             .bind(&self.keyset_identifier.keyset_id)
             .bind(sqlx::types::Json(&self.keyset_content))
             .bind(self.version.to_string())
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_ids(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: rpc::TenantKeysetSearchFilter,
     ) -> Result<Vec<TenantKeysetId>, DatabaseError> {
         // build query
@@ -213,7 +210,7 @@ impl TenantKeyset {
         // execute
         let query = builder.build_query_as();
         let ids: Vec<TenantKeysetId> = query
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "tenant_keyset::find_ids", e))?;
 
@@ -221,7 +218,7 @@ impl TenantKeyset {
     }
 
     pub async fn find_by_ids(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         ids: Vec<rpc::TenantKeysetIdentifier>,
         include_key_data: bool,
     ) -> Result<Vec<TenantKeyset>, DatabaseError> {
@@ -236,7 +233,7 @@ impl TenantKeyset {
         // execute
         let query = builder.build_query_as();
         let mut keysets: Vec<TenantKeyset> = query
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "tenant_keyset::find_by_ids", e))?;
 
@@ -253,7 +250,7 @@ impl TenantKeyset {
         organization_id: Option<String>,
         keyset_filter: ObjectFilter<'_, String>,
         include_key_data: bool,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Vec<Self>, DatabaseError> {
         let mut result = if let Some(organization_id) = organization_id {
             let base_query = "SELECT * FROM tenant_keysets WHERE organization_id = $1 {where}";
@@ -261,7 +258,7 @@ impl TenantKeyset {
             match keyset_filter {
                 ObjectFilter::All => sqlx::query_as(&base_query.replace("{where}", ""))
                     .bind(organization_id.to_string())
-                    .fetch_all(txn.deref_mut())
+                    .fetch_all(txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "keyset All", e)),
 
@@ -269,7 +266,7 @@ impl TenantKeyset {
                     sqlx::query_as(&base_query.replace("{where}", "AND keyset_id = $2"))
                         .bind(organization_id.to_string())
                         .bind(keyset_id)
-                        .fetch_all(txn.deref_mut())
+                        .fetch_all(txn)
                         .await
                         .map_err(|e| DatabaseError::new(file!(), line!(), base_query, e))
                 }
@@ -278,7 +275,7 @@ impl TenantKeyset {
                     sqlx::query_as(&base_query.replace("{where}", "AND keyset_id = ANY($2)"))
                         .bind(organization_id.to_string())
                         .bind(keyset_ids)
-                        .fetch_all(txn.deref_mut())
+                        .fetch_all(txn)
                         .await
                         .map_err(|e| DatabaseError::new(file!(), line!(), base_query, e))
                 }
@@ -286,7 +283,7 @@ impl TenantKeyset {
         } else {
             let query = "SELECT * FROM tenant_keysets";
             sqlx::query_as::<_, TenantKeyset>(query)
-                .fetch_all(txn.deref_mut())
+                .fetch_all(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
         }?;
@@ -306,7 +303,7 @@ impl TenantKeyset {
     /// - Returns `Err(_)` in case of other errors
     pub async fn delete(
         keyset_identifier: &TenantKeysetIdentifier,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<bool, DatabaseError> {
         let query =
             "DELETE FROM tenant_keysets WHERE organization_id = $1 AND keyset_id = $2 RETURNING *";
@@ -314,7 +311,7 @@ impl TenantKeyset {
         match sqlx::query_as::<_, TenantKeyset>(query)
             .bind(keyset_identifier.organization_id.as_str())
             .bind(&keyset_identifier.keyset_id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
         {
             Ok(_) => Ok(true),
@@ -325,10 +322,7 @@ impl TenantKeyset {
 }
 
 impl UpdateTenantKeyset {
-    pub async fn update(
-        &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<(), CarbideError> {
+    pub async fn update(&self, txn: &mut PgConnection) -> Result<(), CarbideError> {
         // Validate if sent version is same.
         let current_keyset = TenantKeyset::find(
             Some(self.keyset_identifier.organization_id.to_string()),
@@ -357,7 +351,7 @@ impl UpdateTenantKeyset {
             .bind(self.keyset_identifier.organization_id.to_string())
             .bind(&self.keyset_identifier.keyset_id)
             .bind(&expected_version)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
         {
             Ok(_) => Ok(()),
@@ -371,10 +365,7 @@ impl UpdateTenantKeyset {
 }
 
 impl TenantPublicKeyValidationRequest {
-    pub async fn validate(
-        &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<(), CarbideError> {
+    pub async fn validate(&self, txn: &mut PgConnection) -> Result<(), CarbideError> {
         let instance = Instance::find_by_id(txn, self.instance_id)
             .await?
             .ok_or_else(|| CarbideError::NotFoundError {
@@ -395,20 +386,20 @@ impl TenantPublicKeyValidationRequest {
 }
 
 pub async fn load_by_organization_ids(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     organization_ids: &[String],
 ) -> Result<Vec<Tenant>, DatabaseError> {
     let query = "SELECT * from tenants WHERE organization_id = ANY($1)";
     sqlx::query_as(query)
         .bind(organization_ids)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::ops::DerefMut;
 
     #[crate::sqlx_test]
     async fn test_null_organization_name(pool: sqlx::PgPool) {

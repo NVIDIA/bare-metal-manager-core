@@ -22,9 +22,8 @@ use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId}
 use forge_uuid::{DbPrimaryUuid, DbTable};
 use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
 use sqlx::query_builder::QueryBuilder;
-use sqlx::{Postgres, Transaction};
+use sqlx::{PgConnection, Postgres};
 use std::collections::HashMap;
-use std::ops::DerefMut;
 
 /// insert_measurement_profile_record is a very basic insert of a
 /// new row into the measurement_system_profiles table, where only a name
@@ -33,13 +32,13 @@ use std::ops::DerefMut;
 /// Is it expected that this is wrapped by
 /// a more formal call (where a transaction is initialized).
 pub async fn insert_measurement_profile_record(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     name: String,
 ) -> Result<MeasurementSystemProfileRecord, sqlx::Error> {
     let query = "insert into measurement_system_profiles(name) values($1) returning *";
     sqlx::query_as(query)
         .bind(name.clone())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
 }
 
@@ -48,7 +47,7 @@ pub async fn insert_measurement_profile_record(
 /// for each pair. It is assumed this is called by a parent
 /// wrapper where a transaction is created.
 pub async fn insert_measurement_profile_attr_records(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
     attrs: &HashMap<String, String>,
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
@@ -62,7 +61,7 @@ pub async fn insert_measurement_profile_attr_records(
 /// insert_measurement_profile_attr_record inserts a single
 /// profile attribute (k/v) pair.
 async fn insert_measurement_profile_attr_record(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
     key: &String,
     value: &String,
@@ -76,7 +75,7 @@ async fn insert_measurement_profile_attr_record(
         .bind(profile_id)
         .bind(key)
         .bind(value)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| {
             DatabaseError::new(
@@ -90,7 +89,7 @@ async fn insert_measurement_profile_attr_record(
 
 /// rename_profile_for_profile_id renames a profile based on its profile ID.
 pub async fn rename_profile_for_profile_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
     new_profile_name: String,
 ) -> Result<MeasurementSystemProfileRecord, DatabaseError> {
@@ -103,7 +102,7 @@ pub async fn rename_profile_for_profile_id(
     sqlx::query_as(&query)
         .bind(new_profile_name)
         .bind(profile_id)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "rename_profile_for_profile_id", e))
 }
@@ -111,7 +110,7 @@ pub async fn rename_profile_for_profile_id(
 /// rename_profile_for_profile_name renames a profile based
 /// on its profile name.
 pub async fn rename_profile_for_profile_name(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     old_profile_name: String,
     new_profile_name: String,
 ) -> Result<MeasurementSystemProfileRecord, DatabaseError> {
@@ -123,14 +122,14 @@ pub async fn rename_profile_for_profile_name(
     sqlx::query_as(&query)
         .bind(new_profile_name)
         .bind(old_profile_name)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "rename_profile_for_profile_name", e))
 }
 
 /// get_all_measurement_profile_records gets all system profile records.
 pub async fn get_all_measurement_profile_records(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementSystemProfileRecord>, DatabaseError> {
     common::get_all_objects(txn).await.map_err(|e| {
         DatabaseError::new(
@@ -146,7 +145,7 @@ pub async fn get_all_measurement_profile_records(
 /// MeasurementSystemProfileRecord for the given `profile_id`,
 /// if it exists.
 pub async fn get_measurement_profile_record_by_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
     common::get_object_for_id(txn, profile_id)
@@ -165,7 +164,7 @@ pub async fn get_measurement_profile_record_by_id(
 /// MeasurementSystemProfileRecord for the given `name`,
 /// if it exists.
 pub async fn get_measurement_profile_record_by_name(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     val: String,
 ) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
     common::get_object_for_unique_column(txn, "name", val)
@@ -183,7 +182,7 @@ pub async fn get_measurement_profile_record_by_name(
 /// delete_profile_record_for_id deletes a profile record
 /// with the given profile_id.
 pub async fn delete_profile_record_for_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
     common::delete_object_where_id(txn, profile_id)
@@ -194,7 +193,7 @@ pub async fn delete_profile_record_for_id(
 /// delete_profile_attr_records_for_id deletes all profile
 /// attribute records for a given profile ID.
 pub async fn delete_profile_attr_records_for_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
     common::delete_objects_where_id(txn, profile_id)
@@ -212,7 +211,7 @@ pub async fn delete_profile_attr_records_for_id(
 /// get_measurement_profile_record_by_attrs will attempt to get a single
 /// MeasurementSystemProfileRecord for the given attrs.
 pub async fn get_measurement_profile_record_by_attrs(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     attrs: &HashMap<String, String>,
 ) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
     match get_measurement_profile_id_by_attrs(txn, attrs).await? {
@@ -241,7 +240,7 @@ pub async fn get_measurement_profile_record_by_attrs(
 /// GROUP BY {t1}}.{join_id}
 /// HAVING COUNT(*) = {attrs_len}"
 pub async fn get_measurement_profile_id_by_attrs(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     attrs: &HashMap<String, String>,
 ) -> Result<Option<MeasurementSystemProfileId>, DatabaseError> {
     let t1 = "measurement_system_profiles_attrs";
@@ -289,7 +288,7 @@ pub async fn get_measurement_profile_id_by_attrs(
     query.push_bind(attrs_len);
 
     let query = query.build_query_as();
-    let ids = query.fetch_optional(txn.deref_mut()).await.map_err(|e| {
+    let ids = query.fetch_optional(txn).await.map_err(|e| {
         DatabaseError::new(file!(), line!(), "get_measurement_profile_id_by_attrs", e)
     })?;
 
@@ -314,7 +313,7 @@ fn where_attr_pairs(query: &mut QueryBuilder<'_, Postgres>, values: &HashMap<Str
 /// get_measurement_profile_attrs_for_profile_id returns all profile attribute
 /// records associated with the provided MeasurementSystemProfileId.
 pub async fn get_measurement_profile_attrs_for_profile_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
     common::get_objects_where_id(txn, profile_id)
@@ -334,13 +333,13 @@ pub async fn get_measurement_profile_attrs_for_profile_id(
 ///
 /// This is specifically used by the `profile list bundles for-id` CLI call.
 pub async fn get_bundles_for_profile_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Vec<MeasurementBundleId>, DatabaseError> {
     let query = "select distinct bundle_id from measurement_bundles where profile_id = $1 order by bundle_id";
     sqlx::query_as(query)
         .bind(profile_id)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_bundles_for_profile_id", e))
 }
@@ -350,14 +349,14 @@ pub async fn get_bundles_for_profile_id(
 ///
 /// This is specifically used by the `profile list bundles for-name` CLI call.
 pub async fn get_bundles_for_profile_name(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_name: String,
 ) -> Result<Vec<MeasurementBundleId>, DatabaseError> {
     let query =
         "select distinct bundle_id from measurement_bundles where name = $1 order by bundle_id";
     sqlx::query_as(query)
         .bind(profile_name)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_bundles_for_profile_name", e))
 }
@@ -367,13 +366,13 @@ pub async fn get_bundles_for_profile_name(
 ///
 /// This is specifically used by the `profile list machines by-id` CLI call.
 pub async fn get_machines_for_profile_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = "select distinct machine_id from measurement_journal where profile_id = $1 order by machine_id";
     sqlx::query_as(query)
         .bind(profile_id)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_profile_id", e))
 }
@@ -383,13 +382,13 @@ pub async fn get_machines_for_profile_id(
 ///
 /// This is specifically used by the `profile list machines by-name` CLI call.
 pub async fn get_machines_for_profile_name(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_name: String,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = "select distinct machine_id from measurement_journal,measurement_system_profiles where measurement_journal.profile_id=measurement_system_profiles.profile_id and measurement_system_profiles.name = $1 order by machine_id";
     sqlx::query_as(query)
         .bind(profile_name)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_profile_name", e))
 }
@@ -400,7 +399,7 @@ pub async fn get_machines_for_profile_name(
 /// This is used for doing full site imports, and is wrapped in a transaction
 /// such that, if any of it fails, none of it will be committed.
 pub async fn import_measurement_system_profiles(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     records: &[MeasurementSystemProfileRecord],
 ) -> Result<Vec<MeasurementSystemProfileRecord>, DatabaseError> {
     let mut committed = Vec::<MeasurementSystemProfileRecord>::new();
@@ -419,7 +418,7 @@ pub async fn import_measurement_system_profiles(
 /// After a MeasurementSystemProfileRecord gets inserted, its clear for having
 /// all of its MeasurementSystemProfileAttrRecord records inserted.
 pub async fn import_measurement_profile(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile: &MeasurementSystemProfileRecord,
 ) -> Result<MeasurementSystemProfileRecord, DatabaseError> {
     let query = format!(
@@ -431,7 +430,7 @@ pub async fn import_measurement_profile(
         .bind(profile.profile_id)
         .bind(profile.name.clone())
         .bind(profile.ts)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "import_measurement_profile", e))
 }
@@ -443,7 +442,7 @@ pub async fn import_measurement_profile(
 /// MeasurementSystemProfileRecord) exists before the attributes are added, since
 /// it would fail foreign key constraints otherwise.
 pub async fn import_measurement_system_profiles_attrs(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     records: &[MeasurementSystemProfileAttrRecord],
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
     let mut committed = Vec::<MeasurementSystemProfileAttrRecord>::new();
@@ -459,7 +458,7 @@ pub async fn import_measurement_system_profiles_attrs(
 /// The idea is import_measurement_system_profiles_attrs has all of the attributes,
 /// and then calls this for each attribute.
 pub async fn import_measurement_system_profiles_attr(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle: &MeasurementSystemProfileAttrRecord,
 ) -> Result<MeasurementSystemProfileAttrRecord, DatabaseError> {
     let query = format!(
@@ -473,7 +472,7 @@ pub async fn import_measurement_system_profiles_attr(
         .bind(bundle.key.clone())
         .bind(bundle.value.clone())
         .bind(bundle.ts)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| {
             DatabaseError::new(
@@ -490,7 +489,7 @@ pub async fn import_measurement_system_profiles_attr(
 ///
 /// This is used by the site exporter, as well as for listing all profiles.
 pub async fn export_measurement_profile_records(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementSystemProfileRecord>, DatabaseError> {
     common::get_all_objects(txn).await.map_err(|e| {
         DatabaseError::new(
@@ -508,7 +507,7 @@ pub async fn export_measurement_profile_records(
 /// This is specifically used by the site exporter, since we simply dump all
 /// attributes when doing a site export.
 pub async fn export_measurement_system_profiles_attrs(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
     common::get_all_objects(txn).await.map_err(|e| {
         DatabaseError::new(
@@ -527,7 +526,7 @@ pub(crate) mod test_support {
     /// get_all_measurement_profile_attr_records gets all system profile
     /// attribute records.
     pub async fn get_all_measurement_profile_attr_records(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
         common::get_all_objects(txn).await.map_err(|e| {
             DatabaseError::new(

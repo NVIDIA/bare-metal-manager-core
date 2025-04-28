@@ -11,7 +11,6 @@
  */
 
 use std::collections::HashMap;
-use std::ops::DerefMut;
 use std::str::FromStr;
 
 use crate::{
@@ -43,7 +42,7 @@ use forge_uuid::{
     network_security_group::NetworkSecurityGroupId, vpc::VpcId,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
+use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
 
 #[derive(Copy, Clone)]
 pub struct IdColumn;
@@ -219,7 +218,7 @@ impl TryFrom<rpc::InstanceReleaseRequest> for DeleteInstance {
 
 impl Instance {
     pub async fn find_ids(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: rpc::InstanceSearchFilter,
     ) -> Result<Vec<InstanceId>, CarbideError> {
         let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances WHERE TRUE "); // The TRUE will be optimized away.
@@ -280,68 +279,68 @@ WHERE vpc_id = ",
 
         let query = builder.build_query_as();
         Ok(query
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "instance::find_ids", e))?)
     }
 
     pub async fn find(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: ObjectColumnFilter<'_, IdColumn>,
     ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
         let mut query = FilterableQueryBuilder::new("SELECT row_to_json(i.*) FROM instances i")
             .filter_relation(&filter, Some("i"));
         query
             .build_query_as()
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
     pub async fn find_by_id(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         id: InstanceId,
     ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
         let query = "SELECT row_to_json(i.*) from instances i WHERE id = $1";
         sqlx::query_as(query)
             .bind(id)
-            .fetch_optional(txn.deref_mut())
+            .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_id_by_machine_id(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: &MachineId,
     ) -> Result<Option<InstanceId>, DatabaseError> {
         let query = "SELECT id from instances WHERE machine_id = $1";
         sqlx::query_as(query)
             .bind(machine_id.to_string())
-            .fetch_optional(txn.deref_mut())
+            .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_by_machine_id(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: &MachineId,
     ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
         let query = "SELECT row_to_json(i.*) from instances i WHERE machine_id = $1";
         sqlx::query_as(query)
             .bind(machine_id.to_string())
-            .fetch_optional(txn.deref_mut())
+            .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_by_machine_ids(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_ids: &[MachineId],
     ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
         let query = "SELECT row_to_json(i.*) from instances i WHERE machine_id = ANY($1)";
         sqlx::query_as(query)
             .bind(machine_ids)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -349,14 +348,14 @@ WHERE vpc_id = ",
     pub async fn use_custom_ipxe_on_next_boot(
         machine_id: &MachineId,
         boot_with_custom_ipxe: bool,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<(), DatabaseError> {
         let query = "UPDATE instances SET use_custom_pxe_on_boot=$1::bool WHERE machine_id=$2 RETURNING machine_id";
         // Fetch one to make sure atleast one row is updated.
         let _: (MachineId,) = sqlx::query_as(query)
             .bind(boot_with_custom_ipxe)
             .bind(machine_id.to_string())
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -365,7 +364,7 @@ WHERE vpc_id = ",
 
     /// Updates the desired network configuration for an instance
     pub async fn update_network_config(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         instance_id: InstanceId,
         expected_version: ConfigVersion,
         new_state: &InstanceNetworkConfig,
@@ -385,7 +384,7 @@ WHERE vpc_id = ",
             .bind(sqlx::types::Json(new_state))
             .bind(instance_id)
             .bind(expected_version)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await;
 
         match query_result {
@@ -395,14 +394,14 @@ WHERE vpc_id = ",
     }
 
     pub async fn update_phone_home_last_contact(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         instance_id: InstanceId,
     ) -> Result<DateTime<Utc>, DatabaseError> {
         let query = "UPDATE instances SET phone_home_last_contact=now() WHERE id=$1 RETURNING phone_home_last_contact";
 
         let query_result: (DateTime<Utc>,) = sqlx::query_as::<_, (DateTime<Utc>,)>(query) // Specify return type
             .bind(instance_id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -426,7 +425,7 @@ WHERE vpc_id = ",
     /// This method does not check if the instance still exists.
     /// A previous `Instance::find` call should fulfill this purpose.
     pub async fn update_config(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         instance_id: InstanceId,
         expected_version: ConfigVersion,
         config: InstanceConfig,
@@ -464,7 +463,7 @@ WHERE vpc_id = ",
             .bind(instance_id)
             .bind(expected_version)
             .bind(config.network_security_group_id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await;
 
         match query_result {
@@ -484,7 +483,7 @@ WHERE vpc_id = ",
     /// This method does not check if the instance still exists.
     /// A previous `Instance::find` call should fulfill this purpose.
     pub async fn update_os(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         instance_id: InstanceId,
         expected_version: ConfigVersion,
         os: OperatingSystem,
@@ -514,7 +513,7 @@ WHERE vpc_id = ",
             .bind(os_image_id)
             .bind(instance_id)
             .bind(expected_version)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await;
 
         match query_result {
@@ -531,7 +530,7 @@ WHERE vpc_id = ",
 
     /// Updates the desired infiniband configuration for an instance
     pub async fn update_ib_config(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         instance_id: InstanceId,
         expected_version: ConfigVersion,
         new_state: &InstanceInfinibandConfig,
@@ -551,7 +550,7 @@ WHERE vpc_id = ",
             .bind(sqlx::types::Json(new_state))
             .bind(instance_id)
             .bind(expected_version)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await;
 
         match query_result {
@@ -562,7 +561,7 @@ WHERE vpc_id = ",
 
     /// Updates the storage configuration for an instance
     pub async fn update_storage_config(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         instance_id: uuid::Uuid,
         expected_version: ConfigVersion,
         new_state: &InstanceStorageConfig,
@@ -617,7 +616,7 @@ WHERE vpc_id = ",
             .bind(sqlx::types::Json(new_state))
             .bind(instance_id)
             .bind(expected_version)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn)
             .await;
 
         match query_result {
@@ -627,7 +626,7 @@ WHERE vpc_id = ",
     }
 
     pub async fn update_storage_status_observation(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         instance_id: InstanceId,
         status: &InstanceStorageStatusObservation,
     ) -> Result<(), DatabaseError> {
@@ -649,7 +648,7 @@ WHERE vpc_id = ",
         let (_,): (uuid::Uuid,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(status))
             .bind(instance_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -667,10 +666,7 @@ impl NewInstance<'_> {
     /// been used.
     ///
     /// * `txn` - A reference to an active DB transaction
-    pub async fn persist(
-        &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<InstanceSnapshot> {
+    pub async fn persist(&self, txn: &mut PgConnection) -> CarbideResult<InstanceSnapshot> {
         // None means we haven't observed any network status from forge-dpu-agent yet
         // The first report from the agent will set the field
         let mut os_ipxe_script = String::new();
@@ -742,7 +738,7 @@ impl NewInstance<'_> {
             .bind(self.machine_id.to_string())
             .bind(&self.instance_type_id)
             .bind(&self.config.network_security_group_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn)
             .await
         {
             // Not sure which error feels better here, FailedPrecondition or InvalidArgument,
@@ -766,27 +762,24 @@ impl NewInstance<'_> {
 }
 
 impl DeleteInstance {
-    pub async fn delete(&self, txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<()> {
+    pub async fn delete(&self, txn: &mut PgConnection) -> CarbideResult<()> {
         InstanceAddress::delete(&mut *txn, self.instance_id).await?;
 
         let query = "DELETE FROM instances where id=$1::uuid RETURNING id";
         sqlx::query_as::<_, InstanceId>(query)
             .bind(self.instance_id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map(|_| ())
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
 
-    pub async fn mark_as_deleted(
-        &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<()> {
+    pub async fn mark_as_deleted(&self, txn: &mut PgConnection) -> CarbideResult<()> {
         let query = "UPDATE instances SET deleted=NOW() WHERE id=$1::uuid RETURNING id";
 
         let _id = sqlx::query_as::<_, InstanceId>(query)
             .bind(self.instance_id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
         Ok(())

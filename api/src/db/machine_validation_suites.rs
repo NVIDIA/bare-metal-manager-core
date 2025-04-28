@@ -10,12 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{ops::DerefMut, str::FromStr};
+use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use regex::Regex;
-use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
+use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
 
 use crate::{CarbideError, CarbideResult};
 use serde::{Deserialize, Serialize};
@@ -331,12 +331,12 @@ impl MachineValidationTest {
     }
 
     pub async fn find(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         req: rpc::forge::MachineValidationTestsGetRequest,
     ) -> CarbideResult<Vec<Self>> {
         let query = Self::build_select_query(req, "machine_validation_tests")?;
         let ret = sqlx::query_as(&query)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), &query, e)))?;
         Ok(ret)
@@ -345,7 +345,7 @@ impl MachineValidationTest {
         format!("forge_{}", name)
     }
     pub async fn save(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         mut req: rpc::forge::MachineValidationTestAddRequest,
         version: ConfigVersion,
     ) -> CarbideResult<String> {
@@ -366,14 +366,14 @@ impl MachineValidationTest {
             "User",
         )?;
         let _: () = sqlx::query_as(&query)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), &query, e)))?;
         Ok(test_id)
     }
 
     pub async fn update(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         req: rpc::forge::MachineValidationTestUpdateRequest,
     ) -> CarbideResult<String> {
         let Some(mut payload) = req.payload else {
@@ -396,14 +396,14 @@ impl MachineValidationTest {
         )?;
 
         let _: () = sqlx::query_as(&query)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), &query, e)))?;
         Ok(req.test_id)
     }
 
     pub async fn clone(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         test: &MachineValidationTest,
     ) -> CarbideResult<(String, ConfigVersion)> {
         let add_req = rpc::forge::MachineValidationTestAddRequest {
@@ -432,7 +432,7 @@ impl MachineValidationTest {
     }
 
     pub async fn mark_verified(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         test_id: String,
         version: ConfigVersion,
     ) -> CarbideResult<String> {
@@ -450,7 +450,7 @@ impl MachineValidationTest {
     }
 
     pub async fn enable_disable(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         test_id: String,
         version: ConfigVersion,
         is_enabled: bool,

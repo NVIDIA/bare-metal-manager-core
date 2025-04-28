@@ -11,7 +11,7 @@
  */
 use std::fmt;
 use std::net::IpAddr;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::str::FromStr;
 
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
@@ -43,7 +43,7 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
-use sqlx::{Column, FromRow, Postgres, Row, Transaction};
+use sqlx::{Column, FromRow, PgConnection, Row};
 
 const DEFAULT_MTU_TENANT: i32 = 9000;
 const DEFAULT_MTU_OTHER: i32 = 1500;
@@ -462,7 +462,7 @@ impl NewNetworkSegment {
 
     pub async fn persist(
         &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         initial_state: NetworkSegmentControllerState,
     ) -> Result<NetworkSegment, DatabaseError> {
         let version = ConfigVersion::initial();
@@ -495,7 +495,7 @@ impl NewNetworkSegment {
             .bind(self.vni)
             .bind(self.segment_type)
             .bind(self.can_stretch)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         NetworkPrefix::create_for(txn, &segment_id, &self.prefixes).await?;
@@ -521,7 +521,7 @@ impl NewNetworkSegment {
 
 impl NetworkSegment {
     pub async fn for_vpc(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         vpc_id: uuid::Uuid,
     ) -> Result<Vec<Self>, DatabaseError> {
         lazy_static! {
@@ -533,7 +533,7 @@ impl NetworkSegment {
         let results: Vec<NetworkSegment> = {
             sqlx::query_as(&query)
                 .bind(vpc_id)
-                .fetch_all(txn.deref_mut())
+                .fetch_all(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?
         };
@@ -541,10 +541,7 @@ impl NetworkSegment {
         Ok(results)
     }
 
-    pub async fn for_relay(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-        relay: IpAddr,
-    ) -> CarbideResult<Option<Self>> {
+    pub async fn for_relay(txn: &mut PgConnection, relay: IpAddr) -> CarbideResult<Option<Self>> {
         lazy_static! {
             static ref query: String = format!(
                 r#"{}
@@ -555,7 +552,7 @@ impl NetworkSegment {
         }
         let mut results = sqlx::query_as(&query)
             .bind(IpNetwork::from(relay))
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), &query, e)))?;
 
@@ -570,18 +567,16 @@ impl NetworkSegment {
     /// Retrieves the IDs of all network segments.
     /// If `segment_type` is specified, only IDs of segments that match the specific type are returned.
     pub async fn list_segment_ids(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         segment_type: Option<NetworkSegmentType>,
     ) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
         let (query, mut segment_id_stream) = if let Some(segment_type) = segment_type {
             let query = "SELECT id FROM network_segments where network_segment_type=$1";
-            let stream = sqlx::query_as(query)
-                .bind(segment_type)
-                .fetch(txn.deref_mut());
+            let stream = sqlx::query_as(query).bind(segment_type).fetch(txn);
             (query, stream)
         } else {
             let query = "SELECT id FROM network_segments";
-            let stream = sqlx::query_as(query).fetch(txn.deref_mut());
+            let stream = sqlx::query_as(query).fetch(txn);
             (query, stream)
         };
 
@@ -595,7 +590,7 @@ impl NetworkSegment {
     }
 
     pub async fn find_ids(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: rpc::NetworkSegmentSearchFilter,
     ) -> Result<Vec<NetworkSegmentId>, CarbideError> {
         // build query
@@ -617,7 +612,7 @@ impl NetworkSegment {
 
         let query = builder.build_query_as();
         let ids: Vec<NetworkSegmentId> = query
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "network_segment::find_ids", e))?;
 
@@ -625,7 +620,7 @@ impl NetworkSegment {
     }
 
     pub async fn find_by<'a, C: ColumnInfo<'a, TableType = NetworkSegment>>(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: ObjectColumnFilter<'a, C>,
         search_config: NetworkSegmentSearchConfig,
     ) -> Result<Vec<Self>, DatabaseError> {
@@ -638,7 +633,7 @@ impl NetworkSegment {
 
         let mut all_records = query
             .build_query_as()
-            .fetch_all(txn.deref_mut())
+            .fetch_all(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
 
@@ -650,7 +645,7 @@ impl NetworkSegment {
 
     /// Find network segments attached to a machine through machine_interfaces, optionally of a certain type
     pub async fn find_ids_by_machine_id(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: &forge_uuid::machine::MachineId,
         network_segment_type: Option<NetworkSegmentType>,
     ) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
@@ -672,7 +667,7 @@ impl NetworkSegment {
 
         let network_segment_ids = query
             .build_query_as()
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
 
@@ -680,7 +675,7 @@ impl NetworkSegment {
     }
 
     async fn update_num_free_ips_into_prefix_list(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         all_records: &mut [NetworkSegment],
     ) -> Result<(), DatabaseError> {
         for record in all_records.iter_mut().filter(|s| !s.prefixes.is_empty()) {
@@ -766,7 +761,7 @@ impl NetworkSegment {
     /// Returns `true` if the state could be updated, and `false` if the object
     /// either doesn't exist anymore or is at a different version.
     pub async fn try_update_controller_state(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         segment_id: NetworkSegmentId,
         expected_version: ConfigVersion,
         new_state: &NetworkSegmentControllerState,
@@ -779,7 +774,7 @@ impl NetworkSegment {
             .bind(sqlx::types::Json(new_state))
             .bind(segment_id)
             .bind(expected_version)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(&mut *txn)
             .await;
 
         match query_result {
@@ -794,7 +789,7 @@ impl NetworkSegment {
     }
 
     pub async fn update_controller_state_outcome(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         segment_id: NetworkSegmentId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
@@ -802,7 +797,7 @@ impl NetworkSegment {
         sqlx::query(query)
             .bind(sqlx::types::Json(outcome))
             .bind(segment_id)
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -810,14 +805,14 @@ impl NetworkSegment {
 
     pub async fn set_vpc_id_and_can_stretch(
         &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         vpc_id: VpcId,
     ) -> Result<(), DatabaseError> {
         let query = "UPDATE network_segments SET vpc_id=$1, can_stretch=true WHERE id=$2";
         sqlx::query(query)
             .bind(vpc_id.0)
             .bind(self.id)
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -827,10 +822,7 @@ impl NetworkSegment {
         &self.id
     }
 
-    pub async fn mark_as_deleted(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<NetworkSegmentId> {
+    pub async fn mark_as_deleted(&self, txn: &mut PgConnection) -> CarbideResult<NetworkSegmentId> {
         // This check is not strictly necessary here, since the segment state machine
         // will also wait until all allocated addresses have been freed before actually
         // deleting the segment. However it gives the user some early feedback for
@@ -853,7 +845,7 @@ impl NetworkSegment {
             "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING id";
         let id = sqlx::query_as(query)
             .bind(self.id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -862,38 +854,35 @@ impl NetworkSegment {
 
     pub async fn final_delete(
         segment_id: NetworkSegmentId,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<NetworkSegmentId, DatabaseError> {
         NetworkPrefix::delete_for_segment(segment_id, txn).await?;
 
         let query = "DELETE FROM network_segments WHERE id=$1::uuid RETURNING id";
         let segment: NetworkSegmentId = sqlx::query_as(query)
             .bind(segment_id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(segment)
     }
 
-    pub async fn find_by_name(
-        txn: &mut Transaction<'_, Postgres>,
-        name: &str,
-    ) -> Result<Self, DatabaseError> {
+    pub async fn find_by_name(txn: &mut PgConnection, name: &str) -> Result<Self, DatabaseError> {
         lazy_static! {
             static ref query: String =
                 format!("{} WHERE name = $1", NETWORK_SEGMENT_SNAPSHOT_QUERY.deref());
         }
         let segment: Self = sqlx::query_as(&query)
             .bind(name)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
         Ok(segment)
     }
 
     /// This method returns Admin network segment.
-    pub async fn admin(txn: &mut Transaction<'_, Postgres>) -> Result<Self, DatabaseError> {
+    pub async fn admin(txn: &mut PgConnection) -> Result<Self, DatabaseError> {
         lazy_static! {
             static ref query: String = format!(
                 "{} WHERE network_segment_type = 'admin'",
@@ -901,7 +890,7 @@ impl NetworkSegment {
             );
         }
         let mut segments: Vec<NetworkSegment> = sqlx::query_as(&query)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
 
@@ -920,7 +909,7 @@ impl NetworkSegment {
     /// Are queried segment in ready state?
     /// Returns true if all segments are in Ready state, else false
     pub async fn are_network_segments_ready(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         segment_ids: &[NetworkSegmentId],
     ) -> Result<bool, DatabaseError> {
         let segments = NetworkSegment::find_by(
@@ -939,13 +928,13 @@ impl NetworkSegment {
     /// takes a list of ids to reduce db handling time.
     /// Instance is already deleted immediately before this.
     pub async fn mark_as_deleted_no_validation(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         network_segment_ids: &[NetworkSegmentId],
     ) -> CarbideResult<NetworkSegmentId> {
         let query = "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=ANY($1) RETURNING id";
         let id = sqlx::query_as(query)
             .bind(network_segment_ids)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -955,10 +944,7 @@ impl NetworkSegment {
     /// SVI IP is needed for Network Segments attached to FNN VPCs.
     /// Usually third IP of a prefix is used as SVI IP. In case, first 3 IPs are not reserved,
     /// carbide will pick any available free IP and store it in DB for further use.
-    pub async fn allocate_svi_ip(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<IpAddr, CarbideError> {
+    pub async fn allocate_svi_ip(&self, txn: &mut PgConnection) -> Result<IpAddr, CarbideError> {
         let Some(ipv4_prefix) = self.prefixes.iter().find(|x| x.prefix.is_ipv4()) else {
             return Err(CarbideError::NotFoundError {
                 kind: "ipv4_prefix",

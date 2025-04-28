@@ -11,7 +11,6 @@
  */
 
 use std::net::IpAddr;
-use std::ops::DerefMut;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
@@ -19,7 +18,7 @@ use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
-use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
+use sqlx::{Acquire, FromRow, PgConnection, Row};
 
 use super::dhcp_entry::DhcpEntry;
 use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
@@ -131,13 +130,13 @@ impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
 pub async fn set_primary_interface(
     interface_id: &MachineInterfaceId,
     primary: bool,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<MachineInterfaceId, DatabaseError> {
     let query = "UPDATE machine_interfaces SET primary_interface=$1 where id=$2::uuid RETURNING id";
     sqlx::query_as(query)
         .bind(primary)
         .bind(*interface_id)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
 }
@@ -145,14 +144,14 @@ pub async fn set_primary_interface(
 pub async fn associate_interface_with_dpu_machine(
     interface_id: &MachineInterfaceId,
     dpu_machine_id: &MachineId,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<MachineInterfaceId, DatabaseError> {
     let query =
         "UPDATE machine_interfaces SET attached_dpu_machine_id=$1 where id=$2::uuid RETURNING id";
     sqlx::query_as(query)
         .bind(dpu_machine_id.to_string())
         .bind(*interface_id)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
 }
@@ -160,13 +159,13 @@ pub async fn associate_interface_with_dpu_machine(
 pub async fn associate_interface_with_machine(
     interface_id: &MachineInterfaceId,
     machine_id: &MachineId,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> CarbideResult<MachineInterfaceId> {
     let query = "UPDATE machine_interfaces SET machine_id=$1 where id=$2::uuid RETURNING id";
     sqlx::query_as(query)
         .bind(machine_id.to_string())
         .bind(*interface_id)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|err: sqlx::Error| match err {
             sqlx::Error::Database(e)
@@ -179,14 +178,14 @@ pub async fn associate_interface_with_machine(
 }
 
 pub async fn find_by_mac_address(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     macaddr: MacAddress,
 ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
     find_by(txn, ObjectColumnFilter::One(MacAddressColumn, &macaddr)).await
 }
 
 pub async fn find_by_ip(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     ip: IpAddr,
 ) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
     lazy_static! {
@@ -199,14 +198,12 @@ pub async fn find_by_ip(
     }
     sqlx::query_as(&query)
         .bind(ip)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
 }
 
-pub async fn find_all(
-    txn: &mut Transaction<'_, Postgres>,
-) -> CarbideResult<Vec<MachineInterfaceSnapshot>> {
+pub async fn find_all(txn: &mut PgConnection) -> CarbideResult<Vec<MachineInterfaceSnapshot>> {
     find_by(txn, ObjectColumnFilter::All::<IdColumn>)
         .await
         .map_err(CarbideError::from)
@@ -214,7 +211,7 @@ pub async fn find_all(
 
 #[cfg(test)] // only used in tests today
 pub async fn find_by_machine_ids(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_ids: &[MachineId],
 ) -> Result<std::collections::HashMap<MachineId, Vec<MachineInterfaceSnapshot>>, DatabaseError> {
     use itertools::Itertools;
@@ -229,13 +226,13 @@ pub async fn find_by_machine_ids(
 }
 
 pub async fn count_by_segment_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     segment_id: &NetworkSegmentId,
 ) -> Result<usize, DatabaseError> {
     let query = "SELECT count(*) FROM machine_interfaces WHERE segment_id = $1";
     let (address_count,): (i64,) = sqlx::query_as(query)
         .bind(segment_id)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -243,7 +240,7 @@ pub async fn count_by_segment_id(
 }
 
 pub async fn find_one(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     interface_id: MachineInterfaceId,
 ) -> CarbideResult<MachineInterfaceSnapshot> {
     let mut interfaces = find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id))
@@ -262,7 +259,7 @@ pub async fn find_one(
 // newly_created_interface indicates that we couldn't find a MachineInterface so created new
 // one.
 pub async fn find_or_create_machine_interface(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: Option<MachineId>,
     mac_address: MacAddress,
     relay: IpAddr,
@@ -296,7 +293,7 @@ pub async fn find_or_create_machine_interface(
 
 /// Do basic validating on existing macs and create the interface if it does not exist
 pub async fn validate_existing_mac_and_create(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     mac_address: MacAddress,
     relay: IpAddr,
 ) -> CarbideResult<MachineInterfaceSnapshot> {
@@ -356,7 +353,7 @@ pub async fn validate_existing_mac_and_create(
 }
 
 pub async fn create(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     segment: &NetworkSegment,
     macaddr: &MacAddress,
     domain_id: Option<DomainId>,
@@ -452,7 +449,7 @@ pub async fn create(
 }
 
 pub async fn allocate_svi_ip(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     segment: &NetworkSegment,
 ) -> CarbideResult<(uuid::Uuid, IpAddr)> {
     let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedAdminNetworkIpResolver {
@@ -463,7 +460,7 @@ pub async fn allocate_svi_ip(
     // If either requested addresses are auto-generated, we lock the entire table
     let query = "LOCK TABLE machine_interfaces_lock IN ACCESS EXCLUSIVE MODE";
     sqlx::query(query)
-        .execute(&mut **txn)
+        .execute(&mut *txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -490,7 +487,7 @@ pub async fn allocate_svi_ip(
 // Support dpu-agent/scout transition from machine_interface_id to source IP.
 // Allow either for now.
 pub async fn find_by_ip_or_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     remote_ip: Option<IpAddr>,
     interface_id: Option<MachineInterfaceId>,
 ) -> Result<MachineInterfaceSnapshot, CarbideError> {
@@ -521,7 +518,7 @@ pub async fn find_by_ip_or_id(
 /// into the database, returning the newly minted MachineInterfaceId
 /// for the corresponding record.
 async fn insert_machine_interface(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     segment_id: &NetworkSegmentId,
     mac_address: &MacAddress,
     hostname: String,
@@ -539,7 +536,7 @@ async fn insert_machine_interface(
         .bind(hostname)
         .bind(domain_id)
         .bind(is_primary_interface)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|err: sqlx::Error| match err {
             sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
@@ -562,7 +559,7 @@ async fn insert_machine_interface(
 /// always going to be a /32. It is up to the caller to ensure a possible
 /// IpNetwork returned from the IpAllocator is of the correct size.
 async fn insert_machine_interface_address(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     interface_id: &MachineInterfaceId,
     address: &IpAddr,
 ) -> CarbideResult<()> {
@@ -570,7 +567,7 @@ async fn insert_machine_interface_address(
     sqlx::query(query)
         .bind(interface_id)
         .bind(address)
-        .execute(txn.deref_mut())
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     Ok(())
@@ -591,14 +588,14 @@ fn address_to_hostname(address: &IpAddr) -> CarbideResult<String> {
 }
 
 async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineInterfaceSnapshot>>(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new(MACHINE_INTERFACE_SNAPSHOT_QUERY)
         .filter_relation(&filter, Some("mi"));
     let interfaces = query
         .build_query_as::<MachineInterfaceSnapshot>()
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
     Ok(interfaces)
@@ -607,7 +604,7 @@ async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineInterfaceSnapshot>>(
 #[cfg(test)] // currently only used by tests
 pub async fn get_machine_interface_primary(
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> CarbideResult<MachineInterfaceSnapshot> {
     find_by_machine_ids(txn, &[*machine_id])
         .await?
@@ -631,7 +628,7 @@ pub async fn get_machine_interface_primary(
 /// Move an entry from predicted_machine_interfaces to machine_interfaces, using the given relay IP
 /// to know what network segment to assign.
 pub async fn move_predicted_machine_interface_to_machine(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     predicted_machine_interface: &PredictedMachineInterface,
     relay_ip: IpAddr,
 ) -> Result<(), CarbideError> {
@@ -724,7 +721,7 @@ pub async fn move_predicted_machine_interface_to_machine(
 /// segment.
 /// Returns: Machine Interface, True if new interface is created.
 pub async fn create_host_machine_dpu_interface_proactively(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     hardware_info: Option<&HardwareInfo>,
     dpu_id: &MachineId,
 ) -> Result<MachineInterfaceSnapshot, CarbideError> {
@@ -763,7 +760,7 @@ pub async fn create_host_machine_dpu_interface_proactively(
 }
 
 pub async fn find_by_machine_and_segment(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     segment_id: NetworkSegmentId,
 ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
@@ -776,7 +773,7 @@ pub async fn find_by_machine_and_segment(
     sqlx::query_as::<_, MachineInterfaceSnapshot>(&query)
         .bind(machine_id.to_string())
         .bind(segment_id)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
         .map(|interfaces| interfaces.into_iter().collect())
@@ -784,7 +781,7 @@ pub async fn find_by_machine_and_segment(
 
 /// Record that this interface just DHCPed, so it must still exist
 pub async fn update_last_dhcp(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     interface_id: MachineInterfaceId,
     timestamp: Option<DateTime<Utc>>,
 ) -> Result<(), DatabaseError> {
@@ -796,7 +793,7 @@ pub async fn update_last_dhcp(
     sqlx::query(query)
         .bind(query_timestamp.to_rfc3339())
         .bind(interface_id)
-        .execute(txn.deref_mut())
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     Ok(())
@@ -804,14 +801,14 @@ pub async fn update_last_dhcp(
 
 pub async fn delete(
     interface_id: &MachineInterfaceId,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let query = "DELETE FROM machine_interfaces WHERE id=$1";
     MachineInterfaceAddress::delete(txn, interface_id).await?;
     DhcpEntry::delete(txn, interface_id).await?;
     sqlx::query(query)
         .bind(*interface_id)
-        .execute(txn.deref_mut())
+        .execute(&mut *txn)
         .await
         .map(|_| ())
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -819,16 +816,13 @@ pub async fn delete(
     let query = "UPDATE machine_interfaces_deletion SET last_deletion=NOW() WHERE id = 1";
     sqlx::query(query)
         .bind(*interface_id)
-        .execute(txn.deref_mut())
+        .execute(txn)
         .await
         .map(|_| ())
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
 }
 
-pub async fn delete_by_ip(
-    txn: &mut Transaction<'_, Postgres>,
-    ip: IpAddr,
-) -> Result<Option<()>, DatabaseError> {
+pub async fn delete_by_ip(txn: &mut PgConnection, ip: IpAddr) -> Result<Option<()>, DatabaseError> {
     let interface = find_by_ip(txn, ip).await?;
 
     let Some(interface) = interface else {
@@ -857,10 +851,7 @@ impl UsedIpResolver for UsedAdminNetworkIpResolver {
     // target the `address` column of the `machine_interface_addresses`
     // table, in which a single /32 is stored (although, as an
     // `inet`, it could techincally also have a prefix length).
-    async fn used_ips(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<IpAddr>, DatabaseError> {
+    async fn used_ips(&self, txn: &mut PgConnection) -> Result<Vec<IpAddr>, DatabaseError> {
         // IpAddrContainer is a small private struct used
         // for binding the result of the subsequent SQL
         // query, so we can implement FromRow and return
@@ -878,7 +869,7 @@ WHERE network_segments.id = $1::uuid";
 
         let containers: Vec<IpAddrContainer> = sqlx::query_as(query)
             .bind(self.segment_id)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -903,10 +894,7 @@ WHERE network_segments.id = $1::uuid";
     // saying its not implemented for machine_interfaces, BUT,
     // it keeps it cleaner knowing the IpAllocator works via
     // calling used_prefixes() regardless of who is using it.
-    async fn used_prefixes(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<IpNetwork>, DatabaseError> {
+    async fn used_prefixes(&self, txn: &mut PgConnection) -> Result<Vec<IpNetwork>, DatabaseError> {
         let used_ips = self.used_ips(txn).await?;
         let mut ip_networks: Vec<IpNetwork> = Vec::new();
         for used_ip in used_ips {

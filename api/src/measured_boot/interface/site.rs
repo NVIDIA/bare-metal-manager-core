@@ -15,8 +15,6 @@
  *  tables in the database, leveraging the site-specific record types.
 */
 
-use std::ops::DerefMut;
-
 use crate::db::DatabaseError;
 use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
@@ -28,10 +26,10 @@ use measured_boot::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
 };
 use measured_boot::site::MachineAttestationSummary;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 
 pub async fn insert_into_approved_machines(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: TrustedMachineId,
     approval_type: MeasurementApprovedType,
     pcr_registers: Option<String>,
@@ -43,19 +41,19 @@ pub async fn insert_into_approved_machines(
         .bind(approval_type)
         .bind(pcr_registers)
         .bind(comments)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "insert_into_approved_machines", e))
 }
 
 pub async fn remove_from_approved_machines_by_approval_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     approval_id: MeasurementApprovedMachineId,
 ) -> Result<MeasurementApprovedMachineRecord, DatabaseError> {
     let query = "delete from measurement_approved_machines where approval_id = $1 returning *";
     sqlx::query_as(query)
         .bind(approval_id)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| {
             DatabaseError::new(
@@ -68,13 +66,13 @@ pub async fn remove_from_approved_machines_by_approval_id(
 }
 
 pub async fn remove_from_approved_machines_by_machine_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> Result<MeasurementApprovedMachineRecord, DatabaseError> {
     let query = "delete from measurement_approved_machines where machine_id = $1 returning *";
     sqlx::query_as(query)
         .bind(machine_id)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| {
             DatabaseError::new(
@@ -87,7 +85,7 @@ pub async fn remove_from_approved_machines_by_machine_id(
 }
 
 pub async fn get_approved_machines(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementApprovedMachineRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
@@ -95,7 +93,7 @@ pub async fn get_approved_machines(
 }
 
 pub async fn get_approval_for_machine_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: TrustedMachineId,
 ) -> Result<Option<MeasurementApprovedMachineRecord>, DatabaseError> {
     common::get_object_for_id(txn, machine_id)
@@ -104,7 +102,7 @@ pub async fn get_approval_for_machine_id(
 }
 
 pub async fn insert_into_approved_profiles(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
     approval_type: MeasurementApprovedType,
     pcr_registers: Option<String>,
@@ -116,19 +114,19 @@ pub async fn insert_into_approved_profiles(
         .bind(approval_type)
         .bind(pcr_registers)
         .bind(comments)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "insert_into_approved_profiles", e))
 }
 
 pub async fn remove_from_approved_profiles_by_approval_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     approval_id: MeasurementApprovedProfileId,
 ) -> Result<MeasurementApprovedProfileRecord, DatabaseError> {
     let query = "delete from measurement_approved_profiles where approval_id = $1 returning *";
     sqlx::query_as(query)
         .bind(approval_id)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| {
             DatabaseError::new(
@@ -141,13 +139,13 @@ pub async fn remove_from_approved_profiles_by_approval_id(
 }
 
 pub async fn remove_from_approved_profiles_by_profile_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> Result<MeasurementApprovedProfileRecord, DatabaseError> {
     let query = "delete from measurement_approved_profiles where profile_id = $1 returning *";
     sqlx::query_as(query)
         .bind(profile_id)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| {
             DatabaseError::new(
@@ -160,7 +158,7 @@ pub async fn remove_from_approved_profiles_by_profile_id(
 }
 
 pub async fn get_approved_profiles(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementApprovedProfileRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
@@ -168,25 +166,25 @@ pub async fn get_approved_profiles(
 }
 
 pub async fn get_approval_for_profile_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Option<MeasurementApprovedProfileRecord>, DatabaseError> {
     // TODO(chet): get_object_for_id should become fetch_optional.
     let query = "select * from measurement_approved_profiles where profile_id = $1";
     sqlx::query_as(query)
         .bind(profile_id)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_approval_for_profile_id", e))
 }
 
 pub async fn list_attestation_summary(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<MachineAttestationSummary>, DatabaseError> {
     let query = "select distinct on (mj.machine_id) mj.machine_id, mj.ts, msp.name, mj.bundle_id from measurement_journal mj, measurement_system_profiles msp WHERE mj.profile_id = msp.profile_id order by mj.machine_id, mj.ts desc";
 
     sqlx::query_as(query)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "list_attestation_summary", e))
 }

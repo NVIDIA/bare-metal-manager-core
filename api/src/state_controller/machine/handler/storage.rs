@@ -12,6 +12,7 @@
 
 use chrono::Utc;
 use forge_uuid::{instance::InstanceId, machine::MachineId};
+use sqlx::PgConnection;
 
 use crate::{
     db::instance::Instance,
@@ -28,7 +29,7 @@ use crate::{
 
 pub(crate) async fn attach_storage_volumes(
     services: &StateHandlerServices,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     instance_id: InstanceId,
     dpu_machine_id: &MachineId,
     config: InstanceStorageConfig,
@@ -81,7 +82,7 @@ pub(crate) async fn attach_storage_volumes(
 
 pub(crate) async fn record_storage_status_observation(
     _services: &StateHandlerServices,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     instance: &InstanceSnapshot,
     _config: InstanceStorageConfig,
 ) -> Result<(), StateHandlerError> {

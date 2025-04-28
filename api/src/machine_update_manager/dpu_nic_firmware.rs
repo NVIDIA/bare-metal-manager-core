@@ -4,7 +4,7 @@ use crate::{
     db::dpu_machine_update::DpuMachineUpdate, machine_update_manager::MachineUpdateManager,
 };
 use async_trait::async_trait;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 use std::sync::atomic::Ordering;
 use std::{
     collections::{HashMap, HashSet},
@@ -32,7 +32,7 @@ pub struct DpuNicFirmwareUpdate {
 impl MachineUpdateModule for DpuNicFirmwareUpdate {
     async fn get_updates_in_progress(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> CarbideResult<HashSet<MachineId>> {
         let current_updating_machines =
             match DpuMachineUpdate::get_reprovisioning_machines(txn).await {
@@ -51,7 +51,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
 
     async fn start_updates(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         available_updates: i32,
         updating_host_machines: &HashSet<MachineId>,
         snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
@@ -122,10 +122,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
         Ok(updates_started)
     }
 
-    async fn clear_completed_updates(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<()> {
+    async fn clear_completed_updates(&self, txn: &mut PgConnection) -> CarbideResult<()> {
         let updated_machines = DpuMachineUpdate::get_updated_machines(txn, &self.config).await?;
         tracing::debug!("found {} updated machines", updated_machines.len());
         for updated_machine in updated_machines {
@@ -156,7 +153,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
 
     async fn update_metrics(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) {
         match DpuMachineUpdate::find_available_outdated_dpus(None, &self.config, snapshots).await {

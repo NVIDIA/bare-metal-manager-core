@@ -12,8 +12,6 @@
 
 use std::sync::Arc;
 
-use libredfish::RedfishError;
-
 use crate::cfg::file::CarbideConfig;
 use crate::resource_pool::common::IbPools;
 use crate::storage::StorageError;
@@ -27,6 +25,8 @@ use crate::{
     storage::NvmeshClientPool,
 };
 use forge_uuid::machine::MachineId;
+use libredfish::RedfishError;
+use sqlx::PgConnection;
 
 /// Services that are accessible to the `StateHandler`
 pub struct StateHandlerServices {
@@ -88,7 +88,7 @@ pub trait StateHandler: std::fmt::Debug + Send + Sync + 'static {
         object_id: &Self::ObjectId,
         state: &mut Self::State,
         controller_state: &Self::ControllerState,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError>;
 }
@@ -277,7 +277,7 @@ impl<
         _object_id: &Self::ObjectId,
         _state: &mut Self::State,
         _controller_state: &Self::ControllerState,
-        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _txn: &mut PgConnection,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
         Ok(StateHandlerOutcome::DoNothing)

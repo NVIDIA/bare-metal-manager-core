@@ -13,7 +13,7 @@ use std::borrow::Borrow;
 
 use ::rpc::forge as rpc;
 use ipnetwork::{IpNetwork, Ipv4Network};
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 use tonic::Status;
 
 use crate::cfg::file::VpcPeeringPolicy;
@@ -98,7 +98,7 @@ impl SiteFabricPrefixList {
 }
 
 pub async fn admin_network(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     host_machine_id: &MachineId,
     dpu_machine_id: &MachineId,
     fnn_enabled_on_admin: bool,
@@ -261,7 +261,7 @@ pub async fn admin_network(
 
 #[allow(clippy::too_many_arguments)]
 pub async fn tenant_network(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     instance_id: InstanceId,
     iface: &InstanceInterfaceConfig,
     fqdn: String,

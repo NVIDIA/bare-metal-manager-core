@@ -26,7 +26,7 @@ use figment::{
     providers::{Format, Toml},
 };
 use forge_uuid::machine::MachineId;
-use sqlx::{Postgres, Row, Transaction};
+use sqlx::{PgConnection, Row};
 use std::{
     collections::{HashMap, HashSet},
     fmt,
@@ -48,14 +48,14 @@ struct TestUpdateModule {
 impl MachineUpdateModule for TestUpdateModule {
     async fn get_updates_in_progress(
         &self,
-        _txn: &mut Transaction<'_, Postgres>,
+        _txn: &mut PgConnection,
     ) -> CarbideResult<HashSet<MachineId>> {
         Ok(self.updates_in_progress.clone().into_iter().collect())
     }
 
     async fn start_updates(
         &self,
-        _txn: &mut Transaction<'_, Postgres>,
+        _txn: &mut PgConnection,
         _available_updates: i32,
         _updating_machines: &HashSet<MachineId>,
         _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
@@ -66,10 +66,7 @@ impl MachineUpdateModule for TestUpdateModule {
         Ok(self.updates_started.clone())
     }
 
-    async fn clear_completed_updates(
-        &self,
-        _txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<()> {
+    async fn clear_completed_updates(&self, _txn: &mut PgConnection) -> CarbideResult<()> {
         if let Ok(mut guard) = self.clear_completed_updates_called.lock() {
             (*guard) += 1;
         }
@@ -79,7 +76,7 @@ impl MachineUpdateModule for TestUpdateModule {
 
     async fn update_metrics(
         &self,
-        _txn: &mut Transaction<'_, Postgres>,
+        _txn: &mut PgConnection,
         _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) {
     }
@@ -409,7 +406,7 @@ async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
 /// Manually adds the HostUpdateInProgress health alert to a Machine
 async fn add_host_update_alert(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_update: &DpuMachineUpdate,
     reference: &crate::machine_update_manager::machine_update_module::DpuReprovisionInitiator,
 ) -> CarbideResult<()> {

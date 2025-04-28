@@ -208,14 +208,13 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     // Check that we fail with an internal error if MAC is missing from BMC details.
     let mut txn = db_pool.begin().await?;
-    let mtxn = &mut txn;
 
     let query = format!(
         "UPDATE machine_topologies SET topology = jsonb_set(topology, '{{bmc_info}}',  '{{\"ip\": \"{bmc_ip}\", \"port\": null, \"version\": \"1\", \"firmware_version\": \"5.10\"}}', false) WHERE machine_id = $1"
     );
     let _ = sqlx::query(&query)
         .bind(host_machine_id.to_string())
-        .execute(mtxn.deref_mut())
+        .execute(txn.deref_mut())
         .await?;
     txn.commit().await?;
 
@@ -231,12 +230,11 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     // Check that we fail with an internal error if IP is missing from BMC details.
     let mut txn = db_pool.begin().await?;
-    let mtxn = &mut txn;
 
     let query = "UPDATE machine_topologies SET topology = jsonb_set(topology, '{bmc_info}',  '{\"mac\": \"C8:4B:D6:7A:DB:66\", \"port\": null, \"version\": \"1\", \"firmware_version\": \"5.10\"}', false) WHERE machine_id = $1";
     let _ = sqlx::query(query)
         .bind(host_machine_id.to_string())
-        .execute(mtxn.deref_mut())
+        .execute(txn.deref_mut())
         .await?;
     txn.commit().await?;
 

@@ -13,8 +13,8 @@
 use super::DatabaseError;
 use crate::cfg::file::{Firmware, FirmwareComponentType, FirmwareConfig};
 use serde::{Deserialize, Serialize};
-use sqlx::{Postgres, Transaction};
-use std::{collections::HashMap, default::Default, ops::DerefMut};
+use sqlx::PgConnection;
+use std::{collections::HashMap, default::Default};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "PascalCase")]
@@ -26,23 +26,23 @@ pub struct DbDesiredFirmwareVersions {
 
 /// snapshot_desired_firmware will replace the desired_firmware table with one matching the given FirmwareConfig
 pub async fn snapshot_desired_firmware(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     cfg: &FirmwareConfig,
 ) -> Result<(), DatabaseError> {
     let query = "DELETE FROM desired_firmware";
     sqlx::query(query)
-        .execute(txn.deref_mut())
+        .execute(&mut *txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     for (_, model) in cfg.map() {
-        snapshot_desired_firmware_for_model(txn, &model).await?;
+        snapshot_desired_firmware_for_model(&mut *txn, &model).await?;
     }
 
     Ok(())
 }
 
 async fn snapshot_desired_firmware_for_model(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     model: &Firmware,
 ) -> Result<(), DatabaseError> {
     let query = "INSERT INTO desired_firmware (vendor, model, versions) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING";
@@ -70,7 +70,7 @@ async fn snapshot_desired_firmware_for_model(
         .bind(sqlx::types::Json(DbDesiredFirmwareVersions::from(
             model.clone(),
         )))
-        .execute(txn.deref_mut())
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -105,6 +105,7 @@ struct AsStrings {
 #[cfg(test)]
 #[crate::sqlx_test]
 pub async fn test_build_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
+    use std::ops::DerefMut;
     let mut config: FirmwareConfig = Default::default();
 
     // Source config is hacky, but we just need to have 3 different components in unsorted order

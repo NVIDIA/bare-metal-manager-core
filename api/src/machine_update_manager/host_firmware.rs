@@ -20,7 +20,7 @@ use crate::{
 use async_trait::async_trait;
 use forge_uuid::machine::MachineId;
 use opentelemetry::metrics::Meter;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 use std::{
     collections::HashMap,
     sync::atomic::{AtomicU64, Ordering},
@@ -39,7 +39,7 @@ pub struct HostFirmwareUpdate {
 impl MachineUpdateModule for HostFirmwareUpdate {
     async fn get_updates_in_progress(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> CarbideResult<HashSet<MachineId>> {
         let current_updating_machines = db::machine::get_host_reprovisioning_machines(txn).await?;
 
@@ -48,7 +48,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
 
     async fn start_updates(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         available_updates: i32,
         updating_host_machines: &HashSet<MachineId>,
         _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
@@ -94,10 +94,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         Ok(updates_started)
     }
 
-    async fn clear_completed_updates(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<()> {
+    async fn clear_completed_updates(&self, txn: &mut PgConnection) -> CarbideResult<()> {
         let completed = HostMachineUpdate::find_completed_updates(txn).await?;
 
         if !completed.is_empty() {
@@ -117,7 +114,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
 
     async fn update_metrics(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) {
         match HostMachineUpdate::find_upgrade_needed(
@@ -168,7 +165,7 @@ impl HostFirmwareUpdate {
 
     pub async fn check_for_updates(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         mut available_updates: i32,
     ) -> CarbideResult<Vec<MachineId>> {
         let mut machines = vec![];

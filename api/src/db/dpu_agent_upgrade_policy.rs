@@ -9,21 +9,17 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::ops::DerefMut;
-
-use sqlx::{Postgres, Row, Transaction};
+use sqlx::{PgConnection, Row};
 
 use crate::db::DatabaseError;
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 
 pub struct DpuAgentUpgradePolicy {}
 impl DpuAgentUpgradePolicy {
-    pub async fn get(
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Option<AgentUpgradePolicy>, DatabaseError> {
+    pub async fn get(txn: &mut PgConnection) -> Result<Option<AgentUpgradePolicy>, DatabaseError> {
         let query = "SELECT policy FROM dpu_agent_upgrade_policy ORDER BY created DESC LIMIT 1";
         let Some(row) = sqlx::query(query)
-            .fetch_optional(txn.deref_mut())
+            .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         else {
@@ -36,13 +32,13 @@ impl DpuAgentUpgradePolicy {
     }
 
     pub async fn set(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         policy: AgentUpgradePolicy,
     ) -> Result<(), DatabaseError> {
         let query = "INSERT INTO dpu_agent_upgrade_policy VALUES ($1)";
         sqlx::query(query)
             .bind(policy.to_string())
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())

@@ -13,7 +13,7 @@
 use chrono::{DateTime, Utc};
 use libnvmesh::nvmesh_model as nvmesh;
 use sqlx::postgres::PgRow;
-use sqlx::{Error, Postgres, Row, Transaction};
+use sqlx::{Error, PgConnection, Row};
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -38,29 +38,26 @@ use forge_uuid::machine::MachineId;
 /// Object::update returns nothing on success
 /// Object::persist returns nothing on success
 impl StorageCluster {
-    pub async fn list(txn: &mut Transaction<'_, Postgres>) -> Result<Vec<Self>, DatabaseError> {
+    pub async fn list(txn: &mut PgConnection) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * from storage_clusters".to_string();
         sqlx::query_as(&query)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "storage_cluster list", e))
     }
 
-    pub async fn get(
-        txn: &mut Transaction<'_, Postgres>,
-        cluster_id: Uuid,
-    ) -> Result<Self, DatabaseError> {
+    pub async fn get(txn: &mut PgConnection, cluster_id: Uuid) -> Result<Self, DatabaseError> {
         let query = "SELECT * from storage_clusters l WHERE l.id=$1".to_string();
         sqlx::query_as(&query)
             .bind(cluster_id.to_string())
-            .fetch_one(&mut **txn)
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "storage_cluster get", e))
     }
 
     /// make sure we can login to it and get some status info before storing it
     pub async fn import(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         attrs: &StorageClusterAttributes,
         nvmesh_cluster: nvmesh::ClusterId,
         cluster_capacity: nvmesh::ClusterCapacity,
@@ -89,11 +86,11 @@ impl StorageCluster {
     }
 
     /// delete only removes from the db if there's no storage pools, there's no impact to the actual storage cluster
-    pub async fn delete(&self, txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
+    pub async fn delete(&self, txn: &mut PgConnection) -> Result<(), DatabaseError> {
         let query = "DELETE FROM storage_clusters WHERE id = $1";
         sqlx::query(query)
             .bind(self.id.to_string())
-            .execute(&mut **txn)
+            .execute(txn)
             .await
             .map(|_| ())
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -102,7 +99,7 @@ impl StorageCluster {
     /// allow updating hostname/ip/port/auth for the storage cluster
     pub async fn update(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         new_attrs: &StorageClusterAttributes,
         cluster_capacity: nvmesh::ClusterCapacity,
     ) -> Result<Self, DatabaseError> {
@@ -123,11 +120,7 @@ impl StorageCluster {
     }
 
     /// implement the inverse of sqlx::from_row for the object
-    async fn persist(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-        update: bool,
-    ) -> Result<Self, DatabaseError> {
+    async fn persist(&self, txn: &mut PgConnection, update: bool) -> Result<Self, DatabaseError> {
         let query;
         let cluster = if update {
             query = "UPDATE storage_clusters(name, description, host, port, capacity, allocated, available, healthy) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) WHERE id = $10 RETURNING *";
@@ -142,7 +135,7 @@ impl StorageCluster {
                 .bind(self.healthy)
                 .bind(&self.modified_at)
                 .bind(self.id)
-                .fetch_one(&mut **txn)
+                .fetch_one(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         } else {
@@ -159,7 +152,7 @@ impl StorageCluster {
                 .bind(&self.created_at)
                 .bind(&self.modified_at)
                 .bind(self.id)
-                .fetch_one(&mut **txn)
+                .fetch_one(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         };
@@ -170,7 +163,7 @@ impl StorageCluster {
 
 impl StoragePool {
     pub async fn list(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         cluster_id: Option<Uuid>,
         tenant_organization_id: Option<TenantOrganizationId>,
     ) -> Result<Vec<Self>, DatabaseError> {
@@ -186,33 +179,30 @@ impl StoragePool {
         }
         if filter.is_empty() {
             let pools = sqlx::query_as(&query.replace("{where}", ""))
-                .fetch_all(&mut **txn)
+                .fetch_all(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "storage_pools All", e))?;
             return Ok(pools);
         }
         let pools = sqlx::query_as(&query.replace("{where}", &where_clause))
             .bind(filter)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "storage_pool list", e))?;
         Ok(pools)
     }
 
-    pub async fn get(
-        txn: &mut Transaction<'_, Postgres>,
-        pool_id: Uuid,
-    ) -> Result<Self, DatabaseError> {
+    pub async fn get(txn: &mut PgConnection, pool_id: Uuid) -> Result<Self, DatabaseError> {
         let query = "SELECT * from storage_pools l WHERE l.id=$1".to_string();
         sqlx::query_as(&query)
             .bind(pool_id.to_string())
-            .fetch_one(&mut **txn)
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "storage_pool get", e))
     }
 
     pub async fn create(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         attrs: &StoragePoolAttributes,
         nvmesh_pool: &nvmesh::VolumeProvisioningGroup,
     ) -> Result<Self, DatabaseError> {
@@ -236,11 +226,11 @@ impl StoragePool {
         pool.persist(txn, false).await
     }
 
-    pub async fn delete(&self, txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
+    pub async fn delete(&self, txn: &mut PgConnection) -> Result<(), DatabaseError> {
         let query = "DELETE FROM storage_pools WHERE id = $1";
         sqlx::query(query)
             .bind(self.attributes.id.to_string())
-            .execute(&mut **txn)
+            .execute(txn)
             .await
             .map(|_| ())
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -250,7 +240,7 @@ impl StoragePool {
     /// capacity can be increased, never reduced
     pub async fn update(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         new_attrs: &StoragePoolAttributes,
         modified_at: Option<String>,
     ) -> Result<Self, DatabaseError> {
@@ -274,11 +264,7 @@ impl StoragePool {
         pool.persist(txn, true).await
     }
 
-    async fn persist(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-        update: bool,
-    ) -> Result<Self, DatabaseError> {
+    async fn persist(&self, txn: &mut PgConnection, update: bool) -> Result<Self, DatabaseError> {
         let query;
         let pool = if update {
             query = "UPDATE storage_pools SET name = $1, description = $2, capacity = $3, allocated = $4, available = $5, modified_at = $6 WHERE id = $7 RETURNING *";
@@ -290,7 +276,7 @@ impl StoragePool {
                 .bind(self.available as i64)
                 .bind(&self.modified_at)
                 .bind(self.attributes.id)
-                .fetch_one(&mut **txn)
+                .fetch_one(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         } else {
@@ -309,7 +295,7 @@ impl StoragePool {
                 .bind(self.attributes.cluster_id)
                 .bind(&self.created_at)
                 .bind(&self.modified_at)
-                .fetch_one(&mut **txn)
+                .fetch_one(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         };
@@ -319,7 +305,7 @@ impl StoragePool {
 
 impl StorageVolume {
     pub async fn list(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filters: StorageVolumeFilter,
     ) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * from storage_volumes l {where}".to_string();
@@ -355,25 +341,22 @@ impl StorageVolume {
         }
 
         sqlx::query_as(&query.replace("{where}", &where_clause))
-            .fetch_all(&mut **txn)
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "storage_volume list", e))
     }
 
-    pub async fn get(
-        txn: &mut Transaction<'_, Postgres>,
-        volume_id: Uuid,
-    ) -> Result<Self, DatabaseError> {
+    pub async fn get(txn: &mut PgConnection, volume_id: Uuid) -> Result<Self, DatabaseError> {
         let query = "SELECT * from storage_volumes l WHERE l.id=$1".to_string();
         sqlx::query_as(&query)
             .bind(volume_id.to_string())
-            .fetch_one(&mut **txn)
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "storage_volumes One", e))
     }
 
     pub async fn create(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         attrs: &StorageVolumeAttributes,
         instance_id: Option<Uuid>,
         dpu_id: Option<&MachineId>,
@@ -413,11 +396,11 @@ impl StorageVolume {
 
     /// delete the actual volume on the storage cluster and the db
     /// ensure its detached from any dpu clients prior to deleting
-    pub async fn delete(&self, txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
+    pub async fn delete(&self, txn: &mut PgConnection) -> Result<(), DatabaseError> {
         let query = "DELETE FROM storage_volumes WHERE id = $1";
         sqlx::query(query)
             .bind(self.attributes.id.to_string())
-            .execute(&mut **txn)
+            .execute(txn)
             .await
             .map(|_| ())
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -427,7 +410,7 @@ impl StorageVolume {
     /// update the db for the volume
     pub async fn attach(
         &mut self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         instance_id: &Uuid,
         dpu_machine_id: &MachineId,
     ) -> Result<Self, DatabaseError> {
@@ -445,7 +428,7 @@ impl StorageVolume {
     /// update the db for the volume
     pub async fn detach(
         &mut self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         instance_id: &Uuid,
         dpu_machine_id: &MachineId,
     ) -> Result<Self, DatabaseError> {
@@ -461,7 +444,7 @@ impl StorageVolume {
     /// capacity can be increased, never reduced
     pub async fn update(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         new_attrs: StorageVolumeAttributes,
         modified_at: Option<String>,
     ) -> Result<Self, DatabaseError> {
@@ -477,11 +460,7 @@ impl StorageVolume {
         volume.persist(txn, true).await
     }
 
-    async fn persist(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-        update: bool,
-    ) -> Result<Self, DatabaseError> {
+    async fn persist(&self, txn: &mut PgConnection, update: bool) -> Result<Self, DatabaseError> {
         let volume = if update {
             let query = "UPDATE storage_volumes SET name = $1, description = $2, capacity = $3, delete_with_instance = $4, health = $5, attached = $6, modified_at = $7, status_message = $8, instance_id = $9::json, dpu_machine_id = $10::json WHERE id = $9 RETURNING *";
             sqlx::query_as(query)
@@ -496,7 +475,7 @@ impl StorageVolume {
                 .bind(&self.instance_id)
                 .bind(&self.dpu_machine_id)
                 .bind(self.attributes.id)
-                .fetch_one(&mut **txn)
+                .fetch_one(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         } else {
@@ -520,7 +499,7 @@ impl StorageVolume {
                 .bind(&self.modified_at)
                 .bind(&self.instance_id)
                 .bind(&self.dpu_machine_id)
-                .fetch_one(&mut **txn)
+                .fetch_one(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         };
@@ -530,7 +509,7 @@ impl StorageVolume {
 
 impl OsImage {
     pub async fn list(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         tenant_organization_id: Option<TenantOrganizationId>,
     ) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * from os_images l {where}".to_string();
@@ -544,32 +523,29 @@ impl OsImage {
 
         if filter.is_empty() {
             sqlx::query_as(&query.replace("{where}", ""))
-                .fetch_all(&mut **txn)
+                .fetch_all(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "os_images All", e))
         } else {
             sqlx::query_as(&query.replace("{where}", &where_clause))
                 .bind(filter)
-                .fetch_all(&mut **txn)
+                .fetch_all(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "os_images All", e))
         }
     }
 
-    pub async fn get(
-        txn: &mut Transaction<'_, Postgres>,
-        os_image_id: Uuid,
-    ) -> Result<Self, DatabaseError> {
+    pub async fn get(txn: &mut PgConnection, os_image_id: Uuid) -> Result<Self, DatabaseError> {
         let query = "SELECT * from os_images l WHERE l.id = $1".to_string();
         sqlx::query_as(&query)
             .bind(os_image_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "os_images All", e))
     }
 
     pub async fn create(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         attrs: &OsImageAttributes,
         volume_id: Option<Uuid>,
     ) -> Result<Self, DatabaseError> {
@@ -591,11 +567,11 @@ impl OsImage {
         os_image.persist(txn, false).await
     }
 
-    pub async fn delete(&self, txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
+    pub async fn delete(&self, txn: &mut PgConnection) -> Result<(), DatabaseError> {
         let query = "DELETE FROM os_images WHERE id = $1";
         sqlx::query(query)
             .bind(self.attributes.id)
-            .execute(&mut **txn)
+            .execute(txn)
             .await
             .map(|_| ())
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -603,7 +579,7 @@ impl OsImage {
 
     pub async fn update(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         new_attrs: OsImageAttributes,
     ) -> Result<Self, DatabaseError> {
         let timestamp: DateTime<Utc> = Utc::now();
@@ -618,11 +594,7 @@ impl OsImage {
         os_image.persist(txn, true).await
     }
 
-    async fn persist(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-        update: bool,
-    ) -> Result<Self, DatabaseError> {
+    async fn persist(&self, txn: &mut PgConnection, update: bool) -> Result<Self, DatabaseError> {
         let os_image = if update {
             let query = "UPDATE os_images SET name = $1, description = $2, auth_type = $3, auth_token = $4, rootfs_id = $5, rootfs_label = $6, boot_disk = $7, bootfs_id = $8, efifs_id = $9, modified_at = $10, status = $11, status_message = $12 WHERE id = $13 RETURNING *";
             sqlx::query_as(query)
@@ -639,7 +611,7 @@ impl OsImage {
                 .bind(self.status.clone())
                 .bind(&self.status_message)
                 .bind(self.attributes.id)
-                .fetch_one(&mut **txn)
+                .fetch_one(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         } else {
@@ -668,7 +640,7 @@ impl OsImage {
                 .bind(&self.status_message)
                 .bind(&self.created_at)
                 .bind(&self.modified_at)
-                .fetch_one(&mut **txn)
+                .fetch_one(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         };

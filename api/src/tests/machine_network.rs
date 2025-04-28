@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
+use std::ops::DerefMut;
 use std::time::SystemTime;
 
 use ::rpc::forge::{
@@ -310,10 +310,12 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let env = api_fixtures::create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
-    let network_config_version =
-        crate::db::machine::get_network_config(&mut env.pool.begin().await?, &host_machine_id)
-            .await?
-            .version;
+    let network_config_version = crate::db::machine::get_network_config(
+        env.pool.begin().await?.deref_mut(),
+        &host_machine_id,
+    )
+    .await?
+    .version;
 
     // Get, make sure it's not set yet
     {
@@ -392,9 +394,11 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     }
 
     // Make sure the version got bumped
-    let network_config =
-        crate::db::machine::get_network_config(&mut env.pool.begin().await?, &host_machine_id)
-            .await?;
+    let network_config = crate::db::machine::get_network_config(
+        env.pool.begin().await?.deref_mut(),
+        &host_machine_id,
+    )
+    .await?;
     assert_eq!(
         network_config.version.version_nr(),
         network_config_version.version_nr() + 1,
@@ -459,9 +463,11 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     }
 
     // Make sure the version got bumped again
-    let network_config =
-        crate::db::machine::get_network_config(&mut env.pool.begin().await?, &host_machine_id)
-            .await?;
+    let network_config = crate::db::machine::get_network_config(
+        env.pool.begin().await?.deref_mut(),
+        &host_machine_id,
+    )
+    .await?;
     assert_eq!(
         network_config.version.version_nr(),
         network_config_version.version_nr() + 1,
@@ -522,9 +528,11 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     }
 
     // Make sure the network config version bumps again on clear
-    let network_config =
-        crate::db::machine::get_network_config(&mut env.pool.begin().await?, &host_machine_id)
-            .await?;
+    let network_config = crate::db::machine::get_network_config(
+        env.pool.begin().await?.deref_mut(),
+        &host_machine_id,
+    )
+    .await?;
     assert_eq!(
         network_config.version.version_nr(),
         network_config_version.version_nr() + 1,

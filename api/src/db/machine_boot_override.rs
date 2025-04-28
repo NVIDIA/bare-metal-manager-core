@@ -9,9 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::ops::DerefMut;
 
-use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
+use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
 use std::str::FromStr;
 
 use crate::db::FilterableQueryBuilder;
@@ -80,7 +79,7 @@ impl TryFrom<rpc::forge::MachineBootOverride> for MachineBootOverride {
 
 impl MachineBootOverride {
     pub async fn create(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_interface_id: MachineInterfaceId,
         custom_pxe: Option<String>,
         custom_user_data: Option<String>,
@@ -90,14 +89,14 @@ impl MachineBootOverride {
             .bind(machine_interface_id)
             .bind(custom_pxe)
             .bind(custom_user_data)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         Ok(Some(res))
     }
 
-    pub async fn update_or_insert(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<()> {
+    pub async fn update_or_insert(&self, txn: &mut PgConnection) -> CarbideResult<()> {
         match MachineBootOverride::find_optional(txn, self.machine_interface_id).await? {
             Some(existing_mbo) => {
                 let custom_pxe = if self.custom_pxe.is_some() {
@@ -118,7 +117,7 @@ impl MachineBootOverride {
                     .bind(custom_pxe)
                     .bind(custom_user_data)
                     .bind(self.machine_interface_id)
-                    .execute(txn.deref_mut())
+                    .execute(txn)
                     .await
                     .map_err(|e| {
                         CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
@@ -138,21 +137,21 @@ impl MachineBootOverride {
     }
 
     pub async fn clear(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_interface_id: MachineInterfaceId,
     ) -> CarbideResult<()> {
         let query = "DELETE FROM machine_boot_override WHERE machine_interface_id = $1";
 
         Ok(sqlx::query(query)
             .bind(machine_interface_id)
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map(|_| ())
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?)
     }
 
     pub async fn find_optional(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_interface_id: MachineInterfaceId,
     ) -> CarbideResult<Option<MachineBootOverride>> {
         let mut interfaces = MachineBootOverride::find_by(
@@ -171,7 +170,7 @@ impl MachineBootOverride {
     }
 
     async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineBootOverride>>(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: ObjectColumnFilter<'a, C>,
     ) -> Result<Vec<MachineBootOverride>, DatabaseError> {
         let mut query =
@@ -179,7 +178,7 @@ impl MachineBootOverride {
 
         query
             .build_query_as()
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }

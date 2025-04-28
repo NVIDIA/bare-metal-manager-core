@@ -29,7 +29,7 @@ use ::rpc::forge::{
 };
 use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::machine::{MachineId, MachineType};
-use sqlx::Row;
+use sqlx::{PgConnection, Row};
 use std::{collections::HashSet, net::IpAddr, str::FromStr};
 use tonic::Request;
 
@@ -121,10 +121,10 @@ async fn test_admin_force_delete_dpu_and_host_by_dpu_machine_id(pool: sqlx::PgPo
     }
 }
 
-async fn is_ek_cert_status_entry_present(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> bool {
+async fn is_ek_cert_status_entry_present(txn: &mut PgConnection) -> bool {
     let query = "SELECT COUNT(1)::integer from ek_cert_verification_status;";
     let all_ek_cert_status_count: i32 = sqlx::query(query)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn)
         .await
         .expect("Could not get ek cert statuses")
         .try_get("count")

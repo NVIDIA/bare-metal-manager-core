@@ -1,7 +1,3 @@
-use std::{collections::HashMap, ops::DerefMut};
-
-use sqlx::{Acquire, FromRow, Postgres, Transaction};
-
 use crate::{
     CarbideError,
     cfg::file::CarbideConfig,
@@ -13,6 +9,9 @@ use crate::{
     model::machine::{ManagedHostState, ManagedHostStateSnapshot, ReprovisionRequest},
 };
 use forge_uuid::machine::MachineId;
+use sqlx::{Acquire, FromRow, PgConnection};
+use std::collections::HashMap;
+use std::ops::DerefMut;
 
 #[derive(Debug, FromRow)]
 pub struct DpuMachineUpdate {
@@ -133,13 +132,13 @@ impl DpuMachineUpdate {
     }
 
     pub async fn get_fw_updates_running_count(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<i64, DatabaseError> {
         let query = r#"SELECT COUNT(*) as count FROM machines m
             WHERE (reprovisioning_requested->>'update_firmware')::boolean is true  
             AND reprovisioning_requested->>'started_at' IS NOT NULL;"#;
         let (count,): (i64,) = sqlx::query_as(query)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "get_fw_updates_running_count", e))?;
 
@@ -147,7 +146,7 @@ impl DpuMachineUpdate {
     }
 
     pub async fn trigger_reprovisioning_for_managed_host(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         host_machine_id: &MachineId,
         machine_updates: &[DpuMachineUpdate],
     ) -> Result<(), CarbideError> {
@@ -228,7 +227,7 @@ impl DpuMachineUpdate {
     }
 
     pub async fn get_reprovisioning_machines(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
         let reference = AutomaticFirmwareUpdateReference::REF_NAME.to_string() + "%";
 
@@ -240,7 +239,7 @@ impl DpuMachineUpdate {
 
         let result: Vec<DpuMachineUpdate> = sqlx::query_as(query)
             .bind(&reference)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -248,7 +247,7 @@ impl DpuMachineUpdate {
     }
 
     pub async fn get_updated_machines(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         config: &CarbideConfig,
     ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
         let machine_ids = db::machine::find_machine_ids(

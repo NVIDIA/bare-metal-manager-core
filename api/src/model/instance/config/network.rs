@@ -27,6 +27,7 @@ use forge_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeMap};
+use sqlx::PgConnection;
 
 // Specifies whether a network interface is physical network function (PF)
 // or a virtual network function
@@ -244,7 +245,7 @@ impl InstanceNetworkConfig {
     /// allocated IP's.
     pub async fn with_allocated_ips(
         self,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
         instance_id: InstanceId,
         machine: &Machine,
     ) -> CarbideResult<InstanceNetworkConfig> {
@@ -256,7 +257,7 @@ impl InstanceNetworkConfig {
     /// a host's in-band (non-dpu) network segments: they cannot be configured through carbide.
     pub async fn with_inband_interfaces_from_machine(
         mut self,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
         machine_id: &forge_uuid::machine::MachineId,
     ) -> CarbideResult<InstanceNetworkConfig> {
         let host_inband_segment_ids = NetworkSegment::find_ids_by_machine_id(

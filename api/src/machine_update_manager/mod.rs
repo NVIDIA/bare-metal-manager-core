@@ -17,7 +17,7 @@ pub mod metrics;
 
 use host_firmware::HostFirmwareUpdate;
 use machine_update_module::{HOST_UPDATE_HEALTH_REPORT_SOURCE, machine_updates_in_progress};
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{PgConnection, PgPool};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::{collections::HashSet, sync::Arc, time::Duration};
@@ -151,7 +151,7 @@ impl MachineUpdateManager {
 
     async fn get_all_snapshots(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
         let machine_ids = crate::db::machine::find_machine_ids(
             txn,
@@ -275,7 +275,7 @@ impl MachineUpdateManager {
     /// Only used in Tests
     #[cfg(test)]
     pub async fn put_machine_in_maintenance(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_update: &DpuMachineUpdate,
         reference: &crate::machine_update_manager::machine_update_module::DpuReprovisionInitiator,
     ) -> CarbideResult<()> {
@@ -309,7 +309,7 @@ impl MachineUpdateManager {
     ///   TODO: Remove the Maintenance mode interaction in a future release once pending
     ///   updates that used maintenance mode are completed
     pub async fn remove_machine_update_markers(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_update: &DpuMachineUpdate,
     ) -> CarbideResult<()> {
         db::machine::set_maintenance_mode_with_condition(
@@ -349,7 +349,7 @@ impl MachineUpdateManager {
 
     /// get host machines that are applying updates
     pub async fn get_updating_machines(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<HashSet<MachineId>, DatabaseError> {
         let machines = db::machine::find(
             txn,

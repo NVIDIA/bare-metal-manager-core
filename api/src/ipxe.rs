@@ -1,5 +1,5 @@
 use ::rpc::forge as rpc;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 
 use crate::db::machine_boot_override::MachineBootOverride;
 use crate::model::machine::{
@@ -104,7 +104,7 @@ impl PxeInstructions {
     }
 
     pub async fn get_pxe_instructions(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         interface_id: MachineInterfaceId,
         arch: rpc::MachineArchitecture,
     ) -> Result<String, CarbideError> {

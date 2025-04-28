@@ -2,7 +2,7 @@ pub mod tests {
     use std::time::Duration;
 
     use forge_uuid::machine::MachineId;
-    use sqlx::{Postgres, Transaction};
+    use sqlx::PgConnection;
 
     use crate::{
         db::{self, DatabaseError, ObjectFilter, machine::MachineSearchConfig},
@@ -760,14 +760,14 @@ pub mod tests {
     }
 
     pub async fn clear_sku_status(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: &MachineId,
     ) -> Result<(), DatabaseError> {
         let query = "UPDATE machines SET hw_sku_status=null WHERE id=$1 RETURNING id";
 
         let _: () = sqlx::query_as(query)
             .bind(machine_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "clear sku last match attempt", e))?;
 

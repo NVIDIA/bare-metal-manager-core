@@ -15,7 +15,7 @@ use std::{
     str::FromStr,
 };
 
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 
 use crate::{
     db::{DatabaseError, explored_endpoints::DbExploredEndpoint},
@@ -27,7 +27,7 @@ use crate::{
 use forge_uuid::machine::MachineId;
 
 pub async fn insert_endpoint_version(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     addr: &str,
     version: &str,
 ) -> Result<(), DatabaseError> {
@@ -43,7 +43,7 @@ pub async fn insert_endpoint_version(
 }
 
 async fn insert_endpoint(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     addr: &str,
     machine_id_str: &str,
     vendor: &str,

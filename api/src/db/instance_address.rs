@@ -11,11 +11,10 @@
  */
 use std::collections::HashSet;
 use std::net::IpAddr;
-use std::ops::DerefMut;
 
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use sqlx::{Acquire, FromRow, Postgres, Transaction, query_as};
+use sqlx::{Acquire, FromRow, PgConnection, query_as};
 
 use super::{DatabaseError, ObjectColumnFilter, network_segment};
 use super::{
@@ -61,20 +60,20 @@ impl super::ColumnInfo<'_> for PrefixColumn {
 
 impl InstanceAddress {
     pub async fn find_by_address(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         address: IpAddr,
     ) -> Result<Option<Self>, DatabaseError> {
         let query = "SELECT * FROM instance_addresses WHERE address = $1::inet";
         sqlx::query_as(query)
             .bind(address)
-            .fetch_optional(txn.deref_mut())
+            .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     #[cfg(test)] // currently only used by tests
     pub async fn find_by_instance_id_and_segment_id(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         instance_id: &InstanceId,
         segment_id: &NetworkSegmentId,
     ) -> Result<Option<Self>, DatabaseError> {
@@ -83,14 +82,14 @@ impl InstanceAddress {
         sqlx::query_as(query)
             .bind(instance_id)
             .bind(segment_id)
-            .fetch_optional(txn.deref_mut())
+            .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     #[cfg(test)] // currently only used by tests
     pub async fn find_by_prefix(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         prefix: IpNetwork,
     ) -> Result<Option<Self>, DatabaseError> {
         let mut query = crate::db::FilterableQueryBuilder::new("SELECT * FROM instance_addresses")
@@ -98,20 +97,20 @@ impl InstanceAddress {
 
         query
             .build_query_as()
-            .fetch_optional(txn.deref_mut())
+            .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
     pub async fn delete(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         instance_id: InstanceId,
     ) -> Result<(), DatabaseError> {
         // Lock MUST be taken by calling function.
         let query = "DELETE FROM instance_addresses WHERE instance_id=$1 RETURNING id";
         let _: Vec<(InstanceId,)> = sqlx::query_as(query)
             .bind(instance_id)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -168,7 +167,7 @@ impl InstanceAddress {
 
     /// Counts the amount of addresses that have been allocated for a given segment
     pub async fn count_by_segment_id(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         segment_id: NetworkSegmentId,
     ) -> Result<usize, DatabaseError> {
         let query = "
@@ -178,7 +177,7 @@ INNER JOIN network_prefixes ON network_prefixes.segment_id = instance_addresses.
 WHERE network_prefixes.segment_id = $1::uuid";
         let (address_count,): (i64,) = query_as(query)
             .bind(segment_id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -188,7 +187,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
     /// Tries to allocate IP addresses for a tenant network configuration
     /// Returns the updated configuration which includes allocated addresses
     pub async fn allocate(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         instance_id: InstanceId,
         mut updated_config: InstanceNetworkConfig,
         machine: &Machine,
@@ -366,10 +365,7 @@ impl UsedIpResolver for UsedOverlayNetworkIpResolver {
     // target the `address` column of the `instance_addresses`
     // table, in which a single /32 is stored (although, as an
     // `inet`, it could techincally also have a prefix length).
-    async fn used_ips(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<IpAddr>, DatabaseError> {
+    async fn used_ips(&self, txn: &mut PgConnection) -> Result<Vec<IpAddr>, DatabaseError> {
         // IpAddrContainer is a small private struct used
         // for binding the result of the subsequent SQL
         // query, so we can implement FromRow and return
@@ -386,7 +382,7 @@ WHERE network_segments.id = $1::uuid";
 
         let containers: Vec<IpAddrContainer> = sqlx::query_as(query)
             .bind(self.segment_id)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -406,10 +402,7 @@ WHERE network_segments.id = $1::uuid";
     // or a /30 (for FNN prefix allocations), where the `address`
     // column would contain the host IP allocated from the
     // /30 prefix.
-    async fn used_prefixes(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<IpNetwork>, DatabaseError> {
+    async fn used_prefixes(&self, txn: &mut PgConnection) -> Result<Vec<IpNetwork>, DatabaseError> {
         // IpNetworkContainer is a small private struct used
         // for binding the result of the subsequent SQL
         // query, so we can implement FromRow and return
@@ -426,7 +419,7 @@ WHERE network_segments.id = $1::uuid";
 
         let containers: Vec<IpNetworkContainer> = sqlx::query_as(query)
             .bind(self.segment_id)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -552,7 +545,7 @@ impl AssignIpsFrom<IpAllocator> for InstanceInterfaceConfig {
 }
 
 pub async fn allocate_svi_ip(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     segment: &NetworkSegment,
 ) -> CarbideResult<(uuid::Uuid, IpAddr)> {
     let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedOverlayNetworkIpResolver {
@@ -563,7 +556,7 @@ pub async fn allocate_svi_ip(
     // If either requested addresses are auto-generated, we lock the entire table
     let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
     sqlx::query(query)
-        .execute(&mut **txn)
+        .execute(&mut *txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

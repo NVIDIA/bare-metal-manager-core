@@ -27,6 +27,7 @@ use libredfish::{Boot, Redfish, RedfishError, SystemPowerControl, model::task::T
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
 use sku::{handle_bom_validation_requested, handle_bom_validation_state};
+use sqlx::PgConnection;
 use tokio::sync::Semaphore;
 use version_compare::Cmp;
 
@@ -385,7 +386,7 @@ impl MachineStateHandler {
     async fn record_health_history(
         &self,
         mh_snapshot: &mut ManagedHostStateSnapshot,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<(), StateHandlerError> {
         db::machine_health_history::persist(
             txn,
@@ -400,7 +401,7 @@ impl MachineStateHandler {
     async fn record_infiniband_status(
         &self,
         mh_snapshot: &mut ManagedHostStateSnapshot,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) {
         if ctx.services.ib_fabric_manager.get_config().manager_type == IBFabricManagerType::Disable
@@ -435,7 +436,7 @@ impl MachineStateHandler {
         &self,
         host_machine_id: &MachineId,
         mh_snapshot: &mut ManagedHostStateSnapshot,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let mh_state = mh_snapshot.managed_state.clone();
@@ -1069,7 +1070,7 @@ impl MachineStateHandler {
         &self,
         state: &ManagedHostStateSnapshot,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
         host_machine_id: &MachineId,
         dpus_for_reprov: &[&Machine],
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
@@ -1096,7 +1097,7 @@ impl MachineStateHandler {
         managed_state: &ManagedHostState,
         state: &ManagedHostStateSnapshot,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
         host_machine_id: &MachineId,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         let mut next_state = None;
@@ -1198,7 +1199,7 @@ fn dpu_reprovisioning_needed(dpu_snapshots: &[Machine]) -> bool {
 
 async fn handle_legacy_maintenance_mode(
     mh_snapshot: &ManagedHostStateSnapshot,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
     let health_alert_source_for_maintenance_mode = "maintenance".to_string();
     let health_alert_id_for_maintenance_mode: HealthProbeId = "Maintenance".parse().unwrap();
@@ -1289,7 +1290,7 @@ async fn handle_legacy_maintenance_mode(
 
 async fn handle_restart_verification(
     mh_snapshot: &ManagedHostStateSnapshot,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
     const MAX_VERIFICATION_ATTEMPTS: i32 = 2;
@@ -1549,7 +1550,7 @@ async fn are_dpus_up_trigger_reboot_if_needed(
     state: &ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
 ) -> bool {
     for dpu_snapshot in &state.dpu_snapshots {
         if !is_dpu_up(state, dpu_snapshot) {
@@ -1576,7 +1577,7 @@ impl StateHandler for MachineStateHandler {
         host_machine_id: &MachineId,
         mh_snapshot: &mut ManagedHostStateSnapshot,
         _mh_state: &Self::ControllerState, // mh_snapshot above already contains it
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         if !mh_snapshot
@@ -1736,7 +1737,7 @@ fn map_post_assigned_measuring_outcome_to_state_handler_outcome(
 // if everything is ok in general
 async fn check_if_should_redo_measurements(
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<bool, StateHandlerError> {
     let (machine_state, ek_cert_verification_status) =
         get_measuring_prerequisites(machine_id, txn).await?;
@@ -1752,7 +1753,7 @@ async fn check_if_should_redo_measurements(
 
 async fn check_if_not_in_original_failure_cause_anymore(
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     original_failure_cause: &FailureCause,
 ) -> Result<bool, StateHandlerError> {
     let (_, ek_cert_verification_status) = get_measuring_prerequisites(machine_id, txn).await?;
@@ -1831,7 +1832,7 @@ async fn handle_dpu_reprovision(
     state: &ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     next_state_resolver: &impl NextReprovisionState,
     dpu_snapshot: &Machine,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
@@ -2111,7 +2112,7 @@ async fn try_wait_for_dpu_discovery(
     reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
     is_reprovision_case: bool,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     current_dpu_machine_id: &MachineId,
 ) -> Result<Option<MachineId>, StateHandlerError> {
     // We are waiting for the `DiscoveryCompleted` RPC call to update the
@@ -2149,7 +2150,7 @@ async fn try_wait_for_dpu_discovery(
 async fn check_bmc_fw_component_version(
     services: &StateHandlerServices,
     dpu_snapshot: &Machine,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     hardware_models: &FirmwareConfig,
     host_power_cycle_done: bool,
 ) -> Result<bool, StateHandlerError> {
@@ -2249,7 +2250,7 @@ async fn check_bmc_fw_component_version(
 }
 
 async fn set_managed_host_topology_update_needed(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     host_snapshot: &Machine,
     dpus: &[&Machine],
 ) -> Result<(), StateHandlerError> {
@@ -2342,7 +2343,7 @@ impl DpuMachineStateHandler {
         state: &mut ManagedHostStateSnapshot,
         dpu_snapshot: &Machine,
         _controller_state: &ManagedHostState,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let dpu_machine_id = &dpu_snapshot.id.clone();
@@ -2680,7 +2681,7 @@ impl DpuMachineStateHandler {
         &self,
         state: &mut ManagedHostStateSnapshot,
         dpu_snapshot: &Machine,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let dpu_machine_id = &dpu_snapshot.id;
@@ -2953,7 +2954,7 @@ impl StateHandler for DpuMachineStateHandler {
         _host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
         _controller_state: &Self::ControllerState,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let mut state_handler_outcome =
@@ -3016,7 +3017,7 @@ pub async fn trigger_reboot_if_needed(
     retry_count: Option<i64>,
     reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<RebootStatus, StateHandlerError> {
     let Some(last_reboot_requested) = &target.last_reboot_requested else {
         return Ok(RebootStatus {
@@ -3268,7 +3269,7 @@ async fn reboot_if_needed(
     machine: &Machine,
     reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<RebootStatus, StateHandlerError> {
     let reboot_status = trigger_reboot_if_needed(
         machine,
@@ -3298,7 +3299,7 @@ async fn reboot_if_needed(
 }
 
 async fn handler_host_lockdown(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     state: &mut ManagedHostStateSnapshot,
 ) -> Result<ManagedHostState, StateHandlerError> {
@@ -3317,7 +3318,7 @@ async fn handler_host_lockdown(
 
 /// TODO: we need to handle the case where the job is deleted for some reason
 async fn handle_host_uefi_setup(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     state: &mut ManagedHostStateSnapshot,
     uefi_setup_info: UefiSetupInfo,
@@ -3514,7 +3515,7 @@ impl StateHandler for HostMachineStateHandler {
         host_machine_id: &MachineId,
         mh_snapshot: &mut ManagedHostStateSnapshot,
         _controller_state: &Self::ControllerState,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         if let ManagedHostState::HostInit { machine_state } = &mh_snapshot.managed_state {
@@ -3954,7 +3955,7 @@ impl StateHandler for InstanceStateHandler {
         host_machine_id: &MachineId,
         mh_snapshot: &mut ManagedHostStateSnapshot,
         _controller_state: &Self::ControllerState,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let Some(ref instance) = mh_snapshot.instance else {
@@ -4512,7 +4513,7 @@ impl HostUpgradeState {
         services: &StateHandlerServices,
         machine_id: &MachineId,
         scenario: HostFirmwareScenario,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         // Treat Ready (but flagged to do updates) the same as HostReprovisionState/CheckingFirmware
         let original_state = &state.managed_state;
@@ -4581,7 +4582,7 @@ impl HostUpgradeState {
         machine_id: &MachineId,
         original_state: &ManagedHostState,
         scenario: HostFirmwareScenario,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         let mut ret = self
             .host_checking_fw_noclear(state, services, machine_id, scenario, txn)
@@ -4616,7 +4617,7 @@ impl HostUpgradeState {
         services: &StateHandlerServices,
         machine_id: &MachineId,
         scenario: HostFirmwareScenario,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         let Some(explored_endpoint) =
             find_explored_refreshed_endpoint(state, machine_id, txn).await?
@@ -4740,7 +4741,7 @@ impl HostUpgradeState {
         state: &ManagedHostStateSnapshot,
         services: &StateHandlerServices,
         fw_info: FullFirmwareInfo<'_>,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Option<String>, StateHandlerError> {
         let snapshot = &state.host_snapshot;
         let to_install = fw_info.to_install;
@@ -4846,7 +4847,7 @@ impl HostUpgradeState {
         services: &StateHandlerServices,
         machine_id: &MachineId,
         scenario: HostFirmwareScenario,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         let (task_id, final_version, firmware_type, power_drains_needed) = match details {
             HostReprovisionState::WaitingForFirmwareUpgrade {
@@ -4983,7 +4984,7 @@ impl HostUpgradeState {
         machine_id: &MachineId,
         details: &HostReprovisionState,
         scenario: HostFirmwareScenario,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         let (
             final_version,
@@ -5166,7 +5167,7 @@ impl HostUpgradeState {
         details: &HostReprovisionState,
         machine_id: &MachineId,
         scenario: HostFirmwareScenario,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         let (final_version, firmware_type, previous_reset_time) = match details {
             HostReprovisionState::NewFirmwareReportedWait {
@@ -5241,7 +5242,7 @@ impl HostUpgradeState {
 async fn handler_restart_dpu(
     machine: &Machine,
     services: &StateHandlerServices,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(), StateHandlerError> {
     db::machine::update_reboot_requested_time(
         &machine.id,
@@ -5270,7 +5271,7 @@ pub async fn handler_host_power_control(
     managedhost_snapshot: &ManagedHostStateSnapshot,
     services: &StateHandlerServices,
     action: SystemPowerControl,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(), StateHandlerError> {
     let redfish_client = services
         .redfish_client_pool
@@ -5314,7 +5315,7 @@ pub async fn handler_host_power_control(
 async fn restart_dpu(
     machine: &Machine,
     services: &StateHandlerServices,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(), StateHandlerError> {
     let dpu_redfish_client = services
         .redfish_client_pool
@@ -5348,7 +5349,7 @@ async fn restart_dpu(
 
 /// Issues a lockdown and reboot request command to a host.
 async fn lockdown_host(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     state: &ManagedHostStateSnapshot,
     services: &StateHandlerServices,
 ) -> Result<(), StateHandlerError> {
@@ -5379,7 +5380,7 @@ async fn lockdown_host(
 pub async fn find_explored_refreshed_endpoint(
     state: &ManagedHostStateSnapshot,
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Option<ExploredEndpoint>, StateHandlerError> {
     let addr: IpAddr = state
         .host_snapshot
