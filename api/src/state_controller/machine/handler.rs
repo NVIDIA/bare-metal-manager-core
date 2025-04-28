@@ -35,7 +35,7 @@ use crate::db::machine::update_restart_verification_status;
 use crate::{
     cfg::file::{
         BomValidationConfig, CarbideConfig, DpuModel, Firmware, FirmwareComponentType,
-        FirmwareConfig, FirmwareEntry, MachineValidationConfig,
+        FirmwareConfig, FirmwareEntry, MachineValidationConfig, TimePeriod,
     },
     db::{
         self, explored_endpoints::DbExploredEndpoint, instance::DeleteInstance,
@@ -123,6 +123,7 @@ pub struct MachineStateHandlerBuilder {
     machine_validation_config: MachineValidationConfig,
     common_pools: Option<Arc<CommonPools>>,
     bom_validation: BomValidationConfig,
+    instance_autoreboot_period: Option<TimePeriod>,
 }
 
 impl MachineStateHandlerBuilder {
@@ -147,6 +148,7 @@ impl MachineStateHandlerBuilder {
             },
             common_pools: None,
             bom_validation: BomValidationConfig::default(),
+            instance_autoreboot_period: None,
         }
     }
 
@@ -240,6 +242,11 @@ impl MachineStateHandlerBuilder {
         self
     }
 
+    pub fn instance_autoreboot_period(mut self, period: Option<TimePeriod>) -> Self {
+        self.instance_autoreboot_period = period;
+        self
+    }
+
     pub fn build(self) -> MachineStateHandler {
         MachineStateHandler::new(self)
     }
@@ -254,6 +261,7 @@ impl MachineStateHandler {
                 .upload_limiter
                 .unwrap_or(Arc::new(Semaphore::new(5))),
             no_firmware_update_reset_retries: builder.no_firmware_update_reset_retries,
+            instance_autoreboot_period: builder.instance_autoreboot_period,
         });
         MachineStateHandler {
             dpu_up_threshold: builder.dpu_up_threshold,
@@ -4117,6 +4125,8 @@ impl StateHandler for InstanceStateHandler {
 
                     // Wait for user's approval. Once user approves for dpu
                     // reprovision/update firmware, trigger it.
+                    let is_auto_approved = self.host_upgrade.is_auto_approved();
+
                     let reprov_can_be_started =
                         if dpu_reprovisioning_needed(&mh_snapshot.dpu_snapshots) {
                             // Usually all DPUs are updated with user_approval_received field as true
@@ -4130,7 +4140,7 @@ impl StateHandler for InstanceStateHandler {
                                 .all(|x| {
                                     x.reprovision_requested
                                         .as_ref()
-                                        .map(|x| x.user_approval_received)
+                                        .map(|x| x.user_approval_received || is_auto_approved)
                                         .unwrap_or_default()
                                 })
                         } else {
@@ -4139,10 +4149,14 @@ impl StateHandler for InstanceStateHandler {
                     let host_firmware_requested = if let Some(request) =
                         &mh_snapshot.host_snapshot.host_reprovision_requested
                     {
-                        request.user_approval_received
+                        request.user_approval_received || is_auto_approved
                     } else {
                         false
                     };
+
+                    if is_auto_approved && (reprov_can_be_started || host_firmware_requested) {
+                        tracing::info!(machine_id = %host_machine_id, "Auto rebooting host for reprovision/upgrade due to being in approved time period");
+                    }
 
                     if instance.deleted.is_some()
                         || reprov_can_be_started
@@ -4503,6 +4517,7 @@ struct HostUpgradeState {
     downloader: FirmwareDownloader,
     upload_limiter: Arc<Semaphore>,
     no_firmware_update_reset_retries: bool,
+    instance_autoreboot_period: Option<TimePeriod>,
 }
 
 impl HostUpgradeState {
@@ -5235,6 +5250,18 @@ impl HostUpgradeState {
             .await?;
             Ok(None)
         }
+    }
+
+    fn is_auto_approved(&self) -> bool {
+        let Some(ref period) = self.instance_autoreboot_period else {
+            return false;
+        };
+        let start = period.start;
+        let end = period.end;
+
+        let now = chrono::Utc::now();
+
+        now > start && now < end
     }
 }
 

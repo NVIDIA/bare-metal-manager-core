@@ -454,6 +454,8 @@ pub(crate) async fn invoke_power(
                 })?;
         }
         if snapshot.host_snapshot.host_reprovision_requested.is_some() {
+            reprovision_handled = true;
+
             db::machine::approve_host_reprovision_request(&snapshot.host_snapshot.id, &mut txn)
                 .await
                 .map_err(|err| {

@@ -20,7 +20,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::cfg::file::{ListenMode, VpcPeeringPolicy};
+use crate::cfg::file::{ListenMode, MachineUpdater, VpcPeeringPolicy};
 use crate::logging::log_limiter::LogLimiter;
 use crate::model::machine::MachineValidatingState;
 use crate::model::machine::ValidationState;
@@ -865,6 +865,7 @@ pub fn get_config() -> CarbideConfig {
         },
         host_models: host_firmware_example(),
         firmware_global: FirmwareGlobal::test_default(),
+        machine_updater: MachineUpdater::default(),
         max_find_by_ids: default_max_find_by_ids(),
         network_security_group: NetworkSecurityGroupConfig::default(),
         min_dpu_functioning_links: None,
@@ -1066,6 +1067,9 @@ pub async fn create_test_env_with_overrides(
                     test_selection_mode: config.machine_validation_config.test_selection_mode,
                 })
                 .bom_validation(config.bom_validation)
+                .instance_autoreboot_period(
+                    config.machine_updater.instance_autoreboot_period.clone(),
+                )
                 .build(),
         )),
     };
