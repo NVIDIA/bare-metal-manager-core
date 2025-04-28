@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use super::api_fixtures::TestEnv;
 use crate::api::Api;
 use crate::db::network_segment_state_history::NetworkSegmentStateHistory;
@@ -20,6 +19,7 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     NetworkSegment, NetworkSegmentCreationRequest, NetworkSegmentSearchConfig, NetworkSegmentType,
 };
+use sqlx::PgConnection;
 use tonic::Request;
 
 pub struct NetworkSegmentHelper {
@@ -143,10 +143,7 @@ pub async fn get_segments(
 }
 
 #[cfg(test)]
-pub async fn text_history(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    segment_id: NetworkSegmentId,
-) -> Vec<String> {
+pub async fn text_history(txn: &mut PgConnection, segment_id: NetworkSegmentId) -> Vec<String> {
     let entries = NetworkSegmentStateHistory::for_segment(txn, &segment_id)
         .await
         .unwrap();

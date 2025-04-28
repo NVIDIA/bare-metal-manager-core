@@ -40,7 +40,7 @@ use rpc::protos::measured_boot::{
     ShowMeasurementSystemProfileResponse, ShowMeasurementSystemProfilesRequest,
     ShowMeasurementSystemProfilesResponse, Uuid,
 };
-use sqlx::{Pool, Postgres, Transaction};
+use sqlx::{PgConnection, Pool, Postgres};
 use std::collections::HashMap;
 
 /// handle_create_system_measurement_profile handles the
@@ -287,7 +287,7 @@ pub async fn handle_list_measurement_system_profile_machines(
 /// delete_for_uuid specifically handles deleting
 /// a system profile by ID.
 async fn delete_for_uuid(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_uuid: Uuid,
 ) -> Result<Option<MeasurementSystemProfile>, Status> {
     match MeasurementSystemProfileId::try_from(profile_uuid) {
@@ -305,7 +305,7 @@ async fn delete_for_uuid(
 /// delete_for_name specifically handles deleting
 /// a system profile by name.
 async fn delete_for_name(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_name: String,
 ) -> Result<Option<MeasurementSystemProfile>, Status> {
     match db::profile::delete_for_name(txn, profile_name).await {

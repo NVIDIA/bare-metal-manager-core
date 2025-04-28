@@ -9,12 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::ops::DerefMut;
 
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
+use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
 
 use super::DatabaseError;
 use crate::model::network_segment::NetworkSegmentControllerState;
@@ -67,7 +66,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegmentStateHistory {
 impl NetworkSegmentStateHistory {
     #[cfg(test)]
     pub async fn for_segment(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         segment_id: &NetworkSegmentId,
     ) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT id, segment_id, state::TEXT, state_version, timestamp
@@ -76,14 +75,14 @@ impl NetworkSegmentStateHistory {
             ORDER BY ID asc";
         sqlx::query_as(query)
             .bind(segment_id)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     /// Store each state for debugging purpose.
     pub async fn persist(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         segment_id: NetworkSegmentId,
         state: &NetworkSegmentControllerState,
         state_version: ConfigVersion,
@@ -94,7 +93,7 @@ impl NetworkSegmentStateHistory {
             .bind(segment_id)
             .bind(sqlx::types::Json(state))
             .bind(state_version)
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())

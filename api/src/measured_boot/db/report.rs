@@ -43,11 +43,11 @@ use measured_boot::records::{
     MeasurementReportRecord, MeasurementReportValueRecord,
 };
 use measured_boot::report::MeasurementReport;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 use std::collections::HashMap;
 
 pub async fn new_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
     values: &[PcrRegisterValue],
 ) -> CarbideResult<MeasurementReport> {
@@ -55,7 +55,7 @@ pub async fn new_with_txn(
 }
 
 pub async fn from_id_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     report_id: MeasurementReportId,
 ) -> CarbideResult<MeasurementReport> {
     get_measurement_report_by_id_with_txn(txn, report_id).await
@@ -65,7 +65,7 @@ pub async fn from_id_with_txn(
 /// MeasurementReportValues, returning a fully populated instance of
 /// MeasurementReport of the data that was deleted for `report_id`.
 pub async fn delete_for_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     report_id: MeasurementReportId,
 ) -> CarbideResult<MeasurementReport> {
     let values = delete_report_values_for_id(txn, report_id).await?;
@@ -87,18 +87,18 @@ pub async fn delete_for_id(
 }
 
 pub async fn get_all_for_machine_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> CarbideResult<Vec<MeasurementReport>> {
     get_measurement_reports_for_machine_id(txn, machine_id).await
 }
 
-pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Vec<MeasurementReport>> {
+pub async fn get_all(txn: &mut PgConnection) -> CarbideResult<Vec<MeasurementReport>> {
     get_all_measurement_reports(txn).await
 }
 
 pub async fn create_active_bundle_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     report: &MeasurementReport,
     pcr_set: &Option<PcrSet>,
 ) -> CarbideResult<MeasurementBundle> {
@@ -106,7 +106,7 @@ pub async fn create_active_bundle_with_txn(
 }
 
 pub async fn create_revoked_bundle_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     report: &MeasurementReport,
     pcr_set: &Option<PcrSet>,
 ) -> CarbideResult<MeasurementBundle> {
@@ -116,7 +116,7 @@ pub async fn create_revoked_bundle_with_txn(
 /// create_measurement_report handles the work of creating a new
 /// measurement report as well as all associated value records.
 pub async fn create_measurement_report(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
     values: &[PcrRegisterValue],
 ) -> CarbideResult<MeasurementReport> {
@@ -173,7 +173,7 @@ pub async fn create_measurement_report(
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
 pub async fn get_all_measurement_reports(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> CarbideResult<Vec<MeasurementReport>> {
     let report_records: Vec<MeasurementReportRecord> = common::get_all_objects(txn)
         .await
@@ -210,7 +210,7 @@ pub async fn get_all_measurement_reports(
 /// get_measurement_report_by_id does the work of populating a full
 /// MeasurementReport instance, with values and all.
 pub async fn get_measurement_report_by_id_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     report_id: MeasurementReportId,
 ) -> CarbideResult<MeasurementReport> {
     match get_measurement_report_record_by_id(txn, report_id)
@@ -237,7 +237,7 @@ pub async fn get_measurement_report_by_id_with_txn(
 /// report instances for a given machine ID, which is used by the
 /// `report show` CLI option.
 pub async fn get_measurement_reports_for_machine_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> CarbideResult<Vec<MeasurementReport>> {
     let report_records: Vec<MeasurementReportRecord> =
@@ -269,7 +269,7 @@ struct JournalData {
 
 impl JournalData {
     pub async fn new_from_values(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: MachineId,
         values: &[PcrRegisterValue],
     ) -> CarbideResult<Self> {
@@ -308,7 +308,7 @@ impl JournalData {
 /// It's worth mentioning that this in and of itself will create an additional
 /// journal entry, should a new bundle be created.
 async fn maybe_auto_approve_machine(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     report: &MeasurementReport,
 ) -> CarbideResult<bool> {
     match get_approval_for_machine_id(txn, TrustedMachineId::MachineId(report.machine_id))
@@ -369,7 +369,7 @@ async fn maybe_auto_approve_machine(
 /// It's worth mentioning that this in and of itself will create an additional
 /// journal entry, should a new bundle be created.
 async fn maybe_auto_approve_profile(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     journal: &MeasurementJournal,
     report: &MeasurementReport,
 ) -> CarbideResult<bool> {
@@ -406,7 +406,7 @@ async fn maybe_auto_approve_profile(
 /// create a new bundle with registers 0-6).
 ////////////////////////////////////////////////////////////
 pub async fn create_bundle_with_state(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     report: &MeasurementReport,
     state: MeasurementBundleState,
     pcr_set: &Option<PcrSet>,

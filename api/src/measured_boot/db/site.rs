@@ -31,12 +31,12 @@ use crate::measured_boot::interface::profile::{
     import_measurement_system_profiles, import_measurement_system_profiles_attrs,
 };
 use measured_boot::site::SiteModel;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 
 /// import takes a populated SiteModel and imports it by
 /// populating the corresponding profile and bundle records
 /// in the database.
-pub async fn import(txn: &mut Transaction<'_, Postgres>, model: &SiteModel) -> CarbideResult<()> {
+pub async fn import(txn: &mut PgConnection, model: &SiteModel) -> CarbideResult<()> {
     import_measurement_system_profiles(txn, &model.measurement_system_profiles).await?;
     import_measurement_system_profiles_attrs(txn, &model.measurement_system_profiles_attrs).await?;
     import_measurement_bundles(txn, &model.measurement_bundles).await?;
@@ -45,7 +45,7 @@ pub async fn import(txn: &mut Transaction<'_, Postgres>, model: &SiteModel) -> C
 }
 
 /// export builds a SiteModel from the records in the database.
-pub async fn export(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<SiteModel> {
+pub async fn export(txn: &mut PgConnection) -> CarbideResult<SiteModel> {
     let measurement_system_profiles = export_measurement_profile_records(txn).await?;
     let measurement_system_profiles_attrs = export_measurement_system_profiles_attrs(txn).await?;
     let measurement_bundles = get_measurement_bundle_records(txn).await?;

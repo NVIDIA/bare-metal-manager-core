@@ -1,5 +1,6 @@
 use chrono::Utc;
 use health_report::HealthReport;
+use sqlx::PgConnection;
 
 use super::{HostHandlerParams, discovered_after_state_transition};
 use crate::{
@@ -34,7 +35,7 @@ fn get_machine_validation_context(state: &ManagedHostState) -> Option<String> {
 }
 
 async fn match_sku_for_machine(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     host_handler_params: &HostHandlerParams,
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<Option<crate::model::sku::Sku>, StateHandlerError> {
@@ -64,7 +65,7 @@ async fn match_sku_for_machine(
 }
 
 pub(crate) async fn handle_bom_validation_requested(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     host_handler_params: &HostHandlerParams,
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
@@ -122,7 +123,7 @@ pub(crate) async fn handle_bom_validation_requested(
 }
 
 async fn advance_to_updating_inventory(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let machine_validation_context =
@@ -140,7 +141,7 @@ async fn advance_to_updating_inventory(
 }
 
 async fn advance_to_waiting_for_sku_assignment(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     mh_snapshot: &mut ManagedHostStateSnapshot,
     host_handler_params: &HostHandlerParams,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
@@ -167,7 +168,7 @@ async fn advance_to_waiting_for_sku_assignment(
 }
 
 async fn advance_to_machine_validating(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     mh_snapshot: &mut ManagedHostStateSnapshot,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     // transitioning to machine validating with a None context is a bug.
@@ -200,7 +201,7 @@ async fn advance_to_machine_validating(
 }
 
 async fn handle_bom_validation_disabled(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     host_handler_params: &HostHandlerParams,
     mh_snapshot: &mut ManagedHostStateSnapshot,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
@@ -221,7 +222,7 @@ async fn handle_bom_validation_disabled(
 }
 
 pub(crate) async fn handle_bom_validation_state(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     host_handler_params: &HostHandlerParams,
     mh_snapshot: &mut ManagedHostStateSnapshot,
     bom_validating_state: &BomValidating,

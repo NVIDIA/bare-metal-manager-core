@@ -10,9 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
+use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
 use std::net::IpAddr;
-use std::ops::DerefMut;
 
 use crate::{
     db::DatabaseError,
@@ -48,7 +47,7 @@ impl From<DbExploredManagedHost> for ExploredManagedHost {
 
 impl DbExploredManagedHost {
     pub async fn find_ips(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         // filter is currently is empty, so it is a placeholder for the future
         _filter: ::rpc::site_explorer::ExploredManagedHostSearchFilter,
     ) -> Result<Vec<IpAddr>, DatabaseError> {
@@ -57,24 +56,23 @@ impl DbExploredManagedHost {
         // grab list of IPs
         let mut builder = sqlx::QueryBuilder::new("SELECT host_bmc_ip FROM explored_managed_hosts");
         let query = builder.build_query_as();
-        let ids: Vec<ExploredManagedHostIp> =
-            query.fetch_all(txn.deref_mut()).await.map_err(|e| {
-                DatabaseError::new(file!(), line!(), "explored_managed_hosts::find_ips", e)
-            })?;
+        let ids: Vec<ExploredManagedHostIp> = query.fetch_all(txn).await.map_err(|e| {
+            DatabaseError::new(file!(), line!(), "explored_managed_hosts::find_ips", e)
+        })?;
         // convert to IpAddr
         let ips: Vec<IpAddr> = ids.iter().map(|id| id.0).collect();
         Ok(ips)
     }
 
     pub async fn find_by_ips(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         ips: Vec<IpAddr>,
     ) -> Result<Vec<ExploredManagedHost>, DatabaseError> {
         let query = "SELECT * FROM explored_managed_hosts WHERE host_bmc_ip=ANY($1)";
 
         sqlx::query_as::<_, Self>(query)
             .bind(ips)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map(|hosts| hosts.into_iter().map(Into::into).collect())
             .map_err(|e| {
@@ -83,24 +81,24 @@ impl DbExploredManagedHost {
     }
 
     pub async fn find_all(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Vec<ExploredManagedHost>, DatabaseError> {
         let query = "SELECT * FROM explored_managed_hosts ORDER by host_bmc_ip ASC";
 
         sqlx::query_as::<_, Self>(query)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map(|hosts| hosts.into_iter().map(Into::into).collect())
             .map_err(|e| DatabaseError::new(file!(), line!(), "explored_managed_hosts find_all", e))
     }
 
     pub async fn update(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         explored_hosts: &[ExploredManagedHost],
     ) -> Result<(), DatabaseError> {
         let query = r#"DELETE FROM explored_managed_hosts;"#;
         sqlx::query(query)
-            .execute(txn.deref_mut())
+            .execute(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -112,7 +110,7 @@ impl DbExploredManagedHost {
             sqlx::query(query)
                 .bind(host.host_bmc_ip)
                 .bind(sqlx::types::Json(&host.dpus))
-                .execute(txn.deref_mut())
+                .execute(&mut *txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         }
@@ -121,20 +119,20 @@ impl DbExploredManagedHost {
     }
 
     pub async fn delete_by_host_bmc_addr(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         addr: IpAddr,
     ) -> Result<(), DatabaseError> {
         let query = "DELETE FROM explored_managed_hosts WHERE host_bmc_ip = $1";
         sqlx::query(query)
             .bind(addr)
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map(|_| ())
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn is_managed_host_created_for_endpoint(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         bmc_ip: IpAddr,
     ) -> Result<bool, DatabaseError> {
         let query = r#"SELECT COUNT(*) FROM explored_managed_hosts,jsonb_array_elements(explored_dpus)
@@ -142,7 +140,7 @@ impl DbExploredManagedHost {
         let (count,): (i64,) = sqlx::query_as(query)
             .bind(bmc_ip.to_string())
             .bind(bmc_ip)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

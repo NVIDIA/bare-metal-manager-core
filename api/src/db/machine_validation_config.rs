@@ -9,10 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{ops::DerefMut, str::FromStr};
+use std::str::FromStr;
 
 use config_version::ConfigVersion;
-use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
+use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
 
 use crate::{CarbideError, CarbideResult, db::DatabaseError};
 use serde::{Deserialize, Serialize};
@@ -60,16 +60,9 @@ impl TryFrom<rpc::forge::MachineValidationExternalConfig> for MachineValidationE
 }
 
 impl MachineValidationExternalConfig {
-    pub async fn find_config_by_name(
-        txn: &mut Transaction<'_, Postgres>,
-        name: &str,
-    ) -> CarbideResult<Self> {
+    pub async fn find_config_by_name(txn: &mut PgConnection, name: &str) -> CarbideResult<Self> {
         let query = "SELECT * FROM machine_validation_external_config WHERE name=$1";
-        match sqlx::query_as(query)
-            .bind(name)
-            .fetch_one(txn.deref_mut())
-            .await
-        {
+        match sqlx::query_as(query).bind(name).fetch_one(txn).await {
             Ok(val) => Ok(val),
             Err(_) => Err(CarbideError::NotFoundError {
                 kind: "machine_validation_external_config",
@@ -79,7 +72,7 @@ impl MachineValidationExternalConfig {
     }
 
     pub async fn save(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         name: &str,
         description: &str,
         config: &Vec<u8>,
@@ -91,14 +84,14 @@ impl MachineValidationExternalConfig {
             .bind(description)
             .bind(config.as_slice())
             .bind(ConfigVersion::initial())
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
         Ok(())
     }
 
     async fn update(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         name: &str,
         config: &Vec<u8>,
         next_version: ConfigVersion,
@@ -109,7 +102,7 @@ impl MachineValidationExternalConfig {
             .bind(name)
             .bind(config.as_slice())
             .bind(next_version)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -117,7 +110,7 @@ impl MachineValidationExternalConfig {
     }
 
     pub async fn create_or_update(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         name: &str,
         description: &str,
         data: &Vec<u8>,
@@ -129,26 +122,19 @@ impl MachineValidationExternalConfig {
         Ok(())
     }
 
-    pub async fn find_configs(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Vec<Self>> {
+    pub async fn find_configs(txn: &mut PgConnection) -> CarbideResult<Vec<Self>> {
         let query = "SELECT * FROM machine_validation_external_config";
 
         let names = sqlx::query_as(query)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
         Ok(names)
     }
 
-    pub async fn remove_config(
-        txn: &mut Transaction<'_, Postgres>,
-        name: &str,
-    ) -> CarbideResult<Self> {
+    pub async fn remove_config(txn: &mut PgConnection, name: &str) -> CarbideResult<Self> {
         let query = "DELETE FROM machine_validation_external_config WHERE name=$1 RETURNING *";
-        match sqlx::query_as(query)
-            .bind(name)
-            .fetch_one(txn.deref_mut())
-            .await
-        {
+        match sqlx::query_as(query).bind(name).fetch_one(txn).await {
             Ok(val) => Ok(val),
             Err(_) => Err(CarbideError::NotFoundError {
                 kind: "machine_validation_external_config",

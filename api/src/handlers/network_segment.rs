@@ -12,7 +12,7 @@
 
 use ::rpc::forge as rpc;
 use forge_network::virtualization::VpcVirtualizationType;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -351,7 +351,7 @@ pub(crate) async fn for_vpc(
 // Called by db_init::create_initial_networks
 pub(crate) async fn save(
     api: &Api,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     mut ns: NewNetworkSegment,
     set_to_ready: bool,
     allocate_svi_ip: bool,
@@ -406,7 +406,7 @@ pub(crate) async fn save(
 /// If the pool exists but is empty or has en error, return that.
 pub async fn allocate_vni(
     api: &Api,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     owner_id: &str,
 ) -> Result<i32, CarbideError> {
     match api
@@ -437,7 +437,7 @@ pub async fn allocate_vni(
 /// If the pool exists but is empty or has en error, return that.
 pub async fn allocate_vlan_id(
     api: &Api,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     owner_id: &str,
 ) -> Result<i16, CarbideError> {
     match api

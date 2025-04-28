@@ -11,7 +11,6 @@
  */
 
 use std::cmp::{max, min};
-use std::ops::DerefMut;
 
 use super::DatabaseError;
 use super::network_prefix::NetworkPrefix;
@@ -21,7 +20,7 @@ use ::rpc::forge as rpc;
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::{vpc::VpcId, vpc_peering::VpcPeeringId};
 use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, PgConnection, Row};
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -33,7 +32,7 @@ pub struct VpcPeering {
 
 impl VpcPeering {
     pub async fn create(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         vpc_id_1: VpcId,
         vpc_id_2: VpcId,
     ) -> Result<Self, CarbideError> {
@@ -66,7 +65,7 @@ impl VpcPeering {
         match sqlx::query_as::<_, VpcPeering>(query)
             .bind(vpc1_id)
             .bind(vpc2_id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
         {
             Ok(vpc_peering) => Ok(vpc_peering),
@@ -85,7 +84,7 @@ impl VpcPeering {
     }
 
     pub async fn find_ids(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         vpc_id: Option<VpcId>,
     ) -> Result<Vec<VpcPeeringId>, DatabaseError> {
         let mut builder = sqlx::QueryBuilder::new("SELECT id FROM vpc_peerings");
@@ -100,7 +99,7 @@ impl VpcPeering {
 
         let query = builder.build_query_as();
         let vpc_peering_ids: Vec<VpcPeeringId> = query
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "vpc_peering::find_ids", e))?;
 
@@ -108,27 +107,24 @@ impl VpcPeering {
     }
 
     pub async fn find_by_ids(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         ids: Vec<Uuid>,
     ) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * FROM vpc_peerings WHERE id=ANY($1)";
         let vpc_peering_list = sqlx::query_as::<_, VpcPeering>(query)
             .bind(ids)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(vpc_peering_list)
     }
 
-    pub async fn delete(
-        txn: &mut Transaction<'_, Postgres>,
-        vpc_peer_id: Uuid,
-    ) -> Result<Self, DatabaseError> {
+    pub async fn delete(txn: &mut PgConnection, vpc_peer_id: Uuid) -> Result<Self, DatabaseError> {
         let query = "DELETE FROM vpc_peerings WHERE id=$1 RETURNING *";
         let vpc_peering = sqlx::query_as::<_, VpcPeering>(query)
             .bind(vpc_peer_id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -136,7 +132,7 @@ impl VpcPeering {
     }
 
     pub async fn get_vpc_peer_ids(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         vpc_id: VpcId,
     ) -> Result<Vec<VpcId>, DatabaseError> {
         let query = r#"
@@ -152,7 +148,7 @@ impl VpcPeering {
         let vpc_id: Uuid = vpc_id.into();
         let vpc_peer_ids = sqlx::query_as(query)
             .bind(vpc_id)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -160,7 +156,7 @@ impl VpcPeering {
     }
 
     pub async fn get_vpc_peer_vnis(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         vpc_id: VpcId,
         virtualization_types: Vec<VpcVirtualizationType>,
     ) -> Result<Vec<(VpcId, i32)>, DatabaseError> {
@@ -179,7 +175,7 @@ impl VpcPeering {
         let peer_vpc_vnis = sqlx::query_as(query)
             .bind(vpc_id)
             .bind(virtualization_types)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -198,7 +194,7 @@ impl<'r> FromRow<'r, PgRow> for VpcPeering {
 }
 
 pub async fn get_prefixes_by_vpcs(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     vpcs: &Vec<VpcId>,
 ) -> Result<Vec<String>, CarbideError> {
     let vpc_prefixes = VpcPrefix::find_by_vpcs(txn, vpcs)

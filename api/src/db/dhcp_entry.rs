@@ -9,9 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::ops::DerefMut;
-
-use sqlx::{FromRow, Postgres};
+use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;
 use forge_uuid::machine::MachineInterfaceId;
@@ -44,7 +42,7 @@ impl super::ColumnInfo<'_> for MachineInterfaceIdColumn {
 impl DhcpEntry {
     #[cfg(test)] // only used in tests
     pub async fn find_by<'a, C: super::ColumnInfo<'a, TableType = DhcpEntry>>(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: super::ObjectColumnFilter<'a, C>,
     ) -> Result<Vec<DhcpEntry>, DatabaseError> {
         let mut query =
@@ -52,15 +50,12 @@ impl DhcpEntry {
 
         query
             .build_query_as()
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
-    pub async fn persist(
-        &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<(), DatabaseError> {
+    pub async fn persist(&self, txn: &mut PgConnection) -> Result<(), DatabaseError> {
         let query = "
 INSERT INTO dhcp_entries (machine_interface_id, vendor_string)
 VALUES ($1::uuid, $2::varchar)
@@ -68,7 +63,7 @@ ON CONFLICT DO NOTHING";
         let _result = sqlx::query(query)
             .bind(self.machine_interface_id)
             .bind(&self.vendor_string)
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -76,14 +71,14 @@ ON CONFLICT DO NOTHING";
     }
 
     pub async fn delete(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_interface_id: &MachineInterfaceId,
     ) -> Result<(), DatabaseError> {
         let query = "
 DELETE FROM dhcp_entries WHERE machine_interface_id=$1::uuid";
         sqlx::query(query)
             .bind(machine_interface_id)
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map(|_| ())
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))

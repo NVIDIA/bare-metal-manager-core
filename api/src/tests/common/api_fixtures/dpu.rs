@@ -42,6 +42,7 @@ use rpc::{
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
     forge::{DhcpDiscovery, forge_server::Forge},
 };
+use sqlx::PgConnection;
 use tonic::Request;
 
 /// The version identifier that is used by dpu-agent in unit-tests
@@ -326,10 +327,7 @@ pub async fn dpu_discover_machine(
 }
 
 // Convenience method for the tests to get a machine's loopback IP
-pub async fn loopback_ip(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    dpu_machine_id: &MachineId,
-) -> IpAddr {
+pub async fn loopback_ip(txn: &mut PgConnection, dpu_machine_id: &MachineId) -> IpAddr {
     let dpu = db::machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()

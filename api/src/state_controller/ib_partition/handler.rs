@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use crate::{
     CarbideError,
     db::ib_partition::{IBPartition, IBPartitionStatus},
@@ -23,6 +22,7 @@ use crate::{
     },
 };
 use forge_uuid::infiniband::IBPartitionId;
+use sqlx::PgConnection;
 
 /// The actual IBPartition State handler
 #[derive(Debug, Default, Clone)]
@@ -40,7 +40,7 @@ impl StateHandler for IBPartitionStateHandler {
         partition_id: &IBPartitionId,
         state: &mut IBPartition,
         controller_state: &Self::ControllerState,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<IBPartitionControllerState>, StateHandlerError> {
         let ib_fabric = ctx

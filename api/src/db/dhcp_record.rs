@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::ops::DerefMut;
 
 use ::rpc::forge as rpc;
 use forge_uuid::{
@@ -17,7 +16,7 @@ use forge_uuid::{
 };
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{FromRow, PgConnection};
 use std::net::IpAddr;
 
 use crate::db::DatabaseError;
@@ -69,7 +68,7 @@ impl From<DhcpRecord> for rpc::DhcpRecord {
 
 impl DhcpRecord {
     pub async fn find_by_mac_address(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         mac_address: &MacAddress,
         segment_id: &NetworkSegmentId,
     ) -> Result<DhcpRecord, DatabaseError> {
@@ -77,7 +76,7 @@ impl DhcpRecord {
         sqlx::query_as(query)
             .bind(mac_address)
             .bind(segment_id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }

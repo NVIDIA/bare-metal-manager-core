@@ -16,12 +16,11 @@ pub use ::rpc::machine_discovery as rpc_md;
 use crate::CarbideError;
 use crate::{attestation as attest, db::attestation::SecretAkPub};
 use forge_uuid::machine::MachineId;
-use sqlx::Postgres;
-use sqlx::Transaction;
+use sqlx::PgConnection;
 use tonic::Status;
 
 pub(crate) async fn create_attest_key_bind_challenge(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     attest_key_info: &rpc_md::AttestKeyInfo,
     machine_id: &MachineId,
 ) -> Result<rpc_forge::AttestKeyBindChallenge, Status> {

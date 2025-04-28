@@ -30,11 +30,10 @@ use forge_uuid::{
 };
 use measured_boot::journal::MeasurementJournal;
 use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
-use sqlx::{Postgres, Transaction};
-use std::ops::DerefMut;
+use sqlx::PgConnection;
 
 pub async fn new_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
     report_id: MeasurementReportId,
     profile_id: Option<MeasurementSystemProfileId>,
@@ -48,14 +47,14 @@ pub async fn new_with_txn(
 /// instance from data in the database for the given
 /// journal ID.
 pub async fn from_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     journal_id: MeasurementJournalId,
 ) -> CarbideResult<MeasurementJournal> {
     get_measurement_journal_by_id(txn, journal_id).await
 }
 
 pub async fn delete_where_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     journal_id: MeasurementJournalId,
 ) -> CarbideResult<Option<MeasurementJournal>> {
     let info = delete_journal_where_id(txn, journal_id).await?;
@@ -73,16 +72,14 @@ pub async fn delete_where_id(
     }
 }
 
-pub async fn get_all(
-    txn: &mut Transaction<'_, Postgres>,
-) -> CarbideResult<Vec<MeasurementJournal>> {
+pub async fn get_all(txn: &mut PgConnection) -> CarbideResult<Vec<MeasurementJournal>> {
     get_measurement_journals(txn).await
 }
 
 /// create_measurement_journal handles the work of creating a new
 /// measurement journal record as well as all associated value records.
 async fn create_measurement_journal(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
     report_id: MeasurementReportId,
     profile_id: Option<MeasurementSystemProfileId>,
@@ -107,7 +104,7 @@ async fn create_measurement_journal(
 /// get_measurement_journal_by_id does the work of populating a full
 /// MeasurementJournal instance, with values and all.
 async fn get_measurement_journal_by_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     journal_id: MeasurementJournalId,
 ) -> CarbideResult<MeasurementJournal> {
     match get_measurement_journal_record_by_id(txn, journal_id).await? {
@@ -128,7 +125,7 @@ async fn get_measurement_journal_by_id(
 }
 
 pub async fn get_journal_for_report_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     report_id: MeasurementReportId,
 ) -> CarbideResult<MeasurementJournal> {
     match get_measurement_journal_record_by_report_id(txn, report_id).await? {
@@ -152,7 +149,7 @@ pub async fn get_journal_for_report_id(
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
 async fn get_measurement_journals(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> CarbideResult<Vec<MeasurementJournal>> {
     let journal_records: Vec<MeasurementJournalRecord> = common::get_all_objects(txn)
         .await
@@ -175,13 +172,13 @@ async fn get_measurement_journals(
 /// get_latest_journal_for_id returns the latest journal record for the
 /// provided machine ID.
 pub async fn get_latest_journal_for_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> CarbideResult<Option<MeasurementJournal>> {
     let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";
     match sqlx::query_as::<_, MeasurementJournalRecord>(query)
         .bind(machine_id)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -209,14 +206,14 @@ pub(crate) mod test_support {
     use super::*;
 
     pub async fn get_all_for_machine_id(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: MachineId,
     ) -> CarbideResult<Vec<MeasurementJournal>> {
         get_measurement_journals_for_machine_id(txn, machine_id).await
     }
 
     pub async fn get_latest_for_machine_id(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: MachineId,
     ) -> CarbideResult<Option<MeasurementJournal>> {
         get_latest_journal_for_id(txn, machine_id).await
@@ -226,7 +223,7 @@ pub(crate) mod test_support {
     /// journal instances for a given machine ID, which is used by the
     /// `journal show` CLI option.
     async fn get_measurement_journals_for_machine_id(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: MachineId,
     ) -> CarbideResult<Vec<MeasurementJournal>> {
         let records =

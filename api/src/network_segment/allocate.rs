@@ -6,7 +6,7 @@ use forge_uuid::{
 };
 use ipnetwork::Ipv4Network;
 use itertools::Itertools;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 
 use crate::{
     CarbideError, CarbideResult,
@@ -91,7 +91,7 @@ impl Ipv4PrefixAllocator {
     // This should only be used by FNN code.
     pub async fn allocate_network_segment(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         vpc_id: VpcId,
     ) -> CarbideResult<(NetworkSegmentId, Ipv4Network)> {
         let prefix = self.next_free_prefix(txn).await?;
@@ -138,10 +138,7 @@ impl Ipv4PrefixAllocator {
         Ok((segment.id, prefix))
     }
 
-    pub async fn next_free_prefix(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<Ipv4Network> {
+    pub async fn next_free_prefix(&self, txn: &mut PgConnection) -> CarbideResult<Ipv4Network> {
         let vpc_str = self.vpc_prefix.to_string();
         let used_prefixes = NetworkPrefix::containing_prefix(txn, vpc_str.as_str())
             .await

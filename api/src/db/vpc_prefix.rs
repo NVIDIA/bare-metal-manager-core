@@ -10,11 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::ops::DerefMut;
-
 use ipnetwork::IpNetwork;
 use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Postgres, QueryBuilder, Row, Transaction};
+use sqlx::{FromRow, PgConnection, QueryBuilder, Row};
 
 use super::{ColumnInfo, DatabaseError, ObjectColumnFilter};
 use crate::db::network_prefix::NetworkPrefix;
@@ -33,7 +31,7 @@ pub struct VpcPrefix {
 impl VpcPrefix {
     // Get a list of prefixes matching a filter on the ID column.
     pub async fn get_by_id<'a, C>(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: ObjectColumnFilter<'a, C>,
     ) -> Result<Vec<Self>, DatabaseError>
     where
@@ -43,55 +41,55 @@ impl VpcPrefix {
             .filter(&filter);
         query
             .build_query_as()
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
     // Get a list of prefixes matching a filter on the ID column with ROW based lock.
     pub async fn get_by_id_with_row_lock(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: &[VpcPrefixId],
     ) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * FROM network_vpc_prefixes WHERE id=ANY($1) FOR NO KEY UPDATE";
         sqlx::query_as(query)
             .bind(filter)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     // Find the prefixes associated with a VPC.
     pub async fn find_by_vpc(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         vpc_id: VpcId,
     ) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * FROM network_vpc_prefixes WHERE vpc_id=$1 \
             ORDER BY prefix";
         sqlx::query_as(query)
             .bind(vpc_id)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     // Find all prefixes associated with any VPC in the list.
     pub async fn find_by_vpcs(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         vpc_ids: &Vec<VpcId>,
     ) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * FROM network_vpc_prefixes WHERE vpc_id=ANY($1) \
                 ORDER BY prefix";
         sqlx::query_as(query)
             .bind(vpc_ids)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     // Update last used prefix.
     pub async fn update_last_used_prefix(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         vpc_prefix_id: &VpcPrefixId,
         last_used_prefix: IpNetwork,
     ) -> Result<(), DatabaseError> {
@@ -99,7 +97,7 @@ impl VpcPrefix {
         sqlx::query_as::<_, Self>(query)
             .bind(last_used_prefix)
             .bind(vpc_prefix_id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -109,7 +107,7 @@ impl VpcPrefix {
     // Search for VPC prefixes by the VPC they're in, name, or a match against
     // the prefix (or some combination). Returns just the IDs.
     pub async fn search(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         vpc_id: Option<VpcId>,
         name: Option<String>,
         prefix_match: Option<PrefixMatch>,
@@ -146,7 +144,7 @@ impl VpcPrefix {
 
         query
             .build_query_as()
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
@@ -197,17 +195,14 @@ pub struct NewVpcPrefix {
 }
 
 impl NewVpcPrefix {
-    pub async fn persist(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<VpcPrefix, DatabaseError> {
+    pub async fn persist(&self, txn: &mut PgConnection) -> Result<VpcPrefix, DatabaseError> {
         let insert_query = "INSERT INTO network_vpc_prefixes (id, prefix, name, vpc_id) VALUES ($1, $2, $3, $4) RETURNING *";
         let vpc_prefix: VpcPrefix = sqlx::query_as(insert_query)
             .bind(self.id)
             .bind(self.prefix)
             .bind(self.name.as_str())
             .bind(self.vpc_id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), insert_query, e))?;
 
@@ -217,14 +212,11 @@ impl NewVpcPrefix {
     }
 
     // Check for existing VPC prefixes using any of our address space.
-    pub async fn probe(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<VpcPrefix>, DatabaseError> {
+    pub async fn probe(&self, txn: &mut PgConnection) -> Result<Vec<VpcPrefix>, DatabaseError> {
         let query = "SELECT * FROM network_vpc_prefixes WHERE prefix && $1";
         sqlx::query_as(query)
             .bind(self.prefix)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -236,7 +228,7 @@ impl NewVpcPrefix {
     // which should be adopted by the new VPC prefix.
     pub async fn probe_segment_prefixes(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Vec<(VpcId, NetworkPrefix)>, DatabaseError> {
         let query = "SELECT ns.vpc_id AS vpc_id, np.* FROM network_prefixes np \
             INNER JOIN network_segments ns ON np.segment_id = ns.id \
@@ -249,7 +241,7 @@ impl NewVpcPrefix {
                 let network_prefix = NetworkPrefix::from_row(&row)?;
                 Ok((vpc_id, network_prefix))
             })
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -264,15 +256,12 @@ pub struct UpdateVpcPrefix {
 }
 
 impl UpdateVpcPrefix {
-    pub async fn update(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<VpcPrefix, DatabaseError> {
+    pub async fn update(&self, txn: &mut PgConnection) -> Result<VpcPrefix, DatabaseError> {
         let query = "UPDATE network_vpc_prefixes SET name=$1 WHERE id=$2 RETURNING *";
         sqlx::query_as(query)
             .bind(self.name.as_str())
             .bind(self.id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
         // Note that if/when we add support for prefix resizing, we will need to
@@ -285,14 +274,11 @@ pub struct DeleteVpcPrefix {
 }
 
 impl DeleteVpcPrefix {
-    pub async fn delete(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<VpcPrefixId, DatabaseError> {
+    pub async fn delete(&self, txn: &mut PgConnection) -> Result<VpcPrefixId, DatabaseError> {
         let query = "DELETE FROM network_vpc_prefixes WHERE id=$1 RETURNING *";
         let deleted_prefix: VpcPrefix = sqlx::query_as(query)
             .bind(self.id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

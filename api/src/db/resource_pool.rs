@@ -10,12 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::ops::DerefMut;
 use std::{fmt, marker::PhantomData, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use sqlx::{Postgres, Row, Transaction};
+use sqlx::{PgConnection, Postgres, Row};
 
 use super::BIND_LIMIT;
 use crate::{CarbideError, db::DatabaseError, model::resource_pool::ResourcePoolEntryState};
@@ -52,7 +51,7 @@ where
     /// This needs to be called before `allocate` can return anything.
     pub async fn populate(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         all_values: Vec<T>,
     ) -> Result<(), ResourcePoolError> {
         let free_state = ResourcePoolEntryState::Free;
@@ -70,7 +69,7 @@ where
             });
             qb.push("ON CONFLICT (name, value) DO NOTHING");
             let q = qb.build();
-            q.execute(txn.deref_mut())
+            q.execute(&mut *txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         }
@@ -80,11 +79,11 @@ where
     /// Get a resource from the pool
     pub async fn allocate(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         owner_type: OwnerType,
         owner_id: &str,
     ) -> Result<T, ResourcePoolError> {
-        if self.stats(txn.deref_mut()).await?.free == 0 {
+        if self.stats(&mut *txn).await?.free == 0 {
             return Err(ResourcePoolError::Empty);
         }
         let query = "
@@ -114,7 +113,7 @@ RETURNING allocate.value
             .bind(&self.name)
             .bind(sqlx::types::Json(&free_state))
             .bind(sqlx::types::Json(&allocated_state))
-            .fetch_one(txn.deref_mut())
+            .fetch_one(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         let out = allocated
@@ -130,11 +129,7 @@ RETURNING allocate.value
     }
 
     /// Return a resource to the pool
-    pub async fn release(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-        value: T,
-    ) -> Result<(), ResourcePoolError> {
+    pub async fn release(&self, txn: &mut PgConnection, value: T) -> Result<(), ResourcePoolError> {
         // TODO: If we would get passed the current owner, we could guard on that
         // so that nothing else could release the value
         let query = "
@@ -147,7 +142,7 @@ WHERE name = $2 AND value = $3
             .bind(sqlx::types::Json(ResourcePoolEntryState::Free))
             .bind(&self.name)
             .bind(value.to_string())
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -181,9 +176,7 @@ where
     Ok(s)
 }
 
-pub async fn all(
-    txn: &mut Transaction<'_, Postgres>,
-) -> Result<Vec<ResourcePoolSnapshot>, ResourcePoolError> {
+pub async fn all(txn: &mut PgConnection) -> Result<Vec<ResourcePoolSnapshot>, ResourcePoolError> {
     let mut out = Vec::with_capacity(4);
 
     let query_int =
@@ -199,7 +192,7 @@ pub async fn all(
 
     for query in &[query_int, query_ipv4] {
         let mut rows: Vec<ResourcePoolSnapshot> = sqlx::query_as(query)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         out.append(&mut rows);
@@ -211,14 +204,14 @@ pub async fn all(
 
 /// All the resource pool entries for the given value
 pub async fn find_value(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     value: &str,
 ) -> Result<Vec<ResourcePoolEntry>, ResourcePoolError> {
     let query =
         "SELECT name, value, value_type, state, allocated FROM resource_pool WHERE value = $1";
     let entry: Vec<ResourcePoolEntry> = sqlx::query_as(query)
         .bind(value)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     Ok(entry)

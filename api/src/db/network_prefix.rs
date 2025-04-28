@@ -12,14 +12,13 @@
 use std::{
     fmt::{Display, Formatter},
     net::IpAddr,
-    ops::DerefMut,
 };
 
 use ::rpc::forge as rpc;
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
-use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
+use sqlx::{Acquire, FromRow, PgConnection, Row};
 
 use super::DatabaseError;
 use crate::CarbideError;
@@ -116,13 +115,13 @@ impl From<NetworkPrefix> for rpc::NetworkPrefix {
 impl NetworkPrefix {
     /// Fetch the prefix that matches, is a subnet of, or contains the given one.
     pub async fn containing_prefix(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         prefix: &str,
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
         let query = "select * from network_prefixes where prefix && $1::inet";
         let container = sqlx::query_as(query)
             .bind(prefix)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(container)
@@ -139,13 +138,13 @@ impl NetworkPrefix {
     // Search for specific prefix
     #[cfg(test)]
     pub async fn find(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         uuid: uuid::Uuid,
     ) -> Result<NetworkPrefix, DatabaseError> {
         let query = "select * from network_prefixes where id=$1";
         sqlx::query_as(query)
             .bind(uuid)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -155,7 +154,7 @@ impl NetworkPrefix {
      */
     #[cfg(test)]
     pub async fn find_by<'a, C: super::ColumnInfo<'a, TableType = NetworkPrefix>>(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: super::ObjectColumnFilter<'a, C>,
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
         let mut query =
@@ -163,7 +162,7 @@ impl NetworkPrefix {
 
         query
             .build_query_as()
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
@@ -171,7 +170,7 @@ impl NetworkPrefix {
     // Return a list of network segment prefixes that are associated with this
     // VPC but are _not_ associated with a VPC prefix.
     pub async fn find_by_vpc(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         vpc_id: VpcId,
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
         let query = "SELECT np.* FROM network_prefixes np \
@@ -180,7 +179,7 @@ impl NetworkPrefix {
 
         let prefixes = sqlx::query_as(query)
             .bind(vpc_id)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(prefixes)
@@ -189,7 +188,7 @@ impl NetworkPrefix {
     // Return a list of network segment prefixes that are associated with any VPC in the list
     // but are _not_ associated with a VPC prefix.
     pub async fn find_by_vpcs(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         vpc_ids: &Vec<VpcId>,
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
         let query = "SELECT np.* FROM network_prefixes np
@@ -198,7 +197,7 @@ impl NetworkPrefix {
 
         let prefixes = sqlx::query_as(query)
             .bind(vpc_ids)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -219,7 +218,7 @@ impl NetworkPrefix {
      * prefixes: A slice of the `NewNetworkPrefix` to create.
      */
     pub async fn create_for(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         segment_id: &NetworkSegmentId,
         prefixes: &[NewNetworkPrefix],
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
@@ -260,12 +259,12 @@ impl NetworkPrefix {
 
     pub async fn delete_for_segment(
         segment_id: NetworkSegmentId,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<(), DatabaseError> {
         let query = "DELETE FROM network_prefixes WHERE segment_id=$1::uuid RETURNING id";
         sqlx::query_as::<_, NetworkPrefixId>(query)
             .bind(segment_id)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map(|_| ())
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -275,7 +274,7 @@ impl NetworkPrefix {
     // from the specified vpc_prefix.
     pub async fn set_vpc_prefix(
         &mut self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         vpc_prefix_id: &VpcPrefixId,
         prefix: &IpNetwork,
     ) -> Result<(), DatabaseError> {
@@ -285,7 +284,7 @@ impl NetworkPrefix {
             .bind(vpc_prefix_id)
             .bind(prefix)
             .bind(self.id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -313,7 +312,7 @@ impl NetworkPrefix {
 
     // Update the SVI IP.
     pub async fn set_svi_ip(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         prefix_id: uuid::Uuid,
         svi_ip: &IpAddr,
     ) -> Result<(), DatabaseError> {
@@ -321,7 +320,7 @@ impl NetworkPrefix {
         sqlx::query_as::<_, Self>(query)
             .bind(svi_ip)
             .bind(prefix_id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

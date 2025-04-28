@@ -16,6 +16,7 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
 use forge_uuid::{infiniband::IBPartitionId, instance::InstanceId};
+use sqlx::PgConnection;
 
 use crate::{
     db,
@@ -36,7 +37,7 @@ use crate::{
 
 pub(crate) async fn record_machine_infiniband_status_observation(
     services: &StateHandlerServices,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     mh_snapshot: &mut ManagedHostStateSnapshot,
 ) -> Result<(), StateHandlerError> {
     if mh_snapshot.host_snapshot.hardware_info.is_none() {
@@ -164,7 +165,7 @@ pub(crate) async fn record_machine_infiniband_status_observation(
 
 pub(crate) async fn bind_ib_ports(
     services: &StateHandlerServices,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     instance_id: InstanceId,
     ib_interfaces: Vec<InstanceIbInterfaceConfig>,
 ) -> Result<(), StateHandlerError> {
@@ -220,7 +221,7 @@ pub(crate) async fn bind_ib_ports(
 
 pub(crate) async fn unbind_ib_ports(
     services: &StateHandlerServices,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     instance_id: InstanceId,
     ib_interfaces: Vec<InstanceIbInterfaceConfig>,
 ) -> Result<(), StateHandlerError> {

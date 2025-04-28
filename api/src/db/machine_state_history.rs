@@ -11,8 +11,7 @@
  */
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Postgres, Transaction};
-use std::ops::DerefMut;
+use sqlx::{FromRow, PgConnection};
 
 use crate::{
     db::DatabaseError,
@@ -54,7 +53,7 @@ impl From<DbMachineStateHistory> for crate::model::machine::MachineStateHistory 
 /// * `txn` - A reference to an open Transaction
 ///
 pub async fn find_by_machine_ids(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     ids: &[MachineId],
 ) -> Result<std::collections::HashMap<MachineId, Vec<MachineStateHistory>>, DatabaseError> {
     let query = "SELECT machine_id, state::TEXT, state_version, timestamp
@@ -64,7 +63,7 @@ pub async fn find_by_machine_ids(
     let str_ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
     let query_results = sqlx::query_as::<_, DbMachineStateHistory>(query)
         .bind(str_ids)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -81,7 +80,7 @@ pub async fn find_by_machine_ids(
 
 #[cfg(test)] // only used in tests today
 pub async fn for_machine(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     id: &MachineId,
 ) -> Result<Vec<MachineStateHistory>, DatabaseError> {
     let query = "SELECT machine_id, state::TEXT, state_version, timestamp
@@ -90,7 +89,7 @@ pub async fn for_machine(
         ORDER BY id ASC";
     sqlx::query_as::<_, DbMachineStateHistory>(query)
         .bind(id.to_string())
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
         .map(|events| events.into_iter().map(Into::into).collect())
@@ -98,7 +97,7 @@ pub async fn for_machine(
 
 /// Store each state for debugging purpose.
 pub async fn persist(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     state: ManagedHostState,
     state_version: ConfigVersion,
@@ -110,7 +109,7 @@ pub async fn persist(
         .bind(machine_id.to_string())
         .bind(sqlx::types::Json(state))
         .bind(state_version)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
         .map(Into::into)
@@ -118,7 +117,7 @@ pub async fn persist(
 
 /// Renames all history entries using one Machine ID into using another Machine ID
 pub async fn update_machine_ids(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     old_machine_id: &MachineId,
     new_machine_id: &MachineId,
 ) -> Result<(), DatabaseError> {
@@ -126,7 +125,7 @@ pub async fn update_machine_ids(
     sqlx::query(query)
         .bind(new_machine_id.to_string())
         .bind(old_machine_id.to_string())
-        .execute(txn.deref_mut())
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

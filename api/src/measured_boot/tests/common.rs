@@ -21,7 +21,7 @@ use crate::{
 };
 use forge_uuid::machine::MachineId;
 use measured_boot::machine::CandidateMachine;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 use std::str::FromStr;
 
 pub fn load_topology_json(path: &str) -> HardwareInfo {
@@ -36,7 +36,7 @@ pub fn load_topology_json(path: &str) -> HardwareInfo {
 }
 
 pub async fn create_test_machine(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &str,
     topology: &HardwareInfo,
 ) -> eyre::Result<CandidateMachine> {

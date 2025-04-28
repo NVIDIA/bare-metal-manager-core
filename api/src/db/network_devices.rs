@@ -10,10 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::ops::DerefMut;
-
 use itertools::Itertools;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 
 use super::{DatabaseError, ObjectFilter};
 use crate::model::{
@@ -52,7 +50,7 @@ fn get_port_data<'a>(
 
 impl NetworkDevice {
     pub async fn find(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: ObjectFilter<'_, &str>,
         search_config: &NetworkDeviceSearchConfig,
     ) -> Result<Vec<Self>, DatabaseError> {
@@ -61,7 +59,7 @@ impl NetworkDevice {
         let mut devices = match filter {
             ObjectFilter::All => {
                 sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", ""))
-                    .fetch_all(txn.deref_mut())
+                    .fetch_all(&mut *txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "network_devices All", e))
             }
@@ -69,7 +67,7 @@ impl NetworkDevice {
                 let where_clause = "WHERE l.id=$1".to_string();
                 sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", &where_clause))
                     .bind(id.to_string())
-                    .fetch_all(txn.deref_mut())
+                    .fetch_all(&mut *txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "network_devices One", e))
             }
@@ -78,7 +76,7 @@ impl NetworkDevice {
                 let str_list: Vec<String> = list.iter().map(|id| id.to_string()).collect();
                 sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", &where_clause))
                     .bind(str_list)
-                    .fetch_all(txn.deref_mut())
+                    .fetch_all(&mut *txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "network_devices List", e))
             }
@@ -94,10 +92,7 @@ impl NetworkDevice {
         Ok(devices)
     }
 
-    async fn create(
-        txn: &mut Transaction<'_, Postgres>,
-        data: &LldpSwitchData,
-    ) -> Result<Self, DatabaseError> {
+    async fn create(txn: &mut PgConnection, data: &LldpSwitchData) -> Result<Self, DatabaseError> {
         let query = "INSERT INTO network_devices(id, name, description, ip_addresses) VALUES($1, $2, $3, $4::inet[]) RETURNING *";
 
         sqlx::query_as(query)
@@ -105,13 +100,13 @@ impl NetworkDevice {
             .bind(&data.name)
             .bind(&data.description)
             .bind(&data.ip_address)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn get_or_create_network_device(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         data: &LldpSwitchData,
     ) -> Result<NetworkDevice, LldpError> {
         let network_device = NetworkDevice::find(
@@ -131,12 +126,10 @@ impl NetworkDevice {
             .map_err(LldpError::from)
     }
 
-    pub async fn lock_network_device_table(
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<(), DatabaseError> {
+    pub async fn lock_network_device_table(txn: &mut PgConnection) -> Result<(), DatabaseError> {
         let query = "LOCK TABLE network_device_lock IN EXCLUSIVE MODE";
         sqlx::query(query)
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -146,14 +139,12 @@ impl NetworkDevice {
     /// port_to_network_device_map table. Problem with update is that it can create extra load on
     /// db as there are very few chances of port update. So this function is called only from
     /// delete port_to_network_device_map call.
-    pub async fn cleanup_unused_switches(
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<(), DatabaseError> {
+    pub async fn cleanup_unused_switches(txn: &mut PgConnection) -> Result<(), DatabaseError> {
         Self::lock_network_device_table(txn).await?;
         let query = "DELETE FROM network_devices WHERE id NOT IN (SELECT network_device_id FROM port_to_network_device_map) RETURNING *";
 
         let result = sqlx::query_as::<_, NetworkDevice>(query)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -168,7 +159,7 @@ impl NetworkDevice {
 
 impl DpuToNetworkDeviceMap {
     pub async fn create(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         local_port: &str,
         remote_port: &str,
         dpu_id: &MachineId,
@@ -189,21 +180,18 @@ impl DpuToNetworkDeviceMap {
             .bind(local_port)
             .bind(remote_port)
             .bind(network_device_id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
-    pub async fn delete(
-        txn: &mut Transaction<'_, Postgres>,
-        dpu_id: &MachineId,
-    ) -> Result<(), DatabaseError> {
+    pub async fn delete(txn: &mut PgConnection, dpu_id: &MachineId) -> Result<(), DatabaseError> {
         // delete the association.
         let query = r#"DELETE from port_to_network_device_map WHERE dpu_id=$1 RETURNING dpu_id"#;
 
         let _ids = sqlx::query_as::<_, MachineId>(query)
             .bind(dpu_id.to_string())
-            .fetch_all(txn.deref_mut())
+            .fetch_all(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -211,7 +199,7 @@ impl DpuToNetworkDeviceMap {
     }
 
     pub async fn create_dpu_network_device_association(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         device_data: &[LldpSwitchData],
         dpu_id: &MachineId,
     ) -> Result<(), LldpError> {
@@ -244,20 +232,20 @@ impl DpuToNetworkDeviceMap {
     }
 
     pub async fn find_by_network_device_id(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         device_id: &str,
     ) -> Result<Vec<Self>, DatabaseError> {
         let base_query = "SELECT * FROM port_to_network_device_map l WHERE network_device_id=$1";
 
         sqlx::query_as(base_query)
             .bind(device_id)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "network_device_id", e))
     }
 
     pub async fn find_by_dpu_ids(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         dpu_ids: &[String],
     ) -> Result<Vec<Self>, DatabaseError> {
         let base_query = "SELECT * FROM port_to_network_device_map l WHERE dpu_id=ANY($1)";
@@ -265,7 +253,7 @@ impl DpuToNetworkDeviceMap {
         let str_list: Vec<String> = dpu_ids.iter().map(|id| id.to_string()).collect();
         sqlx::query_as(base_query)
             .bind(str_list)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "port_to_network_device_map", e))
     }
@@ -273,7 +261,7 @@ impl DpuToNetworkDeviceMap {
 
 impl NetworkTopologyData {
     pub async fn get_topology(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: ObjectFilter<'_, &str>,
     ) -> Result<Self, LldpError> {
         Ok(NetworkTopologyData {

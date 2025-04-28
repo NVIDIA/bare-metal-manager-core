@@ -10,13 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, net::IpAddr, ops::DerefMut};
+use std::{collections::HashMap, net::IpAddr};
 
 use chrono::prelude::*;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, PgConnection, Row};
 
 use super::DatabaseError;
 use crate::model::bmc_info::BmcInfo;
@@ -78,7 +78,7 @@ pub struct TopologyData {
 
 impl MachineTopology {
     async fn update(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: &MachineId,
         hardware_info: &HardwareInfo,
     ) -> CarbideResult<Self> {
@@ -94,7 +94,7 @@ impl MachineTopology {
         let res = sqlx::query_as(query)
             .bind(machine_id.to_string())
             .bind(sqlx::types::Json(&discovery_data))
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -102,7 +102,7 @@ impl MachineTopology {
     }
 
     pub async fn create_or_update(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: &MachineId,
         hardware_info: &HardwareInfo,
     ) -> CarbideResult<Self> {
@@ -138,7 +138,7 @@ impl MachineTopology {
         let res = sqlx::query_as(query)
             .bind(machine_id.to_string())
             .bind(sqlx::types::Json(&topology_data))
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -147,7 +147,7 @@ impl MachineTopology {
 
     // update_firmware_version_by_bmc_address updates the stored firmware version info, using the BMC IP under the assumption that this came from site explorer reading from that address.
     pub async fn update_firmware_version_by_bmc_address(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         bmc_address: &IpAddr,
         bmc_version: &str,
         bios_version: &str,
@@ -167,7 +167,7 @@ impl MachineTopology {
             .bind(bmc_address.to_string())
             .bind(sqlx::types::Json(bmc_version))
             .bind(sqlx::types::Json(bios_version))
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -175,7 +175,7 @@ impl MachineTopology {
     }
 
     pub async fn find_by_machine_ids(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_ids: &[MachineId],
     ) -> Result<HashMap<MachineId, Vec<Self>>, DatabaseError> {
         // TODO: Actually this shouldn't be able to return multiple entries,
@@ -185,7 +185,7 @@ impl MachineTopology {
         let query = "SELECT * FROM machine_topologies WHERE machine_id=ANY($1)";
         let topologies = sqlx::query_as(query)
             .bind(str_ids)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             .into_iter()
@@ -194,7 +194,7 @@ impl MachineTopology {
     }
 
     pub async fn find_latest_by_machine_ids(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_ids: &[MachineId],
     ) -> Result<HashMap<MachineId, Self>, DatabaseError> {
         // TODO: So far this just moved code around
@@ -218,20 +218,20 @@ impl MachineTopology {
     }
 
     pub async fn find_machine_id_by_bmc_ip(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         address: &str,
     ) -> Result<Option<MachineId>, DatabaseError> {
         let query =
             "SELECT machine_id FROM machine_topologies WHERE topology->'bmc_info'->>'ip' = $1";
         sqlx::query_as(query)
             .bind(address)
-            .fetch_optional(txn.deref_mut())
+            .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn find_machine_bmc_pairs(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         bmc_ips: Vec<String>,
     ) -> Result<Vec<(MachineId, String)>, DatabaseError> {
         let query = r#"SELECT machine_id, topology->'bmc_info'->>'ip'
@@ -239,7 +239,7 @@ impl MachineTopology {
             WHERE topology->'bmc_info'->>'ip' = ANY($1)"#;
         sqlx::query_as(query)
             .bind(bmc_ips)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| {
                 DatabaseError::new(
@@ -254,14 +254,14 @@ impl MachineTopology {
     /// Search the topologyfor a string anywhere in the JSON.
     /// Used by the serial number finder.
     pub async fn find_freetext(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         to_find: &str,
     ) -> Result<Vec<MachineId>, DatabaseError> {
         let query =
             "SELECT machine_id FROM machine_topologies WHERE topology::text ilike '%' || $1 || '%'";
         sqlx::query_as::<_, MachineId>(query)
             .bind(to_find)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| {
                 DatabaseError::new(file!(), line!(), "machine_topologies find_freetext", e)
@@ -269,7 +269,7 @@ impl MachineTopology {
     }
 
     pub async fn set_topology_update_needed(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: &MachineId,
         value: bool,
     ) -> Result<(), DatabaseError> {
@@ -277,7 +277,7 @@ impl MachineTopology {
         let _id = sqlx::query_as::<_, MachineId>(query)
             .bind(machine_id.to_string())
             .bind(value)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

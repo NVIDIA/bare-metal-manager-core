@@ -16,7 +16,7 @@ use config_version::ConfigVersion;
 use forge_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{PgConnection, PgPool};
 
 use crate::cfg::file::HostHealthConfig;
 use crate::db::ObjectColumnFilter;
@@ -115,7 +115,7 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
 /// Allocate network segment and update network segment id with it.
 pub async fn allocate_network(
     network_config: &mut InstanceNetworkConfig,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> CarbideResult<()> {
     // Take ROW LEVEL lock on all the vpc_prefix taken.
     // This is needed so that last_used_prefix is not modified by multiple clients at same time.
@@ -455,7 +455,7 @@ pub async fn allocate_instance(
 
 /// check whether the tenant of instance is consistent with the tenant of the ib partition
 pub async fn tenant_consistent_check(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     instance_tenant: &TenantOrganizationId,
     ib_config: &InstanceInfinibandConfig,
 ) -> CarbideResult<()> {

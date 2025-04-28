@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;
 use crate::{
@@ -26,7 +26,7 @@ pub struct HostMachineUpdate {
 
 impl HostMachineUpdate {
     pub async fn find_upgrade_needed(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         global_enabled: bool,
         ready_only: bool,
     ) -> Result<Vec<HostMachineUpdate>, DatabaseError> {
@@ -64,37 +64,37 @@ impl HostMachineUpdate {
             ready_only, from_global,
         );
         sqlx::query_as(query.as_str())
-            .fetch_all(&mut **txn)
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_outdated_hosts", e))
     }
 
     pub async fn find_upgrade_in_progress(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Vec<HostMachineUpdate>, DatabaseError> {
         let query =
             "SELECT id FROM machines WHERE controller_state->'state' = '\"hostreprovision\"'";
         sqlx::query_as(query)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_outdated_hosts", e))
     }
 
     pub async fn find_completed_updates(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Vec<MachineId>, DatabaseError> {
         let query = r#"SELECT id FROM machines
                     WHERE host_reprovisioning_requested IS NULL
                             AND coalesce(health_report_overrides, '{"merges": {}}'::jsonb)->'merges' ? 'host-fw-update' = TRUE"#;
         sqlx::query_as::<_, MachineId>(query)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
 
 pub async fn trigger_host_reprovisioning_request(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     initiator: &str,
     machine_id: &MachineId,
 ) -> Result<(), DatabaseError> {
@@ -110,7 +110,7 @@ pub async fn trigger_host_reprovisioning_request(
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id.to_string())
         .bind(sqlx::types::Json(req))
-        .fetch_one(&mut **txn)
+        .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -136,13 +136,13 @@ pub async fn trigger_host_reprovisioning_request(
 }
 
 pub async fn clear_host_reprovisioning_request(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET host_reprovisioning_requested = NULL WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id.to_string())
-        .fetch_one(&mut **txn)
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

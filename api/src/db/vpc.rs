@@ -11,7 +11,6 @@
  */
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
-use std::ops::DerefMut;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
@@ -20,7 +19,7 @@ use config_version::ConfigVersion;
 use forge_uuid::network_security_group::NetworkSecurityGroupIdParseError;
 use forge_uuid::{machine::MachineId, network_security_group::NetworkSecurityGroupId};
 use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, PgConnection, Row};
 
 use super::network_segment::NetworkSegment;
 use super::{
@@ -138,10 +137,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
 }
 
 impl NewVpc {
-    pub async fn persist(
-        &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<Vpc, DatabaseError> {
+    pub async fn persist(&self, txn: &mut PgConnection) -> Result<Vpc, DatabaseError> {
         let query =
                 "INSERT INTO vpcs (id, name, organization_id, network_security_group_id, version, network_virtualization_type,
                 description,
@@ -155,7 +151,7 @@ impl NewVpc {
             .bind(self.network_virtualization_type)
             .bind(&self.metadata.description)
             .bind(sqlx::types::Json(&self.metadata.labels))
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -163,7 +159,7 @@ impl NewVpc {
 
 impl Vpc {
     pub async fn find_ids(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: rpc::VpcSearchFilter,
     ) -> Result<Vec<VpcId>, CarbideError> {
         // build query
@@ -220,23 +216,19 @@ impl Vpc {
 
         let query = builder.build_query_as();
         let ids: Vec<VpcId> = query
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "vpc::find_ids", e))?;
 
         Ok(ids)
     }
 
-    pub async fn set_vni(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-        id: VpcId,
-        vni: i32,
-    ) -> Result<(), DatabaseError> {
+    pub async fn set_vni(txn: &mut PgConnection, id: VpcId, vni: i32) -> Result<(), DatabaseError> {
         let query = "UPDATE vpcs SET vni = $1 WHERE id = $2 AND vni IS NULL";
         let _ = sqlx::query(query)
             .bind(vni)
             .bind(id)
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -245,7 +237,7 @@ impl Vpc {
     // Note: Following find function should not be used to search based on vpc labels.
     // Recommended approach to filter by labels is to first find VPC ids.
     pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Vpc>>(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: ObjectColumnFilter<'a, C>,
     ) -> Result<Vec<Vpc>, DatabaseError> {
         let mut query = FilterableQueryBuilder::new("SELECT * FROM vpcs").filter(&filter);
@@ -253,27 +245,24 @@ impl Vpc {
         query
             .push(" AND deleted IS NULL")
             .build_query_as()
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
-    pub async fn find_by_vni(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-        vni: i32,
-    ) -> Result<Vec<Vpc>, DatabaseError> {
+    pub async fn find_by_vni(txn: &mut PgConnection, vni: i32) -> Result<Vec<Vpc>, DatabaseError> {
         Self::find_by(txn, ObjectColumnFilter::One(VniColumn, &vni)).await
     }
 
     pub async fn find_by_name(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         name: &str,
     ) -> Result<Vec<Vpc>, DatabaseError> {
         Self::find_by(txn, ObjectColumnFilter::One(NameColumn, &name)).await
     }
 
     pub async fn find_by_segment(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         segment_id: NetworkSegmentId,
     ) -> Result<Vpc, DatabaseError> {
         let mut query = FilterableQueryBuilder::new(
@@ -287,7 +276,7 @@ impl Vpc {
 
         query
             .build_query_as()
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
@@ -297,16 +286,12 @@ impl Vpc {
     /// If the VPC existed at the point of deletion this returns the last known information about the VPC
     /// If the VPC already had been delete, this returns Ok(`None`)
     pub async fn try_delete(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         id: VpcId,
     ) -> Result<Option<Self>, DatabaseError> {
         // TODO: Should this update the version?
         let query = "UPDATE vpcs SET updated=NOW(), deleted=NOW() WHERE id=$1 AND deleted is null RETURNING *";
-        match sqlx::query_as(query)
-            .bind(id)
-            .fetch_one(txn.deref_mut())
-            .await
-        {
+        match sqlx::query_as(query).bind(id).fetch_one(txn).await {
             Ok(vpc) => Ok(Some(vpc)),
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
@@ -487,7 +472,7 @@ impl From<Vpc> for rpc::VpcDeletionResult {
 }
 
 impl UpdateVpc {
-    pub async fn update(&self, txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<Vpc> {
+    pub async fn update(&self, txn: &mut PgConnection) -> CarbideResult<Vpc> {
         // TODO: Should this check for deletion?
         let current_version = match self.if_version_match {
             Some(version) => version,
@@ -518,7 +503,7 @@ impl UpdateVpc {
             .bind(sqlx::types::Json(&self.metadata.labels))
             .bind(self.id)
             .bind(current_version)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await;
 
         match query_result {
@@ -542,7 +527,7 @@ impl UpdateVpc {
 }
 
 impl UpdateVpcVirtualization {
-    pub async fn update(&self, txn: &mut sqlx::Transaction<'_, Postgres>) -> CarbideResult<Vpc> {
+    pub async fn update(&self, txn: &mut PgConnection) -> CarbideResult<Vpc> {
         let query = "UPDATE vpcs
             SET version=$1, network_virtualization_type=$2, updated=NOW()
             WHERE id=$3 AND version=$4 AND deleted is null
@@ -568,7 +553,7 @@ impl UpdateVpcVirtualization {
             .bind(self.network_virtualization_type)
             .bind(self.id)
             .bind(current_version)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(&mut *txn)
             .await;
 
         let vpc: Vpc = match query_result {
@@ -624,13 +609,13 @@ impl UpdateVpcVirtualization {
 // are attached to this VPC but are not directly part of the `vpcs` table (e.g.
 // VPC prefixes).
 pub async fn increment_vpc_version(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     id: VpcId,
 ) -> Result<ConfigVersion, DatabaseError> {
     let read_query = "SELECT version FROM vpcs WHERE id=$1";
     let current_version: ConfigVersion = sqlx::query_as(read_query)
         .bind(id)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), read_query, e))?;
 
@@ -640,7 +625,7 @@ pub async fn increment_vpc_version(
     sqlx::query_as(update_query)
         .bind(new_version)
         .bind(id)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), update_query, e))
 }
@@ -661,17 +646,14 @@ impl VpcDpuLoopback {
         }
     }
 
-    pub async fn persist(
-        &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<Self, DatabaseError> {
+    pub async fn persist(&self, txn: &mut PgConnection) -> Result<Self, DatabaseError> {
         let query = "INSERT INTO vpc_dpu_loopbacks (dpu_id, vpc_id, loopback_ip) 
                            VALUES ($1, $2, $3) RETURNING *";
         sqlx::query_as(query)
             .bind(self.dpu_id)
             .bind(self.vpc_id)
             .bind(self.loopback_ip)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -679,7 +661,7 @@ impl VpcDpuLoopback {
     pub async fn delete_and_deallocate(
         common_pools: &crate::resource_pool::common::CommonPools,
         dpu_id: &MachineId,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         delete_admin_loopback_also: bool,
     ) -> Result<(), CarbideError> {
         let mut admin_vpc = None;
@@ -703,7 +685,7 @@ impl VpcDpuLoopback {
         }
 
         let deleted_loopbacks = sqlx_query
-            .fetch_all(txn.deref_mut())
+            .fetch_all(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -730,7 +712,7 @@ impl VpcDpuLoopback {
     }
 
     pub async fn find(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         dpu_id: &MachineId,
         vpc_id: &VpcId,
     ) -> Result<Option<Self>, DatabaseError> {
@@ -739,7 +721,7 @@ impl VpcDpuLoopback {
         sqlx::query_as(query)
             .bind(dpu_id)
             .bind(vpc_id)
-            .fetch_optional(txn.deref_mut())
+            .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -748,7 +730,7 @@ impl VpcDpuLoopback {
     /// If already allocated, return the value.
     pub async fn get_or_allocate_loopback_ip_for_vpc(
         common_pools: &crate::resource_pool::common::CommonPools,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         dpu_id: &MachineId,
         vpc_id: &VpcId,
     ) -> Result<Ipv4Addr, CarbideError> {

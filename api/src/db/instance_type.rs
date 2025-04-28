@@ -9,11 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{collections::HashMap, ops::DerefMut};
+use std::collections::HashMap;
 
 use config_version::ConfigVersion;
 use forge_uuid::instance_type::InstanceTypeId;
-use sqlx::{Postgres, Row, Transaction, postgres::PgRow};
+use sqlx::{PgConnection, Postgres, Row, postgres::PgRow};
 
 use crate::{
     CarbideError,
@@ -55,7 +55,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for InstanceType {
 /// * `new_instance_type` - A reference to a NewInstanceType struct with the
 ///                         details of the InstanceType to create
 pub async fn create(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     id: &InstanceTypeId,
     metadata: &Metadata,
     desired_capabilities: &[InstanceTypeMachineCapabilityFilter],
@@ -77,7 +77,7 @@ pub async fn create(
         .bind(ConfigVersion::initial())
         .bind(id)
         .bind(&metadata.name)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
     {
         Ok(instance_type) => Ok(instance_type),
@@ -101,7 +101,7 @@ pub async fn create(
 /// * `txn`        - A reference to an active DB transaction
 /// * `for_update` - A boolean flag to acquire DB locks for synchronization
 pub(crate) async fn find_ids(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     for_update: bool,
 ) -> Result<Vec<InstanceTypeId>, CarbideError> {
     let mut builder =
@@ -113,7 +113,7 @@ pub(crate) async fn find_ids(
 
     Ok(builder
         .build_query_as()
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), builder.sql(), err))?)
 }
@@ -125,7 +125,7 @@ pub(crate) async fn find_ids(
 /// * `instance_type_ids` - A list of InstanceTypeId values to use for querying the Db for active InstanceType records
 /// * `for_update`        - A boolean flag to acquire DB locks for synchronization
 pub(crate) async fn find_by_ids(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     instance_type_ids: &[InstanceTypeId],
     for_update: bool,
 ) -> Result<Vec<InstanceType>, CarbideError> {
@@ -143,7 +143,7 @@ pub(crate) async fn find_by_ids(
     Ok(builder
         .build_query_as()
         .bind(instance_type_ids)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), builder.sql(), err))?)
 }
@@ -156,7 +156,7 @@ pub(crate) async fn find_by_ids(
 /// * `update_instance_type` - A reference to an UpdateInstanceType struct
 ///                            with the details of the InstanceType to update
 pub(crate) async fn update(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     id: &InstanceTypeId,
     metadata: &Metadata,
     desired_capabilities: &[InstanceTypeMachineCapabilityFilter],
@@ -187,7 +187,7 @@ pub(crate) async fn update(
         .bind(expected_version)
         .bind(id)
         .bind(&metadata.name)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
     {
         Ok(instance_type) => Ok(instance_type),
@@ -217,14 +217,14 @@ pub(crate) async fn update(
 /// * `txn`              - A reference to an active DB transaction
 /// * `instance_type_id` - An InstanceTypeId for the InstanceType to be soft-deleted
 pub(crate) async fn soft_delete(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     instance_type_id: &InstanceTypeId,
 ) -> Result<Option<InstanceTypeId>, CarbideError> {
     let query = "UPDATE instance_types SET deleted=NOW() WHERE id=$1::varchar AND deleted is NULL RETURNING id";
 
     match sqlx::query_as(query)
         .bind(instance_type_id)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
     {
         Ok(instance_type) => Ok(Some(instance_type)),

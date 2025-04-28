@@ -113,7 +113,7 @@ use rpc::forge::{
     VpcVirtualizationType, forge_server::Forge,
 };
 use site_explorer::new_host_with_machine_validation;
-use sqlx::{PgPool, postgres::PgConnectOptions};
+use sqlx::{PgConnection, PgPool, postgres::PgConnectOptions};
 use tokio::sync::Mutex;
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
@@ -328,7 +328,7 @@ impl TestEnv {
         &self,
         host_machine_id: &MachineId,
         max_iterations: u32,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
         expected_state: ManagedHostState,
     ) {
         self.run_machine_state_controller_iteration_until_state_condition(
@@ -351,7 +351,7 @@ impl TestEnv {
         &self,
         host_machine_id: &MachineId,
         max_iterations: u32,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        txn: &mut PgConnection,
         state_check: impl Fn(&Machine) -> bool,
     ) -> ManagedHostState {
         for _ in 0..max_iterations {
@@ -1990,7 +1990,7 @@ where
         object_id: &Self::ObjectId,
         state: &mut Self::State,
         controller_state: &Self::ControllerState,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
         self.inner

@@ -19,7 +19,7 @@ pub use measured_boot::{
 };
 
 pub mod tpm_ca_cert;
-use sqlx::Pool;
+use sqlx::{PgConnection, Pool};
 pub use tpm_ca_cert::extract_ca_fields;
 pub use tpm_ca_cert::match_insert_new_ek_cert_status_against_ca;
 
@@ -31,10 +31,10 @@ use crate::db::machine_topology::MachineTopology;
 use crate::model::hardware_info::TpmEkCertificate;
 use crate::{CarbideError, db};
 use forge_uuid::machine::MachineId;
-use sqlx::{Postgres, Transaction};
+use sqlx::Postgres;
 
 pub async fn get_ek_cert_by_machine_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> CarbideResult<TpmEkCertificate> {
     // fetch machine from the db

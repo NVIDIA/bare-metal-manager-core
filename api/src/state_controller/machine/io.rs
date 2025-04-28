@@ -13,6 +13,7 @@
 //! State Controller IO implementation for Machines
 
 use config_version::{ConfigVersion, Versioned};
+use sqlx::PgConnection;
 
 use crate::cfg::file::HostHealthConfig;
 use crate::model::machine::{MachineValidatingState, ValidationState};
@@ -56,7 +57,7 @@ impl StateControllerIO for MachineStateControllerIO {
 
     async fn list_objects(
         &self,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
         Ok(crate::db::machine::find_machine_ids(
             txn,
@@ -71,7 +72,7 @@ impl StateControllerIO for MachineStateControllerIO {
     /// Loads a state snapshot from the database
     async fn load_object_state(
         &self,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         machine_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
         db::managed_host::load_snapshot(
@@ -88,7 +89,7 @@ impl StateControllerIO for MachineStateControllerIO {
 
     async fn load_controller_state(
         &self,
-        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _txn: &mut PgConnection,
         _object_id: &Self::ObjectId,
         state: &Self::State,
     ) -> Result<Versioned<Self::ControllerState>, DatabaseError> {
@@ -99,7 +100,7 @@ impl StateControllerIO for MachineStateControllerIO {
 
     async fn persist_controller_state(
         &self,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         _old_version: ConfigVersion,
         new_state: Self::ControllerState,
@@ -111,7 +112,7 @@ impl StateControllerIO for MachineStateControllerIO {
 
     async fn persist_outcome(
         &self,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {

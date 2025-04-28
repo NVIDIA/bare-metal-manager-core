@@ -41,10 +41,10 @@ use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::{
     MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleValueRecord,
 };
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 
 pub async fn new_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
     name: Option<String>,
     values: &[PcrRegisterValue],
@@ -125,7 +125,7 @@ pub fn from_info_and_values(
 /// from_id_with_txn returns a fully populated instance of
 /// MeasurementBundle for the provided `bundle_id`.
 pub async fn from_id_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
 ) -> CarbideResult<MeasurementBundle> {
     match get_measurement_bundle_by_id(txn, bundle_id).await? {
@@ -145,7 +145,7 @@ pub async fn from_id_with_txn(
 /// from_name_with_txn returns a fully populated instance of
 /// MeasurementBundle for the provided `bundle_name`.
 pub async fn from_name_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_name: String,
 ) -> CarbideResult<MeasurementBundle> {
     match get_measurement_bundle_for_name(txn, bundle_name.clone()).await? {
@@ -163,7 +163,7 @@ pub async fn from_name_with_txn(
 /// set_state_for_id sets the bundle state for
 /// the given bundle ID.
 pub async fn set_state_for_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
     state: MeasurementBundleState,
 ) -> CarbideResult<MeasurementBundle> {
@@ -176,7 +176,7 @@ pub async fn set_state_for_id(
 
 /// get_all returns all populated MeasurementBundle
 /// models from records in the database.
-pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Vec<MeasurementBundle>> {
+pub async fn get_all(txn: &mut PgConnection) -> CarbideResult<Vec<MeasurementBundle>> {
     let mut res: Vec<MeasurementBundle> = Vec::new();
     let mut bundle_records = get_measurement_bundle_records_with_txn(txn).await?;
     for bundle_record in bundle_records.drain(..) {
@@ -190,7 +190,7 @@ pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Vec<M
 /// get_all_for_profile_id returns all populated
 /// MeasurementBundle models for a given profile ID.
 pub async fn get_all_for_profile_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> CarbideResult<Vec<MeasurementBundle>> {
     let mut res: Vec<MeasurementBundle> = Vec::new();
@@ -206,7 +206,7 @@ pub async fn get_all_for_profile_id(
 /// has_exact_from_values is just a wrapper to make things
 /// a little cleaner for potential callers of exact_from_values.
 pub async fn has_exact_from_values(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
     values: &[PcrRegisterValue],
 ) -> CarbideResult<bool> {
@@ -219,7 +219,7 @@ pub async fn has_exact_from_values(
 /// exact_from_values returns a fully populated instance of
 /// MeasurementBundle that exactly matches the provided `values`.
 pub async fn exact_from_values(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
     values: &[PcrRegisterValue],
 ) -> CarbideResult<Option<MeasurementBundle>> {
@@ -237,7 +237,7 @@ pub async fn exact_from_values(
 /// match_from_values returns a fully populated instance of
 /// MeasurementBundle that matches the provided `values`.
 pub async fn match_from_values(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
     values: &[PcrRegisterValue],
 ) -> CarbideResult<Option<MeasurementBundle>> {
@@ -253,14 +253,14 @@ pub async fn match_from_values(
 /// delete deletes this bundle.
 pub async fn delete(
     measurement_bundle: &MeasurementBundle,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     purge_journals: bool,
 ) -> CarbideResult<MeasurementBundle> {
     delete_for_id_with_txn(txn, measurement_bundle.bundle_id, purge_journals).await
 }
 
 pub async fn delete_for_id_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
     purge_journals: bool,
 ) -> CarbideResult<MeasurementBundle> {
@@ -284,7 +284,7 @@ pub async fn delete_for_id_with_txn(
 
 /// rename_for_id renames a MeasurementBundle based on its ID.
 pub async fn rename_for_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
     new_bundle_name: String,
 ) -> CarbideResult<MeasurementBundle> {
@@ -305,7 +305,7 @@ pub async fn rename_for_id(
 
 /// rename_for_name renames a MeasurementBundle based on its name.
 pub async fn rename_for_name(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_name: String,
     new_bundle_name: String,
 ) -> CarbideResult<MeasurementBundle> {
@@ -329,7 +329,7 @@ pub async fn rename_for_name(
 /// MeasurementBundleValues, returning a fully populated instance of
 /// MeasurementBundle of the data that was deleted for `bundle_id`.
 pub async fn delete_for_name(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_name: String,
     purge_journals: bool,
 ) -> CarbideResult<MeasurementBundle> {
@@ -351,7 +351,7 @@ pub async fn delete_for_name(
 
 async fn update_journal(
     measurement_bundle: &MeasurementBundle,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> CarbideResult<Vec<MeasurementJournal>> {
     let machine_state = bundle_state_to_machine_state(&measurement_bundle.state);
 
@@ -403,7 +403,7 @@ pub fn intersects(
 /// associated with this bundle.
 pub async fn get_machines(
     measurement_bundle: &MeasurementBundle,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> CarbideResult<Vec<MachineId>> {
     get_machines_for_bundle_id(txn, measurement_bundle.bundle_id)
         .await
@@ -418,7 +418,7 @@ pub async fn get_machines(
 /// matching bundles end up matching, it's because someone was messing around
 /// in the tables (or there's a bug).
 async fn match_bundle(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
     values: &[PcrRegisterValue],
 ) -> CarbideResult<Option<MeasurementBundleId>> {
@@ -471,7 +471,7 @@ async fn match_bundle(
 
 /// set_state_for_bundle_id sets a new state for a given bundle ID.
 pub async fn set_state_for_bundle_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
     state: MeasurementBundleState,
 ) -> Result<MeasurementBundleRecord, CarbideError> {
@@ -526,7 +526,7 @@ fn pcr_values_to_string(pcr_values: &[PcrRegisterValue]) -> String {
 }
 
 pub async fn find_closest_match_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
     values: &[PcrRegisterValue],
 ) -> CarbideResult<Option<MeasurementBundle>> {
@@ -540,7 +540,7 @@ pub async fn find_closest_match_with_txn(
 }
 
 async fn find_closest_bundle(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
     values: &[PcrRegisterValue],
 ) -> CarbideResult<Option<MeasurementBundleId>> {

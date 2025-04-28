@@ -11,8 +11,6 @@
  */
 
 use super::{HostHandlerParams, is_machine_validation_requested, machine_validation_completed};
-use libredfish::SystemPowerControl;
-
 use crate::{
     db::{
         self,
@@ -32,9 +30,11 @@ use crate::{
         },
     },
 };
+use libredfish::SystemPowerControl;
+use sqlx::PgConnection;
 
 pub(crate) async fn handle_machine_validation_state(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     machine_validation: &MachineValidatingState,
     host_handler_params: &HostHandlerParams,
@@ -176,7 +176,7 @@ pub(crate) async fn handle_machine_validation_state(
 }
 
 pub(crate) async fn handle_machine_validation_requested(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     mh_snapshot: &ManagedHostStateSnapshot,
     clear_failure_details: bool,
 ) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {

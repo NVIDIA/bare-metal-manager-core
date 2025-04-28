@@ -15,8 +15,6 @@
  *  tables in the database, leveraging the bundle-specific record types.
 */
 
-use std::ops::DerefMut;
-
 use crate::db::DatabaseError;
 use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
@@ -26,14 +24,14 @@ use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::{
     MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleValueRecord,
 };
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 
 /// insert_measurement_bundle_record is a very basic insert of a
 /// new row into the measurement_bundles table, where only a profile_id
 /// needs to be provided. Is it expected that this is wrapped by
 /// a more formal call (where a transaction is initialized).
 pub async fn insert_measurement_bundle_record(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
     name: String,
     state: Option<MeasurementBundleState>,
@@ -45,7 +43,7 @@ pub async fn insert_measurement_bundle_record(
                 .bind(profile_id)
                 .bind(name.clone())
                 .bind(set_state)
-                .fetch_one(txn.deref_mut())
+                .fetch_one(txn)
                 .await
         }
         None => {
@@ -54,7 +52,7 @@ pub async fn insert_measurement_bundle_record(
             sqlx::query_as(query)
                 .bind(profile_id)
                 .bind(name.clone())
-                .fetch_one(txn.deref_mut())
+                .fetch_one(txn)
                 .await
         }
     }
@@ -64,7 +62,7 @@ pub async fn insert_measurement_bundle_record(
 /// subsequently calls an individual insert for each. It is assumed this is
 /// called by a parent wrapper where a transaction was created.
 pub async fn insert_measurement_bundle_value_records(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
     values: &[PcrRegisterValue],
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
@@ -86,7 +84,7 @@ pub async fn insert_measurement_bundle_value_records(
 /// insert_measurement_value inserts a single bundle value, returning the
 /// complete inserted record, which includes its new UUID and insert timestamp.
 pub async fn insert_measurement_bundle_value_record(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
     pcr_register: i16,
     value: &String,
@@ -97,7 +95,7 @@ pub async fn insert_measurement_bundle_value_record(
         .bind(bundle_id)
         .bind(pcr_register)
         .bind(value)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| {
             DatabaseError::new(
@@ -111,7 +109,7 @@ pub async fn insert_measurement_bundle_value_record(
 
 /// rename_bundle_for_bundle_id renames a bundle based on its bundle ID.
 pub async fn rename_bundle_for_bundle_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
     new_bundle_name: String,
 ) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
@@ -124,14 +122,14 @@ pub async fn rename_bundle_for_bundle_id(
     sqlx::query_as(&query)
         .bind(new_bundle_name)
         .bind(bundle_id)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "rename_bundle_for_bundle_id", e))
 }
 
 /// rename_bundle_for_bundle_name renames a bundle based on its bundle name.
 pub async fn rename_bundle_for_bundle_name(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     old_bundle_name: String,
     new_bundle_name: String,
 ) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
@@ -142,7 +140,7 @@ pub async fn rename_bundle_for_bundle_name(
     sqlx::query_as(&query)
         .bind(new_bundle_name)
         .bind(old_bundle_name)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "rename_bundle_for_bundle_name", e))
 }
@@ -152,7 +150,7 @@ pub async fn rename_bundle_for_bundle_name(
 /// This is the last line of defense to make sure a bundle cant move
 /// out of the revoked state.
 pub async fn update_state_for_bundle_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
     state: MeasurementBundleState,
     allow_from_revoked: bool,
@@ -168,7 +166,7 @@ pub async fn update_state_for_bundle_id(
                 .bind(state)
                 .bind(bundle_id)
                 .bind(MeasurementBundleState::Revoked)
-                .fetch_optional(txn.deref_mut())
+                .fetch_optional(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "update_state_for_bundle_id", e))
         }
@@ -181,7 +179,7 @@ pub async fn update_state_for_bundle_id(
             sqlx::query_as(&query)
                 .bind(state)
                 .bind(bundle_id)
-                .fetch_optional(txn.deref_mut())
+                .fetch_optional(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "update_state_for_bundle_id", e))
         }
@@ -192,7 +190,7 @@ pub async fn update_state_for_bundle_id(
 /// for the given `bundle_id`, if it exists. This leverages the generic
 /// get_object_for_id function since its a simple/common pattern.
 pub async fn get_measurement_bundle_by_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
 ) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
     common::get_object_for_id(txn, bundle_id)
@@ -204,7 +202,7 @@ pub async fn get_measurement_bundle_by_id(
 /// for the given `bundle_name`, if it exists. This leverages the generic
 /// get_object_for_id function since its a simple/common pattern.
 pub async fn get_measurement_bundle_for_name(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_name: String,
 ) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
     common::get_object_for_unique_column(txn, "name", bundle_name.clone())
@@ -223,7 +221,7 @@ pub async fn get_measurement_bundle_for_name(
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
 pub async fn get_measurement_bundle_records(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
     common::get_all_objects(txn).await.map_err(|e| {
         DatabaseError::new(file!(), line!(), "get_measurement_bundle_records", e.source)
@@ -231,7 +229,7 @@ pub async fn get_measurement_bundle_records(
 }
 
 pub async fn get_measurement_bundle_records_with_txn(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
     common::get_all_objects(txn).await.map_err(|e| {
         DatabaseError::new(
@@ -247,7 +245,7 @@ pub async fn get_measurement_bundle_records_with_txn(
 /// MeasurementBundleRecord instances in the database with the given profile
 /// ID.
 pub async fn get_measurement_bundle_records_for_profile_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
     common::get_objects_where_id(txn, profile_id)
@@ -266,7 +264,7 @@ pub async fn get_measurement_bundle_records_for_profile_id(
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
 pub async fn get_measurement_bundles_values(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     common::get_all_objects(txn).await.map_err(|e| {
         DatabaseError::new(file!(), line!(), "get_measurement_bundles_values", e.source)
@@ -281,7 +279,7 @@ pub async fn get_measurement_bundles_values(
 /// of multiple objects matching a given PgUuid, where
 /// the PgUuid is probably a reference/foreign key.
 pub async fn get_measurement_bundle_values_for_bundle_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     common::get_objects_where_id(txn, bundle_id)
@@ -299,13 +297,13 @@ pub async fn get_measurement_bundle_values_for_bundle_id(
 /// get_machines_for_bundle_id returns a unique list of
 /// all MachineId that leverage the given bundle.
 pub async fn get_machines_for_bundle_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = "select distinct machine_id from measurement_journal where bundle_id = $1 order by machine_id";
     sqlx::query_as(query)
         .bind(bundle_id)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_bundle_id", e))
 }
@@ -315,20 +313,20 @@ pub async fn get_machines_for_bundle_id(
 ///
 /// This is specifically used by the `bundle list machines by-name` CLI call.
 pub async fn get_machines_for_bundle_name(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_name: String,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = "select distinct machine_id from measurement_journal,measurement_bundles where measurement_journal.bundle_id=measurement_bundles.bundle_id and measurement_bundles.name = $1 order by machine_id";
     sqlx::query_as(query)
         .bind(bundle_name)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_bundle_name", e))
 }
 
 /// delete_bundle_for_id deletes a bundle record.
 pub async fn delete_bundle_for_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
 ) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
     common::delete_object_where_id(txn, bundle_id)
@@ -339,7 +337,7 @@ pub async fn delete_bundle_for_id(
 /// delete_bundle_values_for_id deletes all bundle
 /// value records for a bundle.
 pub async fn delete_bundle_values_for_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     common::delete_objects_where_id(txn, bundle_id)
@@ -354,7 +352,7 @@ pub async fn delete_bundle_values_for_id(
 /// This should happen before import_measurement_bundles_values, since the
 /// parent bundles must exist first.
 pub async fn import_measurement_bundles(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundles: &[MeasurementBundleRecord],
 ) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
     let mut committed = Vec::<MeasurementBundleRecord>::new();
@@ -367,7 +365,7 @@ pub async fn import_measurement_bundles(
 /// import_measurement_bundle takes a fully populated MeasurementBundleRecord
 /// and inserts it into the measurement bundles table.
 pub async fn import_measurement_bundle(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle: &MeasurementBundleRecord,
 ) -> Result<MeasurementBundleRecord, DatabaseError> {
     let query = format!(
@@ -380,7 +378,7 @@ pub async fn import_measurement_bundle(
         .bind(bundle.name.clone())
         .bind(bundle.ts)
         .bind(bundle.state)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "import_measurement_bundle", e))
 }
@@ -392,7 +390,7 @@ pub async fn import_measurement_bundle(
 /// This should happen after import_measurement_bundles, since the
 /// parent bundles must exist first.
 pub async fn import_measurement_bundles_values(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     records: &[MeasurementBundleValueRecord],
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     let mut committed = Vec::<MeasurementBundleValueRecord>::new();
@@ -406,7 +404,7 @@ pub async fn import_measurement_bundles_values(
 /// MeasurementBundleValueRecord and inserts it into the measurement bundles
 /// values table.
 pub async fn import_measurement_bundles_value(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bundle: &MeasurementBundleValueRecord,
 ) -> Result<MeasurementBundleValueRecord, DatabaseError> {
     let query = format!(
@@ -419,7 +417,7 @@ pub async fn import_measurement_bundles_value(
         .bind(bundle.pcr_register)
         .bind(bundle.sha256.clone())
         .bind(bundle.ts)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "import_measurement_bundles_value", e))
 }

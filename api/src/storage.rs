@@ -16,7 +16,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use libnvmesh::{Nvmesh, NvmeshApiError};
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -132,7 +132,7 @@ pub async fn get_auth_for_storage_cluster(
 }
 
 pub async fn create_volume(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     attrs: &StorageVolumeAttributes,
     nvmesh_api: &dyn Nvmesh,
 ) -> Result<StorageVolume, StorageError> {
@@ -188,7 +188,7 @@ pub async fn create_volume(
 }
 
 pub async fn attach_volume_to_client(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     volume_id: Uuid,
     instance_id: Uuid,
     dpu_machine_id: &MachineId,
@@ -221,7 +221,7 @@ pub async fn attach_volume_to_client(
 }
 
 pub async fn detach_volume_from_client(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     volume_id: Uuid,
     instance_id: Uuid,
     dpu_machine_id: &MachineId,

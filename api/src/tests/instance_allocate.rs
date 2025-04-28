@@ -9,11 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use forge::forge_server::Forge;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use rpc::forge;
+use std::ops::DerefMut;
 
 use crate::{
     db,
@@ -194,7 +194,7 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
 
     let host_inband_segment = db::network_segment::NetworkSegment::find_by_name(
-        &mut env.pool.begin().await?,
+        env.pool.begin().await?.deref_mut(),
         "HOST_INBAND",
     )
     .await?;
@@ -284,7 +284,7 @@ async fn test_zero_dpu_instance_allocation_no_network_config(
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
 
     let host_inband_segment = db::network_segment::NetworkSegment::find_by_name(
-        &mut env.pool.begin().await?,
+        env.pool.begin().await?.deref_mut(),
         "HOST_INBAND",
     )
     .await?;
@@ -367,7 +367,7 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
 
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
                 db::managed_host::load_snapshot(
-                    &mut mock.test_env.pool.begin().await?,
+                    mock.test_env.pool.begin().await?.deref_mut(),
                     &machine_id,
                     Default::default(),
                 )
@@ -409,12 +409,12 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
 
     let (host_inband_segment_1, host_inband_segment_2) = (
         db::network_segment::NetworkSegment::find_by_name(
-            &mut env.pool.begin().await?,
+            env.pool.begin().await?.deref_mut(),
             "HOST_INBAND",
         )
         .await?,
         db::network_segment::NetworkSegment::find_by_name(
-            &mut env.pool.begin().await?,
+            env.pool.begin().await?.deref_mut(),
             "HOST_INBAND_2",
         )
         .await?,
@@ -428,7 +428,7 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
     );
 
     let host_snapshot_after_allocate = db::managed_host::load_snapshot(
-        &mut env.pool.begin().await?,
+        env.pool.begin().await?.deref_mut(),
         &zero_dpu_host.host_snapshot.id,
         Default::default(),
     )
@@ -551,7 +551,7 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
     let single_dpu_host = api_fixtures::site_explorer::new_host(&env, Default::default()).await?;
 
     let host_inband_segment = db::network_segment::NetworkSegment::find_by_name(
-        &mut env.pool.begin().await?,
+        env.pool.begin().await?.deref_mut(),
         "HOST_INBAND",
     )
     .await?;
@@ -658,12 +658,12 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
     let host_snapshot_rpc: forge::Machine = zero_dpu_host.host_snapshot.clone().into();
 
     let host_inband_segment = db::network_segment::NetworkSegment::find_by_name(
-        &mut env.pool.begin().await?,
+        env.pool.begin().await?.deref_mut(),
         "HOST_INBAND",
     )
     .await?;
     let host_inband_2_segment = db::network_segment::NetworkSegment::find_by_name(
-        &mut env.pool.begin().await?,
+        env.pool.begin().await?.deref_mut(),
         "HOST_INBAND_2",
     )
     .await?;

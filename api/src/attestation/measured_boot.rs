@@ -11,8 +11,7 @@
  */
 
 use forge_uuid::measured_boot::MeasurementReportId;
-use sqlx::Postgres;
-use sqlx::Transaction;
+use sqlx::PgConnection;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
@@ -334,7 +333,7 @@ pub fn event_log_to_string(event_log: &Option<Vec<u8>>) -> String {
 }
 
 pub async fn compare_pub_key_against_cert(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     ek_pub: &Vec<u8>,
 ) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
@@ -409,7 +408,7 @@ pub fn do_compare_pub_key_against_cert(
 }
 
 pub async fn has_passed_attestation(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     _report_id: &MeasurementReportId,
 ) -> CarbideResult<bool> {

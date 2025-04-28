@@ -24,6 +24,7 @@ use forge_uuid::machine::MachineId;
 
 use eyre::eyre;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+use sqlx::PgConnection;
 
 use super::state_handler::{MeasuringProblem, StateHandlerError};
 
@@ -50,7 +51,7 @@ pub mod metrics;
 /// and bundle to do a single query + return a single ComposedState
 /// that has everything I want.
 async fn get_measurement_failure_cause(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> Result<FailureCause, StateHandlerError> {
     let (_, ek_cert_status) = get_measuring_prerequisites(machine_id, txn).await?;
@@ -97,7 +98,7 @@ pub enum MeasuringOutcome {
 
 async fn get_measuring_prerequisites(
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(MeasurementMachineState, EkCertVerificationStatus), StateHandlerError> {
     let machine_state = get_measurement_machine_state(txn, *machine_id)
         .await
@@ -124,7 +125,7 @@ async fn get_measuring_prerequisites(
 pub(crate) async fn handle_measuring_state(
     measuring_state: &MeasuringState,
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<MeasuringOutcome, StateHandlerError> {
     let (machine_state, ek_cert_verification_status) =
         get_measuring_prerequisites(machine_id, txn).await?;

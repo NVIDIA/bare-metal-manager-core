@@ -11,7 +11,7 @@
  */
 
 use chrono::{DateTime, Utc};
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{FromRow, PgConnection};
 
 use crate::{CarbideError, CarbideResult, db::DatabaseError};
 use forge_uuid::machine::MachineId;
@@ -28,7 +28,7 @@ pub struct TpmCaCert {
 
 impl TpmCaCert {
     pub async fn insert(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         not_valid_before: &DateTime<Utc>,
         not_valid_after: &DateTime<Utc>,
         ca_cert: &[u8],
@@ -41,7 +41,7 @@ impl TpmCaCert {
             .bind(not_valid_after)
             .bind(ca_cert)
             .bind(cert_subject)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -49,36 +49,33 @@ impl TpmCaCert {
     }
 
     pub async fn get_by_subject(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         cert_subject: &[u8],
     ) -> CarbideResult<Option<Self>> {
         let query = "SELECT * FROM tpm_ca_certs WHERE cert_subject = ($1)";
 
         sqlx::query_as(query)
             .bind(cert_subject)
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
 
-    pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Vec<TpmCaCert>> {
+    pub async fn get_all(txn: &mut PgConnection) -> CarbideResult<Vec<TpmCaCert>> {
         let query = "SELECT id, not_valid_before, not_valid_after, cert_subject FROM tpm_ca_certs";
 
         sqlx::query_as(query)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
 
-    pub async fn delete(
-        txn: &mut Transaction<'_, Postgres>,
-        ca_cert_id: i32,
-    ) -> CarbideResult<Option<Self>> {
+    pub async fn delete(txn: &mut PgConnection, ca_cert_id: i32) -> CarbideResult<Option<Self>> {
         let query = "DELETE FROM tpm_ca_certs WHERE id = ($1) RETURNING *";
 
         sqlx::query_as(query)
             .bind(ca_cert_id)
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
@@ -99,57 +96,52 @@ pub struct EkCertVerificationStatus {
 
 impl EkCertVerificationStatus {
     pub async fn get_by_ek_sha256(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         ek_sha256: &[u8],
     ) -> CarbideResult<Option<Self>> {
         let query = "SELECT * FROM ek_cert_verification_status WHERE ek_sha256 = ($1)";
 
         sqlx::query_as(query)
             .bind(ek_sha256)
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
 
-    pub async fn get_by_unmatched_ca(
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<Vec<Self>> {
+    pub async fn get_by_unmatched_ca(txn: &mut PgConnection) -> CarbideResult<Vec<Self>> {
         let query = "SELECT * FROM ek_cert_verification_status WHERE signing_ca_found = FALSE";
 
         sqlx::query_as(query)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
 
-    pub async fn get_by_issuer(
-        txn: &mut Transaction<'_, Postgres>,
-        issuer: &[u8],
-    ) -> CarbideResult<Vec<Self>> {
+    pub async fn get_by_issuer(txn: &mut PgConnection, issuer: &[u8]) -> CarbideResult<Vec<Self>> {
         let query = "SELECT * FROM ek_cert_verification_status WHERE issuer = ($1)";
 
         sqlx::query_as(query)
             .bind(issuer)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
 
     pub async fn get_by_machine_id(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: MachineId,
     ) -> CarbideResult<Option<Self>> {
         let query = "SELECT * FROM ek_cert_verification_status WHERE machine_id = ($1)";
 
         sqlx::query_as(query)
             .bind(machine_id)
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
 
     pub async fn update_ca_verification_status(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         ek_sha256: &[u8],
         signing_ca_found: bool,
         ca_id: Option<i32>,
@@ -159,38 +151,38 @@ impl EkCertVerificationStatus {
             .bind(signing_ca_found)
             .bind(ca_id)
             .bind(ek_sha256)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
 
     pub async fn unmatch_ca_verification_status(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         ca_id: i32,
     ) -> CarbideResult<Option<Self>> {
         let query = "UPDATE ek_cert_verification_status SET signing_ca_found=false, ca_id=null WHERE ca_id=$1 RETURNING *";
         sqlx::query_as(query)
             .bind(ca_id)
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
 
     pub async fn delete_ca_verification_status_by_machine_id(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: &MachineId,
     ) -> CarbideResult<Option<Self>> {
         let query = "DELETE FROM ek_cert_verification_status WHERE machine_id=$1 RETURNING *";
         sqlx::query_as(query)
             .bind(machine_id)
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
 
     #[allow(clippy::too_many_arguments)]
     pub async fn insert(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         ek_sha256: &[u8],
         serial_num: &str,
         signing_ca_found: bool,
@@ -209,7 +201,7 @@ impl EkCertVerificationStatus {
             .bind(issuer)
             .bind(issuer_access_info)
             .bind(machine_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 

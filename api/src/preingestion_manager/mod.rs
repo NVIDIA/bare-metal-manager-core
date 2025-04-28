@@ -18,7 +18,7 @@ use libredfish::{
     model::{task::TaskState, update_service::TransferProtocolType},
 };
 use opentelemetry::metrics::Meter;
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{PgConnection, PgPool};
 use tokio::{
     fs::File,
     sync::{Semaphore, oneshot},
@@ -349,7 +349,7 @@ impl PreingestionManagerStatic {
     /// ingestion can happen, and either kick them off if so otherwise move on.
     async fn check_firmware_versions_below_preingestion(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         endpoint: &ExploredEndpoint,
     ) -> CarbideResult<bool> {
         // First, we need to check if it's appropriate to upgrade at this point or wait until later.
@@ -411,7 +411,7 @@ impl PreingestionManagerStatic {
     /// would make a significant difference, as we're limited by our own upload bandwidth.
     async fn start_firmware_uploads_or_continue(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         endpoint: &ExploredEndpoint,
     ) -> CarbideResult<bool> {
         if endpoint.waiting_for_explorer_refresh {
@@ -482,7 +482,7 @@ impl PreingestionManagerStatic {
         endpoint: &ExploredEndpoint,
         fw_info: &Firmware,
         fw_type: FirmwareComponentType,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<(bool, bool), DatabaseError> {
         {
             match need_upgrade(endpoint, fw_info, fw_type) {
@@ -530,7 +530,7 @@ impl PreingestionManagerStatic {
     /// in_upgrade_firmware_wait triggers when we are waiting for installation of firmware after an upload.
     async fn in_upgrade_firmware_wait(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         endpoint: &ExploredEndpoint,
         task_id: &str,
         final_version: &str,
@@ -676,7 +676,7 @@ impl PreingestionManagerStatic {
 
     async fn in_reset_for_new_firmware(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         endpoint: &ExploredEndpoint,
         state: &PreingestionState,
     ) -> CarbideResult<()> {
@@ -917,7 +917,7 @@ impl PreingestionManagerStatic {
 
     async fn in_new_firmware_reported_wait(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         endpoint: &ExploredEndpoint,
         final_version: &str,
         upgrade_type: &FirmwareComponentType,
@@ -1029,7 +1029,7 @@ fn need_upgrade(
 ///  errors, we return Ok but leave the state as it was, with the intention that we will retry
 ///  on the next go.
 async fn initiate_update(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     endpoint_clone: &ExploredEndpoint,
     redfish_client_pool: &Arc<dyn RedfishClientPool>,
     to_install: &FirmwareEntry,

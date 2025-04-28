@@ -9,10 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{fmt::Display, ops::DerefMut, str::FromStr};
+use std::{fmt::Display, str::FromStr};
 
 use chrono::{DateTime, Utc};
-use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
+use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
 use uuid::Uuid;
 
 use crate::{
@@ -92,7 +92,7 @@ impl<'r> FromRow<'r, PgRow> for MachineValidation {
 }
 impl MachineValidation {
     pub async fn find_by(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: ObjectFilter<'_, String>,
         column: &str,
     ) -> Result<Vec<MachineValidation>, DatabaseError> {
@@ -101,7 +101,7 @@ impl MachineValidation {
 
         let custom_results = match filter {
             ObjectFilter::All => sqlx::query_as(&base_query.replace("{where}", ""))
-                .fetch_all(txn.deref_mut())
+                .fetch_all(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "MachineValidation All", e))?,
             ObjectFilter::One(id) => {
@@ -109,7 +109,7 @@ impl MachineValidation {
                     .replace("{where}", &format!("WHERE result.{column}='{}'", id))
                     .replace("{column}", column);
                 sqlx::query_as(&query)
-                    .fetch_all(txn.deref_mut())
+                    .fetch_all(txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "MachineValidation One", e))?
             }
@@ -134,12 +134,9 @@ impl MachineValidation {
                     )
                     .replace("{column}", column);
 
-                sqlx::query_as(&query)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| {
-                        DatabaseError::new(file!(), line!(), "machine_validation List", e)
-                    })?
+                sqlx::query_as(&query).fetch_all(txn).await.map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "machine_validation List", e)
+                })?
             }
         };
 
@@ -147,7 +144,7 @@ impl MachineValidation {
     }
 
     pub async fn update_status(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         uuid: &Uuid,
         status: MachineValidationStatus,
     ) -> CarbideResult<()> {
@@ -155,13 +152,13 @@ impl MachineValidation {
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(uuid)
             .bind(status.state.to_string())
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
     }
     pub async fn update_end_time(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         uuid: &Uuid,
         status: &MachineValidationStatus,
     ) -> CarbideResult<()> {
@@ -169,14 +166,14 @@ impl MachineValidation {
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(uuid)
             .bind(status.state.to_string())
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
     }
 
     pub async fn update_run(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         uuid: &Uuid,
         total: i32,
         duration_to_complete: i64,
@@ -186,13 +183,13 @@ impl MachineValidation {
             .bind(uuid)
             .bind(duration_to_complete)
             .bind(total)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
     }
     pub async fn create_new_run(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: &MachineId,
         context: String,
         filter: MachineValidationFilter,
@@ -224,7 +221,7 @@ impl MachineValidation {
             .bind(context.clone())
             .bind(format!("Running validation on {}", machine_id))
             .bind(status.state.to_string())
-            .execute(txn.deref_mut())
+            .execute(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -245,7 +242,7 @@ impl MachineValidation {
     }
 
     pub async fn find(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: &MachineId,
         include_history: bool,
     ) -> CarbideResult<Vec<MachineValidation>> {
@@ -290,7 +287,7 @@ impl MachineValidation {
     }
 
     pub async fn find_by_machine_id(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: &MachineId,
     ) -> CarbideResult<Vec<MachineValidation>> {
         MachineValidation::find_by(
@@ -303,7 +300,7 @@ impl MachineValidation {
     }
 
     pub async fn find_active_machine_validation_by_machine_id(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: &MachineId,
     ) -> CarbideResult<Self> {
         let ret = Self::find_by_machine_id(txn, machine_id).await?;
@@ -318,10 +315,7 @@ impl MachineValidation {
         )))
     }
 
-    pub async fn find_by_id(
-        txn: &mut Transaction<'_, Postgres>,
-        validation_id: &Uuid,
-    ) -> CarbideResult<Self> {
+    pub async fn find_by_id(txn: &mut PgConnection, validation_id: &Uuid) -> CarbideResult<Self> {
         let machine_validation =
             MachineValidation::find_by(txn, ObjectFilter::One(validation_id.to_string()), "id")
                 .await
@@ -336,9 +330,7 @@ impl MachineValidation {
         )))
     }
 
-    pub async fn find_all(
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<Vec<MachineValidation>> {
+    pub async fn find_all(txn: &mut PgConnection) -> CarbideResult<Vec<MachineValidation>> {
         MachineValidation::find_by(txn, ObjectFilter::All, "")
             .await
             .map_err(CarbideError::from)
@@ -381,7 +373,7 @@ impl MachineValidation {
     }
 
     pub async fn mark_machine_validation_complete(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: &MachineId,
         uuid: &Uuid,
         status: MachineValidationStatus,
@@ -523,7 +515,7 @@ impl From<MachineValidationResult> for rpc::forge::MachineValidationResult {
 }
 impl MachineValidationResult {
     pub async fn find_by_machine_id(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: &MachineId,
         include_history: bool,
     ) -> CarbideResult<Vec<MachineValidationResult>> {
@@ -586,7 +578,7 @@ impl MachineValidationResult {
     }
 
     async fn find_by(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: ObjectFilter<'_, String>,
         column: &str,
     ) -> Result<Vec<MachineValidationResult>, DatabaseError> {
@@ -596,7 +588,7 @@ impl MachineValidationResult {
 
         let custom_results = match filter {
             ObjectFilter::All => sqlx::query_as(&base_query.replace("{where}", ""))
-                .fetch_all(txn.deref_mut())
+                .fetch_all(txn)
                 .await
                 .map_err(|e| {
                     DatabaseError::new(file!(), line!(), "machine_validation_results All", e)
@@ -605,12 +597,9 @@ impl MachineValidationResult {
                 let query = base_query
                     .replace("{where}", &format!("WHERE result.{column}='{}'", id))
                     .replace("{column}", column);
-                sqlx::query_as(&query)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| {
-                        DatabaseError::new(file!(), line!(), "machine_validation_results One", e)
-                    })?
+                sqlx::query_as(&query).fetch_all(txn).await.map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "machine_validation_results One", e)
+                })?
             }
             ObjectFilter::List(list) => {
                 if list.is_empty() {
@@ -633,19 +622,16 @@ impl MachineValidationResult {
                     )
                     .replace("{column}", column);
 
-                sqlx::query_as(&query)
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| {
-                        DatabaseError::new(file!(), line!(), "machine_validation_results List", e)
-                    })?
+                sqlx::query_as(&query).fetch_all(txn).await.map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "machine_validation_results List", e)
+                })?
             }
         };
 
         Ok(custom_results)
     }
 
-    pub async fn create(&self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<()> {
+    pub async fn create(&self, txn: &mut PgConnection) -> CarbideResult<()> {
         let query = "
         INSERT INTO machine_validation_results (
             name,
@@ -678,14 +664,14 @@ impl MachineValidationResult {
             .bind(self.test_id.clone().unwrap_or(
                 machine_validation_suites::MachineValidationTest::generate_test_id(&self.name),
             ))
-            .execute(txn.deref_mut())
+            .execute(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
     }
 
     pub async fn validate_current_context(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         id: &rpc::Uuid,
     ) -> CarbideResult<Option<String>> {
         let db_results = MachineValidationResult::find_by(
@@ -705,7 +691,7 @@ impl MachineValidationResult {
     }
 
     pub async fn find_by_validation_id(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         id: &uuid::Uuid,
     ) -> CarbideResult<Vec<MachineValidationResult>> {
         MachineValidationResult::find_by(

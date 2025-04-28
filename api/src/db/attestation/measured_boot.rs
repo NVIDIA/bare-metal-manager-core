@@ -9,9 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::ops::DerefMut;
-
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{FromRow, PgConnection};
 
 use crate::{CarbideError, CarbideResult, db::DatabaseError};
 
@@ -23,7 +21,7 @@ pub struct SecretAkPub {
 
 impl SecretAkPub {
     pub async fn insert(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         secret: &Vec<u8>,
         ak_pub: &Vec<u8>,
     ) -> CarbideResult<Option<Self>> {
@@ -31,22 +29,19 @@ impl SecretAkPub {
         let res = sqlx::query_as(query)
             .bind(secret.as_slice())
             .bind(ak_pub.as_slice())
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         Ok(Some(res))
     }
 
-    pub async fn delete(
-        txn: &mut Transaction<'_, Postgres>,
-        secret: &Vec<u8>,
-    ) -> CarbideResult<Option<Self>> {
+    pub async fn delete(txn: &mut PgConnection, secret: &Vec<u8>) -> CarbideResult<Option<Self>> {
         let query = "DELETE FROM attestation_secret_ak_pub WHERE secret = ($1) RETURNING *";
 
         let res = sqlx::query_as(query)
             .bind(secret.as_slice())
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -54,14 +49,14 @@ impl SecretAkPub {
     }
 
     pub async fn get_by_secret(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         secret: &Vec<u8>,
     ) -> CarbideResult<Option<Self>> {
         let query = "SELECT * FROM attestation_secret_ak_pub WHERE secret = ($1)";
 
         sqlx::query_as(query)
             .bind(secret.as_slice())
-            .fetch_optional(txn.deref_mut())
+            .fetch_optional(txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }

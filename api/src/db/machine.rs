@@ -33,7 +33,7 @@ use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Pool, Postgres, Row, Transaction};
+use sqlx::{FromRow, PgConnection, Pool, Postgres, Row};
 use uuid::Uuid;
 
 use super::{DatabaseError, ObjectFilter, queries};
@@ -310,7 +310,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
 /// * `interface` - Network interface of the machine
 ///
 pub async fn get_or_create(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     common_pools: Option<&CommonPools>,
     stable_machine_id: &MachineId,
     interface: &MachineInterfaceSnapshot,
@@ -365,7 +365,7 @@ pub async fn get_or_create(
 }
 
 pub async fn find_one(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     id: &MachineId,
     search_config: MachineSearchConfig,
 ) -> Result<Option<Machine>, DatabaseError> {
@@ -375,7 +375,7 @@ pub async fn find_one(
 }
 
 pub async fn find_existing_machine(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     macaddr: MacAddress,
     relay: IpAddr,
 ) -> Result<Option<MachineId>, DatabaseError> {
@@ -396,7 +396,7 @@ pub async fn find_existing_machine(
     let id: Option<MachineId> = sqlx::query_as(query)
         .bind(macaddr)
         .bind(relay)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -414,7 +414,7 @@ pub async fn find_existing_machine(
 // TODO: abhi, Make it private.
 pub async fn advance(
     machine: &Machine,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     state: ManagedHostState,
     version: Option<ConfigVersion>,
 ) -> Result<bool, DatabaseError> {
@@ -430,7 +430,7 @@ pub async fn advance(
         .bind(version)
         .bind(sqlx::types::Json(state))
         .bind(machine.id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "update machines state", e))?;
 
@@ -446,7 +446,7 @@ pub async fn advance(
 /// * `search_config` - A MachineSearchConfig with search options to control the
 ///                     records selected
 pub async fn find(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     filter: ObjectFilter<'_, MachineId>,
     search_config: MachineSearchConfig,
 ) -> Result<Vec<Machine>, DatabaseError> {
@@ -503,7 +503,7 @@ pub async fn find(
 
     let all_machines: Vec<Machine> = builder
         .build_query_as()
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), builder.sql(), e))?;
 
@@ -511,7 +511,7 @@ pub async fn find(
 }
 
 pub async fn find_by_ip(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     ip: &Ipv4Addr,
 ) -> Result<Option<Machine>, DatabaseError> {
     lazy_static! {
@@ -525,7 +525,7 @@ pub async fn find_by_ip(
     }
     let machine = sqlx::query_as(&query)
         .bind(ip.to_string())
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
 
@@ -533,7 +533,7 @@ pub async fn find_by_ip(
 }
 
 pub async fn find_id_by_bmc_ip(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bmc_ip: &IpAddr,
 ) -> Result<Option<MachineId>, DatabaseError> {
     MachineTopology::find_machine_id_by_bmc_ip(txn, &bmc_ip.to_string()).await
@@ -545,7 +545,7 @@ pub async fn find_id_by_bmc_ip(
 /// * `instance_type_id` - An reference to an InstanceTypeId to query for
 /// * `for_update`       - A boolean flag to acquire DB locks for synchronization
 pub async fn find_ids_by_instance_type_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     instance_type_id: &InstanceTypeId,
     for_update: bool,
 ) -> Result<Vec<MachineId>, DatabaseError> {
@@ -561,7 +561,7 @@ pub async fn find_ids_by_instance_type_id(
     builder
         .build_query_as()
         .bind(instance_type_id)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), builder.sql(), e))
 }
@@ -572,7 +572,7 @@ pub async fn find_ids_by_instance_type_id(
 /// * `instance_type_id` - An reference to an InstanceTypeId to associate with a set of machines
 /// * `machine_ids`      - A list of machine IDs to associate to the desired instance type
 pub async fn associate_machines_with_instance_type(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     instance_type_id: &InstanceTypeId,
     machine_ids: &[MachineId],
 ) -> Result<Vec<MachineId>, DatabaseError> {
@@ -581,7 +581,7 @@ pub async fn associate_machines_with_instance_type(
     sqlx::query_as(query)
         .bind(instance_type_id)
         .bind(machine_ids)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
 }
@@ -592,20 +592,20 @@ pub async fn associate_machines_with_instance_type(
 /// * `txn`         - A reference to an active DB transaction
 /// * `machine_ids` - A slice of machine IDs to update
 pub async fn remove_instance_type_associations(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_ids: &[MachineId],
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = "UPDATE machines SET instance_type_id=NULL WHERE id = ANY($1) RETURNING id";
 
     sqlx::query_as(query)
         .bind(machine_ids)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
 }
 
 pub async fn find_by_hostname(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     hostname: &str,
 ) -> Result<Option<Machine>, DatabaseError> {
     lazy_static! {
@@ -617,7 +617,7 @@ pub async fn find_by_hostname(
 
     let machine = sqlx::query_as(&query)
         .bind(hostname)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
 
@@ -625,7 +625,7 @@ pub async fn find_by_hostname(
 }
 
 pub async fn find_by_mac_address(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     mac_address: &MacAddress,
 ) -> Result<Option<Machine>, DatabaseError> {
     lazy_static! {
@@ -636,7 +636,7 @@ pub async fn find_by_mac_address(
     }
     let machine = sqlx::query_as(&query)
         .bind(mac_address)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
 
@@ -644,7 +644,7 @@ pub async fn find_by_mac_address(
 }
 
 pub async fn find_by_loopback_ip(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     loopback_ip: &str,
 ) -> Result<Option<Machine>, DatabaseError> {
     lazy_static! {
@@ -655,21 +655,21 @@ pub async fn find_by_loopback_ip(
     }
     let machine = sqlx::query_as(&query)
         .bind(loopback_ip)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
     Ok(machine)
 }
 
 pub async fn find_id_by_fqdn(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     fqdn: &str,
 ) -> Result<Option<MachineId>, DatabaseError> {
     let query = "SELECT machine_id FROM machine_dhcp_records WHERE fqdn = $1";
 
     let machine_id: Option<MachineId> = sqlx::query_as(query)
         .bind(fqdn)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -683,7 +683,7 @@ pub async fn find_id_by_fqdn(
 /// - If the query looks like a MAC address, it will look up the machine by MAC address
 /// - Otherwise, it will try to look up the Machine by hostname
 pub async fn find_by_query(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     query: &str,
 ) -> Result<Option<Machine>, DatabaseError> {
     if let Ok(id) = MachineId::from_str(query) {
@@ -703,12 +703,12 @@ pub async fn find_by_query(
 
 pub async fn update_reboot_time(
     machine: &Machine,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET last_reboot_time=NOW() WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine.id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     Ok(())
@@ -716,7 +716,7 @@ pub async fn update_reboot_time(
 
 pub async fn update_reboot_requested_time(
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     mode: MachineLastRebootRequestedMode,
 ) -> Result<(), DatabaseError> {
     let mut restart_verified = None;
@@ -734,7 +734,7 @@ pub async fn update_reboot_requested_time(
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(sqlx::types::Json(&data))
         .bind(machine_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     Ok(())
@@ -745,7 +745,7 @@ pub async fn update_restart_verification_status(
     mut current_reboot: MachineLastRebootRequested,
     verified: Option<bool>,
     attempts: i32,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     current_reboot.restart_verified = verified;
     current_reboot.verification_attempts = Some(attempts);
@@ -754,7 +754,7 @@ pub async fn update_restart_verification_status(
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(sqlx::types::Json(&current_reboot))
         .bind(machine_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     Ok(())
@@ -762,12 +762,12 @@ pub async fn update_restart_verification_status(
 
 pub async fn update_cleanup_time(
     machine: &Machine,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET last_cleanup_time=NOW() WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine.id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -776,12 +776,12 @@ pub async fn update_cleanup_time(
 
 pub async fn update_bios_password_set(
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET bios_password_set_time=NOW() WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -790,12 +790,12 @@ pub async fn update_bios_password_set(
 
 pub async fn update_discovery_time(
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET last_discovery_time=NOW() WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -803,7 +803,7 @@ pub async fn update_discovery_time(
 }
 
 pub async fn find_host_by_dpu_machine_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     dpu_machine_id: &MachineId,
 ) -> Result<Option<Machine>, DatabaseError> {
     lazy_static! {
@@ -816,7 +816,7 @@ pub async fn find_host_by_dpu_machine_id(
     }
     let machine = sqlx::query_as(&query)
         .bind(dpu_machine_id.to_string())
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
 
@@ -824,7 +824,7 @@ pub async fn find_host_by_dpu_machine_id(
 }
 
 pub async fn lookup_host_machine_ids_by_dpu_ids(
-    txn: &mut Transaction<'_, Postgres>,
+    conn: &mut PgConnection,
     dpu_machine_ids: &[MachineId],
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = r#"SELECT mi.machine_id
@@ -839,13 +839,13 @@ pub async fn lookup_host_machine_ids_by_dpu_ids(
                 .map(|i| i.to_string())
                 .collect::<Vec<_>>(),
         )
-        .fetch_all(txn.deref_mut())
+        .fetch_all(conn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
 }
 
 pub async fn find_dpus_by_host_machine_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     host_machine_id: &MachineId,
 ) -> Result<Vec<Machine>, DatabaseError> {
     lazy_static! {
@@ -859,7 +859,7 @@ pub async fn find_dpus_by_host_machine_id(
     }
     let machines = sqlx::query_as(&query)
         .bind(host_machine_id.to_string())
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
 
@@ -867,7 +867,7 @@ pub async fn find_dpus_by_host_machine_id(
 }
 
 pub async fn update_metadata(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     expected_version: ConfigVersion,
     metadata: Metadata,
@@ -886,7 +886,7 @@ pub async fn update_metadata(
         .bind(sqlx::types::Json(&metadata.labels))
         .bind(machine_id.to_string())
         .bind(expected_version)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await;
 
     match query_result {
@@ -902,7 +902,7 @@ pub async fn update_metadata(
 
 /// Only does the update if the passed observation is newer than any existing one
 pub async fn update_network_status_observation(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     observation: &MachineNetworkStatusObservation,
 ) -> Result<(), DatabaseError> {
@@ -915,7 +915,7 @@ pub async fn update_network_status_observation(
         .bind(sqlx::types::Json(&observation))
         .bind(machine_id.to_string())
         .bind(observation.observed_at)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     {
@@ -941,7 +941,7 @@ pub async fn update_network_status_observation(
 
 /// Only does the update if the passed observation is newer than any existing one
 pub async fn update_infiniband_status_observation(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     observation: &MachineInfinibandStatusObservation,
 ) -> Result<(), DatabaseError> {
@@ -954,7 +954,7 @@ pub async fn update_infiniband_status_observation(
         .bind(sqlx::types::Json(&observation))
         .bind(machine_id.to_string())
         .bind(observation.observed_at.to_rfc3339())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -962,7 +962,7 @@ pub async fn update_infiniband_status_observation(
 }
 
 async fn update_health_report(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     column_name: &str,
     health_report: &HealthReport,
@@ -979,7 +979,7 @@ async fn update_health_report(
         .bind(sqlx::types::Json(&health_report))
         .bind(machine_id.to_string())
         .bind(observed_at)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "update health report", e))
     {
@@ -999,7 +999,7 @@ async fn update_health_report(
 
 #[cfg(test)]
 async fn debug_failed_machine_status_update(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     column_name: &str,
     column_data: &impl serde::Serialize,
@@ -1011,7 +1011,7 @@ async fn debug_failed_machine_status_update(
     let query = "SELECT * from machines WHERE id = $1";
     match sqlx::query(query)
         .bind(machine_id.to_string())
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
     {
         Ok(Some(row)) => {
@@ -1028,7 +1028,7 @@ async fn debug_failed_machine_status_update(
 
 #[cfg(not(test))]
 async fn debug_failed_machine_status_update(
-    _txn: &mut Transaction<'_, Postgres>,
+    _txn: &mut PgConnection,
     _machine_id: &MachineId,
     _column_name: &str,
     _column_data: &impl serde::Serialize,
@@ -1036,7 +1036,7 @@ async fn debug_failed_machine_status_update(
 }
 
 pub async fn update_dpu_agent_health_report(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
@@ -1044,7 +1044,7 @@ pub async fn update_dpu_agent_health_report(
 }
 
 pub async fn update_hardware_health_report(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
@@ -1052,7 +1052,7 @@ pub async fn update_hardware_health_report(
 }
 
 pub async fn update_log_parser_health_report(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
@@ -1063,7 +1063,7 @@ pub async fn update_log_parser_health_report(
     let _id: (MachineId,) = sqlx::query_as(&query)
         .bind(sqlx::types::Json(&health_report))
         .bind(machine_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "update health report", e))?;
 
@@ -1071,7 +1071,7 @@ pub async fn update_log_parser_health_report(
 }
 
 pub async fn update_machine_validation_health_report(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
@@ -1085,7 +1085,7 @@ pub async fn update_machine_validation_health_report(
 }
 
 pub async fn update_site_explorer_health_report(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
@@ -1099,7 +1099,7 @@ pub async fn update_site_explorer_health_report(
 }
 
 pub async fn update_sku_validation_health_report(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
@@ -1113,7 +1113,7 @@ pub async fn update_sku_validation_health_report(
 }
 
 pub async fn insert_health_report_override(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     mode: OverrideMode,
     health_report: &HealthReport,
@@ -1151,7 +1151,7 @@ pub async fn insert_health_report_override(
     let _id: (MachineId,) = sqlx::query_as(&query)
         .bind(sqlx::types::Json(&health_report))
         .bind(machine_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "insert health report override", e))?;
 
@@ -1159,7 +1159,7 @@ pub async fn insert_health_report_override(
 }
 
 pub async fn remove_health_report_override(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     mode: OverrideMode,
     source: &str,
@@ -1177,7 +1177,7 @@ pub async fn remove_health_report_override(
 
     let _id: (MachineId,) = sqlx::query_as(&query)
         .bind(machine_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "remove health report override", e))?;
 
@@ -1185,7 +1185,7 @@ pub async fn remove_health_report_override(
 }
 
 pub async fn update_agent_reported_inventory(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     inventory: &MachineInventory,
 ) -> Result<(), DatabaseError> {
@@ -1195,7 +1195,7 @@ pub async fn update_agent_reported_inventory(
     let _id: (MachineId,) = sqlx::query_as(query)
         .bind(sqlx::types::Json(&inventory))
         .bind(machine_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -1203,7 +1203,7 @@ pub async fn update_agent_reported_inventory(
 }
 
 pub async fn get_all_network_status_observation(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     limit: i64, // return at most this many rows
 ) -> Result<Vec<MachineNetworkStatusObservation>, DatabaseError> {
     let query = "SELECT network_status_observation FROM machines
@@ -1212,7 +1212,7 @@ pub async fn get_all_network_status_observation(
             LIMIT $1::integer";
     let rows = sqlx::query(query)
         .bind(limit)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     let mut all = Vec::with_capacity(rows.len());
@@ -1229,7 +1229,7 @@ pub async fn get_all_network_status_observation(
 ///
 /// DO NOT USE OUTSIDE OF ADMIN CLI
 pub async fn force_cleanup(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> Result<(), DatabaseError> {
     // Note: It might be nicer to actually write the full query here so we can
@@ -1239,7 +1239,7 @@ pub async fn force_cleanup(
     let query = r#"call cleanup_machine_by_id($1)"#;
     let _query_result = sqlx::query(query)
         .bind(machine_id.to_string())
-        .execute(txn.deref_mut())
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     Ok(())
@@ -1247,7 +1247,7 @@ pub async fn force_cleanup(
 
 /// Updates the desired network configuration for a host
 pub async fn try_update_network_config(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     expected_version: ConfigVersion,
     new_state: &ManagedHostNetworkConfig,
@@ -1266,7 +1266,7 @@ pub async fn try_update_network_config(
         .bind(sqlx::types::Json(new_state))
         .bind(machine_id.to_string())
         .bind(expected_version)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await;
 
     match query_result {
@@ -1282,7 +1282,7 @@ pub async fn try_update_network_config(
 /// State machine does not act on receiving discoverydata, but discoverycompleted message,
 /// so updating host id must not interfere state machine handling.
 pub async fn try_sync_stable_id_with_current_machine_id_for_host(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     current_machine_id: &Option<MachineId>,
     stable_machine_id: &MachineId,
 ) -> Result<MachineId, CarbideError> {
@@ -1316,7 +1316,7 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
     let machine_id = sqlx::query_as(query)
         .bind(stable_machine_id.to_string())
         .bind(current_machine_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -1328,7 +1328,7 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
         .bind(stable_machine_id.to_string())
         .bind(stable_machine_id.to_string())
         .bind(current_machine_id.to_string())
-        .execute(txn.deref_mut())
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -1337,7 +1337,7 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
 
 pub async fn update_failure_details(
     machine: &Machine,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     failure: FailureDetails,
 ) -> Result<(), DatabaseError> {
     update_failure_details_by_machine_id(&machine.id, txn, failure).await
@@ -1345,7 +1345,7 @@ pub async fn update_failure_details(
 
 pub async fn clear_failure_details(
     machine_id: &MachineId,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let failure_details = FailureDetails {
         cause: crate::model::machine::FailureCause::NoError,
@@ -1357,7 +1357,7 @@ pub async fn clear_failure_details(
     let _id: (MachineId,) = sqlx::query_as(query)
         .bind(sqlx::types::Json(failure_details))
         .bind(machine_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -1365,7 +1365,7 @@ pub async fn clear_failure_details(
 }
 
 pub async fn set_maintenance_mode(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     mode: &MaintenanceMode,
 ) -> Result<(), DatabaseError> {
@@ -1373,7 +1373,7 @@ pub async fn set_maintenance_mode(
 }
 
 pub async fn set_maintenance_mode_with_condition(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     mode: &MaintenanceMode,
     condition: Option<String>,
@@ -1387,7 +1387,7 @@ pub async fn set_maintenance_mode_with_condition(
             sqlx::query(&query)
                 .bind(reference)
                 .bind(machine_id.to_string())
-                .execute(txn.deref_mut())
+                .execute(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
         }
@@ -1398,7 +1398,7 @@ pub async fn set_maintenance_mode_with_condition(
             }
             sqlx::query(&query)
                 .bind(machine_id.to_string())
-                .execute(txn.deref_mut())
+                .execute(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
         }
@@ -1407,7 +1407,7 @@ pub async fn set_maintenance_mode_with_condition(
 }
 
 pub async fn create(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     common_pools: Option<&CommonPools>,
     stable_machine_id: &MachineId,
     state: ManagedHostState,
@@ -1461,7 +1461,7 @@ pub async fn create(
         .bind(&metadata.name)
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
-        .fetch_one(txn.deref_mut())
+        .fetch_one(&mut *txn)
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -1485,7 +1485,7 @@ pub async fn create(
 // reprovisioning.
 pub async fn trigger_dpu_reprovisioning_request(
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     initiator: &str,
     update_firmware: bool,
 ) -> Result<(), DatabaseError> {
@@ -1503,7 +1503,7 @@ pub async fn trigger_dpu_reprovisioning_request(
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id.to_string())
         .bind(sqlx::types::Json(req))
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -1513,7 +1513,7 @@ pub async fn trigger_dpu_reprovisioning_request(
 // Update reprovision start time.
 pub async fn update_dpu_reprovision_start_time(
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let current_time = chrono::Utc::now();
     let query = r#"UPDATE machines
@@ -1524,7 +1524,7 @@ pub async fn update_dpu_reprovision_start_time(
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id.to_string())
         .bind(sqlx::types::Json(current_time))
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -1533,7 +1533,7 @@ pub async fn update_dpu_reprovision_start_time(
 
 pub async fn update_host_reprovision_start_time(
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let current_time = chrono::Utc::now();
     let query = r#"UPDATE machines
@@ -1544,7 +1544,7 @@ pub async fn update_host_reprovision_start_time(
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id.to_string())
         .bind(sqlx::types::Json(current_time))
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -1552,7 +1552,7 @@ pub async fn update_host_reprovision_start_time(
 }
 
 pub async fn get_host_reprovisioning_machines(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<Machine>, DatabaseError> {
     lazy_static! {
         static ref query: String = format!(
@@ -1562,13 +1562,13 @@ pub async fn get_host_reprovisioning_machines(
         );
     }
     sqlx::query_as(&query)
-        .fetch_all(&mut **txn)
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
 }
 
 pub async fn update_controller_state_outcome(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     outcome: PersistentStateHandlerOutcome,
 ) -> Result<(), DatabaseError> {
@@ -1576,7 +1576,7 @@ pub async fn update_controller_state_outcome(
     sqlx::query(query)
         .bind(sqlx::types::Json(outcome))
         .bind(machine_id.to_string())
-        .execute(txn.deref_mut())
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     Ok(())
@@ -1585,7 +1585,7 @@ pub async fn update_controller_state_outcome(
 // Update user's approval status in db.
 pub async fn approve_dpu_reprovision_request(
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let query = r#"UPDATE machines
                         SET reprovisioning_requested=
@@ -1595,7 +1595,7 @@ pub async fn approve_dpu_reprovision_request(
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id.to_string())
         .bind(sqlx::types::Json(true))
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -1604,7 +1604,7 @@ pub async fn approve_dpu_reprovision_request(
 
 pub async fn approve_host_reprovision_request(
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let query = r#"UPDATE machines
                         SET host_reprovisioning_requested=
@@ -1614,7 +1614,7 @@ pub async fn approve_host_reprovision_request(
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id.to_string())
         .bind(sqlx::types::Json(true))
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -1623,7 +1623,7 @@ pub async fn approve_host_reprovision_request(
 
 /// This will reset the dpu_reprov request.
 pub async fn restart_dpu_reprovisioning(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_ids: &[&MachineId],
     update_firmware: bool,
 ) -> Result<(), DatabaseError> {
@@ -1640,7 +1640,7 @@ pub async fn restart_dpu_reprovisioning(
     let _id = sqlx::query_as::<_, MachineId>(&query)
         .bind(sqlx::types::Json(restart_request))
         .bind(str_list)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "restart reprovisioning_requested", e))?;
 
@@ -1649,7 +1649,7 @@ pub async fn restart_dpu_reprovisioning(
 
 /// This will fail if reprovisioning is already started.
 pub async fn clear_dpu_reprovisioning_request(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     validate_started_time: bool,
 ) -> Result<(), DatabaseError> {
@@ -1668,7 +1668,7 @@ pub async fn clear_dpu_reprovisioning_request(
 
     let _id = sqlx::query_as::<_, MachineId>(&query)
         .bind(machine_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "clear reprovisioning_requested", e))?;
 
@@ -1676,7 +1676,7 @@ pub async fn clear_dpu_reprovisioning_request(
 }
 
 pub async fn list_machines_requested_for_reprovisioning(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<Machine>, DatabaseError> {
     lazy_static! {
         static ref query: String = format!(
@@ -1685,13 +1685,13 @@ pub async fn list_machines_requested_for_reprovisioning(
         );
     }
     sqlx::query_as(&query)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
 }
 
 pub async fn list_machines_requested_for_host_reprovisioning(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<Machine>, DatabaseError> {
     lazy_static! {
         static ref query: String = format!(
@@ -1700,7 +1700,7 @@ pub async fn list_machines_requested_for_host_reprovisioning(
         );
     }
     sqlx::query_as(&query)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
 }
@@ -1708,7 +1708,7 @@ pub async fn list_machines_requested_for_host_reprovisioning(
 /// Apply dpu agent upgrade policy to a single DPU.
 /// Returns Ok(true) if it needs upgrading, Ok(false) otherwise.
 pub async fn apply_agent_upgrade_policy(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     policy: AgentUpgradePolicy,
     machine_id: &MachineId,
 ) -> Result<bool, CarbideError> {
@@ -1746,7 +1746,7 @@ pub async fn apply_agent_upgrade_policy(
 }
 
 pub async fn set_dpu_agent_upgrade_requested(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     should_upgrade: bool,
     to_version: &str,
@@ -1760,14 +1760,14 @@ pub async fn set_dpu_agent_upgrade_requested(
     sqlx::query(query)
         .bind(sqlx::types::Json(decision))
         .bind(machine_id.to_string())
-        .execute(txn.deref_mut())
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     Ok(())
 }
 
 pub async fn find_machine_ids(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     search_config: MachineSearchConfig,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let mut qb = sqlx::QueryBuilder::new("SELECT id FROM machines");
@@ -1835,7 +1835,7 @@ pub async fn find_machine_ids(
 
     let q = qb.build_query_as();
     let machine_ids: Vec<MachineId> = q
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "find_machine_ids", e))?;
 
@@ -1843,7 +1843,7 @@ pub async fn find_machine_ids(
 }
 
 pub async fn update_state(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     host_id: &MachineId,
     new_state: ManagedHostState,
 ) -> Result<(), DatabaseError> {
@@ -1880,12 +1880,12 @@ pub async fn update_state(
 
 pub async fn update_machine_validation_time(
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET last_machine_validation_time=NOW() WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -1895,27 +1895,27 @@ pub async fn update_machine_validation_id(
     machine_id: &MachineId,
     validation_id: uuid::Uuid,
     context_column_name: String,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<MachineId, DatabaseError> {
     let base_query = "UPDATE machines SET {column}=$1 WHERE id=$2 RETURNING id".to_owned();
     sqlx::query_as(&base_query.replace("{column}", context_column_name.as_str()))
         .bind(validation_id)
         .bind(machine_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "UPDATE machines ", e))
 }
 
 pub async fn update_failure_details_by_machine_id(
     machine_id: &MachineId,
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     failure: FailureDetails,
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET failure_details = $1::json WHERE id = $2 RETURNING id";
     let _id: (MachineId,) = sqlx::query_as(query)
         .bind(sqlx::types::Json(failure))
         .bind(machine_id.to_string())
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -1931,7 +1931,7 @@ pub async fn update_failure_details_by_machine_id(
 /// * `txn` - A reference to currently open database transaction
 ///
 pub async fn find_dpu_ids_and_loopback_ips(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<DpuInfo>, DatabaseError> {
     // Get all DPU IP addresses except the requester DPU machine
     let query = "
@@ -1940,7 +1940,7 @@ pub async fn find_dpu_ids_and_loopback_ips(
         WHERE network_config->>'loopback_ip' IS NOT NULL";
 
     let dpu_infos: Vec<DpuInfo> = sqlx::query_as(query)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         .into_iter()
@@ -1955,7 +1955,7 @@ pub async fn find_dpu_ids_and_loopback_ips(
 /// If the pool exists but is empty or has en error, return that.
 pub async fn allocate_loopback_ip(
     common_pools: &CommonPools,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     owner_id: &str,
 ) -> Result<Ipv4Addr, CarbideError> {
     match common_pools
@@ -1981,7 +1981,7 @@ pub async fn allocate_loopback_ip(
 /// If the pool exists but is empty or has en error, return that.
 pub async fn allocate_vpc_dpu_loopback(
     common_pools: &CommonPools,
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     owner_id: &str,
 ) -> Result<Ipv4Addr, CarbideError> {
     match common_pools
@@ -2009,7 +2009,7 @@ pub async fn allocate_vpc_dpu_loopback(
 }
 
 pub async fn find_by_validation_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     validation_id: &Uuid,
 ) -> Result<Option<Machine>, DatabaseError> {
     lazy_static! {
@@ -2023,7 +2023,7 @@ pub async fn find_by_validation_id(
     }
     let machine = sqlx::query_as(&query)
         .bind(validation_id)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
 
@@ -2032,7 +2032,7 @@ pub async fn find_by_validation_id(
 
 /// set_firmware_autoupdate flags a machine ID as explicitly having firmware upgrade enabled or disabled, or use config files if None.
 pub async fn set_firmware_autoupdate(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     state: Option<bool>,
 ) -> Result<(), DatabaseError> {
@@ -2040,14 +2040,14 @@ pub async fn set_firmware_autoupdate(
     sqlx::query(query)
         .bind(state)
         .bind(machine_id)
-        .execute(&mut **txn)
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     Ok(())
 }
 
 pub async fn set_machine_validation_request(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     machine_validation_request: bool,
 ) -> Result<(), DatabaseError> {
@@ -2056,7 +2056,7 @@ pub async fn set_machine_validation_request(
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id.to_string())
         .bind(machine_validation_request)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -2126,7 +2126,7 @@ pub async fn update_dpu_asns(
 }
 
 pub async fn assign_sku(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     sku_id: &str,
 ) -> Result<MachineId, DatabaseError> {
@@ -2135,7 +2135,7 @@ pub async fn assign_sku(
     let id = sqlx::query_as(query)
         .bind(sku_id)
         .bind(machine_id)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "assign sku to machine", e))?;
 
@@ -2143,14 +2143,14 @@ pub async fn assign_sku(
 }
 
 pub async fn unassign_sku(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> Result<MachineId, DatabaseError> {
     let query = "UPDATE machines SET hw_sku=NULL WHERE id=$1 RETURNING id";
 
     let id = sqlx::query_as(query)
         .bind(machine_id)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "assign sku to machine", e))?;
 
@@ -2158,7 +2158,7 @@ pub async fn unassign_sku(
 }
 
 pub async fn update_sku_status_last_match_attempt(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET hw_sku_status=jsonb_set(coalesce(hw_sku_status, '{}'), '{last_match_attempt}', $1) WHERE id=$2 RETURNING id";
@@ -2166,7 +2166,7 @@ pub async fn update_sku_status_last_match_attempt(
     let _: () = sqlx::query_as(query)
         .bind(sqlx::types::Json(Utc::now()))
         .bind(machine_id)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "update sku last match attempt", e))?;
 
@@ -2174,7 +2174,7 @@ pub async fn update_sku_status_last_match_attempt(
 }
 
 pub async fn update_sku_status_verify_request_time(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET hw_sku_status=jsonb_set(coalesce(hw_sku_status, '{}'), '{verify_request_time}', $1) WHERE id=$2 RETURNING id";
@@ -2182,7 +2182,7 @@ pub async fn update_sku_status_verify_request_time(
     let _: () = sqlx::query_as(query)
         .bind(sqlx::types::Json(Utc::now()))
         .bind(machine_id)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "update sku status", e))?;
 
@@ -2190,14 +2190,14 @@ pub async fn update_sku_status_verify_request_time(
 }
 
 pub async fn find_machine_ids_by_sku_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     sku_id: &str,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = "SELECT id FROM machines WHERE hw_sku=$1";
 
     let ids: Vec<MachineId> = sqlx::query_as(query)
         .bind(sku_id)
-        .fetch_all(&mut **txn)
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get assigned sku count", e))?;
 
@@ -2205,7 +2205,7 @@ pub async fn find_machine_ids_by_sku_id(
 }
 
 pub async fn get_network_config(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> Result<Versioned<ManagedHostNetworkConfig>, DatabaseError> {
     #[derive(FromRow)]
@@ -2221,7 +2221,7 @@ pub async fn get_network_config(
         network_config_version,
     } = sqlx::query_as(query)
         .bind(machine_id)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -2229,7 +2229,7 @@ pub async fn get_network_config(
 }
 
 pub async fn get_quarantine_state(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
     let network_config = get_network_config(txn, machine_id).await?;
@@ -2237,7 +2237,7 @@ pub async fn get_quarantine_state(
 }
 
 pub async fn set_quarantine_state(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     quarantine_state: ManagedHostQuarantineState,
 ) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
@@ -2250,7 +2250,7 @@ pub async fn set_quarantine_state(
 }
 
 pub async fn clear_quarantine_state(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
     let (mut network_config, network_config_version) =

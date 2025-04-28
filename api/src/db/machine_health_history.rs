@@ -10,8 +10,8 @@
 * its affiliates is strictly prohibited.
 */
 use chrono::{DateTime, Utc};
-use sqlx::{FromRow, Postgres, Row, Transaction, postgres::PgRow};
-use std::{hash::Hasher, ops::DerefMut};
+use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
+use std::hash::Hasher;
 
 use crate::{db::DatabaseError, model::machine::MachineHealthHistoryRecord};
 use forge_uuid::machine::MachineId;
@@ -56,7 +56,7 @@ impl From<DbMachineHealthHistoryRecord> for crate::model::machine::MachineHealth
 /// the history of health that has been observed by the Machine, starting with the
 /// oldest.
 pub async fn find_by_machine_ids(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     ids: &[MachineId],
 ) -> Result<std::collections::HashMap<MachineId, Vec<MachineHealthHistoryRecord>>, DatabaseError> {
     let query = "SELECT machine_id, health, time
@@ -66,7 +66,7 @@ pub async fn find_by_machine_ids(
     let str_ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
     let query_results = sqlx::query_as::<_, DbMachineHealthHistoryRecord>(query)
         .bind(str_ids)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -81,7 +81,7 @@ pub async fn find_by_machine_ids(
 
 /// Store a new health history record for a Machine
 pub async fn persist(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     health: &health_report::HealthReport,
 ) -> Result<(), DatabaseError> {
@@ -116,7 +116,7 @@ pub async fn persist(
         .bind(sqlx::types::Json(health))
         .bind(health_hash)
         .bind(chrono::Utc::now())
-        .execute(txn.deref_mut())
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     Ok(())
@@ -125,7 +125,7 @@ pub async fn persist(
 /// Renames all health entries using one Machine ID into using another Machine ID
 pub async fn update_machine_ids(
     // TODO: Test Me
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     old_machine_id: &MachineId,
     new_machine_id: &MachineId,
 ) -> Result<(), DatabaseError> {
@@ -133,7 +133,7 @@ pub async fn update_machine_ids(
     sqlx::query(query)
         .bind(new_machine_id.to_string())
         .bind(old_machine_id.to_string())
-        .execute(txn.deref_mut())
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

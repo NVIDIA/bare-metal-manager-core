@@ -15,8 +15,6 @@
  *  tables in the database, leveraging the report-specific record types.
 */
 
-use std::ops::DerefMut;
-
 use crate::db::DatabaseError;
 use forge_uuid::measured_boot::MeasurementReportId;
 use measured_boot::records::{MeasurementReportRecord, MeasurementReportValueRecord};
@@ -24,7 +22,7 @@ use measured_boot::records::{MeasurementReportRecord, MeasurementReportValueReco
 use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
 use measured_boot::pcr::PcrRegisterValue;
-use sqlx::{Postgres, QueryBuilder, Transaction};
+use sqlx::{PgConnection, Postgres, QueryBuilder};
 
 /// match_latest_reports takes a list of PcrRegisterValues (i.e. register:sha256)
 /// and returns all latest matching report entries for it.
@@ -47,7 +45,7 @@ pub fn where_pcr_pairs(query: &mut QueryBuilder<'_, Postgres>, values: &[PcrRegi
 }
 
 pub async fn match_latest_reports(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     values: &[PcrRegisterValue],
 ) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
     if values.is_empty() {
@@ -84,7 +82,7 @@ pub async fn match_latest_reports(
     let prepared = query.build_query_as();
 
     prepared
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "match_latest_reports", e))
 }
@@ -94,13 +92,13 @@ pub async fn match_latest_reports(
 /// this is wrapped by a more formal call (where a txn is initialized)
 /// to also set corresponding value records.
 pub async fn insert_measurement_report_record(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> Result<MeasurementReportRecord, DatabaseError> {
     let query = "insert into measurement_reports(machine_id) values($1) returning *";
     sqlx::query_as(query)
         .bind(machine_id)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "insert_measurement_report_record", e))
 }
@@ -110,7 +108,7 @@ pub async fn insert_measurement_report_record(
 /// for each value. It is assumed this is called by a parent
 /// wrapper where a transaction is created.
 pub async fn insert_measurement_report_value_records(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     report_id: MeasurementReportId,
     values: &[PcrRegisterValue],
 ) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
@@ -132,7 +130,7 @@ pub async fn insert_measurement_report_value_records(
 
 /// insert_measurement_report_value_record inserts a single report value.
 async fn insert_measurement_report_value_record(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     report_id: MeasurementReportId,
     value: &PcrRegisterValue,
 ) -> Result<MeasurementReportValueRecord, DatabaseError> {
@@ -141,7 +139,7 @@ async fn insert_measurement_report_value_record(
         .bind(report_id)
         .bind(value.pcr_register)
         .bind(&value.sha256)
-        .fetch_one(txn.deref_mut())
+        .fetch_one(txn)
         .await
         .map_err(|e| {
             DatabaseError::new(
@@ -157,7 +155,7 @@ async fn insert_measurement_report_value_record(
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
 pub async fn get_all_measurement_report_records(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
     common::get_all_objects(txn).await.map_err(|e| {
         DatabaseError::new(
@@ -174,7 +172,7 @@ pub async fn get_all_measurement_report_records(
 /// if it exists. This leverages the generic get_object_for_id
 /// function since its a simple/common pattern.
 pub async fn get_measurement_report_record_by_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     report_id: MeasurementReportId,
 ) -> Result<Option<MeasurementReportRecord>, DatabaseError> {
     common::get_object_for_id(txn, report_id)
@@ -193,7 +191,7 @@ pub async fn get_measurement_report_record_by_id(
 /// records for a given machine ID, which is used by the `report list`
 /// CLI option.
 pub async fn get_measurement_report_records_for_machine_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
     common::get_objects_where_id(txn, machine_id)
@@ -215,7 +213,7 @@ pub async fn get_measurement_report_records_for_machine_id(
 /// of multiple objects matching a given PgUuid, where
 /// the PgUuid is probably a reference/foreign key.
 pub async fn get_measurement_report_values_for_report_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     report_id: MeasurementReportId,
 ) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
     common::get_objects_where_id(txn, report_id)
@@ -232,7 +230,7 @@ pub async fn get_measurement_report_values_for_report_id(
 
 /// delete_report_for_id deletes a report record.
 pub async fn delete_report_for_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     report_id: MeasurementReportId,
 ) -> Result<Option<MeasurementReportRecord>, DatabaseError> {
     common::delete_object_where_id(txn, report_id).await
@@ -241,7 +239,7 @@ pub async fn delete_report_for_id(
 /// delete_report_values_for_id deletes all report
 /// value records for a report.
 pub async fn delete_report_values_for_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     report_id: MeasurementReportId,
 ) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
     common::delete_objects_where_id(txn, report_id)
@@ -257,7 +255,7 @@ pub(crate) mod test_support {
     /// MeasurementReportValueRecord instances in the database. This leverages
     /// the generic get_all_objects function since its a simple/common pattern.
     pub async fn get_all_measurement_report_value_records(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
         common::get_all_objects(txn).await.map_err(|e| {
             DatabaseError::new(

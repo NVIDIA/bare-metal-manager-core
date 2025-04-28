@@ -18,7 +18,7 @@ use crate::{CarbideError, CarbideResult};
 use chrono::{DateTime, Utc};
 use forge_uuid::machine::MachineId;
 use sha2::{Digest, Sha256};
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 use x509_parser::certificate::X509Certificate;
 use x509_parser::extensions::ParsedExtension;
 use x509_parser::oid_registry;
@@ -44,7 +44,7 @@ pub fn extract_ca_fields(
 }
 
 pub async fn match_insert_new_ek_cert_status_against_ca(
-    txn: &mut Transaction<'static, Postgres>,
+    txn: &mut PgConnection,
     tpm_ek_cert: &TpmEkCertificate,
     machine_id: &MachineId,
 ) -> CarbideResult<()> {
@@ -163,7 +163,7 @@ pub async fn match_insert_new_ek_cert_status_against_ca(
 
 // returns true if ek cert has been matched and status was updated, false otherwise
 pub async fn match_update_existing_ek_cert_status_against_ca(
-    txn: &mut Transaction<'static, Postgres>,
+    txn: &mut PgConnection,
     ca_id: i32,
     ca_cert_bytes: &[u8],
     machine_id: &MachineId,

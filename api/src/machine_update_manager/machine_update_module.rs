@@ -17,7 +17,7 @@ use std::{
 
 use async_trait::async_trait;
 use lazy_static::lazy_static;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 
 use crate::{
     CarbideResult,
@@ -35,25 +35,22 @@ use forge_uuid::machine::MachineId;
 pub trait MachineUpdateModule: Send + Sync + fmt::Display {
     async fn get_updates_in_progress(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
     ) -> CarbideResult<HashSet<MachineId>>;
 
     async fn start_updates(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         available_updates: i32,
         updating_host_machines: &HashSet<MachineId>,
         snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) -> CarbideResult<HashSet<MachineId>>;
 
-    async fn clear_completed_updates(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<()>;
+    async fn clear_completed_updates(&self, txn: &mut PgConnection) -> CarbideResult<()>;
 
     async fn update_metrics(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     );
 }

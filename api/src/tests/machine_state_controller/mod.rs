@@ -10,15 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::Duration,
-};
-
 use crate::model::hardware_info::HardwareInfo;
 use crate::tests::common::api_fixtures::{create_test_env, dpu::dpu_discover_dhcp};
 use crate::{
@@ -36,6 +27,15 @@ use crate::{
 };
 use forge_uuid::machine::MachineId;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo, forge::forge_server::Forge};
+use sqlx::PgConnection;
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 use tonic::Request;
 
 #[derive(Debug, Default, Clone)]
@@ -58,7 +58,7 @@ impl StateHandler for TestMachineStateHandler {
         machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
         _controller_state: &Self::ControllerState,
-        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _txn: &mut PgConnection,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
         assert_eq!(state.host_snapshot.id, *machine_id);

@@ -16,7 +16,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 
 /// A pool bigger than this is very likely a mistake
 const MAX_POOL_SIZE: usize = 250_000;
@@ -39,7 +39,7 @@ pub enum DefineResourcePoolError {
 /// Create or edit the resource pools, making them match the given toml string.
 /// Does not delete or shrink pools, is only additive.
 pub async fn define_all_from(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     pools: &HashMap<String, ResourcePoolDef>,
 ) -> Result<(), DefineResourcePoolError> {
     for (ref name, def) in pools {
@@ -50,7 +50,7 @@ pub async fn define_all_from(
 }
 
 pub async fn define(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     name: &str,
     def: &ResourcePoolDef,
 ) -> Result<(), DefineResourcePoolError> {
@@ -111,7 +111,7 @@ pub enum ResourcePoolType {
 }
 
 async fn define_by_prefix(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     name: &str,
     pool_type: ResourcePoolType,
     prefix: &str,
@@ -142,7 +142,7 @@ async fn define_by_prefix(
 }
 
 async fn define_by_range(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     name: &str,
     pool_type: ResourcePoolType,
     range_start: &str,

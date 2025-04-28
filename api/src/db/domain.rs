@@ -17,8 +17,7 @@ use chrono::prelude::*;
 use forge_uuid::domain::DomainId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
-use sqlx::{Error, FromRow, Postgres, Row, Transaction};
-use std::ops::DerefMut;
+use sqlx::{Error, FromRow, PgConnection, Row};
 use tracing::log::debug;
 
 const SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX: &str = "valid_domain_name_regex";
@@ -279,10 +278,7 @@ impl NewDomain {
         }
     }
 
-    pub async fn persist(
-        &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<Domain> {
+    pub async fn persist(&self, txn: &mut PgConnection) -> CarbideResult<Domain> {
         let query = "INSERT INTO domains (name, soa) VALUES ($1, $2) returning *";
         match self.persist_inner(txn, query).await {
             Ok(Some(domain)) => Ok(domain),
@@ -298,10 +294,7 @@ impl NewDomain {
     }
 
     /// Create the domain only if it would be the first one
-    pub async fn persist_first(
-        &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<Option<Domain>> {
+    pub async fn persist_first(&self, txn: &mut PgConnection) -> CarbideResult<Option<Domain>> {
         let query = "
             INSERT INTO domains (name) SELECT $1
             WHERE NOT EXISTS (SELECT name FROM domains)
@@ -311,13 +304,13 @@ impl NewDomain {
 
     async fn persist_inner(
         &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         query: &'static str,
     ) -> CarbideResult<Option<Domain>> {
         sqlx::query_as(query)
             .bind(&self.name)
             .bind(sqlx::types::Json(&self.soa))
-            .fetch_optional(txn.deref_mut())
+            .fetch_optional(txn)
             .await
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::Database(e)
@@ -348,7 +341,7 @@ impl Domain {
     ///
     ///
     pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: ObjectColumnFilter<'a, C>,
     ) -> Result<Vec<Domain>, DatabaseError> {
         Self::find_all_by(txn, filter, false).await
@@ -356,7 +349,7 @@ impl Domain {
 
     /// Similar to [`Domain::find_by`] but lets you specify whether to include deleted results
     pub async fn find_all_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         filter: ObjectColumnFilter<'a, C>,
         include_deleted: bool,
     ) -> Result<Vec<Domain>, DatabaseError> {
@@ -366,13 +359,13 @@ impl Domain {
         }
         query
             .build_query_as()
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
     }
 
     pub async fn find_by_name(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         name: &str,
     ) -> Result<Vec<Self>, DatabaseError> {
         Self::find_by(txn, ObjectColumnFilter::One(NameColumn, &name)).await
@@ -380,7 +373,7 @@ impl Domain {
 
     /// Find the domain with the given ID, even if it is deleted.
     pub async fn find_by_uuid(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         uuid: DomainId,
     ) -> Result<Option<Self>, DatabaseError> {
         Self::find_all_by(txn, ObjectColumnFilter::One(IdColumn, &uuid), true)
@@ -388,22 +381,16 @@ impl Domain {
             .map(|f| f.first().cloned())
     }
 
-    pub async fn delete(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Domain, DatabaseError> {
+    pub async fn delete(&self, txn: &mut PgConnection) -> Result<Domain, DatabaseError> {
         let query = "UPDATE domains SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
         sqlx::query_as(query)
             .bind(self.id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
-    pub async fn update(
-        &mut self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Domain, DatabaseError> {
+    pub async fn update(&mut self, txn: &mut PgConnection) -> Result<Domain, DatabaseError> {
         let query = "UPDATE domains SET name=$1, updated=NOW(), soa=$2, metadata=$3 WHERE id=$4 RETURNING *";
 
         if let Some(ref mut record) = self.soa {
@@ -415,7 +402,7 @@ impl Domain {
             .bind(sqlx::types::Json(&self.soa))
             .bind(sqlx::types::Json(&self.metadata))
             .bind(self.id)
-            .fetch_one(txn.deref_mut())
+            .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }

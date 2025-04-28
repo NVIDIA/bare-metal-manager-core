@@ -12,8 +12,6 @@
 
 //! State Handler implementation for Network Segments
 
-use std::sync::Arc;
-
 use crate::{
     db::{
         self,
@@ -30,6 +28,8 @@ use crate::{
     },
 };
 use forge_uuid::network::NetworkSegmentId;
+use sqlx::PgConnection;
+use std::sync::Arc;
 
 /// The actual Network Segment State handler
 #[derive(Debug, Clone)]
@@ -97,7 +97,7 @@ impl StateHandler for NetworkSegmentStateHandler {
         segment_id: &NetworkSegmentId,
         state: &mut NetworkSegment,
         controller_state: &Self::ControllerState,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<NetworkSegmentControllerState>, StateHandlerError> {
         // record metrics irrespective of the state of the network segment

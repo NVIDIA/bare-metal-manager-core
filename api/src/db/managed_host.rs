@@ -19,12 +19,13 @@ use crate::{db::DatabaseError, model::machine::ManagedHostStateSnapshot};
 use forge_uuid::{instance::InstanceId, machine::MachineId};
 use itertools::Itertools;
 use lazy_static::lazy_static;
+use sqlx::PgConnection;
 use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 
 /// Loads a ManagedHost snapshot from the database
 pub async fn load_snapshot(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     options: LoadSnapshotOptions,
 ) -> Result<Option<ManagedHostStateSnapshot>, DatabaseError> {
@@ -38,7 +39,7 @@ pub async fn load_snapshot(
 /// When used for DPU Machine IDs, the returned HashMap will contain an entry
 /// that maps from the DPU Machine ID to the ManagedHost snapshot
 pub async fn load_by_machine_ids(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     requested_machine_ids: &[MachineId],
     options: LoadSnapshotOptions,
 ) -> Result<HashMap<MachineId, ManagedHostStateSnapshot>, DatabaseError> {
@@ -79,7 +80,7 @@ pub async fn load_by_machine_ids(
     let mut snapshots_by_host_id: HashMap<MachineId, ManagedHostStateSnapshot> =
         sqlx::query_as(&format!(r#"{query} WHERE m.id = ANY($1)"#))
             .bind(host_ids)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| {
                 DatabaseError::new(file!(), line!(), "managed_host::load_by_machine_ids", e)
@@ -138,7 +139,7 @@ pub async fn load_by_machine_ids(
 
 /// Loads a ManagedHost snapshots from the database based on a list of Instance IDs
 pub async fn load_by_instance_ids(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut PgConnection,
     instance_ids: &[InstanceId],
     load_snapshot_options: LoadSnapshotOptions,
 ) -> Result<Vec<ManagedHostStateSnapshot>, DatabaseError> {
@@ -153,7 +154,7 @@ pub async fn load_by_instance_ids(
         .push_bind(instance_ids)
         .push(")")
         .build_query_as()
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "managed_host::load_by_instance_ids", e))?
         .into_iter()

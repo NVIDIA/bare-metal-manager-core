@@ -34,7 +34,7 @@ use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialPro
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
 use mac_address::MacAddress;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 use tss_esapi::{
     structures::{Attest, Public as TssPublic, Signature},
@@ -5046,7 +5046,7 @@ fn truncate(mut s: String, len: usize) -> String {
 /// * `bmc_endpoint_request` - Optional BmcEndpointRequest.  Can supply _only_ ip_address or all fields.
 /// * `machine_id`           - Optional machine ID that can be used to build a new BmcEndpointRequest.
 pub(crate) async fn validate_and_complete_bmc_endpoint_request(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     bmc_endpoint_request: Option<rpc::BmcEndpointRequest>,
     machine_id: Option<String>,
 ) -> Result<rpc::BmcEndpointRequest, tonic::Status> {
@@ -5170,7 +5170,7 @@ impl Api {
     /// If the pool exists but is empty or has en error, return that.
     pub(crate) async fn allocate_vpc_vni(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         owner_id: &str,
     ) -> Result<i32, CarbideError> {
         match self
@@ -5202,7 +5202,7 @@ impl Api {
     /// If the pool exists but is empty or has en error, return that.
     pub(crate) async fn allocate_pkey(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         owner_id: &str,
     ) -> Result<Option<u16>, CarbideError> {
         match self

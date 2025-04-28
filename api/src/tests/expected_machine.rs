@@ -17,15 +17,13 @@ use crate::{
 use common::api_fixtures::create_test_env;
 use mac_address::MacAddress;
 use rpc::forge::{ExpectedMachineList, ExpectedMachineRequest, forge_server::Forge};
-use sqlx::Postgres;
+use sqlx::PgConnection;
 use std::default::Default;
 
 use crate::tests::common;
 
 // Test DB Functionality
-async fn get_expected_machine_1(
-    txn: &mut sqlx::Transaction<'_, Postgres>,
-) -> Option<ExpectedMachine> {
+async fn get_expected_machine_1(txn: &mut PgConnection) -> Option<ExpectedMachine> {
     let fixture_mac_address = "0a:0b:0c:0d:0e:0f".parse().unwrap();
 
     ExpectedMachine::find_by_bmc_mac_address(txn, fixture_mac_address)

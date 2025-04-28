@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::ops::DerefMut;
 
 use crate::db::DatabaseError;
 use crate::db::machine::MachineSearchConfig;
@@ -15,12 +14,12 @@ use crate::{
 };
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
 use forge_uuid::machine::MachineId;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 
 use super::common::api_fixtures::TestEnv;
 
 pub async fn update_nic_firmware_version(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: &MachineId,
     version: &str,
 ) -> CarbideResult<()> {
@@ -31,7 +30,7 @@ pub async fn update_nic_firmware_version(
     sqlx::query(query)
         .bind(sqlx::types::Json(version))
         .bind(machine_id)
-        .execute(txn.deref_mut())
+        .execute(txn)
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 

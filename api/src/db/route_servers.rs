@@ -1,7 +1,6 @@
 use std::net::IpAddr;
-use std::ops::DerefMut;
 
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;
 use crate::{CarbideError, CarbideResult, db::BIND_LIMIT};
@@ -13,7 +12,7 @@ pub struct RouteServer {
 
 impl RouteServer {
     pub async fn get_or_create(
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         addresses: &[IpAddr],
     ) -> CarbideResult<Vec<IpAddr>> {
         let route_servers = RouteServer::get(txn).await?;
@@ -43,7 +42,7 @@ impl RouteServer {
 
             let query = qb.build();
 
-            let result = query.execute(txn.deref_mut()).await.map_err(|e| {
+            let result = query.execute(txn).await.map_err(|e| {
                 DatabaseError::new(file!(), line!(), "RouteServer::get_or_create", e)
             })?;
 
@@ -62,19 +61,16 @@ impl RouteServer {
         }
     }
 
-    pub async fn get(txn: &mut Transaction<'_, Postgres>) -> CarbideResult<Vec<RouteServer>> {
+    pub async fn get(txn: &mut PgConnection) -> CarbideResult<Vec<RouteServer>> {
         let query = r#"SELECT * FROM route_servers;"#;
 
         Ok(sqlx::query_as(query)
-            .fetch_all(txn.deref_mut())
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?)
     }
 
-    pub async fn add(
-        txn: &mut Transaction<'_, Postgres>,
-        addresses: &[IpAddr],
-    ) -> CarbideResult<()> {
+    pub async fn add(txn: &mut PgConnection, addresses: &[IpAddr]) -> CarbideResult<()> {
         if !addresses.is_empty() {
             let query = r#"INSERT INTO route_servers "#;
             let mut qb = sqlx::QueryBuilder::new(query);
@@ -85,35 +81,29 @@ impl RouteServer {
             let query = qb.build();
 
             query
-                .execute(txn.deref_mut())
+                .execute(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "RouteServer::add", e))?;
         }
         Ok(())
     }
 
-    pub async fn remove(
-        txn: &mut Transaction<'_, Postgres>,
-        addresses: &Vec<IpAddr>,
-    ) -> CarbideResult<()> {
+    pub async fn remove(txn: &mut PgConnection, addresses: &Vec<IpAddr>) -> CarbideResult<()> {
         if !addresses.is_empty() {
             let query = r#"DELETE FROM route_servers where address=ANY($1);"#;
             sqlx::query(query)
                 .bind(addresses)
-                .execute(txn.deref_mut())
+                .execute(txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "RouteServer::add", e))?;
         }
         Ok(())
     }
 
-    pub async fn replace(
-        txn: &mut Transaction<'_, Postgres>,
-        addresses: &[IpAddr],
-    ) -> CarbideResult<()> {
+    pub async fn replace(txn: &mut PgConnection, addresses: &[IpAddr]) -> CarbideResult<()> {
         let query = r#"DELETE FROM route_servers;"#;
         let _result = sqlx::query(query)
-            .execute(txn.deref_mut())
+            .execute(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

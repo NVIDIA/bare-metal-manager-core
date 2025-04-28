@@ -15,20 +15,18 @@
  *  database, leveraging the machine-specific record types.
 */
 
-use std::ops::DerefMut;
-
 use crate::db::DatabaseError;
 use crate::measured_boot::db::machine::CandidateMachineRecord;
 use crate::measured_boot::interface::common;
 use forge_uuid::machine::MachineId;
 use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 
 /// get_candidate_machine_state figures out the current state of the given
 /// machine ID by checking its most recent bundle (or lack thereof), and
 /// using that result to give it a corresponding MeasurementMachineState.
 pub async fn get_candidate_machine_state(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> Result<MeasurementMachineState, DatabaseError> {
     Ok(
@@ -42,20 +40,20 @@ pub async fn get_candidate_machine_state(
 /// get_latest_journal_for_id returns the latest journal record for the
 /// provided machine ID.
 pub async fn get_latest_journal_for_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
     let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";
     sqlx::query_as(query)
         .bind(machine_id)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_latest_journal_for_id", e))
 }
 
 /// get_candidate_machine_record_by_id returns a CandidateMachineRecord row.
 pub async fn get_candidate_machine_record_by_id(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> Result<Option<CandidateMachineRecord>, DatabaseError> {
     common::get_object_for_id(txn, machine_id)
@@ -73,7 +71,7 @@ pub async fn get_candidate_machine_record_by_id(
 /// get_candidate_machine_records returns all MockMachineRecord rows,
 /// primarily for the purpose of `mock-machine list`.
 pub async fn get_candidate_machine_records(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: &mut PgConnection,
 ) -> Result<Vec<CandidateMachineRecord>, DatabaseError> {
     common::get_all_objects(txn).await.map_err(|e| {
         DatabaseError::new(file!(), line!(), "get_candidate_machine_records", e.source)

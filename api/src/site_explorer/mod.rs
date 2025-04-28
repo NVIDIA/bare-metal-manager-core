@@ -23,7 +23,7 @@ use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
 use managed_host::ManagedHost;
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{PgConnection, PgPool};
 use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 use version_compare::Cmp;
@@ -1458,7 +1458,7 @@ impl SiteExplorer {
     // If the DPU already exists in the machines table, this is a no-op. create_dpu returns false.
     async fn create_dpu(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         explored_dpu: &ExploredDpu,
     ) -> CarbideResult<bool> {
         if let Some(dpu_machine) = self.create_dpu_machine(txn, explored_dpu).await? {
@@ -1476,7 +1476,7 @@ impl SiteExplorer {
 
     async fn create_zero_dpu_machine(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         managed_host: &mut ManagedHost,
         report: &mut EndpointExplorationReport,
         metadata: Metadata,
@@ -1603,7 +1603,7 @@ impl SiteExplorer {
     // If the DPU's machine interface was missing the machine ID in the table, configure_dpu_interface will set the machine ID and return true.
     async fn configure_dpu_interface(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         explored_dpu: &ExploredDpu,
     ) -> CarbideResult<bool> {
         let dpu_machine_id: &MachineId = explored_dpu.report.machine_id.as_ref().unwrap();
@@ -1652,7 +1652,7 @@ impl SiteExplorer {
     // if an entry doesnt exist in the machine table, the site explorer will add an entry in the machines table for the DPU and update its network config appropriately (allocating a loop ip address etc). Return the newly created machine.
     async fn create_dpu_machine(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         explored_dpu: &ExploredDpu,
     ) -> CarbideResult<Option<Machine>> {
         let dpu_machine_id = explored_dpu.report.machine_id.as_ref().unwrap();
@@ -1685,7 +1685,7 @@ impl SiteExplorer {
 
     async fn update_dpu_network_config(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         dpu_machine: &Machine,
     ) -> CarbideResult<()> {
         let (mut network_config, version) = dpu_machine.network_config.clone().take();
@@ -1708,7 +1708,7 @@ impl SiteExplorer {
 
     async fn attach_dpu_to_host(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         explored_host: &mut ManagedHost,
         explored_dpu: &ExploredDpu,
         metadata: Metadata,
@@ -1776,7 +1776,7 @@ impl SiteExplorer {
     // Therefore, the primary interface is guaranteed to be configured prior to any secondary interface.
     async fn configure_host_machine(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         explored_host: &mut ManagedHost,
         host_machine_interface: &MachineInterfaceSnapshot,
         explored_dpu: &ExploredDpu,
@@ -1826,7 +1826,7 @@ impl SiteExplorer {
     // 3) Update the "machine_topologies" table with the bmc info for this host
     async fn create_host_from_dpu_hw_info(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         explored_host: &ExploredManagedHost,
         explored_dpu: &ExploredDpu,
         mut metadata: Metadata,
@@ -1865,7 +1865,7 @@ impl SiteExplorer {
     // 2) Update the "machine_topologies" table with the bmc info for this host
     async fn create_machine_from_explored_managed_host(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         managed_host: &ManagedHost,
         predicted_machine_id: &MachineId,
         mut metadata: Metadata,
@@ -1894,7 +1894,7 @@ impl SiteExplorer {
 
     async fn update_machine_topology(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        txn: &mut PgConnection,
         machine_id: &MachineId,
         mut bmc_info: BmcInfo,
         hardware_info: HardwareInfo,
