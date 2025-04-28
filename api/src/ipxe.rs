@@ -75,7 +75,9 @@ impl PxeInstructions {
         console: &str,
         machine_type: MachineType,
     ) -> String {
-        tracing::info!("machine_type: {}", machine_type);
+        tracing::info!(
+            "machine_type: {machine_type}; machine interface ID: {machine_interface_id}; mac address: {mac_address}"
+        );
         match arch {
             rpc::MachineArchitecture::Arm => {
                 if machine_type == MachineType::Host || machine_type == MachineType::PredictedHost {
