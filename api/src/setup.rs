@@ -507,6 +507,12 @@ pub async fn initialize_and_start_controllers(
                 .common_pools(common_pools.clone())
                 .bom_validation(carbide_config.bom_validation)
                 .no_firmware_update_reset_retries(carbide_config.firmware_global.no_reset_retries)
+                .instance_autoreboot_period(
+                    carbide_config
+                        .machine_updater
+                        .instance_autoreboot_period
+                        .clone(),
+                )
                 .build(),
         ))
         .io(Arc::new(MachineStateControllerIO {

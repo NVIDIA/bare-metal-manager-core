@@ -195,6 +195,9 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub firmware_global: FirmwareGlobal,
 
+    #[serde(default)]
+    pub machine_updater: MachineUpdater,
+
     /// The maximum number of IDs allowed for find_(something)_by_ids APIs
     #[serde(default = "default_max_find_by_ids")]
     pub max_find_by_ids: u32,
@@ -1289,6 +1292,17 @@ impl FirmwareGlobal {
     }
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct MachineUpdater {
+    #[serde(default)]
+    pub instance_autoreboot_period: Option<TimePeriod>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct TimePeriod {
+    pub start: chrono::DateTime<chrono::Utc>,
+    pub end: chrono::DateTime<chrono::Utc>,
+}
 /// DPU related config.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DpuModel {
@@ -1859,6 +1873,7 @@ pub enum VpcPeeringPolicy {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Datelike;
     use figment::{
         Figment,
         providers::{Env, Format, Toml},
@@ -2389,6 +2404,26 @@ mod tests {
                 .required_equals
                 .get(&CertComponent::IssuerCN),
             Some("NVIDIA Forge Root Certificate Authority 2022".to_string()).as_ref()
+        );
+        assert_eq!(
+            config
+                .machine_updater
+                .instance_autoreboot_period
+                .clone()
+                .unwrap()
+                .start
+                .day(),
+            7
+        );
+        assert_eq!(
+            config
+                .machine_updater
+                .instance_autoreboot_period
+                .clone()
+                .unwrap()
+                .end
+                .day(),
+            8
         );
     }
 

@@ -17,7 +17,7 @@ use crate::tests::common::api_fixtures::{
 };
 use crate::{
     CarbideResult,
-    cfg::file::FirmwareComponentType,
+    cfg::file::{FirmwareComponentType, TimePeriod},
     db,
     db::{
         DatabaseError, explored_endpoints::DbExploredEndpoint,
@@ -939,9 +939,41 @@ async fn test_preingestion_powercycling(
 }
 
 #[crate::sqlx_test]
-async fn test_instance_upgrading(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    // Create an environment with one managed host in the assigned/ready state.
-    let env = create_test_env(pool).await;
+async fn test_instance_upgrading_false(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    test_instance_upgrading_actual(&pool, false).await.unwrap();
+    Ok(())
+}
+#[crate::sqlx_test]
+async fn test_instance_upgrading_true(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    test_instance_upgrading_actual(&pool, true).await.unwrap();
+    Ok(())
+}
+
+async fn test_instance_upgrading_actual(
+    pool: &sqlx::PgPool,
+    with_ignore_request: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = common::api_fixtures::get_config();
+    if with_ignore_request {
+        config.machine_updater.instance_autoreboot_period = Some(TimePeriod {
+            start: chrono::Utc::now()
+                .checked_add_signed(chrono::TimeDelta::new(-300, 0).unwrap())
+                .unwrap(),
+            end: chrono::Utc::now()
+                .checked_add_signed(chrono::TimeDelta::new(300, 0).unwrap())
+                .unwrap(),
+        });
+    }
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let (_instance_id, _instance) = create_instance(
@@ -958,39 +990,45 @@ async fn test_instance_upgrading(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     // Create and start an update manager
     let update_manager =
         MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
+
     // Single iteration now starts it
     update_manager.run_single_iteration().await.unwrap();
 
-    // A tick of the state machine, but we don't start anything yet and it's still in assigned/ready
-    env.run_machine_state_controller_iteration().await;
-    let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
-        panic!("Unexpected state {:?}", host.state);
-    };
-    let InstanceState::Ready = instance_state else {
-        panic!("Unexpecte instance state {:?}", host.state);
-    };
-    println!("{:?}", host.health_report_overrides);
-    assert!(
-        host.health_report_overrides
-            .merges
-            .contains_key(HOST_FW_UPDATE_HEALTH_REPORT_SOURCE)
-    );
-    txn.commit().await.unwrap();
+    if with_ignore_request {
+        // Shouldn't need a "manual" OK
+    } else {
+        // A tick of the state machine, but we don't start anything yet and it's still in assigned/ready
+        env.run_machine_state_controller_iteration().await;
+        let mut txn = env.pool.begin().await.unwrap();
+        let host =
+            db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+                .await
+                .unwrap()
+                .unwrap();
+        let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
+            panic!("Unexpected state {:?}", host.state);
+        };
+        let InstanceState::Ready = instance_state else {
+            panic!("Unexpecte instance state {:?}", host.state);
+        };
+        println!("{:?}", host.health_report_overrides);
+        assert!(
+            host.health_report_overrides
+                .merges
+                .contains_key(HOST_FW_UPDATE_HEALTH_REPORT_SOURCE)
+        );
+        txn.commit().await.unwrap();
 
-    // Simulate a tenant OKing the request
-    let request = rpc::forge::InstancePowerRequest {
-        machine_id: Some(host_machine_id.into()),
-        operation: rpc::forge::instance_power_request::Operation::PowerReset.into(),
-        boot_with_custom_ipxe: false,
-        apply_updates_on_reboot: true,
-    };
-    let request = Request::new(request);
-    env.api.invoke_instance_power(request).await.unwrap();
+        // Simulate a tenant OKing the request
+        let request = rpc::forge::InstancePowerRequest {
+            machine_id: Some(host_machine_id.into()),
+            operation: rpc::forge::instance_power_request::Operation::PowerReset.into(),
+            boot_with_custom_ipxe: false,
+            apply_updates_on_reboot: true,
+        };
+        let request = Request::new(request);
+        env.api.invoke_instance_power(request).await.unwrap();
+    }
 
     // A tick of the state machine, now we begin.
     env.run_machine_state_controller_iteration().await;

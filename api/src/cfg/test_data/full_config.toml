@@ -125,6 +125,10 @@ host_disable_autoupdate = [
 run_interval = "20s"
 max_uploads = 3
 
+[machine_updater]
+instance_autoreboot_period.start = "2025-01-07T00:00:00Z"
+instance_autoreboot_period.end = "2026-01-08T00:00:00Z"
+
 [host_models.dell_r750]
 vendor = "Dell"
 model = "PowerEdge R750"
