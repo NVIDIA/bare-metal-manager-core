@@ -156,6 +156,7 @@ pub(crate) async fn record_machine_infiniband_status_observation(
     // So it guarantees stable order between function calls
     if prev != cur {
         db::machine::update_infiniband_status_observation(txn, machine_id, &cur).await?;
+        mh_snapshot.host_snapshot.infiniband_status_observation = Some(cur);
     }
 
     Ok(())
