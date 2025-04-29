@@ -56,6 +56,7 @@
 - [MR-3929](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3929): Increased the default number of machines created per run from 1 to 4.
 - [MR-3925](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3925): Fixed an issue where an extraneous call to forge_setup was made when handling host lockdown by removing the redundant call, as it is done earlier in the ingestion process.
 - [MR-3926](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3926): Updated the documentation for the web UI to include 'system account' authentication and Argo details.
+- Carbide will store InstanceNetworkStatusObservation in `machines` table into respective DPU row. Previously carbide used to store it in `instances` table.
 
 ## [v2025.04.11-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.11-rc3-0...v2025.04.11-rc4-0):
 
