@@ -13,6 +13,7 @@ use std::net::IpAddr;
 
 use chrono::Utc;
 use config_version::ConfigVersion;
+use mac_address::MacAddress;
 use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
 
 use crate::{
@@ -418,15 +419,26 @@ WHERE address = $3 AND version=$4";
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
-    /// Search the exploration report for a string anywhere in the JSON.
-    /// Used by the MAC address finder.
-    pub async fn find_freetext_in_report(
+    /// Search the exploration report for any explored endpoint with a manager or system interface
+    /// matching the given MAC address.
+    ///
+    /// NOTE: This function's query is designed to exactly match with the GIN index
+    /// explored_endpoints_mac_addresses_idx, to avoid a full scan of all endpoint reports. Do NOT
+    /// change this query without changing the index to match!
+    pub async fn find_by_mac_address(
         txn: &mut PgConnection,
-        to_find: &str,
+        mac: MacAddress,
     ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-        let query = "SELECT * FROM explored_endpoints WHERE exploration_report::text ilike '%' || $1 || '%'";
+        let query = r#"
+            SELECT * FROM explored_endpoints
+            WHERE (
+                jsonb_path_query_array(exploration_report, '$.Systems[*].EthernetInterfaces[*].MACAddress')
+                ||
+                jsonb_path_query_array(exploration_report, '$.Managers[*].EthernetInterfaces[*].MACAddress')
+            ) @> to_jsonb(ARRAY[$1]);
+        "#;
         sqlx::query_as::<_, Self>(query)
-            .bind(to_find)
+            .bind(mac)
             .fetch_all(txn)
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())

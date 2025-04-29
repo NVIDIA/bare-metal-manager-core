@@ -1498,7 +1498,7 @@ async fn main() -> color_eyre::Result<()> {
 
             // Is it a serial number?!??!?!
             // Grab the machine ID and look-up the machine.
-            if let Ok(machine_id) = api_client.identify_serial(j.id).await {
+            if let Ok(machine_id) = api_client.identify_serial(j.id, false).await {
                 machine::handle_show(
                     cfg::cli_options::ShowMachine {
                         machine: machine_id.to_string(),

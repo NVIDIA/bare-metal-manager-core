@@ -308,38 +308,112 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         dpu_config.serial
     );
 
-    // Host
+    // Host, exact match, success
+    {
+        let req = rpc::forge::IdentifySerialRequest {
+            // src/model/hardware_info/test_data/x86_info.json
+            serial_number: "HostBoard123".to_string(),
+            exact: true,
+        };
+        let res = env
+            .api
+            .identify_serial(tonic::Request::new(req))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            res.machine_id.unwrap().to_string(),
+            host_machine_id.to_string()
+        );
+    }
 
-    let req = rpc::forge::IdentifySerialRequest {
-        // src/model/hardware_info/test_data/x86_info.json
-        serial_number: "HostBoard123".to_string(),
-    };
-    let res = env
-        .api
-        .identify_serial(tonic::Request::new(req))
-        .await
-        .unwrap()
-        .into_inner();
-    assert_eq!(
-        res.machine_id.unwrap().to_string(),
-        host_machine_id.to_string()
-    );
+    // Host, exact match, failure
+    {
+        let req = rpc::forge::IdentifySerialRequest {
+            // src/model/hardware_info/test_data/x86_info.json
+            serial_number: "tBoard123".to_string(),
+            exact: true,
+        };
+        let res = env
+            .api
+            .identify_serial(tonic::Request::new(req))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(res.machine_id.is_none());
+    }
 
-    // DPU
+    // Host, fuzzy match
+    {
+        let req = rpc::forge::IdentifySerialRequest {
+            // src/model/hardware_info/test_data/x86_info.json
+            serial_number: "tBoard123".to_string(),
+            exact: false,
+        };
+        let res = env
+            .api
+            .identify_serial(tonic::Request::new(req))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            res.machine_id.unwrap().to_string(),
+            host_machine_id.to_string()
+        );
+    }
 
-    let req = rpc::forge::IdentifySerialRequest {
-        serial_number: dpu_config.serial,
-    };
-    let res = env
-        .api
-        .identify_serial(tonic::Request::new(req))
-        .await
-        .unwrap()
-        .into_inner();
-    assert_eq!(
-        res.machine_id.unwrap().to_string(),
-        dpu_machine_id[0].to_string()
-    );
+    // DPU, exact match, success
+    {
+        let req = rpc::forge::IdentifySerialRequest {
+            serial_number: dpu_config.serial.clone(),
+            exact: true,
+        };
+        let res = env
+            .api
+            .identify_serial(tonic::Request::new(req))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            res.machine_id.unwrap().to_string(),
+            dpu_machine_id[0].to_string()
+        );
+    }
+
+    // DPU, exact match, failure
+    {
+        let req = rpc::forge::IdentifySerialRequest {
+            // Lop off the first 4 characters
+            serial_number: dpu_config.serial.replace(&dpu_config.serial[0..4], ""),
+            exact: true,
+        };
+        let res = env
+            .api
+            .identify_serial(tonic::Request::new(req))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(res.machine_id.is_none());
+    }
+
+    // DPU, fuzzy match
+    {
+        let req = rpc::forge::IdentifySerialRequest {
+            // Lop off the first 4 characters
+            serial_number: dpu_config.serial.replace(&dpu_config.serial[0..4], ""),
+            exact: false,
+        };
+        let res = env
+            .api
+            .identify_serial(tonic::Request::new(req))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            res.machine_id.unwrap().to_string(),
+            dpu_machine_id[0].to_string()
+        );
+    }
 
     Ok(())
 }

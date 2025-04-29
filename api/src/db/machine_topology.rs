@@ -251,8 +251,41 @@ impl MachineTopology {
             })
     }
 
+    /// Find any topology with a product, chassis, or board serial number exactly matching the input.
+    ///
+    /// NOTE: This query must exactly match the index machine_topologies_serial_numbers_idx, which
+    /// will make this a fast operation that doesn't need to sequentially scan. DO NOT change this
+    /// query without also changing the index!
+    pub async fn find_by_serial(
+        txn: &mut PgConnection,
+        to_find: &str,
+    ) -> Result<Vec<MachineId>, DatabaseError> {
+        let query = r#"
+            SELECT machine_id
+            FROM   machine_topologies
+            WHERE
+            (
+                jsonb_path_query_array(topology,
+                    '$.discovery_data.Info.dmi_data.product_serial')
+            ||
+                jsonb_path_query_array(topology,
+                    '$.discovery_data.Info.dmi_data.board_serial')
+            ||
+                jsonb_path_query_array(topology,
+                    '$.discovery_data.Info.dmi_data.chassis_serial')
+            ) @> to_jsonb(ARRAY[$1]);
+        "#;
+        sqlx::query_as::<_, MachineId>(query)
+            .bind(to_find)
+            .fetch_all(txn)
+            .await
+            .map_err(|e| {
+                DatabaseError::new(file!(), line!(), "machine_topologies find_by_serial", e)
+            })
+    }
+
     /// Search the topologyfor a string anywhere in the JSON.
-    /// Used by the serial number finder.
+    /// Used by the serial number finder for non-exact matches
     pub async fn find_freetext(
         txn: &mut PgConnection,
         to_find: &str,
