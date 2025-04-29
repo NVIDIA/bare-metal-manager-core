@@ -21,7 +21,20 @@ pre_bmc_components_update() {
 }
 
 post_bmc_components_update() {
+    set -eE
+    tee data.json <<DOF
+    {
+        "CertificateString": "$(openssl x509 -inform der -outform pem -in /mnt/lib/firmware/mellanox/boot/capsule/certs/prod/db.cer | sed -e 's/[[:space:]]*$//' -e 's/$/\\n/')",
+        "CertificateType": "PEM"
+    }
+DOF
+    # Calling a method defined in the upstream installer with no guarantee itll stay that same name, but it should have
+    # already been called during firmware update, this is just to be sure
+    # https://github.com/Mellanox/bfb-build/blob/9e80eb358e7bb9e62328039745cc43d69eefc64a/common/install.env/bmc#L118
+    create_vlan
+    curl --verbose --insecure --retry 5 --retry-all-errors --user $BMC_USER:$BMC_PASSWORD  -d @data.json https://$BMC_IP/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases/db/Certificates
     ipmitool user set name $USER_ID ""
+    set +eE
 }
 
 # This function is called by install.sh script embedded in the BFB
@@ -201,6 +214,7 @@ write_files:
       date -s '@{{ seconds_since_epoch }}'
       hwclock --systohc
       /usr/bin/systemctl daemon-reload
+      /usr/bin/bfrec --capsule /lib/firmware/mellanox/boot/capsule/efi_sbkeysync.cap
       /usr/bin/bfcfg
       ip vrf exec mgmt curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem {{ pxe_url }}/api/v0/tls/root_ca
       echo "downloaded forge root cert"
