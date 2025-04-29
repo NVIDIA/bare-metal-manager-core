@@ -14,7 +14,6 @@
 //!
 
 use std::collections::HashMap;
-use std::fmt::Write;
 use std::net::{IpAddr, Ipv4Addr};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
@@ -144,8 +143,6 @@ pub struct MachineSnapshotPgJson {
     last_reboot_time: Option<DateTime<Utc>>,
     last_reboot_requested: Option<MachineLastRebootRequested>,
     last_cleanup_time: Option<DateTime<Utc>>,
-    maintenance_reference: Option<String>,
-    maintenance_start_time: Option<DateTime<Utc>>,
     failure_details: FailureDetails,
     reprovisioning_requested: Option<ReprovisionRequest>,
     host_reprovisioning_requested: Option<HostReprovisionRequest>,
@@ -261,8 +258,6 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             interfaces: value.interfaces,
             hardware_info,
             bmc_info,
-            maintenance_reference: value.maintenance_reference,
-            maintenance_start_time: value.maintenance_start_time,
             last_reboot_time: value.last_reboot_time,
             last_cleanup_time: value.last_cleanup_time,
             last_discovery_time: value.last_discovery_time,
@@ -485,7 +480,7 @@ pub async fn find(
     }
 
     if search_config.only_maintenance {
-        builder.push(" AND m.maintenance_reference IS NOT NULL ");
+        builder.push(" AND m.health_report_overrides->'merges'->'maintenance'->'alerts'->0->>'id' = 'Maintenance' ");
     }
 
     if search_config.only_quarantine {
@@ -1364,48 +1359,6 @@ pub async fn clear_failure_details(
     Ok(())
 }
 
-pub async fn set_maintenance_mode(
-    txn: &mut PgConnection,
-    machine_id: &MachineId,
-    mode: &MaintenanceMode,
-) -> Result<(), DatabaseError> {
-    set_maintenance_mode_with_condition(txn, machine_id, mode, None).await
-}
-
-pub async fn set_maintenance_mode_with_condition(
-    txn: &mut PgConnection,
-    machine_id: &MachineId,
-    mode: &MaintenanceMode,
-    condition: Option<String>,
-) -> Result<(), DatabaseError> {
-    match mode {
-        MaintenanceMode::On { reference } => {
-            let mut query = "UPDATE machines SET maintenance_reference=$1, maintenance_start_time=NOW() WHERE id=$2".to_string();
-            if let Some(condition) = condition {
-                write!(&mut query, " AND {condition}").unwrap();
-            }
-            sqlx::query(&query)
-                .bind(reference)
-                .bind(machine_id.to_string())
-                .execute(txn)
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
-        }
-        MaintenanceMode::Off => {
-            let mut query = "UPDATE machines SET maintenance_reference=NULL, maintenance_start_time=NULL WHERE id=$1".to_string();
-            if let Some(condition) = condition {
-                write!(&mut query, " AND {condition}").unwrap();
-            }
-            sqlx::query(&query)
-                .bind(machine_id.to_string())
-                .execute(txn)
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
-        }
-    }
-    Ok(())
-}
-
 pub async fn create(
     txn: &mut PgConnection,
     common_pools: Option<&CommonPools>,
@@ -1774,7 +1727,7 @@ pub async fn find_machine_ids(
     let mut has_where = false;
 
     if search_config.only_maintenance {
-        qb.push(" WHERE maintenance_reference IS NOT NULL");
+        qb.push(" WHERE health_report_overrides->'merges'->'maintenance'->'alerts'->0->>'id' = 'Maintenance'");
         has_where = true;
     }
 
@@ -2259,12 +2212,6 @@ pub async fn clear_quarantine_state(
     network_config.quarantine_state = None;
     try_update_network_config(txn, machine_id, network_config_version, &network_config).await?;
     Ok(old_quarantine_state)
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum MaintenanceMode {
-    Off,
-    On { reference: String },
 }
 
 #[cfg(test)]

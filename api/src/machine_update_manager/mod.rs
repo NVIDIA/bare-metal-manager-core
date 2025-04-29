@@ -24,8 +24,7 @@ use std::{collections::HashSet, sync::Arc, time::Duration};
 use tokio::sync::oneshot;
 
 use self::{
-    dpu_nic_firmware::DpuNicFirmwareUpdate,
-    machine_update_module::{AutomaticFirmwareUpdateReference, MachineUpdateModule},
+    dpu_nic_firmware::DpuNicFirmwareUpdate, machine_update_module::MachineUpdateModule,
     metrics::MachineUpdateManagerMetrics,
 };
 use crate::cfg::file::HostHealthConfig;
@@ -36,9 +35,8 @@ use crate::{
     cfg::file::CarbideConfig,
     db,
     db::{
-        DatabaseError, ObjectFilter,
-        dpu_machine_update::DpuMachineUpdate,
-        machine::{MachineSearchConfig, MaintenanceMode},
+        DatabaseError, ObjectFilter, dpu_machine_update::DpuMachineUpdate,
+        machine::MachineSearchConfig,
     },
 };
 use forge_uuid::machine::MachineId;
@@ -271,71 +269,13 @@ impl MachineUpdateManager {
         Ok(())
     }
 
-    /// Reflects the old mechanism of putting host and DPUs under updates into Maintenance Mode
-    /// Only used in Tests
-    #[cfg(test)]
-    pub async fn put_machine_in_maintenance(
-        txn: &mut PgConnection,
-        machine_update: &DpuMachineUpdate,
-        reference: &crate::machine_update_manager::machine_update_module::DpuReprovisionInitiator,
-    ) -> CarbideResult<()> {
-        db::machine::set_maintenance_mode(
-            txn,
-            &machine_update.host_machine_id,
-            &MaintenanceMode::On {
-                reference: reference.to_string(),
-            },
-        )
-        .await
-        .map_err(CarbideError::from)?;
-
-        db::machine::set_maintenance_mode(
-            txn,
-            &machine_update.dpu_machine_id,
-            &MaintenanceMode::On {
-                reference: reference.to_string(),
-            },
-        )
-        .await
-        .map_err(CarbideError::from)?;
-        Ok(())
-    }
-
     /// Removes all markers from a Host that are used to indicate that updates are applied
     /// This includes
     /// - A Health Override
-    /// - Maintenance mode for machines which had been in the update state before maintenance mode was removed
-    ///   from the process.
-    ///   TODO: Remove the Maintenance mode interaction in a future release once pending
-    ///   updates that used maintenance mode are completed
     pub async fn remove_machine_update_markers(
         txn: &mut PgConnection,
         machine_update: &DpuMachineUpdate,
     ) -> CarbideResult<()> {
-        db::machine::set_maintenance_mode_with_condition(
-            txn,
-            &machine_update.host_machine_id,
-            &MaintenanceMode::Off,
-            Some(format!(
-                "starts_with(maintenance_reference, '{}')",
-                AutomaticFirmwareUpdateReference::REF_NAME
-            )),
-        )
-        .await
-        .map_err(CarbideError::from)?;
-
-        db::machine::set_maintenance_mode_with_condition(
-            txn,
-            &machine_update.dpu_machine_id,
-            &MaintenanceMode::Off,
-            Some(format!(
-                "starts_with(maintenance_reference, '{}')",
-                AutomaticFirmwareUpdateReference::REF_NAME
-            )),
-        )
-        .await
-        .map_err(CarbideError::from)?;
-
         db::machine::remove_health_report_override(
             txn,
             &machine_update.host_machine_id,

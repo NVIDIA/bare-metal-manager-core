@@ -201,10 +201,6 @@ impl ManagedHostStateSnapshot {
             return Err(NotAllocatableReason::HealthAlert(Box::new(alert.clone())));
         }
 
-        if self.host_snapshot.is_maintenance_mode() {
-            return Err(NotAllocatableReason::MaintenanceMode);
-        }
-
         Ok(())
     }
 
@@ -531,14 +527,6 @@ pub struct Machine {
     /// The BMC info for this machine
     pub bmc_info: BmcInfo,
 
-    /// URL of the reference tracking this machine's maintenance (e.g. JIRA)
-    /// Some(_) means the machine is in maintenance mode.
-    /// None means not in maintenance mode.
-    pub maintenance_reference: Option<String>,
-
-    /// What time was this machine set into maintenance mode?
-    pub maintenance_start_time: Option<DateTime<Utc>>,
-
     /// Last time when machine came up.
     pub last_reboot_time: Option<DateTime<Utc>>,
 
@@ -672,10 +660,6 @@ impl Machine {
         self.network_config.loopback_ip
     }
 
-    pub fn is_maintenance_mode(&self) -> bool {
-        self.maintenance_reference.is_some()
-    }
-
     /// Returns all associated DPU Machine IDs if this is Host Machine
     pub fn associated_dpu_machine_ids(&self) -> Vec<MachineId> {
         if self.is_dpu() {
@@ -794,6 +778,31 @@ impl From<Machine> for rpc::forge::Machine {
             false => HealthReport::empty("aggregate-health".to_string()), // Health is written by ManagedHostStateSnapshot
         };
 
+        // Derive legacy Maintenance mode fields
+        // They are determine by the value of a well-known health override, that is also set
+        // via SetMaintenance API
+        let (maintenance_reference, maintenance_start_time) = if !machine.is_dpu() {
+            match machine.health_report_overrides.merges.get("maintenance") {
+                Some(r#override) => {
+                    let maintenance_alert_id = "Maintenance".parse().unwrap();
+                    match r#override
+                        .alerts
+                        .iter()
+                        .find(|alert| alert.id == maintenance_alert_id)
+                    {
+                        Some(alert) => (
+                            Some(alert.message.clone()),
+                            alert.in_alert_since.map(rpc::Timestamp::from),
+                        ),
+                        None => (None, None),
+                    }
+                }
+                None => (None, None),
+            }
+        } else {
+            (None, None)
+        };
+
         let associated_dpu_machine_ids: Vec<rpc::MachineId> = machine
             .associated_dpu_machine_ids()
             .iter()
@@ -851,8 +860,8 @@ impl From<Machine> for rpc::forge::Machine {
             dpu_agent_version: machine
                 .network_status_observation
                 .and_then(|obs| obs.agent_version),
-            maintenance_reference: machine.maintenance_reference,
-            maintenance_start_time: machine.maintenance_start_time.map(|t| t.into()),
+            maintenance_reference,
+            maintenance_start_time,
             associated_host_machine_id: None, // Gets filled in the `ManagedHostStateSnapshot` conversion
             associated_dpu_machine_ids,
             associated_dpu_machine_id,
