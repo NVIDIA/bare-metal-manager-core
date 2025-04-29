@@ -43,6 +43,8 @@ if_state --> DpuDiscoveringState: True
   state FirmwareUpgradeNeeded <<choice>>
   Ready --> FirmwareUpgradeNeeded: if DPU reprovision is requested
   Ready --> Assigned: if Instance Creation is requested
+  Ready --> Validation: if On-Demand Machine validation is requested
+  Ready --> HostReprovision: If Host FW updates should be installed
 
   state Assigned {
     [*] --> A_WaitingForNetworkConfig: Waiting for tenant network to config on DPU
@@ -60,7 +62,7 @@ if_state --> DpuDiscoveringState: True
   state WaitingForCleanup {
     [*] --> HostCleanup : Host performing cleanup
   }
-  HostCleanup --> Host_Discovered: Host cleanup finished
+  HostCleanup --> Validation: Host cleanup finished
   FirmwareUpgradeNeeded --> DPUReprovision: if firmware upgrade is needed
   FirmwareUpgradeNeeded --> Reprov_WaitingForNetworkInstall: if firmware upgrade is NOT needed
   state DPUReprovision {
@@ -90,14 +92,13 @@ if_state --> DpuDiscoveringState: True
     HostReprovision_NewFirmwareReportedWait --> HostReprovision_CheckingFirmware
     HostReprovision_FailedFirmwareUpgrade
   }
-  Ready --> HostReprovision
   HostReprovision_CheckingFirmware --> WaitingForLockdown
   HostReprovision_CheckingFirmware --> Ready
 
   Host_Discovered --> Validation: Discovery completed
   state Validation {
-    [*] --> MachineValidating
-    MachineValidating --> Ready: After machine validation
+    [*] --> V_RebootHost
+    V_RebootHost --> V_MachineValidating
   }
-  Validation --> Ready: Validation completed
+  Validation --> Host_Discovered: Validation completed
 ```
