@@ -132,9 +132,12 @@ pub(crate) async fn identify_serial(
         ))
     })?;
 
-    let machine_ids = MachineTopology::find_freetext(&mut txn, &req.serial_number)
-        .await
-        .map_err(CarbideError::from)?;
+    let machine_ids = if req.exact {
+        MachineTopology::find_by_serial(&mut txn, &req.serial_number).await
+    } else {
+        MachineTopology::find_freetext(&mut txn, &req.serial_number).await
+    }
+    .map_err(CarbideError::from)?;
 
     if machine_ids.len() > 1 {
         tracing::warn!(
@@ -474,7 +477,7 @@ async fn by_mac(
         }
     }
 
-    let endpoints = DbExploredEndpoint::find_freetext_in_report(&mut txn, &mac.to_string()).await?;
+    let endpoints = DbExploredEndpoint::find_by_mac_address(&mut txn, mac).await?;
     if endpoints.len() == 1 {
         return Ok(Some((
             endpoints[0].address.to_string(),

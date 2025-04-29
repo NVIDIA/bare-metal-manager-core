@@ -17,6 +17,7 @@ use crate::{
 };
 use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult};
 use rpc::MachineId;
+use rpc::forge::IdentifySerialRequest;
 
 #[derive(Debug)]
 pub struct DpuMachine {
@@ -286,7 +287,10 @@ impl DpuMachine {
             if let Ok(Some(machine_id)) = self
                 .app_context
                 .forge_api_client
-                .identify_serial(self.dpu_info.serial.clone())
+                .identify_serial(IdentifySerialRequest {
+                    serial_number: self.dpu_info.serial.clone(),
+                    exact: true,
+                })
                 .await
                 .map(|r| r.machine_id)
             {

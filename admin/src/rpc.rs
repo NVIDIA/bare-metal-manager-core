@@ -16,7 +16,7 @@ use ::rpc::forge::{
     CreateNetworkSecurityGroupRequest, DeleteNetworkSecurityGroupRequest,
     FindInstanceTypesByIdsRequest, FindNetworkSecurityGroupsByIdsRequest,
     GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
-    IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
+    IdentifySerialRequest, IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
     MachineHardwareInfoUpdateType, NetworkPrefix, NetworkSecurityGroupAttributes,
     NetworkSegmentCreationRequest, NetworkSegmentSearchConfig, NetworkSegmentType,
     UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest, VpcCreationRequest,
@@ -270,8 +270,16 @@ impl ApiClient {
     pub async fn identify_serial(
         &self,
         serial_number: String,
+        exact: bool,
     ) -> CarbideCliResult<::rpc::common::MachineId> {
-        let serial_details = match self.0.identify_serial(serial_number).await {
+        let serial_details = match self
+            .0
+            .identify_serial(IdentifySerialRequest {
+                serial_number,
+                exact,
+            })
+            .await
+        {
             Ok(m) => m,
             Err(status) if status.code() == tonic::Code::NotFound => {
                 return Err(CarbideCliError::SerialNumberNotFound);

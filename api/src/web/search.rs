@@ -165,6 +165,7 @@ async fn find_by_mac(state: Arc<Api>, mac: mac_address::MacAddress) -> impl Into
 async fn find_by_serial(state: Arc<Api>, serial_number: &str) -> Option<MachineId> {
     let req = forgerpc::IdentifySerialRequest {
         serial_number: serial_number.to_string(),
+        exact: false,
     };
     let request = tonic::Request::new(req);
     match state

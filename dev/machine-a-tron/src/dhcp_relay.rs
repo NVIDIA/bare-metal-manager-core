@@ -2,7 +2,7 @@ use dhcproto::v4::{
     Decodable, Decoder, DhcpOption, Encodable, Encoder, Flags, Message, MessageType, OptionCode,
 };
 use rpc::MachineId;
-use rpc::forge::MacOwner;
+use rpc::forge::{IdentifyMacRequest, MacOwner};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr as _;
@@ -237,7 +237,9 @@ impl DhcpRelayService {
         if let Ok(mac_identifier) = self
             .app_context
             .forge_api_client
-            .identify_mac(request_info.mac_address.to_string())
+            .identify_mac(IdentifyMacRequest {
+                mac_address: request_info.mac_address.to_string(),
+            })
             .await
         {
             if mac_identifier.object_type() == MacOwner::MachineInterface {
