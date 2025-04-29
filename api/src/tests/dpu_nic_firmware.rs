@@ -49,15 +49,7 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     assert!(!started_count.contains(&dpu_machine_id));
     assert!(started_count.contains(&host_machine_id));
 
-    // Maintenance mode is no longer used
-    let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference != null";
-    let (count,) = sqlx::query_as::<_, (i32,)>(query)
-        .fetch_one(&mut *txn)
-        .await
-        .unwrap();
-    assert_eq!(count, 0);
-
-    // Health override is placed
+    // Check if health override is placed
     let managed_host =
         db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
             .await
@@ -123,15 +115,7 @@ async fn test_start_updates_with_multidpu(
     assert!(!dpus_started.contains(&dpu_machine_id2));
     assert!(dpus_started.contains(&host_machine_id));
 
-    // Maintenance mode is no longer used
-    let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference != null";
-    let (count,) = sqlx::query_as::<_, (i32,)>(query)
-        .fetch_one(&mut *txn)
-        .await
-        .unwrap();
-    assert_eq!(count, 0);
-
-    // Health override is placed
+    // Check if health override is placed
     let managed_host =
         db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
             .await
@@ -291,14 +275,7 @@ async fn test_clear_completed_updates(
     assert!(!started_count.contains(&dpu_machine_id));
     assert!(started_count.contains(&host_machine_id));
 
-    let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference != null";
-    let (count,) = sqlx::query_as::<_, (i32,)>(query)
-        .fetch_one(&mut *txn)
-        .await
-        .unwrap();
-    assert_eq!(count, 0);
-
-    // Health override is placed
+    // Check if health override is placed
     let managed_host =
         db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
             .await

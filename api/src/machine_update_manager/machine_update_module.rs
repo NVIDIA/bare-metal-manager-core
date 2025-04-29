@@ -127,24 +127,16 @@ impl Display for DpuReprovisionInitiator {
 
 /// Returns whether a Machine is marked as having updates in progress
 ///
-/// The marking can happen in 2 ways:
-/// 1. The legacy way of Marking machines for updates was using Maintenance mode
-///    and including a special update text description. This way will be removed
-///    in the future.
-/// 2. Applying a special health override and health alert on the Machine
+/// The marking is achieved by applying a special health override and health alert on the Machine
 pub fn machine_updates_in_progress(machine: &Machine) -> bool {
     machine
-        .maintenance_reference
-        .as_ref()
-        .is_some_and(|maint_ref| maint_ref.starts_with(AutomaticFirmwareUpdateReference::REF_NAME))
-        || machine
-            .health_report_overrides
-            .merges
-            .get(HOST_UPDATE_HEALTH_REPORT_SOURCE)
-            .is_some_and(|updater_report| {
-                updater_report
-                    .alerts
-                    .iter()
-                    .any(|alert| alert.id == *HOST_UPDATE_HEALTH_PROBE_ID)
-            })
+        .health_report_overrides
+        .merges
+        .get(HOST_UPDATE_HEALTH_REPORT_SOURCE)
+        .is_some_and(|updater_report| {
+            updater_report
+                .alerts
+                .iter()
+                .any(|alert| alert.id == *HOST_UPDATE_HEALTH_PROBE_ID)
+        })
 }

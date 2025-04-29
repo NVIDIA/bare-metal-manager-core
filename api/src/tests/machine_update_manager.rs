@@ -11,7 +11,7 @@ use crate::{
     CarbideResult,
     cfg::file::CarbideConfig,
     db,
-    db::{dpu_machine_update::DpuMachineUpdate, machine::MaintenanceMode},
+    db::dpu_machine_update::DpuMachineUpdate,
     machine_update_manager::{
         MachineUpdateManager,
         machine_update_module::{
@@ -26,7 +26,7 @@ use figment::{
     providers::{Format, Toml},
 };
 use forge_uuid::machine::MachineId;
-use sqlx::{PgConnection, Row};
+use sqlx::PgConnection;
 use std::{
     collections::{HashMap, HashSet},
     fmt,
@@ -145,59 +145,6 @@ async fn test_max_outstanding_updates(
 }
 
 #[crate::sqlx_test]
-async fn test_put_machine_in_maintenance(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    create_managed_host(&env).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Failed to create transaction");
-
-    let machine_update = DpuMachineUpdate {
-        host_machine_id,
-        dpu_machine_id,
-        firmware_version: "1".to_owned(),
-    };
-
-    let reference = &DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
-        from: "x".to_owned(),
-        to: "y".to_owned(),
-    });
-
-    MachineUpdateManager::put_machine_in_maintenance(&mut txn, &machine_update, reference)
-        .await
-        .unwrap();
-
-    txn.commit().await.unwrap();
-
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Failed to create transaction");
-    let query = format!(
-        "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference = '{}'",
-        reference
-    );
-    let count: i32 = sqlx::query::<_>(&query)
-        .fetch_one(&mut *txn)
-        .await
-        .unwrap()
-        .try_get("count")
-        .unwrap();
-
-    // the dpu and host are put in maintenance
-    assert_eq!(count, 2);
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
 async fn test_remove_machine_update_markers(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -205,12 +152,6 @@ async fn test_remove_machine_update_markers(
     create_managed_host(&env).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Failed to create transaction");
-
     let machine_update = DpuMachineUpdate {
         host_machine_id,
         dpu_machine_id,
@@ -221,47 +162,6 @@ async fn test_remove_machine_update_markers(
         from: "x".to_owned(),
         to: "y".to_owned(),
     });
-
-    MachineUpdateManager::put_machine_in_maintenance(&mut txn, &machine_update, reference)
-        .await
-        .unwrap();
-
-    txn.commit().await.unwrap();
-
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Failed to create transaction");
-    let query = format!(
-        "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference = '{}'",
-        reference
-    );
-    let (count,) = sqlx::query_as::<_, (i32,)>(&query)
-        .fetch_one(&mut *txn)
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
-
-    // the dpu and host are put in maintenance
-    assert_eq!(count, 2);
-
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Failed to create transaction");
-    MachineUpdateManager::remove_machine_update_markers(&mut txn, &machine_update)
-        .await
-        .unwrap();
-
-    let (count,) = sqlx::query_as::<_, (i32,)>(&query)
-        .fetch_one(&mut *txn)
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
-
-    assert_eq!(count, 0);
 
     // Apply health override
     let mut txn = env
@@ -346,7 +246,7 @@ fn test_start(pool: sqlx::PgPool) {
 async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let (host_machine_id1, dpu_machine_id1) = create_managed_host(&env).await;
-    let (host_machine_id2, dpu_machine_id2) = create_managed_host(&env).await;
+    let (host_machine_id2, _dpu_machine_id2) = create_managed_host(&env).await;
 
     let mut txn = env
         .pool
@@ -366,26 +266,33 @@ async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     });
 
     add_host_update_alert(&mut txn, &machine_update, reference).await?;
-    // Host 2 should be ignored due to the mismatching reference
-    db::machine::set_maintenance_mode(
+
+    // Second Machine has a health report, but with an irrelevant alert
+    let health_override_2 = health_report::HealthReport {
+        source: "host-update".to_string(),
+        observed_at: Some(chrono::Utc::now()),
+        successes: vec![],
+        alerts: vec![health_report::HealthProbeAlert {
+            id: "should_get_ignored".parse().unwrap(),
+            target: None,
+            in_alert_since: Some(chrono::Utc::now()),
+            message: "Test".to_string(),
+            tenant_message: None,
+            classifications: vec![
+                health_report::HealthAlertClassification::prevent_allocations(),
+                health_report::HealthAlertClassification::suppress_external_alerting(),
+            ],
+        }],
+    };
+
+    db::machine::insert_health_report_override(
         &mut txn,
         &host_machine_id2,
-        &MaintenanceMode::On {
-            reference: "testing".to_owned(),
-        },
+        health_report::OverrideMode::Merge,
+        &health_override_2,
+        false,
     )
-    .await
-    .unwrap();
-
-    db::machine::set_maintenance_mode(
-        &mut txn,
-        &dpu_machine_id2,
-        &MaintenanceMode::On {
-            reference: "testing".to_owned(),
-        },
-    )
-    .await
-    .unwrap();
+    .await?;
 
     txn.commit().await.unwrap();
 

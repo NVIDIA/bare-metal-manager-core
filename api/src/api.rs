@@ -47,7 +47,7 @@ use crate::cfg::file::CarbideConfig;
 use crate::db::desired_firmware::DbDesiredFirmwareVersions;
 use crate::db::explored_endpoints::DbExploredEndpoint;
 use crate::db::ib_partition::IBPartition;
-use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
+use crate::db::machine::MachineSearchConfig;
 use crate::db::machine_validation::{
     MachineValidation, MachineValidationState, MachineValidationStatus,
 };
@@ -2567,7 +2567,7 @@ impl Forge for Api {
         let machine_id = match &req.host_id {
             Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
             None => {
-                tracing::warn!("forge agent control: missing host ID");
+                tracing::warn!("set_maintenance: missing host ID");
                 return Err(Status::invalid_argument("Missing host ID"));
             }
         };
@@ -2586,7 +2586,7 @@ impl Forge for Api {
             .map_err(CarbideError::from)?;
 
         // We set status on both host and dpu machine to make them easier to query from DB
-        let mode = match req.operation() {
+        match req.operation() {
             rpc::MaintenanceOperation::Enable => {
                 let Some(reference) = req.reference else {
                     return Err(Status::invalid_argument(
@@ -2629,8 +2629,6 @@ impl Forge for Api {
                     }),
                 )
                 .await?;
-
-                MaintenanceMode::On { reference }
             }
             rpc::MaintenanceOperation::Disable => {
                 for dpu_machine in dpu_machines.iter() {
@@ -2655,20 +2653,8 @@ impl Forge for Api {
                     Err(status) if status.code() == tonic::Code::NotFound => (),
                     Err(status) => return Err(status),
                 };
-
-                MaintenanceMode::Off
             }
         };
-
-        db::machine::set_maintenance_mode(&mut txn, &host_machine.id, &mode)
-            .await
-            .map_err(CarbideError::from)?;
-
-        for dpu_machine in &dpu_machines {
-            db::machine::set_maintenance_mode(&mut txn, &dpu_machine.id, &mode)
-                .await
-                .map_err(CarbideError::from)?;
-        }
 
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(

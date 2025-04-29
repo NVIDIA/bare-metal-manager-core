@@ -21,7 +21,6 @@ use eyre::eyre;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
-use health_report::HealthProbeId;
 use itertools::Itertools;
 use libredfish::{Boot, Redfish, RedfishError, SystemPowerControl, model::task::TaskState};
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
@@ -485,10 +484,6 @@ impl MachineStateHandler {
                     }
                 }
             }
-        }
-
-        if let Some(outcome) = handle_legacy_maintenance_mode(mh_snapshot, txn).await? {
-            return Ok(outcome);
         }
 
         if let Some(outcome) = handle_restart_verification(mh_snapshot, txn, ctx).await? {
@@ -1203,97 +1198,6 @@ fn dpu_reprovisioning_needed(dpu_snapshots: &[Machine]) -> bool {
     dpu_snapshots
         .iter()
         .any(|x| x.reprovision_requested.is_some())
-}
-
-async fn handle_legacy_maintenance_mode(
-    mh_snapshot: &ManagedHostStateSnapshot,
-    txn: &mut PgConnection,
-) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
-    let health_alert_source_for_maintenance_mode = "maintenance".to_string();
-    let health_alert_id_for_maintenance_mode: HealthProbeId = "Maintenance".parse().unwrap();
-    let health_alert_mode_for_maintenance_mode = health_report::OverrideMode::Merge;
-
-    let is_host_in_maintenance_mode = mh_snapshot.host_snapshot.is_maintenance_mode();
-    let existing_maintenance_alert = mh_snapshot
-        .host_snapshot
-        .health_report_overrides
-        .merges
-        .iter()
-        .find_map(|(source, report)| {
-            if *source != health_alert_source_for_maintenance_mode {
-                return None;
-            }
-            report
-                .alerts
-                .iter()
-                .find(|alert| alert.id == health_alert_id_for_maintenance_mode)
-        });
-    let is_health_alert_raised_for_maintenance = existing_maintenance_alert.is_some();
-    let existing_alert_misses_paging_suppression = existing_maintenance_alert
-        .as_ref()
-        .map(|alert| {
-            !alert.classifications.iter().any(|c| {
-                *c == health_report::HealthAlertClassification::suppress_external_alerting()
-            })
-        })
-        .unwrap_or_default();
-
-    let raise_health_alert = is_host_in_maintenance_mode
-        && (!is_health_alert_raised_for_maintenance || existing_alert_misses_paging_suppression);
-    let clear_health_alert = !is_host_in_maintenance_mode && is_health_alert_raised_for_maintenance;
-
-    // Migrate from legacy maintenance mode to health alert
-    if raise_health_alert {
-        let report = health_report::HealthReport {
-            source: health_alert_source_for_maintenance_mode.to_string(),
-            observed_at: Some(chrono::Utc::now()),
-            successes: Vec::new(),
-            alerts: vec![health_report::HealthProbeAlert {
-                id: health_alert_id_for_maintenance_mode,
-                target: None,
-                in_alert_since: Some(chrono::Utc::now()),
-                message: mh_snapshot
-                    .host_snapshot
-                    .maintenance_reference
-                    .clone()
-                    .unwrap(),
-                tenant_message: None,
-                classifications: vec![
-                    health_report::HealthAlertClassification::prevent_allocations(),
-                    health_report::HealthAlertClassification::suppress_external_alerting(),
-                ],
-            }],
-        };
-
-        db::machine::insert_health_report_override(
-            txn,
-            &mh_snapshot.host_snapshot.id,
-            health_alert_mode_for_maintenance_mode,
-            &report,
-            false,
-        )
-        .await?;
-
-        // The next iteration will have the alert applied
-        return Ok(Some(StateHandlerOutcome::DoNothingWithDetails(
-            DoNothingDetails { line: line!() },
-        )));
-    } else if clear_health_alert {
-        db::machine::remove_health_report_override(
-            txn,
-            &mh_snapshot.host_snapshot.id,
-            health_alert_mode_for_maintenance_mode,
-            &health_alert_source_for_maintenance_mode,
-        )
-        .await?;
-
-        // The next iteration will have the alert removed
-        return Ok(Some(StateHandlerOutcome::DoNothingWithDetails(
-            DoNothingDetails { line: line!() },
-        )));
-    }
-
-    Ok(None)
 }
 
 async fn handle_restart_verification(
