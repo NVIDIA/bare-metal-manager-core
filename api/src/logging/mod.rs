@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -14,6 +14,7 @@ pub mod api_logs;
 pub mod level_filter;
 pub mod log_limiter;
 pub mod metrics_endpoint;
+pub mod metrics_utils;
 pub mod service_health_metrics;
 pub mod setup;
 pub mod sqlx_query_tracing;

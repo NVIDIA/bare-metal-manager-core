@@ -12,7 +12,7 @@
 
 use opentelemetry::metrics::Meter;
 
-use crate::metrics_utils::SharedMetricsHolder;
+use crate::logging::metrics_utils::SharedMetricsHolder;
 
 #[derive(Clone, Debug)]
 pub struct PreingestionMetrics {

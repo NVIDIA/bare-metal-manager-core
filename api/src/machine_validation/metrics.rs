@@ -11,7 +11,8 @@
  */
 
 use crate::{
-    db::machine_validation_suites::MachineValidationTest, metrics_utils::SharedMetricsHolder,
+    db::machine_validation_suites::MachineValidationTest,
+    logging::metrics_utils::SharedMetricsHolder,
 };
 use opentelemetry::{KeyValue, metrics::Meter};
 

@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::metrics_utils::SharedMetricsHolder;
+use crate::logging::metrics_utils::SharedMetricsHolder;
 use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};

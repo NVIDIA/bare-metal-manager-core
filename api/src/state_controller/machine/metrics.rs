@@ -14,7 +14,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::metrics_utils::SharedMetricsHolder;
+use crate::logging::metrics_utils::SharedMetricsHolder;
 use crate::{
     model::{hardware_info::MachineInventorySoftwareComponent, tenant::TenantOrganizationId},
     state_controller::metrics::MetricsEmitter,

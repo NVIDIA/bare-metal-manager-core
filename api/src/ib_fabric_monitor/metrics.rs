@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::metrics_utils::SharedMetricsHolder;
+use crate::logging::metrics_utils::SharedMetricsHolder;
 use opentelemetry::{KeyValue, metrics::Meter};
 use serde::Serialize;
 use std::{collections::HashMap, time::Duration};
