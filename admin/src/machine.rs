@@ -400,7 +400,10 @@ fn get_empty_template() -> HealthReport {
     }
 }
 
-fn get_health_report(template: HealthOverrideTemplates, message: Option<String>) -> HealthReport {
+pub(crate) fn get_health_report(
+    template: HealthOverrideTemplates,
+    message: Option<String>,
+) -> HealthReport {
     let mut report = HealthReport {
         source: "admin-cli".to_string(),
         observed_at: Some(Utc::now()),

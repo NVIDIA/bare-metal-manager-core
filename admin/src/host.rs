@@ -13,20 +13,23 @@
 use ::rpc::forge::host_reprovisioning_request::Mode;
 use prettytable::{Table, row};
 
-use crate::rpc::ApiClient;
+use crate::{
+    cfg::cli_options::HealthOverrideTemplates, machine::get_health_report, rpc::ApiClient,
+};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult};
 
 pub async fn trigger_reprovisioning(
     host_id: String,
     mode: Mode,
     api_client: &ApiClient,
-    maintenance_reference: Option<String>,
+    update_message: Option<String>,
 ) -> CarbideCliResult<()> {
     let machine_id = ::rpc::MachineId {
         id: host_id.clone(),
     };
-    if let (Mode::Set, Some(mr)) = (mode, &maintenance_reference) {
-        // Check host must not be in maintenance mode.
+    if let (Mode::Set, Some(update_message)) = (mode, &update_message) {
+        // Set a HostUpdateInProgress health override on the Host
+
         let host_machine = api_client
             .get_machines_by_ids(&[machine_id.clone()])
             .await?
@@ -35,20 +38,26 @@ pub async fn trigger_reprovisioning(
             .next();
 
         if let Some(host_machine) = host_machine {
-            if host_machine.maintenance_reference.is_some() {
+            if host_machine
+                .health_overrides
+                .iter()
+                .any(|or| or.source == "host-update")
+            {
                 return Err(CarbideCliError::GenericError(format!(
-                    "Host machine: {:?} is already in maintenance.",
+                    "Host machine: {:?} already has a \"host-update\" override.",
                     host_machine.id,
                 )));
             }
         }
 
-        let req = ::rpc::forge::MaintenanceRequest {
-            operation: ::rpc::forge::MaintenanceOperation::Enable.into(),
-            host_id: Some(machine_id),
-            reference: Some(mr.clone()),
-        };
-        api_client.0.set_maintenance(req).await?;
+        let report = get_health_report(
+            HealthOverrideTemplates::HostUpdate,
+            Some(update_message.clone()),
+        );
+
+        api_client
+            .machine_insert_health_report_override(machine_id.to_string(), report.into(), false)
+            .await?;
     }
     api_client
         .trigger_host_reprovisioning(host_id.clone(), mode)

@@ -697,7 +697,7 @@ async fn main() -> color_eyre::Result<()> {
                         Mode::Set,
                         data.update_firmware,
                         &api_client,
-                        data.maintenance_reference,
+                        data.update_message,
                     )
                     .await?
                 }
@@ -800,7 +800,7 @@ async fn main() -> color_eyre::Result<()> {
                         data.id,
                         ::rpc::forge::host_reprovisioning_request::Mode::Set,
                         &api_client,
-                        data.maintenance_reference,
+                        data.update_message,
                     )
                     .await?
                 }

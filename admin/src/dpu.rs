@@ -17,7 +17,8 @@ use ::rpc::{Machine, MachineId};
 use prettytable::{Row, Table, format, row};
 use serde::Serialize;
 
-use crate::cfg::cli_options::AgentUpgradePolicyChoice;
+use crate::cfg::cli_options::{AgentUpgradePolicyChoice, HealthOverrideTemplates};
+use crate::machine::get_health_report;
 use crate::rpc::ApiClient;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
@@ -26,10 +27,10 @@ pub async fn trigger_reprovisioning(
     mode: Mode,
     update_firmware: bool,
     api_client: &ApiClient,
-    maintenance_reference: Option<String>,
+    update_message: Option<String>,
 ) -> CarbideCliResult<()> {
-    if let (Mode::Set, Some(mr)) = (mode, &maintenance_reference) {
-        // Set the maintenance on host.
+    if let (Mode::Set, Some(update_message)) = (mode, &update_message) {
+        // Set a HostUpdateInProgress health override on the Host
 
         let host_id = if id.starts_with("fm100h") {
             Some(::rpc::MachineId { id: id.clone() })
@@ -50,7 +51,7 @@ pub async fn trigger_reprovisioning(
             }
         };
 
-        // Check host must not be in maintenance mode.
+        // Check host must not have host-update override
         if let Some(host_machine_id) = &host_id {
             let host_machine = api_client
                 .get_machines_by_ids(&[host_machine_id.clone()])
@@ -60,21 +61,31 @@ pub async fn trigger_reprovisioning(
                 .next();
 
             if let Some(host_machine) = host_machine {
-                if host_machine.maintenance_reference.is_some() {
+                if host_machine
+                    .health_overrides
+                    .iter()
+                    .any(|or| or.source == "host-update")
+                {
                     return Err(CarbideCliError::GenericError(format!(
-                        "Host machine: {:?} is already in maintenance.",
+                        "Host machine: {:?} already has a \"host-update\" override.",
                         host_machine.id,
                     )));
                 }
             }
-        }
 
-        let req = ::rpc::forge::MaintenanceRequest {
-            operation: ::rpc::forge::MaintenanceOperation::Enable.into(),
-            host_id,
-            reference: Some(mr.clone()),
-        };
-        api_client.0.set_maintenance(req).await?;
+            let report = get_health_report(
+                HealthOverrideTemplates::HostUpdate,
+                Some(update_message.clone()),
+            );
+
+            api_client
+                .machine_insert_health_report_override(
+                    host_machine_id.to_string(),
+                    report.into(),
+                    false,
+                )
+                .await?;
+        }
     }
     api_client
         .trigger_dpu_reprovisioning(id.clone(), mode, update_firmware)
