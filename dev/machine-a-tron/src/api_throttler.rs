@@ -35,6 +35,7 @@ pub fn run(mut interval: Interval, api_client: ApiClient) -> ApiThrottler {
                             for chunk in machine_ids.chunks(100) {
                                 let machines = api_client.get_machines(
                                     chunk,
+
                                 )
                                 .await
                                 .inspect_err(|e| tracing::error!("API failure getting machines: {e}")).unwrap_or_default();

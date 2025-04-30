@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Command;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{RwLock, mpsc};
 use tokio::task::JoinHandle;
@@ -113,11 +113,18 @@ pub struct SetSystemPowerReq {
     pub reset_type: SystemPowerControl,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 pub enum MockPowerState {
+    #[default]
     On,
     Off,
-    PowerCycling { since: Instant },
+    PowerCycling {
+        since: Instant,
+    },
+}
+
+pub trait PowerStateQuerying: std::fmt::Debug + Send + Sync {
+    fn get_power_state(&self) -> MockPowerState;
 }
 
 // Simulate a 5-second power cycle
@@ -357,8 +364,16 @@ pub fn default_host_tar_router(
         tar_router,
         MachineInfo::Host(HostMachineInfo::new(vec![DpuMachineInfo::default()])),
         maybe_command_channel,
-        Arc::new(Mutex::new(MockPowerState::On)),
+        Arc::new(AlwaysOnPowerState),
     )
+}
+
+#[derive(Debug)]
+struct AlwaysOnPowerState;
+impl PowerStateQuerying for AlwaysOnPowerState {
+    fn get_power_state(&self) -> MockPowerState {
+        MockPowerState::On
+    }
 }
 
 fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {

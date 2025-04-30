@@ -1,7 +1,7 @@
 use crate::bmc_state::BmcState;
 use crate::{
-    DpuMachineInfo, MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerReq,
-    call_router_with_new_request, rf,
+    DpuMachineInfo, MachineInfo, MockPowerState, POWER_CYCLE_DELAY, PowerStateQuerying,
+    SetSystemPowerReq, call_router_with_new_request, rf,
 };
 use axum::Router;
 use axum::body::{Body, Bytes};
@@ -33,7 +33,7 @@ struct MockWrapperState {
     inner_router: Router,
     command_channel: Option<mpsc::UnboundedSender<BmcCommand>>,
     bmc_state: BmcState,
-    mock_power_state: Arc<Mutex<MockPowerState>>,
+    mock_power_state: Arc<dyn PowerStateQuerying>,
 }
 
 #[derive(Debug)]
@@ -62,7 +62,7 @@ pub fn wrap_router_with_mock_machine(
     inner_router: Router,
     machine_info: MachineInfo,
     command_channel: Option<mpsc::UnboundedSender<BmcCommand>>,
-    mock_power_state: Arc<Mutex<MockPowerState>>,
+    mock_power_state: Arc<dyn PowerStateQuerying>,
 ) -> Router {
     Router::new()
         .route(
@@ -582,7 +582,7 @@ async fn get_system(
     let inner_response = state.call_inner_router(request).await?;
     let mut system = serde_json::from_slice::<ComputerSystem>(&inner_response)?;
     system.serial_number = state.machine_info.product_serial();
-    system.power_state = (*state.mock_power_state.lock().unwrap()).into();
+    system.power_state = state.mock_power_state.get_power_state().into();
 
     let MachineInfo::Host(host) = state.machine_info.clone() else {
         return Ok(Bytes::from(serde_json::to_string(&system)?));
@@ -973,7 +973,7 @@ async fn post_reset_system(
         // to be released.
         match (
             power_request.reset_type,
-            *state.mock_power_state.lock().unwrap(),
+            state.mock_power_state.get_power_state(),
         ) {
             (
                 SystemPowerControl::GracefulShutdown

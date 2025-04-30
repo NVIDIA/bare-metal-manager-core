@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     config::MachineATronContext,
-    tui::{UiEvent, VpcDetails},
+    tui::{UiUpdate, VpcDetails},
 };
 
 #[derive(Debug, Clone)]
@@ -23,7 +23,7 @@ pub struct Vpc {
 impl Vpc {
     pub async fn new(
         app_context: Arc<MachineATronContext>,
-        ui_event_tx: Option<tokio::sync::mpsc::Sender<UiEvent>>,
+        ui_event_tx: Option<tokio::sync::mpsc::Sender<UiUpdate>>,
     ) -> Self {
         // TODO: Add error handling when vpc creation fails.
         let vpc = app_context.api_client().create_vpc().await.unwrap();
@@ -39,7 +39,7 @@ impl Vpc {
         let details = VpcDetails::from(&new_vpc);
         if let Some(ui_event_tx) = ui_event_tx.as_ref() {
             _ = ui_event_tx
-                .send(UiEvent::VpcUpdate(details))
+                .send(UiUpdate::Vpc(details))
                 .await
                 .inspect_err(|e| tracing::warn!("Error sending TUI event: {}", e));
         }

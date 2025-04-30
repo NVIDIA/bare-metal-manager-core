@@ -1,7 +1,7 @@
+use crate::BmcRegistrationMode;
 use crate::api_client::ApiClient;
 use crate::api_throttler::ApiThrottler;
 use crate::machine_state_machine::OsImage;
-use crate::{BmcRegistrationMode, HostMachineActor};
 use axum::Router;
 use bmc_mock::{DpuMachineInfo, HostMachineInfo};
 use clap::Parser;
@@ -9,8 +9,8 @@ use duration_str::deserialize_duration;
 use mac_address::MacAddress;
 use rpc::MachineId;
 use rpc::forge::DesiredFirmwareVersionEntry;
-use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::ForgeClientConfig;
+use rpc::protos::forge_api_client::ForgeApiClient;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{BTreeMap, HashMap};
@@ -236,27 +236,23 @@ impl MachineATronConfig {
         Ok(Some(machines_by_config_section))
     }
 
-    pub async fn write_persisted_machines(
-        &self,
-        machines: &[HostMachineActor],
-    ) -> eyre::Result<()> {
+    pub fn write_persisted_machines(&self, machines: &[PersistedHostMachine]) -> eyre::Result<()> {
         let Some(machines_persist_dir) = &self.machines_persist_dir() else {
             return Ok(());
         };
 
         std::fs::create_dir_all(machines_persist_dir)?;
 
-        let mut persisted_machines_by_section: HashMap<String, Vec<PersistedHostMachine>> =
+        let mut persisted_machines_by_section: HashMap<String, Vec<&PersistedHostMachine>> =
             HashMap::new();
         for machine in machines {
-            let persisted = machine.persisted().await?;
             if let Some(machines) =
-                persisted_machines_by_section.get_mut(&persisted.machine_config_section)
+                persisted_machines_by_section.get_mut(&machine.machine_config_section)
             {
-                machines.push(persisted);
+                machines.push(machine);
             } else {
                 persisted_machines_by_section
-                    .insert(persisted.machine_config_section.clone(), vec![persisted]);
+                    .insert(machine.machine_config_section.clone(), vec![machine]);
             }
         }
 

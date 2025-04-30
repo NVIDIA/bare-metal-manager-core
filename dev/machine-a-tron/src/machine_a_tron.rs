@@ -1,10 +1,11 @@
-use crate::host_machine::HostMachineActor;
+use crate::host_machine::HostMachineHandle;
 use crate::subnet::Subnet;
 use crate::vpc::Vpc;
 use crate::{
-    config::MachineATronContext, dhcp_relay::DhcpRelayClient, host_machine::HostMachine,
-    machine_utils::get_next_free_machine, tui::UiEvent,
+    PersistedHostMachine, config::MachineATronContext, dhcp_relay::DhcpRelayClient,
+    host_machine::HostMachine, machine_utils::get_next_free_machine, tui::UiUpdate,
 };
+use futures::future::try_join_all;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -29,7 +30,7 @@ impl MachineATron {
         &self,
         dhcp_client: &DhcpRelayClient,
         paused: bool,
-    ) -> eyre::Result<Vec<HostMachineActor>> {
+    ) -> eyre::Result<Vec<HostMachineHandle>> {
         let mut persisted_machines = self
             .app_context
             .app_config
@@ -40,7 +41,7 @@ impl MachineATron {
             .unwrap_or_default();
 
         // If we've persisted the machine info on a previous run, use that
-        let machines: Vec<HostMachineActor> = self
+        let machines: Vec<HostMachineHandle> = self
             .app_context
             .app_config
             .machines
@@ -88,8 +89,9 @@ impl MachineATron {
             self.app_context
                 .api_client()
                 .add_expected_machine(
-                    machine.host_machine_info.bmc_mac_address.to_string(),
-                    machine.host_machine_info.serial.clone(),
+                    machine.host_info().bmc_mac_address.to_string(),
+                    machine.host_info().serial.clone(),
+
                 )
                 .await
                 .inspect_err(|e| {
@@ -98,22 +100,13 @@ impl MachineATron {
                 .ok();
         }
 
-        // Useful for comparing values in logs with machine-a-tron's state
-        tracing::info!(
-            "Machine-a-tron using machines: {:?}",
-            machines
-                .iter()
-                .map(|m| m.host_machine_info.clone())
-                .collect::<Vec<_>>()
-        );
-
         Ok(machines)
     }
 
     pub async fn run(
         &mut self,
-        machine_actors: Vec<HostMachineActor>,
-        tui_event_tx: Option<mpsc::Sender<UiEvent>>,
+        machine_handles: Vec<HostMachineHandle>,
+        tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
         mut app_rx: mpsc::Receiver<AppEvent>,
     ) -> eyre::Result<()> {
         let mut vpc_handles: Vec<Vpc> = Vec::new();
@@ -161,9 +154,9 @@ impl MachineATron {
             }
         }
 
-        for machine_actor in &machine_actors {
-            machine_actor.attach_to_tui(tui_event_tx.clone())?;
-            machine_actor.resume()?;
+        for machine_handle in &machine_handles {
+            machine_handle.attach_to_tui(tui_event_tx.clone())?;
+            machine_handle.resume()?;
         }
 
         tracing::info!("Machine construction complete");
@@ -172,20 +165,32 @@ impl MachineATron {
             match msg {
                 AppEvent::Quit => {
                     tracing::info!("quit");
+                    let persisted_machines = if self.app_context.app_config.cleanup_on_quit {
+                        try_join_all(machine_handles.into_iter().map(|m| {
+                            let api_client = self.app_context.api_client();
+                            let persisted = m.persisted();
+                            m.abort();
+                            async move {
+                                m.delete_from_api(api_client).await?;
+                                Ok::<PersistedHostMachine, eyre::Report>(persisted)
+                            }
+                        }))
+                        .await?
+                    } else {
+                        machine_handles
+                            .into_iter()
+                            .map(|m| {
+                                m.abort();
+                                m.persisted()
+                            })
+                            .collect()
+                    };
+
                     // Persist the current state of the machines before quitting
                     self.app_context
                         .app_config
-                        .write_persisted_machines(&machine_actors)
-                        .await
-                        .inspect_err(|e| {
-                            tracing::warn!(error = ?e, "Error writing persisted machines");
-                        })
-                        .ok();
-                    for machine_actor in machine_actors.into_iter() {
-                        machine_actor
-                            .stop(self.app_context.app_config.cleanup_on_quit)
-                            .await?;
-                    }
+                        .write_persisted_machines(&persisted_machines)?;
+
                     break;
                 }
 
@@ -193,13 +198,13 @@ impl MachineATron {
                     tracing::info!("Allocating an instance.");
 
                     let Some(free_machine) =
-                        get_next_free_machine(&machine_actors, &assigned_mat_ids).await
+                        get_next_free_machine(&machine_handles, &assigned_mat_ids).await
                     else {
                         tracing::error!("No available machines.");
                         continue;
                     };
 
-                    let Some(hid_for_instance) = free_machine.observed_machine_id().await? else {
+                    let Some(hid_for_instance) = free_machine.observed_machine_id() else {
                         tracing::error!("Machine in state Ready but with no machine ID?");
                         continue;
                     };
@@ -212,7 +217,7 @@ impl MachineATron {
                         .await
                     {
                         Ok(_) => {
-                            assigned_mat_ids.insert(free_machine.mat_id);
+                            assigned_mat_ids.insert(free_machine.mat_id());
                             tracing::info!("allocate_instance was successful. ");
                         }
                         Err(e) => {

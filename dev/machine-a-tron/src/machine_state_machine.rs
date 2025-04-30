@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use mac_address::MacAddress;
@@ -22,8 +22,8 @@ use crate::machine_utils::{
 use crate::{PersistedDpuMachine, PersistedHostMachine};
 use bmc_mock::{
     BmcCommand, BmcMockError, BmcMockHandle, HostMachineInfo, MachineInfo, MockPowerState,
-    POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerReq, SetSystemPowerResult,
-    SystemPowerControl,
+    POWER_CYCLE_DELAY, PowerStateQuerying, SetSystemPowerError, SetSystemPowerReq,
+    SetSystemPowerResult, SystemPowerControl,
 };
 use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, MachineType};
 use rpc::forge_agent_control_response::Action;
@@ -34,19 +34,60 @@ use rpc::forge_agent_control_response::Action;
 /// receive PXE instructions, etc.)
 #[derive(Debug)]
 pub struct MachineStateMachine {
-    state: MachineState,
-    initial_os_image: OsImage,
-    power_state: Arc<Mutex<MockPowerState>>, // reflects the "desired" power state of the machine. Affects whether next_state will boot the machine or not.
-
-    machine_info: MachineInfo,
+    pub live_state: Arc<RwLock<LiveState>>,
+    pub initial_os_image: OsImage,
     pub machine_dhcp_id: Uuid,
     pub bmc_dhcp_id: Uuid,
-    bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
 
+    state: MachineState,
+    machine_info: MachineInfo,
+    bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
     config: Arc<MachineConfig>,
     app_context: Arc<MachineATronContext>,
     dhcp_client: DhcpRelayClient,
+}
+
+#[derive(Debug, Clone)]
+pub struct LiveStatePowerQuery(pub Arc<RwLock<LiveState>>);
+
+impl PowerStateQuerying for LiveStatePowerQuery {
+    fn get_power_state(&self) -> MockPowerState {
+        self.0.read().unwrap().power_state
+    }
+}
+
+/// Represents state which changes over time with this machine. This is kept in an `Arc<RwLock>` so
+/// that callers can query it at any time. It is updated after every state transition.
+#[derive(Debug)]
+pub struct LiveState {
+    pub is_up: bool,
+    pub power_state: MockPowerState, // reflects the "desired" power state of the machine. Affects whether next_state will boot the machine or not.
+    pub observed_machine_id: Option<rpc::MachineId>,
+    pub machine_ip: Option<Ipv4Addr>,
+    pub bmc_ip: Option<Ipv4Addr>,
+    pub booted_os: MaybeOsImage,
+    pub installed_os: OsImage,
+    pub state_string: String,
+    pub api_state: String,
     pub tpm_ek_certificate: Option<Vec<u8>>,
+}
+
+impl Default for LiveState {
+    fn default() -> Self {
+        let power_state = MockPowerState::default();
+        LiveState {
+            is_up: matches!(power_state, MockPowerState::On),
+            power_state: MockPowerState::default(),
+            observed_machine_id: None,
+            machine_ip: None,
+            bmc_ip: None,
+            booted_os: Default::default(),
+            installed_os: Default::default(),
+            state_string: MachineState::BmcInit.to_string(),
+            api_state: "Unknown".to_string(),
+            tpm_ek_certificate: None,
+        }
+    }
 }
 
 /// BmcRegistrationMode configures how each mock machine registers its BMC mock so that carbide can find it.
@@ -119,16 +160,19 @@ impl MachineStateMachine {
 
         MachineStateMachine {
             state: MachineState::BmcInit,
-            power_state: Arc::new(Mutex::new(MockPowerState::On)),
+            initial_os_image,
+            live_state: Arc::new(RwLock::new(LiveState {
+                power_state: MockPowerState::On,
+                tpm_ek_certificate,
+                ..Default::default()
+            })),
+            bmc_dhcp_id,
             machine_info,
             bmc_command_channel,
             machine_dhcp_id,
-            bmc_dhcp_id,
             config,
             app_context,
             dhcp_client,
-            tpm_ek_certificate,
-            initial_os_image,
         }
     }
 
@@ -141,28 +185,32 @@ impl MachineStateMachine {
         tpm_ek_certificate: Option<Vec<u8>>,
     ) -> MachineStateMachine {
         MachineStateMachine {
+            live_state: Arc::new(RwLock::new(LiveState {
+                // TODO: we want to support cases where machines are racked and plugged in but powered off,
+                // but currently the machine state controller doesn't appear to turn machines on, and they
+                // get stuck in WaitingForDiscovery. Once this is fixed, we can start initially-off.
+                power_state: MockPowerState::On,
+                tpm_ek_certificate,
+                ..Default::default()
+            })),
             state: MachineState::BmcInit,
-            // TODO: we want to support cases where machines are racked and plugged in but powered off,
-            // but currently the machine state controller doesn't appear to turn machines on, and they
-            // get stuck in WaitingForDiscovery. Once this is fixed, we can start initially-off.
-            power_state: Arc::new(Mutex::new(MockPowerState::On)),
+            bmc_dhcp_id: Uuid::new_v4(),
+            initial_os_image: OsImage::default(),
             machine_info,
             bmc_command_channel,
             machine_dhcp_id: Uuid::new_v4(),
-            bmc_dhcp_id: Uuid::new_v4(),
             config,
             app_context,
             dhcp_client,
-            tpm_ek_certificate,
-            initial_os_image: OsImage::default(),
         }
     }
 
     pub async fn advance(&mut self, nic_available: bool) -> Duration {
-        if let MockPowerState::PowerCycling { since } = *self.power_state.lock().unwrap() {
+        if let MockPowerState::PowerCycling { since } = self.live_state.read().unwrap().power_state
+        {
             let elapsed = since.elapsed();
             if elapsed > POWER_CYCLE_DELAY {
-                *self.power_state.lock().unwrap() = MockPowerState::On;
+                self.live_state.write().unwrap().power_state = MockPowerState::On;
             } else {
                 tracing::info!("Simulating 5-second power cycle");
                 return POWER_CYCLE_DELAY - elapsed;
@@ -170,7 +218,7 @@ impl MachineStateMachine {
         }
 
         let next_state = self.next_state(nic_available).await;
-        match next_state {
+        let duration = match next_state {
             Ok(NextState::Advance(next_state)) => {
                 self.state = next_state;
                 self.config.run_interval_working
@@ -190,7 +238,28 @@ impl MachineStateMachine {
                 let jitter_ms = rand::rng().random::<u64>() % 10_000;
                 Duration::from_millis(jitter_ms + 5_000)
             }
+        };
+
+        // Update self.live_state with new values after every state transition
+        {
+            let mut live_state = self.live_state.write().unwrap();
+            live_state.is_up = matches!(
+                &self.state,
+                MachineState::MachineUp(_) | MachineState::BmcOnly(_)
+            );
+            live_state.machine_ip = self.machine_ip();
+            live_state.bmc_ip = self.bmc_ip();
+            live_state.installed_os = self.installed_os();
+            if let Some(machine_id) = self.machine_id() {
+                if live_state.observed_machine_id.as_ref() != Some(machine_id) {
+                    live_state.observed_machine_id = Some(machine_id.clone())
+                }
+            }
+            live_state.state_string = self.state.to_string();
+            live_state.booted_os = self.booted_os();
         }
+
+        duration
     }
 
     async fn next_state(&self, nic_available: bool) -> Result<NextState, MachineStateError> {
@@ -242,7 +311,7 @@ impl MachineStateMachine {
                         bmc_dhcp_info: dhcp_info,
                     };
                     Ok(NextState::Advance(
-                        match *self.power_state.lock().unwrap() {
+                        match self.live_state.read().unwrap().power_state {
                             MockPowerState::On => MachineState::Init(InitState {
                                 bmc_state,
                                 installed_os: self.initial_os_image,
@@ -261,7 +330,7 @@ impl MachineStateMachine {
             }
             MachineState::BmcOnly(_) => Ok(NextState::SleepFor(Duration::MAX)),
             MachineState::MachineDown(inner_state) => {
-                match *self.power_state.lock().unwrap() {
+                match self.live_state.read().unwrap().power_state {
                     MockPowerState::Off => {
                         tracing::info!("Power is off, will wait for power signal");
                         return Ok(NextState::SleepFor(Duration::MAX));
@@ -288,14 +357,14 @@ impl MachineStateMachine {
             }
             MachineState::Init(inner_state) => {
                 if !nic_available {
-                    tracing::info!("Machine NIC not available yet, not initializing");
+                    tracing::trace!("Machine NIC not available yet, not initializing");
                     return Ok(NextState::SleepFor(Duration::from_secs(5)));
                 }
                 let Some(primary_mac) = self.machine_info.dhcp_mac_addresses().first().cloned()
                 else {
                     return Err(MachineStateError::NoMachineMacAddress);
                 };
-                tracing::trace!("Sending Admin DHCP Request for {}", primary_mac);
+                tracing::debug!("Sending Admin DHCP Request for {}", primary_mac);
                 let (response_tx, response_rx) = tokio::sync::oneshot::channel();
                 let start = Instant::now();
                 self.dhcp_client
@@ -308,15 +377,15 @@ impl MachineStateMachine {
                         response_tx,
                     )
                     .await;
-                tracing::trace!(
+                let Ok(Some(machine_dhcp_info)) = response_rx.await else {
+                    return Err(MachineStateError::DhcpError);
+                };
+
+                tracing::debug!(
                     "Admin DHCP Request for {} took {}ms",
                     primary_mac,
                     start.elapsed().as_millis()
                 );
-
-                let Ok(Some(machine_dhcp_info)) = response_rx.await else {
-                    return Err(MachineStateError::DhcpError);
-                };
 
                 Ok(NextState::Advance(
                     inner_state.dhcp_complete(machine_dhcp_info),
@@ -435,9 +504,15 @@ impl MachineStateMachine {
         machine_up_state: &MachineUpState,
     ) -> Result<NextState, MachineStateError> {
         if matches!(self.machine_info, MachineInfo::Dpu(_)) {
-            return Err(MachineStateError::WrongOsForMachine(
-                "ERROR: Running Scout OS on a DPU machine, this should not happen.".to_string(),
-            ));
+            tracing::warn!("ERROR: Running Scout OS on a DPU machine, this should not happen.");
+            return Ok(NextState::Advance(MachineState::MachineDown(
+                MachineDownState {
+                    since: Instant::now(),
+                    bmc_state: machine_up_state.bmc_state.clone(),
+                    installed_os: machine_up_state.installed_os,
+                    bmc_only: false,
+                },
+            )));
         }
 
         let Some(machine_discovery_result) = machine_up_state.machine_discovery_result.as_ref()
@@ -528,6 +603,7 @@ impl MachineStateMachine {
         };
 
         let start = Instant::now();
+        let tpm_ek_certificate = self.live_state.read().unwrap().tpm_ek_certificate.clone();
         let machine_discovery_result = self
             .app_context
             .api_client()
@@ -545,7 +621,7 @@ impl MachineStateMachine {
                     product_serial: self.machine_info.product_serial(),
                     chassis_serial: Some("Unspecified Chassis Board Serial Number".to_string()),
                     host_mac_address: self.machine_info.host_mac_address(),
-                    tpm_ek_certificate: self.tpm_ek_certificate.clone(),
+                    tpm_ek_certificate,
                     dpu_nic_version: if let MachineInfo::Dpu(d) = &self.machine_info {
                         d.firmware_versions.nic.clone()
                     } else {
@@ -630,7 +706,7 @@ impl MachineStateMachine {
         use SystemPowerControl::*;
         let (new_machine_state, new_power_state) = match (
             request.reset_type,
-            *self.power_state.lock().unwrap(),
+            self.live_state.read().unwrap().power_state,
         ) {
             // If we're off and we get an on or power-cycle signal, turn on.
             // Ditto if we're on and get a power-cycle or restart signal.
@@ -700,16 +776,12 @@ impl MachineStateMachine {
             }
         };
 
-        *self.power_state.lock().unwrap() = new_power_state;
+        self.live_state.write().unwrap().power_state = new_power_state;
         if let Some(new_machine_state) = new_machine_state {
             self.state = new_machine_state;
         }
 
         Ok(())
-    }
-
-    pub fn redfish_power_state(&self) -> libredfish::PowerState {
-        (*self.power_state.lock().unwrap()).into()
     }
 
     pub fn machine_id(&self) -> Option<&rpc::MachineId> {
@@ -769,13 +841,6 @@ impl MachineStateMachine {
         }
     }
 
-    pub fn is_up(&self) -> bool {
-        matches!(
-            &self.state,
-            MachineState::MachineUp(_) | MachineState::BmcOnly(_)
-        )
-    }
-
     async fn run_bmc_mock(
         &self,
         ip_address: Ipv4Addr,
@@ -784,7 +849,7 @@ impl MachineStateMachine {
             self.machine_info.clone(),
             self.bmc_command_channel.clone(),
             self.app_context.clone(),
-            self.power_state.clone(),
+            Arc::new(LiveStatePowerQuery(self.live_state.clone())),
         );
 
         let maybe_bmc_mock_handle = match &self.app_context.bmc_registration_mode {
@@ -956,6 +1021,7 @@ impl Display for OsImage {
     }
 }
 
+#[derive(Debug, Default)]
 pub struct MaybeOsImage(pub Option<OsImage>);
 
 impl Display for MaybeOsImage {

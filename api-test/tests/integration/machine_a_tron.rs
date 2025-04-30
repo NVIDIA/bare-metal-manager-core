@@ -11,12 +11,13 @@
  */
 use bmc_mock::TarGzOption;
 use forge_tls::client_config::get_forge_root_ca_path;
+use futures::future::try_join_all;
 use machine_a_tron::{
-    BmcMockRegistry, BmcRegistrationMode, DhcpRelayService, HostMachineActor, MachineATron,
+    BmcMockRegistry, BmcRegistrationMode, DhcpRelayService, HostMachineHandle, MachineATron,
     MachineATronConfig, MachineATronContext, api_throttler,
 };
-use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use rpc::protos::forge_api_client::ForgeApiClient;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -33,7 +34,7 @@ pub async fn run_local(
     app_config: MachineATronConfig,
     repo_root: PathBuf,
     bmc_address_registry: BmcMockRegistry,
-) -> eyre::Result<(Vec<HostMachineActor>, MachineATronHandle)> {
+) -> eyre::Result<(Vec<HostMachineHandle>, MachineATronHandle)> {
     let forge_root_ca_path = get_forge_root_ca_path(None, None); // Will get it from the local repo
     let forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
 
@@ -75,7 +76,7 @@ pub async fn run_local(
     });
 
     // Start DHCP relay
-    let (mut dhcp_client, mut dhcp_service) = DhcpRelayService::new(app_context.clone());
+    let (dhcp_client, mut dhcp_service) = DhcpRelayService::new(app_context.clone());
     let dhcp_handle = tokio::spawn(async move {
         _ = dhcp_service.run().await.inspect_err(|e| {
             eprintln!("Error running DHCP service: {}", e);
@@ -84,24 +85,26 @@ pub async fn run_local(
     });
 
     let mat = MachineATron::new(app_context.clone());
-    let machine_actors = mat.make_machines(&dhcp_client, false).await?;
+    let machine_handles = mat.make_machines(&dhcp_client, false).await?;
 
     let (stop_tx, stop_rx) = oneshot::channel();
-    let machine_actors_clone = machine_actors.clone();
+    let machine_handles_clone = machine_handles.clone();
     let join_handle = tokio::spawn(async move {
         stop_rx.await?;
 
-        for machine_actor in machine_actors_clone.into_iter() {
-            machine_actor.stop(true).await?;
-        }
+        try_join_all(
+            machine_handles_clone
+                .into_iter()
+                .map(|m| m.delete_from_api(app_context.api_client())),
+        )
+        .await?;
 
-        dhcp_client.stop_service().await;
-        dhcp_handle.await?;
+        dhcp_handle.abort();
         Ok(())
     });
 
     Ok((
-        machine_actors,
+        machine_handles,
         MachineATronHandle {
             stop_tx,
             join_handle,

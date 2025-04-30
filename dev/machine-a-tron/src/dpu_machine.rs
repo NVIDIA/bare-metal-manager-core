@@ -1,15 +1,16 @@
 use eyre::Context;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 use tokio::time::Interval;
 use tracing::instrument;
 use uuid::Uuid;
 
 use crate::config::PersistedDpuMachine;
 use crate::host_machine::HandleMessageResult;
-use crate::machine_state_machine::{MachineStateMachine, PersistedMachine};
+use crate::machine_state_machine::{LiveState, MachineStateMachine, OsImage, PersistedMachine};
 use crate::tui::HostDetails;
 use crate::{
     MachineConfig, config::MachineATronContext, dhcp_relay::DhcpRelayClient,
@@ -26,13 +27,13 @@ pub struct DpuMachine {
     host_id: Uuid,
     // Our index within this host
     dpu_index: u8,
+    live_state: Arc<RwLock<LiveState>>,
     state_machine: MachineStateMachine,
 
     dpu_info: DpuMachineInfo,
     app_context: Arc<MachineATronContext>,
     api_state: String,
     bmc_control_rx: mpsc::UnboundedReceiver<BmcCommand>,
-    observed_machine_id: Option<rpc::MachineId>,
     paused: bool,
     sleep_until: Instant,
     api_refresh_interval: Interval,
@@ -72,11 +73,11 @@ impl DpuMachine {
             dpu_index,
             host_id: mat_host,
             dpu_info,
+            live_state: state_machine.live_state.clone(),
             state_machine,
 
             api_state: "Unknown".to_string(),
             bmc_control_rx,
-            observed_machine_id: None,
             paused: true,
             sleep_until: Instant::now(),
             api_refresh_interval: tokio::time::interval(
@@ -119,11 +120,11 @@ impl DpuMachine {
             dpu_index,
             host_id: mat_host,
             dpu_info,
+            live_state: state_machine.live_state.clone(),
             state_machine,
 
             api_state: "Unknown".to_string(),
             bmc_control_rx,
-            observed_machine_id: None,
             paused: true,
             sleep_until: Instant::now(),
             api_refresh_interval: tokio::time::interval(
@@ -135,21 +136,25 @@ impl DpuMachine {
     }
 
     #[instrument(skip_all, fields(mat_host_id = %self.host_id, dpu_index = self.dpu_index))]
-    pub fn start(mut self, paused: bool) -> DpuMachineActor {
+    pub fn start(mut self, paused: bool) -> DpuMachineHandle {
         self.paused = paused;
-        let (actor_message_tx, mut actor_message_rx) = mpsc::unbounded_channel();
-        tokio::task::Builder::new()
+        let (message_tx, mut message_rx) = mpsc::unbounded_channel();
+        let message_tx = message_tx.clone();
+        let mat_id = self.mat_id;
+        let dpu_info = self.dpu_info.clone();
+        let dpu_index = self.dpu_index;
+        let bmc_dhcp_id = self.state_machine.bmc_dhcp_id;
+        let machine_dhcp_id = self.state_machine.machine_dhcp_id;
+        let live_state = self.state_machine.live_state.clone();
+        let join_handle = tokio::task::Builder::new()
             .name(&format!("DPU {}", self.mat_id))
             .spawn({
-                let actor_message_tx = actor_message_tx.clone();
+                let message_tx = message_tx.clone();
                 async move {
                     loop {
                         // Run the actual iterations in a separate function so that #[instrument] can
                         // create spans with the current values for all fields.
-                        if !self
-                            .run_iteration(&mut actor_message_rx, &actor_message_tx)
-                            .await
-                        {
+                        if !self.run_iteration(&mut message_rx, &message_tx).await {
                             break;
                         }
                     }
@@ -157,9 +162,16 @@ impl DpuMachine {
             })
             .unwrap();
 
-        DpuMachineActor {
-            message_tx: actor_message_tx,
-        }
+        DpuMachineHandle(Arc::new(DpuMachineActor {
+            message_tx,
+            live_state,
+            mat_id,
+            dpu_info,
+            dpu_index,
+            bmc_dhcp_id,
+            machine_dhcp_id,
+            join_handle: Mutex::new(Some(join_handle)),
+        }))
     }
 
     #[instrument(skip_all, fields(mat_host_id = %self.host_id, dpu_index = self.dpu_index, api_state = %self.api_state, state = %self.state_machine, booted_os = %self.state_machine.booted_os()))]
@@ -170,7 +182,7 @@ impl DpuMachine {
     ) -> bool {
         // If the dpu is up, and if anyone is waiting for the current state to be
         // reached, notify them.
-        if self.state_machine.is_up() {
+        if self.live_state.read().unwrap().is_up {
             if let Some(waiters) = self.state_waiters.remove(&self.api_state) {
                 for waiter in waiters.into_iter() {
                     _ = waiter.send(());
@@ -182,9 +194,9 @@ impl DpuMachine {
             _ = tokio::time::sleep_until(self.sleep_until.into()) => {},
             _ = self.api_refresh_interval.tick() => {
                 // Wake up to refresh the API state and UI
-                if let Some(machine_id) = self.observed_machine_id.as_ref() {
+                if let Some(machine_id) = self.live_state.read().unwrap().observed_machine_id.clone() {
                     let actor_message_tx = actor_message_tx.clone();
-                    self.app_context.api_throttler.get_machine(machine_id.clone(), move |machine| {
+                    self.app_context.api_throttler.get_machine(machine_id, move |machine| {
                         if let Some(machine) = machine {
                             // Write the API state back using the actor channel, since we can't just write to self
                             _ = actor_message_tx.send(DpuMachineMessage::SetApiState(machine.state));
@@ -203,11 +215,14 @@ impl DpuMachine {
                     }
                 }
             }
-            Some(cmd) = actor_message_rx.recv() => {
-                match self.handle_actor_message(cmd).await {
+            result = actor_message_rx.recv() => {
+                let Some(cmd) = result else {
+                    tracing::info!("Command channel gone, stopping DPU");
+                    return false;
+                };
+                match self.handle_actor_message(cmd) {
                     HandleMessageResult::ProcessStateNow => {},
                     HandleMessageResult::ContinuePolling => return true,
-                    HandleMessageResult::Stop => return false,
                 };
             }
         }
@@ -218,7 +233,7 @@ impl DpuMachine {
         true
     }
 
-    async fn handle_actor_message(&mut self, message: DpuMachineMessage) -> HandleMessageResult {
+    fn handle_actor_message(&mut self, message: DpuMachineMessage) -> HandleMessageResult {
         match message {
             DpuMachineMessage::SetSystemPower { request, reply } => {
                 let response = self.state_machine.set_system_power(request);
@@ -226,14 +241,6 @@ impl DpuMachine {
                     _ = reply.send(response);
                 }
                 HandleMessageResult::ProcessStateNow
-            }
-            DpuMachineMessage::IsUp(reply) => {
-                _ = reply.send(self.is_up());
-                HandleMessageResult::ContinuePolling
-            }
-            DpuMachineMessage::GetHostDetails(reply) => {
-                _ = reply.send(HostDetails::from(&*self));
-                HandleMessageResult::ContinuePolling
             }
             DpuMachineMessage::SetPaused(is_paused) => {
                 if is_paused {
@@ -245,16 +252,8 @@ impl DpuMachine {
                 }
                 HandleMessageResult::ProcessStateNow
             }
-            DpuMachineMessage::Stop(reply) => {
-                _ = reply.send(());
-                HandleMessageResult::Stop
-            }
             DpuMachineMessage::SetApiState(api_state) => {
                 self.api_state = api_state;
-                HandleMessageResult::ContinuePolling
-            }
-            DpuMachineMessage::GetObservedMachineId(reply) => {
-                reply.send(self.observed_machine_id.clone()).ok();
                 HandleMessageResult::ContinuePolling
             }
             DpuMachineMessage::WaitUntilMachineUpWithApiState(state, reply) => {
@@ -263,10 +262,6 @@ impl DpuMachine {
                 } else {
                     self.state_waiters.insert(state, vec![reply]);
                 }
-                HandleMessageResult::ContinuePolling
-            }
-            DpuMachineMessage::GetPersisted(reply) => {
-                reply.send(self.persisted()).ok();
                 HandleMessageResult::ContinuePolling
             }
         }
@@ -281,9 +276,13 @@ impl DpuMachine {
         let result = self.state_machine.advance(true).await;
         tracing::trace!("state_machine.advance end");
 
-        if let Some(machine_id) = self.state_machine.machine_id() {
-            self.observed_machine_id = Some(machine_id.to_owned());
-        } else if self.observed_machine_id.is_none() {
+        if self
+            .live_state
+            .read()
+            .unwrap()
+            .observed_machine_id
+            .is_none()
+        {
             if let Ok(Some(machine_id)) = self
                 .app_context
                 .forge_api_client
@@ -295,35 +294,15 @@ impl DpuMachine {
                 .map(|r| r.machine_id)
             {
                 tracing::trace!("dpu's machine id: {}", machine_id);
-                self.observed_machine_id = Some(machine_id);
+                self.live_state.write().unwrap().observed_machine_id = Some(machine_id);
             }
         }
 
         result
     }
 
-    fn is_up(&self) -> bool {
-        self.state_machine.is_up()
-    }
-
     pub fn dpu_info(&self) -> &DpuMachineInfo {
         &self.dpu_info
-    }
-
-    fn persisted(&self) -> PersistedDpuMachine {
-        PersistedDpuMachine {
-            mat_id: self.mat_id,
-            bmc_mac_address: self.dpu_info.bmc_mac_address,
-            host_mac_address: self.dpu_info.host_mac_address,
-            oob_mac_address: self.dpu_info.oob_mac_address,
-            serial: self.dpu_info.serial.clone(),
-            nic_mode: self.dpu_info.nic_mode,
-            firmware_versions: self.dpu_info.firmware_versions.clone(),
-            installed_os: self.state_machine.installed_os(),
-            dpu_index: self.dpu_index,
-            bmc_dhcp_id: self.state_machine.bmc_dhcp_id,
-            machine_dhcp_id: self.state_machine.machine_dhcp_id,
-        }
     }
 }
 
@@ -332,14 +311,9 @@ enum DpuMachineMessage {
         request: SetSystemPowerReq,
         reply: Option<oneshot::Sender<SetSystemPowerResult>>,
     },
-    Stop(oneshot::Sender<()>),
-    GetHostDetails(oneshot::Sender<HostDetails>),
-    GetObservedMachineId(oneshot::Sender<Option<rpc::MachineId>>),
     WaitUntilMachineUpWithApiState(String, oneshot::Sender<()>),
-    IsUp(oneshot::Sender<bool>),
     SetPaused(bool),
     SetApiState(String),
-    GetPersisted(oneshot::Sender<PersistedDpuMachine>),
 }
 
 /// DpuMachineActor presents a friendly, actor-style interface for various methods a HostMachine
@@ -350,30 +324,45 @@ enum DpuMachineMessage {
 /// will poll for any DpuMachineCommands sent to it (in addition to periodically running
 /// process_state) and reply to them. DpuMachineHandle abstracts these commands/replies into simple
 /// async methods.
-#[derive(Debug, Clone)]
-pub struct DpuMachineActor {
+#[derive(Debug)]
+struct DpuMachineActor {
     message_tx: mpsc::UnboundedSender<DpuMachineMessage>,
+    live_state: Arc<RwLock<LiveState>>,
+    mat_id: Uuid,
+    dpu_info: DpuMachineInfo,
+    dpu_index: u8,
+    bmc_dhcp_id: Uuid,
+    machine_dhcp_id: Uuid,
+    join_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
-impl DpuMachineActor {
+#[derive(Debug, Clone)]
+pub struct DpuMachineHandle(Arc<DpuMachineActor>);
+
+impl DpuMachineHandle {
     pub fn set_system_power(&self, request: SetSystemPowerReq) -> eyre::Result<()> {
-        Ok(self.message_tx.send(DpuMachineMessage::SetSystemPower {
+        Ok(self.0.message_tx.send(DpuMachineMessage::SetSystemPower {
             request,
             reply: None,
         })?)
     }
 
-    pub async fn is_up(&self) -> eyre::Result<bool> {
-        let (tx, rx) = oneshot::channel();
-        self.message_tx.send(DpuMachineMessage::IsUp(tx))?;
-        Ok(rx.await?)
+    pub fn is_ready(&self) -> bool {
+        let live_state = self.0.live_state.read().unwrap();
+        // Whether we are up and booted to the agent OS (or if we're nic mode, we don't have to be
+        // booted to any OS.)
+        live_state.is_up
+            && (self.0.dpu_info.nic_mode
+                || matches!(live_state.booted_os.0, Some(OsImage::DpuAgent)))
     }
 
-    pub async fn observed_machine_id(&self) -> eyre::Result<Option<MachineId>> {
-        let (tx, rx) = oneshot::channel();
-        self.message_tx
-            .send(DpuMachineMessage::GetObservedMachineId(tx))?;
-        Ok(rx.await?)
+    pub async fn observed_machine_id(&self) -> Option<MachineId> {
+        self.0
+            .live_state
+            .read()
+            .unwrap()
+            .observed_machine_id
+            .clone()
     }
 
     pub async fn wait_until_machine_up_with_api_state(
@@ -382,7 +371,8 @@ impl DpuMachineActor {
         timeout: Duration,
     ) -> eyre::Result<()> {
         let (tx, rx) = oneshot::channel();
-        self.message_tx
+        self.0
+            .message_tx
             .send(DpuMachineMessage::WaitUntilMachineUpWithApiState(
                 state.to_owned(),
                 tx,
@@ -392,56 +382,55 @@ impl DpuMachineActor {
         ))
     }
 
-    pub async fn host_details(&self) -> eyre::Result<HostDetails> {
-        let (tx, rx) = oneshot::channel();
-        self.message_tx
-            .send(DpuMachineMessage::GetHostDetails(tx))?;
-        Ok(rx.await?)
-    }
-
-    pub async fn stop(self) -> eyre::Result<()> {
-        let (tx, rx) = oneshot::channel();
-        self.message_tx.send(DpuMachineMessage::Stop(tx))?;
-        Ok(rx.await?)
+    pub fn host_details(&self) -> HostDetails {
+        let guard = self.0.live_state.read().unwrap();
+        HostDetails {
+            mat_id: self.0.mat_id,
+            machine_id: guard.observed_machine_id.as_ref().map(|m| m.to_string()),
+            mat_state: guard.state_string.clone(),
+            api_state: guard.api_state.clone(),
+            oob_ip: guard.bmc_ip.map(|ip| ip.to_string()).unwrap_or_default(),
+            machine_ip: guard
+                .machine_ip
+                .map(|ip| ip.to_string())
+                .unwrap_or_default(),
+            dpus: Vec::default(),
+            booted_os: guard.booted_os.to_string(),
+            power_state: guard.power_state.into(),
+        }
     }
 
     pub fn pause(&self) -> eyre::Result<()> {
-        self.message_tx.send(DpuMachineMessage::SetPaused(true))?;
+        self.0.message_tx.send(DpuMachineMessage::SetPaused(true))?;
         Ok(())
     }
 
     pub fn resume(&self) -> eyre::Result<()> {
-        self.message_tx.send(DpuMachineMessage::SetPaused(false))?;
+        self.0
+            .message_tx
+            .send(DpuMachineMessage::SetPaused(false))?;
         Ok(())
     }
 
-    pub async fn persisted(&self) -> eyre::Result<PersistedDpuMachine> {
-        let (tx, rx) = oneshot::channel();
-        self.message_tx.send(DpuMachineMessage::GetPersisted(tx))?;
-        Ok(rx.await?)
+    pub fn persisted(&self) -> PersistedDpuMachine {
+        PersistedDpuMachine {
+            mat_id: self.0.mat_id,
+            bmc_mac_address: self.0.dpu_info.bmc_mac_address,
+            host_mac_address: self.0.dpu_info.host_mac_address,
+            oob_mac_address: self.0.dpu_info.oob_mac_address,
+            serial: self.0.dpu_info.serial.clone(),
+            nic_mode: self.0.dpu_info.nic_mode,
+            firmware_versions: self.0.dpu_info.firmware_versions.clone(),
+            installed_os: self.0.live_state.read().unwrap().installed_os,
+            dpu_index: self.0.dpu_index,
+            bmc_dhcp_id: self.0.bmc_dhcp_id,
+            machine_dhcp_id: self.0.machine_dhcp_id,
+        }
     }
-}
 
-impl From<&DpuMachine> for HostDetails {
-    fn from(val: &DpuMachine) -> Self {
-        HostDetails {
-            mat_id: val.mat_id,
-            machine_id: val.observed_machine_id.as_ref().map(|m| m.to_string()),
-            mat_state: val.state_machine.to_string(),
-            api_state: val.api_state.clone(),
-            oob_ip: val
-                .state_machine
-                .bmc_ip()
-                .map(|ip| ip.to_string())
-                .unwrap_or_default(),
-            machine_ip: val
-                .state_machine
-                .machine_ip()
-                .map(|ip| ip.to_string())
-                .unwrap_or_default(),
-            dpus: Vec::default(),
-            booted_os: val.state_machine.booted_os().to_string(),
-            power_state: val.state_machine.redfish_power_state(),
+    pub fn abort(&self) {
+        if let Some(join_handle) = self.0.join_handle.lock().unwrap().take() {
+            join_handle.abort();
         }
     }
 }

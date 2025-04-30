@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     config::MachineATronContext,
-    tui::{SubnetDetails, UiEvent},
+    tui::{SubnetDetails, UiUpdate},
 };
 use tonic::Status;
 
@@ -23,7 +23,7 @@ pub struct Subnet {
 impl Subnet {
     pub async fn new(
         app_context: Arc<MachineATronContext>,
-        ui_event_tx: Option<tokio::sync::mpsc::Sender<UiEvent>>,
+        ui_event_tx: Option<tokio::sync::mpsc::Sender<UiUpdate>>,
         vpc_name: &String,
     ) -> Result<Subnet, Status> {
         let network_segment = app_context
@@ -52,7 +52,7 @@ impl Subnet {
         let details = SubnetDetails::from(&new_subnet);
         if let Some(ui_event_tx) = ui_event_tx.as_ref() {
             _ = ui_event_tx
-                .send(UiEvent::SubnetUpdate(details))
+                .send(UiUpdate::Subnet(details))
                 .await
                 .inspect_err(|e| tracing::warn!("Error sending TUI event: {}", e));
         }
