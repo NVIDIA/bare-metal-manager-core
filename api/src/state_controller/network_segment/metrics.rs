@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use crate::metrics_utils::SharedMetricsHolder;
+use crate::logging::metrics_utils::SharedMetricsHolder;
 use crate::state_controller::metrics::MetricsEmitter;
 use opentelemetry::{KeyValue, metrics::Meter};
 

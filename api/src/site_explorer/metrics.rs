@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::metrics_utils::SharedMetricsHolder;
+use crate::logging::metrics_utils::SharedMetricsHolder;
 use crate::model::site_explorer::{EndpointExplorationError, MachineExpectation};
 use forge_uuid::machine::MachineType;
 use opentelemetry::{

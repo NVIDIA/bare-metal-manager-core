@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::metrics_utils::SharedMetricsHolder;
+use crate::logging::metrics_utils::SharedMetricsHolder;
 use crate::{
     logging::sqlx_query_tracing,
     state_controller::{io::StateControllerIO, state_handler::StateHandlerError},
