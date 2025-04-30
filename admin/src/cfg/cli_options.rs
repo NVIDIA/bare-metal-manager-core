@@ -323,8 +323,12 @@ pub struct DpuReprovisionSet {
     #[clap(short, long, action)]
     pub update_firmware: bool,
 
-    #[clap(short, long)]
-    pub maintenance_reference: Option<String>,
+    #[clap(
+        long,
+        alias = "maintenance_reference",
+        help = "If set, a HostUpdateInProgress health alert will be applied to the host"
+    )]
+    pub update_message: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -391,8 +395,12 @@ pub struct HostReprovisionSet {
     #[clap(short, long, action)]
     pub update_firmware: bool,
 
-    #[clap(short, long)]
-    pub maintenance_reference: Option<String>,
+    #[clap(
+        long,
+        alias = "maintenance_reference",
+        help = "If set, a HostUpdateInProgress health alert will be applied to the host"
+    )]
+    pub update_message: Option<String>,
 }
 
 #[derive(Parser, Debug)]
