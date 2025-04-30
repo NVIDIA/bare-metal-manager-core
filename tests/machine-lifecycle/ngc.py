@@ -21,13 +21,14 @@ class Environment:
 ENVS: dict[str, Environment] = {
     "prod": Environment("prod", "https://api.ngc.nvidia.com", "i1k1exmxlqr1", "qpbftykv9atm"),
     "stg": Environment("stg", "https://api.stg.ngc.nvidia.com", "fh93zk6uqtt1", "wdksahew1rqv"),
+    "qa": Environment("qa", "https://api.stg.ngc.nvidia.com", "zqrrhxea4ktv", "wdksahew1rqv")
 }
 
 
 @dataclass
 class Site:
     name: str
-    environment: Literal["prod", "stg"]
+    environment: Literal["prod", "stg", "qa"]
 
 
 class ForgeNGCError(Exception):
