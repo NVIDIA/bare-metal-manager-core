@@ -42,11 +42,11 @@ class ForgeVaultClient:
         host_bmc_password = host_bmc_creds.split(":", maxsplit=1)[1]
         return host_bmc_password
 
-    def get_ngc_api_key(self, environment: Literal["prod", "stg"]):
+    def get_ngc_api_key(self, environment: Literal["prod", "stg", "qa"]):
         read_response = self.client.secrets.kv.v2.read_secret(mount_point=self.mount_point, path=self.path)
         if environment == "prod":
             return read_response["data"]["data"]["nvcr"]
-        elif environment == "stg":
+        elif environment == "stg" or environment == "qa":
             return read_response["data"]["data"]["stg_nvcr"]
         else:
             raise ValueError(f"Unknown environment: {environment}")

@@ -52,6 +52,7 @@ sites = [
     ngc.Site("pdx-demo1", "prod"),
     ngc.Site("pdx-dev3", "stg"),
     ngc.Site("reno-dev4", "stg"),
+    ngc.Site("pdx-qa2", "qa"),
 ]
 
 # Find out if the site under test is in production or staging
