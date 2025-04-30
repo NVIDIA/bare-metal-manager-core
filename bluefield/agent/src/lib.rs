@@ -219,6 +219,10 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     duppet::FileSpec::new_with_perms(include_str!("../templates/apt-clean"), 0o755),
                 ),
                 (
+                    "/etc/dhcp/dhclient-exit-hooks.d/ntpsec".into(),
+                    duppet::FileSpec::new_with_perms(include_str!("../templates/ntpsec"), 0o644),
+                ),
+                (
                     "/run/otelcol-contrib/machine-id".into(),
                     duppet::FileSpec::new_with_content(build_otel_machine_id_file(&machine_id)),
                 ),

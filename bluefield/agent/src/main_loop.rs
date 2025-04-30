@@ -86,11 +86,16 @@ pub async fn setup_and_run(
     // during setup_and_run. Current files being managed are:
     //
     // - /etc/cron.daily/apt.clean
+    // - /etc/dhcp/dhclient-exit-hooks.d/ntpsec
     // - /run/otelcol-contrib/machine-id
     let duppet_files: HashMap<PathBuf, duppet::FileSpec> = HashMap::from([
         (
             "/etc/cron.daily/apt-clean".into(),
             duppet::FileSpec::new_with_perms(include_str!("../templates/apt-clean"), 0o755),
+        ),
+        (
+            "/etc/dhcp/dhclient-exit-hooks.d/ntpsec".into(),
+            duppet::FileSpec::new_with_perms(include_str!("../templates/ntpsec"), 0o644),
         ),
         (
             "/run/otelcol-contrib/machine-id".into(),

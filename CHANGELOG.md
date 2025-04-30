@@ -8,6 +8,7 @@
 
 ### Fixed
 - Removed extra reboot when doing instance reboot with apply updates on reboot for host firmware.
+- [MR-4001](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4001): Fixed ntpsec@mgmt being broken on dhcp renews on the dpu
 
 ### Removed
 
