@@ -22,7 +22,7 @@ use std::{
 
 use crate::api_server::ApiServerTestConfig;
 use crate::utils::IntegrationTestEnvironment;
-use ::machine_a_tron::{BmcMockRegistry, HostMachineActor, MachineATronConfig, MachineConfig};
+use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
 use ::utils::HostPortPair;
 use bmc_mock::ListenerOrAddress;
 use futures::FutureExt;
@@ -228,10 +228,10 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         &test_env,
         &bmc_address_registry,
         Ipv4Addr::new(172, 20, 0, 1),
-        |machine_actor| {
+        |machine_handle| {
             let db_pool = db_pool.clone();
             async move {
-                machine_actor.dpus[0].wait_until_machine_up_with_api_state("HostInitializing/WaitingForDiscovery", Duration::from_secs(90)).await?;
+                machine_handle.dpus()[0].wait_until_machine_up_with_api_state("HostInitializing/WaitingForDiscovery", Duration::from_secs(90)).await?;
 
                 // After the host_bootstrap, the dns_records view
                 // should contain 8 entries:
@@ -258,7 +258,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                 let vpc_id = vpc::create(carbide_api_addr)?;
                 let domain_id = domain::create(carbide_api_addr, "tenant-1.local")?;
                 let segment_id = subnet::create(carbide_api_addr, &vpc_id, &domain_id, 10, false)?;
-                let host_machine_id = machine_actor.observed_machine_id().await?.expect("Should have gotten a machine ID by now").id;
+                let host_machine_id = machine_handle.observed_machine_id().expect("Should have gotten a machine ID by now").id;
 
                 // Create instance with phone_home enabled
                 let instance_id = instance::create(
@@ -365,16 +365,15 @@ async fn test_machine_a_tron_multidpu(
         test_env,
         bmc_mock_registry,
         admin_dhcp_relay_address,
-        |machine_actor| {
+        |machine_handle| {
             let segment_id = segment_id.to_string();
             let carbide_api_addr = test_env.carbide_api_addr;
             async move {
-                machine_actor
+                machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
-                let machine_id = machine_actor
+                let machine_id = machine_handle
                     .observed_machine_id()
-                    .await?
                     .expect("Machine ID should be set if host is ready")
                     .to_string();
                 tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
@@ -387,15 +386,14 @@ async fn test_machine_a_tron_multidpu(
                     false,
                 )?;
 
-                machine_actor
+                machine_handle
                     .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(60))
                     .await?;
 
                 let instance_json = instance::get_instance_json_by_machine_id(
                     carbide_api_addr,
-                    machine_actor
+                    machine_handle
                         .observed_machine_id()
-                        .await?
                         .expect("HostMachine should have a Machine ID once it's in ready state")
                         .to_string()
                         .as_str(),
@@ -421,7 +419,7 @@ async fn test_machine_a_tron_multidpu(
                 );
                 instance::release(carbide_api_addr, &machine_id, &instance_id, false)?;
 
-                machine_actor
+                machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
                     .await?;
                 tracing::info!("Machine {machine_id} has made it to Ready again, all done");
@@ -444,14 +442,13 @@ async fn test_machine_a_tron_zerodpu(
         test_env,
         bmc_mock_registry,
         admin_dhcp_relay_address,
-        |machine_actor| {
+        |machine_handle| {
             async move {
-                machine_actor
+                machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
-                let machine_id = machine_actor
+                let machine_id = machine_handle
                     .observed_machine_id()
-                    .await?
                     .expect("Machine ID should be set if host is ready")
                     .to_string();
                 tracing::info!("Machine {machine_id} has made it to Ready.");
@@ -476,14 +473,13 @@ async fn test_machine_a_tron_singledpu_nic_mode(
         test_env,
         bmc_mock_registry,
         admin_dhcp_relay_address,
-        |machine_actor| {
+        |machine_handle| {
             async move {
-                machine_actor
+                machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
                     .await?;
-                let machine_id = machine_actor
+                let machine_id = machine_handle
                     .observed_machine_id()
-                    .await?
                     .expect("Machine ID should be set if host is ready")
                     .to_string();
                 tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
@@ -506,7 +502,7 @@ async fn run_machine_a_tron_test<F, O>(
     run_assertions: F,
 ) -> eyre::Result<()>
 where
-    F: Fn(HostMachineActor) -> O,
+    F: Fn(HostMachineHandle) -> O,
     O: Future<Output = eyre::Result<()>>,
 {
     let mat_config = MachineATronConfig {
@@ -567,7 +563,7 @@ where
         api_refresh_interval: Duration::from_millis(500),
     };
 
-    let (machine_actors, mat_handle) = machine_a_tron::run_local(
+    let (machine_handles, mat_handle) = machine_a_tron::run_local(
         mat_config,
         test_env.root_dir.clone(),
         bmc_mock_registry.clone(),
@@ -575,7 +571,7 @@ where
     .await
     .unwrap();
 
-    let results = join_all(machine_actors.into_iter().map(run_assertions)).await;
+    let results = join_all(machine_handles.into_iter().map(run_assertions)).await;
     assert_eq!(results.len(), host_count as usize);
     mat_handle.stop().await?;
 

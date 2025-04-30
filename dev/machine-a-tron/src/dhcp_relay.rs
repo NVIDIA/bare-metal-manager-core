@@ -21,10 +21,9 @@ use tokio::{
 };
 use uuid::Uuid;
 
+use crate::{api_client::ClientApiError, config::MachineATronContext};
 use mac_address::MacAddress;
 use tokio::time::sleep;
-
-use crate::{api_client::ClientApiError, config::MachineATronContext};
 static NEXT_XID: AtomicU32 = AtomicU32::new(1000);
 
 type DhcpRelayResult = Result<(), DhcpRelayError>;
@@ -47,13 +46,6 @@ impl Debug for DhcpRelayClient {
 }
 
 impl DhcpRelayClient {
-    pub async fn stop_service(&mut self) {
-        let rt = RequestType::Quit;
-        if self.request_tx.send(rt).await.is_err() {
-            tracing::warn!("Failed to shutdown dhcp relay service");
-        }
-    }
-
     pub async fn request_ip(
         &self,
         mat_id: Uuid,
@@ -89,7 +81,6 @@ impl DhcpRelayClient {
 enum RequestType {
     Request(DhcpRequestInfo),
     Response(DhcpResponseInfo),
-    Quit,
 }
 
 #[derive(Debug)]
@@ -180,9 +171,6 @@ impl DhcpRelayService {
                 }
                 msg = self.request_rx.recv() => {
                     match msg {
-                        Some(RequestType::Quit) => {
-                            running = false;
-                        }
                         Some(request_info) => {
                             if let Some(udp_socket) = udp_socket.as_ref() {
                                 running = self.handle_request_message(udp_socket, &mut requests, request_info).await;
@@ -363,9 +351,6 @@ impl DhcpRelayService {
                 if request_info.response_tx.send(Some(response_info)).is_err() {
                     tracing::warn!("Failed to send dhcp response");
                 }
-            }
-            RequestType::Quit => {
-                return false;
             }
         }
         true

@@ -127,11 +127,10 @@ impl HostDetails {
     }
 }
 
-pub enum UiEvent {
-    MachineUpdate(HostDetails),
-    VpcUpdate(VpcDetails),
-    SubnetUpdate(SubnetDetails),
-    Quit,
+pub enum UiUpdate {
+    Machine(HostDetails),
+    Vpc(VpcDetails),
+    Subnet(SubnetDetails),
 }
 
 pub struct Tui {
@@ -144,7 +143,8 @@ pub struct Tui {
 }
 
 pub struct TuiData {
-    pub event_rx: Receiver<UiEvent>,
+    pub event_rx: Receiver<UiUpdate>,
+    pub quit_rx: Receiver<()>,
     pub app_tx: Sender<AppEvent>,
     pub machine_cache: HashMap<Uuid, HostDetails>,
     pub vpc_cache: HashMap<Uuid, VpcDetails>,
@@ -158,7 +158,8 @@ pub struct TuiData {
 
 impl Tui {
     pub fn new(
-        event_rx: Receiver<UiEvent>,
+        event_rx: Receiver<UiUpdate>,
+        quit_rx: Receiver<()>,
         app_tx: Sender<AppEvent>,
         host_redfish_routes: EntryMap,
         host_logs: Option<TuiHostLogs>,
@@ -166,6 +167,7 @@ impl Tui {
         Self {
             data: TuiData {
                 event_rx,
+                quit_rx,
                 app_tx,
                 machine_cache: HashMap::default(),
                 vpc_cache: HashMap::default(),
@@ -480,7 +482,11 @@ impl Tui {
             })?;
 
             select! {
-                _ = tokio::time::sleep(Duration::from_millis(200)) => { },
+                biased; // ensure quit messages are handled first
+                _ = self.data.quit_rx.recv() => {
+                    running = false;
+                    continue;
+                }
                 maybe_event = event_stream.next() => {
                     match maybe_event {
                         Some(Ok(event)) => {
@@ -492,22 +498,20 @@ impl Tui {
                 }
                 msg = self.data.event_rx.recv() => {
                     match msg {
-                        Some(UiEvent::Quit) => {
-                            running = false;
-                        },
-                        Some(UiEvent::MachineUpdate(m)) => {
+                        Some(UiUpdate::Machine(m)) => {
                             list_updated = true;
                             self.data.machine_cache.insert(m.mat_id, m);
                         }
-                        Some(UiEvent::VpcUpdate(m)) => {
+                        Some(UiUpdate::Vpc(m)) => {
                             self.data.vpc_cache.insert(m.vpc_id, m);
                         }
-                        Some(UiEvent::SubnetUpdate(m)) => {
+                        Some(UiUpdate::Subnet(m)) => {
                             self.data.subnet_cache.insert(m.segment_id, m);
                         }
                         None => {}
                     }
                 }
+                _ = tokio::time::sleep(Duration::from_millis(200)) => { },
             };
         }
 

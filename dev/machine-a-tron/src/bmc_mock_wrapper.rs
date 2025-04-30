@@ -2,13 +2,13 @@ use axum::Router;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 
 use crate::config::MachineATronContext;
 use crate::machine_state_machine::MachineStateError;
 use crate::machine_utils::add_address_to_interface;
-use bmc_mock::{BmcCommand, BmcMockHandle, ListenerOrAddress, MachineInfo, MockPowerState};
+use bmc_mock::{BmcCommand, BmcMockHandle, ListenerOrAddress, MachineInfo, PowerStateQuerying};
 
 /// BmcMockWrapper launches a single instance of bmc-mock, configured to mock a single BMC for
 /// either a DPU or a Host. It will rewrite certain responses to customize them for the machines
@@ -24,7 +24,7 @@ impl BmcMockWrapper {
         machine_info: MachineInfo,
         command_channel: mpsc::UnboundedSender<BmcCommand>,
         app_context: Arc<MachineATronContext>,
-        mock_power_state: Arc<Mutex<MockPowerState>>,
+        mock_power_state: Arc<dyn PowerStateQuerying>,
     ) -> Self {
         let tar_router = match machine_info {
             MachineInfo::Dpu(_) => app_context.dpu_tar_router.clone(),

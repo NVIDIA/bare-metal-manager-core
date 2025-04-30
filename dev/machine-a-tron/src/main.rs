@@ -8,10 +8,10 @@ use forge_tls::client_config::{
 use machine_a_tron::{AppEvent, BmcMockRegistry, BmcRegistrationMode, MachineATron};
 use machine_a_tron::{
     DhcpRelayService, MachineATronArgs, MachineATronConfig, MachineATronContext, Tui, TuiHostLogs,
-    UiEvent, api_throttler,
+    api_throttler,
 };
-use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use rpc::protos::forge_api_client::ForgeApiClient;
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -137,12 +137,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         forge_api_client,
     });
 
-    let (mut dhcp_client, mut dhcp_service) = DhcpRelayService::new(app_context.clone());
-    let dhcp_handle = tokio::spawn(async move {
-        _ = dhcp_service
-            .run()
-            .await
-            .inspect_err(|e| tracing::error!("Error running DHCP service: {}", e));
+    let (dhcp_client, mut dhcp_service) = DhcpRelayService::new(app_context.clone());
+    let dhcp_handle = tokio::spawn({
+        async move {
+            _ = dhcp_service
+                .run()
+                .await
+                .inspect_err(|e| tracing::error!("Error running DHCP service: {}", e));
+        }
     });
 
     let info = app_context.forge_api_client.version(false).await?;
@@ -174,29 +176,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    let machine_actors = mat.make_machines(&dhcp_client, true).await?;
+    let machine_handles = mat.make_machines(&dhcp_client, true).await?;
 
     // Persist them once in case of unclean shutdown
-    app_context
-        .app_config
-        .write_persisted_machines(&machine_actors)
-        .await?;
+    app_context.app_config.write_persisted_machines(
+        machine_handles
+            .iter()
+            .map(|m| m.persisted())
+            .collect::<Vec<_>>()
+            .as_slice(),
+    )?;
 
     // Run TUI
     let (app_tx, app_rx) = mpsc::channel(5000);
-    let (tui_handle, tui_event_tx) = if tui_enabled {
+    let (tui_handle, tui_event_tx, tui_quit_tx) = if tui_enabled {
         let (ui_tx, ui_rx) = mpsc::channel(5000);
+        let (quit_tx, quit_rx) = mpsc::channel(1);
 
         let host_redfish_routes = host_redfish_routes.clone();
         let tui_handle = Some(tokio::spawn(async {
-            let mut tui = Tui::new(ui_rx, app_tx, host_redfish_routes, tui_host_logs);
+            let mut tui = Tui::new(ui_rx, quit_rx, app_tx, host_redfish_routes, tui_host_logs);
             _ = tui.run().await.inspect_err(|e| {
                 let estr = format!("Error running TUI: {e}");
                 tracing::error!(estr);
                 eprintln!("{}", estr); // dump it to stderr in case logs are getting redirected
             })
         }));
-        (tui_handle, Some(ui_tx))
+        (tui_handle, Some(ui_tx), Some(quit_tx))
     } else {
         // Create a signal stream for SIGTERM and SIGINT.
         let mut sigterm =
@@ -212,29 +218,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
             app_tx.send(AppEvent::Quit).await.ok();
         });
 
-        (None, None)
+        (None, None, None)
     };
 
-    mat.run(machine_actors, tui_event_tx.clone(), app_rx)
+    mat.run(machine_handles, tui_event_tx.clone(), app_rx)
         .await?;
 
     if let Some(tui_handle) = tui_handle {
-        if let Some(ui_event_tx) = tui_event_tx.as_ref() {
-            _ = ui_event_tx
-                .try_send(UiEvent::Quit)
+        if let Some(tui_quit_tx) = tui_quit_tx.as_ref() {
+            _ = tui_quit_tx
+                .try_send(())
                 .inspect_err(|e| tracing::warn!("Could not send quit signal to TUI: {e}"));
         }
-        _ = tui_handle
+        tui_handle
             .await
-            .inspect_err(|e| tracing::warn!("Error running TUI: {e}"));
+            .inspect_err(|e| tracing::warn!("Error running TUI: {e}"))
+            .ok();
     }
 
-    dhcp_client.stop_service().await;
-    dhcp_handle.await?;
+    dhcp_handle.abort();
 
     if let Some(mut bmc_mock_handle) = maybe_bmc_mock_handle {
         bmc_mock_handle.stop().await?;
     }
-
     Ok(())
 }

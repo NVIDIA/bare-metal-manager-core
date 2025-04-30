@@ -3,7 +3,7 @@ use rpc::{forge::ForgeAgentControlResponse, forge_agent_control_response::Action
 use crate::config::MachineATronContext;
 
 use crate::api_client::ClientApiError;
-use crate::host_machine::HostMachineActor;
+use crate::host_machine::HostMachineHandle;
 use crate::machine_state_machine::AddressConfigError;
 use lazy_static::lazy_static;
 use rcgen::{CertifiedKey, generate_simple_self_signed};
@@ -150,11 +150,11 @@ pub async fn send_pxe_boot_request(
 }
 
 pub async fn get_next_free_machine(
-    machine_actors: &Vec<HostMachineActor>,
+    machine_handles: &Vec<HostMachineHandle>,
     assigned_mat_ids: &HashSet<Uuid>,
-) -> Option<HostMachineActor> {
-    for machine in machine_actors {
-        if assigned_mat_ids.contains(&machine.mat_id) {
+) -> Option<HostMachineHandle> {
+    for machine in machine_handles {
+        if assigned_mat_ids.contains(&machine.mat_id()) {
             continue;
         }
         let state = machine.api_state().await.ok()?;

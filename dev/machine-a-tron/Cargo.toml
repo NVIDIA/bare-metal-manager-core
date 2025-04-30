@@ -31,11 +31,11 @@ futures = "0.3.30"
 figment = { version = "0.10.16", features = ["toml"] }
 libredfish = { workspace = true }
 reqwest = { version = "0.12", default-features = false, features = [
-  "json",
-  "rustls-tls",
-  "stream",
-  "socks",
-  "multipart",
+    "json",
+    "rustls-tls",
+    "stream",
+    "socks",
+    "multipart",
 ] }
 eyre = "0.6.12"
 tempfile = "3"

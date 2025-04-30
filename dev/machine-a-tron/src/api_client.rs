@@ -6,7 +6,7 @@ use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{
     ConfigSetting, ExpectedMachine, MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest,
 };
-use rpc::forge_api_client::ForgeApiClient;
+use rpc::protos::forge_api_client::ForgeApiClient;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 #[derive(thiserror::Error, Debug)]
