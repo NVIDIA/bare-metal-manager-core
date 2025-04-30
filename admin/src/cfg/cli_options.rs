@@ -2214,10 +2214,10 @@ pub enum VpcPeeringOptions {
 
 #[derive(Parser, Debug)]
 pub struct VpcPeeringCreate {
-    #[clap(long, required(true), help = "The ID of first VPC in a VPC peering")]
+    #[clap(help = "The ID of one VPC ID to peer")]
     pub vpc1_id: VpcId,
 
-    #[clap(long, required(true), help = "The ID of second VPC in a VPC peering")]
+    #[clap(help = "The ID of another one VPC ID to peer")]
     pub vpc2_id: VpcId,
 }
 
