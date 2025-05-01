@@ -13,3 +13,13 @@ mkdir -p /opt/forge/xclarity
 curl -fS --progress-meter -vL https://download.lenovo.com/servers/mig/2024/02/23/59428/lnvgy_utl_lxce_onecli01t-4.4.0_linux_x86-64.tgz | tar -zxf - -C /opt/forge/xclarity
 curl -fS --progress-meter -vL https://download.lenovo.com/servers/mig/2020/06/11/22050/lnvgy_utl_bootstor_mnvcli-1.0.20.1040-0_linux_x86-64.tgz | tar -zxf - --wildcards --no-anchored --strip-components=2 -C /opt/forge 64/mnv_cli
 chmod +x /opt/forge/mnv_cli
+
+for kernel in $(ls -1 /lib/modules/*/vmlinuz)
+do
+  isgzip=$(file ${kernel} | grep -c "gzip compressed")
+  if [ "${isgzip}" == "1" ]
+  then
+    cat ${kernel} | gunzip -c >${kernel}.tmp
+    mv -f ${kernel}.tmp ${kernel}
+  fi
+done
