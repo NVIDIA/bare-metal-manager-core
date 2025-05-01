@@ -21,7 +21,6 @@
 - [Remote Site Access Using an ssh Socks Proxy](sites/remote_access.md)
 - [forge-admin-cli access](sites/forge_admin_cli.md)
 - [DPU SSH access](sites/dpu_ssh_access.md)
-- [Web UI Auth access](playbooks/carbide_web_oauth2.md)
 
 # Observability (Metrics & Logs)
 

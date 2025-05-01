@@ -71,6 +71,18 @@
 
 - [MR-3953](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3953): Fixed reporting of thread count.
 
+## [v2025.04.11-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.11-rc3-0...v2025.04.11-rc4-0):
+
+### Fixed
+
+- [MR-3935](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3935): Improved perfomance of query which loads machine snapshots
+
+## [v2025.04.11-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.11-rc2-0...v2025.04.11-rc3-0)
+
+### Fixed
+
+- [MR-3953](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3953): Fixed reporting of thread count.
+
 ## [v2025.04.11-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.03.28-rc1-0...v2025.04.11-rc2-0)
 
 ### Added
