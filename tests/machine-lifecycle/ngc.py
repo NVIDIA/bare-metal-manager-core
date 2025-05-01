@@ -71,9 +71,9 @@ def get_instance_type_uuid(instance_type_name: str, site_uuid: str) -> str:
         raise ForgeNGCError(f"No instance type with name '{instance_type_name}' in site '{site_uuid}' found.")
 
 
-def get_subnet_uuid(subnet_name: str) -> str:
-    """Given a subnet name, find its UUID."""
-    ngc_command = ["ngc", "--format_type", "json", "forge", "subnet", "list"]
+def get_subnet_uuid(subnet_name: str, vpc_uuid: str) -> str:
+    """Given a subnet name and its VPC UUID, find its UUID."""
+    ngc_command = ["ngc", "--format_type", "json", "forge", "subnet", "list", "--vpc", vpc_uuid]
     print(f"Executing {ngc_command}")
     ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
     if ngc_process.returncode:
@@ -86,7 +86,7 @@ def get_subnet_uuid(subnet_name: str) -> str:
             item_id = item["id"]
             return item_id
     else:
-        raise ForgeNGCError(f"No subnet with name '{subnet_name}' found.")
+        raise ForgeNGCError(f"No subnet with name '{subnet_name}' found in VPC {vpc_uuid}.")
 
 
 def get_operating_system_uuid(operating_system_name: str) -> str:
@@ -107,9 +107,9 @@ def get_operating_system_uuid(operating_system_name: str) -> str:
         raise ForgeNGCError(f"No operating system with name '{operating_system_name}' found.")
 
 
-def get_virtual_private_cloud_uuid(vpc_name: str) -> str:
-    """Given a Virtual Private Cloud name, find its UUID."""
-    ngc_command = ["ngc", "--format_type", "json", "forge", "vpc", "list"]
+def get_vpc_uuid(vpc_name: str, site_uuid: str) -> str:
+    """Given a VPC name and a site UUID, find its UUID."""
+    ngc_command = ["ngc", "--format_type", "json", "forge", "vpc", "list", "--site", site_uuid]
     print(f"Executing {ngc_command}")
     ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
     if ngc_process.returncode:
@@ -122,7 +122,7 @@ def get_virtual_private_cloud_uuid(vpc_name: str) -> str:
             item_id = item["id"]
             return item_id
     else:
-        raise ForgeNGCError(f"No Virtual Private Cloud with name '{vpc_name}' found.")
+        raise ForgeNGCError(f"No VPC with name '{vpc_name}' found in site {site_uuid}.")
 
 
 def wait_for_machine_ready(machine_id: str, site: Site, timeout: int) -> None:

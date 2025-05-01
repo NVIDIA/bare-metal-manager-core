@@ -852,7 +852,7 @@ proto-police:
     - protolint lint -config_path=.protolint.yaml --reporter ci-glab rpc/proto/
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-      when: never  
+      when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
         - "**/*.proto"
@@ -1294,7 +1294,10 @@ scheduled-test:cloud-api-tests:
 #
 scheduled-test:machine-lifecycle-test:
   stage: test
-  timeout: 5h
+  tags:
+    - dind
+    - pdx
+  timeout: 8h
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "false" && $RUN_TESTS =="true"
       needs:

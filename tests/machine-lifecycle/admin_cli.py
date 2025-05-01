@@ -108,6 +108,14 @@ def get_machine_vendor(machine_id: str) -> str:
     return result['discovery_info']['dmi_data']['sys_vendor']
 
 
+def get_dpu_model(dpu_id: str) -> str:
+    """Get the model type of the specified DPU ("BlueField SoC" is BF2, "BlueField-3 SmartNIC Main Card" is BF3)"""
+    if dpu_id[5] != "d":
+        raise ValueError(f"Invalid DPU ID: '{dpu_id}'")
+    result = run_forge_admin_cli(["machine", "show", dpu_id])
+    return result['discovery_info']['dmi_data']['product_name']
+
+
 def _get_machine_from_json(machine_id: str, machine_json: dict) -> dict | None:
     """Given JSON managed-host show output, return just the machine we want.
 
@@ -131,6 +139,14 @@ def _get_machine_from_json(machine_id: str, machine_json: dict) -> dict | None:
                     return mach
         else:
             return None
+
+
+def disable_state_machine_intervention(machine_id: str):
+    """Set the health alert on the machine to prevent state machine from attempting to reboot it
+    during a firmware downgrade.
+    """
+    alert_template = "stop-reboot-for-automatic-recovery-from-state-machine"
+    run_forge_admin_cli(["machine", "health-override", "add", "--template", alert_template, machine_id], no_json=True)
 
 
 def check_machine_not_updating(host_id: str) -> bool:
