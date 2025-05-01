@@ -14,37 +14,28 @@ REPO_ROOT = { script = [
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem" }
 
 # BFB stuff
-BFB_NAME = "bf-bundle-2.8.0-98_24.07_ubuntu-22.04_prod.bfb"
-BFB_UPSTREAM_LOCATION = "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/"
+BFB_NAME = "bf-bundle-2.9.2-32_25.02_ubuntu-22.04_prod.bfb"
+BFB_UPSTREAM_LOCATION = "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04"
 URM_LOCATION = "https://urm.nvidia.com/artifactory/sw-forge-admins-generic-local/build-artifacts/${HBN_VERSION}"
-DOCA_VERSION = "2.8.0"
-HBN_VERSION = "2.3.0"
+DOCA_VERSION = "2.9.2"
+HBN_VERSION = "2.4.2"
 # The upstream config url no longer works, and the file must be retrieved manually from the following page, then downloaded
 # to the machine that is running the upload job
 # https://catalog.ngc.nvidia.com/orgs/nvidia/teams/doca/resources/doca_container_configs/version
-HBN_UPSTREAM_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/${DOCA_VERSION}v2/zip"
+DOCA_CONFIG_FILENAME = "doca_hbn_2.4.2"
+HBN_UPSTREAM_CONFIG_URL = "file:///path/to/${DOCA_CONFIG_FILENAME}.zip"
 IPXE_BANNER_VERSION = { script = [
   "echo ${VERSION:-$(git describe --tags --first-parent --always --long)}",
 ] }
-DOCA_HBN_URI = "nvcr.io/nvidia/doca/doca_hbn:2.3.0-doca2.8.0"
+# The actual hbn container name NEVER cleanly matches the doca/hbn versions, so we paste it here.
+DOCA_HBN_URI = "nvcr.io/nvidia/doca/doca_hbn:2.4.2-doca2.9.2-32"
 DPU_AGENT_PKG_VERSION = { script = [
   "echo $(git describe --tags --first-parent --always --long | cut -c 2-)",
 ] }
 BUILD_LOCATION = "/tmp/bfb-dump/initramfs-tmp"
 
-# https://confluence.nvidia.com/display/SW/BF2+BMC+Firmware+release
-# BF2-24.10-9
-BF2_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic/BF2/BF2BMC-24.07-14/OPN/bf2-bmc-ota-24.07-14-opn.tar"
-BF2_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/CEC1712/04.0f/prod/cec_ota_BMGP-04.0f_prod.bin"
-
-# https://confluence.nvidia.com/display/SW/BF3+BMC+Firmware+release
-# BF3-24.10-9
-BF3_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic/BF3/BF3BMC-24.07-14/OPN/bf3-bmc-24.07-14_opn.fwpkg"
-BF3_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/Glacier/00.02.0182.0000/sign/n02/rel-prod/cec1736-ecfw-00.02.0182.0000-n02-rel-prod.fwpkg"
 # BF3-23.10-5
 BF3_PREINGESTION_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/BF3/BF3BMC-23.10-5/OPN/bf3-bmc-23.10-5_opn.fwpkg"
-
-BFB_FW_BUNDLE = "https://urm.nvidia.com/artifactory/sw-mlnx-bluefield-generic/doca_2.9.0/20241109/custom-images/bf-fwbundle-2.9.0-90_24.10-prod.bfb"
 
 [tasks.upload-bfb-artifacts-to-urm]
 env = { "BFB_LOCATION" = "${BFB_UPSTREAM_LOCATION}", "HBN_CONFIG_URL" = "${HBN_UPSTREAM_CONFIG_URL}" }
@@ -112,7 +103,6 @@ dependencies = [
   "bfb-aarch64",
   "ipxe-aarch64",
   "setup-apt-repo",
-  "setup-firmware-repo",
 ]
 
 [tasks.build-boot-artifacts-aarch64-ci]
@@ -122,7 +112,6 @@ dependencies = [
   "bfb-aarch64-ci",
   "ipxe-aarch64-ci",
   "setup-apt-repo",
-  "setup-firmware-repo",
 ]
 
 [tasks.create-ephemeral-image-x86_64-ci]
@@ -160,8 +149,6 @@ dependencies = [
   "copy-forge-scout-ci-aarch64",
   "copy-forge-prod-root-ca-aarch64",
   "mkosi-build-scout-aarch64",
-  #"mkosi-build-qcow-imager",
-  #"mkosi-copy-qcow-imager-to-webroot-aarch64",
   "mkosi-copy-scout-to-webroot-aarch64",
   "mkosi-clean-scout-aarch64",
 ]
@@ -592,7 +579,7 @@ category = "iPXE Kernel"
 description = "Download the BFB tools on aarch64 gitlab runner"
 command = "curl"
 args = [
-  "https://raw.githubusercontent.com/Mellanox/bfscripts/master/mlx-mkbfb",
+  "https://raw.githubusercontent.com/Mellanox/rshim-user-space/refs/heads/master/scripts/mlx-mkbfb",
   "--output",
   "mlx-mkbfb",
 ]
@@ -747,14 +734,14 @@ cwd = "${BUILD_LOCATION}/doca_container_configs"
 category = "iPXE Kernel"
 description = "Add the HBN configs to the bfb"
 command = "mv"
-args = ["temp/scripts/doca_hbn/${HBN_VERSION}/", "scripts"]
+args = ["temp/${DOCA_CONFIG_FILENAME}/scripts/${HBN_VERSION}/", "scripts"]
 cwd = "${BUILD_LOCATION}/doca_container_configs"
 
 [tasks.mv-hbn-scripts-to-bfb]
 category = "iPXE Kernel"
 description = "Add the HBN scripts to the bfb"
 command = "mv"
-args = ["temp/configs/${DOCA_VERSION}/", "configs"]
+args = ["temp/${DOCA_CONFIG_FILENAME}/configs/${HBN_VERSION}/", "configs"]
 cwd = "${BUILD_LOCATION}/doca_container_configs"
 
 [tasks.cleanup-hbn-scripts]
@@ -802,6 +789,7 @@ Label: Ubuntu
 Architecture: arm64" > Release
 '''
 
+
 [tasks.setup-firmware-repo]
 category = "iPXE Kernel"
 dependencies = ["mkdir-static-x86_64"]
@@ -809,16 +797,7 @@ description = "Download vendor specific firmware packages"
 script = [
   "echo Downloading nvidia firmware",
   "mkdir -p nvidia/dpu",
-  "curl -L \"${BF2_BMC_PACKAGE}\" --output nvidia/dpu/bf2-bmc.fwpkg",
-  "curl -L \"${BF2_CEC_PACKAGE}\" --output nvidia/dpu/bf2-cec.fwpkg",
-  "curl -L \"${BF3_BMC_PACKAGE}\" --output nvidia/dpu/bf3-bmc.fwpkg",
-  "curl -L \"${BF3_CEC_PACKAGE}\" --output nvidia/dpu/bf3-cec.fwpkg",
   "cd nvidia/dpu",
-  "wget -nv \"${BF2_BMC_PACKAGE}\"",
-  "wget -nv \"${BF2_CEC_PACKAGE}\"",
-  "wget -nv \"${BF3_BMC_PACKAGE}\"",
-  "wget -nv \"${BF3_CEC_PACKAGE}\"",
-  "wget -nv \"${BFB_FW_BUNDLE}\"",
   "wget -nv \"${BF3_PREINGESTION_BMC_PACKAGE}\"",
 ]
 cwd = "${REPO_ROOT}/pxe/static/blobs/internal/firmware"
