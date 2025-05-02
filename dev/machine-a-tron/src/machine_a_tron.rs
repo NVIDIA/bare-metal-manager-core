@@ -2,8 +2,8 @@ use crate::host_machine::HostMachineHandle;
 use crate::subnet::Subnet;
 use crate::vpc::Vpc;
 use crate::{
-    PersistedHostMachine, config::MachineATronContext, dhcp_relay::DhcpRelayClient,
-    host_machine::HostMachine, machine_utils::get_next_free_machine, tui::UiUpdate,
+    PersistedHostMachine, config::MachineATronContext, host_machine::HostMachine,
+    machine_utils::get_next_free_machine, tui::UiUpdate,
 };
 use futures::future::try_join_all;
 use std::collections::HashSet;
@@ -26,11 +26,7 @@ impl MachineATron {
         Self { app_context }
     }
 
-    pub async fn make_machines(
-        &self,
-        dhcp_client: &DhcpRelayClient,
-        paused: bool,
-    ) -> eyre::Result<Vec<HostMachineHandle>> {
+    pub async fn make_machines(&self, paused: bool) -> eyre::Result<Vec<HostMachineHandle>> {
         let mut persisted_machines = self
             .app_context
             .app_config
@@ -60,7 +56,6 @@ impl MachineATron {
                                 config_name.clone(),
                                 self.app_context.clone(),
                                 config.clone(),
-                                dhcp_client.clone(),
                             );
 
                             host_machine.start(paused)
@@ -74,7 +69,6 @@ impl MachineATron {
                                 self.app_context.clone(),
                                 config_name.clone(),
                                 config.clone(),
-                                dhcp_client.clone(),
                             );
 
                             host_machine.start(paused)

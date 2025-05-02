@@ -1,31 +1,32 @@
+use mac_address::MacAddress;
+use rand::Rng;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-
-use mac_address::MacAddress;
-use rand::Rng;
-use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 use uuid::Uuid;
 
 use crate::api_client::{ClientApiError, DpuNetworkStatusArgs, MockDiscoveryData};
 use crate::bmc_mock_wrapper::{BmcMockRegistry, BmcMockWrapper};
 use crate::config::{MachineATronContext, MachineConfig};
-use crate::dhcp_relay::{DhcpRelayClient, DhcpResponseInfo};
+use crate::dhcp_wrapper::{DhcpRelayError, DhcpRequestInfo, DhcpResponseInfo, DpuDhcpRelay};
 use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
     PxeError, PxeResponse, forge_agent_control, get_fac_action, get_validation_id,
     send_pxe_boot_request,
 };
-use crate::{PersistedDpuMachine, PersistedHostMachine};
+use crate::{PersistedDpuMachine, PersistedHostMachine, dhcp_wrapper};
 use bmc_mock::{
     BmcCommand, BmcMockError, BmcMockHandle, HostMachineInfo, MachineInfo, MockPowerState,
     POWER_CYCLE_DELAY, PowerStateQuerying, SetSystemPowerError, SetSystemPowerReq,
     SetSystemPowerResult, SystemPowerControl,
 };
-use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, MachineType};
+use rpc::forge::{
+    MachineArchitecture, MachineDiscoveryResult, MachineType, ManagedHostNetworkConfigResponse,
+};
 use rpc::forge_agent_control_response::Action;
 
 /// MachineStateMachine (yo dawg) models the state machine of a machine endpoint
@@ -44,7 +45,7 @@ pub struct MachineStateMachine {
     bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
     config: Arc<MachineConfig>,
     app_context: Arc<MachineATronContext>,
-    dhcp_client: DhcpRelayClient,
+    dpu_dhcp_relay: Option<DpuDhcpRelay>,
 }
 
 #[derive(Debug, Clone)]
@@ -120,6 +121,7 @@ enum MachineState {
 enum NextState {
     Advance(MachineState),
     SleepFor(Duration),
+    AdvanceAndSleepFor(MachineState, Duration),
 }
 
 pub enum PersistedMachine {
@@ -132,8 +134,8 @@ impl MachineStateMachine {
         persisted_machine: PersistedMachine,
         config: Arc<MachineConfig>,
         app_context: Arc<MachineATronContext>,
-        dhcp_client: DhcpRelayClient,
         bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
+        dpu_dhcp_relay: Option<DpuDhcpRelay>,
     ) -> MachineStateMachine {
         let (initial_os_image, tpm_ek_certificate, bmc_dhcp_id, machine_dhcp_id, machine_info) =
             match persisted_machine {
@@ -172,7 +174,7 @@ impl MachineStateMachine {
             machine_dhcp_id,
             config,
             app_context,
-            dhcp_client,
+            dpu_dhcp_relay,
         }
     }
 
@@ -180,9 +182,9 @@ impl MachineStateMachine {
         machine_info: MachineInfo,
         config: Arc<MachineConfig>,
         app_context: Arc<MachineATronContext>,
-        dhcp_client: DhcpRelayClient,
         bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
         tpm_ek_certificate: Option<Vec<u8>>,
+        dpu_dhcp_relay: Option<DpuDhcpRelay>,
     ) -> MachineStateMachine {
         MachineStateMachine {
             live_state: Arc::new(RwLock::new(LiveState {
@@ -201,11 +203,11 @@ impl MachineStateMachine {
             machine_dhcp_id: Uuid::new_v4(),
             config,
             app_context,
-            dhcp_client,
+            dpu_dhcp_relay,
         }
     }
 
-    pub async fn advance(&mut self, nic_available: bool) -> Duration {
+    pub async fn advance(&mut self) -> Duration {
         if let MockPowerState::PowerCycling { since } = self.live_state.read().unwrap().power_state
         {
             let elapsed = since.elapsed();
@@ -217,13 +219,17 @@ impl MachineStateMachine {
             }
         }
 
-        let next_state = self.next_state(nic_available).await;
+        let next_state = self.next_state().await;
         let duration = match next_state {
             Ok(NextState::Advance(next_state)) => {
                 self.state = next_state;
                 self.config.run_interval_working
             }
             Ok(NextState::SleepFor(duration)) => duration,
+            Ok(NextState::AdvanceAndSleepFor(next_state, duration)) => {
+                self.state = next_state;
+                duration
+            }
             Err(e) => {
                 // TODO:
                 // For now, any unhandled errors will just retry in the same state after sleeping
@@ -262,32 +268,24 @@ impl MachineStateMachine {
         duration
     }
 
-    async fn next_state(&self, nic_available: bool) -> Result<NextState, MachineStateError> {
+    async fn next_state(&self) -> Result<NextState, MachineStateError> {
         match &self.state {
             MachineState::BmcInit => {
                 tracing::trace!(
                     "Sending BMC DHCP Request for {}",
                     self.machine_info.bmc_mac_address(),
                 );
-                let (response_tx, response_rx) = tokio::sync::oneshot::channel();
-                let start = Instant::now();
-                self.dhcp_client
-                    .request_ip(
-                        self.bmc_dhcp_id,
-                        &self.machine_info.bmc_mac_address(),
-                        &self.config.oob_dhcp_relay_address,
-                        match self.machine_info {
-                            MachineInfo::Host(_) => "iDRAC",
-                            MachineInfo::Dpu(_) => "NVIDIA/BF/BMC",
-                        },
-                        self.config.template_dir.clone(),
-                        response_tx,
-                    )
-                    .await;
 
-                let Ok(Some(dhcp_info)) = response_rx.await else {
-                    return Err(MachineStateError::DhcpError);
-                };
+                let start = Instant::now();
+                let dhcp_info = dhcp_wrapper::request_ip(
+                    self.app_context.api_client(),
+                    DhcpRequestInfo {
+                        mac_address: self.machine_info.bmc_mac_address(),
+                        relay_address: self.config.oob_dhcp_relay_address,
+                        template_dir: self.config.template_dir.clone(),
+                    },
+                )
+                .await?;
 
                 tracing::trace!(
                     "BMC DHCP Request for {} took {}ms",
@@ -356,31 +354,38 @@ impl MachineStateMachine {
                 }
             }
             MachineState::Init(inner_state) => {
-                if !nic_available {
-                    tracing::trace!("Machine NIC not available yet, not initializing");
-                    return Ok(NextState::SleepFor(Duration::from_secs(5)));
-                }
                 let Some(primary_mac) = self.machine_info.dhcp_mac_addresses().first().cloned()
                 else {
                     return Err(MachineStateError::NoMachineMacAddress);
                 };
                 tracing::debug!("Sending Admin DHCP Request for {}", primary_mac);
-                let (response_tx, response_rx) = tokio::sync::oneshot::channel();
-                let start = Instant::now();
-                self.dhcp_client
-                    .request_ip(
-                        self.machine_dhcp_id,
-                        &primary_mac,
-                        &self.config.admin_dhcp_relay_address,
-                        "PXEClient:Arch:00007:UNDI:003000",
-                        self.config.template_dir.clone(),
-                        response_tx,
-                    )
-                    .await;
-                let Ok(Some(machine_dhcp_info)) = response_rx.await else {
-                    return Err(MachineStateError::DhcpError);
-                };
 
+                let start = Instant::now();
+
+                let machine_dhcp_info =
+                    if let Some(DpuDhcpRelay::HostEnd(relay_tx)) = &self.dpu_dhcp_relay {
+                        let (reply_tx, reply_rx) = oneshot::channel();
+                        relay_tx.send(reply_tx).map_err(|_| {
+                            DhcpRelayError::DpuRelayError(
+                                "Error sending request, channel closed".to_string(),
+                            )
+                        })?;
+                        reply_rx.await.map_err(|_| {
+                            DhcpRelayError::DpuRelayError(
+                                "Error reading reply, channel closed".to_string(),
+                            )
+                        })??
+                    } else {
+                        dhcp_wrapper::request_ip(
+                            self.app_context.api_client(),
+                            DhcpRequestInfo {
+                                mac_address: primary_mac,
+                                relay_address: self.config.admin_dhcp_relay_address,
+                                template_dir: self.config.template_dir.clone(),
+                            },
+                        )
+                        .await?
+                    };
                 tracing::debug!(
                     "Admin DHCP Request for {} took {}ms",
                     primary_mac,
@@ -492,10 +497,31 @@ impl MachineStateMachine {
                 );
             }
         }
-        // DPUs send network status periodically
-        self.send_network_status_observation(machine_id.to_owned())
+
+        let network_config = self
+            .app_context
+            .forge_api_client
+            .get_managed_host_network_config(machine_id.clone())
             .await?;
-        Ok(NextState::SleepFor(self.config.network_status_run_interval))
+
+        // DPUs send network status periodically
+        self.send_network_status_observation(machine_id.to_owned(), &network_config)
+            .await?;
+
+        // Launch a DHCP server for the HostMachine to call, if it's not already running.
+        if let (Some(DpuDhcpRelay::DpuEnd(dhcp_relay)), true) = (
+            self.dpu_dhcp_relay.clone(),
+            machine_up_state.dpu_dhcp_relay_handle.is_none(),
+        ) {
+            // The relay will stop when this is dropped (ie. when we move out of `MachineUp`)
+            let relay_handle = dhcp_relay.spawn(network_config.clone());
+            Ok(NextState::AdvanceAndSleepFor(
+                MachineState::MachineUp(machine_up_state.with_dpu_dhcp_relay_handle(relay_handle)),
+                self.config.network_status_run_interval,
+            ))
+        } else {
+            Ok(NextState::SleepFor(self.config.network_status_run_interval))
+        }
     }
 
     /// Pretend we're the Scout image (which hosts can PXE boot too but don't install), which performs discovery and periodically runs actions via ForgeAgentControl.
@@ -638,13 +664,8 @@ impl MachineStateMachine {
     async fn send_network_status_observation(
         &self,
         machine_id: rpc::MachineId,
+        network_config: &ManagedHostNetworkConfigResponse,
     ) -> Result<(), MachineStateError> {
-        let network_config = self
-            .app_context
-            .forge_api_client
-            .get_managed_host_network_config(machine_id.clone())
-            .await?;
-
         let mut instance_network_config_version: Option<String> = None;
         let instance_config_version: Option<String> = None;
         let mut interfaces = vec![];
@@ -690,7 +711,7 @@ impl MachineStateMachine {
             .api_client()
             .record_dpu_network_status(DpuNetworkStatusArgs {
                 dpu_machine_id: machine_id.clone(),
-                network_config_version: network_config.managed_host_config_version,
+                network_config_version: network_config.managed_host_config_version.clone(),
                 instance_network_config_version,
                 instance_config_version,
                 instance_id: network_config.instance_id.clone(),
@@ -949,17 +970,32 @@ impl DhcpCompleteState {
             machine_discovery_result: None,
             booted_os: os,
             installed_os: self.installed_os,
+            dpu_dhcp_relay_handle: None,
         })
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct MachineUpState {
     machine_dhcp_info: DhcpResponseInfo,
     bmc_state: BmcInitializedState,
     machine_discovery_result: Option<MachineDiscoveryResult>,
     booted_os: OsImage,
     installed_os: OsImage,
+    dpu_dhcp_relay_handle: Option<oneshot::Sender<()>>,
+}
+
+impl MachineUpState {
+    fn with_dpu_dhcp_relay_handle(&self, handle: oneshot::Sender<()>) -> Self {
+        Self {
+            machine_dhcp_info: self.machine_dhcp_info.clone(),
+            bmc_state: self.bmc_state.clone(),
+            machine_discovery_result: self.machine_discovery_result.clone(),
+            booted_os: self.booted_os,
+            installed_os: self.installed_os,
+            dpu_dhcp_relay_handle: Some(handle),
+        }
+    }
 }
 
 impl MachineUpState {
@@ -974,6 +1010,7 @@ impl MachineUpState {
             booted_os: self.booted_os,
             installed_os,
             machine_discovery_result: Some(machine_discovery_result),
+            dpu_dhcp_relay_handle: None,
         })
     }
 }
@@ -1051,8 +1088,8 @@ pub enum MachineStateError {
     MissingCertificates(String),
     #[error("Error calling forge API: {0}")]
     ClientApi(#[from] ClientApiError),
-    #[error("Failed to get DHCP address")]
-    DhcpError,
+    #[error("Failed to get DHCP address: {0:?}")]
+    DhcpError(#[from] DhcpRelayError),
     #[error("Failed to get PXE response: {0}")]
     PxeError(#[from] PxeError),
     #[error("Failed to run BMC mock: {0}")]

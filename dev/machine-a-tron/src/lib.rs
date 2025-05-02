@@ -2,7 +2,7 @@ pub mod api_client;
 pub mod api_throttler;
 mod bmc_mock_wrapper;
 mod config;
-mod dhcp_relay;
+mod dhcp_wrapper;
 mod dpu_machine;
 mod host_machine;
 mod machine_a_tron;
@@ -19,7 +19,6 @@ pub use config::{
     MachineATronArgs, MachineATronConfig, MachineATronContext, MachineConfig, PersistedDpuMachine,
     PersistedHostMachine,
 };
-pub use dhcp_relay::DhcpRelayService;
 pub use dpu_machine::DpuMachineHandle;
 pub use host_machine::HostMachineHandle;
 pub use machine_a_tron::{AppEvent, MachineATron};

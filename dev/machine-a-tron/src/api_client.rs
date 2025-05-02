@@ -38,7 +38,7 @@ static SUBNET_COUNTER: AtomicU32 = AtomicU32::new(0);
 static VPC_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Debug, Clone)]
-pub struct ApiClient(ForgeApiClient);
+pub struct ApiClient(pub ForgeApiClient);
 
 impl From<ForgeApiClient> for ApiClient {
     fn from(value: ForgeApiClient) -> Self {

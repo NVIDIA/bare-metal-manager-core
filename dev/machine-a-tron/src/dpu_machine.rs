@@ -9,13 +9,11 @@ use tracing::instrument;
 use uuid::Uuid;
 
 use crate::config::PersistedDpuMachine;
+use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay, DpuDhcpRelayServer};
 use crate::host_machine::HandleMessageResult;
 use crate::machine_state_machine::{LiveState, MachineStateMachine, OsImage, PersistedMachine};
 use crate::tui::HostDetails;
-use crate::{
-    MachineConfig, config::MachineATronContext, dhcp_relay::DhcpRelayClient,
-    saturating_add_duration_to_instant,
-};
+use crate::{MachineConfig, config::MachineATronContext, saturating_add_duration_to_instant};
 use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult};
 use rpc::MachineId;
 use rpc::forge::IdentifySerialRequest;
@@ -47,7 +45,9 @@ impl DpuMachine {
         mat_host: Uuid,
         app_context: Arc<MachineATronContext>,
         config: Arc<MachineConfig>,
-        dhcp_client: DhcpRelayClient,
+        host_dhcp_request_rx: Option<
+            mpsc::UnboundedReceiver<oneshot::Sender<DhcpRelayResult<DhcpResponseInfo>>>,
+        >,
     ) -> Self {
         let mat_id = persisted_dpu_machine.mat_id;
         let dpu_index = persisted_dpu_machine.dpu_index;
@@ -65,8 +65,8 @@ impl DpuMachine {
             PersistedMachine::Dpu(persisted_dpu_machine),
             config,
             app_context.clone(),
-            dhcp_client,
             bmc_control_tx.clone(),
+            host_dhcp_request_rx.map(|rx| DpuDhcpRelay::DpuEnd(DpuDhcpRelayServer::new(rx))),
         );
         DpuMachine {
             mat_id,
@@ -93,7 +93,9 @@ impl DpuMachine {
         dpu_index: u8,
         app_context: Arc<MachineATronContext>,
         config: Arc<MachineConfig>,
-        dhcp_client: DhcpRelayClient,
+        host_dhcp_request_rx: Option<
+            mpsc::UnboundedReceiver<oneshot::Sender<DhcpRelayResult<DhcpResponseInfo>>>,
+        >,
     ) -> Self {
         let mat_id = Uuid::new_v4();
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
@@ -111,9 +113,9 @@ impl DpuMachine {
             MachineInfo::Dpu(dpu_info.clone()),
             config,
             app_context.clone(),
-            dhcp_client,
             bmc_control_tx.clone(),
             None,
+            host_dhcp_request_rx.map(|rx| DpuDhcpRelay::DpuEnd(DpuDhcpRelayServer::new(rx))),
         );
         DpuMachine {
             mat_id,
@@ -273,7 +275,7 @@ impl DpuMachine {
         }
 
         tracing::trace!("state_machine.advance start");
-        let result = self.state_machine.advance(true).await;
+        let result = self.state_machine.advance().await;
         tracing::trace!("state_machine.advance end");
 
         if self
