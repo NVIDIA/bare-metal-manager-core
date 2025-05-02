@@ -16,7 +16,7 @@ use tracing::Instrument;
 
 use crate::{
     CarbideError, CarbideResult,
-    cfg::file::{IbFabricDefinition, IbFabricMonitorConfig},
+    cfg::file::IbFabricDefinition,
     ib::{IBFabricManager, IBFabricManagerType},
 };
 
@@ -27,7 +27,6 @@ use self::metrics::FabricMetrics;
 
 /// `IbFabricMonitor` monitors the health of all connected InfiniBand fabrics in periodic intervals
 pub struct IbFabricMonitor {
-    config: IbFabricMonitorConfig,
     fabrics: HashMap<String, IbFabricDefinition>,
     metric_holder: Arc<metrics::MetricHolder>,
     /// API for interaction with Forge IBFabricManager
@@ -37,7 +36,6 @@ pub struct IbFabricMonitor {
 impl IbFabricMonitor {
     /// Create a IbFabricMonitor
     pub fn new(
-        config: IbFabricMonitorConfig,
         fabrics: HashMap<String, IbFabricDefinition>,
         meter: opentelemetry::metrics::Meter,
         fabric_manager: Arc<dyn IBFabricManager>,
@@ -45,14 +43,14 @@ impl IbFabricMonitor {
         // We want to hold metrics for longer than the iteration interval, so there is continuity
         // in emitting metrics. However we want to avoid reporting outdated metrics in case
         // reporting gets stuck. Therefore round up the iteration interval by 1min.
-        let hold_period = config
-            .run_interval
+        let hold_period = fabric_manager
+            .get_config()
+            .fabric_manager_run_interval
             .saturating_add(std::time::Duration::from_secs(60));
 
         let metric_holder = Arc::new(metrics::MetricHolder::new(meter, hold_period));
 
         IbFabricMonitor {
-            config,
             fabrics,
             metric_holder,
             fabric_manager,
@@ -63,7 +61,7 @@ impl IbFabricMonitor {
     pub fn start(self) -> eyre::Result<oneshot::Sender<i32>> {
         let (stop_sender, stop_receiver) = oneshot::channel();
 
-        if self.config.enabled {
+        if self.fabric_manager.get_config().manager_type != IBFabricManagerType::Disable {
             tokio::task::Builder::new()
                 .name("ib_fabric_monitor")
                 .spawn(async move { self.run(stop_receiver).await })?;
@@ -73,13 +71,15 @@ impl IbFabricMonitor {
     }
 
     async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+        let run_interval = self.fabric_manager.get_config().fabric_manager_run_interval;
+
         loop {
             if let Err(e) = self.run_single_iteration().await {
                 tracing::warn!("IbFabricMonitor error: {}", e);
             }
 
             tokio::select! {
-                _ = tokio::time::sleep(self.config.run_interval) => {},
+                _ = tokio::time::sleep(run_interval) => {},
                 _ = &mut stop_receiver => {
                     tracing::info!("IbFabricMonitor stop was requested");
                     return;

@@ -42,9 +42,9 @@ use crate::{
     cfg::file::{
         CarbideConfig, DpuConfig as InitialDpuConfig, Firmware, FirmwareComponent,
         FirmwareComponentType, FirmwareEntry, FirmwareGlobal, HostHealthConfig, IBFabricConfig,
-        IbFabricDefinition, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
-        MachineStateControllerConfig, MeasuredBootMetricsCollectorConfig, MultiDpuConfig,
-        NetworkSegmentStateControllerConfig, StateControllerConfig, default_max_find_by_ids,
+        IbFabricDefinition, IbPartitionStateControllerConfig, MachineStateControllerConfig,
+        MeasuredBootMetricsCollectorConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
+        StateControllerConfig, default_max_find_by_ids,
     },
     db::{
         instance_type::create as create_instance_type,
@@ -853,10 +853,6 @@ pub fn get_config() -> CarbideConfig {
         ib_partition_state_controller: IbPartitionStateControllerConfig {
             controller: StateControllerConfig::default(),
         },
-        ib_fabric_monitor: IbFabricMonitorConfig {
-            enabled: true,
-            run_interval: std::time::Duration::from_secs(10),
-        },
         dpu_config: InitialDpuConfig {
             dpu_nic_firmware_initial_update_enabled: true,
             dpu_nic_firmware_reprovision_update_enabled: true,
@@ -969,6 +965,7 @@ pub async fn create_test_env_with_overrides(
             } else {
                 IBFabricManagerType::Disable
             },
+            fabric_manager_run_interval: std::time::Duration::from_secs(10),
             max_partition_per_tenant: IBFabricConfig::default_max_partition_per_tenant(),
             mtu: ib_config.mtu,
             rate_limit: ib_config.rate_limit,

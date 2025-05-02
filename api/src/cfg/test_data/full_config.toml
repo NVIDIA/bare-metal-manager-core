@@ -71,9 +71,8 @@ reserve_first = 5
 endpoints = ["https://1.2.3.4"]
 pkeys = [{ start = "1", end = "10" }]
 
-[ib_fabric_monitor]
-enabled = false
-run_interval = "101s"
+[ib_config]
+fabric_monitor_run_interval = "101s"
 
 [site_explorer]
 enabled = true

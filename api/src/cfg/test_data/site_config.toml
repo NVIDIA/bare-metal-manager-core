@@ -25,9 +25,9 @@ ranges = [{ start = "4268000000", end = "4268999999" }]
 type = "ipv4"
 prefix = "10.180.63.0/26"
 
-[ib_fabric_monitor]
-enabled = true
-run_interval = "102s"
+[ib_config]
+enabled = false
+fabric_monitor_run_interval = "102s"
 
 [site_explorer]
 enabled = false
