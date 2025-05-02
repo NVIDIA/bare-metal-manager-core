@@ -15,6 +15,7 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
+use crate::db::vpc_peering::VpcPeering;
 use crate::db::{
     DatabaseError, ObjectColumnFilter,
     instance::Instance,
@@ -266,6 +267,11 @@ pub(crate) async fn delete(
             .await
             .map_err(CarbideError::from)?;
     }
+
+    // Delete associated VPC peerings
+    VpcPeering::delete_by_vpc_id(&mut txn, vpc_id)
+        .await
+        .map_err(CarbideError::from)?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(file!(), line!(), "commit delete_vpc", e))
