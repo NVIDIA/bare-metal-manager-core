@@ -196,6 +196,20 @@ impl ExploredEndpoint {
         }
         None
     }
+
+    pub fn is_bluefield_model(&self) -> bool {
+        self.report.chassis.iter().any(|chassis| {
+            chassis
+                .part_number
+                .as_ref()
+                .is_some_and(|p| is_bluefield_model(p.trim()))
+                || chassis.network_adapters.iter().any(|n| {
+                    n.part_number
+                        .as_ref()
+                        .is_some_and(|p| is_bluefield_model(p.trim()))
+                })
+        })
+    }
 }
 
 impl EndpointExplorationReport {

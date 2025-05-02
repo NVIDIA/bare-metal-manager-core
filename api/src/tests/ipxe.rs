@@ -1,21 +1,21 @@
-use std::collections::HashMap;
-
+use crate::tests::common;
+use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
+use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
+use crate::tests::common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
 use crate::{
     db::{self},
     model::machine::{DpuInitState, MachineState, ManagedHostState},
 };
 use common::api_fixtures::create_test_env;
-use forge_uuid::machine::{MachineId, MachineInterfaceId};
-use mac_address::MacAddress;
-use rpc::forge::{CloudInitInstructionsRequest, DhcpDiscovery, forge_server::Forge};
-
-use crate::tests::common;
-
-use crate::tests::common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
 use common::api_fixtures::{
     TestEnv,
     instance::{create_instance, single_interface_network_config},
 };
+use forge_uuid::machine::{MachineId, MachineInterfaceId};
+use futures_util::FutureExt;
+use mac_address::MacAddress;
+use rpc::forge::{CloudInitInstructionsRequest, DhcpDiscovery, forge_server::Forge};
+use std::collections::HashMap;
 
 async fn move_machine_to_needed_state(
     machine_id: MachineId,
@@ -129,9 +129,52 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
 }
 
 #[crate::sqlx_test]
-async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
+async fn test_dpu_pxe_gets_correct_os_when_machine_is_not_created(
+    pool: sqlx::PgPool,
+) -> eyre::Result<()> {
+    // This test ensures that when a DPU PXE boots after site-explorer ingestion, but before the
+    // managed host is fully configured, we don't confuse it for an ARM host, and we give it
+    // carbide.efi (the DPU OS) and *not* scout.efi.
     let env = create_test_env(pool).await;
+    let mock_explored_host = MockExploredHost::new(&env, ManagedHostConfig::default());
+    let dpu_oob_mac = mock_explored_host.managed_host.dpus[0].oob_mac_address;
 
+    // Ingest the DPU BMC into site explorer
+    mock_explored_host
+        .discover_dhcp_dpu_bmc(0, |_, _| Ok(()))
+        .boxed()
+        .await?
+        .insert_site_exploration_results()
+        .boxed()
+        .await?
+        .run_site_explorer_iteration()
+        .boxed()
+        .await;
+
+    // Discover DHCP from the DPU's OOB
+    let dpu_interface_id: MachineInterfaceId =
+        common::api_fixtures::dpu::dpu_discover_dhcp(&env, &dpu_oob_mac.to_string())
+            .await
+            .try_into()?;
+
+    let instructions =
+        get_pxe_instructions(&env, dpu_interface_id, rpc::forge::MachineArchitecture::Arm).await;
+
+    assert!(
+        !instructions.pxe_script.contains("exit"),
+        "should PXE boot, got an exit instruction"
+    );
+    assert!(
+        instructions.pxe_script.contains("aarch64/carbide.efi"),
+        "should PXE boot to carbide.efi for DPU agent OS"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_pxe_when_machine_is_not_ingested(pool: sqlx::PgPool) -> eyre::Result<()> {
+    let env = create_test_env(pool).await;
     let dpu_interface_id: MachineInterfaceId = common::api_fixtures::dpu::dpu_discover_dhcp(
         &env,
         &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string(),
@@ -143,14 +186,27 @@ async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
     let instructions =
         get_pxe_instructions(&env, dpu_interface_id, rpc::forge::MachineArchitecture::Arm).await;
 
-    assert_ne!(instructions.pxe_script, "exit".to_string());
-    assert!(instructions.pxe_script.contains("aarch64"));
+    assert!(
+        instructions.pxe_script.contains("exit"),
+        "should exit, since we don't know about this machine"
+    );
+    assert!(
+        !instructions.pxe_script.contains("aarch64"),
+        "should not PXE boot, since we don't know about this machine"
+    );
 
-    // API doesn't know about MachineArchitecture yet. Let's check instructions for X86.
     let instructions =
         get_pxe_instructions(&env, dpu_interface_id, rpc::forge::MachineArchitecture::X86).await;
-    assert_ne!(instructions.pxe_script, "exit".to_string());
-    assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
+    assert!(
+        instructions.pxe_script.contains("exit"),
+        "should exit, since we don't know about this machine"
+    );
+    assert!(
+        !instructions.pxe_script.contains("x86_64/scout.efi"),
+        "should not PXE boot, since we don't know about this machine"
+    );
+
+    Ok(())
 }
 
 #[crate::sqlx_test]

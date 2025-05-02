@@ -438,7 +438,10 @@ WHERE address = $3 AND version=$4";
             ) @> to_jsonb(ARRAY[$1]);
         "#;
         sqlx::query_as::<_, Self>(query)
-            .bind(mac)
+            // NOTE: Don't just pass mac here, do our own string conversion. Postgres's string
+            // conversion will omit zero-padding of the hex values (:1 instead of :01) and the
+            // jsonb comparison breaks.
+            .bind(mac.to_string())
             .fetch_all(txn)
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
