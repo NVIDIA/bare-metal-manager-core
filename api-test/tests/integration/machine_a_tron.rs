@@ -13,8 +13,8 @@ use bmc_mock::TarGzOption;
 use forge_tls::client_config::get_forge_root_ca_path;
 use futures::future::try_join_all;
 use machine_a_tron::{
-    BmcMockRegistry, BmcRegistrationMode, DhcpRelayService, HostMachineHandle, MachineATron,
-    MachineATronConfig, MachineATronContext, api_throttler,
+    BmcMockRegistry, BmcRegistrationMode, HostMachineHandle, MachineATron, MachineATronConfig,
+    MachineATronContext, api_throttler,
 };
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::protos::forge_api_client::ForgeApiClient;
@@ -75,17 +75,8 @@ pub async fn run_local(
         forge_api_client,
     });
 
-    // Start DHCP relay
-    let (dhcp_client, mut dhcp_service) = DhcpRelayService::new(app_context.clone());
-    let dhcp_handle = tokio::spawn(async move {
-        _ = dhcp_service.run().await.inspect_err(|e| {
-            eprintln!("Error running DHCP service: {}", e);
-            tracing::error!("Error running DHCP service: {}", e);
-        });
-    });
-
     let mat = MachineATron::new(app_context.clone());
-    let machine_handles = mat.make_machines(&dhcp_client, false).await?;
+    let machine_handles = mat.make_machines(false).await?;
 
     let (stop_tx, stop_rx) = oneshot::channel();
     let machine_handles_clone = machine_handles.clone();
@@ -99,7 +90,6 @@ pub async fn run_local(
         )
         .await?;
 
-        dhcp_handle.abort();
         Ok(())
     });
 

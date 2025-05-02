@@ -10,12 +10,12 @@ use uuid::Uuid;
 
 use crate::api_client::ApiClient;
 use crate::config::PersistedHostMachine;
+use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay};
 use crate::dpu_machine::DpuMachineHandle;
 use crate::machine_state_machine::{LiveState, MachineStateMachine, PersistedMachine};
 use crate::machine_utils::create_random_self_signed_cert;
 use crate::{
     config::{MachineATronContext, MachineConfig},
-    dhcp_relay::DhcpRelayClient,
     dpu_machine::DpuMachine,
     saturating_add_duration_to_instant,
     tui::{HostDetails, UiUpdate},
@@ -39,7 +39,6 @@ pub struct HostMachine {
 
     dpus: Vec<DpuMachineHandle>,
 
-    dpus_previously_ready: bool,
     bmc_control_rx: mpsc::UnboundedReceiver<BmcCommand>,
     // This will be populated with callers waiting for the host to be MachineUp/Ready
     state_waiters: HashMap<String, Vec<oneshot::Sender<()>>>,
@@ -54,9 +53,14 @@ impl HostMachine {
         machine_config_section: String,
         app_context: Arc<MachineATronContext>,
         config: Arc<MachineConfig>,
-        dhcp_client: DhcpRelayClient,
     ) -> Self {
         let mat_id = persisted_host_machine.mat_id;
+        let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
+        let (dpu_dhcp_tx, dpu_dhcp_rx) =
+            mpsc::unbounded_channel::<oneshot::Sender<DhcpRelayResult<DhcpResponseInfo>>>();
+        let mut dpu_dhcp_rx = Some(dpu_dhcp_rx);
+        let dpus_in_nic_mode = config.dpus_in_nic_mode;
+
         let dpu_machines = persisted_host_machine
             .dpus
             .iter()
@@ -66,7 +70,11 @@ impl HostMachine {
                     persisted_host_machine.mat_id,
                     app_context.clone(),
                     config.clone(),
-                    dhcp_client.clone(),
+                    if dpus_in_nic_mode {
+                        None
+                    } else {
+                        dpu_dhcp_rx.take()
+                    },
                 )
             })
             .collect::<Vec<_>>();
@@ -81,15 +89,21 @@ impl HostMachine {
                 .collect(),
             non_dpu_mac_address: persisted_host_machine.non_dpu_mac_address,
         };
-        let dpus = dpu_machines.into_iter().map(|d| d.start(true)).collect();
-        let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
+        let dpus = dpu_machines
+            .into_iter()
+            .map(|d| d.start(true))
+            .collect::<Vec<_>>();
 
         let state_machine = MachineStateMachine::from_persisted(
             PersistedMachine::Host(persisted_host_machine),
             config,
             app_context.clone(),
-            dhcp_client.clone(),
             bmc_control_tx.clone(),
+            if !dpus.is_empty() && !dpus_in_nic_mode {
+                Some(DpuDhcpRelay::HostEnd(dpu_dhcp_tx))
+            } else {
+                None
+            },
         );
 
         HostMachine {
@@ -101,7 +115,6 @@ impl HostMachine {
             dpus,
             api_state: "Unknown".to_owned(),
 
-            dpus_previously_ready: false,
             bmc_control_rx,
             state_waiters: HashMap::new(),
             tui_event_tx: None,
@@ -113,13 +126,18 @@ impl HostMachine {
             app_context,
         }
     }
+
     pub fn new(
         app_context: Arc<MachineATronContext>,
         machine_config_section: String,
         config: Arc<MachineConfig>,
-        dhcp_client: DhcpRelayClient,
     ) -> Self {
         let mat_id = Uuid::new_v4();
+        let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
+        let (dpu_dhcp_tx, dpu_dhcp_rx) =
+            mpsc::unbounded_channel::<oneshot::Sender<DhcpRelayResult<DhcpResponseInfo>>>();
+        let mut dpu_dhcp_rx = Some(dpu_dhcp_rx);
+        let dpus_in_nic_mode = config.dpus_in_nic_mode;
 
         let dpu_machines = (1..=config.dpu_per_host_count as u8)
             .map(|index| {
@@ -128,22 +146,32 @@ impl HostMachine {
                     index,
                     app_context.clone(),
                     config.clone(),
-                    dhcp_client.clone(),
+                    if dpus_in_nic_mode {
+                        None
+                    } else {
+                        dpu_dhcp_rx.take()
+                    },
                 )
             })
             .collect::<Vec<_>>();
         let host_info =
             HostMachineInfo::new(dpu_machines.iter().map(|d| d.dpu_info().clone()).collect());
-        let dpus = dpu_machines.into_iter().map(|d| d.start(true)).collect();
-        let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
+        let dpus = dpu_machines
+            .into_iter()
+            .map(|d| d.start(true))
+            .collect::<Vec<_>>();
 
         let state_machine = MachineStateMachine::new(
             MachineInfo::Host(host_info.clone()),
             config,
             app_context.clone(),
-            dhcp_client.clone(),
             bmc_control_tx.clone(),
             Some(create_random_self_signed_cert()),
+            if !dpus.is_empty() && !dpus_in_nic_mode {
+                Some(DpuDhcpRelay::HostEnd(dpu_dhcp_tx))
+            } else {
+                None
+            },
         );
 
         HostMachine {
@@ -155,7 +183,6 @@ impl HostMachine {
             dpus,
             api_state: "Unknown".to_owned(),
 
-            dpus_previously_ready: false,
             bmc_control_rx,
             state_waiters: HashMap::new(),
             tui_event_tx: None,
@@ -279,14 +306,7 @@ impl HostMachine {
             return Duration::MAX;
         }
 
-        // give the API time to update the host after the dpus did something
-        let dpus_ready = self.dpus.iter().all(DpuMachineHandle::is_ready);
-        if !self.dpus_previously_ready && dpus_ready {
-            self.dpus_previously_ready = true;
-            return Duration::from_secs(5);
-        }
-
-        let sleep_duration = self.state_machine.advance(dpus_ready).await;
+        let sleep_duration = self.state_machine.advance().await;
         tracing::trace!("state_machine.advance end");
 
         if self

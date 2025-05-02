@@ -7,8 +7,7 @@ use forge_tls::client_config::{
 };
 use machine_a_tron::{AppEvent, BmcMockRegistry, BmcRegistrationMode, MachineATron};
 use machine_a_tron::{
-    DhcpRelayService, MachineATronArgs, MachineATronConfig, MachineATronContext, Tui, TuiHostLogs,
-    api_throttler,
+    MachineATronArgs, MachineATronConfig, MachineATronContext, Tui, TuiHostLogs, api_throttler,
 };
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::protos::forge_api_client::ForgeApiClient;
@@ -54,7 +53,7 @@ fn init_log(
     Ok(())
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 32)]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = MachineATronArgs::parse();
 
@@ -137,16 +136,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         forge_api_client,
     });
 
-    let (dhcp_client, mut dhcp_service) = DhcpRelayService::new(app_context.clone());
-    let dhcp_handle = tokio::spawn({
-        async move {
-            _ = dhcp_service
-                .run()
-                .await
-                .inspect_err(|e| tracing::error!("Error running DHCP service: {}", e));
-        }
-    });
-
     let info = app_context.forge_api_client.version(false).await?;
     tracing::info!("version: {}", info.build_version);
 
@@ -176,7 +165,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    let machine_handles = mat.make_machines(&dhcp_client, true).await?;
+    let machine_handles = mat.make_machines(true).await?;
 
     // Persist them once in case of unclean shutdown
     app_context.app_config.write_persisted_machines(
@@ -235,8 +224,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .inspect_err(|e| tracing::warn!("Error running TUI: {e}"))
             .ok();
     }
-
-    dhcp_handle.abort();
 
     if let Some(mut bmc_mock_handle) = maybe_bmc_mock_handle {
         bmc_mock_handle.stop().await?;
