@@ -181,6 +181,23 @@ impl VpcPeering {
 
         Ok(peer_vpc_vnis)
     }
+
+    pub async fn delete_by_vpc_id(
+        txn: &mut PgConnection,
+        vpc_id: VpcId,
+    ) -> Result<(), DatabaseError> {
+        let query =
+            "DELETE FROM vpc_peerings vp WHERE vp.vpc1_id =$1 OR vp.vpc2_id = $1 RETURNING *";
+
+        let vpc_id: Uuid = vpc_id.into();
+        sqlx::query_as::<_, VpcPeering>(query)
+            .bind(vpc_id)
+            .fetch_all(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
 }
 
 impl<'r> FromRow<'r, PgRow> for VpcPeering {

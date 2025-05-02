@@ -15,10 +15,13 @@ use crate::{
     tests::common::api_fixtures::{create_managed_host, create_test_env},
 };
 use forge_uuid::{machine::MachineId, vpc::VpcId};
-use rpc::forge::{
-    ManagedHostNetworkConfigRequest, VpcPeeringCreationRequest, VpcPeeringDeletionRequest,
-    VpcPeeringList, VpcPeeringSearchFilter, VpcPeeringsByIdsRequest, VpcVirtualizationType,
-    forge_server::Forge,
+use rpc::{
+    Uuid,
+    forge::{
+        ManagedHostNetworkConfigRequest, VpcPeeringCreationRequest, VpcPeeringDeletionRequest,
+        VpcPeeringList, VpcPeeringSearchFilter, VpcPeeringsByIdsRequest, VpcVirtualizationType,
+        forge_server::Forge,
+    },
 };
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
@@ -176,6 +179,31 @@ async fn test_vpc_peering_full(pool: PgPool) -> Result<(), Box<dyn std::error::E
     let response_12 = env.api.create_vpc_peering(vpc_peering_request_12).await;
     assert!(response_12.is_ok());
 
+    let vpc_peering_request_13 = Request::new(VpcPeeringCreationRequest {
+        vpc_id: Some(vpc_id_1.into()),
+        peer_vpc_id: Some(vpc_id_3.into()),
+    });
+    let _ = env.api.create_vpc_peering(vpc_peering_request_13).await;
+
+    let vpc_peering_list = get_vpc_peerings(&env, vpc_id_1).await.unwrap().into_inner();
+    assert_eq!(vpc_peering_list.vpc_peerings.len(), 2);
+
+    let vpc_delete_response = env
+        .api
+        .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
+            id: Some(rpc::Uuid {
+                value: vpc_id_1.to_string(),
+            }),
+        }))
+        .await;
+    assert!(vpc_delete_response.is_ok());
+
+    let get_response = get_vpc_peerings(&env, vpc_id_1).await;
+    assert!(get_response.is_ok());
+
+    let vpc_peering_list = get_response.unwrap().into_inner();
+    assert_eq!(vpc_peering_list.vpc_peerings.len(), 0);
+
     Ok(())
 }
 
@@ -228,7 +256,7 @@ async fn create_vpc_peering(
     env: &TestEnv,
     vtype1: VpcVirtualizationType,
     vtype2: VpcVirtualizationType,
-) -> Result<(u32, u32, MachineId), Box<dyn std::error::Error>> {
+) -> Result<(Uuid, Uuid, u32, u32, MachineId), Box<dyn std::error::Error>> {
     let (vpc_id, vpc_vni, segment_id, peer_vpc_id, peer_vpc_vni, _peer_segment_id) = env
         .create_vpc_and_peer_vpc_with_tenant_segments(vtype1, vtype2)
         .await;
@@ -241,8 +269,8 @@ async fn create_vpc_peering(
 
     // Creating VPC peering between two VPCs
     let vpc_peering_request = Request::new(VpcPeeringCreationRequest {
-        vpc_id: Some(vpc_id),
-        peer_vpc_id: Some(peer_vpc_id),
+        vpc_id: Some(vpc_id.clone()),
+        peer_vpc_id: Some(peer_vpc_id.clone()),
     });
     let _ = env.api.create_vpc_peering(vpc_peering_request).await?;
 
@@ -265,7 +293,7 @@ async fn create_vpc_peering(
     )
     .await;
 
-    Ok((vpc_vni, peer_vpc_vni, dpu_machine_id))
+    Ok((vpc_id, peer_vpc_id, vpc_vni, peer_vpc_vni, dpu_machine_id))
 }
 
 #[crate::sqlx_test]
@@ -273,7 +301,7 @@ async fn test_vpc_peering_network_config(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = api_fixtures::create_test_env(pool).await;
-    let (_, peer_vpc_vni, dpu_machine_id) =
+    let (_, _, _, peer_vpc_vni, dpu_machine_id) =
         create_vpc_peering(&env, VpcVirtualizationType::Fnn, VpcVirtualizationType::Fnn).await?;
 
     let response = env
@@ -316,7 +344,7 @@ async fn test_vpc_peering_network_config_exclusive_etv(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = api_fixtures::create_test_env(pool).await;
 
-    let (_, _, dpu_machine_id) = create_vpc_peering(
+    let (_, _, _, _, dpu_machine_id) = create_vpc_peering(
         &env,
         VpcVirtualizationType::EthernetVirtualizer,
         VpcVirtualizationType::EthernetVirtualizer,
@@ -345,7 +373,7 @@ async fn test_vpc_peering_network_config_exclusive_etv_with_nvue(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = api_fixtures::create_test_env(pool).await;
 
-    let (_, _, dpu_machine_id) = create_vpc_peering(
+    let (_, _, _, _, dpu_machine_id) = create_vpc_peering(
         &env,
         VpcVirtualizationType::EthernetVirtualizer,
         VpcVirtualizationType::EthernetVirtualizerWithNvue,
@@ -363,6 +391,65 @@ async fn test_vpc_peering_network_config_exclusive_etv_with_nvue(
 
     assert_eq!(response.tenant_interfaces.len(), 1);
     assert_eq!(response.tenant_interfaces[0].vpc_peer_prefixes.len(), 1);
+    assert_eq!(response.tenant_interfaces[0].vpc_peer_vnis.len(), 0);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_vpc_peering_deletion_upon_vpc_deletion(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let (vpc_id, peer_vpc_id, _, _, dpu_machine_id) = create_vpc_peering(
+        &env,
+        VpcVirtualizationType::EthernetVirtualizer,
+        VpcVirtualizationType::EthernetVirtualizer,
+    )
+    .await?;
+
+    let get_response = get_vpc_peerings(&env, VpcId::try_from(vpc_id.clone())?).await;
+    assert!(get_response.is_ok());
+    let vpc_peering_list = get_response.unwrap().into_inner();
+    assert_eq!(vpc_peering_list.vpc_peerings.len(), 1);
+
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(response.tenant_interfaces.len(), 1);
+    assert_eq!(response.tenant_interfaces[0].vpc_peer_prefixes.len(), 1);
+    assert_eq!(response.tenant_interfaces[0].vpc_peer_vnis.len(), 0);
+
+    let vpc_delete_response = env
+        .api
+        .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
+            id: Some(rpc::Uuid {
+                value: peer_vpc_id.clone().to_string(),
+            }),
+        }))
+        .await;
+    assert!(vpc_delete_response.is_ok());
+
+    let get_response = get_vpc_peerings(&env, VpcId::try_from(vpc_id.clone())?).await;
+    assert!(get_response.is_ok());
+    let vpc_peering_list = get_response.unwrap().into_inner();
+    assert_eq!(vpc_peering_list.vpc_peerings.len(), 0);
+
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(response.tenant_interfaces.len(), 1);
+    assert_eq!(response.tenant_interfaces[0].vpc_peer_prefixes.len(), 0);
     assert_eq!(response.tenant_interfaces[0].vpc_peer_vnis.len(), 0);
 
     Ok(())
