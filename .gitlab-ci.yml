@@ -1130,7 +1130,7 @@ scheduled-test:prepare:
     - echo "CARBIDE_API_URL=${CARBIDE_API_URL}" >> variables.env
     # Generate short-lived carbide API certificate
     - mkdir certs && pushd certs
-    - vault write --format json forgeca-production/issue/ci-api-access common_name="${CARBIDE_API_URL}" ttl="6h" > vault_cert_output.json
+    - vault write --format json forgeca-production/issue/ci-api-access common_name="${CARBIDE_API_URL}" ttl="8h" > vault_cert_output.json
     - cat vault_cert_output.json | jq -r .data.certificate > ci-api-user.crt
     - cat vault_cert_output.json | jq -r .data.private_key > ci-api-user
     - popd
@@ -1350,7 +1350,8 @@ scheduled-test:machine-lifecycle-test:
 
       if [[ ${CI_JOB_STATUS} == 'success' ]]; then
         echo "Test passed for build ${CARBIDE_VERSION} with ${DPU_COUNT} DPU(s). Adding result to snippet list..."
-        new_list=$(echo "${CARBIDE_VERSION} (pipeline ${CI_PIPELINE_ID}) DPU_COUNT=${DPU_COUNT} - PASS" | cat - orig_list.txt | sed ':a;N;$!ba;s/\n/\\n/g')
+        new_list=$(echo "${CARBIDE_VERSION} (pipeline ${CI_PIPELINE_ID}) DPU_COUNT=${DPU_COUNT} FW_DOWNGRADE=${FW_DOWNGRADE} - PASS" \
+          | cat - orig_list.txt | sed ':a;N;$!ba;s/\n/\\n/g')
         curl -s --request PUT --header "PRIVATE-TOKEN: ${GITLAB_API_TOKEN}" --header 'Content-Type: application/json' \
           --data "{\"files\": [{ \"action\":\"update\", \"file_path\":\"test_results\", \"content\":\"$new_list\" }]}" \
           "${SNIPPET_URL}"
