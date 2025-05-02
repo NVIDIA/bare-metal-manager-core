@@ -133,10 +133,6 @@ pub struct CarbideConfig {
     /// Also settable via a `forge-admin-cli` command.
     pub initial_dpu_agent_upgrade_policy: Option<AgentUpgradePolicyChoice>,
 
-    /// IbFabricMonitor related configuration
-    #[serde(default)]
-    pub ib_fabric_monitor: IbFabricMonitorConfig,
-
     /// The maximum number of machines that have in-progress updates running.  This prevents
     /// too many machines from being put into maintenance at any given time.
     pub max_concurrent_machine_updates: Option<i32>,
@@ -541,15 +537,28 @@ pub struct IBFabricConfig {
         deserialize_with = "IBFabricConfig::deserialize_service_level"
     )]
     pub service_level: IBServiceLevel,
+
+    /// The interval at which ib fabric monitor runs in seconds.
+    /// Defaults to 1 Minute if not specified.
+    #[serde(
+        default = "IBFabricConfig::default_fabric_monitor_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub fabric_monitor_run_interval: std::time::Duration,
 }
 
 impl IBFabricConfig {
-    pub fn enable_ib_fabric() -> bool {
+    pub const fn enable_ib_fabric() -> bool {
         true
     }
 
-    pub fn default_max_partition_per_tenant() -> i32 {
+    pub const fn default_max_partition_per_tenant() -> i32 {
         MAX_IB_PARTITION_PER_TENANT
+    }
+
+    pub const fn default_fabric_monitor_run_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(60)
     }
 
     pub fn deserialize_max_partition<'de, D>(deserializer: D) -> Result<i32, D::Error>
@@ -785,37 +794,6 @@ where
         s.serialize_str(val.to_string().as_str())
     } else {
         s.serialize_none()
-    }
-}
-
-/// IbFabricMonitorConfig related configuration
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-pub struct IbFabricMonitorConfig {
-    #[serde(default)]
-    /// Whether IbFabricMonitor is enabled
-    pub enabled: bool,
-    /// The interval at which ib fabric monitor runs in seconds.
-    /// Defaults to 1 Minute if not specified.
-    #[serde(
-        default = "IbFabricMonitorConfig::default_run_interval",
-        deserialize_with = "deserialize_duration",
-        serialize_with = "as_std_duration"
-    )]
-    pub run_interval: std::time::Duration,
-}
-
-impl Default for IbFabricMonitorConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            run_interval: Self::default_run_interval(),
-        }
-    }
-}
-
-impl IbFabricMonitorConfig {
-    const fn default_run_interval() -> std::time::Duration {
-        std::time::Duration::from_secs(60)
     }
 }
 
@@ -2048,13 +2026,8 @@ mod tests {
         assert!(config.tls.is_none());
         assert!(config.auth.is_none());
         assert!(config.pools.is_none());
+        assert!(config.ib_config.is_none());
         assert!(config.ib_fabrics.is_empty());
-        assert_eq!(config.ib_fabric_monitor, {
-            IbFabricMonitorConfig {
-                enabled: false,
-                run_interval: IbFabricMonitorConfig::default_run_interval(),
-            }
-        });
         assert!(config.nvue_enabled);
         assert!(config.vpc_peering_policy.is_none());
         assert!(config.site_explorer.enabled);
@@ -2133,11 +2106,12 @@ mod tests {
         );
         assert!(pools.get("pkey").is_none());
         assert_eq!(
-            config.ib_fabric_monitor,
-            IbFabricMonitorConfig {
-                enabled: true,
-                run_interval: std::time::Duration::from_secs(102),
-            }
+            config.ib_config,
+            Some(IBFabricConfig {
+                enabled: false,
+                fabric_monitor_run_interval: std::time::Duration::from_secs(102),
+                ..serde_json::from_str("{}").unwrap()
+            })
         );
         assert_eq!(
             config.site_explorer,
@@ -2279,11 +2253,12 @@ mod tests {
         );
 
         assert_eq!(
-            config.ib_fabric_monitor,
-            IbFabricMonitorConfig {
-                enabled: false,
-                run_interval: std::time::Duration::from_secs(101),
-            }
+            config.ib_config,
+            Some(IBFabricConfig {
+                enabled: true,
+                fabric_monitor_run_interval: std::time::Duration::from_secs(101),
+                ..serde_json::from_str("{}").unwrap()
+            })
         );
         assert_eq!(
             config.site_explorer,
@@ -2501,11 +2476,12 @@ mod tests {
             .collect()
         );
         assert_eq!(
-            config.ib_fabric_monitor,
-            IbFabricMonitorConfig {
-                enabled: true,
-                run_interval: std::time::Duration::from_secs(102),
-            }
+            config.ib_config,
+            Some(IBFabricConfig {
+                enabled: false,
+                fabric_monitor_run_interval: std::time::Duration::from_secs(102),
+                ..serde_json::from_str("{}").unwrap()
+            })
         );
         assert_eq!(
             config.site_explorer,
@@ -2751,6 +2727,7 @@ max_partition_per_tenant = 3
             mtu: IBMtu(2),
             rate_limit: IBRateLimit(10),
             service_level: IBServiceLevel(2),
+            fabric_monitor_run_interval: std::time::Duration::from_secs(33),
         };
 
         let value_json = serde_json::to_string(&value_input).unwrap();
@@ -2770,6 +2747,7 @@ max_partition_per_tenant = 3
                 mtu: IBMtu(4),
                 rate_limit: IBRateLimit(20),
                 service_level: IBServiceLevel(10),
+                fabric_monitor_run_interval: std::time::Duration::from_secs(60),
             }
         );
 
@@ -2794,6 +2772,10 @@ max_partition_per_tenant = 3
             assert_eq!(config.mtu, IBMtu::default());
             assert_eq!(config.rate_limit, IBRateLimit::default());
             assert_eq!(config.service_level, IBServiceLevel::default());
+            assert_eq!(
+                config.fabric_monitor_run_interval,
+                IBFabricConfig::default_fabric_monitor_run_interval()
+            );
             Ok(())
         });
     }

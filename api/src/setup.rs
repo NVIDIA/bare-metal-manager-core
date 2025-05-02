@@ -229,6 +229,7 @@ pub async fn start_api(
             mtu: ib_config.mtu,
             rate_limit: ib_config.rate_limit,
             service_level: ib_config.service_level,
+            fabric_manager_run_interval: ib_config.fabric_monitor_run_interval,
             #[cfg(test)]
             ports: None,
         },
@@ -572,7 +573,6 @@ pub async fn initialize_and_start_controllers(
             .expect("Unable to build IBPartitionStateController");
 
     let ib_fabric_monitor = IbFabricMonitor::new(
-        carbide_config.ib_fabric_monitor.clone(),
         if ib_config.enabled {
             carbide_config.ib_fabrics.clone()
         } else {

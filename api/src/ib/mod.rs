@@ -61,6 +61,8 @@ pub struct IBFabricManagerConfig {
     pub rate_limit: IBRateLimit,
     pub service_level: IBServiceLevel,
     pub allow_insecure_fabric_configuration: bool,
+    /// The interval at which ib fabric monitor runs
+    pub fabric_manager_run_interval: std::time::Duration,
     #[cfg(test)]
     pub ports: Option<std::collections::HashMap<String, self::types::IBPort>>,
 }
@@ -75,6 +77,8 @@ impl Default for IBFabricManagerConfig {
             mtu: IBMtu::default(),
             rate_limit: IBRateLimit::default(),
             service_level: IBServiceLevel::default(),
+            fabric_manager_run_interval:
+                cfg::file::IBFabricConfig::default_fabric_monitor_run_interval(),
             #[cfg(test)]
             ports: None,
         }
