@@ -368,6 +368,13 @@ pub async fn callback(
             .into_response();
     }
 
+    // Grab the previous page cookie so we can send the human back to the original
+    // page they wanted.
+    let requested_page = cookiejar
+        .get("requested_page")
+        .map(|v| format!("/admin{}", v.value()))
+        .unwrap_or_else(|| "/admin/".to_string());
+
     // We're using a private cookie jar and really using the cookie similar to a simple JWT.
     // When someone tries to access carbide-web, we just need to see that they have the cookie
     // and that it's not expired and hasn't been tampered with, which we'll know when we decrypt it,
@@ -388,7 +395,7 @@ pub async fn callback(
             .remove(csrf_cookie)
             .remove(cookie.clone())
             .add(cookie),
-        Redirect::to("/admin/"),
+        Redirect::to(&requested_page),
     )
         .into_response()
 }
