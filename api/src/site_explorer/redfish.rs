@@ -123,16 +123,26 @@ impl RedfishClient {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
+        // Vikings require an if-match header thats not in the standard client call
+        let initialize = vendor == RedfishVendor::AMI;
         let mut client = self
             .create_direct_redfish_client(
                 bmc_ip_address,
                 curr_user.clone(),
                 curr_pass.clone(),
-                false, // Since we're changing the password we don't need to load any
-                       // default endpoints
+                initialize,
             )
             .await
-            .map_err(map_redfish_client_creation_error)?;
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to create Redfish client while setting BMC password for vendor {:?} (initialize = {}, bmc_ip = {}): {:?}",
+                    vendor,
+                    initialize,
+                    bmc_ip_address,
+                    e
+                );
+                map_redfish_client_creation_error(e)
+            })?;
 
         match vendor {
             RedfishVendor::Lenovo => {
