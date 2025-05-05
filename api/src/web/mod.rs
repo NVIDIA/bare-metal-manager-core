@@ -476,16 +476,33 @@ pub async fn auth_oauth2(
     // Store the csrf state so we can compare the state we get back from Azure
     // when they hit our callback URL.
     let csrf_cookie = Cookie::build(("csrf_state", csrf_state.secret().to_owned()))
-        .domain(hostname)
+        .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
         .build();
 
+    // Store the page the user originally wanted so we can send them back after auth.
+    let requested_page_cookie = Cookie::build((
+        "requested_page",
+        req.uri()
+            .path_and_query()
+            .map(|v| v.as_str())
+            .unwrap_or_else(|| req.uri().path())
+            .to_string(),
+    ))
+    .domain(hostname)
+    .path("/")
+    .secure(true)
+    .http_only(true)
+    .build();
+
     Ok((
         cookiejar
+            .remove(requested_page_cookie.clone())
             .remove(csrf_cookie.clone())
             .remove(pkce_cookie.clone())
+            .add(requested_page_cookie)
             .add(csrf_cookie)
             .add(pkce_cookie),
         Redirect::to(auth_url.as_ref()),
