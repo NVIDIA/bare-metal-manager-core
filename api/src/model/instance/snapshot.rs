@@ -24,6 +24,8 @@ use crate::model::{
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::{instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId};
 
+use super::config::network::InstanceNetworkConfigUpdate;
+
 /// Represents a snapshot view of an `Instance`
 ///
 /// This snapshot is a state-in-time representation of everything that
@@ -68,6 +70,9 @@ pub struct InstanceSnapshot {
 
     /// The timestamp when deletion for this instance was requested
     pub deleted: Option<chrono::DateTime<chrono::Utc>>,
+
+    /// Update instance network config request.
+    pub update_network_config_request: Option<InstanceNetworkConfigUpdate>,
     // There are columns for these but they're unused as of today.
     // pub(crate) requested: chrono::DateTime<chrono::Utc>,
     // pub(crate) started: chrono::DateTime<chrono::Utc>,
@@ -93,6 +98,7 @@ impl InstanceSnapshot {
             self.deleted.is_some(),
             reprovision_request,
             ib_status,
+            self.update_network_config_request.is_some(),
         )
     }
 }

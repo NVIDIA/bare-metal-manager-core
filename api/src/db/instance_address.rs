@@ -238,6 +238,11 @@ WHERE network_prefixes.segment_id = $1::uuid";
 
         // Assign all addresses in one shot.
         for iface in &mut updated_config.interfaces {
+            if !iface.ip_addrs.is_empty() {
+                // IP is already allocated. Don't assign new IP.
+                continue;
+            }
+
             let segment = match segments.iter().find(|x| {
                 iface
                     .network_segment_id
