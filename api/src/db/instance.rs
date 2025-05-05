@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashMap;
 use std::str::FromStr;
+use std::{collections::HashMap, ops::DerefMut};
 
 use crate::{
     CarbideError, CarbideResult,
@@ -19,8 +19,10 @@ use crate::{
     model::{
         instance::{
             config::{
-                InstanceConfig, infiniband::InstanceInfinibandConfig,
-                network::InstanceNetworkConfig, storage::InstanceStorageConfig,
+                InstanceConfig,
+                infiniband::InstanceInfinibandConfig,
+                network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate},
+                storage::InstanceStorageConfig,
                 tenant_config::TenantConfig,
             },
             snapshot::InstanceSnapshot,
@@ -110,6 +112,7 @@ pub struct InstanceSnapshotPgJson {
     started: DateTime<Utc>,
     finished: Option<DateTime<Utc>>,
     deleted: Option<DateTime<Utc>>,
+    update_network_config_request: Option<InstanceNetworkConfigUpdate>,
 }
 
 impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
@@ -197,6 +200,7 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             },
             use_custom_pxe_on_boot: value.use_custom_pxe_on_boot,
             deleted: value.deleted,
+            update_network_config_request: value.update_network_config_request,
             // Unused as of today
             // requested: value.requested,
             // started: value.started,
@@ -651,6 +655,42 @@ WHERE vpc_id = ",
             .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub(crate) async fn trigger_update_network_config_request(
+        instance_id: &InstanceId,
+        current: &InstanceNetworkConfig,
+        requested: &InstanceNetworkConfig,
+        expected_network_version: ConfigVersion,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let network_config_request = InstanceNetworkConfigUpdate {
+            old_config: current.clone(),
+            new_config: requested.clone(),
+        };
+        let query = r#"UPDATE instances SET update_network_config_request=$1::json 
+                        WHERE id = $2::uuid 
+                          AND update_network_config_request IS NULL 
+                          AND deleted IS NULL
+                        RETURNING id"#;
+        let (_,): (InstanceId,) = sqlx::query_as(query)
+            .bind(sqlx::types::Json(network_config_request))
+            .bind(instance_id)
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        // Update requested network config and increment version.
+        Instance::update_network_config(
+            txn,
+            *instance_id,
+            expected_network_version,
+            requested,
+            true,
+        )
+        .await?;
 
         Ok(())
     }

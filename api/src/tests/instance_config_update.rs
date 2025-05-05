@@ -22,7 +22,7 @@ use common::api_fixtures::{
 
 use config_version::ConfigVersion;
 use forge_uuid::{infiniband::IBPartitionId, network::NetworkSegmentId};
-use rpc::forge::forge_server::Forge;
+use rpc::forge::{forge_server::Forge, instance_interface_config::NetworkDetails};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 /// Compares an expected instance configuration with the actual instance configuration
@@ -34,6 +34,7 @@ fn assert_config_equals(
     expected: &rpc::forge::InstanceConfig,
 ) {
     let mut expected = expected.clone();
+    let mut actual = actual.clone();
     match &expected.os.as_ref().unwrap().variant {
         Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
             let tenant = expected.tenant.as_mut().unwrap();
@@ -48,7 +49,21 @@ fn assert_config_equals(
         }
         _ => panic!("Unexpected OS type"),
     }
-    assert_eq!(expected, *actual);
+    if let Some(network) = &mut expected.network {
+        network.interfaces.iter_mut().for_each(|x| {
+            if let Some(NetworkDetails::VpcPrefixId(_)) = x.network_details {
+                x.network_segment_id = None;
+            }
+        });
+    }
+    if let Some(network) = &mut actual.network {
+        network.interfaces.iter_mut().for_each(|x| {
+            if let Some(NetworkDetails::VpcPrefixId(_)) = x.network_details {
+                x.network_segment_id = None;
+            }
+        });
+    }
+    assert_eq!(expected, actual);
 }
 
 /// Compares instance metadata for equality
@@ -459,6 +474,14 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .as_mut()
         .unwrap()
         .interfaces
+        .clear();
+
+    // instance network config update is allowed now.
+    config_with_updated_network
+        .network
+        .as_mut()
+        .unwrap()
+        .interfaces
         .push(rpc::forge::InstanceInterfaceConfig {
             function_type: rpc::forge::InterfaceFunctionType::Virtual as _,
             network_segment_id: Some(NetworkSegmentId::from(uuid::Uuid::new_v4()).into()),
@@ -477,10 +500,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .await
         .expect_err("New network configuration should not be accepted");
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    assert_eq!(
-        err.message(),
-        "Configuration value cannot be modified: network"
-    );
+    assert_eq!(err.message(), "Invalid value: Missing Physical Function");
 
     // The infiniband configuration of an instance can not be updated
     let mut config_with_updated_ib = valid_config.clone();
@@ -598,3 +618,286 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         );
     }
 }
+
+// #[crate::sqlx_test]
+// async fn test_update_instance_config_vpc_prefix_no_network_update(
+//     _: PgPoolOptions,
+//     options: PgConnectOptions,
+// ) {
+//     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+//     let env = create_test_env(pool).await;
+//     let segment_id = env.create_vpc_and_tenant_segment().await;
+//     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+//
+//     let initial_os = rpc::forge::OperatingSystem {
+//         phone_home_enabled: false,
+//         run_provisioning_instructions_on_every_boot: false,
+//         user_data: Some("SomeRandomData1".to_string()),
+//         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+//             rpc::forge::IpxeOperatingSystem {
+//                 ipxe_script: "SomeRandomiPxe1".to_string(),
+//                 user_data: Some("SomeRandomData1".to_string()),
+//             },
+//         )),
+//     };
+//     let ip_prefix = "192.0.5.0/25";
+//     let vpc_id = get_vpc_fixture_id(&env).await;
+//     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
+//         id: None,
+//         prefix: ip_prefix.into(),
+//         name: "Test VPC prefix".into(),
+//         vpc_id: Some(vpc_id.into()),
+//     };
+//     let request = Request::new(new_vpc_prefix);
+//     let response = env
+//         .api
+//         .create_vpc_prefix(request)
+//         .await
+//         .unwrap()
+//         .into_inner();
+//
+//     let mut network = single_interface_network_config(segment_id);
+//     network.interfaces.iter_mut().for_each(|x| {
+//         x.network_segment_id = None;
+//         x.network_details = response.id.clone().map(NetworkDetails::VpcPrefixId);
+//     });
+//     let initial_config = rpc::InstanceConfig {
+//         tenant: Some(default_tenant_config()),
+//         os: Some(initial_os.clone()),
+//         network: Some(network.clone()),
+//         infiniband: None,
+//         storage: None,
+//         network_security_group_id: None,
+//     };
+//
+//     let initial_metadata = rpc::Metadata {
+//         name: "Name1".to_string(),
+//         description: "Desc1".to_string(),
+//         labels: vec![],
+//     };
+//
+//     let (instance_id, _instance) = create_instance_with_config(
+//         &env,
+//         &dpu_machine_id,
+//         &host_machine_id,
+//         initial_config.clone(),
+//         Some(initial_metadata.clone()),
+//     )
+//     .await;
+//
+//     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
+//     assert_eq!(instances.len(), 1);
+//     let instance = instances.remove(0);
+//
+//     assert_eq!(
+//         instance.status.as_ref().unwrap().configs_synced(),
+//         rpc::forge::SyncState::Synced
+//     );
+//
+//     assert_eq!(
+//         instance
+//             .status
+//             .as_ref()
+//             .unwrap()
+//             .tenant
+//             .as_ref()
+//             .unwrap()
+//             .state(),
+//         rpc::forge::TenantState::Ready
+//     );
+//
+//     assert_config_equals(instance.config.as_ref().unwrap(), &initial_config);
+//     assert_metadata_equals(instance.metadata.as_ref().unwrap(), &initial_metadata);
+//     let initial_config_version = instance.config_version.parse::<ConfigVersion>().unwrap();
+//     assert_eq!(initial_config_version.version_nr(), 1);
+//
+//     let mut updated_config_1 = initial_config.clone();
+//     updated_config_1.network = Some(network);
+//     let updated_metadata_1 = rpc::Metadata {
+//         name: "Name2".to_string(),
+//         description: "Desc2".to_string(),
+//         labels: vec![rpc::forge::Label {
+//             key: "Key1".to_string(),
+//             value: None,
+//         }],
+//     };
+//
+//     let old_version = instance.network_config_version.clone();
+//
+//     let instance = env
+//         .api
+//         .update_instance_config(tonic::Request::new(
+//             rpc::forge::InstanceConfigUpdateRequest {
+//                 instance_id: Some(instance_id.into()),
+//                 if_version_match: None,
+//                 config: Some(updated_config_1.clone()),
+//                 metadata: Some(updated_metadata_1.clone()),
+//             },
+//         ))
+//         .await
+//         .unwrap()
+//         .into_inner();
+//
+//     assert_config_equals(instance.config.as_ref().unwrap(), &updated_config_1);
+//     assert_metadata_equals(instance.metadata.as_ref().unwrap(), &updated_metadata_1);
+//     let updated_config_version = instance.config_version.parse::<ConfigVersion>().unwrap();
+//     assert_eq!(updated_config_version.version_nr(), 2);
+//
+//     assert_eq!(
+//         instance.status.as_ref().unwrap().configs_synced(),
+//         rpc::forge::SyncState::Pending
+//     );
+//
+//     // These should be same as no network update happened.
+//     assert_eq!(old_version, instance.network_config_version);
+// }
+
+// #[crate::sqlx_test]
+// async fn test_update_instance_config_vpc_prefix_network_update(
+//     _: PgPoolOptions,
+//     options: PgConnectOptions,
+// ) {
+//     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+//     let env = create_test_env(pool).await;
+//     let _segment_id = env.create_vpc_and_tenant_segment().await;
+//     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+//
+//     let initial_os = rpc::forge::OperatingSystem {
+//         phone_home_enabled: false,
+//         run_provisioning_instructions_on_every_boot: false,
+//         user_data: Some("SomeRandomData1".to_string()),
+//         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+//             rpc::forge::IpxeOperatingSystem {
+//                 ipxe_script: "SomeRandomiPxe1".to_string(),
+//                 user_data: Some("SomeRandomData1".to_string()),
+//             },
+//         )),
+//     };
+//     let ip_prefix = "192.0.5.0/25";
+//     let vpc_id = get_vpc_fixture_id(&env).await;
+//     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
+//         id: None,
+//         prefix: ip_prefix.into(),
+//         name: "Test VPC prefix".into(),
+//         vpc_id: Some(vpc_id.into()),
+//     };
+//     let request = Request::new(new_vpc_prefix);
+//     let response = env
+//         .api
+//         .create_vpc_prefix(request)
+//         .await
+//         .unwrap()
+//         .into_inner();
+//
+//     let network = rpc::InstanceNetworkConfig {
+//         interfaces: vec![rpc::InstanceInterfaceConfig {
+//             function_type: rpc::InterfaceFunctionType::Physical as i32,
+//             network_segment_id: None,
+//             network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+//         }],
+//     };
+//
+//     let initial_config = rpc::InstanceConfig {
+//         tenant: Some(default_tenant_config()),
+//         os: Some(initial_os.clone()),
+//         network: Some(network.clone()),
+//         infiniband: None,
+//         storage: None,
+//         network_security_group_id: None,
+//     };
+//
+//     let initial_metadata = rpc::Metadata {
+//         name: "Name1".to_string(),
+//         description: "Desc1".to_string(),
+//         labels: vec![],
+//     };
+//
+//     let (instance_id, _instance) = create_instance_with_config(
+//         &env,
+//         &dpu_machine_id,
+//         &host_machine_id,
+//         initial_config.clone(),
+//         Some(initial_metadata.clone()),
+//     )
+//     .await;
+//
+//     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
+//     assert_eq!(instances.len(), 1);
+//     let instance = instances.remove(0);
+//
+//     assert_eq!(
+//         instance.status.as_ref().unwrap().configs_synced(),
+//         rpc::forge::SyncState::Synced
+//     );
+//
+//     assert_eq!(
+//         instance
+//             .status
+//             .as_ref()
+//             .unwrap()
+//             .tenant
+//             .as_ref()
+//             .unwrap()
+//             .state(),
+//         rpc::forge::TenantState::Ready
+//     );
+//
+//     assert_config_equals(instance.config.as_ref().unwrap(), &initial_config);
+//     assert_metadata_equals(instance.metadata.as_ref().unwrap(), &initial_metadata);
+//     let initial_config_version = instance.config_version.parse::<ConfigVersion>().unwrap();
+//     assert_eq!(initial_config_version.version_nr(), 1);
+//
+//     let network = rpc::InstanceNetworkConfig {
+//         interfaces: vec![
+//             rpc::InstanceInterfaceConfig {
+//                 function_type: rpc::InterfaceFunctionType::Physical as i32,
+//                 network_segment_id: None,
+//                 network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+//             },
+//             rpc::InstanceInterfaceConfig {
+//                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
+//                 network_segment_id: None,
+//                 network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+//             },
+//         ],
+//     };
+//     let mut updated_config_1 = initial_config.clone();
+//     updated_config_1.network = Some(network);
+//     let updated_metadata_1 = rpc::Metadata {
+//         name: "Name2".to_string(),
+//         description: "Desc2".to_string(),
+//         labels: vec![rpc::forge::Label {
+//             key: "Key1".to_string(),
+//             value: None,
+//         }],
+//     };
+//
+//     let old_version = instance.network_config_version.clone();
+//
+//     let instance = env
+//         .api
+//         .update_instance_config(tonic::Request::new(
+//             rpc::forge::InstanceConfigUpdateRequest {
+//                 instance_id: Some(instance_id.into()),
+//                 if_version_match: None,
+//                 config: Some(updated_config_1.clone()),
+//                 metadata: Some(updated_metadata_1.clone()),
+//             },
+//         ))
+//         .await
+//         .unwrap()
+//         .into_inner();
+//
+//     assert_config_equals(instance.config.as_ref().unwrap(), &updated_config_1);
+//     assert_metadata_equals(instance.metadata.as_ref().unwrap(), &updated_metadata_1);
+//     let updated_config_version = instance.config_version.parse::<ConfigVersion>().unwrap();
+//     assert_eq!(updated_config_version.version_nr(), 2);
+//
+//     assert_eq!(
+//         instance.status.as_ref().unwrap().configs_synced(),
+//         rpc::forge::SyncState::Pending
+//     );
+//
+//     // These should be same as no network update happened.
+//     assert_ne!(old_version, instance.network_config_version);
+// }

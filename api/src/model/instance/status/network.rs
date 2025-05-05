@@ -98,6 +98,7 @@ impl InstanceNetworkStatus {
     pub fn from_config_and_observation(
         config: Versioned<&InstanceNetworkConfig>,
         observations: Option<&InstanceNetworkStatusObservation>,
+        is_network_config_request_pending: bool,
     ) -> Self {
         let observations = match observations {
             Some(observations) => observations,
@@ -111,6 +112,10 @@ impl InstanceNetworkStatus {
         };
 
         if observations.config_version != config.version {
+            return Self::unsynchronized_for_config(&config);
+        }
+
+        if is_network_config_request_pending {
             return Self::unsynchronized_for_config(&config);
         }
 
@@ -879,6 +884,7 @@ mod tests {
         let status = InstanceNetworkStatus::from_config_and_observation(
             Versioned::new(&config, version),
             None,
+            false,
         );
         assert_eq!(status, unsynced_status())
     }
@@ -892,8 +898,23 @@ mod tests {
         let status = InstanceNetworkStatus::from_config_and_observation(
             Versioned::new(&config, version),
             Some(&observation),
+            false,
         );
         assert_eq!(status, expected_status())
+    }
+
+    #[test]
+    fn network_status_with_update_going_on() {
+        let config = network_config();
+        let version = ConfigVersion::initial();
+        let observation = observation_for_config(version);
+
+        let status = InstanceNetworkStatus::from_config_and_observation(
+            Versioned::new(&config, version),
+            Some(&observation),
+            true,
+        );
+        assert_eq!(status, unsynced_status())
     }
 
     #[test]
@@ -905,6 +926,7 @@ mod tests {
         let status = InstanceNetworkStatus::from_config_and_observation(
             Versioned::new(&config, version.increment()),
             Some(&observation),
+            false,
         );
         assert_eq!(status, unsynced_status())
     }
@@ -917,6 +939,7 @@ mod tests {
             Versioned::new(&config, version.increment()),
             // No observations
             None,
+            false,
         );
         assert_eq!(status, expected_host_inband_status())
     }

@@ -151,6 +151,7 @@ impl InstanceStatus {
         delete_requested: bool,
         reprovision_request: Option<ReprovisionRequest>,
         ib_status: Option<&MachineInfinibandStatusObservation>,
+        is_network_config_request_pending: bool,
     ) -> Result<Self, RpcDataConversionError> {
         let instance_config_synced = match observations.network {
             Some(ref network_obs) => match network_obs.instance_config_version {
@@ -173,6 +174,7 @@ impl InstanceStatus {
         let network = network::InstanceNetworkStatus::from_config_and_observation(
             network_config,
             observations.network.as_ref(),
+            is_network_config_request_pending,
         );
         let infiniband =
             infiniband::InstanceInfinibandStatus::from_config_and_observation(ib_config, ib_status);

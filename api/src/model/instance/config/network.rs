@@ -125,6 +125,20 @@ pub struct InstanceNetworkConfig {
     pub interfaces: Vec<InstanceInterfaceConfig>,
 }
 
+/// Struct to store instance network config updated request with current config.
+/// Current config is kept here to release these resources once instance moves to the new network
+/// resources.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstanceNetworkConfigUpdate {
+    // Current configuration which will be deallocated.
+    // If any interface is present in requested config with same network details and function id,
+    // that should be removed from the old config and must not be deallocated.
+    pub old_config: InstanceNetworkConfig,
+
+    // New requested config.
+    pub new_config: InstanceNetworkConfig,
+}
+
 impl InstanceNetworkConfig {
     /// Returns a network configuration for a single physical interface
     #[cfg(test)]
@@ -214,23 +228,75 @@ impl InstanceNetworkConfig {
         Ok(())
     }
 
-    pub fn verify_update_allowed_to(&self, new_config: &Self) -> Result<(), ConfigValidationError> {
+    pub fn verify_update_allowed_to(
+        &self,
+        _new_config: &Self,
+    ) -> Result<(), ConfigValidationError> {
+        Ok(())
+    }
+
+    pub fn is_network_config_update_requested(&self, new_config: &Self) -> bool {
         // Remove all service-generated properties before validating the config
         let mut current = self.clone();
+        let mut new_config = new_config.clone();
         for iface in &mut current.interfaces {
             iface.ip_addrs.clear();
             iface.interface_prefixes.clear();
             iface.network_segment_gateways.clear();
             iface.host_inband_mac_address = None;
+
+            // It is possible that cloud sends network_segment_id with network_details as well.
+            if iface.network_details.is_some() {
+                iface.network_segment_id = None;
+            }
         }
 
-        if current != *new_config {
-            return Err(ConfigValidationError::ConfigCanNotBeModified(
-                "network".to_string(),
-            ));
+        for iface in &mut new_config.interfaces {
+            // It is possible that cloud sends network_segment_id with network_details as well.
+            if iface.network_details.is_some() {
+                iface.network_segment_id = None;
+            }
         }
+        current != new_config
+    }
 
-        Ok(())
+    pub fn copy_existing_resources(&mut self, current_config: &Self) {
+        let mut common_function_ids = Vec::new();
+
+        // This does not handle the deletion case. Suppose we have interfaces [PF, VF1, VF2, VF3, VF4,
+        // VF5]. If a user deletes VF3, but all have IPs from the same `vpc_prefix`, it is not possible
+        // to know if VF3 is deleted or VF5. The VF index is calculated based on the sequence of
+        // VFs, not by some hard-coded VF index provided by the cloud.
+        for interface in &mut self.interfaces {
+            let existing_interface = current_config.interfaces.iter().find(|x| {
+                let is_network_same = if interface.network_details.is_some() {
+                    x.network_details == interface.network_details
+                } else if interface.network_segment_id.is_some() {
+                    x.network_segment_id == interface.network_segment_id
+                } else {
+                    false
+                };
+
+                if is_network_same {
+                    // Exactly same interface id must be used.
+                    interface.function_id == x.function_id
+                } else {
+                    false
+                }
+            });
+
+            if let Some(existing_interface) = existing_interface {
+                // Copy all allocated resources
+                // TODO: Zero DPU changes.
+                interface.ip_addrs = existing_interface.ip_addrs.clone();
+                interface.interface_prefixes = existing_interface.interface_prefixes.clone();
+                interface.network_segment_gateways =
+                    existing_interface.network_segment_gateways.clone();
+            }
+
+            // TODO: In case of multidpu, this should be a tuple of (function id, device_type, device_instance)
+            common_function_ids.push(interface.function_id.clone());
+        }
     }
 
     /// Returns true if all interfaces on this instance are equivalent to the host's in-band

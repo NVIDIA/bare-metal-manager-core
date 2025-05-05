@@ -3496,3 +3496,586 @@ async fn test_allocate_and_update_with_network_security_group(
 
     Ok(())
 }
+
+// #[crate::sqlx_test]
+// async fn test_allocate_and_update_network_config_instance(
+//     _: PgPoolOptions,
+//     options: PgConnectOptions,
+// ) {
+//     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+//     let env = create_test_env(pool).await;
+//     let (segment_id, segment_id2) = env.create_vpc_and_dual_tenant_segment().await;
+//     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+//
+//     let mut txn = env
+//         .pool
+//         .begin()
+//         .await
+//         .expect("Unable to create transaction on database pool");
+//
+//     assert_eq!(
+//         InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+//             .await
+//             .unwrap(),
+//         0
+//     );
+//     assert!(matches!(
+//         db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+//             .await
+//             .unwrap()
+//             .unwrap()
+//             .current_state(),
+//         ManagedHostState::Ready
+//     ));
+//     txn.commit().await.unwrap();
+//
+//     let (instance_id, _instance) = create_instance(
+//         &env,
+//         &dpu_machine_id,
+//         &host_machine_id,
+//         Some(single_interface_network_config(segment_id)),
+//         None,
+//         None,
+//         vec![],
+//     )
+//     .await;
+//
+//     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
+//     assert_eq!(instances.len(), 1);
+//     let instance = instances.remove(0);
+//
+//     assert_eq!(
+//         instance
+//             .status
+//             .as_ref()
+//             .unwrap()
+//             .tenant
+//             .as_ref()
+//             .unwrap()
+//             .state(),
+//         rpc::forge::TenantState::Ready
+//     );
+//
+//     assert_eq!(
+//         instance
+//             .status
+//             .as_ref()
+//             .unwrap()
+//             .network
+//             .as_ref()
+//             .unwrap()
+//             .configs_synced,
+//         SyncState::Synced as i32
+//     );
+//
+//     let new_network_config = rpc::InstanceNetworkConfig {
+//         interfaces: vec![rpc::InstanceInterfaceConfig {
+//             function_type: rpc::InterfaceFunctionType::Physical as i32,
+//             network_segment_id: None,
+//             network_details: Some(
+//                 rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+//                     segment_id2.into(),
+//                 ),
+//             ),
+//         }],
+//     };
+//
+//     // Now update to change network config.
+//     let _ = env
+//         .api
+//         .update_instance_config(tonic::Request::new(
+//             rpc::forge::InstanceConfigUpdateRequest {
+//                 if_version_match: None,
+//                 config: Some(rpc::InstanceConfig {
+//                     tenant: Some(default_tenant_config()),
+//                     os: Some(default_os_config()),
+//                     network: Some(new_network_config),
+//                     infiniband: None,
+//                     storage: None,
+//                     network_security_group_id: None,
+//                 }),
+//                 instance_id: instance.id,
+//                 metadata: Some(rpc::forge::Metadata {
+//                     name: "newinstance".to_string(),
+//                     description: "desc".to_string(),
+//                     labels: vec![],
+//                 }),
+//             },
+//         ))
+//         .await
+//         .unwrap();
+//
+//     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
+//     assert_eq!(instances.len(), 1);
+//     let instance = instances.remove(0);
+//
+//     assert_eq!(
+//         instance
+//             .status
+//             .as_ref()
+//             .unwrap()
+//             .network
+//             .as_ref()
+//             .unwrap()
+//             .configs_synced,
+//         SyncState::Pending as i32
+//     );
+//
+//     let mut txn = env
+//         .pool
+//         .begin()
+//         .await
+//         .expect("Unable to create transaction on database pool");
+//     let instance = crate::db::instance::Instance::find_by_id(
+//         &mut txn,
+//         uuid::Uuid::from_str(&instance.id.clone().unwrap().value)
+//             .unwrap()
+//             .into(),
+//     )
+//     .await
+//     .unwrap()
+//     .unwrap();
+//
+//     txn.rollback().await.unwrap();
+//
+//     assert!(instance.update_network_config_request.is_some());
+//     let update_req = instance.update_network_config_request.unwrap();
+//     let expected = NetworkDetails::NetworkSegment(segment_id2);
+//
+//     assert_eq!(
+//         expected,
+//         update_req.new_config.interfaces[0]
+//             .network_details
+//             .clone()
+//             .unwrap(),
+//     );
+// }
+//
+// #[crate::sqlx_test]
+// async fn test_allocate_and_update_network_config_instance_add_vf(
+//     _: PgPoolOptions,
+//     options: PgConnectOptions,
+// ) {
+//     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+//     let env = create_test_env(pool).await;
+//     let (segment_id, segment_id2) = env.create_vpc_and_dual_tenant_segment().await;
+//     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+//
+//     let mut txn = env
+//         .pool
+//         .begin()
+//         .await
+//         .expect("Unable to create transaction on database pool");
+//
+//     assert_eq!(
+//         InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+//             .await
+//             .unwrap(),
+//         0
+//     );
+//     assert!(matches!(
+//         db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+//             .await
+//             .unwrap()
+//             .unwrap()
+//             .current_state(),
+//         ManagedHostState::Ready
+//     ));
+//     txn.commit().await.unwrap();
+//
+//     let (instance_id, _instance) = create_instance(
+//         &env,
+//         &dpu_machine_id,
+//         &host_machine_id,
+//         Some(single_interface_network_config(segment_id)),
+//         None,
+//         None,
+//         vec![],
+//     )
+//     .await;
+//
+//     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
+//     assert_eq!(instances.len(), 1);
+//     let instance = instances.remove(0);
+//
+//     assert_eq!(
+//         instance
+//             .status
+//             .as_ref()
+//             .unwrap()
+//             .tenant
+//             .as_ref()
+//             .unwrap()
+//             .state(),
+//         rpc::forge::TenantState::Ready
+//     );
+//
+//     assert_eq!(
+//         instance
+//             .status
+//             .as_ref()
+//             .unwrap()
+//             .network
+//             .as_ref()
+//             .unwrap()
+//             .configs_synced,
+//         SyncState::Synced as i32
+//     );
+//
+//     let instance_id_rpc = instance.id.clone();
+//
+//     let mut txn = env
+//         .pool
+//         .begin()
+//         .await
+//         .expect("Unable to create transaction on database pool");
+//     let instance = crate::db::instance::Instance::find_by_id(
+//         &mut txn,
+//         uuid::Uuid::from_str(&instance.id.clone().unwrap().value)
+//             .unwrap()
+//             .into(),
+//     )
+//     .await
+//     .unwrap()
+//     .unwrap();
+//
+//     let current_ip = instance.config.network.interfaces[0]
+//         .ip_addrs
+//         .values()
+//         .collect_vec()
+//         .first()
+//         .cloned()
+//         .cloned()
+//         .unwrap();
+//
+//     txn.rollback().await.unwrap();
+//
+//     let new_network_config = rpc::InstanceNetworkConfig {
+//         interfaces: vec![
+//             rpc::InstanceInterfaceConfig {
+//                 function_type: rpc::InterfaceFunctionType::Physical as i32,
+//                 network_segment_id: None,
+//                 network_details: Some(
+//                     rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+//                         segment_id.into(),
+//                     ),
+//                 ),
+//             },
+//             rpc::InstanceInterfaceConfig {
+//                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
+//                 network_segment_id: None,
+//                 network_details: Some(
+//                     rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+//                         segment_id2.into(),
+//                     ),
+//                 ),
+//             },
+//         ],
+//     };
+//
+//     // Now update to change network config.
+//     let _ = env
+//         .api
+//         .update_instance_config(tonic::Request::new(
+//             rpc::forge::InstanceConfigUpdateRequest {
+//                 if_version_match: None,
+//                 config: Some(rpc::InstanceConfig {
+//                     tenant: Some(default_tenant_config()),
+//                     os: Some(default_os_config()),
+//                     network: Some(new_network_config),
+//                     infiniband: None,
+//                     storage: None,
+//                     network_security_group_id: None,
+//                 }),
+//                 instance_id: instance_id_rpc,
+//                 metadata: Some(rpc::forge::Metadata {
+//                     name: "newinstance".to_string(),
+//                     description: "desc".to_string(),
+//                     labels: vec![],
+//                 }),
+//             },
+//         ))
+//         .await
+//         .unwrap();
+//
+//     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
+//     assert_eq!(instances.len(), 1);
+//     let instance = instances.remove(0);
+//
+//     assert_eq!(
+//         instance
+//             .status
+//             .as_ref()
+//             .unwrap()
+//             .network
+//             .as_ref()
+//             .unwrap()
+//             .configs_synced,
+//         SyncState::Pending as i32
+//     );
+//
+//     let mut txn = env
+//         .pool
+//         .begin()
+//         .await
+//         .expect("Unable to create transaction on database pool");
+//     let instance = crate::db::instance::Instance::find_by_id(
+//         &mut txn,
+//         uuid::Uuid::from_str(&instance.id.clone().unwrap().value)
+//             .unwrap()
+//             .into(),
+//     )
+//     .await
+//     .unwrap()
+//     .unwrap();
+//
+//     txn.rollback().await.unwrap();
+//
+//     assert!(instance.update_network_config_request.is_some());
+//     let update_req = instance.update_network_config_request.unwrap();
+//
+//     assert_eq!(
+//         NetworkDetails::NetworkSegment(segment_id),
+//         update_req.new_config.interfaces[0]
+//             .network_details
+//             .clone()
+//             .unwrap(),
+//     );
+//
+//     assert_eq!(
+//         NetworkDetails::NetworkSegment(segment_id2),
+//         update_req.new_config.interfaces[1]
+//             .network_details
+//             .clone()
+//             .unwrap(),
+//     );
+//
+//     // The first physical interface IP must not be changed.
+//     let updated_config_ip = instance.config.network.interfaces[0]
+//         .ip_addrs
+//         .values()
+//         .collect_vec()
+//         .first()
+//         .cloned()
+//         .cloned()
+//         .unwrap();
+//
+//     assert_eq!(current_ip, updated_config_ip);
+// }
+//
+// #[crate::sqlx_test]
+// async fn test_allocate_and_update_network_config_instance_delete_vf(
+//     _: PgPoolOptions,
+//     options: PgConnectOptions,
+// ) {
+//     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+//     let env = create_test_env(pool).await;
+//     let (segment_id, segment_id2) = env.create_vpc_and_dual_tenant_segment().await;
+//     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+//
+//     let mut txn = env
+//         .pool
+//         .begin()
+//         .await
+//         .expect("Unable to create transaction on database pool");
+//
+//     assert_eq!(
+//         InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+//             .await
+//             .unwrap(),
+//         0
+//     );
+//     assert!(matches!(
+//         db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+//             .await
+//             .unwrap()
+//             .unwrap()
+//             .current_state(),
+//         ManagedHostState::Ready
+//     ));
+//     txn.commit().await.unwrap();
+//
+//     let network_config = rpc::InstanceNetworkConfig {
+//         interfaces: vec![
+//             rpc::InstanceInterfaceConfig {
+//                 function_type: rpc::InterfaceFunctionType::Physical as i32,
+//                 network_segment_id: None,
+//                 network_details: Some(
+//                     rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+//                         segment_id.into(),
+//                     ),
+//                 ),
+//             },
+//             rpc::InstanceInterfaceConfig {
+//                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
+//                 network_segment_id: None,
+//                 network_details: Some(
+//                     rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+//                         segment_id2.into(),
+//                     ),
+//                 ),
+//             },
+//         ],
+//     };
+//
+//     let (instance_id, _instance) = create_instance(
+//         &env,
+//         &dpu_machine_id,
+//         &host_machine_id,
+//         Some(network_config),
+//         None,
+//         None,
+//         vec![],
+//     )
+//     .await;
+//
+//     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
+//     assert_eq!(instances.len(), 1);
+//     let instance = instances.remove(0);
+//
+//     assert_eq!(
+//         instance
+//             .status
+//             .as_ref()
+//             .unwrap()
+//             .tenant
+//             .as_ref()
+//             .unwrap()
+//             .state(),
+//         rpc::forge::TenantState::Ready
+//     );
+//
+//     assert_eq!(
+//         instance
+//             .status
+//             .as_ref()
+//             .unwrap()
+//             .network
+//             .as_ref()
+//             .unwrap()
+//             .configs_synced,
+//         SyncState::Synced as i32
+//     );
+//
+//     let instance_id_rpc = instance.id.clone();
+//
+//     let mut txn = env
+//         .pool
+//         .begin()
+//         .await
+//         .expect("Unable to create transaction on database pool");
+//     let instance = crate::db::instance::Instance::find_by_id(
+//         &mut txn,
+//         uuid::Uuid::from_str(&instance.id.clone().unwrap().value)
+//             .unwrap()
+//             .into(),
+//     )
+//     .await
+//     .unwrap()
+//     .unwrap();
+//
+//     let current_ip = instance.config.network.interfaces[0]
+//         .ip_addrs
+//         .values()
+//         .collect_vec()
+//         .first()
+//         .cloned()
+//         .cloned()
+//         .unwrap();
+//
+//     txn.rollback().await.unwrap();
+//
+//     let new_network_config = rpc::InstanceNetworkConfig {
+//         interfaces: vec![rpc::InstanceInterfaceConfig {
+//             function_type: rpc::InterfaceFunctionType::Physical as i32,
+//             network_segment_id: None,
+//             network_details: Some(
+//                 rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id.into()),
+//             ),
+//         }],
+//     };
+//
+//     // Now update to change network config.
+//     let _ = env
+//         .api
+//         .update_instance_config(tonic::Request::new(
+//             rpc::forge::InstanceConfigUpdateRequest {
+//                 if_version_match: None,
+//                 config: Some(rpc::InstanceConfig {
+//                     tenant: Some(default_tenant_config()),
+//                     os: Some(default_os_config()),
+//                     network: Some(new_network_config),
+//                     infiniband: None,
+//                     storage: None,
+//                     network_security_group_id: None,
+//                 }),
+//                 instance_id: instance_id_rpc,
+//                 metadata: Some(rpc::forge::Metadata {
+//                     name: "newinstance".to_string(),
+//                     description: "desc".to_string(),
+//                     labels: vec![],
+//                 }),
+//             },
+//         ))
+//         .await
+//         .unwrap();
+//
+//     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
+//     assert_eq!(instances.len(), 1);
+//     let instance = instances.remove(0);
+//
+//     assert_eq!(
+//         instance
+//             .status
+//             .as_ref()
+//             .unwrap()
+//             .network
+//             .as_ref()
+//             .unwrap()
+//             .configs_synced,
+//         SyncState::Pending as i32
+//     );
+//
+//     let mut txn = env
+//         .pool
+//         .begin()
+//         .await
+//         .expect("Unable to create transaction on database pool");
+//     let instance = crate::db::instance::Instance::find_by_id(
+//         &mut txn,
+//         uuid::Uuid::from_str(&instance.id.clone().unwrap().value)
+//             .unwrap()
+//             .into(),
+//     )
+//     .await
+//     .unwrap()
+//     .unwrap();
+//
+//     txn.rollback().await.unwrap();
+//
+//     assert!(instance.update_network_config_request.is_some());
+//     let update_req = instance.update_network_config_request.unwrap();
+//
+//     assert_eq!(
+//         NetworkDetails::NetworkSegment(segment_id),
+//         update_req.new_config.interfaces[0]
+//             .network_details
+//             .clone()
+//             .unwrap(),
+//     );
+//
+//     // VF is deleted.
+//     assert_eq!(update_req.new_config.interfaces.len(), 1);
+//
+//     // The first physical interface IP must not be changed.
+//     let updated_config_ip = instance.config.network.interfaces[0]
+//         .ip_addrs
+//         .values()
+//         .collect_vec()
+//         .first()
+//         .cloned()
+//         .cloned()
+//         .unwrap();
+//
+//     assert_eq!(current_ip, updated_config_ip);
+// }

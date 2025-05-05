@@ -1,3 +1,5 @@
+use crate::model::instance::config::network::InstanceNetworkConfig;
+use crate::model::instance::snapshot::InstanceSnapshot;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -17,11 +19,11 @@ use crate::db::{
     managed_host::LoadSnapshotOptions,
     network_security_group,
 };
-use crate::instance::{InstanceAllocationRequest, allocate_instance};
+use crate::instance::{InstanceAllocationRequest, allocate_instance, allocate_network};
 use crate::model::instance::config::InstanceConfig;
 use crate::model::instance::config::tenant_config::TenantConfig;
-use crate::model::machine::ManagedHostStateSnapshot;
 use crate::model::machine::machine_id::try_parse_machine_id;
+use crate::model::machine::{InstanceState, ManagedHostState, ManagedHostStateSnapshot};
 use crate::model::metadata::Metadata;
 use crate::model::os::OperatingSystem;
 use crate::redfish::RedfishAuth;
@@ -603,11 +605,13 @@ pub(crate) async fn update_instance_config(
     let request = request.into_inner();
     let instance_id = InstanceId::from_grpc(request.instance_id.clone())?;
 
-    let config: InstanceConfig = match request.config {
+    let mut config: InstanceConfig = match request.config {
         None => return Err(CarbideError::MissingArgument("config").into()),
         Some(config) => config.try_into().map_err(CarbideError::from)?,
     };
-    config.validate().map_err(CarbideError::from)?;
+
+    // Network validation is done only if network update is requested.
+    config.validate(false).map_err(CarbideError::from)?;
 
     // TODO: Should a missing metadata field
     // - be an error
@@ -639,6 +643,18 @@ pub(crate) async fn update_instance_config(
         })?;
 
     log_machine_id(&instance.machine_id);
+
+    let mh_snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &instance.machine_id,
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "instance",
+        id: instance_id.to_string(),
+    })?;
 
     // Check whether the update is allowed
     instance
@@ -678,6 +694,13 @@ pub(crate) async fn update_instance_config(
         }
     }
 
+    update_instance_network_config(
+        &instance,
+        &mut config.network,
+        mh_snapshot.host_snapshot.current_state(),
+        &mut txn,
+    )
+    .await?;
     Instance::update_config(&mut txn, instance.id, expected_version, config, metadata).await?;
 
     let mh_snapshot = db::managed_host::load_snapshot(
@@ -703,6 +726,98 @@ pub(crate) async fn update_instance_config(
     })?;
 
     Ok(Response::new(instance))
+}
+
+/// This function checks if network config update is requested and update db to initiate the
+/// process.
+///
+/// If it is requested, validate if update is allowed or not. If update is allowed, copy existing
+/// resources to avoid re-allocation, allocate resources for new interfaces and update the db to
+/// indicate the state machine to start updating network on DPUs. This function also increments
+/// network_config_version.
+async fn update_instance_network_config(
+    instance: &InstanceSnapshot,
+    network: &mut InstanceNetworkConfig,
+    mh_state: &ManagedHostState,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), CarbideError> {
+    if !instance
+        .config
+        .network
+        .is_network_config_update_requested(network)
+    {
+        return Ok(());
+    }
+
+    if instance.update_network_config_request.is_some() {
+        return Err(CarbideError::internal(
+            "instance network config update is already going on.".to_string(),
+        ));
+    }
+
+    if !matches!(
+        mh_state,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        }
+    ) {
+        return Err(CarbideError::internal(
+            "instance network config update can be applied only in Assigned/Ready state."
+                .to_string(),
+        ));
+    }
+
+    if instance.deleted.is_some() {
+        return Err(CarbideError::internal(
+            "Deletion is requested for the given instance. Can't apply network changes."
+                .to_string(),
+        ));
+    }
+
+    // Allocate network segment here before validate if vpc_prefix_id is mentioned.
+    allocate_network(network, txn).await?;
+    network.validate().map_err(CarbideError::from)?;
+
+    let mh_snapshot =
+        db::managed_host::load_snapshot(txn, &instance.machine_id, LoadSnapshotOptions::default())
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "machine",
+                id: instance.machine_id.to_string(),
+            })?;
+
+    // This is the use case of adding/removing new VF.
+    // Copy the resources if same interface and network are mentioned.
+    network.copy_existing_resources(&instance.config.network);
+
+    // Allocate IP
+    let updated_network_config = network
+        .clone()
+        // Allocate IPs and add them to the network config
+        .with_allocated_ips(txn, instance.id, &mh_snapshot.host_snapshot)
+        .await?;
+
+    // Update network config in db.
+    Instance::trigger_update_network_config_request(
+        &instance.id,
+        &instance.config.network,
+        &updated_network_config,
+        instance.network_config_version,
+        txn,
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    // TODO: In the case of current handling, network config update is not allowed.
+    // If we reach here means an instance network config request is received which itself is a
+    // bug. This also means now instance will be in unsynced state forever until state machine
+    // implementation is done.
+
+    // Ok(())
+    Err(CarbideError::internal(
+        "instance network config update is not supported for now.".to_string(),
+    ))
 }
 
 /// Extracts the RPC representation of Instances from a ManagedHost snapshot
