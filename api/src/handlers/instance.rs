@@ -1,3 +1,4 @@
+use crate::model::ConfigValidationError;
 use crate::model::instance::config::network::InstanceNetworkConfig;
 use crate::model::instance::snapshot::InstanceSnapshot;
 /*
@@ -750,9 +751,7 @@ async fn update_instance_network_config(
     }
 
     if instance.update_network_config_request.is_some() {
-        return Err(CarbideError::internal(
-            "instance network config update is already going on.".to_string(),
-        ));
+        return Err(ConfigValidationError::InstanceNetworkConfigUpdateAlreadyInProgress.into());
     }
 
     if !matches!(
@@ -761,17 +760,11 @@ async fn update_instance_network_config(
             instance_state: InstanceState::Ready,
         }
     ) {
-        return Err(CarbideError::internal(
-            "instance network config update can be applied only in Assigned/Ready state."
-                .to_string(),
-        ));
+        return Err(ConfigValidationError::InvalidState.into());
     }
 
     if instance.deleted.is_some() {
-        return Err(CarbideError::internal(
-            "Deletion is requested for the given instance. Can't apply network changes."
-                .to_string(),
-        ));
+        return Err(ConfigValidationError::InstanceDeletionIsRequested.into());
     }
 
     // Allocate network segment here before validate if vpc_prefix_id is mentioned.

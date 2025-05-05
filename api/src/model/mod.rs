@@ -99,6 +99,15 @@ pub enum ConfigValidationError {
 
     #[error("Specified network is not available on the requested host")]
     NetworkSegmentUnavailableOnHost,
+
+    #[error("Another instance network config update is already in progress.")]
+    InstanceNetworkConfigUpdateAlreadyInProgress,
+
+    #[error("Instance deletion request is already received.")]
+    InstanceDeletionIsRequested,
+
+    #[error("Instance is not Ready yet. Can't apply the config.")]
+    InvalidState,
 }
 
 impl ConfigValidationError {
