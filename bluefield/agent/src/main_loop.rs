@@ -32,6 +32,7 @@ use mac_address::MacAddress;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use tracing::log::error;
 use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use version_compare::Version;
 
@@ -48,7 +49,8 @@ use crate::util::{UrlResolver, get_host_boot_timestamp};
 use crate::{
     FMDS_MINIMUM_HBN_VERSION, HBNDeviceNames, NVUE_MINIMUM_HBN_VERSION, RunOptions, command_line,
     ethernet_virtualization, hbn, health, instance_metadata_endpoint, instance_metadata_fetcher,
-    machine_inventory_updater, mtu, netlink, network_config_fetcher, nvue, sysfs, upgrade,
+    machine_inventory_updater, mtu, netlink, network_config_fetcher, nvue, pretty_cmd, sysfs,
+    upgrade,
 };
 
 // Main loop when running in daemon mode
@@ -64,6 +66,16 @@ pub async fn setup_and_run(
         version = forge_version::version!(),
         "Started forge-dpu-agent"
     );
+
+    // Issue a *hopefully* one time reboot in the event that a VERY specific case where the dpu
+    // is unable to load its 2.9.2 ATF/UEFI, due to a nasty bug that deleted the uefi cert db. This
+    // is a manual way to load the ATF/UEFI, because by the time we get to the dpu agent actually
+    // running, then we got past all the pre-reqs that would have gotten us out of the state where
+    // we cannot load the ATF/UEFI, so we run these commands and reboot, and the next time we check
+    // the ATF/UEFI is loaded.
+    //
+    // Once the fleet is all on 2.9.2, we can remove this ugly hack.
+    hack_dpu_os_to_load_atf_uefi_with_specific_versions().await?;
 
     let process_start_time = SystemTime::now();
 
@@ -1065,6 +1077,106 @@ fn dt(d: Duration) -> humantime::FormattedDuration {
 // apply it as a resource attribute.
 pub fn build_otel_machine_id_file(machine_id: &str) -> String {
     format!("machine.id={}\n", machine_id)
+}
+
+// Do horrible things to the DPU including an out of band, unknown to forge, reboot.
+//
+// If a DPU cannot load its 2.9 ATF/UEFI, issue hacky commands to force load it and reboot
+// which actually does the loading of the ATU/UEFI. Upon reboot, the bfvcheck will be valid or
+// the dpu will be left in a broken state because it was unable to load its ATF/UEFI and needs to
+// be investigated.
+async fn hack_dpu_os_to_load_atf_uefi_with_specific_versions() -> eyre::Result<()> {
+    tracing::info!("attempting to verify the hack for specific versions");
+    let bfvcheck_output: String = if cfg!(test) {
+        let test_data_dir = PathBuf::from(crate::dpu::ARMOS_TEST_DATA_DIR);
+
+        std::fs::read_to_string(test_data_dir.join("bfvcheck.out")).map_err(|e| {
+            error!("Could not read bfvcheck.out: {}", e);
+            eyre::eyre!("Could not read bfvcheck.out: {}", e)
+        })?
+    } else {
+        let mut cmd = tokio::process::Command::new("bash");
+        cmd.args(vec!["-c", "bfvcheck"]);
+        cmd.kill_on_drop(true);
+
+        let cmd_str = pretty_cmd(cmd.as_std());
+
+        let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
+            .await
+            .wrap_err_with(|| format!("Timeout while running command: {:?}", cmd_str))??;
+
+        String::from_utf8_lossy(&output.stdout).to_string()
+    };
+
+    // The specific check is to see if we have not loaded but have a recommended ATF/UEFI is 2.9.
+    // If this is the case, we have hit the "unable to load the ATF/UEFI because of the ugly bug"
+    // condition, and it is the only time these commands are issued. The ATF/UEFI is immediately updated on
+    // newer cards and after reboot on the older cards. Both need the reboot to properly populate the
+    // redfish db as well.
+
+    // these are colorized on bfvcheck output so instead of checking for ugly bash color codes, just
+    // validate the actual strings
+    if bfvcheck_output.clone().contains("WARNING: ATF VERSION DOES NOT MATCH RECOMMENDED!") &&
+        bfvcheck_output.clone().contains("WARNING: UEFI VERSION DOES NOT MATCH RECOMMENDED!") &&
+        // This is to ensure that the recommended is 4.9.2, meaning its only going to fix this if 
+        // moving to 4.9.2. This is done so that no older DPUs which may be operating under a customer
+        // that have not properly updated but yet somehow became assigned. These DPUS are only in 
+        // this state because they are stuck in reprovisioning as part of the same release with 
+        // 4.9.2 included. If this check was deployed to production weeks after the update to 4.9.2,
+        // there could be a problem with  assigned machines having 2.9.2 recommended but not loaded,
+        // but if both releases drop at the same time, this state will only be seen during 
+        // reprovisioning / initial discovery.
+        bfvcheck_output.clone().contains(
+        "-RECOMMENDED VERSIONS-
+ATF: v2.2(release):4.9.2-")
+    && !cfg!(test)
+    {
+        tracing::info!(
+            "bfvcheck output has identifed a situation in which it needs to load and \
+                restart the DPU during install. This message should not print in logs multiple reboots. \
+                If it does, the ATF/UEFI cannot be loaded and the card should be investigated."
+        );
+        let mut cmd = tokio::process::Command::new("bash");
+        cmd.args(vec![
+            "-c",
+            "mlxbf-bootctl -s -b /lib/firmware/mellanox/boot/default.bfb -d /dev/mmcblk0",
+        ]);
+        cmd.kill_on_drop(true);
+
+        let cmd_str = pretty_cmd(cmd.as_std());
+
+        // This is not a typo, we have to run it twice as per NBU
+        tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
+            .await
+            .wrap_err_with(|| format!("Timeout while running command: {:?}", cmd_str))??;
+        // This is not a typo, we have to run it twice as per NBU
+        tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
+            .await
+            .wrap_err_with(|| format!("Timeout while running command: {:?}", cmd_str))??;
+
+        let mut cmd = tokio::process::Command::new("bash");
+        cmd.args(vec!["-c", "sync"]);
+        cmd.kill_on_drop(true);
+
+        let cmd_str = pretty_cmd(cmd.as_std());
+        tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
+            .await
+            .wrap_err_with(|| format!("Timeout while running command: {:?}", cmd_str))??;
+
+        // And now for the pièce de résistance, a reboot inline on the dpu OS, and this command
+        // takes a LONG time so we will put an egregiously large reboot time
+        let mut cmd = tokio::process::Command::new("bash");
+        cmd.args(vec!["-c", "reboot"]);
+        cmd.kill_on_drop(true);
+
+        let cmd_str = pretty_cmd(cmd.as_std());
+        tokio::time::timeout(Duration::from_secs(60 * 10), cmd.output())
+            .await
+            .wrap_err_with(|| format!("Timeout while running command: {:?}", cmd_str))??;
+    }
+
+    // This method will either reboot a card or just return ok.
+    Ok(())
 }
 
 #[cfg(test)]
