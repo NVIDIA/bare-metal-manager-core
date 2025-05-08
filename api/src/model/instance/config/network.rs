@@ -386,28 +386,29 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                 }
             };
 
-            let network_details: Option<NetworkDetails> = if let Some(x) = iface.network_details {
-                Some(x.try_into()?)
-            } else {
-                None
-            };
-
-            // If we have network_details available, use it to get network_segment id.
-            let network_segment_id = match &network_details {
-                Some(network_details) => match network_details {
-                    NetworkDetails::NetworkSegment(network_segment_id) => Some(*network_segment_id),
+            // If network_details is present, that gets precedence and we'll pull the network_segment_id from that
+            // if it's a NetworkSegment.
+            let (network_details, network_segment_id) = if let Some(x) = iface.network_details {
+                let nd: NetworkDetails = x.try_into()?;
+                let ns_id = match nd {
+                    NetworkDetails::NetworkSegment(network_segment_id) => Some(network_segment_id),
                     NetworkDetails::VpcPrefixId(_uuid) => None,
-                },
-                None => {
-                    // This is old model. Let's use network segment id as such.
-                    // TODO: This should be removed in future.
-                    let ns_id = NetworkSegmentId::try_from(iface.network_segment_id.ok_or(
-                        RpcDataConversionError::MissingArgument(
-                            "InstanceInterfaceConfig::network_segment_id",
-                        ),
-                    )?)?;
-                    Some(ns_id)
-                }
+                };
+
+                (Some(nd), ns_id)
+            } else {
+                // If network_details wasn't set, then the caller is required to
+                // send network_segment_id.
+                // This is old model. Let's use network segment id as such.
+                // TODO: This should be removed in future.
+                let ns_id = NetworkSegmentId::try_from(iface.network_segment_id.ok_or(
+                    RpcDataConversionError::MissingArgument(
+                        "InstanceInterfaceConfig::network_segment_id",
+                    ),
+                )?)?;
+
+                // And then we'll populate network_details from that as well.
+                (Some(NetworkDetails::NetworkSegment(ns_id)), Some(ns_id))
             };
 
             interfaces.push(InstanceInterfaceConfig {
@@ -801,7 +802,7 @@ mod tests {
                 interface_prefixes: HashMap::new(),
                 network_segment_gateways: HashMap::new(),
                 host_inband_mac_address: None,
-                network_details: None
+                network_details: Some(NetworkDetails::NetworkSegment(BASE_SEGMENT_ID.into()),),
             }]
         );
     }
@@ -831,18 +832,19 @@ mod tests {
             interface_prefixes: HashMap::new(),
             network_segment_gateways: HashMap::new(),
             host_inband_mac_address: None,
-            network_details: None,
+            network_details: Some(NetworkDetails::NetworkSegment(BASE_SEGMENT_ID.into())),
         }];
 
         for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
+            let segment_id = offset_segment_id(vfid + 1);
             expected_interfaces.push(InstanceInterfaceConfig {
                 function_id: InterfaceFunctionId::Virtual { id: vfid as u8 },
-                network_segment_id: Some(offset_segment_id(vfid + 1)),
+                network_segment_id: Some(segment_id),
                 ip_addrs: HashMap::new(),
                 interface_prefixes: HashMap::new(),
                 network_segment_gateways: HashMap::new(),
                 host_inband_mac_address: None,
-                network_details: None,
+                network_details: Some(NetworkDetails::NetworkSegment(segment_id)),
             });
         }
         assert_eq!(netconfig.interfaces, &expected_interfaces[..]);

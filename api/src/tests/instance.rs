@@ -55,7 +55,7 @@ use ::rpc::forge::forge_server::Forge;
 use chrono::Utc;
 use common::api_fixtures::{
     TestEnvOverrides, create_managed_host, create_test_env, create_test_env_with_overrides, dpu,
-    forge_agent_control, get_config, inject_machine_measurements,
+    forge_agent_control, get_config, get_vpc_fixture_id, inject_machine_measurements,
     instance::{
         advance_created_instance_into_ready_state, create_instance, create_instance_with_hostname,
         create_instance_with_labels, default_os_config, default_tenant_config, delete_instance,
@@ -2572,11 +2572,11 @@ async fn test_allocate_instance_with_old_network_segemnt(
         iface.interface_prefixes.clear();
         iface.network_segment_gateways.clear();
     }
-    let mut expected_nw_config = InstanceNetworkConfig::for_segment_id(segment_id);
-    for interface in &mut expected_nw_config.interfaces {
-        interface.network_details = None;
-    }
-    assert_eq!(network_config_no_addresses, expected_nw_config);
+
+    assert_eq!(
+        network_config_no_addresses,
+        InstanceNetworkConfig::for_segment_id(segment_id)
+    );
 }
 
 #[crate::sqlx_test]
@@ -3495,6 +3495,292 @@ async fn test_allocate_and_update_with_network_security_group(
     );
 
     Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_network_details_migration(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    // We'll try three cases here:
+    // Instance with interfaces that have only network_segment_id, which should end up with a new network_details k/v.
+    // Instance with interfaces that have both network_segment_id and network_details, which should be left unchanged.
+    // Instance with vpc prefix, which should be left unchanged.
+
+    // There won't be any cases of only network_details because sending in network_details ends up setting network_segment_id.
+
+    // Create a new managed host in the DB and get the snapshot.
+    let mh_without_network_details = site_explorer::new_host(&env, ManagedHostConfig::default())
+        .await
+        .unwrap();
+
+    let mh_without_segment_id = site_explorer::new_host(&env, ManagedHostConfig::default())
+        .await
+        .unwrap();
+
+    let mh_with_vpc_prefix = site_explorer::new_host(&env, ManagedHostConfig::default())
+        .await
+        .unwrap();
+
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    // Create an instance with only network_segment_id
+    let i = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: Some(rpc::MachineId {
+                id: mh_without_network_details.host_snapshot.id.to_string(),
+            }),
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(rpc::InstanceNetworkConfig {
+                    interfaces: vec![rpc::InstanceInterfaceConfig {
+                        function_type: rpc::InterfaceFunctionType::Physical as i32,
+                        network_segment_id: Some(segment_id.into()),
+                        network_details: None,
+                    }],
+                }),
+                infiniband: None,
+                storage: None,
+                network_security_group_id: None,
+            }),
+            instance_id: None,
+            instance_type_id: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let i1_id = i.id.unwrap();
+
+    // Remove the network_details that we auto-populate now.
+    let mut conn = env.pool.acquire().await.unwrap();
+    sqlx::query(
+        "UPDATE instances i
+    SET network_config=jsonb_set(
+        network_config,
+        '{interfaces}',
+        (
+            select jsonb_agg(ba.value) from (
+                SELECT
+                    ifc_ttable.value - 'network_details' as value
+                FROM jsonb_array_elements(i.network_config #>'{interfaces}') as ifc_ttable
+           ) as ba
+        )
+    );",
+    )
+    .execute(conn.as_mut())
+    .await
+    .unwrap();
+
+    // Find the instance to confirm the state we expect.
+    let i = env
+        .api
+        .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+            instance_ids: vec![i1_id.clone()],
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .instances
+        .pop()
+        .unwrap();
+
+    // Check that the instance actually has the ID we expect
+    assert_eq!(
+        i.config.clone().unwrap().network.unwrap().interfaces[0].network_segment_id,
+        Some(segment_id.into())
+    );
+
+    // We expect that we've cleared the value with our raw query.
+    assert!(
+        i.config.unwrap().network.unwrap().interfaces[0]
+            .network_details
+            .is_none(),
+    );
+
+    // Create an instance with network_details
+    let i = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: Some(rpc::MachineId {
+                id: mh_without_segment_id.host_snapshot.id.to_string(),
+            }),
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(rpc::InstanceNetworkConfig {
+                    interfaces: vec![rpc::InstanceInterfaceConfig {
+                        function_type: rpc::InterfaceFunctionType::Physical as i32,
+                        network_segment_id: None,
+                        network_details: Some(
+                            rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+                                segment_id.into(),
+                            ),
+                        ),
+                    }],
+                }),
+                infiniband: None,
+                storage: None,
+                network_security_group_id: None,
+            }),
+            instance_id: None,
+            instance_type_id: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let i2_id = i.id.unwrap();
+
+    // Check that the instance actually has the ID we expect
+    assert_eq!(
+        i.config.clone().unwrap().network.unwrap().interfaces[0].network_details,
+        Some(rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id.into()))
+    );
+
+    assert_eq!(
+        i.config.unwrap().network.unwrap().interfaces[0].network_segment_id,
+        Some(segment_id.into())
+    );
+
+    // Create an instance with vpc-prefix
+    let ip_prefix = "192.0.5.0/24";
+    let vpc_id = get_vpc_fixture_id(&env).await;
+    let vpc_prefix = env
+        .api
+        .create_vpc_prefix(tonic::Request::new(rpc::forge::VpcPrefixCreationRequest {
+            id: None,
+            prefix: ip_prefix.into(),
+            name: "Test VPC prefix".into(),
+            vpc_id: Some(vpc_id.into()),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let vpc_prefix_id = vpc_prefix.id.unwrap();
+
+    let i = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: Some(rpc::MachineId {
+                id: mh_with_vpc_prefix.host_snapshot.id.to_string(),
+            }),
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(rpc::InstanceNetworkConfig {
+                    interfaces: vec![rpc::InstanceInterfaceConfig {
+                        function_type: rpc::InterfaceFunctionType::Physical as i32,
+                        network_segment_id: None,
+                        network_details: Some(
+                            rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(
+                                vpc_prefix_id.clone(),
+                            ),
+                        ),
+                    }],
+                }),
+                infiniband: None,
+                storage: None,
+                network_security_group_id: None,
+            }),
+            instance_id: None,
+            instance_type_id: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let i3_id = i.id.unwrap();
+
+    assert_eq!(
+        i.config.clone().unwrap().network.unwrap().interfaces[0].network_details,
+        Some(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(vpc_prefix_id))
+    );
+
+    // Run the migration
+    let mut conn = env.pool.acquire().await.unwrap();
+    sqlx::query(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/20250505194055_network_segment_id_to_network_details.sql"
+    )))
+    .execute(conn.as_mut())
+    .await
+    .unwrap();
+
+    // Now go see if the instances are all still in an expected state.
+
+    validate_post_migration_instance_network_config(&env, i1_id, Some(segment_id.into())).await;
+    validate_post_migration_instance_network_config(&env, i2_id, Some(segment_id.into())).await;
+    validate_post_migration_instance_network_config(&env, i3_id, None).await;
+
+    Ok(())
+}
+
+pub async fn validate_post_migration_instance_network_config(
+    env: &TestEnv,
+    instance_id: rpc::common::Uuid,
+    segment_id: Option<rpc::common::Uuid>,
+) {
+    let i = env
+        .api
+        .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+            instance_ids: vec![instance_id],
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .instances
+        .pop()
+        .unwrap();
+
+    match segment_id {
+        // If we originated from network_segment_id or NetworkDetails::SegmentId
+        // check that everything matches.
+        Some(id) => {
+            assert_eq!(
+                i.config.clone().unwrap().network.unwrap().interfaces[0].network_details,
+                Some(rpc::forge::instance_interface_config::NetworkDetails::SegmentId(id.clone()))
+            );
+
+            assert_eq!(
+                i.config.unwrap().network.unwrap().interfaces[0].network_segment_id,
+                Some(id)
+            );
+        }
+        // If we originated from NetworkDetails::VpcPrefixId
+        // we just need to confirm that it's still in that state.
+        // The migration doesn't touch network_segment_id in the DB.
+        None => {
+            assert!(matches!(
+                i.config.clone().unwrap().network.unwrap().interfaces[0].network_details,
+                Some(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(_))
+            ));
+            assert!(
+                i.config.clone().unwrap().network.unwrap().interfaces[0]
+                    .network_segment_id
+                    .is_some(),
+            );
+        }
+    }
 }
 
 // #[crate::sqlx_test]
