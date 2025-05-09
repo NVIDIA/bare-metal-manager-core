@@ -20,8 +20,8 @@
 	<tr><th>Labels</th><td>{{ labels|label_list_fmt(false)|safe }}</td></tr>
 	<tr>
 		<th>Capability Filters</th>
-		<td>
-			<table>
+		<td style="padding: 0;">
+			<table class="sortable overview">
 				<td> Type </td>
 				<td> Name </td>
 				<td> Frequency </td>
@@ -45,7 +45,7 @@
 					<td>{{ cap.threads }}</td>
 					<td>{{ cap.inactive_devices }}</td>
 				</tr>
-			{% endfor %}				
+			{% endfor %}
 			</table>
 		</td>
 	</tr>

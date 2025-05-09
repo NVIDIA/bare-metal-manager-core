@@ -18,7 +18,7 @@
 		{% for p in partitions %}
 		<tr>
 			<td><a href="/admin/ib-partition/{{ p.id }}">{{ p.id }}</a></td>
-			<td>{{ p.tenant_organization_id }}</td>
+			<td><a href="/admin/tenant/{{ p.tenant_organization_id }}">{{ p.tenant_organization_id }}</a></td>
 			<td>{{ p.name }}</td>
 			<td>
 				{{ p.state }}
