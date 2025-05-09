@@ -24,6 +24,7 @@ use std::net::IpAddr;
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use utils::HostPortPair;
 
+use crate::api::log_request_data;
 use crate::{
     CarbideError, CarbideResult,
     db::{self},
@@ -637,6 +638,8 @@ pub async fn redfish_browse(
     api: &crate::api::Api,
     request: tonic::Request<::rpc::forge::RedfishBrowseRequest>,
 ) -> Result<tonic::Response<::rpc::forge::RedfishBrowseResponse>, tonic::Status> {
+    log_request_data(&request);
+
     let request = request.into_inner();
     let uri: http::Uri = match request.uri.clone().parse() {
         Ok(uri) => uri,

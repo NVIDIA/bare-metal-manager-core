@@ -30,3 +30,31 @@ pub(crate) async fn find_ids(
         ib_fabric_ids: fabrics,
     }))
 }
+
+pub(crate) async fn ufm_browse(
+    api: &Api,
+    request: Request<rpc::UfmBrowseRequest>,
+) -> Result<tonic::Response<rpc::UfmBrowseResponse>, Status> {
+    log_request_data(&request);
+
+    let request = request.into_inner();
+
+    let fabric = api.ib_fabric_manager.connect(&request.fabric_id).await?;
+
+    let response = fabric.raw_get(&request.path).await?;
+
+    Ok(tonic::Response::new(::rpc::forge::UfmBrowseResponse {
+        body: response.body,
+        code: response.code.into(),
+        headers: response
+            .headers
+            .into_iter()
+            .map(|(k, v)| {
+                (
+                    k.map(|k| k.to_string()).unwrap_or_default(),
+                    String::from_utf8_lossy(v.as_bytes()).to_string(),
+                )
+            })
+            .collect(),
+    }))
+}

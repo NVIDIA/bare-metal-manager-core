@@ -15,7 +15,7 @@ use std::{path::Path, sync::Arc};
 
 use async_trait::async_trait;
 
-use super::iface::Filter;
+use super::iface::{Filter, IBFabricRawResponse};
 use super::types::{IBMtu, IBNetwork, IBPort, IBPortState, IBRateLimit, IBServiceLevel};
 use super::ufmclient::{
     self, Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, SmConfig,
@@ -160,6 +160,18 @@ impl IBFabric for RestIBFabric {
         let ufm_version = self.ufm.version().await?;
 
         Ok(IBFabricVersions { ufm_version })
+    }
+
+    /// Make a raw HTTP GET request to the Fabric Manager using the given path,
+    /// and return the response body.
+    async fn raw_get(&self, path: &str) -> Result<IBFabricRawResponse, CarbideError> {
+        let value = self.ufm.raw_get(path).await?;
+        // TODO: Properly populate the status code and headers
+        Ok(IBFabricRawResponse {
+            body: serde_json::to_string(&value).unwrap_or_default(),
+            code: 200,
+            headers: http::HeaderMap::new(),
+        })
     }
 }
 

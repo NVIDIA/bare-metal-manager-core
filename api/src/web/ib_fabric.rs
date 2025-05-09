@@ -70,7 +70,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(fabrics)).into_response()
 }
 
-async fn fetch_ib_fabric_ids(api: Arc<Api>) -> Result<Vec<String>, tonic::Status> {
+pub async fn fetch_ib_fabric_ids(api: Arc<Api>) -> Result<Vec<String>, tonic::Status> {
     let request = tonic::Request::new(forgerpc::IbFabricSearchFilter::default());
 
     let ib_fabric_ids = api

@@ -136,6 +136,16 @@ impl IBFabricManager for IBFabricManagerImpl {
             #[cfg(test)]
             IBFabricManagerType::Mock => Ok(self.mock_fabric.clone()),
             IBFabricManagerType::Rest => {
+                let endpoint = self
+                    .config
+                    .endpoints
+                    .get(fabric_name)
+                    .and_then(|fabric_endpoints| fabric_endpoints.first())
+                    .ok_or_else(|| CarbideError::NotFoundError {
+                        kind: "ib_fabric_endpoint",
+                        id: fabric_name.to_string(),
+                    })?;
+
                 let credentials = self
                     .credential_provider
                     .get_credentials(CredentialKey::UfmAuth {
@@ -154,16 +164,6 @@ impl IBFabricManager for IBFabricManagerImpl {
                             "Error getting credentials for Ufm: {:?}",
                             err
                         )),
-                    })?;
-
-                let endpoint = self
-                    .config
-                    .endpoints
-                    .get(fabric_name)
-                    .and_then(|fabric_endpoints| fabric_endpoints.first())
-                    .ok_or_else(|| CarbideError::NotFoundError {
-                        kind: "ib_fabric_endpoint",
-                        id: fabric_name.to_string(),
                     })?;
 
                 let (_deprecated_address, token) = match credentials {

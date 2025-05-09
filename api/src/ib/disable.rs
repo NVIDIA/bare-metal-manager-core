@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 
-use super::iface::Filter;
+use super::iface::{Filter, IBFabricRawResponse};
 use super::types::{IBNetwork, IBPort};
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
@@ -72,6 +72,14 @@ impl IBFabric for DisableIBFabric {
 
     /// Returns IB fabric related versions
     async fn versions(&self) -> Result<IBFabricVersions, CarbideError> {
+        Err(CarbideError::IBFabricError(
+            "ib fabric is disabled".to_string(),
+        ))
+    }
+
+    /// Make a raw HTTP GET request to the Fabric Manager using the given path,
+    /// and return the response body.
+    async fn raw_get(&self, _path: &str) -> Result<IBFabricRawResponse, CarbideError> {
         Err(CarbideError::IBFabricError(
             "ib fabric is disabled".to_string(),
         ))

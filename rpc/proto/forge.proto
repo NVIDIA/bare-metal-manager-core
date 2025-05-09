@@ -481,6 +481,7 @@ service Forge {
   rpc TpmDeleteCaCert(TpmCaCertId) returns (google.protobuf.Empty);
 
   rpc RedfishBrowse(RedfishBrowseRequest) returns (RedfishBrowseResponse);
+  rpc UfmBrowse(UfmBrowseRequest) returns (UfmBrowseResponse);
 
   rpc GetDesiredFirmwareVersions(GetDesiredFirmwareVersionsRequest) returns (GetDesiredFirmwareVersionsResponse);
 
@@ -4206,6 +4207,22 @@ message RedfishBrowseResponse {
   // Response in JSON String
   string text = 1;
   map<string, string> headers = 2;
+}
+
+message UfmBrowseRequest {
+  // IB Fabric to query
+  string fabric_id = 1;
+  // Queried path on UFM
+  string path = 2;
+}
+
+message UfmBrowseResponse {
+  // Response body
+  string body = 1;
+  // Response status code
+  int32 code = 2;
+  // Response headers
+  map<string, string> headers = 3;
 }
 
 message NetworkSecurityGroupAttributes {
