@@ -30,6 +30,15 @@ pub struct IBFabricVersions {
     pub ufm_version: String,
 }
 
+pub struct IBFabricRawResponse {
+    /// Response body
+    pub body: String,
+    /// Response status code
+    pub code: u16,
+    /// Response headers
+    pub headers: http::HeaderMap,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IBFabricConfig {
     /// The subnet_prefix of UFM
@@ -101,4 +110,8 @@ pub trait IBFabric: Send + Sync {
 
     /// Returns IB fabric related versions
     async fn versions(&self) -> Result<IBFabricVersions, CarbideError>;
+
+    /// Make a raw HTTP GET request to the Fabric Manager using the given path,
+    /// and return the response body.
+    async fn raw_get(&self, path: &str) -> Result<IBFabricRawResponse, CarbideError>;
 }

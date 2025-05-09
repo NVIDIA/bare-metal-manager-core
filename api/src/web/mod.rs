@@ -72,6 +72,7 @@ mod search;
 mod sku;
 mod tenant;
 mod tenant_keyset;
+mod ufm_browser;
 mod vpc;
 
 const WEB_AUTH: &str = "admin:Welcome123";
@@ -398,6 +399,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/machinevalidation/external-config",
                 get(machine_validation::external_configs),
             )
+            .route("/ufm-browser", get(ufm_browser::query))
             .layer(axum::middleware::from_fn(auth_oauth2))
             .layer(Extension(oauth_extension_layer))
             .with_state(api),

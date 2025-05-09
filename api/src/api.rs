@@ -4734,6 +4734,12 @@ impl Forge for Api {
     ) -> Result<tonic::Response<rpc::RedfishBrowseResponse>, Status> {
         crate::redfish::redfish_browse(self, request).await
     }
+    async fn ufm_browse(
+        &self,
+        request: tonic::Request<rpc::UfmBrowseRequest>,
+    ) -> Result<tonic::Response<rpc::UfmBrowseResponse>, Status> {
+        crate::handlers::ib_fabric::ufm_browse(self, request).await
+    }
     async fn create_network_security_group(
         &self,
         request: tonic::Request<rpc::CreateNetworkSecurityGroupRequest>,

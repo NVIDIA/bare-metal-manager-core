@@ -501,6 +501,17 @@ impl Ufm {
 
         Ok(v.ufm_release_version)
     }
+
+    pub async fn raw_get(&self, path: &str) -> Result<serde_json::Value, UFMError> {
+        #[derive(Serialize, Deserialize, Debug)]
+        struct Version {
+            ufm_release_version: String,
+        }
+
+        let v: serde_json::Value = self.client.get(path).await?;
+
+        Ok(v)
+    }
 }
 
 #[cfg(test)]

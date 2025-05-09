@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use super::iface::Filter;
+use super::iface::{Filter, IBFabricRawResponse};
 use super::types::{IBNetwork, IBPort, IBPortState};
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
@@ -179,6 +179,12 @@ impl IBFabric for MockIBFabric {
         let ufm_version = "mock_ufm_1.0".to_string();
 
         Ok(IBFabricVersions { ufm_version })
+    }
+
+    /// Make a raw HTTP GET request to the Fabric Manager using the given path,
+    /// and return the response body.
+    async fn raw_get(&self, _path: &str) -> Result<IBFabricRawResponse, CarbideError> {
+        Err(CarbideError::NotImplemented)
     }
 }
 
