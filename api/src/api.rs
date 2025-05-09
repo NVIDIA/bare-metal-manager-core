@@ -324,6 +324,13 @@ impl Forge for Api {
         crate::handlers::ib_partition::for_tenant(self, request).await
     }
 
+    async fn find_ib_fabric_ids(
+        &self,
+        request: Request<rpc::IbFabricSearchFilter>,
+    ) -> Result<Response<rpc::IbFabricIdList>, Status> {
+        crate::handlers::ib_fabric::find_ids(self, request).await
+    }
+
     async fn find_network_segment_ids(
         &self,
         request: Request<rpc::NetworkSegmentSearchFilter>,

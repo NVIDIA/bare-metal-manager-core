@@ -14,6 +14,7 @@ mod explored_endpoint_find;
 mod explored_managed_host_find;
 mod finder;
 mod host_bmc_firmware_test;
+mod ib_fabric_find;
 mod ib_fabric_monitor;
 mod ib_instance;
 mod ib_partition_find;

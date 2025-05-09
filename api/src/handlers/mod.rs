@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -20,6 +20,7 @@ pub mod dpu;
 pub mod expected_machine;
 pub mod finder;
 pub mod health;
+pub mod ib_fabric;
 pub mod ib_partition;
 pub mod instance;
 pub mod instance_type;

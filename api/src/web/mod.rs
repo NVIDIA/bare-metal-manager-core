@@ -53,6 +53,7 @@ mod explored_endpoint;
 mod filters;
 mod health;
 mod health_history;
+mod ib_fabric;
 mod ib_partition;
 mod instance;
 mod instance_type;
@@ -266,6 +267,8 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/ib-partition", get(ib_partition::show_html))
             .route("/ib-partition.json", get(ib_partition::show_all_json))
             .route("/ib-partition/:partition_id", get(ib_partition::detail))
+            .route("/ib-fabric", get(ib_fabric::show_html))
+            .route("/ib-fabric.json", get(ib_fabric::show_all_json))
             .route("/instance", get(instance::show_html))
             .route("/instance.json", get(instance::show_all_json))
             .route("/instance/:instance_id", get(instance::detail))
