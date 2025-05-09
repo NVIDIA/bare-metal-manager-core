@@ -23,6 +23,7 @@ use measured_boot::{
 };
 use rpc::protos::measured_boot as mbprotos;
 
+use super::filters;
 use crate::api::Api;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;

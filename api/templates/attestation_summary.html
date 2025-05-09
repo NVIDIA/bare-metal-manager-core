@@ -18,14 +18,14 @@
     <tbody>
         {% for attested_machine in attestations %}
         <tr>
-            <td>{{ attested_machine.machine_id.to_string() }}</td>
+            <td>{{ attested_machine.machine_id|machine_id_link }}</td>
             {% if attested_machine.bundle_id.is_none() %}
             <td>
-                <a style="color:#eb0c4f" href="/admin/machine/{{ attested_machine.machine_id.to_string() }}/attestation-results">   Attestation Failed </a>
+                <a style="color:#eb0c4f" href="/admin/machine/{{ attested_machine.machine_id.to_string() }}/attestation-results">Attestation Failed</a>
             </td>
             {% else %}
             <td>
-                <a style="color:#0ec01d" href="/admin/machine/{{ attested_machine.machine_id.to_string() }}/attestation-results">   Attestation Successful </a>
+                <a style="color:#0ec01d" href="/admin/machine/{{ attested_machine.machine_id.to_string() }}/attestation-results">Attestation Successful</a>
             </td>
             {% endif %}
             <td>{{ attested_machine.profile_name }}</td>
