@@ -502,7 +502,7 @@ impl From<&StateControllerConfig> for IterationConfig {
 }
 
 /// IBFabricManager related configuration
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct IBFabricConfig {
     #[serde(
         default = "IBFabricConfig::default_max_partition_per_tenant",
@@ -510,8 +510,7 @@ pub struct IBFabricConfig {
     )]
     pub max_partition_per_tenant: i32,
 
-    // If ib_fabrics is configured in 'site.toml', it's enabled by default.
-    #[serde(default = "IBFabricConfig::enable_ib_fabric")]
+    #[serde(default)]
     /// Enable IB fabric
     pub enabled: bool,
 
@@ -548,11 +547,21 @@ pub struct IBFabricConfig {
     pub fabric_monitor_run_interval: std::time::Duration,
 }
 
-impl IBFabricConfig {
-    pub const fn enable_ib_fabric() -> bool {
-        true
+impl Default for IBFabricConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_partition_per_tenant: Self::default_max_partition_per_tenant(),
+            allow_insecure: false,
+            mtu: IBMtu::default(),
+            rate_limit: IBRateLimit::default(),
+            service_level: IBServiceLevel::default(),
+            fabric_monitor_run_interval: Self::default_fabric_monitor_run_interval(),
+        }
     }
+}
 
+impl IBFabricConfig {
     pub const fn default_max_partition_per_tenant() -> i32 {
         MAX_IB_PARTITION_PER_TENANT
     }
@@ -2108,7 +2117,7 @@ mod tests {
         assert_eq!(
             config.ib_config,
             Some(IBFabricConfig {
-                enabled: false,
+                enabled: true,
                 fabric_monitor_run_interval: std::time::Duration::from_secs(102),
                 ..serde_json::from_str("{}").unwrap()
             })
@@ -2255,7 +2264,7 @@ mod tests {
         assert_eq!(
             config.ib_config,
             Some(IBFabricConfig {
-                enabled: true,
+                enabled: false,
                 fabric_monitor_run_interval: std::time::Duration::from_secs(101),
                 ..serde_json::from_str("{}").unwrap()
             })
@@ -2478,7 +2487,7 @@ mod tests {
         assert_eq!(
             config.ib_config,
             Some(IBFabricConfig {
-                enabled: false,
+                enabled: true,
                 fabric_monitor_run_interval: std::time::Duration::from_secs(102),
                 ..serde_json::from_str("{}").unwrap()
             })
@@ -2720,6 +2729,15 @@ max_partition_per_tenant = 3
 
     #[test]
     fn deserialize_serialize_ib_config() {
+        // An empty config matches the default object
+        let deserialized_empty: IBFabricConfig = serde_json::from_str("{}").unwrap();
+        assert_eq!(
+            IBFabricConfig::default(),
+            deserialized_empty,
+            "Empty IBFabricConfig does not match default"
+        );
+        assert!(!deserialized_empty.enabled);
+
         let value_input = IBFabricConfig {
             enabled: true,
             allow_insecure: false,
@@ -2750,9 +2768,6 @@ max_partition_per_tenant = 3
                 fabric_monitor_run_interval: std::time::Duration::from_secs(60),
             }
         );
-
-        let value_input = IBFabricConfig::default();
-        assert!(!value_input.enabled);
 
         figment::Jail::expect_with(|jail| {
             jail.create_file(
