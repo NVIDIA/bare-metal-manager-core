@@ -56,6 +56,7 @@ service Forge {
   rpc DeleteNetworkSegment(NetworkSegmentDeletionRequest) returns (NetworkSegmentDeletionResult);
   rpc NetworkSegmentsForVpc(VpcSearchQuery) returns (NetworkSegmentList);
 
+  // InfiniBand Partitions
   rpc FindIBPartitionIds(IBPartitionSearchFilter) returns (IBPartitionIdList);
   rpc FindIBPartitionsByIds(IBPartitionsByIdsRequest) returns (IBPartitionList);
   // DEPRECATED: use FindIBPartitionIds and FindIBPartitionsByIds instead
@@ -66,6 +67,10 @@ service Forge {
   rpc DeleteIBPartition(IBPartitionDeletionRequest) returns (IBPartitionDeletionResult);
   // Find all IB partitions under a specified tenant
   rpc IBPartitionsForTenant(TenantSearchQuery) returns (IBPartitionList);
+
+  // InfiniBand Fabrics
+  // Returns the list of all InfiniBand fabrics available within the site
+  rpc FindIBFabricIds(IBFabricSearchFilter) returns (IBFabricIdList);
 
   // Manage instances on machines
   // Allocates a Machine as Instance for tenant, with the given configuration
@@ -1088,6 +1093,13 @@ message IBPartitionsByIdsRequest {
 
 message IBPartitionIdList {
   repeated common.UUID ib_partition_ids = 1;
+}
+
+message IBFabricSearchFilter {
+}
+
+message IBFabricIdList {
+  repeated string ib_fabric_ids = 1;
 }
 
 message NetworkSegmentStateHistory {

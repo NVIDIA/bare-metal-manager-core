@@ -85,6 +85,7 @@ impl InternalRBACRules {
         x.perm("CreateIBPartition", vec![SiteAgent]);
         x.perm("DeleteIBPartition", vec![SiteAgent]);
         x.perm("IBPartitionsForTenant", vec![]);
+        x.perm("FindIBFabricIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm(
             "AllocateInstance",
             vec![ForgeAdminCLI, Machineatron, SiteAgent],
