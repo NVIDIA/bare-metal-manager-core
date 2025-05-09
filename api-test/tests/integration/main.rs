@@ -231,7 +231,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         |machine_handle| {
             let db_pool = db_pool.clone();
             async move {
-                machine_handle.dpus()[0].wait_until_machine_up_with_api_state("HostInitializing/WaitingForDiscovery", Duration::from_secs(90)).await?;
+                machine_handle.dpus()[0].wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90)).await?;
 
                 // After the host_bootstrap, the dns_records view
                 // should contain 8 entries:
