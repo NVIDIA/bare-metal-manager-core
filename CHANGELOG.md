@@ -1,16 +1,84 @@
 # Changelog
-## [Unreleased (v2025.05.09-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.25-rc2-0...trunk)
+
+## [Unreleased (v2025.05.23-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.09-rc1-0...trunk)
 
 ### Added
-- [FORGE-6013](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3969): Sites can be configured with a timeframe in which they will skip needing a manual reboot request for upgrades.  Under the firmware_global section of their config, set both instance_autoreboot_period_start and instance_autoreboot_period_end with RFC 3339 style timestamps.
 
 ### Changed
 
 ### Fixed
-- Removed extra reboot when doing instance reboot with apply updates on reboot for host firmware.
-- [MR-4001](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4001): Fixed ntpsec@mgmt being broken on dhcp renews on the dpu
 
 ### Removed
+
+## [v2025.05.09-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.25-rc2-0...v2025.05.09-rc2-0)
+
+### Added
+
+- [MR-4046](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4046): Added UFM Explorer to carbide-web.
+  - UFM Explorer is a new page in carbide-web that allows to send raw HTTP GET requests to UFM in order to explore and debug its state.
+  - Accessible using the `/admin/ufm-browser` path
+  - Utilizes the Credentials in Carbide, and thereby avoids operators having to fetch UFM credentials from Vault in order to perform debugging.
+- [MR-4041](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4041): Added links from IB Partition, Instance, Network Security Group, and VPC summary pages to their respective tenant pages.
+- [MR-4039](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4039): Adding a script to the scout image to recover from a potential issue with read-only NVMe drives.
+- [MR-4029](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4029): Added support for machine validation testing of GB200 systems.
+- [MR-4027](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4027): Added support for machine validation testing of A100 965-24387-0004-000 systems.
+- [MR-3991](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3991): Added the ability to automatically set a `HostUpdateInProgress` health alert when starting DPU or Host reprovisioning using the new `--update-message` parameter in forge-admin-cli.
+- [MR-3985](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3985): Added additional debug logs in get_pxe_instruction_for_arch to help with debugging issues.
+- [FORGE-6013](https://jirasw.nvidia.com/browse/FORGE-6013), [MR-3969](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3969): Added the ability to configure a timeframe for sites in which they will skip needing a manual reboot request for upgrades. Under the firmware_global section of their config, set both instance_autoreboot_period_start and instance_autoreboot_period_end with RFC 3339 style timestamps.
+- [MR-3842](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3842): Added support for updating network configurations of instances.
+
+### Changed
+
+- [MR-4038](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4038): Changed Infiniband configuration to require **explicit** enabling instead of implicit enabling to be consistent with other Forge settings.
+- [MR-4012](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4012): Changed Infiniband monitoring configuration for IbFabricMonitor to be automatically enabled when IB support is enabled, removing the need for separate configuration.
+- [MR-4008](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4008): Changed DPU provisioning to automatically set both ports into Ethernet mode.
+- [MR-4003](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4003): Changed the DPU HBN version to 2.9.2, including accompanying BFB and BMC firmware.
+- [MR-3993](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3993): Changed VPC peering creation command to use simpler positional arguments instead of named parameters.
+
+### Fixed
+
+- [FORGE-6106](https://jirasw.nvidia.com/browse/FORGE-6106): Dell HGX100 (XE9680) stuck during ingestion.
+  - [MR-325](https://gitlab-master.nvidia.com/nvmetal/libredfish/-/merge_requests/325): Changed libredfish to version 0.29.38.
+- [MR-4048](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4048): Only apply ForceRestart to Lenovo SR 675s with UEFI version 7.10 and BMC version 9.10 to avoide stuck terminations.
+  - [MR-324](https://gitlab-master.nvidia.com/nvmetal/libredfish/-/merge_requests/324): Changed libredfish to version 0.29.37.
+- [MR-4040](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4040): Fixed an issue where machines referenced on the attestation page were not clickable by adding direct links to their machine details pages.
+- [MR-4024](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4024), [MR-3990](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3990): Fixed an issue where the DPU agent was not properly loading the ATF/UEFI on old DPUs where the UEFI db was deleted.
+- [MR-4017](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4017): Fixed an issue where the web UI would not redirect the user to the originally requested page after OAuth2 authentication flow.
+- [MR-4014](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4014): Fixed an issue where site exploration would fail on Viking systems when changing the BMC password by using a vendor-specific Redfish client that properly handles password changes.
+- [MR-4013](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4013): Fixed an issue where VPC peerings were not being deleted when their associated VPC was deleted.
+- [MR-4009](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4009): Fixed an issue with the scout image that prevented proper disovery of GB200 nodes.
+- [MR-4005](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4005): Fixed an issue where the network configuration  was not correctly updated when only network segment id was sent in an API request.
+- [MR-4001](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4001): Fixed an issue where ntpsec service would fail to restart on DPUs after the name changed to ntpsec@mgmt.
+- [MR-3998](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3998): Fixed an issue where DPUs were incorrectly booting to scout OS when no MachineId was present.
+- [MR-3975](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3975): Fixed an issue where IB status changes were not immediately reflected in the state handler.
+
+### Removed
+
+
+- [MR-3987](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3987): Removed legacy maintenance mode storage from the database.
+
+
+### Internal Changes
+
+- [MR-4050](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4050): Moved IB links into their own menu section.
+- [MR-4049](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4049): Fixed an issue in the test_metrics_integration test.
+- [MR-4035](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4035): Added Python packages git, python3.12-venv, python3-pip to aarch64 scout image.
+- [MR-4033](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4033): Added missing `mkosi.postinst.chroot` content to aarch64 scout image.
+- [MR-4030](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4030): Changed the driver versions of `cuda-drivers` and `nvidia-driver-{version}-open` to use the explicit version `575`.
+- [MR-4025](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4025): Updated the `nvidia-fabricmanager` version to `575`.
+- [MR-4018](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4018): Fixed an issue where instance handling errors would not use proper ConfigValidationErrors.  
+- [MR-4011](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4011): Fixed an issue where machine-a-tron was inefficiently handling DHCP requests between hosts and DPUs by implementing a direct communication channel, resulting in faster machine provisioning and more reliable network configuration.
+- [MR-4007](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4007): Fixed an issue with building the documentation by removing a duplicate file entry in book/src/SUMMARY.md.
+- [MR-4006](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4006): Updated libredfish to version  [0.29.36](https://gitlab-master.nvidia.com/nvmetal/libredfish/-/releases/0.29.36).
+- [MR-4004](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4004): Refactored the location of metric_utils.rs to the logging folder where most other general metric related code already resides.
+- [MR-3999](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3999), [MR-3986](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3986): Performance enhancements for machine-a-tron with thousands of hosts.
+- [MR-3998](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3998): Fixed an issue where DPUs in machine-a-tron were incorrectly booting to scout OS when no Machine ID was present by properly checking if the device is a DPU before initiating PXE boot.  
+- [MR-3995](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3995): Fixed issues to the state diagram in the documentation.
+- [MR-3989](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3989): Enable the machine lifecycle test to run against site pdx-qa2.
+- [MR-3988](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3988): Removed backward compatibility functions in admin-cli that were no longer needed.
+- [MR-3984](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3984): Changed the versions of `linux-image` and `linux-generic` to use the meta package in scout images to no longer having to update the currently explicit version number every few months as the archive expires.
+- [MR-3959](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3959): Changed database interface to use PgConnection instead of Transactions to allow callers to pass either a transaction or just a simple connection, based on the use case.
+- [MR-3547](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3547), [MR-4010](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4010): Added support for testing auto-firmware upgrades in machine lifecycle tests.
 
 ## [v2025.04.25-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.11-rc1-0...v2025.04.25-rc2-0)
 
@@ -45,18 +113,18 @@
 
 ### Internal Changes
 
-- [MR-3937](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3937): Fixed an issue where VPC peer ACL did not specify their type.
-- [MR-3910](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3910): Updated libredfish from version [v0.29.18](https://gitlab-master.nvidia.com/nvmetal/libredfish/-/releases/v0.29.18) to version [0.29.32](https://gitlab-master.nvidia.com/nvmetal/libredfish/-/releases/0.29.32).
-- [MR-3960](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3960): Fixed an issue where carbide would write a power cycle log event even though the power cycle did not happen during NIC mode changes.
-- [MR-3965](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3965): Fixed an issue where site explorer fixtures were using excessive stack space by placing certain highly-used Futures on the heap and replacing RefCell with Mutex to make TestEnv Send+Sync as per the [Slack discussion](https://nvidia.slack.com/archives/C02RKLCN8BT/p1745455867937049).
-- [MR-3949](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3949): Fixed a deadlock in bmc-mock when used in machine-a-tron by sharing the mock machine's power state with bmc-mock, eliminating the need to call into MachineStateMachine to respond to redfish calls.
-- [MR-3955](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3955): Fixed an issue where integration tests could run indefinitely by reducing the API refresh interval to 500ms, half of the machine state controller interval, and introducing a timeout for wait_until_machine_up_with_api_state.
-- [MR-3466](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3466): Added the ability to build PowerDNS with a Dockerfile and provided configuration files for using PowerDNS in a local development environment.
 - [FORGE-5916](https://jirasw.nvidia.com/browse/FORGE-5916), [MR-3924](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3924): Improved snapshot loading by moving it up another level, allowing it to be used across all modules.
 - [FORGE-5883](https://jirasw.nvidia.com/browse/FORGE-5883), [MR-3930](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3930): Added debug logs in `bf.cfg` to assist with reproducing [FORGE-5883](https://jirasw.nvidia.com/browse/FORGE-5883) as suggested in [NVBUG 5208597](https://nvbugspro.nvidia.com/bug/5208597).
+- [MR-3965](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3965): Fixed an issue where site explorer fixtures were using excessive stack space by placing certain highly-used Futures on the heap and replacing RefCell with Mutex to make TestEnv Send+Sync as per the [Slack discussion](https://nvidia.slack.com/archives/C02RKLCN8BT/p1745455867937049).
+- [MR-3960](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3960): Fixed an issue where carbide would write a power cycle log event even though the power cycle did not happen during NIC mode changes.
+- [MR-3955](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3955): Fixed an issue where integration tests could run indefinitely by reducing the API refresh interval to 500ms, half of the machine state controller interval, and introducing a timeout for wait_until_machine_up_with_api_state.
+- [MR-3949](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3949): Fixed a deadlock in bmc-mock when used in machine-a-tron by sharing the mock machine's power state with bmc-mock, eliminating the need to call into MachineStateMachine to respond to redfish calls.
+- [MR-3937](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3937): Fixed an issue where VPC peer ACL did not specify their type.
+- [MR-3910](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3910): Updated libredfish from version [v0.29.18](https://gitlab-master.nvidia.com/nvmetal/libredfish/-/releases/v0.29.18) to version [0.29.32](https://gitlab-master.nvidia.com/nvmetal/libredfish/-/releases/0.29.32).
+- [MR-3466](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3466): Added the ability to build PowerDNS with a Dockerfile and provided configuration files for using PowerDNS in a local development environment.
 - [MR-3929](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3929): Increased the default number of machines created per run from 1 to 4.
-- [MR-3925](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3925): Fixed an issue where an extraneous call to forge_setup was made when handling host lockdown by removing the redundant call, as it is done earlier in the ingestion process.
 - [MR-3926](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3926): Updated the documentation for the web UI to include 'system account' authentication and Argo details.
+- [MR-3925](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3925): Fixed an issue where an extraneous call to forge_setup was made when handling host lockdown by removing the redundant call, as it is done earlier in the ingestion process.
 - Carbide will store InstanceNetworkStatusObservation in `machines` table into respective DPU row. Previously carbide used to store it in `instances` table.
 
 ## [v2025.04.11-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.04.11-rc3-0...v2025.04.11-rc4-0):
