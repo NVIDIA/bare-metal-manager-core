@@ -942,10 +942,10 @@ impl Default for DpuConfig {
                     current_version_reported_as: Some(Regex::new("BMC_Firmware").unwrap()),
                     preingest_upgrade_when_below: None,
                     known_firmware: vec![FirmwareEntry {
-                        version: "BF-24.10-24".to_string(),
+                        version: "BF-24.07-14".to_string(),
                         mandatory_upgrade_from_priority: None,
                         default: true,
-                        filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc-ota-24.10-24-opn.tar".to_string()),
+                        filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc-ota-24.07-14-opn.tar".to_string()),
                         url: None,
                         checksum: None,
                         install_only_specified: false,
@@ -993,10 +993,10 @@ impl Default for DpuConfig {
                         },
                         // BF-24.07-14 (DOCA 2.8) is the expected BMC FW that we expect on BF3s after ingesting them
                         FirmwareEntry {
-                        version: "BF-24.10-24".to_string(),
+                        version: "BF-24.07-14".to_string(),
                         mandatory_upgrade_from_priority: None,
                         default: false,
-                        filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc-24.10-24_opn.fwpkg".to_string()),
+                        filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc-24.07-14_opn.fwpkg".to_string()),
                         url: None,
                         checksum: None,
                         install_only_specified: false,
@@ -1008,7 +1008,7 @@ impl Default for DpuConfig {
                         current_version_reported_as: Some(Regex::new("Bluefield_FW_ERoT").unwrap()),
                         preingest_upgrade_when_below: None,
                         known_firmware: vec![FirmwareEntry {
-                            version: "00.02.0195.0000_n02".to_string(),
+                            version: "00.02.0182.0000_n02".to_string(),
                             mandatory_upgrade_from_priority: None,
                             default: false,
                             filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/cec1736-ecfw-00.02.0182.0000-n02-rel-prod.fwpkg".to_string()),
@@ -1020,7 +1020,7 @@ impl Default for DpuConfig {
                             }],
                     })]),
             })]),
-            dpu_nic_firmware_update_versions: vec!["24.43.2566".to_string(), "32.43.2566".to_string()],
+            dpu_nic_firmware_update_versions: vec!["24.42.1000".to_string(), "32.42.1000".to_string()],
         }
     }
 }

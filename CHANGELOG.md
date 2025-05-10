@@ -5,7 +5,6 @@
 - [FORGE-6013](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3969): Sites can be configured with a timeframe in which they will skip needing a manual reboot request for upgrades.  Under the firmware_global section of their config, set both instance_autoreboot_period_start and instance_autoreboot_period_end with RFC 3339 style timestamps.
 
 ### Changed
-- [MR-4003](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4003): Changed the DPU HBN version to 2.9.2, including accompanying BFB and BMC firmwares
 
 ### Fixed
 - Removed extra reboot when doing instance reboot with apply updates on reboot for host firmware.
