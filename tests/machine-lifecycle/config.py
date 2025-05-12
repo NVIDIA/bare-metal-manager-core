@@ -16,8 +16,8 @@ NIC_FW_URL = "https://www.mellanox.com/downloads/firmware/fw-BlueField-3-rel-32_
 BMC_FW_URL = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/BF3/BF3BMC-23.10-5/OPN/bf3-bmc-23.10-5_opn.fwpkg"
 CEC_FW_URL = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/Glacier/00.02.0152.0000/sign/n02/rel-prod/cec1736-ecfw-00.02.0152.0000-n02-rel-prod.fwpkg"
 
-# Expected versions to which Forge should auto-upgrade (currently DOCA 2.8.0)
-BFB_VERSION_UP = "2.8.0"
-NIC_VERSION_UP = "32.42.1000"
-BMC_VERSION_UP = "24.07"
-CEC_VERSION_UP = "00.02.0182.0000"
+# Expected versions to which Forge should auto-upgrade (currently DOCA 2.9.2 / HBN 2.4.2)
+BFB_VERSION_UP = "2.9.2"
+NIC_VERSION_UP = "32.43.2566"
+BMC_VERSION_UP = "24.10"
+CEC_VERSION_UP = "00.02.0195.0000"
