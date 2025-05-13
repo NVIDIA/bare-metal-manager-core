@@ -1,5 +1,7 @@
+use crate::db::ib_partition::IBPartition;
+use crate::ib::IBFabricManager;
 use crate::model::ConfigValidationError;
-use crate::model::instance::config::network::InstanceNetworkConfig;
+use crate::model::instance::config::network::{InstanceNetworkConfig, NetworkDetails};
 use crate::model::instance::snapshot::InstanceSnapshot;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -12,7 +14,6 @@ use crate::model::instance::snapshot::InstanceSnapshot;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::db::{
     self, DatabaseError,
@@ -28,11 +29,17 @@ use crate::model::machine::{InstanceState, ManagedHostState, ManagedHostStateSna
 use crate::model::metadata::Metadata;
 use crate::model::os::OperatingSystem;
 use crate::redfish::RedfishAuth;
+use crate::resource_pool::common::CommonPools;
+use crate::{CarbideError, CarbideResult};
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
+use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
+use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::instance::InstanceId;
+use itertools::Itertools as _;
+use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
 pub(crate) async fn allocate(
@@ -742,16 +749,16 @@ async fn update_instance_network_config(
     mh_state: &ManagedHostState,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), CarbideError> {
+    if instance.update_network_config_request.is_some() {
+        return Err(ConfigValidationError::InstanceNetworkConfigUpdateAlreadyInProgress.into());
+    }
+
     if !instance
         .config
         .network
         .is_network_config_update_requested(network)
     {
         return Ok(());
-    }
-
-    if instance.update_network_config_request.is_some() {
-        return Err(ConfigValidationError::InstanceNetworkConfigUpdateAlreadyInProgress.into());
     }
 
     if !matches!(
@@ -767,7 +774,11 @@ async fn update_instance_network_config(
         return Err(ConfigValidationError::InstanceDeletionIsRequested.into());
     }
 
-    // Allocate network segment here before validate if vpc_prefix_id is mentioned.
+    // This is the use case of adding/removing new VF.
+    // Copy the resources if same interface and network are mentioned.
+    network.copy_existing_resources(&instance.config.network);
+
+    // Allocate network segment here if vpc_prefix_id is mentioned before validate.
     allocate_network(network, txn).await?;
     network.validate().map_err(CarbideError::from)?;
 
@@ -779,10 +790,6 @@ async fn update_instance_network_config(
                 kind: "machine",
                 id: instance.machine_id.to_string(),
             })?;
-
-    // This is the use case of adding/removing new VF.
-    // Copy the resources if same interface and network are mentioned.
-    network.copy_existing_resources(&instance.config.network);
 
     // Allocate IP
     let updated_network_config = network
@@ -796,21 +803,12 @@ async fn update_instance_network_config(
         &instance.id,
         &instance.config.network,
         &updated_network_config,
-        instance.network_config_version,
         txn,
     )
     .await
     .map_err(CarbideError::from)?;
 
-    // TODO: In the case of current handling, network config update is not allowed.
-    // If we reach here means an instance network config request is received which itself is a
-    // bug. This also means now instance will be in unsynced state forever until state machine
-    // implementation is done.
-
-    // Ok(())
-    Err(CarbideError::internal(
-        "instance network config update is not supported for now.".to_string(),
-    ))
+    Ok(())
 }
 
 /// Extracts the RPC representation of Instances from a ManagedHost snapshot
@@ -830,4 +828,139 @@ fn snapshot_to_instance(
                 machine_id
             ))
         })
+}
+
+pub async fn force_delete_instance(
+    instance_id: InstanceId,
+    ib_fabric_manager: &Arc<dyn IBFabricManager>,
+    common_pools: &Arc<CommonPools>,
+    response: &mut AdminForceDeleteMachineResponse,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> CarbideResult<()> {
+    let instance = Instance::find_by_id(txn, instance_id)
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| {
+            CarbideError::internal(format!("Could not find an instance for {}", instance_id))
+        })?
+        .to_owned();
+
+    let ib_fabric = ib_fabric_manager
+        .connect(crate::ib::DEFAULT_IB_FABRIC_NAME)
+        .await?;
+
+    // Collect the ib partition and ib ports information about this machine
+    let mut ib_config_map: HashMap<IBPartitionId, Vec<String>> = HashMap::new();
+    let infiniband = instance.config.infiniband.ib_interfaces;
+    for ib in &infiniband {
+        let ib_partition_id = ib.ib_partition_id;
+        if let Some(guid) = ib.guid.as_deref() {
+            ib_config_map
+                .entry(ib_partition_id)
+                .or_default()
+                .push(guid.to_string());
+        }
+    }
+
+    response.ufm_unregistration_pending = true;
+    // unbind ib ports from UFM
+    for (ib_partition_id, guids) in ib_config_map.iter() {
+        if let Some(pkey) = IBPartition::find_pkey_by_partition_id(txn, *ib_partition_id)
+            .await
+            .map_err(CarbideError::from)?
+        {
+            ib_fabric.unbind_ib_ports(pkey, guids.to_vec()).await?;
+            response.ufm_unregistrations += 1;
+
+            //TODO: release VF GUID resource when VF supported.
+        }
+    }
+    response.ufm_unregistration_pending = false;
+
+    // Delete the instance and allocated address
+    // TODO: This might need some changes with the new state machine
+    let delete_instance = DeleteInstance { instance_id };
+    delete_instance.delete(txn).await?;
+
+    let mut network_segment_ids_with_vpc = vec![];
+    if let Some(update_network_req) = &instance.update_network_config_request {
+        // Not sure if new config is applied yet. Free all the resources.
+        let mut addresses = update_network_req
+            .new_config
+            .interfaces
+            .iter()
+            .flat_map(|x| x.ip_addrs.values().collect_vec())
+            .collect_vec();
+
+        addresses.extend(
+            update_network_req
+                .old_config
+                .interfaces
+                .iter()
+                .flat_map(|x| x.ip_addrs.values().collect_vec()),
+        );
+
+        db::instance_address::InstanceAddress::delete_addresses(txn, &addresses)
+            .await
+            .map_err(CarbideError::from)?;
+
+        network_segment_ids_with_vpc = update_network_req
+            .new_config
+            .interfaces
+            .iter()
+            .filter_map(|x| match x.network_details {
+                Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
+                _ => None,
+            })
+            .collect_vec();
+        network_segment_ids_with_vpc.extend(
+            update_network_req
+                .old_config
+                .interfaces
+                .iter()
+                .filter_map(|x| match x.network_details {
+                    Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
+                    _ => None,
+                }),
+        );
+    }
+
+    network_segment_ids_with_vpc.extend(instance.config.network.interfaces.iter().filter_map(
+        |x| match x.network_details {
+            Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
+            _ => None,
+        },
+    ));
+
+    let network_segments_set: std::collections::HashSet<forge_uuid::network::NetworkSegmentId> =
+        network_segment_ids_with_vpc.drain(..).collect();
+    network_segment_ids_with_vpc.extend(network_segments_set.into_iter());
+
+    // Mark all network ready for delete which were created for vpc_prefixes.
+    if !network_segment_ids_with_vpc.is_empty() {
+        db::network_segment::NetworkSegment::mark_as_deleted_no_validation(
+            txn,
+            &network_segment_ids_with_vpc,
+        )
+        .await?;
+    }
+
+    let snapshot =
+        db::managed_host::load_snapshot(txn, &instance.machine_id, LoadSnapshotOptions::default())
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "machine",
+                id: instance.machine_id.to_string(),
+            })?;
+
+    crate::state_controller::machine::handler::release_vpc_dpu_loopback(
+        &snapshot,
+        &Some(common_pools.clone()),
+        txn,
+    )
+    .await
+    .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    Ok(())
 }

@@ -30,7 +30,12 @@ use sqlx::PgConnection;
 use tokio::sync::Semaphore;
 use version_compare::Cmp;
 
+use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::update_restart_verification_status;
+use crate::model::instance::InstanceNetworkSyncStatus;
+use crate::model::instance::config::network::InstanceInterfaceConfig;
+use crate::model::instance::snapshot::InstanceSnapshot;
+use crate::model::machine::NetworkConfigUpdateState;
 use crate::{
     cfg::file::{
         BomValidationConfig, CarbideConfig, DpuModel, Firmware, FirmwareComponentType,
@@ -3940,34 +3945,22 @@ impl StateHandler for InstanceStateHandler {
                     };
 
                     // Check instance network config has been applied
-                    // TODO: This would need to be checked per DPU
-                    let expected = &instance.network_config_version;
-                    let actual = match &instance.observations.network {
-                        None => {
-                            if mh_snapshot
-                                .host_snapshot
-                                .associated_dpu_machine_ids()
-                                .is_empty()
-                            {
-                                tracing::info!(
-                                    machine_id = %host_machine_id,
-                                    "Skipping network config because machine has no DPUs"
-                                );
-                                return Ok(StateHandlerOutcome::Transition(next_state));
-                            }
+                    match check_instance_network_synced_and_dpu_healthy(instance, mh_snapshot)? {
+                        InstanceNetworkSyncStatus::InstanceNetworkObservationNotAvailable => {
                             return Ok(StateHandlerOutcome::Wait(
-                                "Waiting for DPU agent to apply initial network config".to_string(),
+                                "Instance has no network observation yet.".to_string(),
                             ));
                         }
-                        Some(network_status) => &network_status.config_version,
+                        InstanceNetworkSyncStatus::InstanceNetworkSynced => {}
+                        InstanceNetworkSyncStatus::ZeroDpuNoObservationNeeded => {
+                            return Ok(StateHandlerOutcome::Transition(next_state));
+                        }
+                        InstanceNetworkSyncStatus::InstanceNetworkNotSynced => {
+                            return Ok(StateHandlerOutcome::Wait(
+                                "Waiting for DPU agent to apply updated network config".to_string(),
+                            ));
+                        }
                     };
-                    if expected != actual {
-                        return Ok(StateHandlerOutcome::Wait(
-                            "Waiting for DPU agent to apply most recent network config".to_string(),
-                        ));
-                    }
-
-                    check_host_health_for_alerts(mh_snapshot)?;
 
                     ib::bind_ib_ports(
                         ctx.services,
@@ -4030,6 +4023,19 @@ impl StateHandler for InstanceStateHandler {
                     // Wait for user's approval. Once user approves for dpu
                     // reprovision/update firmware, trigger it.
                     let is_auto_approved = self.host_upgrade.is_auto_approved();
+
+                    // We will give first priority to network config update.
+                    // This is the easiest way to stop resource leakage.
+                    if instance.update_network_config_request.is_some() {
+                        // Tenant has requested network config update.
+                        let next_state = ManagedHostState::Assigned {
+                            instance_state: InstanceState::NetworkConfigUpdate {
+                                network_config_update_state:
+                                    NetworkConfigUpdateState::WaitingForNetworkSegmentToBeReady,
+                            },
+                        };
+                        return Ok(StateHandlerOutcome::Transition(next_state));
+                    }
 
                     let reprov_can_be_started =
                         if dpu_reprovisioning_needed(&mh_snapshot.dpu_snapshots) {
@@ -4269,42 +4275,14 @@ impl StateHandler for InstanceStateHandler {
                     .await
                     .map_err(|err| StateHandlerError::GenericError(err.into()))?;
 
-                    let network_segment_ids_with_vpc = instance
-                        .config
-                        .network
-                        .interfaces
-                        .iter()
-                        .filter_map(|x| match x.network_details {
-                            Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
-                            _ => None,
-                        })
-                        .collect_vec();
-
-                    // Mark all network ready for delete which were created for vpc_prefixes.
-                    if !network_segment_ids_with_vpc.is_empty() {
-                        NetworkSegment::mark_as_deleted_no_validation(
-                            txn,
-                            &network_segment_ids_with_vpc,
-                        )
-                        .await
-                        .map_err(|err| StateHandlerError::GenericError(err.into()))?;
-                    }
+                    release_network_segments_with_vpc_prefix(
+                        &instance.config.network.interfaces,
+                        txn,
+                    )
+                    .await?;
 
                     // Free up all loopback IPs allocated for this instance.
-                    for dpu_snapshot in &mh_snapshot.dpu_snapshots {
-                        if let Some(common_pools) = &self.common_pools {
-                            VpcDpuLoopback::delete_and_deallocate(
-                                common_pools,
-                                &dpu_snapshot.id,
-                                txn,
-                                false,
-                            )
-                            .await
-                            .map_err(|e| {
-                                StateHandlerError::GenericError(eyre::eyre!(e.to_string()))
-                            })?;
-                        }
-                    }
+                    release_vpc_dpu_loopback(mh_snapshot, &self.common_pools, txn).await?;
 
                     let next_state = if self.attestation_enabled {
                         ManagedHostState::PostAssignedMeasuring {
@@ -4375,6 +4353,18 @@ impl StateHandler for InstanceStateHandler {
                         ))
                     }
                 }
+                InstanceState::NetworkConfigUpdate {
+                    network_config_update_state,
+                } => {
+                    handle_instance_network_config_update_request(
+                        mh_snapshot,
+                        network_config_update_state,
+                        instance,
+                        txn,
+                        &self.common_pools,
+                    )
+                    .await
+                }
             }
         } else {
             // We are not in Assigned state. Should this be Err(StateHandlerError::InvalidHostState)?
@@ -4383,6 +4373,225 @@ impl StateHandler for InstanceStateHandler {
             ))
         }
     }
+}
+
+async fn handle_instance_network_config_update_request(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    network_config_update_state: &NetworkConfigUpdateState,
+    instance: &InstanceSnapshot,
+    txn: &mut PgConnection,
+    common_pools: &Option<Arc<CommonPools>>,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    match network_config_update_state {
+        NetworkConfigUpdateState::WaitingForNetworkSegmentToBeReady => {
+            let next_state = ManagedHostState::Assigned {
+                instance_state: InstanceState::NetworkConfigUpdate {
+                    network_config_update_state: NetworkConfigUpdateState::WaitingForConfigSynced,
+                },
+            };
+
+            let Some(update_request) = &instance.update_network_config_request else {
+                return Err(StateHandlerError::GenericError(eyre::eyre!(
+                    "Network config update request is missing from db. instance: {}",
+                    instance.id
+                )));
+            };
+
+            let network_segment_ids_with_vpc = update_request
+                .new_config
+                .interfaces
+                .iter()
+                .filter_map(|x| match x.network_details {
+                    Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
+                    _ => None,
+                })
+                .collect_vec();
+
+            // No network segment is configured with vpc_prefix_id.
+            if !network_segment_ids_with_vpc.is_empty() {
+                let network_segments_are_ready =
+                    NetworkSegment::are_network_segments_ready(txn, &network_segment_ids_with_vpc)
+                        .await?;
+                if !network_segments_are_ready {
+                    return Ok(StateHandlerOutcome::Wait(
+                        "Waiting for all segments to come in ready state.".to_string(),
+                    ));
+                }
+            }
+
+            // Update requested network config and increment version.
+            db::instance::Instance::update_network_config(
+                txn,
+                instance.id,
+                instance.network_config_version,
+                &update_request.new_config,
+                true,
+            )
+            .await?;
+
+            Ok(StateHandlerOutcome::Transition(next_state))
+        }
+        NetworkConfigUpdateState::WaitingForConfigSynced => {
+            let next_state = ManagedHostState::Assigned {
+                instance_state: InstanceState::NetworkConfigUpdate {
+                    network_config_update_state: NetworkConfigUpdateState::ReleaseOldResources,
+                },
+            };
+
+            Ok(
+                match check_instance_network_synced_and_dpu_healthy(instance, mh_snapshot)? {
+                    InstanceNetworkSyncStatus::InstanceNetworkObservationNotAvailable => {
+                        StateHandlerOutcome::Wait(
+                            "Instance has no network observation yet.".to_string(),
+                        )
+                    }
+                    InstanceNetworkSyncStatus::ZeroDpuNoObservationNeeded
+                    | InstanceNetworkSyncStatus::InstanceNetworkSynced => {
+                        StateHandlerOutcome::Transition(next_state)
+                    }
+                    InstanceNetworkSyncStatus::InstanceNetworkNotSynced => {
+                        StateHandlerOutcome::Wait(
+                            "Waiting for DPU agent to apply updated network config".to_string(),
+                        )
+                    }
+                },
+            )
+        }
+        NetworkConfigUpdateState::ReleaseOldResources => {
+            // Identify all the resources which have to be released.
+            // Release Ips.
+            // Release segments.
+            // Release VpcDpuLoopbackIps.
+            // Free the update_network_config_request field.
+            let Some(update_request) = &instance.update_network_config_request else {
+                return Err(StateHandlerError::GenericError(eyre::eyre!(
+                    "Network config update request is missing from db. instance: {}",
+                    instance.id
+                )));
+            };
+
+            // Logically new_config is current_config now.
+            let mut new_config = update_request.new_config.clone();
+            let copied_resources = new_config.copy_existing_resources(&update_request.old_config);
+
+            let resources_to_be_released = update_request
+                .old_config
+                .interfaces
+                .iter()
+                .filter(|x| !copied_resources.contains(x))
+                .cloned()
+                .collect_vec();
+
+            if !resources_to_be_released.is_empty() {
+                let addresses = resources_to_be_released
+                    .iter()
+                    .flat_map(|x| x.ip_addrs.values().collect_vec())
+                    .collect_vec();
+
+                tracing::info!(
+                    "Releasing network resources for instance {}: addresses: {:?}",
+                    instance.id,
+                    addresses,
+                );
+                InstanceAddress::delete_addresses(txn, &addresses).await?;
+                release_network_segments_with_vpc_prefix(&resources_to_be_released, txn).await?;
+
+                // TODO: This is not the best way, but will work fine. If you delete all loopback IPs
+                // associated with all DPUs, dpu_agent will assign new IPs during next managed_host_network_config
+                // iteration.
+                // The best way would be to find out the VPCs per DPU which are not used in new config
+                // and delete them only. This can be taken care once multi-dpu instance allocation is
+                // completed.
+                release_vpc_dpu_loopback(mh_snapshot, common_pools, txn).await?;
+            }
+            db::instance::Instance::delete_update_network_config_request(&instance.id, txn).await?;
+            let next_state = ManagedHostState::Assigned {
+                instance_state: InstanceState::Ready,
+            };
+            Ok(StateHandlerOutcome::Transition(next_state))
+        }
+    }
+}
+
+/// Checks if an instance's network is synced and its DPU is healthy.
+///
+/// This function compares the expected network configuration version with the actual version.
+/// It also checks the health of the DPU by calling `check_host_health_for_alerts`.
+///
+/// # Notes
+/// This function currently does not support multi-DPU handling.
+fn check_instance_network_synced_and_dpu_healthy(
+    instance: &InstanceSnapshot,
+    mh_snapshot: &ManagedHostStateSnapshot,
+) -> Result<InstanceNetworkSyncStatus, StateHandlerError> {
+    // TODO: This function needs changes for multi DPU handling.
+    let expected = &instance.network_config_version;
+    let actual = match &instance.observations.network {
+        None => {
+            if mh_snapshot
+                .host_snapshot
+                .associated_dpu_machine_ids()
+                .is_empty()
+            {
+                tracing::info!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    "Skipping network config because machine has no DPUs"
+                );
+                return Ok(InstanceNetworkSyncStatus::ZeroDpuNoObservationNeeded);
+            }
+            return Ok(InstanceNetworkSyncStatus::InstanceNetworkObservationNotAvailable);
+        }
+        Some(network_status) => &network_status.config_version,
+    };
+    if expected != actual {
+        return Ok(InstanceNetworkSyncStatus::InstanceNetworkNotSynced);
+    }
+    check_host_health_for_alerts(mh_snapshot)?;
+    Ok(InstanceNetworkSyncStatus::InstanceNetworkSynced)
+}
+
+pub async fn release_vpc_dpu_loopback(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    common_pools: &Option<Arc<CommonPools>>,
+    txn: &mut PgConnection,
+) -> Result<(), StateHandlerError> {
+    for dpu_snapshot in &mh_snapshot.dpu_snapshots {
+        if let Some(common_pools) = common_pools {
+            VpcDpuLoopback::delete_and_deallocate(common_pools, &dpu_snapshot.id, txn, false)
+                .await
+                .map_err(|e| StateHandlerError::ResourceCleanupError {
+                    resource: "VpcLoopbackIp",
+                    error: e.to_string(),
+                })?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn release_network_segments_with_vpc_prefix(
+    interfaces: &[InstanceInterfaceConfig],
+    txn: &mut PgConnection,
+) -> Result<(), StateHandlerError> {
+    let network_segment_ids_with_vpc = interfaces
+        .iter()
+        .filter_map(|x| match x.network_details {
+            Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
+            _ => None,
+        })
+        .collect_vec();
+
+    // Mark all network ready for delete which were created for vpc_prefixes.
+    if !network_segment_ids_with_vpc.is_empty() {
+        NetworkSegment::mark_as_deleted_no_validation(txn, &network_segment_ids_with_vpc)
+            .await
+            .map_err(|err| StateHandlerError::ResourceCleanupError {
+                resource: "network_segment",
+                error: err.to_string(),
+            })?;
+    }
+
+    Ok(())
 }
 
 #[derive(Debug)]

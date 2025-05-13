@@ -173,6 +173,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 InstanceState::DPUReprovision { .. } => "dpureprovisioning",
                 InstanceState::Failed { .. } => "failed",
                 InstanceState::HostReprovision { .. } => "hostreprovisioning",
+                InstanceState::NetworkConfigUpdate { .. } => "networkconfigupdate",
             }
         }
 

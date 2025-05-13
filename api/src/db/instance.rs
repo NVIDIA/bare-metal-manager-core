@@ -663,7 +663,6 @@ WHERE vpc_id = ",
         instance_id: &InstanceId,
         current: &InstanceNetworkConfig,
         requested: &InstanceNetworkConfig,
-        expected_network_version: ConfigVersion,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<(), DatabaseError> {
         let network_config_request = InstanceNetworkConfigUpdate {
@@ -682,15 +681,20 @@ WHERE vpc_id = ",
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        // Update requested network config and increment version.
-        Instance::update_network_config(
-            txn,
-            *instance_id,
-            expected_network_version,
-            requested,
-            true,
-        )
-        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_update_network_config_request(
+        instance_id: &InstanceId,
+        txn: &mut PgConnection,
+    ) -> Result<(), DatabaseError> {
+        let query = r#"UPDATE instances SET update_network_config_request=NULL 
+                        WHERE id = $1::uuid"#;
+        sqlx::query(query)
+            .bind(instance_id)
+            .execute(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(())
     }

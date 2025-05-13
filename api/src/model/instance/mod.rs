@@ -13,3 +13,10 @@
 pub mod config;
 pub mod snapshot;
 pub mod status;
+
+pub enum InstanceNetworkSyncStatus {
+    InstanceNetworkObservationNotAvailable,
+    ZeroDpuNoObservationNeeded,
+    InstanceNetworkSynced,
+    InstanceNetworkNotSynced,
+}

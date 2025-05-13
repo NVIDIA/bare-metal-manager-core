@@ -17,8 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::db::attestation as db_attest;
-use crate::db::network_segment::NetworkSegment;
-use crate::model::instance::config::network::NetworkDetails;
+use crate::handlers::instance;
 use crate::model::metadata::Metadata;
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::{BmcEndpointRequest, SkuIdList};
@@ -46,7 +45,6 @@ use crate::attestation as attest;
 use crate::cfg::file::CarbideConfig;
 use crate::db::desired_firmware::DbDesiredFirmwareVersions;
 use crate::db::explored_endpoints::DbExploredEndpoint;
-use crate::db::ib_partition::IBPartition;
 use crate::db::machine::MachineSearchConfig;
 use crate::db::machine_validation::{
     MachineValidation, MachineValidationState, MachineValidationStatus,
@@ -86,18 +84,16 @@ use crate::storage::NvmeshClientPool;
 use crate::{
     CarbideError, CarbideResult, auth,
     db::{
-        self, DatabaseError, ObjectFilter,
-        explored_managed_host::DbExploredManagedHost,
-        instance::{DeleteInstance, Instance},
-        machine_topology::MachineTopology,
+        self, DatabaseError, ObjectFilter, explored_managed_host::DbExploredManagedHost,
+        instance::Instance, machine_topology::MachineTopology,
     },
     ethernet_virtualization,
     model::{hardware_info::HardwareInfo, machine::MachineState},
     redfish::RedfishClientPool,
 };
 use ::rpc::errors::RpcDataConversionError;
+use forge_uuid::machine::MachineInterfaceId;
 use forge_uuid::machine::{MachineId, MachineType};
-use forge_uuid::{infiniband::IBPartitionId, machine::MachineInterfaceId};
 use utils::HostPortPair;
 
 pub struct Api {
@@ -2146,75 +2142,14 @@ impl Forge for Api {
         })?;
 
         if let Some(instance_id) = instance_id {
-            let instance = Instance::find_by_id(&mut txn, instance_id)
-                .await
-                .map_err(CarbideError::from)?
-                .ok_or_else(|| {
-                    CarbideError::internal(format!(
-                        "Could not find an instance for {}",
-                        instance_id
-                    ))
-                })?
-                .to_owned();
-
-            let ib_fabric = self
-                .ib_fabric_manager
-                .connect(DEFAULT_IB_FABRIC_NAME)
-                .await?;
-
-            // Collect the ib partition and ib ports information about this machine
-            let mut ib_config_map: HashMap<IBPartitionId, Vec<String>> = HashMap::new();
-            let infiniband = instance.config.infiniband.ib_interfaces;
-            for ib in &infiniband {
-                let ib_partition_id = ib.ib_partition_id;
-                if let Some(guid) = ib.guid.as_deref() {
-                    ib_config_map
-                        .entry(ib_partition_id)
-                        .or_default()
-                        .push(guid.to_string());
-                }
-            }
-
-            response.ufm_unregistration_pending = true;
-            // unbind ib ports from UFM
-            for (ib_partition_id, guids) in ib_config_map.iter() {
-                if let Some(pkey) =
-                    IBPartition::find_pkey_by_partition_id(&mut txn, *ib_partition_id)
-                        .await
-                        .map_err(CarbideError::from)?
-                {
-                    ib_fabric.unbind_ib_ports(pkey, guids.to_vec()).await?;
-                    response.ufm_unregistrations += 1;
-
-                    //TODO: release VF GUID resource when VF supported.
-                }
-            }
-            response.ufm_unregistration_pending = false;
-
-            // Delete the instance and allocated address
-            // TODO: This might need some changes with the new state machine
-            let delete_instance = DeleteInstance { instance_id };
-            let _instance = delete_instance.delete(&mut txn).await?;
-
-            let network_segment_ids_with_vpc = instance
-                .config
-                .network
-                .interfaces
-                .iter()
-                .filter_map(|x| match x.network_details {
-                    Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
-                    _ => None,
-                })
-                .collect_vec();
-
-            // Mark all network ready for delete which were created for vpc_prefixes.
-            if !network_segment_ids_with_vpc.is_empty() {
-                NetworkSegment::mark_as_deleted_no_validation(
-                    &mut txn,
-                    &network_segment_ids_with_vpc,
-                )
-                .await?;
-            }
+            instance::force_delete_instance(
+                instance_id,
+                &self.ib_fabric_manager,
+                &self.common_pools,
+                &mut response,
+                &mut txn,
+            )
+            .await?;
         }
 
         if let Some(machine) = &host_machine {

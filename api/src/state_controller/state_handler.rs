@@ -201,6 +201,12 @@ pub enum StateHandlerError {
 
     #[error("Problem with measured boot: {0}")]
     MeasuringError(MeasuringProblem),
+
+    #[error("Resource {resource} cleanup error: {error}")]
+    ResourceCleanupError {
+        resource: &'static str,
+        error: String,
+    },
 }
 
 impl StateHandlerError {
@@ -235,6 +241,11 @@ impl StateHandlerError {
                 MeasuringProblem::NoEkCertVerificationStatusFound(_) => {
                     "no_ek_cert_verification_status_found"
                 }
+            },
+            StateHandlerError::ResourceCleanupError { resource, .. } => match *resource {
+                "VpcLoopbackIp" => "vpcloopback_release_failed",
+                "network_segment" => "network_segment_cleanup_failed",
+                _ => "resource_cleanup_failed",
             },
         }
     }

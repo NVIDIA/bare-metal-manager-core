@@ -169,6 +169,11 @@ pub async fn allocate_network(
 
     // get all used prefixes under this vpc_prefix.
     for interface in &mut network_config.interfaces {
+        // If IP address is already allocated, ignore.
+        // // This is the case of updating network config (adding/removing a VF)
+        if !interface.ip_addrs.is_empty() {
+            continue;
+        }
         if let Some(network_details) = &mut interface.network_details {
             match network_details {
                 NetworkDetails::NetworkSegment(_) => {}

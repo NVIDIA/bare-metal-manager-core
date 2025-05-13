@@ -92,6 +92,7 @@ impl InstanceStatus {
                 | InstanceState::WaitingForNetworkConfig
                 | InstanceState::WaitingForStorageConfig
                 | InstanceState::WaitingForRebootToReady => tenant::TenantState::Provisioning,
+                InstanceState::NetworkConfigUpdate { .. } => tenant::TenantState::Configuring,
                 InstanceState::Ready => {
                     let phone_home_pending =
                         phone_home_enrolled && phone_home_last_contact.is_none();
