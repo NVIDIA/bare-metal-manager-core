@@ -1182,6 +1182,17 @@ pub enum MeasuringState {
     PendingBundle,
 }
 
+/// Tenant has requested network config update for the existing instance.
+/// At this point, instance config, instance network config version are already increased.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum NetworkConfigUpdateState {
+    WaitingForNetworkSegmentToBeReady,
+    WaitingForConfigSynced,
+    // State machine should identify the old resources which needs to be freed and free them.
+    ReleaseOldResources,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum HostReprovisionState {
@@ -1536,6 +1547,9 @@ pub enum InstanceState {
     },
     HostReprovision {
         reprovision_state: HostReprovisionState,
+    },
+    NetworkConfigUpdate {
+        network_config_update_state: NetworkConfigUpdateState,
     },
 }
 

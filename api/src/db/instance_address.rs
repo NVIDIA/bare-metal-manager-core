@@ -116,6 +116,20 @@ impl InstanceAddress {
         Ok(())
     }
 
+    pub async fn delete_addresses(
+        txn: &mut PgConnection,
+        addresses: &[&IpAddr],
+    ) -> Result<(), DatabaseError> {
+        // Lock MUST be taken by calling function.
+        let query = "DELETE FROM instance_addresses WHERE address=ANY($1)";
+        sqlx::query(query)
+            .bind(addresses)
+            .execute(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
+
     fn validate(
         segments: &Vec<NetworkSegment>,
         instance_network: &InstanceNetworkConfig,

@@ -1,4 +1,6 @@
 ```mermaid
+%%{init: { 'sequence': {'useMaxWidth':false} } }%%
+
 stateDiagram-v2
 %%classDef ready fill:green,color:white,font-weight:bold,font-size:30px,stroke-width:2px,stroke:yellow
 %%classDef assigned fill:#FFFDD0,font-weight:bold,font-size:23px,stroke-width:2px,stroke:green
@@ -7,6 +9,7 @@ stateDiagram-v2
 %%classDef dpunotready fill:#C7F3ED,font-weight:bold,font-size:23px,stroke-width:2px,stroke:black
 %%classDef cleanup fill:white,font-weight:bold,font-size:23px,stroke-width:2px,stroke:orange
 %%classDef failed fill:#f00,color:white,font-size:25px,font-weight:bold,stroke-width:2px,stroke:yellow
+
 
 state if_state <<choice>>
 [*] --> CreateMachineFeatureEnabled
@@ -47,8 +50,11 @@ if_state --> DpuDiscoveringState: True
   Ready --> HostReprovision: If Host FW updates should be installed
 
   state Assigned {
-    [*] --> A_WaitingForNetworkConfig: Waiting for tenant network to config on DPU
-    A_WaitingForNetworkConfig --> A_Ready: Tenant Network Ready
+    [*] --> A_WaitingForNetworkSegmentToBeReady: Wait until network segment created for vpc_prefixes are ready.
+    A_WaitingForNetworkSegmentToBeReady --> A_WaitingForNetworkConfig: Waiting for tenant network to config on DPU
+    A_WaitingForNetworkConfig --> A_WaitingForStorageConfig: DPU Agent responded with network ready status
+    A_WaitingForStorageConfig --> A_WaitingForRebootToReady: Storage is ready, reboot now.
+    A_WaitingForRebootToReady --> A_Ready: Tenant Network Ready
     A_Ready --> A_BootingWithDiscoveryImage: Instance delete request received, or reprovision requested
     A_BootingWithDiscoveryImage --> A_SwitchToAdminNetwork: Host rebooted with discovery image
     A_SwitchToAdminNetwork --> A_WaitingForNetworkReconfig: Configured to move to Admin Network
@@ -56,6 +62,14 @@ if_state --> DpuDiscoveringState: True
     A_DPUReprovision --> A_Ready: Various DPU reprovision states end in state ReprovisionState#58;#58;RebootHost which then goes to A_Ready
     A_BootingWithDiscoveryImage --> A_HostReprovision: Host firmware updates in progress.  Roughly follows HostReprovision.
     A_HostReprovision --> A_Ready: Completion of host firmware updates
+    A_Ready --> NetworkUpdate: On NetworkUpdate Request
+
+    state NetworkUpdate {
+      [*] --> NW_WaitingForNetworkSegmentToBeReady: 
+      NW_WaitingForNetworkSegmentToBeReady --> NW_WaitingForConfigSynced: Network segment created for vpc_prefixes are ready.
+      NW_WaitingForConfigSynced --> NW_ReleaseOldResources: DPU Agent responded with network ready with latest config
+    }
+    NetworkUpdate --> A_Ready: Released old resources like IP/segments/loopback IP
   }
   A_WaitingForNetworkReconfig --> WaitingForCleanup: Instance is deleted from Db
 

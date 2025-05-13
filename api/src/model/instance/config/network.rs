@@ -260,7 +260,15 @@ impl InstanceNetworkConfig {
         current != new_config
     }
 
-    pub fn copy_existing_resources(&mut self, current_config: &Self) {
+    // This function copies exiting resources which are unchanged in new network config.
+    // This usually represents the case of adding/deleting a VF.
+    // This function also returns the copied resources so that state machine can filter out used
+    // resources and release other resources.
+    // The algorithm should remain same for copying and filtering to keep things consistent.
+    pub fn copy_existing_resources<'a>(
+        &mut self,
+        current_config: &'a Self,
+    ) -> Vec<&'a InstanceInterfaceConfig> {
         let mut common_function_ids = Vec::new();
 
         // This does not handle the deletion case. Suppose we have interfaces [PF, VF1, VF2, VF3, VF4,
@@ -292,11 +300,14 @@ impl InstanceNetworkConfig {
                 interface.interface_prefixes = existing_interface.interface_prefixes.clone();
                 interface.network_segment_gateways =
                     existing_interface.network_segment_gateways.clone();
+                if interface.network_details.is_some() {
+                    interface.network_segment_id = existing_interface.network_segment_id;
+                }
+                common_function_ids.push(existing_interface);
             }
-
-            // TODO: In case of multidpu, this should be a tuple of (function id, device_type, device_instance)
-            common_function_ids.push(interface.function_id.clone());
         }
+
+        common_function_ids
     }
 
     /// Returns true if all interfaces on this instance are equivalent to the host's in-band
