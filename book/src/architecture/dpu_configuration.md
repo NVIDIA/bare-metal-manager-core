@@ -24,7 +24,7 @@ The DPUs are configured by the Forge site controller (Carbide) via a **declarati
 
 ```mermaid
 sequenceDiagram
-        box rgba(85, 102, 57, 0.2) Site Controller
+    box rgba(85, 102, 57, 0.2) Site Controller
         participant Carbide as Carbide API
     end
 
