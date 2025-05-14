@@ -3,7 +3,6 @@
 - [Introduction](README.md)
 - [Onboarding](onboarding.md)
 - [Architecture](architecture.md)
-- [Workflow](workflow.md)
 - [Usage]()
 
 # Architecture
