@@ -50,6 +50,33 @@ if dpu_fw_downgrade not in ["true", "false"]:
     )
     sys.exit(1)
 
+if dpu_fw_downgrade == "true":
+    fw_downgrade_version = os.environ.get("FW_DOWNGRADE_VERSION")
+    if fw_downgrade_version is None:
+        print(
+        "ERROR: $FW_DOWNGRADE_VERSION environment variable must be provided when $FW_DOWNGRADE is set to 'true'. \nExiting...",
+        file=sys.stderr,
+        )
+        sys.exit(1)
+
+    supported_fw_versions = {
+        "2.0.0": config.HBN_2_0_0,
+    }
+    if fw_downgrade_version not in supported_fw_versions:
+        print("ERROR: $FW_DOWNGRADE_VERSION currently only supports '2.0.0' (HBN). \nExiting...", file=sys.stderr)
+        sys.exit(1)
+    
+    # Get firmware versions and URLs from config
+    selected_fw = supported_fw_versions[fw_downgrade_version]
+    BFB_VERSION = selected_fw["BFB_VERSION"]
+    NIC_VERSION = selected_fw["NIC_VERSION"]
+    BMC_VERSION = selected_fw["BMC_VERSION"]
+    CEC_VERSION = selected_fw["CEC_VERSION"]
+    BFB_URL = selected_fw["BFB_URL"]
+    NIC_FW_URL = selected_fw["NIC_FW_URL"]
+    BMC_FW_URL = selected_fw["BMC_FW_URL"]
+    CEC_FW_URL = selected_fw["CEC_FW_URL"]
+
 # Set environment variable CARBIDE_API_URL for forge-admin-cli instead of using --carbide-api
 os.environ["CARBIDE_API_URL"] = f"https://api-{short_site_name}.frg.nvidia.com"
 
@@ -172,26 +199,26 @@ except subprocess.CalledProcessError:
 if dpu_fw_downgrade == "true":
     print("\n*** Starting DPU firmware downgrade ***")
 
-    bmc_fw_path = os.path.join(os.getcwd(), config.BMC_FW_URL.split("/")[-1])
-    cec_fw_path = os.path.join(os.getcwd(), config.CEC_FW_URL.split("/")[-1])
-    bfb_path = os.path.join(os.getcwd(), config.BFB_URL.split("/")[-1])
+    bmc_fw_path = os.path.join(os.getcwd(), BMC_FW_URL.split("/")[-1])
+    cec_fw_path = os.path.join(os.getcwd(), CEC_FW_URL.split("/")[-1])
+    bfb_path = os.path.join(os.getcwd(), BFB_URL.split("/")[-1])
 
     # Download BMC firmware & BFB if necessary
     if not os.path.isfile(bmc_fw_path):
         try:
-            utils.download_firmware_file(config.BMC_FW_URL)
+            utils.download_firmware_file(BMC_FW_URL)
         except Exception as e:
             print(f"ERROR: BMC firmware failed to download: {e}\nExiting...", file=sys.stderr)
             sys.exit(1)
     if not os.path.isfile(cec_fw_path):
         try:
-            utils.download_firmware_file(config.CEC_FW_URL)
+            utils.download_firmware_file(CEC_FW_URL)
         except Exception as e:
             print(f"ERROR: BMC CEC firmware failed to download: {e}\nExiting...", file=sys.stderr)
             sys.exit(1)
     if not os.path.isfile(bfb_path):
         try:
-            utils.download_firmware_file(config.BFB_URL)
+            utils.download_firmware_file(BFB_URL)
         except Exception as e:
             print(f"ERROR: BFB failed to download: {e}\nExiting...", file=sys.stderr)
             sys.exit(1)
@@ -237,22 +264,22 @@ if dpu_fw_downgrade == "true":
     for dpu_id in dpu_ids:
         try:
             bmc_version = utils.get_reported_bmc_version(dpu_info_map[dpu_id]["bmc_ip"], dpu_bmc_username, dpu_bmc_password)
-            if config.BMC_VERSION not in bmc_version:
+            if BMC_VERSION not in bmc_version:
                 print(
-                    f"ERROR: DPU {dpu_id} reports BMC version {bmc_version}, expected {config.BMC_VERSION}. \nExiting...",
+                    f"ERROR: DPU {dpu_id} reports BMC version {bmc_version}, expected {BMC_VERSION}. \nExiting...",
                     file=sys.stderr
                 )
                 sys.exit(1)
-            print(f"Successfully downgraded BMC to {config.BMC_VERSION} on {dpu_id}")
+            print(f"Successfully downgraded BMC to {BMC_VERSION} on {dpu_id}")
 
             cec_version = utils.get_reported_cec_version(dpu_info_map[dpu_id]["bmc_ip"], dpu_bmc_username, dpu_bmc_password)
-            if config.CEC_VERSION not in cec_version:
+            if CEC_VERSION not in cec_version:
                 print(
-                    f"ERROR: DPU {dpu_id} reports CEC version {cec_version}, expected {config.CEC_VERSION}. \nExiting...",
+                    f"ERROR: DPU {dpu_id} reports CEC version {cec_version}, expected {CEC_VERSION}. \nExiting...",
                     file=sys.stderr
                 )
                 sys.exit(1)
-            print(f"Successfully downgraded CEC to {config.CEC_VERSION} on {dpu_id}")
+            print(f"Successfully downgraded CEC to {CEC_VERSION} on {dpu_id}")
         except Exception as e:
             print(f"ERROR: Failed to confirm BMC & CEC versions on {dpu_id}: {e}\nExiting...", file=sys.stderr)
             sys.exit(1)
@@ -282,7 +309,7 @@ if dpu_fw_downgrade == "true":
     for dpu_id in dpu_ids:
         try:
             utils.apply_nic_firmware(
-                config.NIC_FW_URL,
+                NIC_FW_URL,
                 dpu_info_map[dpu_id]["bmc_ip"],
                 dpu_bmc_username,
                 dpu_bmc_password
@@ -312,26 +339,26 @@ if dpu_fw_downgrade == "true":
                 dpu_bmc_username,
                 dpu_bmc_password,
             )
-            if config.BFB_VERSION not in bfb_version:
+            if BFB_VERSION not in bfb_version:
                 print(
-                    f"ERROR: DPU {dpu_id} reports BFB version {bfb_version}, expected {config.BFB_VERSION}\nExiting...",
+                    f"ERROR: DPU {dpu_id} reports BFB version {bfb_version}, expected {BFB_VERSION}\nExiting...",
                     file=sys.stderr,
                 )
                 sys.exit(1)
-            print(f"Successfully downgraded BFB to {config.BFB_VERSION} on {dpu_id}")
+            print(f"Successfully downgraded BFB to {BFB_VERSION} on {dpu_id}")
 
             nic_version = utils.get_reported_nic_version(
                 dpu_info_map[dpu_id]["bmc_ip"],
                 dpu_bmc_username,
                 dpu_bmc_password,
             )
-            if config.NIC_VERSION not in nic_version:
+            if NIC_VERSION not in nic_version:
                 print(
-                    f"ERROR: DPU {dpu_id} reports NIC version {nic_version}, expected {config.NIC_VERSION}\nExiting...",
+                    f"ERROR: DPU {dpu_id} reports NIC version {nic_version}, expected {NIC_VERSION}\nExiting...",
                     file=sys.stderr,
                 )
                 sys.exit(1)
-            print(f"Successfully downgraded NIC to {config.NIC_VERSION} on {dpu_id}")
+            print(f"Successfully downgraded NIC to {NIC_VERSION} on {dpu_id}")
         except Exception as e:
             print(f"ERROR: Failed to confirm BFB & NIC versions on {dpu_id}: {e}\nExiting...", file=sys.stderr)
             sys.exit(1)
