@@ -8,6 +8,7 @@
 
 # Architecture
 
+- [DPU configuration](architecture/dpu_configuration.md)
 - [Key Group Synchronization](architecture/key_group_sync.md)
 - [Infiniband support]()
   - [NIC and Port selection](architecture/infiniband/nic_selection.md)
@@ -35,7 +36,6 @@
 - [DHCP Service]()
 - [DNS Service]()
 - [BMC Proxy]()
-- [Network Virtualization (Hydrazine)]()
 
 # Development
 
