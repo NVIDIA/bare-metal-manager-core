@@ -1,3 +1,6 @@
+<div class="mermaid-zoom" style="width: 60vw; height: 80vh;">
+<!-- Keep the empty line after this or here or the diagram will break -->
+
 ```mermaid
 %%{init: { 'sequence': {'useMaxWidth':false} } }%%
 
@@ -116,3 +119,5 @@ if_state --> DpuDiscoveringState: True
   }
   Validation --> Host_Discovered: Validation completed
 ```
+
+</div>
