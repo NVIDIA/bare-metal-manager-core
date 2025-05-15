@@ -6,11 +6,13 @@ fi
 
 set -Eeux
 
+dpkg -i /build-output/forge-scout.deb
+systemctl enable forge-scout
+
 mkdir -p /opt/forge/xclarity
 curl -fS --progress-meter -vL https://download.lenovo.com/servers/mig/2024/02/23/59428/lnvgy_utl_lxce_onecli01t-4.4.0_linux_x86-64.tgz | tar -zxf - -C /opt/forge/xclarity
 curl -fS --progress-meter -vL https://download.lenovo.com/servers/mig/2020/06/11/22050/lnvgy_utl_bootstor_mnvcli-1.0.20.1040-0_linux_x86-64.tgz | tar -zxf - --wildcards --no-anchored --strip-components=2 -C /opt/forge 64/mnv_cli
 chmod +x /opt/forge/mnv_cli
-
 
 mkdir -p /root/.docker/
 wget https://github.com/containerd/nerdctl/releases/download/v2.0.2/nerdctl-2.0.2-linux-amd64.tar.gz
@@ -21,3 +23,47 @@ rm nerdctl-2.0.2-linux-amd64.tar.gz
 cd /opt && git clone https://gitlab-master.nvidia.com/omniverse/saas/benchpress.git
 cd /opt/benchpress && git apply /opt/patches/benchpress.patch
 cd /opt/benchpress && python3 -m venv venv
+
+# begin nvinit setup
+# most debs are installed from the .conf file.
+# libnss-exec is a special case and located here: https://gitlab-master.nvidia.com/ngcsecurity/nvssh/-/tree/master/ansible/roles/nvssh/files
+dpkg -i /build-output/libnss-exec_0.2.0-1_amd64.deb
+
+mkdir -p /etc/nvssh
+chmod 0755 /etc/nvssh
+mv /build-output/nvinit_setup/etc-nvssh-nvssh-conf /etc/nvssh/nvssh.conf
+chmod 0644 /etc/nvssh/nvssh.conf
+
+mv /build-output/nvinit_setup/etc-sudoersd-nvssh-sudo /etc/sudoers.d/nvssh-sudo
+chmod 0600 /etc/sudoers.d/nvssh-sudo
+mv /build-output/nvinit_setup/etc-sudoersd-nvssh-sudo-nopasswd /etc/sudoers.d/nvssh-sudo-nopasswd
+chmod 0600 /etc/sudoers.d/nvssh-sudo-nopasswd
+mv /build-output/nvinit_setup/etc-nsswitch-conf /etc/nsswitch.conf
+chmod 0644 /etc/nsswitch.conf
+mv /build-output/nvinit_setup/etc-pamd-sshd /etc/pam.d/sshd
+chmod 0600 /etc/pam.d/sshd
+mv /build-output/nvinit_setup/etc-ssh-ngc-users-ca-keys-pem /etc/ssh/ngc-users-ca-keys.pem
+chmod 0644 /etc/ssh/ngc-users-ca-keys.pem
+mv /build-output/nvinit_setup/sbin-nss-exec /sbin/nss_exec
+chmod 0755 /sbin/nss_exec
+mv /build-output/nvinit_setup/usr-bin-nvssh /usr/bin/nvssh
+chmod 0755 /usr/bin/nvssh
+mv /build-output/nvinit_setup/etc-ssh-sshd-config /etc/ssh/sshd_config
+chmod 0644 /etc/ssh/sshd_config
+
+chown root:root /etc/sudoers.d/nvssh-sudo
+chown root:root /etc/sudoers.d/nvssh-sudo-nopasswd
+chown root:root /etc/nsswitch.conf
+chown root:root /etc/pam.d/sshd
+chown root:root /etc/ssh/ngc-users-ca-keys.pem
+chown root:root /sbin/nss_exec
+chown root:root /usr/bin/nvssh
+chown root:root /etc/ssh/sshd_config
+
+groupadd -r nvssh-sudo-nopasswd
+groupadd -r nvssh-sudo
+groupadd ngc-automation
+groupadd ngc
+groupadd nsv
+
+# end nvinit setup

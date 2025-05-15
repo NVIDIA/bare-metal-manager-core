@@ -67,7 +67,6 @@ impl PxeInstructions {
         match arch {
             rpc::MachineArchitecture::Arm => {
                 if machine_type == MachineType::Host || machine_type == MachineType::PredictedHost {
-                    // For the Scout, bfks => BlueField Kick Start script
                     InstructionGenerator {
                         kernel: "${base-url}/internal/aarch64/scout.efi".to_string(),
                         command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),

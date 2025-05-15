@@ -11,6 +11,9 @@
 REPO_ROOT = { script = [
   "dirname $(cargo locate-project --message-format plain --workspace)",
 ] }
+PKG_VERSION = { script = [
+  "echo $(git describe --tags --first-parent --always --long | cut -c 2-)",
+] }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem" }
 
 # BFB stuff
@@ -27,9 +30,6 @@ IPXE_BANNER_VERSION = { script = [
   "echo ${VERSION:-$(git describe --tags --first-parent --always --long)}",
 ] }
 DOCA_HBN_URI = "nvcr.io/nvidia/doca/doca_hbn:2.3.0-doca2.8.0"
-DPU_AGENT_PKG_VERSION = { script = [
-  "echo $(git describe --tags --first-parent --always --long | cut -c 2-)",
-] }
 BUILD_LOCATION = "/tmp/bfb-dump/initramfs-tmp"
 
 # https://confluence.nvidia.com/display/SW/BF2+BMC+Firmware+release
@@ -78,73 +78,83 @@ args = [
 ]
 cwd = "${BUILD_LOCATION}" # jf will try to upload the full path specified if the tool is executed out of the target directory
 
+[tasks.stage-nvinit]
+# Note that libnss-exec is located here: https://gitlab-master.nvidia.com/ngcsecurity/nvssh/-/tree/master/ansible/roles/nvssh/files
+description="Stages files required for nvssh into the mkosi image for installation in postinst script"
+script = '''
+  cp -R ${REPO_ROOT}/pxe/nvinit_setup mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
+  cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_amd64.deb mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
+  cp -R ${REPO_ROOT}/pxe/nvinit_setup mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
+  cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_arm64.deb mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
+'''
 
-[tasks.build-boot-artifacts-x86_64]
+[tasks.build-boot-artifacts-x86-host]
 dependencies = [
-  "mkdir-static-x86_64",
+  "mkdir-static",
   "cleanup-pxe-submodule",
-  { name = "build-cli", path = "${REPO_ROOT}" },
+  { name = "package-scout-x86_64-release-local", path = "${REPO_ROOT}" },
   "build",
-  "create-ephemeral-image-x86_64",
+  "create-ephemeral-image-x86-host",
   "ipxe-x86_64",
+  "setup-apt-repo-amd64",
 ]
 
-[tasks.build-boot-artifacts-minikube-x86_64]
+[tasks.build-boot-artifacts-x86-host-ci]
 dependencies = [
-  "mkdir-static-x86_64",
-  { name = "build-cli-ci", path = "${REPO_ROOT}" },
-  "create-ephemeral-image-x86_64",
+  "mkdir-static",
+  { name = "package-scout-x86_64-release-local", path = "${REPO_ROOT}" },
   "ipxe-x86_64",
+  "setup-apt-repo-amd64",
 ]
 
-[tasks.build-boot-artifacts-x86_64-ci]
+# This probably doesn't work yet.  there's no support for building arm images locally
+[tasks.build-boot-artifacts-arm-host]
 dependencies = [
-  "mkdir-static-x86_64",
-  { name = "build-cli-ci", path = "${REPO_ROOT}" },
-  "ipxe-x86_64-ci",
-]
-
-[tasks.build-boot-artifacts-aarch64]
-dependencies = [
-  "mkdir-static-aarch64",
+  "mkdir-static",
   "cleanup-pxe-submodule",
-  { name = "build-cli-cross-aarch64", path = "${REPO_ROOT}" },
+  { name = "package-scout-aarch64-release-cross", path = "${REPO_ROOT}" },
+  "build",
+  "create-ephemeral-image-arm-host",
+  "ipxe-aarch64",
+  "setup-apt-repo-arm64",
+]
+
+[tasks.build-boot-artifacts-arm-host-ci]
+dependencies = [
+  "mkdir-static",
+  { name = "package-scout-aarch64-release-local", path = "${REPO_ROOT}" },
+  "ipxe-aarch64-ci",
+  "setup-apt-repo-arm64",
+]
+
+[tasks.build-boot-artifacts-bfb]
+dependencies = [
+  "mkdir-static",
+  "cleanup-pxe-submodule",
+  { name = "package-scout-aarch64-release-cross", path = "${REPO_ROOT}" },
   "bfb-aarch64",
   "ipxe-aarch64",
-  "setup-apt-repo",
+  "setup-apt-repo-arm64",
   "setup-firmware-repo",
 ]
 
-[tasks.build-boot-artifacts-aarch64-ci]
+[tasks.build-boot-artifacts-bfb-ci]
 dependencies = [
-  "mkdir-static-aarch64",
-  { name = "build-cli-ci", path = "${REPO_ROOT}" },
+  "mkdir-static",
+  { name = "package-scout-aarch64-release-local", path = "${REPO_ROOT}" },
   "bfb-aarch64-ci",
   "ipxe-aarch64-ci",
-  "setup-apt-repo",
+  "setup-apt-repo-arm64",
   "setup-firmware-repo",
 ]
 
-[tasks.create-ephemeral-image-x86_64-ci]
-category = "Ephemeral Image"
-dependencies = [
-  "mkosi-generate-build-tmpdir",
-  "copy-forge-scout-ci-x86_64",
-  "copy-forge-prod-root-ca-x86_64",
-  "mkosi-build-scout-x86_64",
-  "mkosi-build-qcow-imager",
-  "mkosi-copy-qcow-imager-to-webroot-x86_64",
-  "mkosi-copy-scout-to-webroot-x86_64",
-  "mkosi-clean-qcow-imager",
-  "mkosi-clean-scout-x86_64",
-]
-
-[tasks.create-ephemeral-image-x86_64]
+[tasks.create-ephemeral-image-x86-host-ci]
 category = "Ephemeral Image"
 dependencies = [
   "mkosi-generate-build-tmpdir",
   "copy-forge-scout-x86_64",
-  "copy-forge-dev-root-ca-x86_64",
+  "copy-forge-prod-root-ca-x86_64",
+  "stage-nvinit",
   "mkosi-build-scout-x86_64",
   "mkosi-build-qcow-imager",
   "mkosi-copy-qcow-imager-to-webroot-x86_64",
@@ -153,29 +163,46 @@ dependencies = [
   "mkosi-clean-scout-x86_64",
 ]
 
-[tasks.create-ephemeral-image-aarch64-ci]
+[tasks.create-ephemeral-image-x86-host]
 category = "Ephemeral Image"
 dependencies = [
+  "mkdir-static",
   "mkosi-generate-build-tmpdir",
-  "copy-forge-scout-ci-aarch64",
-  "copy-forge-prod-root-ca-aarch64",
-  "mkosi-build-scout-aarch64",
-  #"mkosi-build-qcow-imager",
-  #"mkosi-copy-qcow-imager-to-webroot-aarch64",
-  "mkosi-copy-scout-to-webroot-aarch64",
-  "mkosi-clean-scout-aarch64",
+  "copy-forge-scout-x86_64",
+  "copy-forge-dev-root-ca-x86_64",
+  "stage-nvinit",
+  "mkosi-build-scout-x86_64",
+  "mkosi-build-qcow-imager",
+  "mkosi-copy-qcow-imager-to-webroot-x86_64",
+  "mkosi-copy-scout-to-webroot-x86_64",
+  "mkosi-clean-qcow-imager",
+  "mkosi-clean-scout-x86_64",
 ]
 
-[tasks.create-ephemeral-image-aarch64]
+[tasks.create-ephemeral-image-arm-host-ci]
 category = "Ephemeral Image"
 dependencies = [
   "mkosi-generate-build-tmpdir",
   "copy-forge-scout-aarch64",
-  "copy-forge-dev-root-ca-aarch64",
+  "copy-forge-prod-root-ca-aarch64",
+  "stage-nvinit",
   "mkosi-build-scout-aarch64",
-  #"mkosi-build-qcow-imager",
-  #"mkosi-copy-qcow-imager-to-webroot-aarch64",
   "mkosi-copy-scout-to-webroot-aarch64",
+  "mkosi-clean-qcow-imager",
+  "mkosi-clean-scout-aarch64",
+]
+
+[tasks.create-ephemeral-image-arm-host]
+category = "Ephemeral Image"
+dependencies = [
+  "mkdir-static",
+  "mkosi-generate-build-tmpdir",
+  "copy-forge-scout-aarch64",
+  "copy-forge-dev-root-ca-aarch64",
+  "stage-nvinit",
+  "mkosi-build-scout-aarch64",
+  "mkosi-copy-scout-to-webroot-aarch64",
+  "mkosi-clean-qcow-imager",
   "mkosi-clean-scout-aarch64",
 ]
 
@@ -189,20 +216,20 @@ git reset --hard --quiet
 git clean -fd --quiet
 '''
 
-[tasks.mkdir-static-aarch64]
+[tasks.mkdir-static]
 category = "ipxe"
 script = '''
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/aarch64"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-arm64"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-dpu"
+  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-scout"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/firmware"
-'''
-
-[tasks.mkdir-static-x86_64]
-category = "ipxe"
-script = '''
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/x86_64"
+  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-amd64"
+  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-scout"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/firmware"
+  mkdir -p "${REPO_ROOT}/pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output"
+  mkdir -p "${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output"
 '''
 
 [tasks.copy-forge-prod-root-ca-x86_64]
@@ -245,34 +272,19 @@ args = [
 category = "Copy Forge Scout locally"
 command = "cp"
 args = [
-  "${REPO_ROOT}/target/release/forge-scout",
-  "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/",
+  "${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_amd64.deb",
+  "mkosi.profiles/scout-x86_64/mkosi.extra/build-output/forge-scout.deb",
 ]
+dependencies=["mkdir-static"]
 
 [tasks.copy-forge-scout-aarch64]
 category = "Copy Forge Scout locally"
 command = "cp"
 args = [
-  "${REPO_ROOT}/target/release/forge-scout",
-  "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/",
+  "${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_arm64.deb",
+  "mkosi.profiles/scout-aarch64/mkosi.extra/build-output/forge-scout.deb",
 ]
-
-[tasks.copy-forge-scout-ci-x86_64]
-category = "Copy Forge Scout in CI"
-command = "cp"
-args = [
-  "${REPO_ROOT}/target/debug/forge-scout",
-  "mkosi.profiles/scout-x86_64/mkosi.extra/opt/forge/",
-]
-
-[tasks.copy-forge-scout-ci-aarch64]
-category = "Copy Forge Scout in CI"
-command = "cp"
-args = [
-  "${REPO_ROOT}/target/debug/forge-scout",
-  "mkosi.profiles/scout-aarch64/mkosi.extra/opt/forge/",
-]
-
+dependencies=["mkdir-static"]
 
 [tasks.mkosi-clean-qcow-imager]
 category = "Ephemeral Image"
@@ -330,7 +342,7 @@ args = [
   "${MKOSI_BUILD_TMP}/qcow-imager.efi",
   "static/blobs/internal/x86_64/qcow-imager.efi",
 ]
-dependencies = ["mkdir-static-x86_64"]
+dependencies = ["mkdir-static"]
 
 [tasks.mkosi-copy-qcow-imager-to-webroot-aarch64]
 category = "Ephemeral Image"
@@ -339,31 +351,21 @@ args = [
   "${MKOSI_BUILD_TMP}/qcow-imager.efi",
   "static/blobs/internal/aarch64/qcow-imager.efi",
 ]
-dependencies = ["mkdir-static-x86_64"]
+dependencies = ["mkdir-static"]
 
 [tasks.mkosi-copy-scout-to-webroot-x86_64]
 category = "Ephemeral Image"
 command = "cp"
 args = ["${MKOSI_BUILD_TMP}/scout.efi", "static/blobs/internal/x86_64/scout.efi"]
-dependencies = ["mkdir-static-x86_64"]
+dependencies = ["mkdir-static"]
 
 [tasks.mkosi-copy-scout-to-webroot-aarch64]
 category = "Ephemeral Image"
 command = "cp"
 args = ["${MKOSI_BUILD_TMP}/scout.efi", "static/blobs/internal/aarch64/scout.efi"]
-dependencies = ["mkdir-static-aarch64"]
+dependencies = ["mkdir-static"]
 
 [tasks.ipxe-x86_64]
-category = "iPXE Kernel"
-description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the carbide static webroot"
-dependencies = [
-  "ipxe-config",
-  "ipxe-patch-measured-boot",
-  "ipxe-patch-watchdog-timeout",
-  "ipxe-install-efi-x86_64",
-]
-
-[tasks.ipxe-x86_64-ci]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the carbide static webroot"
 dependencies = [
@@ -674,7 +676,7 @@ args = [
   "f",
   "-not",
   "-name",
-  "libnss-exec_0.2.0-1_arm64.deb",
+  "libnss-exec_0.2.0-1_*.deb",
   "-delete",
 ]
 
@@ -693,8 +695,11 @@ dependencies = ["cleanup-old-debs"]
 [tasks.bfb-add-debs-to-bfb]
 category = "iPXE Kernel"
 description = "Add debs folder to the bfb"
-command = "cp"
-args = ["-R", "${REPO_ROOT}/pxe/debs", "${BUILD_LOCATION}"]
+script = '''
+  mkdir -p "${BUILD_LOCATION}/debs/"
+  cp ${REPO_ROOT}/pxe/debs/*arm64.deb "${BUILD_LOCATION}/debs/"
+  ls "${BUILD_LOCATION}/debs/"
+'''
 dependencies = ["download-debs-for-bfb"]
 
 [tasks.bfb-add-nvinit-setup-to-bfb]
@@ -707,7 +712,10 @@ args = ["-R", "${REPO_ROOT}/pxe/nvinit_setup", "${BUILD_LOCATION}"]
 category = "iPXE Kernel"
 description = "Add the scout to the bfb"
 command = "cp"
-args = ["${REPO_ROOT}/target/debug/forge-scout", "${BUILD_LOCATION}"]
+args = [
+  "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-scout",
+  "${BUILD_LOCATION}"
+  ]
 
 [tasks.bfb-add-scout-to-bfb]
 category = "iPXE Kernel"
@@ -717,7 +725,7 @@ args = [
   "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-scout",
   "${BUILD_LOCATION}",
 ]
-dependencies = [{ name = "build-cli-cross-aarch64", path = "${REPO_ROOT}" }]
+dependencies = [{ name = "build-scout-aarch64-release-cross", path = "${REPO_ROOT}" }]
 
 [tasks.download-hbn-installer-to-bfb]
 category = "iPXE Kernel"
@@ -769,18 +777,24 @@ category = "iPXE Kernel"
 description = "Copy aarch64 EFI iPXE debian file"
 command = "cp"
 args = [
-  "${REPO_ROOT}/bluefield/forge-dpu_${DPU_AGENT_PKG_VERSION}.deb",
+  "${REPO_ROOT}/target/debs/forge-dpu_${PKG_VERSION}_arm64.deb",
   "${BUILD_LOCATION}/forge-dpu.deb",
 ]
 
-[tasks.setup-apt-repo]
+[tasks.setup-apt-repo-arm64]
 category = "iPXE Kernel"
-description = "Setup apt repo for forge-dpu package"
+dependencies = [
+    "mkdir-static",
+]
+description = "Setup apt repo for arm64 forge-dpu and forge-scout package"
 script = '''
-	mv "${REPO_ROOT}/bluefield/forge-dpu_${DPU_AGENT_PKG_VERSION}.deb" \
-	"${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-dpu/"
+  cp "${REPO_ROOT}/target/debs/forge-dpu_${PKG_VERSION}_arm64.deb" \
+  "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-dpu/"
+  cp "${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_arm64.deb" \
+  "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-scout/"
+
 	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt"
-	dpkg-scanpackages -m pool > dists/focal/main/binary-arm64/Packages
+	dpkg-scanpackages -a arm64 -m pool > dists/focal/main/binary-arm64/Packages
 	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal"
 	echo "Origin: Ubuntu
 Label: Ubuntu
@@ -802,9 +816,42 @@ Label: Ubuntu
 Architecture: arm64" > Release
 '''
 
+[tasks.setup-apt-repo-amd64]
+category = "iPXE Kernel"
+dependencies = [
+    "mkdir-static",
+]
+description = "Setup apt repo for amd64 forge-scout package"
+script = '''
+  cp "${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_amd64.deb" \
+  "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-scout/"
+
+	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt"
+	dpkg-scanpackages --arch amd64 -m pool > dists/focal/main/binary-amd64/Packages
+	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal"
+	echo "Origin: Ubuntu
+Label: Ubuntu
+Suite: focal
+Version: 20.04
+Codename: focal
+Architectures: amd64
+Components: main
+Description: Forge apt repo" > Release
+	echo "Date: `LANG=C date -Ru`" >> Release
+	echo 'SHA256:' >> Release
+	find main -type f | xargs -i sh -c 'printf " "$(sha256sum {} | cut -d " " -f 1)" "$(wc --bytes {} | cut -d " " -f 1)" "{}"\n"' >> Release
+	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-amd64"
+	echo "Archive: focal
+Version: 20.04
+Component: main
+Origin: Ubuntu
+Label: Ubuntu
+Architecture: amd64" > Release
+'''
+
 [tasks.setup-firmware-repo]
 category = "iPXE Kernel"
-dependencies = ["mkdir-static-x86_64"]
+dependencies = ["mkdir-static"]
 description = "Download vendor specific firmware packages"
 script = [
   "echo Downloading nvidia firmware",

@@ -44,9 +44,9 @@ if git diff --name-only HEAD origin/trunk | grep -qE "${directories_pattern}" ||
   {
   # Run the x86_64 build
   echo "Starting build for PXE boot-artifacts (x86_64)..."
-  cargo make --cwd pxe build-boot-artifacts-x86_64 > /tmp/pxe-build-x86.log 2>&1 || exit_code_x86=$?
+  cargo make --cwd pxe build-boot-artifacts-x86-host > /tmp/pxe-build-x86.log 2>&1 || exit_code_x86=$?
   exit_code_x86=${exit_code_x86:-0}
-  echo "Log dump from the build of build-boot-artifacts-x86_64: "
+  echo "Log dump from the build of build-boot-artifacts-x86-host: "
   cat /tmp/pxe-build-x86.log
 
   git submodule deinit -f --all
@@ -54,15 +54,15 @@ if git diff --name-only HEAD origin/trunk | grep -qE "${directories_pattern}" ||
 
   # Run the aarch64 build
   echo "Starting build for PXE boot-artifacts (aarch64)..."
-  cargo make --cwd pxe build-boot-artifacts-aarch64 > /tmp/pxe-build-aarch.log 2>&1 || exit_code_aarch=$?
+  cargo make --cwd pxe build-boot-artifacts-bfb > /tmp/pxe-build-aarch.log 2>&1 || exit_code_aarch=$?
   exit_code_aarch=${exit_code_aarch:-0}
-  echo "Log dump from the build of build-boot-artifacts-aarch64: "
+  echo "Log dump from the build of build-boot-artifacts-bfb: "
   cat /tmp/pxe-build-aarch.log
 
   # Check exit codes and handle failures
   if [[ "$exit_code_x86" -ne 0 ]] || [[ "$exit_code_aarch" -ne 0 ]]; then
-    echo "Building build-boot-artifacts-x86_64 exited with code $exit_code_x86."
-    echo "Building build-boot-artifacts-aarch64 exited with code $exit_code_aarch."
+    echo "Building build-boot-artifacts-x86-host exited with code $exit_code_x86."
+    echo "Building build-boot-artifacts-bfb exited with code $exit_code_aarch."
     echo "ERROR: One or both of the PXE boot-artifacts builds failed. Aborting test..."
     exit 1
   else
