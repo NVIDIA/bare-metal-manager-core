@@ -931,6 +931,9 @@ pub enum RedfishCommand {
     SetDpuMode,
     ChassisResetCard1Powercycle,
     SetBootOrderDpuFirst(SetBootOrderDpuFirstArgs),
+    GetHostRshim,
+    EnableHostRshim,
+    DisableHostRshim,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
