@@ -1,4 +1,4 @@
-<div class="mermaid-zoom" style="width: 60vw; height: 80vh;">
+<div class="mermaid-zoom" style="width: 60vw; height: 80vh; background: white;">
 <!-- Keep the empty line after this or here or the diagram will break -->
 
 ```mermaid
