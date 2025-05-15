@@ -520,6 +520,19 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 .set_boot_order_dpu_first(&args.boot_interface_mac)
                 .await?;
         }
+        GetHostRshim => {
+            if let Some(enabled_value) = redfish.get_host_rshim().await? {
+                tracing::info!("Host RSHIM is {}", enabled_value);
+            } else {
+                tracing::info!("Host RSHIM is None");
+            }
+        }
+        EnableHostRshim => {
+            redfish.set_host_rshim(EnabledDisabled::Enabled).await?;
+        }
+        DisableHostRshim => {
+            redfish.set_host_rshim(EnabledDisabled::Disabled).await?;
+        }
     }
     Ok(())
 }
