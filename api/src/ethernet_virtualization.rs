@@ -358,7 +358,6 @@ pub async fn tenant_network(
                     .await
                     .map_err(CarbideError::from)?;
 
-                    tracing::info!("vpc_peers length {}", vpc_peers.len());
                     let vpc_peer_ids = vpc_peers.iter().map(|(vpc_id, _)| *vpc_id).collect();
                     vpc_peer_prefixes = get_prefixes_by_vpcs(txn, &vpc_peer_ids).await?;
                     if network_virtualization_type == VpcVirtualizationType::Fnn {
