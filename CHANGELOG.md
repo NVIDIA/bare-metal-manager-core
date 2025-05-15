@@ -5,6 +5,7 @@
 ### Added
 
 ### Changed
+- [MR-4045](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4045): Reverted HBN back to 2.8.
 
 ### Fixed
 
