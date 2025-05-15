@@ -345,3 +345,67 @@ def run_forge_admin_cli(args: list[str], no_json: bool = False) -> dict | None:
         raise
     else:
         return json_result
+
+
+def get_machine_capabilities(machine_id: str) -> dict:
+    """Get the capabilities (GPUs, DPUs, network interfaces, memory) of a machine.
+
+    Returns a dictionary with the following keys:
+    - gpu_count: Number of GPUs in the machine
+    - gpu_models: List of GPU models
+    - dpu_count: Number of DPUs in the machine
+    - dpu_models: List of DPU models
+    - network_interfaces_count: Number of network interfaces
+    - memory_size: Total memory size in GB
+    - cpu_count: Number of CPU cores
+    - cpu_model: CPU model
+    """
+    # Get machine information
+    machine = get_machine_from_mh_show(machine_id)
+
+    # Get discovery info
+    discovery_info = machine.get("discovery_info", {})
+
+    # Extract GPU information
+    gpus = discovery_info.get("gpus", [])
+    gpu_count = len(gpus)
+    gpu_models = list(set([gpu.get("name", "Unknown") for gpu in gpus]))
+
+    # Extract DPU information
+    dpus = machine.get("dpus", [])
+    dpu_count = len(dpus)
+    dpu_models = []
+    for dpu in dpus:
+        dpu_info = dpu.get("discovery_info", {}).get("dpu_info", {})
+        if dpu_info:
+            part_desc = dpu_info.get("part_description", "Unknown")
+            if part_desc and part_desc not in dpu_models:
+                dpu_models.append(part_desc)
+
+    # Extract network interface information
+    network_interfaces = discovery_info.get("network_interfaces", [])
+    network_interfaces_count = len(network_interfaces)
+
+    # Extract memory information
+    memory_devices = discovery_info.get("memory_devices", [])
+    memory_size_mb = sum([mem.get("size_mb", 0) for mem in memory_devices])
+    memory_size_gb = memory_size_mb / 1024  # Convert to GB
+
+    # Extract CPU information
+    cpus = discovery_info.get("cpus", [])
+    cpu_count = len(cpus)
+    cpu_model = cpus[0].get("model", "Unknown") if cpu_count > 0 else "Unknown"
+
+    # Create capabilities dictionary
+    capabilities = {
+        "gpu_count": gpu_count,
+        "gpu_models": gpu_models,
+        "dpu_count": dpu_count,
+        "dpu_models": dpu_models,
+        "network_interfaces_count": network_interfaces_count,
+        "memory_size_gb": memory_size_gb,
+        "cpu_count": cpu_count,
+        "cpu_model": cpu_model,
+    }
+
+    return capabilities

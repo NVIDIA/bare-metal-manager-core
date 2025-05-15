@@ -15,6 +15,9 @@ import config
 import utils
 from vault import ForgeVaultClient
 
+import capability_validator
+import capabilities_generator
+
 urllib3.disable_warnings()
 
 # Validate config variables
@@ -84,7 +87,7 @@ sites = [
     ngc.Site("pdx-demo1", "prod"),
     ngc.Site("pdx-dev3", "stg"),
     ngc.Site("reno-dev4", "stg"),
-    ngc.Site("pdx-qa2", "qa"),
+    ngc.Site("pdx-qa2-new", "qa"),
 ]
 
 # Find out if the site under test is in production or staging
@@ -99,7 +102,9 @@ with ForgeVaultClient(path="forge/tokens") as vault_client:
     ngc_api_key = vault_client.get_ngc_api_key(site.environment)
 
 # Get BMC credentials out of corp vault
-with ForgeVaultClient(path=site_under_test) as vault_client:
+# If site name contains '-new' (i.e. pdx-qa2-new), remove it
+site_vault_path = site_under_test.replace('-new', '')
+with ForgeVaultClient(path=site_vault_path) as vault_client:
     dpu_bmc_username, dpu_bmc_password = vault_client.get_dpu_bmc_credentials()
     host_bmc_password = vault_client.get_host_bmc_password()
 
@@ -134,6 +139,10 @@ if "Dell" in machine_vendor and factory_reset == "true":
 
 host_bmc_username = "USERID" if "Lenovo" in machine_vendor else "root"
 host_bmc_ip = machine["host_bmc_ip"]
+
+# Generate machine capabilities before the ingestion
+if site_under_test == "pdx-qa2-new":
+    machine_capabilities = capabilities_generator.generate_capabilities([machine_under_test])
 
 # Create a dictionary of DPU IDs to their BMC and OOB IPs
 dpu_ids: list[str] = []
@@ -608,6 +617,17 @@ admin_cli.check_machine_ready(machine_under_test)
 
 print("Waiting for the Cloud to also report machine Ready")
 ngc.wait_for_machine_ready(machine_under_test, site, timeout=60 * 10)
+
+# Machine Capabilities Validation Test
+# This test is run only if site under test is pdx-qa2-new
+if site_under_test == "pdx-qa2-new":
+    print("\n*** Starting machine capabilities validation ***")
+
+    capability_validator.validate_machine_capabilities(
+        machine_under_test,
+        machine_capabilities,
+        admin_cli
+    )
 
 # Get required UUIDs from NGC
 site_uuid = ngc.get_site_uuid(site.name)
