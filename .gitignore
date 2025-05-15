@@ -21,6 +21,9 @@ forged
 
 pxe/debs/*
 !pxe/debs/libnss-exec_0.2.0-1_arm64.deb
+!pxe/debs/libnss-exec_0.2.0-1_amd64.deb
 
 dev/shell/*
 **/*.xz
+
+pxe/mkosi.profiles/*/mkosi.extra/build-output

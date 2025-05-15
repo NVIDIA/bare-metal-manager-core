@@ -7,6 +7,12 @@
 # disclosure or distribution of this material and related documentation
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
+
+extend = [
+  { path = "Makefile-package.toml" },
+  { path = "Makefile-build.toml" },
+]
+
 [env]
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 REPO_ROOT = { script = [
@@ -53,15 +59,15 @@ args = [
 
 [tasks.build-cli-ci]
 category = "Build"
-description = "Build forge-scout and forge-admin-cli in CI"
+description = "Build forge-admin-cli in CI"
 workspace = false
 script = '''
-cargo build -p scout -p admin
+cargo build -p admin
 '''
 
 [tasks.build-cli]
 category = "Build"
-description = "Build forge-scout and forge-admin-cli locally using debian container. Ensures correct GCC version is used."
+description = "Build forge-admin-cli locally using debian container. Ensures correct GCC version is used."
 workspace = false
 script = '''
 docker run \
@@ -72,7 +78,7 @@ docker run \
 	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
 	urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
-	cargo build -p scout -p admin --release
+	cargo build -p admin --release
 '''
 dependencies = ["check-cargo-home-set"]
 
@@ -156,6 +162,13 @@ docker build ${REPO_ROOT}/dev/docker -f ${REPO_ROOT}/dev/docker/Dockerfile.build
 '''
 
 [tasks.build-x86-build-container]
+condition_script = '''
+  if [ "${CARBIDE_ARCH}" != "x86_64" ] || [ ! -z "${CI}" ]
+  then
+    echo "NOT BUILDING X86_64 BUILD CONTAINER"
+    exit 1
+  fi
+'''
 category = "Kind"
 description = "Build the x86 build container"
 workspace = false
@@ -171,6 +184,13 @@ args = [
 cwd = "${REPO_ROOT}/dev/docker"
 
 [tasks.build-arm-build-container]
+condition_script = '''
+  if [ "${CARBIDE_ARCH}" != "aarch64" ] || [ ! -z "${CI}" ]
+  then
+    echo "NOT BUILDING aarch64 BUILD CONTAINER"
+    exit 1
+  fi
+'''
 category = "Kind"
 description = "Build the ARM build container"
 workspace = false
@@ -388,5 +408,39 @@ do
   helm dep build
   cd -
 done
-
 '''
+
+[tasks.build-scout-x86_64-release-local]
+workspace = false
+env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
+run_task = "build-component-local"
+
+[tasks.build-scout-aarch64-release-local]
+workspace = false
+env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
+run_task = "build-component-local"
+
+[tasks.build-scout-aarch64-release-cross]
+workspace = false
+env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
+run_task = "build-component-in-container"
+
+[tasks.package-scout-x86_64-release-local]
+workspace = false
+env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
+run_task = "package-component-local"
+
+[tasks.package-scout-aarch64-release-local]
+workspace = false
+env = { "CARBIDE_PACKAGE"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
+run_task = "package-component-local"
+
+[tasks.package-scout-aarch64-release-cross]
+workspace = false
+env = {"CARBIDE_PACKAGE"="scout", "CARBIDE_ARCH"="aarch64", "CARBIDE_PROFILE"="release" }
+run_task = "package-component-in-container"
+
+[tasks.package-scout-cross-x86_64-release]
+workspace = false
+env = {"CARBIDE_PACKAGE"="scout", "CARBIDE_ARCH"="x86_64", "CARBIDE_PROFILE"="release" }
+run_task = "package-component-in-container"
