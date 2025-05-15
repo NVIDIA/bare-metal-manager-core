@@ -37,6 +37,8 @@ const EXPECTED_FILES: [&str; 4] = [
 
 const EXPECTED_SERVICES: [&str; 3] = ["frr", "nl2doca", "rsyslog"];
 const DHCP_SERVER_SERVICE: &str = "forge-dhcp-server-default";
+/// Maximum allowed disk utilization in % before the DpuDiskUtilizationCritical health alert will be sent
+const MAX_DISK_UTILIZATION: u32 = 85;
 
 fn failed(
     health_report: &mut health_report::HealthReport,
@@ -113,6 +115,9 @@ pub async fn health_check(
     hbn_device_names: HBNDeviceNames,
 ) -> health_report::HealthReport {
     let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
+
+    // Check whether the disk is full
+    check_disk_utilization(&mut hr).await;
 
     // Check whether HBN is up
     let container_id = match hbn::get_hbn_container_id().await {
@@ -446,6 +451,147 @@ fn parse_mlxprivhost(s: &str) -> eyre::Result<String> {
     Ok(level.to_string())
 }
 
+// Checks whether the disk is not full
+async fn check_disk_utilization(hr: &mut health_report::HealthReport) {
+    let mut cmd = TokioCommand::new("bash");
+    cmd.arg("-c").arg("df -HP");
+    cmd.kill_on_drop(true);
+
+    let cmd_str = super::pretty_cmd(cmd.as_std());
+    let Ok(cmd_res) = timeout(Duration::from_secs(10), cmd.output()).await else {
+        failed(
+            hr,
+            probe_ids::DpuDiskUtilizationCheck.clone(),
+            None,
+            format!("Timeout running '{cmd_str}'."),
+        );
+        return;
+    };
+    let out = match cmd_res {
+        Ok(out) => out,
+        Err(err) => {
+            failed(
+                hr,
+                probe_ids::DpuDiskUtilizationCheck.clone(),
+                None,
+                format!("Error running '{cmd_str}'. {err}"),
+            );
+            return;
+        }
+    };
+    if !out.status.success() {
+        tracing::debug!(
+            "STDERR {}: {}",
+            super::pretty_cmd(cmd.as_std()),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        failed(
+            hr,
+            probe_ids::DpuDiskUtilizationCheck.clone(),
+            None,
+            format!(
+                "{} for cmd '{}'",
+                out.status,
+                super::pretty_cmd(cmd.as_std())
+            ),
+        );
+        return;
+    }
+    let s = String::from_utf8_lossy(&out.stdout);
+    match parse_disk_utilization(s.as_ref()) {
+        Ok(utilization) => match utilization.utilizations.get("/") {
+            Some(u) => {
+                if u.utilization > MAX_DISK_UTILIZATION {
+                    failed(
+                        hr,
+                        probe_ids::DpuDiskUtilizationCritical.clone(),
+                        None,
+                        format!(
+                            "Disk utilization for root path / is {} (bigger than 85%):\nTotal:{}\nUsed:{}\nAvailable:{}",
+                            u.utilization, u.size, u.used, u.available
+                        ),
+                    );
+                } else {
+                    passed(hr, probe_ids::DpuDiskUtilizationCheck.clone(), None);
+                }
+            }
+            None => {
+                failed(
+                    hr,
+                    probe_ids::DpuDiskUtilizationCheck.clone(),
+                    None,
+                    format!(
+                        "Disk utilization for rootfs is unknown. Gathered utilizations by mountpoint: {:?}",
+                        utilization.utilizations
+                    ),
+                );
+            }
+        },
+        Err(err) => {
+            failed(
+                hr,
+                probe_ids::DpuDiskUtilizationCheck.clone(),
+                None,
+                format!("Failed to parse Disk utilization output: {err}"),
+            );
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DiskUtilization {
+    device: String,
+    utilization: u32,
+    available: String,
+    used: String,
+    size: String,
+}
+
+struct DiskUtilizations {
+    /// Maps from mount point name to disk utilization
+    utilizations: HashMap<String, DiskUtilization>,
+}
+
+/// Parses the output of df -HP
+fn parse_disk_utilization(df_out: &str) -> eyre::Result<DiskUtilizations> {
+    let mut u = HashMap::new();
+    for line in df_out.lines().skip(1) {
+        let parts: Vec<&str> = line.split_ascii_whitespace().collect();
+        if parts.len() < 6 {
+            tracing::warn!("du status line too short: '{line}'");
+            continue;
+        }
+
+        let device = parts[0].to_string();
+        let size = parts[1].to_string();
+        let used = parts[2].to_string();
+        let available = parts[3].to_string();
+        let utilization = parts[4].trim_end_matches('%');
+        let mount_point = parts[5].to_string();
+
+        let utilization: u32 = match utilization.parse() {
+            Ok(u) => u,
+            Err(_) => {
+                tracing::warn!("Can not parse disk utilization in line '{line}'");
+                continue;
+            }
+        };
+
+        u.insert(
+            mount_point,
+            DiskUtilization {
+                utilization,
+                available,
+                used,
+                size,
+                device,
+            },
+        );
+    }
+
+    Ok(DiskUtilizations { utilizations: u })
+}
+
 fn parse_status(status_out: &str) -> eyre::Result<SctlStatus> {
     let mut m = HashMap::new();
     for line in status_out.lines() {
@@ -567,6 +713,120 @@ disable_port_owner            : TRUE
 disable_counter_rd            : TRUE
 
 "#;
+
+    const DISKUTIL_OUT: &str = r#"Filesystem      Size  Used Avail Use% Mounted on
+tmpfs            17G  4.1k   17G   1% /dev/shm
+tmpfs           6.8G   17M  6.7G   1% /run
+tmpfs           5.3M  8.2k  5.3M   1% /run/lock
+/dev/mmcblk0p2   41G   12G   27G  31% /
+/dev/mmcblk0p1   52M  9.0M   43M  18% /boot/efi
+shm              68M     0   68M   0% /run/containerd/io.containerd.grpc.v1.cri/sandboxes/3c9db06a2021f14b6cb98d0583ae43909f282c6d670dd9da071bddf333caaa4e/shm
+overlay          41G   12G   27G  31% /run/containerd/io.containerd.runtime.v2.task/k8s.io/3c9db06a2021f14b6cb98d0583ae43909f282c6d670dd9da071bddf333caaa4e/rootfs
+shm              68M  8.2k   68M   1% /run/containerd/io.containerd.grpc.v1.cri/sandboxes/5e38cefc8507fcf3b872fa12f21bdbcc09244832c24a34871ef9d8d519fa37b9/shm
+overlay          41G   12G   27G  31% /run/containerd/io.containerd.runtime.v2.task/k8s.io/5e38cefc8507fcf3b872fa12f21bdbcc09244832c24a34871ef9d8d519fa37b9/rootfs
+tmpfs           3.4G     0  3.4G   0% /run/user/1002
+"#;
+
+    #[test]
+    fn test_parse_disk_utilization() {
+        let utilizations = super::parse_disk_utilization(DISKUTIL_OUT).unwrap();
+
+        assert_eq!(
+            utilizations.utilizations,
+            HashMap::from_iter([(
+                "/dev/shm".to_string(),
+                DiskUtilization {
+                    device: "tmpfs".to_string(),
+                    utilization: 1,
+                    available: "17G".to_string(),
+                    used: "4.1k".to_string(),
+                    size: "17G".to_string()
+                }
+            ),
+            (
+                "/run".to_string(),
+                DiskUtilization {
+                    device: "tmpfs".to_string(),
+                    utilization: 1,
+                    available: "6.7G".to_string(),
+                    used: "17M".to_string(),
+                    size: "6.8G".to_string()
+                }
+            ),(
+                "/run/lock".to_string(),
+                DiskUtilization {
+                    device: "tmpfs".to_string(),
+                    utilization: 1,
+                    available: "5.3M".to_string(),
+                    used: "8.2k".to_string(),
+                    size: "5.3M".to_string()
+                }
+            ),(
+                "/".to_string(),
+                DiskUtilization {
+                    device: "/dev/mmcblk0p2".to_string(),
+                    utilization: 31,
+                    available: "27G".to_string(),
+                    used: "12G".to_string(),
+                    size: "41G".to_string()
+                }
+            ),(
+                "/boot/efi".to_string(),
+                DiskUtilization {
+                    device: "/dev/mmcblk0p1".to_string(),
+                    utilization: 18,
+                    available: "43M".to_string(),
+                    used: "9.0M".to_string(),
+                    size: "52M".to_string()
+                }
+            ),(
+                "/run/containerd/io.containerd.grpc.v1.cri/sandboxes/3c9db06a2021f14b6cb98d0583ae43909f282c6d670dd9da071bddf333caaa4e/shm".to_string(),
+                DiskUtilization {
+                    device: "shm".to_string(),
+                    utilization: 0,
+                    available: "68M".to_string(),
+                    used: "0".to_string(),
+                    size: "68M".to_string()
+                }
+            ),(
+                "/run/containerd/io.containerd.runtime.v2.task/k8s.io/3c9db06a2021f14b6cb98d0583ae43909f282c6d670dd9da071bddf333caaa4e/rootfs".to_string(),
+                DiskUtilization {
+                    device: "overlay".to_string(),
+                    utilization: 31,
+                    available: "27G".to_string(),
+                    used: "12G".to_string(),
+                    size: "41G".to_string()
+                }
+            ),(
+                "/run/containerd/io.containerd.grpc.v1.cri/sandboxes/5e38cefc8507fcf3b872fa12f21bdbcc09244832c24a34871ef9d8d519fa37b9/shm".to_string(),
+                DiskUtilization {
+                    device: "shm".to_string(),
+                    utilization: 1,
+                    available: "68M".to_string(),
+                    used: "8.2k".to_string(),
+                    size: "68M".to_string()
+                }
+            ),(
+                "/run/containerd/io.containerd.runtime.v2.task/k8s.io/5e38cefc8507fcf3b872fa12f21bdbcc09244832c24a34871ef9d8d519fa37b9/rootfs".to_string(),
+                DiskUtilization {
+                    device: "overlay".to_string(),
+                    utilization: 31,
+                    available: "27G".to_string(),
+                    used: "12G".to_string(),
+                    size: "41G".to_string()
+                }
+            ),(
+                "/run/user/1002".to_string(),
+                DiskUtilization {
+                    device: "tmpfs".to_string(),
+                    utilization: 0,
+                    available: "3.4G".to_string(),
+                    used: "0".to_string(),
+                    size: "3.4G".to_string()
+                }
+            )])
+        );
+    }
 
     #[test]
     fn test_parse_supervisorctl_status() -> eyre::Result<()> {

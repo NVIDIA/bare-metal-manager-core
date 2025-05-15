@@ -28,4 +28,6 @@ lazy_static::lazy_static! {
     pub static ref BgpDaemonEnabled: HealthProbeId = "BgpDaemonEnabled".parse().unwrap();
     pub static ref RestrictedMode: HealthProbeId = "RestrictedMode".parse().unwrap();
     pub static ref PostConfigCheckWait: HealthProbeId = "PostConfigCheckWait".parse().unwrap();
+    pub static ref DpuDiskUtilizationCheck: HealthProbeId = "DpuDiskUtilizationCheck".parse().unwrap();
+    pub static ref DpuDiskUtilizationCritical: HealthProbeId = "DpuDiskUtilizationCritical".parse().unwrap();
 }
