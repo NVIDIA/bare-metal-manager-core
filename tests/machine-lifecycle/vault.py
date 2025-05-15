@@ -46,8 +46,10 @@ class ForgeVaultClient:
         read_response = self.client.secrets.kv.v2.read_secret(mount_point=self.mount_point, path=self.path)
         if environment == "prod":
             return read_response["data"]["data"]["nvcr"]
-        elif environment == "stg" or environment == "qa":
+        elif environment == "stg":
             return read_response["data"]["data"]["stg_nvcr"]
+        elif environment == "qa":
+            return read_response["data"]["data"]["stg_qa_nvcr"]
         else:
             raise ValueError(f"Unknown environment: {environment}")
 
