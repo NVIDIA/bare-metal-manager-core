@@ -562,7 +562,7 @@ pub(crate) async fn update_agent_reported_inventory(
         return Err(Status::invalid_argument("inventory missing from request"));
     }
 
-    tracing::info!(
+    tracing::debug!(
         machine_id = %dpu_machine_id,
         software_inventory = ?request.inventory,
         "update machine inventory",

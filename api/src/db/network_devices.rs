@@ -207,7 +207,7 @@ impl DpuToNetworkDeviceMap {
         // discovery functionality should not be broken.
         // TODO: This check should be removed after sometime.
         if device_data.is_empty() {
-            tracing::warn!(machine_id=%dpu_id, "LLDP data is empty for DPU.");
+            tracing::debug!(machine_id=%dpu_id, "LLDP data is empty for DPU.");
             return Ok(());
         }
 
