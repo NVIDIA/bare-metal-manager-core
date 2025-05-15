@@ -58,8 +58,8 @@
   WaitingForLockdown --> BomValidating: Lockdown is successful
   state validation_enabled <<choice>>
   BomValidating --> validation_enabled: Bom Validation is successful
-  validation_enabled --> Validation: if True
-  validation_enabled --> Discovered: if False
+  validation_enabled --> Validation: if machine validation is enabled
+  validation_enabled --> Discovered: if machine validation is disabled
   state Validation {
     [*] --> V_RebootHost
     V_RebootHost --> V_MachineValidating
