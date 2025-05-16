@@ -3,6 +3,11 @@
 ## [Unreleased (v2025.05.23-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.09-rc1-0...trunk)
 
 ### Added
+- [FORGE-5570](https://jirasw.nvidia.com/browse/FORGE-5570): Ability to Update Networks after instance provisioning
+  Carbide now supports the instance's network configuration update (Colossus workflow).
+  - User can move the instance to different VPC as well.
+  - Adding/Deleting a new VF at the end of the interfaces list will work.
+  - Adding/Deleting a VF in the middle of existing interfaces list can cause rest of the IPs to change. This will be fixed in future releases.
 
 ### Changed
 - [MR-4045](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4045): Reverted HBN back to 2.8.
