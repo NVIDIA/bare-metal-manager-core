@@ -156,7 +156,6 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             println!("BIOS settings changes require system restart");
         }
         LockdownEnable => {
-            redfish.clear_pending().await?;
             redfish.lockdown(EnabledDisabled::Enabled).await?;
             println!("BIOS settings changes require system restart");
         }
