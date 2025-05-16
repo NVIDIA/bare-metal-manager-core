@@ -18,6 +18,7 @@ blake3 = "1.4"
 chrono = "0.4.38"
 clap = { workspace = true }
 colored = "2.2.0"
+containerd-client = "0.6"
 data-encoding = "2.3.3"
 diff = "0.1"
 eyre = "*"
@@ -57,6 +58,7 @@ serde_yaml = "0.9.27"
 sha2 = "0.10.8"
 similar = "2.7.0"
 surge-ping = "0.8.1"
+tempfile = "3"
 tracing = "*"
 tokio = { workspace = true }
 tonic = { workspace = true }
@@ -86,7 +88,6 @@ forge-version = { path = "../../common/version" }
 
 [dev-dependencies]
 ctor = "0.2"
-tempfile = "3"
 prost = "0.13"
 reqwest = { version = "*", default-features = false, features = [
     "rustls-tls",

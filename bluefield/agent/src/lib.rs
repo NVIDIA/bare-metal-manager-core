@@ -36,6 +36,7 @@ pub mod dpu;
 
 pub mod acl;
 mod acl_rules;
+pub mod agent_platform;
 mod command_line;
 pub mod containerd;
 mod daemons;
