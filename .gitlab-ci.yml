@@ -1021,10 +1021,6 @@ pages:
   needs:
     - job: export-docker-json-config
       optional: false
-    - job: build-runtime-container-x86_64
-      optional: true
-    - job: build-boot-artifacts-bfb
-      optional: false
   image:
     name: $CONTAINER_BUILD_X86_64
   script:
