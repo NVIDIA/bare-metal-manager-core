@@ -63,10 +63,12 @@ if dpu_fw_downgrade == "true":
         sys.exit(1)
 
     supported_fw_versions = {
+        "1.5.0_a": config.HBN_1_5_0_a,
+        "1.5.0_b": config.HBN_1_5_0_b,
         "2.0.0": config.HBN_2_0_0,
     }
     if fw_downgrade_version not in supported_fw_versions:
-        print("ERROR: $FW_DOWNGRADE_VERSION currently only supports '2.0.0' (HBN). \nExiting...", file=sys.stderr)
+        print("ERROR: $FW_DOWNGRADE_VERSION currently only supports '1.5.0_a', '1.5.0_b', '2.0.0' (HBN) \nExiting...", file=sys.stderr)
         sys.exit(1)
     
     # Get firmware versions and URLs from config
