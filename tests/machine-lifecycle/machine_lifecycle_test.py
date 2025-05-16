@@ -53,34 +53,22 @@ if dpu_fw_downgrade not in ["true", "false"]:
     )
     sys.exit(1)
 
+supported_fw_versions = {
+    "1.5.0_a": config.HBN_1_5_0_a,
+    "1.5.0_b": config.HBN_1_5_0_b,
+    "2.0.0": config.HBN_2_0_0,
+}
+fw_downgrade_version = os.environ.get("FW_DOWNGRADE_VERSION", None)
 if dpu_fw_downgrade == "true":
-    fw_downgrade_version = os.environ.get("FW_DOWNGRADE_VERSION")
     if fw_downgrade_version is None:
         print(
         "ERROR: $FW_DOWNGRADE_VERSION environment variable must be provided when $FW_DOWNGRADE is set to 'true'. \nExiting...",
         file=sys.stderr,
         )
         sys.exit(1)
-
-    supported_fw_versions = {
-        "1.5.0_a": config.HBN_1_5_0_a,
-        "1.5.0_b": config.HBN_1_5_0_b,
-        "2.0.0": config.HBN_2_0_0,
-    }
     if fw_downgrade_version not in supported_fw_versions:
         print("ERROR: $FW_DOWNGRADE_VERSION currently only supports '1.5.0_a', '1.5.0_b', '2.0.0' (HBN) \nExiting...", file=sys.stderr)
         sys.exit(1)
-    
-    # Get firmware versions and URLs from config
-    selected_fw = supported_fw_versions[fw_downgrade_version]
-    BFB_VERSION = selected_fw["BFB_VERSION"]
-    NIC_VERSION = selected_fw["NIC_VERSION"]
-    BMC_VERSION = selected_fw["BMC_VERSION"]
-    CEC_VERSION = selected_fw["CEC_VERSION"]
-    BFB_URL = selected_fw["BFB_URL"]
-    NIC_FW_URL = selected_fw["NIC_FW_URL"]
-    BMC_FW_URL = selected_fw["BMC_FW_URL"]
-    CEC_FW_URL = selected_fw["CEC_FW_URL"]
 
 # Set environment variable CARBIDE_API_URL for forge-admin-cli instead of using --carbide-api
 os.environ["CARBIDE_API_URL"] = f"https://api-{short_site_name}.frg.nvidia.com"
@@ -210,6 +198,17 @@ except subprocess.CalledProcessError:
 if dpu_fw_downgrade == "true":
     print("\n*** Starting DPU firmware downgrade ***")
 
+    # Get firmware versions and URLs from config
+    selected_fw = supported_fw_versions[fw_downgrade_version]
+    BFB_VERSION = selected_fw["BFB_VERSION"]
+    NIC_VERSION = selected_fw["NIC_VERSION"]
+    BMC_VERSION = selected_fw["BMC_VERSION"]
+    CEC_VERSION = selected_fw["CEC_VERSION"]
+    BFB_URL = selected_fw["BFB_URL"]
+    NIC_FW_URL = selected_fw["NIC_FW_URL"]
+    BMC_FW_URL = selected_fw["BMC_FW_URL"]
+    CEC_FW_URL = selected_fw["CEC_FW_URL"]
+
     bmc_fw_path = os.path.join(os.getcwd(), BMC_FW_URL.split("/")[-1])
     cec_fw_path = os.path.join(os.getcwd(), CEC_FW_URL.split("/")[-1])
     bfb_path = os.path.join(os.getcwd(), BFB_URL.split("/")[-1])
@@ -298,7 +297,12 @@ if dpu_fw_downgrade == "true":
     # Ensure rshim is enabled on DPU(s)
     for dpu_id in dpu_ids:
         try:
-            utils.enable_rshim_on_dpu(dpu_info_map[dpu_id]["bmc_ip"], dpu_bmc_username, dpu_bmc_password)
+            if int(fw_downgrade_version[0]) >= 2:
+                # Use redfish on BMC 23.10+
+                utils.enable_rshim_on_dpu(dpu_info_map[dpu_id]["bmc_ip"], dpu_bmc_username, dpu_bmc_password)
+            else:
+                # Use ipmitool on BMC 23.09 and below
+                utils.enable_rshim_on_dpu_ipmi(dpu_info_map[dpu_id]["bmc_ip"], dpu_bmc_username, dpu_bmc_password)
             time.sleep(10)
         except Exception as e:
             print(f"ERROR: Failed to enable rshim on DPU {dpu_id}: {e}\nExiting...", file=sys.stderr)

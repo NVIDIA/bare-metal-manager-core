@@ -4,6 +4,7 @@ import time
 import paramiko
 from scp import SCPClient
 import pexpect
+import subprocess
 import requests
 from requests import Response
 from requests.auth import HTTPBasicAuth
@@ -265,6 +266,22 @@ def enable_rshim_on_dpu(bmc_ip: str, username: str, password: str) -> None:
     data = {"BmcRShim": {"BmcRShimEnabled": True}}
     response = requests.patch(url, json=data, auth=HTTPBasicAuth(username, password), verify=False)
     response.raise_for_status()
+
+
+def enable_rshim_on_dpu_ipmi(bmc_ip: str, username: str, password: str) -> None:
+    """This is a workaround to ensure rshim is enabled on the DPU BMC.
+    This version uses IPMI instead of redfish.
+
+    :raises subprocess.CalledProcessError: if the IPMI command fails
+    """
+    print(f"Enabling rshim on DPU BMC {bmc_ip} using IPMI")
+    cmd = ["ipmitool", "-C", "17", "-I", "lanplus", "-H", bmc_ip, "-U", username, "-P", password, "raw", "0x32", "0x6a", "1"]
+    try:
+        result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        print("Command Output:\n", result.stdout)
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing command: {e.stderr}")
+        raise
 
 
 def _upload_fw_to_bmc(file_path: str, bmc_ip: str, username: str, password: str) -> Response:
