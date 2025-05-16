@@ -230,7 +230,6 @@ write_files:
       /usr/bin/systemctl enable ssh@mgmt
       ctr -n=k8s.io image import /opt/forge/doca_hbn.tar
       /opt/mellanox/doca/services/telemetry/import_doca_telemetry.sh
-      cp /opt/forge/doca_container_configs/configs/doca_hbn.yaml /etc/kubelet.d/
       /opt/forge/run-scout.sh
       touch /run/cloud-init.done
 
