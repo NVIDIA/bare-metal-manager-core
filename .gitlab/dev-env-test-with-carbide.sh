@@ -37,6 +37,22 @@ echo 'export PATH="$PATH:$FORGED_DIRECTORY/.binaries/"' >> .local_envrc
 echo "export CONTEXT=k3s" >> .local_envrc
 direnv allow && eval "$(direnv export bash)"
 
+# Cleanup functions defined at the highest level so they can be run at the end
+function cleanup_build_boot_artifacts {
+  # the /tmp files need cleaning but all the build files in the repo dir do not, they will get cleaned on job reap
+  rm -fr /tmp/bfb-dump/
+}
+
+function cleanup_build_containers_last {
+  echo "just clean-build-container" && just clean-build-container
+  echo "just clean-build-container-k3s" && just clean-build-container-k3s
+  echo "just clean-runtime-container-k3s" && just clean-runtime-container-k3s
+}
+
+function cleanup_build {
+  echo "just rmi" && just rmi
+}
+
 # Conditionally build the PXE boot-artifacts (if the current branch has changes to the relevant files, or if branch is trunk)
 directories_pattern="pxe/*|scout/*"
 if git diff --name-only HEAD origin/trunk | grep -qE "${directories_pattern}" || [[ "$CI_COMMIT_REF_NAME" = "trunk" ]]; then
@@ -64,6 +80,7 @@ if git diff --name-only HEAD origin/trunk | grep -qE "${directories_pattern}" ||
     echo "Building build-boot-artifacts-x86-host exited with code $exit_code_x86."
     echo "Building build-boot-artifacts-bfb exited with code $exit_code_aarch."
     echo "ERROR: One or both of the PXE boot-artifacts builds failed. Aborting test..."
+    cleanup_build_boot_artifacts    
     exit 1
   else
     echo "SUCCESS: Finished building PXE boot-artifacts (x86 and aarch)."
@@ -131,6 +148,8 @@ cat /tmp/container-build.log
 
 if [[ $exit_code -ne 0 ]]; then
   echo "ERROR: Building the build containers failed with exit code $exit_code. Aborting test..."
+  cleanup_build_boot_artifacts
+  cleanup_build_containers_last
   exit 1
 fi
 
@@ -177,6 +196,9 @@ done
 
 if [[ "$missing_pod" == "true" ]]; then
   echo "ERROR: There are missing carbide pods. Aborting test..."
+  cleanup_build_boot_artifacts
+  cleanup_build
+  cleanup_build_containers_last
   exit 1
 else
   echo "SUCCESS: All expected carbide pods were created."
@@ -204,8 +226,23 @@ if [[ "$pxe_build" == "true" ]]; then
 
   if [[ "$pxe_exit_code" -ne 0 ]]; then
     echo "ERROR: Building the PXE boot-artifacts failed with exit code $pxe_exit_code. Aborting test..."
+    cleanup_build_boot_artifacts
+    cleanup_build
+    cleanup_build_containers_last
     exit 1
   fi
 fi
+
+popd
+
+##########################
+#### Return to CARBIDE ###
+##########################
+
+eval "$(direnv export bash)"
+
+cleanup_build_boot_artifacts
+cleanup_build
+cleanup_build_containers_last
 
 echo "SUCCESS: All checks successful for Forge environment bring-up."
