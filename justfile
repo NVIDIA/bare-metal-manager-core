@@ -3,6 +3,7 @@ export DOCKER_BUILDKIT := "1"
 
 components_dir := "api pxe dns dhcp dev/bmc-mock dev/machine-a-tron admin health dhcp-server"
 components_name := "carbide-api carbide-pxe carbide-dns dhcp bmc-mock machine-a-tron admin health dhcp-server"
+image_name := "carbide-api carbide-pxe carbide-dns carbide-dhcp bmc-mock machine-a-tron carbide-hardware-health carbide-dhcp-server"
 
 # Start cargo-watch for components "{{components}}"
 watch: check forged-link skaffold-dirs
@@ -12,19 +13,30 @@ watch: check forged-link skaffold-dirs
 build: check forged-link skaffold-dirs
   parallel --link  -j+0 --tty --tag "${REPO_ROOT}"/.skaffold/build {1} ::: {{components_name}}
 
+rmi: check forged-link skaffold-dirs
+  docker rmi {{image_name}}
+
 _dockerbuild NAME FILE CONTEXT=(invocation_directory()):
   DOCKER_BUILDKIT=1 docker build -t {{NAME}} -f {{FILE}} {{CONTEXT}}
 
+_dockerclean NAME:
+  docker rmi {{NAME}}
+
 # Build the carbide build-container used for compiling
 build-container: (_dockerbuild "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest" "dev/docker/Dockerfile.build-container-x86_64" "dev/docker")
+clean-build-container: (_dockerclean "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest")
 
 # Build the build-container used for minikube forge development
 build-container-minikube: build-container (_dockerbuild "registry.minikube/build-container:latest" "dev/deployment/localdev/Dockerfile.build-container.localdev" "dev/deployment")
+clean-build-container-minikube: (_dockerclean "registry.minikube/build-container:latest")
 build-container-k3s: build-container (_dockerbuild "build-container-localdev:latest" "dev/deployment/localdev/Dockerfile.build-container.localdev" "dev/deployment")
+clean-build-container-k3s: (_dockerclean "build-container-localdev:latest")
 
 # Build the runtime-container for minikube development. This gets used for deploying forge containers
 runtime-container-minikube: (_dockerbuild "registry.minikube/runtime-container:latest" "dev/deployment/localdev/Dockerfile.runtime-container.localdev")
+clean-runtime-container-minikube: (_dockerclean "registry.minikube/runtime-container:latest")
 runtime-container-k3s: (_dockerbuild "runtime-container-localdev:latest" "dev/deployment/localdev/Dockerfile.runtime-container.localdev")
+clean-runtime-container-k3s: (_dockerclean "runtime-container-localdev:latest")
 
 load-minikube-registry: runtime-container-minikube build-container-minikube
   minikube image load registry.minikube/build-container:latest
