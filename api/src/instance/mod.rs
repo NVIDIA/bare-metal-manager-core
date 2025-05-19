@@ -41,6 +41,8 @@ use crate::{
         },
         machine::{ManagedHostStateSnapshot, machine_id::try_parse_machine_id},
         metadata::Metadata,
+        os::OperatingSystemVariant,
+        storage::OsImage,
         tenant::TenantOrganizationId,
     },
 };
@@ -292,6 +294,28 @@ pub async fn allocate_instance(
         }
     }
 
+    // Validate the OS image ID if it exists
+    let os_config = &request.config.os;
+    if let OperatingSystemVariant::OsImage(os_image_id) = os_config.variant {
+        if os_image_id.is_nil() {
+            return Err(CarbideError::InvalidArgument(
+                "Image ID is required for image based storage".to_string(),
+            ));
+        }
+        if let Err(e) = OsImage::get(&mut txn, os_image_id).await {
+            if let sqlx::Error::RowNotFound = e.source {
+                return Err(CarbideError::FailedPrecondition(format!(
+                    "Image OS `{}` does not exist",
+                    os_image_id.clone()
+                )));
+            } else {
+                return Err(CarbideError::internal(format!(
+                    "Failed to get OS image error: {}",
+                    e
+                )));
+            }
+        }
+    }
     // Allocate network segment here before validate if vpc_prefix_id is mentioned.
     allocate_network(&mut request.config.network, &mut txn).await?;
 
