@@ -3,6 +3,7 @@
 ## [Unreleased (v2025.05.23-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.09-rc1-0...trunk)
 
 ### Added
+- [MR-4055](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4055): Added support for upgrading Supermicro host BMC and UEFI firmware.
 - [FORGE-5570](https://jirasw.nvidia.com/browse/FORGE-5570): Ability to Update Networks after instance provisioning
   Carbide now supports the instance's network configuration update (Colossus workflow).
   - User can move the instance to different VPC as well.
