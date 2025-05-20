@@ -357,11 +357,13 @@ pub async fn handle_show(
     if !args.machine.is_empty() {
         show_machine_information(&args, is_json, api_client).await?;
     } else {
+        // Show both hosts and DPUs if neither flag is specified
+        let show_all_types = !args.dpus && !args.hosts;
         let dpus_only = args.dpus && !args.hosts;
         let search_config = rpc::forge::MachineSearchConfig {
-            include_dpus: args.dpus,
+            include_dpus: args.dpus || show_all_types,
             exclude_hosts: dpus_only,
-            include_predicted_host: !dpus_only,
+            include_predicted_host: args.hosts || show_all_types,
             ..Default::default()
         };
         show_all_machines(is_json, api_client, search_config, page_size).await?;
