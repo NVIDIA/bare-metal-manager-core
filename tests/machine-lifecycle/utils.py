@@ -277,8 +277,7 @@ def enable_rshim_on_dpu_ipmi(bmc_ip: str, username: str, password: str) -> None:
     print(f"Enabling rshim on DPU BMC {bmc_ip} using IPMI")
     cmd = ["ipmitool", "-C", "17", "-I", "lanplus", "-H", bmc_ip, "-U", username, "-P", password, "raw", "0x32", "0x6a", "1"]
     try:
-        result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        print("Command Output:\n", result.stdout)
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     except subprocess.CalledProcessError as e:
         print(f"Error executing command: {e.stderr}")
         raise

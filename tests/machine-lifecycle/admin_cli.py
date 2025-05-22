@@ -69,20 +69,20 @@ def wait_for_state(machine_id: str, desired_state: str, timeout: int, allow_miss
     while (now := datetime.datetime.now(datetime.timezone.utc)) < end:
         state = get_machine_state(machine_id, allow_missing_machine)
         if state.startswith("Failed"):
-            raise Exception(f"Failure! Machine id {machine_id} went into {state}.")
+            raise Exception(f"Failure! Machine went into {state}.")
         # Allow partial state names to be queried
         if desired_state in state:
-            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine {machine_id} reached desired state ({desired_state})!")
+            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine reached desired state ({desired_state})!")
             return
         else:
             print(
-                f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine {machine_id} not in desired state ({desired_state}) "
+                f"{now.strftime('%Y-%m-%d %H:%M:%S')}: machine not in desired state ({desired_state}) "
                 f"yet, current state: {state}"
             )
             time.sleep(60)
     else:
         raise TimeoutError(
-            f"Machine id {machine_id} did not get to desired state ({desired_state}) within {timeout} seconds"
+            f"Machine did not get to desired state ({desired_state}) within {timeout} seconds"
         )
 
 
@@ -97,7 +97,6 @@ def get_machine_state(machine_id: str, allow_missing_machine: bool = False) -> s
     """Get the current state for the specified machine."""
     machine = get_machine_from_m_show(machine_id, allow_missing_machine)
     if machine is None and allow_missing_machine:
-        print(f"Machine with id {machine_id} not found, retry later.")
         return "<Missing>"
     return machine["state"]
 
@@ -139,6 +138,7 @@ def _get_machine_from_json(machine_id: str, machine_json: dict) -> dict | None:
                     return mach
         else:
             return None
+    return None
 
 
 def disable_state_machine_intervention(machine_id: str):
@@ -330,7 +330,7 @@ def run_forge_admin_cli(args: list[str], no_json: bool = False) -> dict | None:
 
     print(f"Executing {command}")
     result = subprocess.run(command, capture_output=True, text=True)
-    if result.stderr:
+    if result.stderr and "not found" not in result.stderr:
         print(f"stderr: {result.stderr}")
     result.check_returncode()
 
