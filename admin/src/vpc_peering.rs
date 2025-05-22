@@ -12,7 +12,7 @@
 
 use prettytable::{Table, row};
 
-use crate::cfg::cli_options::{VpcPeeringCreate, VpcPeeringDelete, VpcPeeringGet};
+use crate::cfg::cli_options::{VpcPeeringCreate, VpcPeeringDelete, VpcPeeringShow};
 use crate::rpc::ApiClient;
 use rpc::forge::{VpcPeering, VpcPeeringIdList};
 use utils::admin_cli::output::OutputFormat;
@@ -45,8 +45,8 @@ pub async fn handle_create(
     Ok(())
 }
 
-pub async fn handle_get(
-    args: VpcPeeringGet,
+pub async fn handle_show(
+    args: VpcPeeringShow,
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
