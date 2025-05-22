@@ -2209,8 +2209,8 @@ pub struct SetVpcVirt {
 pub enum VpcPeeringOptions {
     #[clap(about = "Create VPC peering.")]
     Create(VpcPeeringCreate),
-    #[clap(about = "Get list of peers of a VPC")]
-    Get(VpcPeeringGet),
+    #[clap(about = "Show list of VPC peerings.")]
+    Show(VpcPeeringShow),
     #[clap(about = "Delete VPC peering.")]
     Delete(VpcPeeringDelete),
 }
@@ -2225,7 +2225,7 @@ pub struct VpcPeeringCreate {
 }
 
 #[derive(Parser, Debug)]
-pub struct VpcPeeringGet {
+pub struct VpcPeeringShow {
     #[clap(
         long,
         conflicts_with = "vpc_id",
@@ -2236,7 +2236,7 @@ pub struct VpcPeeringGet {
     #[clap(
         long,
         conflicts_with = "id",
-        help = "Search by The ID of VPC to get list of related VPC peerings"
+        help = "Search by VPC ID to show list of related VPC peerings"
     )]
     pub vpc_id: Option<VpcId>,
 }

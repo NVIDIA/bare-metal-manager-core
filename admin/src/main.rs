@@ -1199,8 +1199,8 @@ async fn main() -> color_eyre::Result<()> {
                 Create(create_options) => {
                     vpc_peering::handle_create(create_options, config.format, &api_client).await?;
                 }
-                Get(get_options) => {
-                    vpc_peering::handle_get(get_options, config.format, &api_client).await?;
+                Show(show_options) => {
+                    vpc_peering::handle_show(show_options, config.format, &api_client).await?;
                 }
                 Delete(delete_options) => {
                     vpc_peering::handle_delete(delete_options, config.format, &api_client).await?;
