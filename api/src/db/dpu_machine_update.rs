@@ -3,8 +3,7 @@ use crate::{
     cfg::file::CarbideConfig,
     db::{self, DatabaseError, machine::MachineSearchConfig, managed_host::LoadSnapshotOptions},
     machine_update_manager::machine_update_module::{
-        AutomaticFirmwareUpdateReference, DpuReprovisionInitiator,
-        create_host_update_health_report, machine_updates_in_progress,
+        AutomaticFirmwareUpdateReference, DpuReprovisionInitiator, machine_updates_in_progress,
     },
     model::machine::{ManagedHostState, ManagedHostStateSnapshot, ReprovisionRequest},
 };
@@ -147,7 +146,6 @@ impl DpuMachineUpdate {
 
     pub async fn trigger_reprovisioning_for_managed_host(
         txn: &mut PgConnection,
-        host_machine_id: &MachineId,
         machine_updates: &[DpuMachineUpdate],
     ) -> Result<(), CarbideError> {
         let mut inner_txn = txn.begin().await.map_err(|e| {
@@ -189,30 +187,6 @@ impl DpuMachineUpdate {
                     _ => DatabaseError::new(file!(), line!(), query, err).into(),
                 })?;
         }
-
-        let initiator_host = DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
-            // In case of multidpu, DPUs can have different versions.
-            from: "".to_string(),
-            to: "".to_string(),
-        });
-
-        let health_override = create_host_update_health_report(
-            Some("DpuFirmware".to_string()),
-            initiator_host.to_string(),
-            false,
-        );
-
-        // Mark the Host as in update.
-        // If an update is already scheduled (host-update field is set),
-        // then the process is aborted
-        crate::db::machine::insert_health_report_override(
-            &mut inner_txn,
-            host_machine_id,
-            health_report::OverrideMode::Merge,
-            &health_override,
-            true,
-        )
-        .await?;
 
         inner_txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(

@@ -15,6 +15,7 @@
 - [MR-4089](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4089) [DGXH5GL3-319](https://jirasw.nvidia.com/browse/DGXH5GL3-319): Default of whether to trigger update of instance host firmware changed to false.
 - [MR-4089](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4089): RBAC permissions of ReportForgeScoutError changed to allow anonymous access.
 - [MR-4045](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4045): Reverted HBN back to 2.8.
+- [MR-4091](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4091) [DGXH5GL3-319](https://jirasw.nvidia.com/browse/DGXH5GL3-319): Host firmware update alerts are now only created when we actually start the upgrade, not when flagging for it.
 
 ### Fixed
 

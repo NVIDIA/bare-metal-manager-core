@@ -13,10 +13,7 @@
 use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;
-use crate::{
-    machine_update_manager::machine_update_module::create_host_update_health_report,
-    model::machine::HostReprovisionRequest,
-};
+use crate::model::machine::HostReprovisionRequest;
 use forge_uuid::machine::MachineId;
 
 #[derive(Debug, FromRow)]
@@ -114,24 +111,6 @@ pub async fn trigger_host_reprovisioning_request(
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-    let health_override = create_host_update_health_report(
-        Some("HostFirmware".to_string()),
-        "Host firmware update".to_string(),
-        true,
-    );
-
-    // Mark the Host as in update.
-    // If an update is already scheduled (host-fw-update field is set),
-    // then the process is aborted
-
-    crate::db::machine::insert_health_report_override(
-        txn,
-        machine_id,
-        health_report::OverrideMode::Merge,
-        &health_override,
-        true,
-    )
-    .await?;
     Ok(())
 }
 

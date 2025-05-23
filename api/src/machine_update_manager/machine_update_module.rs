@@ -98,6 +98,28 @@ pub fn create_host_update_health_report(
     }
 }
 
+pub fn create_host_update_health_report_hostfw() -> health_report::HealthReport {
+    create_host_update_health_report(
+        Some("HostFirmware".to_string()),
+        "Host firmware update".to_string(),
+        true,
+    )
+}
+
+pub fn create_host_update_health_report_dpufw() -> health_report::HealthReport {
+    let initiator_host = DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
+        // In case of multidpu, DPUs can have different versions.
+        from: "".to_string(),
+        to: "".to_string(),
+    });
+
+    create_host_update_health_report(
+        Some("DpuFirmware".to_string()),
+        initiator_host.to_string(),
+        false,
+    )
+}
+
 pub struct AutomaticFirmwareUpdateReference {
     pub from: String,
     pub to: String,
@@ -129,14 +151,5 @@ impl Display for DpuReprovisionInitiator {
 ///
 /// The marking is achieved by applying a special health override and health alert on the Machine
 pub fn machine_updates_in_progress(machine: &Machine) -> bool {
-    machine
-        .health_report_overrides
-        .merges
-        .get(HOST_UPDATE_HEALTH_REPORT_SOURCE)
-        .is_some_and(|updater_report| {
-            updater_report
-                .alerts
-                .iter()
-                .any(|alert| alert.id == *HOST_UPDATE_HEALTH_PROBE_ID)
-        })
+    machine.reprovision_requested.is_some()
 }

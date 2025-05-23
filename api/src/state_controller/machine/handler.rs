@@ -616,6 +616,18 @@ impl MachineStateHandler {
                         )
                         .await?
                     {
+                        let health_override =
+                        crate::machine_update_manager::machine_update_module::create_host_update_health_report_hostfw();
+                        // The health report alert gets generated here, the machine update manager retains responsibilty for clearing it when we're done.
+                        crate::db::machine::insert_health_report_override(
+                            txn,
+                            host_machine_id,
+                            health_report::OverrideMode::Merge,
+                            &health_override,
+                            false,
+                        )
+                        .await?;
+
                         return Ok(StateHandlerOutcome::Transition(next_state));
                     } else {
                         return Ok(StateHandlerOutcome::DoNothingWithDetails(
@@ -655,6 +667,17 @@ impl MachineStateHandler {
                         &mh_snapshot.dpu_snapshots,
                         dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
                     )?;
+
+                    let health_override = crate::machine_update_manager::machine_update_module::create_host_update_health_report_dpufw();
+                    // Mark the Host as in update.
+                    crate::db::machine::insert_health_report_override(
+                        txn,
+                        host_machine_id,
+                        health_report::OverrideMode::Merge,
+                        &health_override,
+                        false,
+                    )
+                    .await?;
                     return Ok(StateHandlerOutcome::Transition(next_state));
                 }
 
@@ -4110,6 +4133,33 @@ impl StateHandler for InstanceStateHandler {
                             // state (BootingWithDiscoveryImage) and recovery code will try to
                             // reboot after certain time, if machine does not respond.
                             tracing::error!(%host_machine_id, "Host reboot failed with error: {err}");
+                        }
+
+                        if host_firmware_requested {
+                            let health_override =
+                        crate::machine_update_manager::machine_update_module::create_host_update_health_report_hostfw();
+                            // The health report alert gets generated here, the machine update manager retains responsibilty for clearing it when we're done.
+                            crate::db::machine::insert_health_report_override(
+                                txn,
+                                host_machine_id,
+                                health_report::OverrideMode::Merge,
+                                &health_override,
+                                false,
+                            )
+                            .await?;
+                        }
+
+                        if reprov_can_be_started {
+                            let health_override = crate::machine_update_manager::machine_update_module::create_host_update_health_report_dpufw();
+                            // Mark the Host as in update.
+                            crate::db::machine::insert_health_report_override(
+                                txn,
+                                host_machine_id,
+                                health_report::OverrideMode::Merge,
+                                &health_override,
+                                false,
+                            )
+                            .await?;
                         }
 
                         let next_state = ManagedHostState::Assigned {
