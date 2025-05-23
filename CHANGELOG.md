@@ -12,7 +12,7 @@
 
 ### Internal
 
-## [v2025.05.23-rc1-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.09-rc2-0...v2025.05.09-rc1-0)
+## [v2025.05.23-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.09-rc2-0...v2025.05.23-rc2-0)
 
 ### Added
 
