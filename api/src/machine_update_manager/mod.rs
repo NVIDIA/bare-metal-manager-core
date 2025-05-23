@@ -32,7 +32,7 @@ use crate::db::managed_host::LoadSnapshotOptions;
 use crate::model::machine::ManagedHostStateSnapshot;
 use crate::{
     CarbideError, CarbideResult,
-    cfg::file::CarbideConfig,
+    cfg::file::{CarbideConfig, MaxConcurrentUpdates},
     db,
     db::{
         DatabaseError, ObjectFilter, dpu_machine_update::DpuMachineUpdate,
@@ -52,7 +52,7 @@ use forge_uuid::machine::MachineId;
 /// * `machine_update_run_interval` how often the manager calls the modules to start updates
 pub struct MachineUpdateManager {
     database_connection: PgPool,
-    max_concurrent_machine_updates: i32,
+    max_concurrent_machine_updates: MaxConcurrentUpdates,
     run_interval: Duration,
     update_modules: Vec<Box<dyn MachineUpdateModule>>,
     metrics: Option<MachineUpdateManagerMetrics>,
@@ -74,9 +74,7 @@ impl MachineUpdateManager {
     ) -> Self {
         MachineUpdateManager {
             database_connection,
-            max_concurrent_machine_updates: config
-                .max_concurrent_machine_updates
-                .unwrap_or(MachineUpdateManager::DEFAULT_MAX_CONCURRENT_MACHINE_UPDATES),
+            max_concurrent_machine_updates: config.max_concurrent_machine_updates(),
             run_interval: Duration::from_secs(config.machine_update_run_interval.unwrap_or(300)),
             update_modules: modules,
             metrics: None,
@@ -107,9 +105,7 @@ impl MachineUpdateManager {
 
         MachineUpdateManager {
             database_connection,
-            max_concurrent_machine_updates: config
-                .max_concurrent_machine_updates
-                .unwrap_or(MachineUpdateManager::DEFAULT_MAX_CONCURRENT_MACHINE_UPDATES),
+            max_concurrent_machine_updates: config.max_concurrent_machine_updates(),
             run_interval: Duration::from_secs(config.machine_update_run_interval.unwrap_or(300)),
             update_modules,
             metrics: Some(machine_update_metrics),
@@ -175,6 +171,7 @@ impl MachineUpdateManager {
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut updates_started_count = 0;
         let mut current_updating_count = 0;
+        let mut max_concurrent_updates = 0;
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             DatabaseError::new(
@@ -214,13 +211,19 @@ impl MachineUpdateManager {
 
             let snapshots = self.get_all_snapshots(&mut txn).await?;
 
+            let (all_count, unhealthy_count) =
+                db::machine::count_healthy_unhealthy_host_machines(&snapshots).await?;
+            max_concurrent_updates = self
+                .max_concurrent_machine_updates
+                .max_concurrent_updates(all_count, unhealthy_count)
+                .unwrap_or(MachineUpdateManager::DEFAULT_MAX_CONCURRENT_MACHINE_UPDATES); // XXX
             for update_module in self.update_modules.iter() {
-                if (current_updating_machines.len() as i32) >= self.max_concurrent_machine_updates {
+                if (current_updating_machines.len() as i32) >= max_concurrent_updates {
                     break;
                 }
                 tracing::debug!("in progress: {:?}", current_updating_machines);
                 let available_updates =
-                    self.max_concurrent_machine_updates - current_updating_machines.len() as i32;
+                    max_concurrent_updates - current_updating_machines.len() as i32;
 
                 let updates_started = update_module
                     .start_updates(
@@ -264,6 +267,9 @@ impl MachineUpdateManager {
             metrics
                 .machines_in_maintenance
                 .store(current_updating_count as u64, Ordering::Relaxed);
+            metrics
+                .concurrent_machine_updates_available
+                .store(max_concurrent_updates as u64, Ordering::Relaxed);
         }
 
         Ok(())

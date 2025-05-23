@@ -11,6 +11,9 @@
   - Adding/Deleting a VF in the middle of existing interfaces list can cause rest of the IPs to change. This will be fixed in future releases.
 
 ### Changed
+- [MR-4089](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4089) [DGXH5GL3-319](https://jirasw.nvidia.com/browse/DGXH5GL3-319): Machine update limits can now be set as a percentage of machines we'll allow to be unhealthy/unavailable.
+- [MR-4089](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4089) [DGXH5GL3-319](https://jirasw.nvidia.com/browse/DGXH5GL3-319): Default of whether to trigger update of instance host firmware changed to false.
+- [MR-4089](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4089): RBAC permissions of ReportForgeScoutError changed to allow anonymous access.
 - [MR-4045](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4045): Reverted HBN back to 2.8.
 
 ### Fixed

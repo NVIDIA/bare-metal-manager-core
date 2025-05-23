@@ -809,7 +809,7 @@ pub fn get_config() -> CarbideConfig {
         dpu_ipmi_reboot_attempts: Some(0),
         initial_domain_name: Some("test.com".to_string()),
         initial_dpu_agent_upgrade_policy: None,
-        max_concurrent_machine_updates: Some(10),
+        max_concurrent_machine_updates: None,
         machine_update_run_interval: Some(1),
         site_explorer: SiteExplorerConfig {
             enabled: false,
@@ -861,7 +861,11 @@ pub fn get_config() -> CarbideConfig {
         },
         host_models: host_firmware_example(),
         firmware_global: FirmwareGlobal::test_default(),
-        machine_updater: MachineUpdater::default(),
+        machine_updater: MachineUpdater {
+            instance_autoreboot_period: None,
+            max_concurrent_machine_updates_absolute: Some(10),
+            max_concurrent_machine_updates_percent: None,
+        },
         max_find_by_ids: default_max_find_by_ids(),
         network_security_group: NetworkSecurityGroupConfig::default(),
         min_dpu_functioning_links: None,

@@ -2214,6 +2214,37 @@ pub async fn clear_quarantine_state(
     Ok(old_quarantine_state)
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct HealthReportWrapper {
+    hardware_health_report: Option<HealthReport>,
+}
+impl<'r> FromRow<'r, PgRow> for HealthReportWrapper {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let hardware_health_report: sqlx::types::Json<Option<HealthReport>> =
+            row.try_get("health_report")?;
+        Ok(Self {
+            hardware_health_report: hardware_health_report.0,
+        })
+    }
+}
+
+pub async fn count_healthy_unhealthy_host_machines(
+    all_machines: &HashMap<MachineId, crate::model::machine::ManagedHostStateSnapshot>,
+) -> Result<(i32, i32), DatabaseError> {
+    let without_fault_count = all_machines
+        .iter()
+        .filter(|(_,x)| {
+            ! x.aggregate_health.alerts.iter().any(|x| x.id != *crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID)
+        }
+    )
+    .count();
+
+    Ok((
+        all_machines.len() as i32,
+        (all_machines.len() - without_fault_count) as i32,
+    ))
+}
+
 #[cfg(test)]
 mod test {
     use crate::{

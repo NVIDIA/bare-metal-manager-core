@@ -8,7 +8,6 @@ route_servers = ["9.10.11.12"]
 rapid_iterations = false
 initial_domain_name = "forge.local"
 initial_dpu_agent_upgrade_policy = "off"
-max_concurrent_machine_updates = 1
 machine_update_run_interval = 60
 dpu_ipmi_tool_impl = "fake"
 dpu_ipmi_reboot_attempts = 1
@@ -127,6 +126,7 @@ max_uploads = 3
 [machine_updater]
 instance_autoreboot_period.start = "2025-01-07T00:00:00Z"
 instance_autoreboot_period.end = "2026-01-08T00:00:00Z"
+max_concurrent_machine_updates_absolute = 1
 
 [host_models.dell_r750]
 vendor = "Dell"
