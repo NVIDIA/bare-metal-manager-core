@@ -294,6 +294,13 @@ async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     )
     .await?;
 
+    crate::db::machine::trigger_dpu_reprovisioning_request(
+        &host_machine_id1,
+        &mut txn,
+        "test",
+        true,
+    )
+    .await?;
     txn.commit().await.unwrap();
 
     let mut txn = env

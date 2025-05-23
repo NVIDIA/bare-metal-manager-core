@@ -1011,12 +1011,6 @@ async fn test_instance_upgrading_actual(
         let InstanceState::Ready = instance_state else {
             panic!("Unexpecte instance state {:?}", host.state);
         };
-        println!("{:?}", host.health_report_overrides);
-        assert!(
-            host.health_report_overrides
-                .merges
-                .contains_key(HOST_FW_UPDATE_HEALTH_REPORT_SOURCE)
-        );
         txn.commit().await.unwrap();
 
         // Simulate a tenant OKing the request
@@ -1044,6 +1038,12 @@ async fn test_instance_upgrading_actual(
         panic!("Unexpected instance state {:?}", host.state);
     };
     assert!(host.host_reprovision_requested.is_some());
+    println!("{:?}", host.health_report_overrides);
+    assert!(
+        host.health_report_overrides
+            .merges
+            .contains_key(HOST_FW_UPDATE_HEALTH_REPORT_SOURCE)
+    );
     txn.commit().await.unwrap();
 
     // Simulate agent saying it's booted so we can continue

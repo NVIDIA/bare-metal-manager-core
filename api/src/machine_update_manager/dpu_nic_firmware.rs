@@ -94,12 +94,8 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
             // given {dpu,host}_machine_id, log it as a warning and don't
             // add it to updates_started.
             if let Err(reprovisioning_err) =
-                DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
-                    txn,
-                    &host_machine_id,
-                    &machine_updates,
-                )
-                .await
+                DpuMachineUpdate::trigger_reprovisioning_for_managed_host(txn, &machine_updates)
+                    .await
             {
                 match reprovisioning_err {
                     CarbideError::NotFoundError { id, .. } => {

@@ -270,7 +270,6 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
 
     DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
         &mut txn,
-        &host_machine_id,
         &[DpuMachineUpdate {
             host_machine_id,
             dpu_machine_id,
@@ -329,7 +328,6 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
 
     DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
         &mut txn,
-        &host_machine_id,
         &[
             DpuMachineUpdate {
                 host_machine_id,
