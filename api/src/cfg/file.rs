@@ -133,8 +133,7 @@ pub struct CarbideConfig {
     /// Also settable via a `forge-admin-cli` command.
     pub initial_dpu_agent_upgrade_policy: Option<AgentUpgradePolicyChoice>,
 
-    /// The maximum number of machines that have in-progress updates running.  This prevents
-    /// too many machines from being put into maintenance at any given time.
+    /// Deprecated, use machine_updater
     pub max_concurrent_machine_updates: Option<i32>,
 
     /// The interval at which the machine update manager checks for machine updates in seconds.
@@ -282,7 +281,6 @@ impl CarbideConfig {
         }
         config
     }
-
     pub fn get_firmware_config(&self) -> FirmwareConfig {
         let mut base_map: HashMap<String, Firmware> = Default::default();
         for (_, host) in self.host_models.iter() {
@@ -302,6 +300,39 @@ impl CarbideConfig {
             firmware_directory: self.firmware_global.firmware_directory.clone(),
             #[cfg(test)]
             test_overrides: vec![],
+        }
+    }
+
+    pub fn max_concurrent_machine_updates(&self) -> MaxConcurrentUpdates {
+        MaxConcurrentUpdates {
+            absolute: self.machine_updater.max_concurrent_machine_updates_absolute,
+            percent: self.machine_updater.max_concurrent_machine_updates_percent,
+        }
+    }
+}
+
+pub struct MaxConcurrentUpdates {
+    absolute: Option<i32>,
+    percent: Option<i32>,
+}
+
+impl MaxConcurrentUpdates {
+    pub fn max_concurrent_updates(&self, unhealthy: i32, out_of: i32) -> Option<i32> {
+        if self.percent.is_none() {
+            self.absolute
+        } else {
+            let percent = self.percent?;
+            if out_of <= 0 || percent <= 0 {
+                return Some(0);
+            }
+            let percent = percent as usize;
+            // Round up, so if someone specified 10% with 9 hosts they'll get 1.
+            let mut count = ((percent * out_of as usize) + 99) / 100;
+            count = count.saturating_sub(unhealthy as usize);
+            if let Some(absolute) = self.absolute {
+                count = count.min(absolute as usize);
+            }
+            Some(count as i32)
         }
     }
 }
@@ -1254,7 +1285,7 @@ pub struct FirmwareGlobal {
         serialize_with = "as_duration"
     )]
     pub host_firmware_upgrade_retry_interval: Duration,
-    #[serde(default)]
+    #[serde(default = "FirmwareGlobal::instance_updates_manual_tagging_default")]
     pub instance_updates_manual_tagging: bool,
     #[serde(default)]
     pub no_reset_retries: bool,
@@ -1283,6 +1314,12 @@ impl FirmwareGlobal {
 pub struct MachineUpdater {
     #[serde(default)]
     pub instance_autoreboot_period: Option<TimePeriod>,
+    /// The maximum number of machines that have in-progress updates running.  This prevents
+    /// too many machines from being put into maintenance at any given time.
+    pub max_concurrent_machine_updates_absolute: Option<i32>,
+    /// The maximum percentage of machines that have in-progress updates running.  This prevents
+    /// too many machines from being put into maintenance at any given time.  If both values are given, the lesser will be used.
+    pub max_concurrent_machine_updates_percent: Option<i32>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -1318,6 +1355,9 @@ impl fmt::Display for DpuModel {
 }
 
 impl FirmwareGlobal {
+    pub fn instance_updates_manual_tagging_default() -> bool {
+        true
+    }
     pub fn run_interval_default() -> Duration {
         Duration::seconds(30)
     }
@@ -1766,7 +1806,8 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             dpu_nic_firmware_reprovision_update_enabled: DpuConfig::default()
                 .dpu_nic_firmware_reprovision_update_enabled,
             max_concurrent_machine_updates: value
-                .max_concurrent_machine_updates
+                .machine_updater
+                .max_concurrent_machine_updates_absolute
                 .unwrap_or_default(),
             machine_update_runtime_interval: value.machine_update_run_interval.unwrap_or_default(),
             nvue_enabled: value.nvue_enabled,
@@ -2800,6 +2841,25 @@ max_partition_per_tenant = 3
         // Make sure that if we let serde pick the defaults, it matches Default::default().
         let deserialized = serde_json::from_str::<SiteExplorerConfig>("{}")?;
         assert_eq!(deserialized, SiteExplorerConfig::default());
+        Ok(())
+    }
+
+    #[test]
+    fn test_max_concurrent_updates() -> eyre::Result<()> {
+        let test = MaxConcurrentUpdates {
+            absolute: Some(10),
+            percent: None,
+        };
+        assert_eq!(test.max_concurrent_updates(1000, 5), Some(10));
+        let test = MaxConcurrentUpdates {
+            absolute: None,
+            percent: Some(10),
+        };
+        assert_eq!(test.max_concurrent_updates(0, 500), Some(50));
+        assert_eq!(test.max_concurrent_updates(7, 500), Some(43));
+        assert_eq!(test.max_concurrent_updates(50, 500), Some(0));
+        assert_eq!(test.max_concurrent_updates(0, 9), Some(1));
+
         Ok(())
     }
 }

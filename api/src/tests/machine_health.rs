@@ -577,6 +577,90 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+#[crate::sqlx_test]
+async fn test_count_unhealthy_nonupgrading_host_machines(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_env(pool).await;
+
+    let (host_machine_id, _) = create_managed_host(&env).await;
+
+    let mut txn = env.pool.begin().await?;
+    let machine_ids = crate::db::machine::find_machine_ids(
+        &mut txn,
+        crate::db::machine::MachineSearchConfig::default(),
+    )
+    .await?;
+    let options = crate::db::managed_host::LoadSnapshotOptions {
+        include_history: false,
+        include_instance_data: false,
+        host_health_config: HostHealthConfig {
+            hardware_health_reports: crate::cfg::file::HardwareHealthReportsConfig::Enabled,
+            dpu_agent_version_staleness_threshold: chrono::Duration::days(1),
+            prevent_allocations_on_stale_dpu_agent_version: false,
+        },
+    };
+    let all_machines =
+        crate::db::managed_host::load_by_machine_ids(&mut txn, &machine_ids, options).await?;
+
+    assert_eq!(
+        db::machine::count_healthy_unhealthy_host_machines(&all_machines)
+            .await
+            .unwrap(),
+        (1, 0)
+    );
+    txn.commit().await?;
+
+    let r#override = hr(
+        "add-host-failure",
+        vec![],
+        vec![("Fan", Some("TestFan"), "Reason")],
+    );
+    send_health_report_override(&env, &host_machine_id, (r#override, OverrideMode::Merge)).await;
+    let health2 = hr(
+        "test-report-1",
+        vec![],
+        vec![
+            ("Fan", Some("TestFan"), "Reason"),
+            ("Fan", Some("TestFan2"), "Other Reason"),
+        ],
+    );
+    send_health_report_override(
+        &env,
+        &host_machine_id,
+        (health2.clone(), OverrideMode::Replace),
+    )
+    .await;
+
+    let mut txn = env.pool.begin().await?;
+    let machine_ids = crate::db::machine::find_machine_ids(
+        &mut txn,
+        crate::db::machine::MachineSearchConfig::default(),
+    )
+    .await?;
+    let options = crate::db::managed_host::LoadSnapshotOptions {
+        include_history: false,
+        include_instance_data: false,
+        host_health_config: HostHealthConfig {
+            hardware_health_reports: crate::cfg::file::HardwareHealthReportsConfig::Enabled,
+            dpu_agent_version_staleness_threshold: chrono::Duration::days(1),
+            prevent_allocations_on_stale_dpu_agent_version: false,
+        },
+    };
+    let all_machines =
+        crate::db::managed_host::load_by_machine_ids(&mut txn, &machine_ids, options).await?;
+
+    assert_eq!(
+        db::machine::count_healthy_unhealthy_host_machines(&all_machines)
+            .await
+            .unwrap(),
+        (1, 1)
+    );
+    txn.commit().await?;
+
+    Ok(())
+}
+
 async fn create_env(pool: sqlx::PgPool) -> TestEnv {
     let mut config = get_config();
     config.host_health.hardware_health_reports = HardwareHealthReportsConfig::Enabled;

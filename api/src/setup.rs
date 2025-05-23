@@ -101,6 +101,23 @@ pub fn parse_carbide_config(
         );
         config.site_explorer.allow_changing_bmc_proxy = Some(true);
     }
+
+    if let Some(old_update_limit) = config.max_concurrent_machine_updates {
+        if let Some(new_update_limit) = config
+            .machine_updater
+            .max_concurrent_machine_updates_absolute
+        {
+            // Both specified, use the smaller
+            config
+                .machine_updater
+                .max_concurrent_machine_updates_absolute =
+                Some(std::cmp::min(old_update_limit, new_update_limit));
+        } else {
+            config
+                .machine_updater
+                .max_concurrent_machine_updates_absolute = config.max_concurrent_machine_updates
+        }
+    }
     Ok(Arc::new(config))
 }
 
