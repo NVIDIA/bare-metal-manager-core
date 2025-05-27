@@ -31,6 +31,7 @@ use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
+use crate::nvue::NetworkSecurityGroupRule;
 use crate::{HBNDeviceNames, acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue};
 use forge_network::virtualization::VpcVirtualizationType;
 
@@ -270,62 +271,20 @@ pub async fn update_nvue(
         ifs
     };
 
-    // This chunk of code is combining all rules it finds.
-    // There are two assumptions here...
-    // 1 - ManagedHostNetworkConfigResponse only has rules on physical interfaces.
-    // 2 - There is only one DPU.
-    // Both of these are valid assumptions right now because the endpoint that returns
-    // the data doesn't have support for a secondary DPU, but we should log warnings
-    // if we notice that either of those assumptions is no longer valid.
-    let mut has_network_security_group = false;
+    // Currently there's only one quarantine mode, BlockAllTraffic, so we block everything if it's set at all.
+    let is_quarantined = nc
+        .managed_host_config
+        .as_ref()
+        .is_some_and(|c| c.quarantine_state.is_some());
 
-    let mut network_security_group_rules: Vec<nvue::NetworkSecurityGroupRule> = vec![];
-
-    for iface in &nc.tenant_interfaces {
-        if let Some(ref nsg) = iface.network_security_group {
-            if has_network_security_group {
-                tracing::warn!(
-                    "Found more than one interface with network security group applied in ManagedHostNetworkConfigResponse",
-                );
-            }
-
-            has_network_security_group = true;
-
-            for resolved_rule in &nsg.rules {
-                let Some(rule) = &resolved_rule.rule else {
-                    continue;
-                };
-
-                network_security_group_rules.push(nvue::NetworkSecurityGroupRule {
-                    id: rule.id.clone().unwrap_or_default(),
-                    ingress: rule.direction()
-                        == rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
-                    can_match_any_protocol: rule.protocol()
-                        == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny,
-                    can_be_stateful: matches!(
-                        rule.protocol(),
-                        rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp
-                            | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp
-                            | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp
-                    ),
-                    ipv6: rule.ipv6,
-                    priority: rule.priority,
-                    src_port_start: rule.src_port_start,
-                    src_port_end: rule.src_port_end,
-                    dst_port_start: rule.dst_port_start,
-                    dst_port_end: rule.dst_port_end,
-                    protocol: NetworkSecurityGroupRuleProtocol::to_string_from_enum_i32(
-                        rule.protocol,
-                    )?
-                    .to_lowercase(),
-                    action: NetworkSecurityGroupRuleAction::to_string_from_enum_i32(rule.action)?
-                        .to_lowercase(),
-                    src_prefixes: resolved_rule.src_prefixes.clone(),
-                    dst_prefixes: resolved_rule.dst_prefixes.clone(),
-                });
-            }
-        }
-    }
+    let (has_network_security_group, network_security_group_rules) = if is_quarantined {
+        tracing::info!("managed host is quarantined! Disabling network access via nvue");
+        (true, build_quarantined_network_security_group_rules())
+    } else if let Some(rules) = build_network_security_group_rules(&nc.tenant_interfaces)? {
+        (true, rules)
+    } else {
+        (false, vec![])
+    };
 
     let hostname = hostname().wrap_err("gethostname error")?;
     let conf = nvue::NvueConfig {
@@ -429,6 +388,120 @@ pub async fn update_nvue(
         nvue::apply(hbn_root, &path).await?;
     }
     Ok(true)
+}
+
+fn build_network_security_group_rules(
+    interfaces: &[FlatInterfaceConfig],
+) -> eyre::Result<Option<Vec<nvue::NetworkSecurityGroupRule>>> {
+    // This chunk of code is combining all rules it finds.
+    // There are two assumptions here...
+    // 1 - ManagedHostNetworkConfigResponse only has rules on physical interfaces.
+    // 2 - There is only one DPU.
+    // Both of these are valid assumptions right now because the endpoint that returns
+    // the data doesn't have support for a secondary DPU, but we should log warnings
+    // if we notice that either of those assumptions is no longer valid.
+    let mut has_network_security_group = false;
+    let mut network_security_group_rules = vec![];
+    for iface in interfaces {
+        if let Some(ref nsg) = iface.network_security_group {
+            if has_network_security_group {
+                tracing::warn!(
+                    "Found more than one interface with network security group applied in ManagedHostNetworkConfigResponse",
+                );
+            }
+
+            has_network_security_group = true;
+
+            for resolved_rule in &nsg.rules {
+                let Some(rule) = &resolved_rule.rule else {
+                    continue;
+                };
+
+                network_security_group_rules.push(nvue::NetworkSecurityGroupRule {
+                    id: rule.id.clone().unwrap_or_default(),
+                    ingress: rule.direction()
+                        == rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
+                    can_match_any_protocol: rule.protocol()
+                        == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny,
+                    can_be_stateful: matches!(
+                        rule.protocol(),
+                        rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp
+                            | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp
+                            | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp
+                    ),
+                    ipv6: rule.ipv6,
+                    priority: rule.priority,
+                    src_port_start: rule.src_port_start,
+                    src_port_end: rule.src_port_end,
+                    dst_port_start: rule.dst_port_start,
+                    dst_port_end: rule.dst_port_end,
+                    protocol: NetworkSecurityGroupRuleProtocol::to_string_from_enum_i32(
+                        rule.protocol,
+                    )?
+                    .to_lowercase(),
+                    action: NetworkSecurityGroupRuleAction::to_string_from_enum_i32(rule.action)?
+                        .to_lowercase(),
+                    src_prefixes: resolved_rule.src_prefixes.clone(),
+                    dst_prefixes: resolved_rule.dst_prefixes.clone(),
+                });
+            }
+        }
+    }
+    if has_network_security_group {
+        Ok(Some(network_security_group_rules))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Build a set of security group rules that deny all traffic.
+///
+/// Builds rules for ipv6 and ipv4, both ingress and ingress, denying traffic to all address
+/// prefixes.
+fn build_quarantined_network_security_group_rules() -> Vec<NetworkSecurityGroupRule> {
+    let build_rule = |ingress, ipv6| {
+        let catchall_prefix = if ipv6 {
+            vec!["::/0".to_string()]
+        } else {
+            vec!["0.0.0.0/0".to_string()]
+        };
+
+        nvue::NetworkSecurityGroupRule {
+            id: format!(
+                "quarantine_{}_{}",
+                if ipv6 { "ipv6" } else { "ipv4" },
+                if ingress { "ingress" } else { "egress" }
+            ),
+            ingress,
+            ipv6,
+            priority: 0,
+            src_port_start: None,
+            src_port_end: None,
+            dst_port_start: None,
+            dst_port_end: None,
+            can_match_any_protocol: true,
+            can_be_stateful: false,
+            protocol: NetworkSecurityGroupRuleProtocol::to_string_from_enum_i32(
+                NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny.into(),
+            )
+            .expect("BUG: cannot convert `any` protocol to string?")
+            .to_lowercase(),
+            action: NetworkSecurityGroupRuleAction::to_string_from_enum_i32(
+                NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            )
+            .expect("BUG: cannot convert deny action to string?")
+            .to_lowercase(),
+            src_prefixes: catchall_prefix.clone(),
+            dst_prefixes: catchall_prefix,
+        }
+    };
+
+    vec![
+        build_rule(false, false),
+        build_rule(false, true),
+        build_rule(true, false),
+        build_rule(true, true),
+    ]
 }
 
 /// Write out all the network config files.
@@ -1447,8 +1520,8 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::str::FromStr;
 
+    use ::rpc::forge as rpc;
     use eyre::WrapErr;
-    use rpc::forge as rpc;
     use utils::models::dhcp::{DhcpConfig, HostConfig};
 
     use super::FPath;
@@ -1563,6 +1636,101 @@ mod tests {
 
         // check startup.yaml
         let expected = include_str!("../templates/tests/nvue_startup.yaml.expected");
+        compare_diffed(hbn_root.join(nvue::PATH), expected)?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_with_tenant_nvue_quarantined() -> Result<(), Box<dyn std::error::Error>> {
+        let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
+
+        let network_config = {
+            let mut cfg = netconf(virtualization_type, 32, 24, true);
+            match cfg.managed_host_config.as_mut() {
+                Some(c) => {
+                    c.quarantine_state = Some(rpc::ManagedHostQuarantineState {
+                        mode: rpc::ManagedHostQuarantineMode::BlockAllTraffic.into(),
+                        reason: Some("test".to_string()),
+                    })
+                }
+                None => panic!("missing managed_host_config"),
+            }
+            cfg
+        };
+
+        let td = tempfile::tempdir()?;
+        let hbn_root = td.path();
+        fs::create_dir_all(hbn_root.join("var/support"))?;
+        fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+
+        let has_changes = super::update_nvue(
+            virtualization_type,
+            hbn_root,
+            &network_config,
+            true,
+            HBNDeviceNames::hbn_23(),
+        )
+        .await?;
+        assert!(
+            has_changes,
+            "update_nvue should have written the file, there should be changes"
+        );
+
+        // check ACLs
+        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
+
+        // check startup.yaml
+        let expected = include_str!("../templates/tests/nvue_startup_quarantined.yaml.expected");
+        compare_diffed(hbn_root.join(nvue::PATH), expected)?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_with_tenant_fnn_quarantined() -> Result<(), Box<dyn std::error::Error>> {
+        let virtualization_type = VpcVirtualizationType::Fnn;
+
+        let network_config = {
+            let mut cfg = netconf(virtualization_type, 32, 24, true);
+            match cfg.managed_host_config.as_mut() {
+                Some(c) => {
+                    c.quarantine_state = Some(rpc::ManagedHostQuarantineState {
+                        mode: rpc::ManagedHostQuarantineMode::BlockAllTraffic.into(),
+                        reason: Some("test".to_string()),
+                    })
+                }
+                None => panic!("missing managed_host_config"),
+            }
+            cfg
+        };
+
+        let td = tempfile::tempdir()?;
+        let hbn_root = td.path();
+        fs::create_dir_all(hbn_root.join("var/support"))?;
+        fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+
+        let has_changes = super::update_nvue(
+            virtualization_type,
+            hbn_root,
+            &network_config,
+            true,
+            HBNDeviceNames::hbn_23(),
+        )
+        .await?;
+        assert!(
+            has_changes,
+            "update_nvue should have written the file, there should be changes"
+        );
+
+        // check ACLs
+        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
+
+        // check startup.yaml
+        let expected =
+            include_str!("../templates/tests/nvue_startup_quarantined_fnn.yaml.expected");
         compare_diffed(hbn_root.join(nvue::PATH), expected)?;
 
         Ok(())
