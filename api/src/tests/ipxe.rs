@@ -262,7 +262,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
     move_machine_to_needed_state(
         host_id,
         ManagedHostState::WaitingForCleanup {
-            cleanup_state: crate::model::machine::CleanupState::HostCleanup,
+            cleanup_state: crate::model::machine::CleanupState::Init,
         },
         &env.pool,
     )

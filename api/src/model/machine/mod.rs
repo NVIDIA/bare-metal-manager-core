@@ -1489,9 +1489,57 @@ pub enum UefiSetupState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub struct SecureEraseBossContext {
+    pub boss_controller_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secure_erase_jid: Option<String>,
+    pub secure_erase_boss_state: SecureEraseBossState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum SecureEraseBossState {
+    UnlockHost,
+    SecureEraseBoss,
+    WaitForJobCompletion,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub struct CreateBossVolumeContext {
+    pub boss_controller_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_boss_volume_jid: Option<String>,
+    pub create_boss_volume_state: CreateBossVolumeState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum CreateBossVolumeState {
+    CreateBossVolume,
+    RebootHost,
+    WaitForJobCompletion,
+    LockHost,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum CleanupState {
-    HostCleanup,
+    Init,
+    // Only for Dells with BOSS drives (currently on Dell XE9860s). This will also delete the volume on the BOSS controller.
+    SecureEraseBoss {
+        secure_erase_boss_context: SecureEraseBossContext,
+    },
+    HostCleanup {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        boss_controller_id: Option<String>,
+    },
+    // Only for Dells with BOSS drives (currently on Dell XE9860s)
+    CreateBossVolume {
+        create_boss_volume_context: CreateBossVolumeContext,
+    },
+    // Unused
     DisableBIOSBMCLockdown,
 }
 

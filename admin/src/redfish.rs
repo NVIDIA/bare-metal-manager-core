@@ -532,6 +532,33 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         DisableHostRshim => {
             redfish.set_host_rshim(EnabledDisabled::Disabled).await?;
         }
+        GetBossController => {
+            if let Some(controller_id) = redfish.get_boss_controller().await? {
+                tracing::info!("BOSS Controller ID: {}", controller_id);
+            } else {
+                tracing::info!("Did not find BOSS Controller");
+            }
+        }
+        DecomissionController(args) => {
+            if let Some(jid) = redfish
+                .decommission_storage_controller(&args.controller_id)
+                .await?
+            {
+                tracing::info!("JID: {}", jid);
+            } else {
+                tracing::info!("No JID");
+            }
+        }
+        CreateVolume(args) => {
+            if let Some(jid) = redfish
+                .create_storage_volume(&args.controller_id, &args.volume_name, &args.raid_type)
+                .await?
+            {
+                tracing::info!("JID: {}", jid);
+            } else {
+                tracing::info!("No JID");
+            }
+        }
     }
     Ok(())
 }

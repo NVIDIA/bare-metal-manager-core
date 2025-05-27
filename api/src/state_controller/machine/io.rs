@@ -186,10 +186,14 @@ impl StateControllerIO for MachineStateControllerIO {
 
         fn cleanup_state_name(cleanup_state: &CleanupState) -> &'static str {
             match cleanup_state {
-                CleanupState::HostCleanup => "hostcleanup",
+                CleanupState::Init => "init",
+                CleanupState::SecureEraseBoss { .. } => "secureeraseboss",
+                CleanupState::HostCleanup { .. } => "hostcleanup",
+                CleanupState::CreateBossVolume { .. } => "createbossvolume",
                 CleanupState::DisableBIOSBMCLockdown => "disablebmclockdown",
             }
         }
+
         fn machine_validation_state_name(
             validation_state: &MachineValidatingState,
         ) -> &'static str {

@@ -646,7 +646,9 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         3,
         &mut txn,
         ManagedHostState::WaitingForCleanup {
-            cleanup_state: CleanupState::HostCleanup,
+            cleanup_state: CleanupState::HostCleanup {
+                boss_controller_id: None,
+            },
         },
     )
     .await;

@@ -588,11 +588,11 @@ pub async fn clear_host_uefi_password(
 /// it will return an error if the job could not be found.
 pub async fn poll_redfish_job(
     redfish_client: &dyn Redfish,
-    job_id: String,
+    job_id: &str,
     expected_state: libredfish::JobState,
 ) -> CarbideResult<bool> {
     let job_state = redfish_client
-        .get_job_state(&job_id)
+        .get_job_state(job_id)
         .await
         .map_err(CarbideError::RedfishError)?;
 
@@ -1505,6 +1505,30 @@ pub mod test_support {
         }
 
         async fn get_host_rshim(&self) -> Result<Option<EnabledDisabled>, RedfishError> {
+            Ok(None)
+        }
+
+        async fn set_idrac_lockdown(&self, _enabled: EnabledDisabled) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
+        async fn get_boss_controller(&self) -> Result<Option<String>, RedfishError> {
+            Ok(None)
+        }
+
+        async fn decommission_storage_controller(
+            &self,
+            _controller_id: &str,
+        ) -> Result<Option<String>, RedfishError> {
+            Ok(None)
+        }
+
+        async fn create_storage_volume(
+            &self,
+            _controller_id: &str,
+            _volume_name: &str,
+            _raid_type: &str,
+        ) -> Result<Option<String>, RedfishError> {
             Ok(None)
         }
     }
