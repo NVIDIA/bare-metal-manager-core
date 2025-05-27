@@ -934,6 +934,9 @@ pub enum RedfishCommand {
     GetHostRshim,
     EnableHostRshim,
     DisableHostRshim,
+    GetBossController,
+    DecomissionController(DecomissionControllerArgs),
+    CreateVolume(CreateVolumeArgs),
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
@@ -1038,7 +1041,7 @@ pub struct BmcUser {
 
 #[derive(Parser, Debug, PartialEq, Clone)]
 pub struct ForgeSetupArgs {
-    #[clap(long, help = "boot_interface_mac:")]
+    #[clap(long, help = "boot_interface_mac")]
     pub boot_interface_mac: Option<String>,
     #[clap(long, help = "BIOS profile config in JSON format")]
     pub bios_profiles: Option<String>,
@@ -1048,8 +1051,24 @@ pub struct ForgeSetupArgs {
 
 #[derive(Parser, Debug, PartialEq, Clone)]
 pub struct SetBootOrderDpuFirstArgs {
-    #[clap(long, help = "boot_interface_mac:")]
+    #[clap(long, help = "boot_interface_mac")]
     pub boot_interface_mac: String,
+}
+
+#[derive(Parser, Debug, PartialEq, Clone)]
+pub struct DecomissionControllerArgs {
+    #[clap(long, help = "controller_id")]
+    pub controller_id: String,
+}
+
+#[derive(Parser, Debug, PartialEq, Clone)]
+pub struct CreateVolumeArgs {
+    #[clap(long, help = "controller_id")]
+    pub controller_id: String,
+    #[clap(long, help = "volume_name")]
+    pub volume_name: String,
+    #[clap(long, help = "raid_type")]
+    pub raid_type: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]

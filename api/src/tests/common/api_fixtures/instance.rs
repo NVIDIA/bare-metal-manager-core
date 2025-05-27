@@ -382,7 +382,9 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         3,
         &mut txn,
         ManagedHostState::WaitingForCleanup {
-            cleanup_state: CleanupState::HostCleanup,
+            cleanup_state: CleanupState::HostCleanup {
+                boss_controller_id: None,
+            },
         },
     )
     .await;

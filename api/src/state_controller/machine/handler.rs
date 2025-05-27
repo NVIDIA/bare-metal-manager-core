@@ -22,6 +22,7 @@ use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
 use itertools::Itertools;
+use libredfish::EnabledDisabled;
 use libredfish::{Boot, Redfish, RedfishError, SystemPowerControl, model::task::TaskState};
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
@@ -35,7 +36,10 @@ use crate::db::machine::update_restart_verification_status;
 use crate::model::instance::InstanceNetworkSyncStatus;
 use crate::model::instance::config::network::InstanceInterfaceConfig;
 use crate::model::instance::snapshot::InstanceSnapshot;
-use crate::model::machine::NetworkConfigUpdateState;
+use crate::model::machine::{
+    CreateBossVolumeContext, CreateBossVolumeState, NetworkConfigUpdateState,
+    SecureEraseBossContext, SecureEraseBossState,
+};
 use crate::{
     cfg::file::{
         BomValidationConfig, CarbideConfig, DpuModel, Firmware, FirmwareComponentType,
@@ -752,8 +756,137 @@ impl MachineStateHandler {
             }
 
             ManagedHostState::WaitingForCleanup { cleanup_state } => {
+                let redfish_client = ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
+                    .await?;
+
                 match cleanup_state {
-                    CleanupState::HostCleanup => {
+                    CleanupState::Init => {
+                        if mh_snapshot.host_snapshot.bmc_vendor().is_dell() {
+                            if let Some(boss_controller_id) = redfish_client
+                                .get_boss_controller()
+                                .await
+                                .map_err(|e| StateHandlerError::RedfishError {
+                                    operation: "get_boss_controller",
+                                    error: e,
+                                })?
+                            {
+                                let next_state: ManagedHostState =
+                                    ManagedHostState::WaitingForCleanup {
+                                        cleanup_state: CleanupState::SecureEraseBoss {
+                                            secure_erase_boss_context: SecureEraseBossContext {
+                                                boss_controller_id,
+                                                secure_erase_jid: None,
+                                                secure_erase_boss_state:
+                                                    SecureEraseBossState::UnlockHost,
+                                            },
+                                        },
+                                    };
+
+                                return Ok(StateHandlerOutcome::Transition(next_state));
+                            }
+                        }
+
+                        let next_state: ManagedHostState = ManagedHostState::WaitingForCleanup {
+                            cleanup_state: CleanupState::HostCleanup {
+                                boss_controller_id: None,
+                            },
+                        };
+
+                        Ok(StateHandlerOutcome::Transition(next_state))
+                    }
+                    CleanupState::SecureEraseBoss {
+                        secure_erase_boss_context,
+                    } => {
+                        let boss_controller_id =
+                            secure_erase_boss_context.boss_controller_id.clone();
+
+                        match secure_erase_boss_context.secure_erase_boss_state {
+                            SecureEraseBossState::UnlockHost => {
+                                redfish_client
+                                    .set_idrac_lockdown(EnabledDisabled::Disabled)
+                                    .await
+                                    .map_err(|e| StateHandlerError::RedfishError {
+                                        operation: "set_idrac_lockdown",
+                                        error: e,
+                                    })?;
+
+                                let next_state: ManagedHostState =
+                                    ManagedHostState::WaitingForCleanup {
+                                        cleanup_state: CleanupState::SecureEraseBoss {
+                                            secure_erase_boss_context: SecureEraseBossContext {
+                                                boss_controller_id,
+                                                secure_erase_jid: None,
+                                                secure_erase_boss_state:
+                                                    SecureEraseBossState::SecureEraseBoss,
+                                            },
+                                        },
+                                    };
+
+                                Ok(StateHandlerOutcome::Transition(next_state))
+                            }
+                            SecureEraseBossState::SecureEraseBoss => {
+                                let jid = redfish_client
+                                    .decommission_storage_controller(
+                                        &secure_erase_boss_context.boss_controller_id,
+                                    )
+                                    .await
+                                    .map_err(|e| StateHandlerError::RedfishError {
+                                        operation: "decommission_storage_controller",
+                                        error: e,
+                                    })?;
+
+                                let next_state: ManagedHostState =
+                                    ManagedHostState::WaitingForCleanup {
+                                        cleanup_state: CleanupState::SecureEraseBoss {
+                                            secure_erase_boss_context: SecureEraseBossContext {
+                                                boss_controller_id,
+                                                secure_erase_jid: jid,
+                                                secure_erase_boss_state:
+                                                    SecureEraseBossState::WaitForJobCompletion,
+                                            },
+                                        },
+                                    };
+
+                                Ok(StateHandlerOutcome::Transition(next_state))
+                            }
+                            SecureEraseBossState::WaitForJobCompletion => {
+                                let job_id = match &secure_erase_boss_context.secure_erase_jid {
+                                    Some(jid) => Ok(jid),
+                                    None => Err(StateHandlerError::GenericError(eyre::eyre!(
+                                        "could not find job ID in the Secure Erase BOSS Context"
+                                    ))),
+                                }?;
+
+                                if !poll_redfish_job(
+                                    redfish_client.as_ref(),
+                                    job_id,
+                                    libredfish::JobState::Completed,
+                                )
+                                .await
+                                .map_err(|e| {
+                                    StateHandlerError::GenericError(eyre::eyre!("{}", e))
+                                })? {
+                                    return Ok(StateHandlerOutcome::Wait(format!(
+                                        "waiting for job {:#?} to complete",
+                                        job_id
+                                    )));
+                                }
+
+                                let next_state: ManagedHostState =
+                                    ManagedHostState::WaitingForCleanup {
+                                        cleanup_state: CleanupState::HostCleanup {
+                                            boss_controller_id: Some(boss_controller_id),
+                                        },
+                                    };
+
+                                Ok(StateHandlerOutcome::Transition(next_state))
+                            }
+                        }
+                    }
+                    CleanupState::HostCleanup { boss_controller_id } => {
                         if !cleanedup_after_state_transition(
                             mh_snapshot.host_snapshot.state.version,
                             mh_snapshot.host_snapshot.last_cleanup_time,
@@ -779,14 +912,148 @@ impl MachineStateHandler {
                         )
                         .await?;
 
-                        let next_state = ManagedHostState::BomValidating {
-                            bom_validating_state: BomValidating::UpdatingInventory(
-                                BomValidatingContext {
-                                    machine_validation_context: Some("Cleanup".to_string()),
+                        let next_state = match boss_controller_id {
+                            Some(boss_controller_id) => ManagedHostState::WaitingForCleanup {
+                                cleanup_state: CleanupState::CreateBossVolume {
+                                    create_boss_volume_context: CreateBossVolumeContext {
+                                        boss_controller_id: boss_controller_id.to_string(),
+                                        create_boss_volume_jid: None,
+                                        create_boss_volume_state:
+                                            CreateBossVolumeState::CreateBossVolume,
+                                    },
                                 },
-                            ),
+                            },
+                            None => ManagedHostState::BomValidating {
+                                bom_validating_state: BomValidating::UpdatingInventory(
+                                    BomValidatingContext {
+                                        machine_validation_context: Some("Cleanup".to_string()),
+                                    },
+                                ),
+                            },
                         };
+
                         Ok(StateHandlerOutcome::Transition(next_state))
+                    }
+                    CleanupState::CreateBossVolume {
+                        create_boss_volume_context,
+                    } => {
+                        let boss_controller_id =
+                            create_boss_volume_context.boss_controller_id.clone();
+                        match create_boss_volume_context.create_boss_volume_state {
+                            CreateBossVolumeState::CreateBossVolume => {
+                                let jid = redfish_client
+                                    .create_storage_volume(
+                                        &create_boss_volume_context.boss_controller_id,
+                                        "VD_0",
+                                        "RAID1",
+                                    )
+                                    .await
+                                    .map_err(|e| StateHandlerError::RedfishError {
+                                        operation: "create_storage_volume",
+                                        error: e,
+                                    })?;
+
+                                let next_state: ManagedHostState =
+                                    ManagedHostState::WaitingForCleanup {
+                                        cleanup_state: CleanupState::CreateBossVolume {
+                                            create_boss_volume_context: CreateBossVolumeContext {
+                                                boss_controller_id,
+                                                create_boss_volume_jid: jid,
+                                                create_boss_volume_state:
+                                                    CreateBossVolumeState::RebootHost,
+                                            },
+                                        },
+                                    };
+
+                                Ok(StateHandlerOutcome::Transition(next_state))
+                            }
+                            CreateBossVolumeState::RebootHost => {
+                                redfish_client
+                                    .power(SystemPowerControl::ForceRestart)
+                                    .await
+                                    .map_err(|e| StateHandlerError::RedfishError {
+                                        operation: "ForceRestart",
+                                        error: e,
+                                    })?;
+
+                                let next_state: ManagedHostState =
+                                    ManagedHostState::WaitingForCleanup {
+                                        cleanup_state: CleanupState::CreateBossVolume {
+                                            create_boss_volume_context: CreateBossVolumeContext {
+                                                boss_controller_id,
+                                                create_boss_volume_jid: create_boss_volume_context
+                                                    .create_boss_volume_jid
+                                                    .clone(),
+                                                create_boss_volume_state:
+                                                    CreateBossVolumeState::WaitForJobCompletion,
+                                            },
+                                        },
+                                    };
+
+                                Ok(StateHandlerOutcome::Transition(next_state))
+                            }
+                            CreateBossVolumeState::WaitForJobCompletion => {
+                                let job_id = match &create_boss_volume_context
+                                    .create_boss_volume_jid
+                                {
+                                    Some(jid) => Ok(jid),
+                                    None => Err(StateHandlerError::GenericError(eyre::eyre!(
+                                        "could not find job ID in the Create BOSS Volume Context"
+                                    ))),
+                                }?;
+
+                                if !poll_redfish_job(
+                                    redfish_client.as_ref(),
+                                    job_id,
+                                    libredfish::JobState::Completed,
+                                )
+                                .await
+                                .map_err(|e| {
+                                    StateHandlerError::GenericError(eyre::eyre!("{}", e))
+                                })? {
+                                    return Ok(StateHandlerOutcome::Wait(format!(
+                                        "waiting for job {:#?} to complete",
+                                        job_id
+                                    )));
+                                }
+
+                                let next_state: ManagedHostState =
+                                    ManagedHostState::WaitingForCleanup {
+                                        cleanup_state: CleanupState::CreateBossVolume {
+                                            create_boss_volume_context: CreateBossVolumeContext {
+                                                boss_controller_id,
+                                                create_boss_volume_jid: None,
+                                                create_boss_volume_state:
+                                                    CreateBossVolumeState::LockHost,
+                                            },
+                                        },
+                                    };
+
+                                Ok(StateHandlerOutcome::Transition(next_state))
+                            }
+                            CreateBossVolumeState::LockHost => {
+                                redfish_client
+                                    .set_idrac_lockdown(EnabledDisabled::Enabled)
+                                    .await
+                                    .map_err(|e| StateHandlerError::RedfishError {
+                                        operation: "set_idrac_lockdown",
+                                        error: e,
+                                    })?;
+
+                                let next_state: ManagedHostState =
+                                    ManagedHostState::BomValidating {
+                                        bom_validating_state: BomValidating::UpdatingInventory(
+                                            BomValidatingContext {
+                                                machine_validation_context: Some(
+                                                    "Cleanup".to_string(),
+                                                ),
+                                            },
+                                        ),
+                                    };
+
+                                Ok(StateHandlerOutcome::Transition(next_state))
+                            }
+                        }
                     }
                     CleanupState::DisableBIOSBMCLockdown => {
                         tracing::error!(
@@ -899,7 +1166,7 @@ impl MachineStateHandler {
                         {
                             // Cleaned up successfully after a failure.
                             let next_state = ManagedHostState::WaitingForCleanup {
-                                cleanup_state: CleanupState::HostCleanup,
+                                cleanup_state: CleanupState::Init,
                             };
                             db::machine::clear_failure_details(machine_id, txn)
                                 .await
@@ -1667,7 +1934,7 @@ fn map_post_assigned_measuring_outcome_to_state_handler_outcome(
         }
         MeasuringOutcome::PassedOk => Ok(StateHandlerOutcome::Transition(
             ManagedHostState::WaitingForCleanup {
-                cleanup_state: CleanupState::HostCleanup,
+                cleanup_state: CleanupState::Init,
             },
         )),
     }
@@ -3345,7 +3612,7 @@ async fn handle_host_uefi_setup(
             if let Some(job_id) = uefi_setup_info.uefi_password_jid.clone() {
                 if !poll_redfish_job(
                     redfish_client.as_ref(),
-                    job_id.clone(),
+                    &job_id,
                     libredfish::JobState::Scheduled,
                 )
                 .await
@@ -3401,7 +3668,7 @@ async fn handle_host_uefi_setup(
                     .await?;
                 if !poll_redfish_job(
                     redfish_client.as_ref(),
-                    job_id.clone(),
+                    &job_id,
                     libredfish::JobState::Completed,
                 )
                 .await
@@ -4340,7 +4607,7 @@ impl StateHandler for InstanceStateHandler {
                         }
                     } else {
                         ManagedHostState::WaitingForCleanup {
-                            cleanup_state: CleanupState::HostCleanup,
+                            cleanup_state: CleanupState::Init,
                         }
                     };
 

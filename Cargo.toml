@@ -40,7 +40,7 @@ authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
-libredfish = { version = "0.29.42", registry = "sw-ngc-forge-cargo-local" }
+libredfish = { version = "0.29.44", registry = "sw-ngc-forge-cargo-local" }
 libnvmesh = { version = "0.1.4", registry = "sw-ngc-forge-cargo-local" }
 ansi-to-html =  "0.2.2"
 
