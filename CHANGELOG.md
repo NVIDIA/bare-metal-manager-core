@@ -4,6 +4,9 @@
 
 ### Added
 
+- [MR-3905](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3905): Added support for quarantining hosts (disabling host networking)
+- [MR-4106](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4106): Support sending trace/span data to OTLP endpoints (allows viewing trace data from Grafana Tempo)
+
 ### Changed
 
 ### Fixed
