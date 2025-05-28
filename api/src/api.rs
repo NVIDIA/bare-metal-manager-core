@@ -71,9 +71,9 @@ use crate::model::machine::machine_id::{
 };
 use crate::model::machine::network::ManagedHostQuarantineState;
 use crate::model::machine::{
-    BomValidating, DpuInitState, DpuInitStates, FailureCause, FailureDetails, FailureSource,
-    Machine, MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
-    ValidationState, get_action_for_dpu_state,
+    BomValidating, CleanupState, DpuInitState, DpuInitStates, FailureCause, FailureDetails,
+    FailureSource, Machine, MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot,
+    MeasuringState, ValidationState, get_action_for_dpu_state,
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
 use crate::model::tenant::Tenant;
@@ -1938,7 +1938,9 @@ impl Forge for Api {
                 ManagedHostState::Measuring {
                     measuring_state: MeasuringState::WaitingForMeasurements,
                 } => (Action::Measure, None),
-                ManagedHostState::WaitingForCleanup { .. }
+                ManagedHostState::WaitingForCleanup {
+                    cleanup_state: CleanupState::HostCleanup { .. },
+                }
                 | ManagedHostState::Failed {
                     details:
                         FailureDetails {
