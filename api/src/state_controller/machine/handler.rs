@@ -961,6 +961,47 @@ impl MachineStateHandler {
                                                 boss_controller_id,
                                                 create_boss_volume_jid: jid,
                                                 create_boss_volume_state:
+                                                    CreateBossVolumeState::WaitForJobScheduled,
+                                            },
+                                        },
+                                    };
+
+                                Ok(StateHandlerOutcome::Transition(next_state))
+                            }
+                            CreateBossVolumeState::WaitForJobScheduled => {
+                                let job_id = match &create_boss_volume_context
+                                    .create_boss_volume_jid
+                                {
+                                    Some(jid) => Ok(jid),
+                                    None => Err(StateHandlerError::GenericError(eyre::eyre!(
+                                        "could not find job ID in the Create BOSS Volume Context"
+                                    ))),
+                                }?;
+
+                                if !poll_redfish_job(
+                                    redfish_client.as_ref(),
+                                    job_id,
+                                    libredfish::JobState::Scheduled,
+                                )
+                                .await
+                                .map_err(|e| {
+                                    StateHandlerError::GenericError(eyre::eyre!("{}", e))
+                                })? {
+                                    return Ok(StateHandlerOutcome::Wait(format!(
+                                        "waiting for job {:#?} to be scheduled",
+                                        job_id
+                                    )));
+                                }
+
+                                let next_state: ManagedHostState =
+                                    ManagedHostState::WaitingForCleanup {
+                                        cleanup_state: CleanupState::CreateBossVolume {
+                                            create_boss_volume_context: CreateBossVolumeContext {
+                                                boss_controller_id,
+                                                create_boss_volume_jid: create_boss_volume_context
+                                                    .create_boss_volume_jid
+                                                    .clone(),
+                                                create_boss_volume_state:
                                                     CreateBossVolumeState::RebootHost,
                                             },
                                         },

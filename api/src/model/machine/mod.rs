@@ -1518,6 +1518,7 @@ pub struct CreateBossVolumeContext {
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum CreateBossVolumeState {
     CreateBossVolume,
+    WaitForJobScheduled,
     RebootHost,
     WaitForJobCompletion,
     LockHost,
