@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use crate::db::attestation as db_attest;
@@ -735,7 +736,12 @@ impl Forge for Api {
             db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
         let machine_id = if hardware_info.is_dpu() {
             // if site explorer is creating machine records and there isn't one for this machine return an error
-            if **self.runtime_config.site_explorer.create_machines.load() {
+            if self
+                .runtime_config
+                .site_explorer
+                .create_machines
+                .load(Ordering::Relaxed)
+            {
                 db::machine::find_one(
                     &mut txn,
                     &stable_machine_id,
@@ -3137,7 +3143,7 @@ impl Forge for Api {
                 })?;
                 self.dynamic_settings
                     .create_machines
-                    .store(Arc::new(is_enabled));
+                    .store(is_enabled, Ordering::Relaxed);
                 tracing::info!("site-explorer create_machines updated to '{}'", req.value);
             }
             rpc::ConfigSetting::BmcProxy => {
@@ -3162,6 +3168,17 @@ impl Forge for Api {
                         .store(Arc::new(Some(host_port_pair)));
                 }
                 tracing::info!("site-explorer create_machines updated to '{}'", req.value);
+            }
+            rpc::ConfigSetting::TracingEnabled => {
+                let enable = req.value.parse().map_err(|_| {
+                    Status::invalid_argument(format!(
+                        "Expected bool for TracingEnabled, got {}",
+                        &req.value
+                    ))
+                })?;
+                self.dynamic_settings
+                    .tracing_enabled
+                    .store(enable, Ordering::Relaxed);
             }
         }
         Ok(tonic::Response::new(()))

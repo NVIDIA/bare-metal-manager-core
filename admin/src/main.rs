@@ -1103,6 +1103,17 @@ async fn main() -> color_eyre::Result<()> {
                         .await?
                 }
             }
+            SetAction::TracingEnabled {
+                value: tracing_enabled,
+            } => {
+                api_client
+                    .set_dynamic_config(
+                        ConfigSetting::TracingEnabled,
+                        tracing_enabled.to_string(),
+                        None,
+                    )
+                    .await?
+            }
         },
         CliCommand::ExpectedMachine(expected_machine_action) => match expected_machine_action {
             cfg::cli_options::ExpectedMachineAction::Show(expected_machine_query) => {

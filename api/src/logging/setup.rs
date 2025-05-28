@@ -9,25 +9,30 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
-use std::sync::Arc;
-
+use super::level_filter::ActiveLevel;
+use crate::logging::sqlx_query_tracing;
 use arc_swap::ArcSwap;
 use eyre::WrapErr;
 use opentelemetry::metrics::{Meter, MeterProvider};
+use opentelemetry::trace::{Link, SamplingDecision, SamplingResult, SpanKind, TracerProvider};
+use opentelemetry::{Context, KeyValue, TraceId, Value};
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
+use opentelemetry_sdk::trace::{Sampler, ShouldSample};
 use opentelemetry_semantic_conventions as semcov;
+use std::fmt::Debug;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tracing_subscriber::{
-    filter, filter::EnvFilter, filter::LevelFilter, layer::Filter, prelude::*,
+    Layer, filter, filter::EnvFilter, filter::LevelFilter, layer::Filter, prelude::*,
     util::SubscriberInitExt,
 };
-
-use super::level_filter::ActiveLevel;
-use crate::logging::sqlx_query_tracing;
 
 #[derive(Debug, Clone, Default)]
 pub struct Logging {
     pub filter: Arc<ArcSwap<ActiveLevel>>,
+    pub tracing_enabled: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Clone)]
@@ -38,14 +43,14 @@ pub struct Metrics {
     pub _meter_provider: SdkMeterProvider,
 }
 
-pub async fn setup_logging(
+pub fn setup_logging(
     debug: u8,
     override_logging_subscriber: Option<impl SubscriberInitExt>,
 ) -> eyre::Result<Logging> {
     // This configures emission of logs in LogFmt syntax
     // and emission of metrics
 
-    let deps_filter = EnvFilter::builder()
+    let deps_log_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::TRACE.into())
         .parse("")?
         .add_directive("sqlxmq::runner=warn".parse()?)
@@ -63,11 +68,11 @@ pub async fn setup_logging(
     // `logging_subscriber` later on. This means it applies for both logging to
     // stdout as well as for OpenTelemetry integration.
     // We ignore a lot of spans and events from 3rd party frameworks
-    let mut initial_filter = EnvFilter::builder()
+    let mut initial_log_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy();
+        .from_env()?;
     if debug != 0 {
-        initial_filter = initial_filter.add_directive(
+        initial_log_filter = initial_log_filter.add_directive(
             match debug {
                 1 => {
                     // command line overrides config file
@@ -79,34 +84,68 @@ pub async fn setup_logging(
         );
     }
 
+    // == Dynamic filter for logging level ==
     // The outer Arc allows sharing/cloning the contents.
     // The inner ArcSwap is a higher performance alternative to Arc<RwLock>.
-    let dyn_filter = Arc::new(ArcSwap::from(Arc::new(ActiveLevel::new(initial_filter))));
-    let dyn_filter_c = dyn_filter.clone();
-
-    let combined_filter = filter::dynamic_filter_fn(move |metadata, context| {
-        if !Filter::enabled(&deps_filter, metadata, context) {
-            return false;
+    let dyn_log_filter = Arc::new(ArcSwap::from(Arc::new(ActiveLevel::new(
+        initial_log_filter,
+    ))));
+    let combined_log_filter = filter::dynamic_filter_fn({
+        let dyn_log_filter = dyn_log_filter.clone();
+        move |metadata, context| {
+            if !Filter::enabled(&deps_log_filter, metadata, context) {
+                return false;
+            }
+            Filter::enabled(&dyn_log_filter.load().current, metadata, context)
         }
-        Filter::enabled(&dyn_filter_c.load().current, metadata, context)
     });
-
     let logfmt_stdout_formatter = logfmt::layer();
+
+    // == Dynamic filter for tracing enabled/disabled ==
+    // This doesn't track levels but instead just enabled/disabled (when we want tracing enabled, we
+    // typically want a high level of verbosity.) Enabled by default if debug is enabled.
+    let tracing_enabled = Arc::new(AtomicBool::new(debug == 1));
+    let trace_sampler = CarbideSpanSampler::new(tracing_enabled.clone());
+    let trace_filter = filter::filter_fn(should_accept_span_or_event);
 
     if let Some(logging_subscriber) = override_logging_subscriber {
         logging_subscriber
             .try_init()
             .wrap_err("logging_subscriber.try_init()")?;
     } else {
-        // Set up the tracing subscriber
+        // Exporter reads from OTEL_EXPORTER_OTLP_TRACES_ENDPOINT env var for endpoint
+        let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
+            .with_tonic()
+            .with_protocol(opentelemetry_otlp::Protocol::Grpc)
+            .build()?;
+
+        let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+            // CarbideSpanSampler selects spans that begin from our crate
+            .with_sampler(trace_sampler.into_sampler())
+            .with_batch_exporter(otlp_exporter)
+            .with_resource(
+                Resource::builder()
+                    .with_attributes([KeyValue::new("service.name", "carbide-api")])
+                    .build(),
+            )
+            .build();
+
         tracing_subscriber::registry()
-            .with(logfmt_stdout_formatter.with_filter(combined_filter))
+            .with(
+                tracing_opentelemetry::layer()
+                    .with_tracer(tracer_provider.tracer("carbide"))
+                    .with_filter(trace_filter),
+            )
+            .with(logfmt_stdout_formatter.with_filter(combined_log_filter))
             .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
             .try_init()
             .wrap_err("new tracing subscriber try_init()")?;
     };
 
-    Ok(Logging { filter: dyn_filter })
+    Ok(Logging {
+        filter: dyn_log_filter,
+        tracing_enabled,
+    })
 }
 
 pub fn create_metrics() -> Result<Metrics, opentelemetry_sdk::metrics::MetricError> {
@@ -161,6 +200,74 @@ fn create_metric_view_for_retry_histograms(
         },
     );
     opentelemetry_sdk::metrics::new_view(criteria, mask)
+}
+
+#[derive(Debug, Clone)]
+struct CarbideSpanSampler(Arc<AtomicBool>);
+
+impl CarbideSpanSampler {
+    fn new(enabled: Arc<AtomicBool>) -> Self {
+        Self(enabled)
+    }
+
+    /// Construct a new Sampler that samples spans originating from the carbide crate
+    fn into_sampler(self) -> Sampler {
+        Sampler::ParentBased(Box::new(self))
+    }
+}
+
+/// Predicate to check if a child span or event should be accepted. This is distinct from
+/// CarbideSpanSampler, which chooses which *root* spans to accept (ie. just ours). This predicate
+/// checks if any span or event should be accepted, even within a root span.
+///
+/// Currently discards tokio spans: tokio seems to have an issue where it creates spans without
+/// closing them, which results in us running out of memory quickly.
+fn should_accept_span_or_event(metadata: &tracing::Metadata<'_>) -> bool {
+    let is_tokio = metadata
+        .module_path()
+        .is_some_and(|p| p.starts_with("tokio"));
+
+    !is_tokio
+}
+
+impl ShouldSample for CarbideSpanSampler {
+    fn should_sample(
+        &self,
+        _parent_context: Option<&Context>,
+        _trace_id: TraceId,
+        _name: &str,
+        _span_kind: &SpanKind,
+        attributes: &[KeyValue],
+        _links: &[Link],
+    ) -> SamplingResult {
+        let enabled = self.0.load(Ordering::Relaxed);
+
+        // We want this to short-circuit if enabled is false, because we want to skip iterating
+        // through all attributes. (This could be a simple && expression but it should be really
+        // clear from reading the code here.)
+        let should_sample = if !enabled {
+            false
+        } else {
+            attributes
+                .iter()
+                .find(|kv| kv.key.as_str() == "code.namespace")
+                .and_then(|v| match &v.value {
+                    Value::String(str) => Some(str.as_str()),
+                    _ => None,
+                })
+                .is_some_and(|s| s.starts_with("carbide::"))
+        };
+
+        SamplingResult {
+            decision: if should_sample {
+                SamplingDecision::RecordAndSample
+            } else {
+                SamplingDecision::Drop
+            },
+            attributes: vec![],
+            trace_state: Default::default(),
+        }
+    }
 }
 
 #[cfg(test)]

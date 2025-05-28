@@ -126,6 +126,7 @@ impl<IO: StateControllerIO> StateController<IO> {
         };
 
         let controller_span = tracing::span!(
+            parent: None,
             tracing::Level::INFO,
             "state_controller_iteration",
             span_id,

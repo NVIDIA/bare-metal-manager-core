@@ -94,6 +94,7 @@ impl IbFabricMonitor {
         let span_id: String = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
 
         let check_ib_fabrics_span = tracing::span!(
+            parent: None,
             tracing::Level::INFO,
             "check_ib_fabrics",
             span_id,

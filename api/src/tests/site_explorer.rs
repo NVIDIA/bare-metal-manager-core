@@ -206,7 +206,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: crate::dynamic_settings::create_machines(true),
+        create_machines: Arc::new(true.into()),
         allow_zero_dpu_hosts: true,
         ..Default::default()
     };
@@ -679,7 +679,7 @@ async fn test_site_explorer_audit_exploration_results(
         explorations_per_run: 7,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: crate::dynamic_settings::create_machines(true),
+        create_machines: Arc::new(true.into()),
         machines_created_per_run: 1,
         override_target_ip: None,
         override_target_port: None,
@@ -858,7 +858,7 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: crate::dynamic_settings::create_machines(true),
+        create_machines: Arc::new(true.into()),
         ..Default::default()
     };
 
@@ -989,7 +989,7 @@ async fn test_site_explorer_reexplore(
         explorations_per_run: 1,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: crate::dynamic_settings::create_machines(false),
+        create_machines: Arc::new(false.into()),
         ..Default::default()
     };
 
@@ -1121,7 +1121,7 @@ async fn test_site_explorer_creates_managed_host(
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: crate::dynamic_settings::create_machines(true),
+        create_machines: Arc::new(true.into()),
         ..Default::default()
     };
 
@@ -1520,7 +1520,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: crate::dynamic_settings::create_machines(true),
+        create_machines: Arc::new(true.into()),
         ..Default::default()
     };
 
@@ -1821,7 +1821,7 @@ async fn test_disable_machine_creation_outside_site_explorer(
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: crate::dynamic_settings::create_machines(true),
+        create_machines: Arc::new(true.into()),
         ..Default::default()
     };
     let env = common::api_fixtures::create_test_env_with_overrides(
@@ -1929,7 +1929,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         explorations_per_run: 10,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: crate::dynamic_settings::create_machines(true),
+        create_machines: Arc::new(true.into()),
         ..Default::default()
     };
     let test_meter = TestMeter::default();
@@ -2106,7 +2106,7 @@ async fn test_site_explorer_health_report(
         explorations_per_run: 10,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: crate::dynamic_settings::create_machines(true),
+        create_machines: Arc::new(true.into()),
         ..Default::default()
     };
 
@@ -2259,7 +2259,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: crate::dynamic_settings::create_machines(true),
+        create_machines: Arc::new(true.into()),
         ..Default::default()
     };
 
@@ -2362,7 +2362,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: crate::dynamic_settings::create_machines(true),
+        create_machines: Arc::new(true.into()),
         ..Default::default()
     };
 
@@ -2985,7 +2985,7 @@ async fn test_site_explorer_unknown_vendor(
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: crate::dynamic_settings::create_machines(true),
+        create_machines: Arc::new(true.into()),
         allow_zero_dpu_hosts: true,
         ..Default::default()
     };

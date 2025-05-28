@@ -3184,6 +3184,7 @@ enum ConfigSetting {
   LOG_FILTER = 0;
   CREATE_MACHINES = 1;
   BMC_PROXY = 2;
+  TRACING_ENABLED = 3;
 }
 
 message FindIpAddressRequest {

@@ -29,6 +29,7 @@ use measured_boot::records::MeasurementMachineState;
 use sku::{handle_bom_validation_requested, handle_bom_validation_state};
 use sqlx::PgConnection;
 use tokio::sync::Semaphore;
+use tracing::instrument;
 use version_compare::Cmp;
 
 use crate::db::instance_address::InstanceAddress;
@@ -1779,6 +1780,7 @@ impl StateHandler for MachineStateHandler {
     type ObjectId = MachineId;
     type ContextObjects = MachineStateHandlerContextObjects;
 
+    #[instrument(skip_all, fields(object_id=%host_machine_id, state=%_mh_state))]
     async fn handle_object_state(
         &self,
         host_machine_id: &MachineId,
