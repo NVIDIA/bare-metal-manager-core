@@ -2,6 +2,7 @@ use std::io;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use eyre::Result;
 use forge_http_connector::connector::ForgeHttpConnector;
@@ -501,6 +502,22 @@ impl<'a> ForgeTlsClient<'a> {
                         ))
                 }
             };
+
+            if let Some(cert_expiry) = self.forge_client_config.client_cert_expiry() {
+                let start = SystemTime::now();
+                let current_time = start
+                    .duration_since(UNIX_EPOCH)
+                    .expect("Time went backwards");
+                if current_time.as_secs() > cert_expiry.try_into().unwrap() {
+                    tracing::error!(
+                        "Client certificate is expired, perhaps you need to run nvinit again?"
+                    );
+                    return Err(ConfigurationError::InvalidClientCert(
+                        rustls::Error::InvalidCertificate(rustls::CertificateError::Expired),
+                    )
+                    .into());
+                }
+            }
 
             if let Some((certs, key)) = self.forge_client_config.read_client_cert() {
                 builder()
