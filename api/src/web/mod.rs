@@ -12,6 +12,7 @@
 
 use std::env;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use askama::Template;
@@ -597,7 +598,11 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         }
     };
 
-    let create_machines = state.dynamic_settings.create_machines.load().to_string();
+    let create_machines = state
+        .dynamic_settings
+        .create_machines
+        .load(Ordering::Relaxed)
+        .to_string();
     let bmc_proxy = state
         .dynamic_settings
         .bmc_proxy

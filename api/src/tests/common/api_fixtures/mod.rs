@@ -12,14 +12,6 @@
 
 //! Contains fixtures that use the Carbide API for setting up
 
-use std::{
-    collections::HashMap,
-    default::Default,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    str::FromStr,
-    sync::Arc,
-};
-
 use crate::cfg::file::{ListenMode, MachineUpdater, VpcPeeringPolicy};
 use crate::logging::log_limiter::LogLimiter;
 use crate::model::machine::MachineValidatingState;
@@ -93,7 +85,7 @@ use crate::{
     },
     storage::{NvmeshClientPool, test_support::NvmeshSimClient},
 };
-use arc_swap::{ArcSwap, ArcSwapAny};
+use arc_swap::ArcSwap;
 use chrono::{DateTime, Duration, Utc};
 use dpu::DpuConfig;
 use forge_secrets::credentials::{
@@ -114,6 +106,13 @@ use rpc::forge::{
 };
 use site_explorer::new_host_with_machine_validation;
 use sqlx::{PgConnection, PgPool, postgres::PgConnectOptions};
+use std::{
+    collections::HashMap,
+    default::Default,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    str::FromStr,
+    sync::Arc,
+};
 use tokio::sync::Mutex;
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
@@ -816,7 +815,7 @@ pub fn get_config() -> CarbideConfig {
             run_interval: std::time::Duration::from_secs(0),
             concurrent_explorations: 0,
             explorations_per_run: 0,
-            create_machines: Arc::new(ArcSwap::new(Arc::new(false))),
+            create_machines: Arc::new(false.into()),
             allow_proxy_to_unknown_host: false,
             ..Default::default()
         },
@@ -1020,6 +1019,7 @@ pub async fn create_test_env_with_overrides(
         )))),
         create_machines: config.site_explorer.create_machines.clone(),
         bmc_proxy: config.site_explorer.bmc_proxy.clone(),
+        tracing_enabled: Arc::new(false.into()),
     };
 
     let ipmi_tool = Arc::new(IPMIToolTestImpl {});
@@ -1147,7 +1147,7 @@ pub async fn create_test_env_with_overrides(
             run_interval: Duration::seconds(0).to_std().unwrap(),
             concurrent_explorations: 100,
             explorations_per_run: 100,
-            create_machines: Arc::new(ArcSwapAny::new(Arc::new(true))),
+            create_machines: Arc::new(true.into()),
             machines_created_per_run: 1,
             override_target_ip: None,
             override_target_port: None,

@@ -52,9 +52,7 @@ pub async fn run(
     let tconf = if skip_logging_setup {
         Logging::default()
     } else {
-        setup_logging(debug, None::<NoSubscriber>)
-            .await
-            .wrap_err("setup_telemetry")?
+        setup_logging(debug, None::<NoSubscriber>).wrap_err("setup_telemetry")?
     };
 
     // Redact credentials before printing the config
@@ -94,6 +92,7 @@ pub async fn run(
         log_filter: tconf.filter.clone(),
         create_machines: carbide_config.site_explorer.create_machines.clone(),
         bmc_proxy: carbide_config.site_explorer.bmc_proxy.clone(),
+        tracing_enabled: tconf.tracing_enabled,
     };
     dynamic_settings.start_reset_task(dynamic_settings::RESET_PERIOD);
 

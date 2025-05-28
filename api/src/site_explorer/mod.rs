@@ -10,13 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Display,
-    net::{IpAddr, SocketAddr},
-    sync::Arc,
-};
-
 use chrono::Utc;
 use config_version::ConfigVersion;
 use itertools::Itertools;
@@ -24,6 +17,13 @@ use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
 use managed_host::ManagedHost;
 use sqlx::{PgConnection, PgPool};
+use std::sync::atomic::Ordering;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Display,
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+};
 use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 use version_compare::Cmp;
@@ -217,6 +217,7 @@ impl SiteExplorer {
             let span_id: String = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
 
             let explore_site_span = tracing::span!(
+                parent: None,
                 tracing::Level::INFO,
                 "explore_site",
                 span_id,
@@ -514,7 +515,7 @@ impl SiteExplorer {
             )
             .await?;
 
-        if **self.config.create_machines.load() {
+        if self.config.create_machines.load(Ordering::Relaxed) {
             let start_create_machines = std::time::Instant::now();
             let create_machines_res = self
                 .create_machines(metrics, identified_hosts, &matched_expected_machines)
@@ -1434,7 +1435,7 @@ impl SiteExplorer {
                             DbExploredEndpoint::insert(address, &report, &mut txn).await?;
                         }
                     }
-                    if !**self.config.create_machines.load() {
+                    if !self.config.create_machines.load(Ordering::Relaxed) {
                         // We're using manual ingestion, making preingestion updates risky.  Go ahead and skip them.
                         DbExploredEndpoint::set_preingestion_complete(address, &mut txn).await?
                     }

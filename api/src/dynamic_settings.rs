@@ -11,6 +11,7 @@
  */
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use super::logging::level_filter::ActiveLevel;
@@ -22,10 +23,13 @@ pub struct DynamicSettings {
     pub log_filter: Arc<ArcSwap<ActiveLevel>>,
 
     /// Should site-explorer create machines
-    pub create_machines: Arc<ArcSwap<bool>>,
+    pub create_machines: Arc<AtomicBool>,
 
     /// Use a proxy for talking to BMC's
     pub bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>,
+
+    /// Whether log tracing should be enabled
+    pub tracing_enabled: Arc<AtomicBool>,
 }
 
 /// How often to check if the log filter (RUST_LOG) needs resetting
@@ -58,10 +62,6 @@ impl DynamicSettings {
                 tracing::error!("dynamic_feature_reset task aborted: {err}");
             });
     }
-}
-
-pub fn create_machines(b: bool) -> Arc<ArcSwap<bool>> {
-    Arc::new(ArcSwap::new(Arc::new(b)))
 }
 
 pub fn bmc_proxy(s: Option<HostPortPair>) -> Arc<ArcSwap<Option<HostPortPair>>> {

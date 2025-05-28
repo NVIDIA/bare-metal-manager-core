@@ -1,3 +1,4 @@
+use clap::builder::BoolishValueParser;
 use std::collections::HashMap;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -271,6 +272,13 @@ pub enum SetAction {
     CreateMachines(CreateMachinesOptions),
     #[clap(about = "Set bmc_proxy")]
     BmcProxy(BmcProxyOptions),
+    #[clap(
+        about = "Configure whether trace/span information is sent to an OTLP endpoint like Tempo"
+    )]
+    TracingEnabled {
+        #[arg(num_args = 1, value_parser = BoolishValueParser::new(), action = clap::ArgAction::Set, value_name = "true|false")]
+        value: bool,
+    },
 }
 
 #[derive(Parser, Debug)]

@@ -13,8 +13,16 @@
 use std::ffi::OsStr;
 use std::ops::Deref;
 use std::{
-    cmp::Ordering, collections::HashMap, fmt, fmt::Display, fs, net::SocketAddr, path::PathBuf,
-    sync::Arc, time::SystemTime,
+    cmp::Ordering,
+    collections::HashMap,
+    fmt,
+    fmt::Display,
+    fs,
+    net::SocketAddr,
+    path::PathBuf,
+    sync::Arc,
+    sync::atomic::{AtomicBool, Ordering as AtomicOrdering},
+    time::SystemTime,
 };
 
 use arc_swap::ArcSwap;
@@ -673,10 +681,10 @@ pub struct SiteExplorerConfig {
     /// Whether SiteExplorer should create Managed Host state machine
     #[serde(
         default = "SiteExplorerConfig::default_create_machines",
-        deserialize_with = "deserialize_create_machines",
-        serialize_with = "serialize_create_machines"
+        deserialize_with = "deserialize_arc_atomic_bool",
+        serialize_with = "serialize_arc_atomic_bool"
     )]
-    pub create_machines: Arc<ArcSwap<bool>>,
+    pub create_machines: Arc<AtomicBool>,
 
     #[serde(default = "SiteExplorerConfig::default_machines_created_per_run")]
     /// How many ManagedHosts should be created in a single run.
@@ -747,7 +755,7 @@ impl Default for SiteExplorerConfig {
             run_interval: Self::default_run_interval(),
             concurrent_explorations: Self::default_concurrent_explorations(),
             explorations_per_run: Self::default_explorations_per_run(),
-            create_machines: crate::dynamic_settings::create_machines(true),
+            create_machines: Arc::new(true.into()),
             machines_created_per_run: Self::default_machines_created_per_run(),
             override_target_ip: None,
             override_target_port: None,
@@ -766,7 +774,8 @@ impl PartialEq for SiteExplorerConfig {
             && self.run_interval == other.run_interval
             && self.concurrent_explorations == other.concurrent_explorations
             && self.explorations_per_run == other.explorations_per_run
-            && *self.create_machines.load() == *other.create_machines.load()
+            && self.create_machines.load(AtomicOrdering::Relaxed)
+                == other.create_machines.load(AtomicOrdering::Relaxed)
             && self.override_target_ip == other.override_target_ip
             && self.override_target_port == other.override_target_port
     }
@@ -777,8 +786,8 @@ impl SiteExplorerConfig {
         std::time::Duration::from_secs(120)
     }
 
-    pub fn default_create_machines() -> Arc<ArcSwap<bool>> {
-        Arc::new(ArcSwap::new(Arc::new(true)))
+    pub fn default_create_machines() -> Arc<AtomicBool> {
+        Arc::new(true.into())
     }
 
     pub const fn default_concurrent_explorations() -> u64 {
@@ -798,19 +807,19 @@ impl SiteExplorerConfig {
     }
 }
 
-pub fn deserialize_create_machines<'de, D>(deserializer: D) -> Result<Arc<ArcSwap<bool>>, D::Error>
+pub fn deserialize_arc_atomic_bool<'de, D>(deserializer: D) -> Result<Arc<AtomicBool>, D::Error>
 where
     D: Deserializer<'de>,
 {
     let b = bool::deserialize(deserializer)?;
-    Ok(Arc::new(ArcSwap::new(Arc::new(b))))
+    Ok(Arc::new(b.into()))
 }
 
-pub fn serialize_create_machines<S>(cm: &Arc<ArcSwap<bool>>, s: S) -> Result<S::Ok, S::Error>
+pub fn serialize_arc_atomic_bool<S>(cm: &Arc<AtomicBool>, s: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    s.serialize_bool(**cm.load())
+    s.serialize_bool(cm.load(AtomicOrdering::Relaxed))
 }
 
 pub fn deserialize_bmc_proxy<'de, D>(
@@ -2081,7 +2090,12 @@ mod tests {
         assert!(config.nvue_enabled);
         assert!(config.vpc_peering_policy.is_none());
         assert!(config.site_explorer.enabled);
-        assert!(*config.site_explorer.create_machines.load_full());
+        assert!(
+            config
+                .site_explorer
+                .create_machines
+                .load(AtomicOrdering::Relaxed)
+        );
         assert_eq!(
             config.machine_state_controller,
             MachineStateControllerConfig::default()
@@ -2170,7 +2184,7 @@ mod tests {
                 run_interval: std::time::Duration::from_secs(120),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
-                create_machines: crate::dynamic_settings::create_machines(false),
+                create_machines: Arc::new(false.into()),
                 machines_created_per_run: 1,
                 override_target_ip: None,
                 override_target_port: None,
@@ -2317,7 +2331,7 @@ mod tests {
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 30,
                 explorations_per_run: 11,
-                create_machines: crate::dynamic_settings::create_machines(true),
+                create_machines: Arc::new(true.into()),
                 machines_created_per_run: 2,
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
@@ -2540,7 +2554,7 @@ mod tests {
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
-                create_machines: crate::dynamic_settings::create_machines(false),
+                create_machines: Arc::new(false.into()),
                 machines_created_per_run: 2,
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),

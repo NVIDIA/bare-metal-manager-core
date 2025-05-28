@@ -387,6 +387,7 @@ mod tests {
 
         {
             let span = tracing::span!(
+                parent: None,
                 tracing::Level::WARN,
                 "sqlx_test_span",
                 sql_queries = 0,

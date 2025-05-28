@@ -135,6 +135,7 @@ where
             // e.g. `opentelemetry_semantic_conventions::trace::HTTP_STATUS_CODE`.
             // However we can't reference these external definitions in the tracing macro
             let request_span = tracing::span!(
+                parent: None,
                 tracing::Level::INFO,
                 "request",
                 span_id,
