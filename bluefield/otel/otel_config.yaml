@@ -5,13 +5,21 @@ extensions:
     fsync: true
 
 receivers:
-  filelog:
+  filelog/doca:
     include:
       - /var/log/doca/hbn/frr/frr.log
       - /var/log/doca/hbn/nl2docad.log
       - /var/log/doca/hbn/nvued.log
       - /var/log/doca/hbn/supervisor/supervisord.log
       - /var/log/doca/hbn/syslog
+    include_file_name: false
+    include_file_path: true
+    start_at: beginning
+    storage: file_storage/cursors
+
+  filelog/auth:
+    include:
+      - /var/log/auth.log
     include_file_name: false
     include_file_path: true
     start_at: beginning
@@ -258,6 +266,17 @@ processors:
       - key: component
         value: hbn
         action: upsert
+  resource/logs-auth:
+    attributes:
+      - key: component
+        value: dpu-auth-filelog
+        action: upsert
+      - key: nspect.id
+        value: NSPECT-K66V-JJ0K
+        action: upsert
+      - key: mgmt.owner
+        value: swngc-forge-admins
+        action: upsert
   resource/log-stats:
     attributes:
       - key: component
@@ -380,12 +399,22 @@ service:
         - batch/logs
       exporters: [otlp/site]
     logs/hbn:
-      receivers: [filelog]
+      receivers: [filelog/doca]
       processors:
         - memory_limiter
         - resourcedetection
         - fileresource
         - resource/logs-hbn
+        - telemetry_stats
+        - batch/logs
+      exporters: [otlp/site]
+    logs/auth:
+      receivers: [filelog/auth]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - fileresource
+        - resource/logs-auth
         - telemetry_stats
         - batch/logs
       exporters: [otlp/site]
