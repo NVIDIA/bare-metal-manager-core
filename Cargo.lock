@@ -2624,6 +2624,7 @@ dependencies = [
  "rpc",
  "serde",
  "serde_json",
+ "serde_with",
  "smbios-lib",
  "thiserror 2.0.12",
  "tokio",
