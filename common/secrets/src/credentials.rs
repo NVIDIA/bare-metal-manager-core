@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use core::fmt;
 use mac_address::MacAddress;
 use rand::{Rng, seq::SliceRandom};
 use serde::{Deserialize, Serialize};
@@ -7,10 +8,31 @@ use tokio::sync::Mutex;
 
 const PASSWORD_LEN: usize = 16;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Credentials {
     UsernamePassword { username: String, password: String },
     //TODO: maybe add cert here?
+}
+
+impl fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Credentials::UsernamePassword {
+                username,
+                password: _,
+            } => f
+                .debug_struct("UsernamePassword")
+                .field("username", username)
+                .field("password", &"REDACTED")
+                .finish(),
+        }
+    }
+}
+
+impl fmt::Display for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl Credentials {
@@ -86,7 +108,7 @@ pub trait CredentialProvider: Send + Sync {
     ) -> Result<(), eyre::Report>;
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct TestCredentialProvider {
     credentials: Mutex<HashMap<String, Credentials>>,
     fallback_credentials: Option<Credentials>,

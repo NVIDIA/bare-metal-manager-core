@@ -33,7 +33,9 @@ pub(crate) async fn create_credential(
     api: &Api,
     request: tonic::Request<rpc::CredentialCreationRequest>,
 ) -> Result<tonic::Response<rpc::CredentialCreationResult>, tonic::Status> {
-    crate::api::log_request_data(&request);
+    // Do not log_request_data as credentials contain sensitive information
+    // crate::api::log_request_data(&request);
+
     let req = request.into_inner();
     let password = req.password;
 
