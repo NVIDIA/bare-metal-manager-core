@@ -8,6 +8,7 @@ mod host_port_pair;
 pub mod managed_host_display;
 pub mod models;
 pub mod sku;
+pub mod ssh;
 
 pub use host_port_pair::{HostPortPair, HostPortParseError};
 pub use managed_host_display::{ManagedHostMetadata, ManagedHostOutput, get_managed_host_output};

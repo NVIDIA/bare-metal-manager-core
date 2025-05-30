@@ -11,6 +11,7 @@
  */
 
 use libredfish::model::oem::nvidia_dpu::NicMode;
+use utils::ssh::SshConfig;
 
 use crate::{
     db::expected_machine::ExpectedMachine,
@@ -91,5 +92,13 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError>;
+
+    async fn copy_bfb_to_dpu_rshim(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        bfb_path: String,
+        ssh_config: Option<SshConfig>,
     ) -> Result<(), EndpointExplorationError>;
 }
