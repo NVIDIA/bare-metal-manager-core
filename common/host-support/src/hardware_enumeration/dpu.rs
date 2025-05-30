@@ -19,6 +19,7 @@ use std::{
 use regex::Regex;
 use rpc::machine_discovery::{DpuData, LldpSwitchData};
 use serde::{Deserialize, Serialize};
+use serde_with::{OneOrMany, serde_as};
 use tracing::{debug, error, warn};
 use utils::cmd::{Cmd, CmdError};
 
@@ -52,11 +53,13 @@ pub struct LldpIdData {
     pub value: String,
 }
 
+#[serde_as]
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LldpChassisData {
     pub id: LldpIdData,
     pub descr: String,
     #[serde(rename = "mgmt-ip", default)]
+    #[serde_as(as = "OneOrMany<_>")]
     pub management_ip_address: Vec<String>, // we get an array with ipv4 and ipv6 addresses
     #[serde(default)]
     pub capability: Vec<LldpCapabilityData>,
@@ -65,7 +68,7 @@ pub struct LldpChassisData {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LldpPortData {
     pub id: LldpIdData,
-    pub descr: String,
+    pub descr: Option<String>,
     pub ttl: String,
 }
 
@@ -128,6 +131,18 @@ pub fn wait_until_all_ports_available() {
     }
 
     debug!("lldp: Ports {:?} are read succesfully.", ports_read);
+}
+
+// LLDP was broken in multiple forge versions. It was fixed in HBN 2.1/ doca 2.6, as per
+// https://redmine.mellanox.com/issues/3753899
+// 2.1 aligns with XX.40.1000 firmwware, so if the middle section of firmware is equal or greater
+// than 40, then LLDP should work.
+pub fn is_lldp_working(fw_version: &str) -> bool {
+    fw_version
+        .split('.')
+        .nth(1) // second chunk is what we care about
+        .and_then(|m| m.parse::<u8>().ok()) // turn it into a number
+        .is_some_and(|n| n >= 40) // ensure its greater than or equal to 2.1 (40)
 }
 
 /// query lldp info for high speed ports p0..1, oob_net0 (some ports may not exist, warn on errors)
@@ -277,30 +292,19 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         factory_mac.insert(14, ':');
     }
 
-    /*
-    TODO: Disabling LLDP integration in the agent until
-    https://nvbugspro.nvidia.com/bug/4468860 is handled.
-
-    Since wait_until_all_ports_available, get_lldp_port_info,
-    and get_port_lldp_info are all cozy together, this is
-    the only thing that needs to be commented out to disable
-    entirely.
-
-    wait_until_all_ports_available();
     let mut switches: Vec<LldpSwitchData> = vec![];
-    for port in LLDP_PORTS.iter() {
-        match get_port_lldp_info(port) {
-            Ok(lldp_info) => {
-                switches.push(lldp_info);
+
+    if is_lldp_working(&fw_ver[0]) {
+        wait_until_all_ports_available();
+        for port in LLDP_PORTS.iter() {
+            match get_port_lldp_info(port) {
+                Ok(lldp_info) => {
+                    switches.push(lldp_info);
+                }
+                Err(_e) => {}
             }
-            Err(_e) => {}
         }
     }
-    */
-
-    // TODO: Just pass through empty switches to DpuData
-    // until the above block of code can be re-enabled.
-    let switches: Vec<LldpSwitchData> = vec![];
 
     let dpu_info = DpuData {
         part_number: part_number[0].clone(),
@@ -312,4 +316,32 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         switches,
     };
     Ok(dpu_info)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::hardware_enumeration::dpu;
+
+    #[test]
+    fn check_fw_versions_for_lldp() {
+        assert!(!dpu::is_lldp_working("xx.39.yyyy"));
+        assert!(dpu::is_lldp_working("xx.40.yyyy"));
+        assert!(dpu::is_lldp_working("xx.41.yyyy"));
+
+        //broken data should return false
+        assert!(!dpu::is_lldp_working("xx.zz.yyyy"));
+        assert!(!dpu::is_lldp_working("junk"));
+    }
+
+    #[test]
+    fn validate_mgmt_ip_lldp_with_mixed_mgmt_ip_results() {
+        let oob_lldp = dpu::get_port_lldp_info("oob_net0").unwrap();
+        let p0_lldp = dpu::get_port_lldp_info("p0").unwrap();
+
+        assert_eq!(oob_lldp.ip_address[0], "10.180.253.66");
+        assert_eq!(oob_lldp.ip_address.len(), 1);
+
+        assert_eq!(p0_lldp.ip_address[0], "10.180.253.67");
+        assert_eq!(p0_lldp.ip_address.len(), 2);
+    }
 }

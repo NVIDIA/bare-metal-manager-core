@@ -12,10 +12,7 @@
               "value": "0c:29:ef:d9:1c:20"
             },
             "descr": "Cumulus Linux version 4.3.0 running on DELL S3048ON",
-            "mgmt-ip": [
-              "10.180.253.66",
-              "fe80::e29:efff:fed9:1c20"
-            ],
+            "mgmt-ip": "10.180.253.66",
             "capability": [
               {
                 "type": "Bridge",
@@ -33,7 +30,6 @@
             "type": "ifname",
             "value": "swp7"
           },
-          "descr": "RNO1-M03-B17-CPU-10:B17:15:DPU/BMC",
           "ttl": "120"
         }
       },

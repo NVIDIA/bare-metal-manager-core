@@ -33,3 +33,4 @@ forge-tls = { path = "../tls" }
 logfmt = { path = "../logfmt" }
 rpc = { path = "../../rpc" }
 utils = { path = "../utils" }
+serde_with = "3.12.0"
