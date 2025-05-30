@@ -15,6 +15,16 @@
 
 ### Internal
 
+## [v2025.05.23-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.23-rc2-0...v2025.05.23-rc3-0)
+
+### Added
+
+- [MR-4099](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4099): Added logic to secure erase BOSS drives in Dell servers through redfish.
+
+### Fixed
+
+- [MR-4115](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4115): Fixed ManagedHostState::WaitingForCleanup handling for BOSS Drives on Dells.  Send `Reset` action to Scout only in `CleanupState::HostCleanup` and wait for the Job to be scheduled before rebooting Dells when recreating the BOSS volume after doing a secure erase.
+
 ## [v2025.05.23-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.09-rc2-0...v2025.05.23-rc2-0)
 
 ### Added
