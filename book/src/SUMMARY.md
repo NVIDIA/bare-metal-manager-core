@@ -93,6 +93,7 @@
 # Machine Validation
 
 - [Machine Validation](machine_validation/machine_validation.md)
+- [SKU Validation](machine_validation/sku_validation.md)
 
 # Glossary
 
