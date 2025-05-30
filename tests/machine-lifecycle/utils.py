@@ -5,6 +5,7 @@ import paramiko
 from scp import SCPClient
 import pexpect
 import subprocess
+from typing import Literal
 import requests
 from requests import Response
 from requests.auth import HTTPBasicAuth
@@ -237,21 +238,20 @@ def get_reported_cec_version(bmc_ip: str, username: str, password: str) -> str:
     return response.json()["Version"]
 
 
-def power_cycle_host(vendor: str, bmc_ip: str, username: str, password: str) -> None:
+def power_cycle_host(vendor: Literal["lenovo", "dell"], bmc_ip: str, username: str, password: str) -> None:
     """AC power-cycle a host machine using redfish.
 
     :raises ValueError: if the vendor is not valid
     :raises requests.exceptions.RequestException: if an HTTP error occurs
     """
     print("Performing AC power-cycle on host via redfish")
-    if "Lenovo" in vendor:
+    if vendor == "lenovo":
         url = f"https://{bmc_ip}/redfish/v1/Systems/1/Actions/Oem/LenovoComputerSystem.SystemReset"
         data = {"ResetType": "ACPowerCycle"}
-    elif "Dell" in vendor:
+    else:
+        # Dell
         url = f"https://{bmc_ip}/redfish/v1/Systems/System.Embedded.1/Actions/ComputerSystem.Reset"
         data = {"ResetType": "PowerCycle"}
-    else:
-        raise ValueError(f"Unsupported vendor: {vendor}")
     response = requests.post(url, json=data, auth=HTTPBasicAuth(username, password), verify=False)
     response.raise_for_status()
 

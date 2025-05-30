@@ -408,7 +408,6 @@ def run_forge_admin_cli(args: list[str], no_json: bool = False) -> dict | None:
         # WAR for the case where the output is a Rust struct:
         # https://nvbugspro.nvidia.com/bug/5309004
         rstd = rust_struct_to_dict(result.stdout)
-        print(rstd)
         return rstd
     else:
         return json_result

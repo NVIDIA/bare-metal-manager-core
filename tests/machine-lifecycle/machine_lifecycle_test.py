@@ -4,6 +4,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from typing import Literal
 import uuid
 import paramiko
 import requests
@@ -19,7 +20,6 @@ from vault import ForgeVaultClient
 import capability_validator
 import capabilities_generator
 from dell_factory_reset import DellFactoryResetMethods
-import datetime
 
 urllib3.disable_warnings()
 
@@ -54,7 +54,7 @@ class SiteConfig:
 class MachineInfo:
     """Information about the machine under test."""
     machine: dict
-    vendor: str
+    vendor: Literal["lenovo", "dell"]  # Currently supported for these tests
     host_bmc_username: str
     host_bmc_ip: str
     host_bmc_mac: str
@@ -249,11 +249,16 @@ def collect_machine_info(test_config: TestConfig) -> MachineInfo:
     """
     machine = admin_cli.get_machine_from_mh_show(test_config.machine_under_test)
     machine_vendor = admin_cli.get_machine_vendor(test_config.machine_under_test)
-    if "Lenovo" not in machine_vendor and "Dell" not in machine_vendor:
-        _error_and_exit(f"{machine_vendor=} is not valid. Expected 'Lenovo' or 'Dell'")
-    print(f"Machine vendor is {machine_vendor}")
+    if "lenovo" in machine_vendor.lower():
+        vendor = "lenovo"
+    elif "dell" in machine_vendor.lower():
+        vendor = "dell"
+    else:
+        _error_and_exit(f"{machine_vendor=} is not valid. Expected to contain 'Lenovo' or 'Dell'")
 
-    host_bmc_username = "USERID" if "Lenovo" in machine_vendor else "root"
+    print(f"Machine vendor is {vendor}")
+
+    host_bmc_username = "USERID" if vendor == "lenovo" else "root"
     host_bmc_ip = machine["host_bmc_ip"]
     host_bmc_mac = machine["host_bmc_mac"]
     # Create a dictionary of DPU IDs to their BMC and OOB IPs
@@ -290,7 +295,7 @@ def collect_machine_info(test_config: TestConfig) -> MachineInfo:
 
     return MachineInfo(
         machine=machine,
-        vendor=machine_vendor,
+        vendor=vendor,
         host_bmc_username=host_bmc_username,
         host_bmc_ip=host_bmc_ip,
         host_bmc_mac=host_bmc_mac,
@@ -779,7 +784,7 @@ def _factory_reset_host(test_config: TestConfig, site_config: SiteConfig, machin
         machine_info: Information about the machine under test
     """
     if machine_info.vendor == "lenovo":
-        print("Resetting BIOS settings on the host")
+        print("Resetting BIOS settings on the Lenovo host")
         url = f"https://{machine_info.host_bmc_ip}/redfish/v1/Systems/1/Bios/Actions/Bios.ResetBios"
         data = {"ResetType": "default"}
         print(f"Executing redfish request. \nData: {data} \nURL: {url}")
@@ -789,14 +794,8 @@ def _factory_reset_host(test_config: TestConfig, site_config: SiteConfig, machin
             auth=(machine_info.host_bmc_username, site_config.host_bmc_password),
             verify=False
         )
-        if response.status_code != 202:
-            print(response.text)
-            _error_and_exit(
-                f"Failed to reset BIOS settings on the host. Status code: {response.status_code}",
-                set_maintenance=True,
-                machine_id=test_config.machine_under_test
-            )
-        else:
+        if response.status_code == 202:
+            # Success, wait for redfish task to complete
             task_id = response.json()["Id"]
             attempts = 0
             max_attempts = 30
@@ -828,20 +827,28 @@ def _factory_reset_host(test_config: TestConfig, site_config: SiteConfig, machin
                     set_maintenance=True,
                     machine_id=test_config.machine_under_test
                 )
-        print("Removing the BIOS password from the host")
+        else:
+            print(response.text)
+            _error_and_exit(
+                f"Failed to reset BIOS settings on the Lenovo host. Status code: {response.status_code}",
+                set_maintenance=True,
+                machine_id=test_config.machine_under_test,
+            )
+
+        print("Removing the BIOS password from the Lenovo host")
         admin_cli.clear_host_bios_password(test_config.machine_under_test)
         print("Restarting the host")
         admin_cli.restart_machine(test_config.machine_under_test)
         time.sleep(10)
         network.wait_for_redfish_endpoint(hostname=machine_info.host_bmc_ip)
 
-        print("Factory-resetting the host BMC")
+        print("Factory-resetting the Lenovo BMC")
         admin_cli.factory_reset_bmc(machine_info.host_bmc_ip, machine_info.host_bmc_username, site_config.host_bmc_password)
         time.sleep(5)
         network.wait_for_redfish_endpoint(hostname=machine_info.host_bmc_ip)
     else:
+        # Dell
         print("Factory-resetting Dell machine")
-        """Factory-reset a Dell machine"""
         factory_reset_methods = DellFactoryResetMethods(
             machine_info.host_bmc_ip,
             machine_info.host_bmc_username,
@@ -851,18 +858,17 @@ def _factory_reset_host(test_config: TestConfig, site_config: SiteConfig, machin
         # Unlock iDRAC if needed
         factory_reset_methods.unlock_idrac()
 
-        print("Resetting BIOS settings on the Dell host")
-        # This resets bios/uefi to defaults and reboots the server
+        print("Resetting BIOS settings to default on the Dell host")
+        # Reset bios/uefi to defaults and reboot the server
         try:
             factory_reset_methods.reset_bios()
         except Exception as e:
-            print(f"Error occurred during BIOS reset: {e}")
-            sys.exit(1)
+            _error_and_exit(f"Error occurred during BIOS reset: {e}")
 
-        # Reboot the server
         factory_reset_methods.reboot_server()
 
-        print("Dell BIOS/UEFI reset complete. Sleeping for 5 minutes to allow server to reboot.")
+        print("Dell BIOS/UEFI settings reset complete. Waiting for server to reboot...")
+        # We can't check for redfish endpoint so waiting 5 minutes
         time.sleep(300)
         network.wait_for_redfish_endpoint(hostname=machine_info.host_bmc_ip)
 
@@ -874,11 +880,10 @@ def _factory_reset_host(test_config: TestConfig, site_config: SiteConfig, machin
         try:
             factory_reset_methods.factory_reset_bmc(level="ResetAllWithRootDefaults")
         except Exception as e:
-            print(f"Error occurred during iDRAC factory reset: {e}")
-            sys.exit(1)
+            _error_and_exit(f"Error occurred during iDRAC factory reset: {e}")
 
-        print("Dell BMC factory reset complete. Sleeping for 5 minutes to allow BMC to reboot.")
-        time.sleep(300)
+        print("Dell BMC factory-reset complete. Waiting for BMC to reboot...")
+        time.sleep(30)
         network.wait_for_redfish_endpoint(hostname=machine_info.host_bmc_ip)
 
         with ForgeVaultClient(path="forge/machine-lifecycle-test") as vault_client:
