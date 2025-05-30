@@ -46,7 +46,7 @@ use crate::attestation as attest;
 use crate::cfg::file::CarbideConfig;
 use crate::db::desired_firmware::DbDesiredFirmwareVersions;
 use crate::db::explored_endpoints::DbExploredEndpoint;
-use crate::db::machine::MachineSearchConfig;
+use crate::db::machine::{self, MachineSearchConfig};
 use crate::db::machine_validation::{
     MachineValidation, MachineValidationState, MachineValidationStatus,
 };
@@ -3312,6 +3312,22 @@ impl Forge for Api {
             self.redfish_pool.clone(),
         )
         .await?;
+
+        machine::update_bios_password_set_time(&machine_id, &mut txn)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update bios_password_set_time: {}", e);
+                tonic::Status::internal(format!("Failed to update BIOS password timestamp: {}", e))
+            })?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit set_host_uefi_password",
+                e,
+            ))
+        })?;
 
         Ok(Response::new(rpc::SetHostUefiPasswordResponse { job_id }))
     }
