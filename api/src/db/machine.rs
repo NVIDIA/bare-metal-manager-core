@@ -769,7 +769,7 @@ pub async fn update_cleanup_time(
     Ok(())
 }
 
-pub async fn update_bios_password_set(
+pub async fn update_bios_password_set_time(
     machine_id: &MachineId,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {

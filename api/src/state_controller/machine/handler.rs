@@ -3725,7 +3725,7 @@ async fn handle_host_uefi_setup(
             }
 
             state.host_snapshot.bios_password_set_time = Some(chrono::offset::Utc::now());
-            db::machine::update_bios_password_set(&state.host_snapshot.id, txn)
+            db::machine::update_bios_password_set_time(&state.host_snapshot.id, txn)
                 .await
                 .map_err(|e| {
                     StateHandlerError::GenericError(eyre!(
