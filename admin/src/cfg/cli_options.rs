@@ -12,6 +12,7 @@ use std::collections::HashMap;
  * its affiliates is strictly prohibited.
  */
 use std::fmt;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use clap::{ArgGroup, Parser, ValueEnum, ValueHint};
@@ -22,8 +23,12 @@ use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::machine::MachineId;
 use forge_uuid::vpc::{VpcId, VpcPrefixId};
 use libredfish::model::update_service::ComponentType;
-use rpc::forge::OperatingSystem;
+use rpc::forge::{OperatingSystem, SshTimeoutConfig};
 use serde::{Deserialize, Serialize};
+use utils::ssh::{
+    DEFAULT_SSH_SESSION_TIMEOUT, DEFAULT_TCP_CONNECTION_TIMEOUT, DEFAULT_TCP_READ_TIMEOUT,
+    DEFAULT_TCP_WRITE_TIMEOUT, SshConfig,
+};
 use utils::{admin_cli::OutputFormat, has_duplicates};
 
 use crate::cfg::instance_type;
@@ -230,6 +235,9 @@ pub enum CliCommand {
 
     #[clap(about = "Instance type management", visible_alias = "it", subcommand)]
     InstanceType(instance_type::InstanceTypeActions),
+
+    #[clap(about = "SSH Util functions", subcommand)]
+    Ssh(SshActions),
 }
 
 #[derive(Parser, Debug)]
@@ -2072,6 +2080,7 @@ pub enum SiteExplorer {
     ClearError(ExploreOptions),
     IsBmcInManagedHost(ExploreOptions),
     HaveCredentials(ExploreOptions),
+    CopyBfbToDpuRshim(CopyBfbToDpuRshimArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -2139,6 +2148,17 @@ pub struct ExploreOptions {
     pub mac: Option<MacAddress>,
 }
 
+#[derive(Parser, Debug)]
+pub struct CopyBfbToDpuRshimArgs {
+    #[clap(help = "BMC IP address or hostname with optional port")]
+    pub address: String,
+    #[clap(long, help = "The MAC address the BMC sent DHCP from")]
+    pub mac: Option<MacAddress>,
+    #[clap(flatten)]
+    pub timeout_config: Option<TimeoutConfig>,
+    #[clap(help = "BMC IP address or hostname with optional port")]
+    pub bfb_path: String,
+}
 #[derive(Parser, Debug)]
 pub struct ReExploreOptions {
     #[clap(help = "BMC IP address")]
@@ -2759,6 +2779,81 @@ pub enum Sku {
     Unassign { machine_id: String },
     #[clap(about = "Verify a machine against its SKU", visible_alias = "v")]
     Verify { machine_id: String },
+}
+
+#[derive(Parser, Debug)]
+pub enum SshActions {
+    #[clap(about = "Show Rshim Status")]
+    GetRshimStatus(SshArgs),
+    #[clap(about = "Disable Rshim")]
+    DisableRshim(SshArgs),
+    #[clap(about = "EnableRshim")]
+    EnableRshim(SshArgs),
+    #[clap(about = "Copy BFB to the DPU BMC's RSHIM ")]
+    CopyBfb(CopyBfbArgs),
+    #[clap(about = "Show the DPU's BMC's OBMC log")]
+    ShowObmcLog(SshArgs),
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct TimeoutConfig {
+    #[clap(long, help = "TCP Connection Timeout (seconds)")]
+    pub tcp_connection_timeout: Option<u64>,
+
+    #[clap(long, help = "TCP Read Timeout (seconds)")]
+    pub tcp_read_timeout: Option<u64>,
+
+    #[clap(long, help = "TCP Write Timeout (seconds)")]
+    pub tcp_write_timeout: Option<u64>,
+
+    #[clap(long, help = "SSH Session Timeout (seconds)")]
+    pub ssh_session_timeout: Option<u64>,
+}
+
+impl TimeoutConfig {
+    pub fn to_ssh_config(&self) -> SshConfig {
+        SshConfig {
+            tcp_connection_timeout: DEFAULT_TCP_CONNECTION_TIMEOUT,
+            tcp_read_timeout: DEFAULT_TCP_READ_TIMEOUT,
+            tcp_write_timeout: DEFAULT_TCP_WRITE_TIMEOUT,
+            ssh_session_timeout: DEFAULT_SSH_SESSION_TIMEOUT,
+        }
+    }
+
+    pub fn to_rpc_timeout_config(&self) -> SshTimeoutConfig {
+        SshTimeoutConfig {
+            tcp_connection_timeout: self.tcp_connection_timeout,
+            tcp_read_timeout: self.tcp_read_timeout,
+            tcp_write_timeout: self.tcp_write_timeout,
+            ssh_session_timeout: self.ssh_session_timeout,
+        }
+    }
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct BmcCredentials {
+    #[clap(help = "BMC IP Address")]
+    pub bmc_ip_address: SocketAddr,
+    #[clap(help = "BMC Username")]
+    pub bmc_username: String,
+    #[clap(help = "BMC Password")]
+    pub bmc_password: String,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct SshArgs {
+    #[clap(flatten)]
+    pub credentials: BmcCredentials,
+    #[clap(flatten)]
+    pub timeouts: Option<TimeoutConfig>,
+}
+
+#[derive(Parser, Debug)]
+pub struct CopyBfbArgs {
+    #[clap(flatten)]
+    pub ssh_args: SshArgs,
+    #[clap(help = "BFB Path")]
+    pub bfb_path: String,
 }
 
 #[derive(Parser, Debug)]

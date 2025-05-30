@@ -18,16 +18,18 @@ use ::rpc::forge::{
     GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
     IdentifySerialRequest, IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
     MachineHardwareInfoUpdateType, NetworkPrefix, NetworkSecurityGroupAttributes,
-    NetworkSegmentCreationRequest, NetworkSegmentType, UpdateMachineHardwareInfoRequest,
-    UpdateNetworkSecurityGroupRequest, VpcCreationRequest, VpcPeeringDeletionResult,
-    VpcSearchQuery, VpcVirtualizationType,
+    NetworkSegmentCreationRequest, NetworkSegmentType, SshRequest,
+    UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest, VpcCreationRequest,
+    VpcPeeringDeletionResult, VpcSearchQuery, VpcVirtualizationType,
 };
 use ::rpc::{NetworkSegment, Uuid};
 use std::net::IpAddr;
 use std::path::Path;
 use std::str::FromStr;
 
-use crate::cfg::cli_options::{self, AllocateInstance, ForceDeleteMachineQuery, MachineAutoupdate};
+use crate::cfg::cli_options::{
+    self, AllocateInstance, ForceDeleteMachineQuery, MachineAutoupdate, TimeoutConfig,
+};
 use crate::rpc::cli_options::UpdateInstanceOS;
 use ::rpc::forge_api_client::ForgeApiClient;
 use mac_address::MacAddress;
@@ -657,6 +659,30 @@ impl ApiClient {
         };
         self.0
             .bmc_credential_status(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn copy_bfb_to_dpu_rshim(
+        &self,
+        address: String,
+        mac_address: Option<MacAddress>,
+        timeout_config: Option<TimeoutConfig>,
+        bfb_path: String,
+    ) -> CarbideCliResult<()> {
+        let request = rpc::CopyBfbToDpuRshimRequest {
+            ssh_request: Some(SshRequest {
+                endpoint_request: Some(BmcEndpointRequest {
+                    ip_address: address.to_string(),
+                    mac_address: mac_address.map(|mac| mac.to_string()),
+                }),
+                timeout_config: timeout_config.map(|config| config.to_rpc_timeout_config()),
+            }),
+            bfb_path,
+        };
+
+        self.0
+            .copy_bfb_to_dpu_rshim(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)
     }

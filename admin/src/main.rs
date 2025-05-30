@@ -87,6 +87,11 @@ use serde::Serialize;
 use site_explorer::show_site_explorer_discovered_managed_host;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
 use utils::admin_cli::{CarbideCliError, OutputFormat};
+use utils::ssh::copy_bfb_to_bmc_rshim;
+use utils::ssh::disable_rshim;
+use utils::ssh::enable_rshim;
+use utils::ssh::is_rshim_enabled;
+use utils::ssh::read_obmc_console_log;
 
 mod cfg;
 mod devenv;
@@ -1029,6 +1034,16 @@ async fn main() -> color_eyre::Result<()> {
                     .await?;
                 println!("{}", have_credentials.have_credentials);
             }
+            SiteExplorer::CopyBfbToDpuRshim(args) => {
+                api_client
+                    .copy_bfb_to_dpu_rshim(
+                        args.address,
+                        args.mac,
+                        args.timeout_config,
+                        args.bfb_path,
+                    )
+                    .await?;
+            }
         },
         CliCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {
             MachineInterfaces::Show(machine_interfaces) => {
@@ -1795,6 +1810,66 @@ async fn main() -> color_eyre::Result<()> {
                 instance_type::update(args, config.format, &api_client).await?
             }
             InstanceTypeActions::Delete(args) => instance_type::delete(args, &api_client).await?,
+        },
+        CliCommand::Ssh(action) => match action {
+            cfg::cli_options::SshActions::GetRshimStatus(ssh_args) => {
+                let is_rshim_enabled = is_rshim_enabled(
+                    ssh_args.credentials.bmc_ip_address,
+                    ssh_args.credentials.bmc_username,
+                    ssh_args.credentials.bmc_password,
+                    None,
+                )
+                .await?;
+                tracing::info!("{is_rshim_enabled}");
+            }
+            cfg::cli_options::SshActions::DisableRshim(ssh_args) => {
+                disable_rshim(
+                    ssh_args.credentials.bmc_ip_address,
+                    ssh_args.credentials.bmc_username,
+                    ssh_args.credentials.bmc_password,
+                    ssh_args
+                        .timeouts
+                        .map(|timeout_config| timeout_config.to_ssh_config()),
+                )
+                .await?;
+            }
+            cfg::cli_options::SshActions::EnableRshim(ssh_args) => {
+                enable_rshim(
+                    ssh_args.credentials.bmc_ip_address,
+                    ssh_args.credentials.bmc_username,
+                    ssh_args.credentials.bmc_password,
+                    ssh_args
+                        .timeouts
+                        .map(|timeout_config| timeout_config.to_ssh_config()),
+                )
+                .await?;
+            }
+            cfg::cli_options::SshActions::CopyBfb(copy_bfb_args) => {
+                copy_bfb_to_bmc_rshim(
+                    copy_bfb_args.ssh_args.credentials.bmc_ip_address,
+                    copy_bfb_args.ssh_args.credentials.bmc_username,
+                    copy_bfb_args.ssh_args.credentials.bmc_password,
+                    copy_bfb_args
+                        .ssh_args
+                        .timeouts
+                        .map(|timeout_config| timeout_config.to_ssh_config()),
+                    copy_bfb_args.bfb_path,
+                )
+                .await?;
+            }
+            cfg::cli_options::SshActions::ShowObmcLog(ssh_args) => {
+                let log = read_obmc_console_log(
+                    ssh_args.credentials.bmc_ip_address,
+                    ssh_args.credentials.bmc_username,
+                    ssh_args.credentials.bmc_password,
+                    ssh_args
+                        .timeouts
+                        .map(|timeout_config| timeout_config.to_ssh_config()),
+                )
+                .await?;
+
+                println!("OBMC Console Log:\n{}", log);
+            }
         },
     }
 

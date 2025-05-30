@@ -505,6 +505,9 @@ service Forge {
   rpc GetManagedHostQuarantineState(GetManagedHostQuarantineStateRequest) returns (GetManagedHostQuarantineStateResponse);
   rpc SetManagedHostQuarantineState(SetManagedHostQuarantineStateRequest) returns (SetManagedHostQuarantineStateResponse);
   rpc ClearManagedHostQuarantineState(ClearManagedHostQuarantineStateRequest) returns (ClearManagedHostQuarantineStateResponse);
+
+  // Copy BFB to DPU's RSHIM
+  rpc CopyBfbToDpuRshim(CopyBfbToDpuRshimRequest) returns (google.protobuf.Empty);
 }
 
 message TpmCaAddedCaStatus{
@@ -2207,6 +2210,29 @@ message BmcEndpointRequest {
   string ip_address = 1;
   // The MAC the host DHCPed from
   optional string mac_address = 2;
+}
+
+message SshTimeoutConfig {
+  // TCP Connection Timeout (seconds)
+  optional uint64 tcp_connection_timeout = 1;
+  // TCP Read Timeout (seconds)
+  optional uint64 tcp_read_timeout = 2;
+  // TCP Write Timeout (seconds)
+  optional uint64 tcp_write_timeout = 3;
+  // SSH Session Timeout (seconds)
+  optional uint64 ssh_session_timeout = 4;
+}
+
+message SshRequest {
+  // BMC Endpoint Request
+  BmcEndpointRequest endpoint_request = 1;
+  // Optional SSH Timeout Configuration
+  optional SshTimeoutConfig timeout_config = 2;
+}
+
+message CopyBfbToDpuRshimRequest {
+  SshRequest ssh_request = 1;
+  string bfb_path = 2;
 }
 
 message UpdateMachineHardwareInfoRequest {

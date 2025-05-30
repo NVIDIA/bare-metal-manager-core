@@ -17,6 +17,8 @@ use forge_secrets::credentials::{CredentialProvider, Credentials};
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
+use tokio::time::{Duration, sleep};
+use utils::ssh::{SshConfig, copy_bfb_to_bmc_rshim, enable_rshim, is_rshim_enabled};
 
 use super::credentials::{CredentialClient, get_bmc_root_credential_key};
 use super::metrics::SiteExplorationMetrics;
@@ -301,6 +303,99 @@ impl BmcEndpointExplorer {
             .clear_nvram(bmc_ip_address, username, password)
             .await
     }
+
+    async fn is_rshim_enabled(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+        ssh_config: Option<SshConfig>,
+    ) -> Result<bool, EndpointExplorationError> {
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+        let rshim_status = is_rshim_enabled(bmc_ip_address, username, password, ssh_config)
+            .await
+            .map_err(|err| EndpointExplorationError::Other {
+                details: format!("failed query RSHIM status on on {bmc_ip_address}: {err}"),
+            })?;
+
+        Ok(rshim_status)
+    }
+
+    async fn enable_rshim(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+        ssh_config: Option<SshConfig>,
+    ) -> Result<(), EndpointExplorationError> {
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        enable_rshim(bmc_ip_address, username, password, ssh_config)
+            .await
+            .map_err(|err| EndpointExplorationError::Other {
+                details: format!("failed query RSHIM status on on {bmc_ip_address}: {err}"),
+            })
+    }
+
+    async fn check_and_enable_rshim(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+        ssh_config: Option<SshConfig>,
+    ) -> Result<(), EndpointExplorationError> {
+        let mut i = 0;
+        while i < 3 {
+            if !self
+                .is_rshim_enabled(bmc_ip_address, credentials.clone(), ssh_config.clone())
+                .await?
+            {
+                tracing::warn!("RSHIM is not enabled on {bmc_ip_address}");
+                self.enable_rshim(bmc_ip_address, credentials.clone(), ssh_config.clone())
+                    .await?;
+
+                // Sleep for 10 seconds before checking again
+                sleep(Duration::from_secs(10)).await;
+                i += 1;
+            } else {
+                return Ok(());
+            }
+        }
+
+        Err(EndpointExplorationError::Other {
+            details: format!("could not enable RSHIM on {bmc_ip_address}"),
+        })
+    }
+
+    async fn copy_bfb_to_dpu_rshim(
+        &self,
+        bmc_ip_address: SocketAddr,
+        bfb_path: String,
+        credentials: Credentials,
+        ssh_config: Option<SshConfig>,
+    ) -> Result<(), EndpointExplorationError> {
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        self.check_and_enable_rshim(bmc_ip_address, credentials, ssh_config.clone())
+            .await?;
+
+        copy_bfb_to_bmc_rshim(
+            bmc_ip_address,
+            username,
+            password,
+            ssh_config,
+            bfb_path.clone(),
+        )
+        .await
+        .map_err(|err| EndpointExplorationError::Other {
+            details: format!(
+                "failed to copy BFB from {bfb_path} to BMC RSHIM on {bmc_ip_address}: {err}"
+            ),
+        })
+    }
 }
 
 #[async_trait::async_trait]
@@ -506,6 +601,31 @@ impl EndpointExplorer for BmcEndpointExplorer {
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => self.clear_nvram(bmc_ip_address, credentials).await,
+            Err(e) => {
+                tracing::info!(
+                    %bmc_ip_address,
+                    "BMC endpoint explorer does not support set_nic_mode for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    bmc_mac_address,
+                );
+                Err(e)
+            }
+        }
+    }
+
+    async fn copy_bfb_to_dpu_rshim(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        bfb_path: String,
+        ssh_config: Option<SshConfig>,
+    ) -> Result<(), EndpointExplorationError> {
+        let bmc_mac_address = interface.mac_address;
+
+        match self.get_bmc_root_credentials(bmc_mac_address).await {
+            Ok(credentials) => {
+                self.copy_bfb_to_dpu_rshim(bmc_ip_address, bfb_path, credentials, ssh_config)
+                    .await
+            }
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,

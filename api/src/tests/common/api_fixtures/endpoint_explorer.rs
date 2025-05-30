@@ -14,6 +14,7 @@ use crate::{
 };
 
 use libredfish::model::oem::nvidia_dpu::NicMode;
+use utils::ssh::SshConfig;
 
 /// EndpointExplorer which returns predefined data
 #[derive(Clone, Default, Debug)]
@@ -134,6 +135,16 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         _bmc_ip_address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn copy_bfb_to_dpu_rshim(
+        &self,
+        _bmc_ip_address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        _bfb_path: String,
+        _ssh_config: Option<SshConfig>,
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
     }

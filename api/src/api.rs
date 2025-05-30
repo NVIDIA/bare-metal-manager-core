@@ -4965,6 +4965,35 @@ impl Forge for Api {
             },
         ))
     }
+
+    async fn copy_bfb_to_dpu_rshim(
+        &self,
+        request: tonic::Request<rpc::CopyBfbToDpuRshimRequest>,
+    ) -> Result<Response<()>, Status> {
+        let req = request.into_inner();
+
+        let (bmc_endpoint_request, ssh_config) = match req.ssh_request {
+            Some(ssh_req) => match ssh_req.endpoint_request {
+                Some(bmc_request) => (bmc_request, ssh_req.timeout_config),
+                None => {
+                    return Err(CarbideError::MissingArgument("bmc_endpoint_request").into());
+                }
+            },
+            None => {
+                return Err(CarbideError::MissingArgument("ssh_request").into());
+            }
+        };
+
+        crate::handlers::bmc_endpoint_explorer::copy_bfb_to_dpu_rshim(
+            self,
+            &bmc_endpoint_request,
+            ssh_config,
+            req.bfb_path,
+        )
+        .await?;
+
+        Ok(Response::new(()))
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {

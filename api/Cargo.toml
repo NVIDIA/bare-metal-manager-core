@@ -72,6 +72,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "*"
 serde_regex = "*"
 sha2 = "0.10.3"
+ssh2 = "0.9"
 strum_macros = "*"
 strum = "*"
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }

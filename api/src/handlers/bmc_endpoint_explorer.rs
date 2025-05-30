@@ -16,6 +16,7 @@ use mac_address::MacAddress;
 use rpc::forge::BmcCredentialStatusResponse;
 use tokio::net::lookup_host;
 use tonic::{Response, Status};
+use utils::ssh::SshConfig;
 
 use crate::db::DatabaseError;
 use crate::db::machine_interface::find_by_ip;
@@ -170,4 +171,23 @@ async fn resolve_bmc_interface(
     };
 
     Ok((bmc_addr, bmc_mac_address))
+}
+
+pub(crate) async fn copy_bfb_to_dpu_rshim(
+    api: &Api,
+    request: &::rpc::forge::BmcEndpointRequest,
+    ssh_config: Option<::rpc::forge::SshTimeoutConfig>,
+    bfb_path: String,
+) -> Result<Response<()>, tonic::Status> {
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    let ssh_timeout_config: Option<SshConfig> = ssh_config.map(|config| SshConfig::from(&config));
+
+    api.endpoint_explorer
+        .copy_bfb_to_dpu_rshim(bmc_addr, &machine_interface, bfb_path, ssh_timeout_config)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    Ok(Response::new(()))
 }
