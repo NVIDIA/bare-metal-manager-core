@@ -53,9 +53,7 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> CarbideRes
     })?;
 
     let sku_id_list = request.into_inner().ids;
-    let mut skus = crate::db::sku::find(&mut txn, &sku_id_list)
-        .await
-        .map_err(CarbideError::from)?;
+    let mut skus = crate::db::sku::find(&mut txn, &sku_id_list).await?;
 
     let Some(sku) = skus.pop() else {
         return Err(CarbideError::InvalidArgument("Missing SKU Id".to_string()));
@@ -155,9 +153,7 @@ pub(crate) async fn assign_to_machine(
         }
     }
 
-    let mut skus = crate::db::sku::find(&mut txn, &[sku_machine_pair.sku_id.clone()])
-        .await
-        .map_err(CarbideError::from)?;
+    let mut skus = crate::db::sku::find(&mut txn, &[sku_machine_pair.sku_id.clone()]).await?;
 
     let sku = skus.pop().ok_or(CarbideError::NotFoundError {
         kind: "SKU ID",
@@ -346,9 +342,7 @@ pub(crate) async fn find_skus_by_ids(
         ))
     })?;
 
-    let skus = crate::db::sku::find(&mut txn, &sku_ids)
-        .await
-        .map_err(CarbideError::from)?;
+    let skus = crate::db::sku::find(&mut txn, &sku_ids).await?;
 
     let mut rpc_skus: Vec<rpc::forge::Sku> =
         skus.into_iter().map(std::convert::Into::into).collect();
