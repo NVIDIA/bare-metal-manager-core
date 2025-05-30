@@ -4,7 +4,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-
+import uuid
 import paramiko
 import requests
 import urllib3
@@ -18,6 +18,8 @@ from vault import ForgeVaultClient
 
 import capability_validator
 import capabilities_generator
+from dell_factory_reset import DellFactoryResetMethods
+import datetime
 
 urllib3.disable_warnings()
 
@@ -55,6 +57,7 @@ class MachineInfo:
     vendor: str
     host_bmc_username: str
     host_bmc_ip: str
+    host_bmc_mac: str
     dpu_ids: list[str]
     dpu_bmc_ips: list[str]
     dpu_info_map: dict[str, dict[str, str]]
@@ -250,12 +253,9 @@ def collect_machine_info(test_config: TestConfig) -> MachineInfo:
         _error_and_exit(f"{machine_vendor=} is not valid. Expected 'Lenovo' or 'Dell'")
     print(f"Machine vendor is {machine_vendor}")
 
-    if "Dell" in machine_vendor and test_config.factory_reset == "true":
-        _error_and_exit("$FACTORY_RESET is not yet supported for Dell machines. Set that to false to test this machine")
-
     host_bmc_username = "USERID" if "Lenovo" in machine_vendor else "root"
     host_bmc_ip = machine["host_bmc_ip"]
-
+    host_bmc_mac = machine["host_bmc_mac"]
     # Create a dictionary of DPU IDs to their BMC and OOB IPs
     dpu_ids: list[str] = []
     dpu_bmc_ips: list[str] = []
@@ -293,6 +293,7 @@ def collect_machine_info(test_config: TestConfig) -> MachineInfo:
         vendor=machine_vendor,
         host_bmc_username=host_bmc_username,
         host_bmc_ip=host_bmc_ip,
+        host_bmc_mac=host_bmc_mac,
         dpu_ids=dpu_ids,
         dpu_bmc_ips=dpu_bmc_ips,
         dpu_info_map=dpu_info_map,
@@ -777,66 +778,121 @@ def _factory_reset_host(test_config: TestConfig, site_config: SiteConfig, machin
         site_config: The site configuration containing credentials
         machine_info: Information about the machine under test
     """
-    print("Resetting BIOS settings on the host")
-    url = f"https://{machine_info.host_bmc_ip}/redfish/v1/Systems/1/Bios/Actions/Bios.ResetBios"
-    data = {"ResetType": "default"}
-    print(f"Executing redfish request. \nData: {data} \nURL: {url}")
-    response = requests.post(
-        url,
-        json=data,
-        auth=(machine_info.host_bmc_username, site_config.host_bmc_password),
-        verify=False
-    )
-    if response.status_code != 202:
-        print(response.text)
-        _error_and_exit(
-            f"Failed to reset BIOS settings on the host. Status code: {response.status_code}",
-            set_maintenance=True,
-            machine_id=test_config.machine_under_test
+    if machine_info.vendor == "lenovo":
+        print("Resetting BIOS settings on the host")
+        url = f"https://{machine_info.host_bmc_ip}/redfish/v1/Systems/1/Bios/Actions/Bios.ResetBios"
+        data = {"ResetType": "default"}
+        print(f"Executing redfish request. \nData: {data} \nURL: {url}")
+        response = requests.post(
+            url,
+            json=data,
+            auth=(machine_info.host_bmc_username, site_config.host_bmc_password),
+            verify=False
         )
-    else:
-        task_id = response.json()["Id"]
-        attempts = 0
-        max_attempts = 30
-        print(f"Waiting for async redfish task {task_id} to complete")
-        while attempts < max_attempts:
-            url = f"https://{machine_info.host_bmc_ip}/redfish/v1/TaskService/Tasks/{task_id}"
-            response = requests.get(
-                url,
-                auth=(machine_info.host_bmc_username, site_config.host_bmc_password),
-                verify=False
-            )
-            if response.status_code != 200:
-                print(response.text)
-                _error_and_exit(
-                    f"Failed to get redfish task status. Status code: {response.status_code}",
-                    set_maintenance=True,
-                    machine_id=test_config.machine_under_test
-                )
-            if response.json()["TaskState"] == "Completed":
-                print("Redfish task completed.")
-                break
-            else:
-                print("Redfish task not yet completed, state %s" % response.json()["TaskState"])
-                attempts += 1
-                time.sleep(10)
-        else:
+        if response.status_code != 202:
+            print(response.text)
             _error_and_exit(
-                "Redfish task did not complete in 5 minutes",
+                f"Failed to reset BIOS settings on the host. Status code: {response.status_code}",
                 set_maintenance=True,
                 machine_id=test_config.machine_under_test
             )
-    print("Removing the BIOS password from the host")
-    admin_cli.clear_host_bios_password(test_config.machine_under_test)
-    print("Restarting the host")
-    admin_cli.restart_machine(test_config.machine_under_test)
-    time.sleep(10)
-    network.wait_for_redfish_endpoint(hostname=machine_info.host_bmc_ip)
+        else:
+            task_id = response.json()["Id"]
+            attempts = 0
+            max_attempts = 30
+            print(f"Waiting for async redfish task {task_id} to complete")
+            while attempts < max_attempts:
+                url = f"https://{machine_info.host_bmc_ip}/redfish/v1/TaskService/Tasks/{task_id}"
+                response = requests.get(
+                    url,
+                    auth=(machine_info.host_bmc_username, site_config.host_bmc_password),
+                    verify=False
+                )
+                if response.status_code != 200:
+                    print(response.text)
+                    _error_and_exit(
+                        f"Failed to get redfish task status. Status code: {response.status_code}",
+                        set_maintenance=True,
+                        machine_id=test_config.machine_under_test
+                    )
+                if response.json()["TaskState"] == "Completed":
+                    print("Redfish task completed.")
+                    break
+                else:
+                    print("Redfish task not yet completed, state %s" % response.json()["TaskState"])
+                    attempts += 1
+                    time.sleep(10)
+            else:
+                _error_and_exit(
+                    "Redfish task did not complete in 5 minutes",
+                    set_maintenance=True,
+                    machine_id=test_config.machine_under_test
+                )
+        print("Removing the BIOS password from the host")
+        admin_cli.clear_host_bios_password(test_config.machine_under_test)
+        print("Restarting the host")
+        admin_cli.restart_machine(test_config.machine_under_test)
+        time.sleep(10)
+        network.wait_for_redfish_endpoint(hostname=machine_info.host_bmc_ip)
 
-    print("Factory-resetting the host BMC")
-    admin_cli.factory_reset_bmc(machine_info.host_bmc_ip, machine_info.host_bmc_username, site_config.host_bmc_password)
-    time.sleep(5)
-    network.wait_for_redfish_endpoint(hostname=machine_info.host_bmc_ip)
+        print("Factory-resetting the host BMC")
+        admin_cli.factory_reset_bmc(machine_info.host_bmc_ip, machine_info.host_bmc_username, site_config.host_bmc_password)
+        time.sleep(5)
+        network.wait_for_redfish_endpoint(hostname=machine_info.host_bmc_ip)
+    else:
+        print("Factory-resetting Dell machine")
+        """Factory-reset a Dell machine"""
+        factory_reset_methods = DellFactoryResetMethods(
+            machine_info.host_bmc_ip,
+            machine_info.host_bmc_username,
+            site_config.host_bmc_password
+        )
+        print("Unlocking iDRAC")
+        # Unlock iDRAC if needed
+        factory_reset_methods.unlock_idrac()
+
+        print("Resetting BIOS settings on the Dell host")
+        # This resets bios/uefi to defaults and reboots the server
+        try:
+            factory_reset_methods.reset_bios()
+        except Exception as e:
+            print(f"Error occurred during BIOS reset: {e}")
+            sys.exit(1)
+
+        # Reboot the server
+        factory_reset_methods.reboot_server()
+
+        print("Dell BIOS/UEFI reset complete. Sleeping for 5 minutes to allow server to reboot.")
+        time.sleep(300)
+        network.wait_for_redfish_endpoint(hostname=machine_info.host_bmc_ip)
+
+        # Disable host header check
+        factory_reset_methods.disable_host_header_check()
+
+        # Factory reset the BMC (iDRAC)
+        print("Factory-resetting the iDRAC")
+        try:
+            factory_reset_methods.factory_reset_bmc(level="ResetAllWithRootDefaults")
+        except Exception as e:
+            print(f"Error occurred during iDRAC factory reset: {e}")
+            sys.exit(1)
+
+        print("Dell BMC factory reset complete. Sleeping for 5 minutes to allow BMC to reboot.")
+        time.sleep(300)
+        network.wait_for_redfish_endpoint(hostname=machine_info.host_bmc_ip)
+
+        with ForgeVaultClient(path="forge/machine-lifecycle-test") as vault_client:
+            default_dell_bmc_password: str = vault_client.get_default_dell_bmc_password()
+
+        print("Changing BMC password to match expected machines password")
+        expected_machines = admin_cli.get_expected_machines(machine_info.host_bmc_mac)
+        if expected_machines["bmc_password"] != default_dell_bmc_password:
+            factory_reset_methods = DellFactoryResetMethods(
+                machine_info.host_bmc_ip,
+                machine_info.host_bmc_username,
+                default_dell_bmc_password
+            )
+            factory_reset_methods.change_bmc_password(expected_machines["bmc_password"])
 
 
 def perform_factory_reset(test_config: TestConfig, site_config: SiteConfig, machine_info: MachineInfo) -> None:
@@ -905,8 +961,9 @@ def force_delete_and_await_reingestion(
         print("Checking that carbide reports the managed host Ready")
         admin_cli.check_machine_ready(test_config.machine_under_test)
 
-        print("Waiting for the Cloud to also report machine Ready")
-        ngc.wait_for_machine_ready(test_config.machine_under_test, site_config.site, timeout=60 * 10)
+        if "qa2" not in site_config.site.name:
+            print("Waiting for the Cloud to also report machine Ready")
+            ngc.wait_for_machine_ready(test_config.machine_under_test, site_config.site, timeout=60 * 10)
 
     except Exception as e:
         print(e.args[0], file=sys.stderr)
@@ -939,7 +996,7 @@ def create_instance_and_verify(test_config: TestConfig, site_config: SiteConfig,
     try:
         # Create instance
         print("Creating an instance on the machine")
-        instance_name = f"machine-lifecycle-test-instance-{test_config.expected_dpu_count}"
+        instance_name = f"machine-lifecycle-test-instance-{test_config.expected_dpu_count}-{str(uuid.uuid4())[:8]}"
         instance = ngc.create_instance(
             instance_name,
             ngc_uuids.instance_type_uuid,

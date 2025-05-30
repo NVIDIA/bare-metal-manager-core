@@ -314,6 +314,69 @@ def factory_reset_bmc(bmc_ip: str, bmc_username: str, bmc_password: str) -> None
     )
 
 
+# Parse the Rust struct representation to Python dictionary
+def rust_struct_to_dict(rust_struct_str):
+    # Remove curly braces and split by commas or newlines
+    content = rust_struct_str.strip().strip('{}')
+
+    # Dictionary to store the parsed values
+    result = {}
+
+    # Process each line/field
+    for line in content.split(','):
+        line = line.strip()
+        if not line:
+            continue
+
+        # Split by colon to get key and value
+        parts = line.split(':', 1)
+        if len(parts) != 2:
+            continue
+
+        key = parts[0].strip()
+        value = parts[1].strip()
+
+        # Handle strings (values in quotes)
+        if value.startswith('"') and value.endswith('"'):
+            result[key] = value[1:-1]  # Remove quotes
+        # Handle arrays/vectors
+        elif value.startswith('[') and value.endswith(']'):
+            if value == '[]':
+                result[key] = []
+            else:
+                # Parse array elements
+                elements = value[1:-1].split(',')
+                result[key] = [elem.strip().strip('"') for elem in elements]
+        # Handle Some() wrapper
+        elif value.startswith('Some(') and value.endswith(')'):
+            # Extract content inside Some()
+            inner_value = value[5:-1].strip()
+            if inner_value.startswith('{') and inner_value.endswith('}'):
+                # Recursively parse the inner struct
+                result[key] = rust_struct_to_dict(inner_value)
+            else:
+                result[key] = inner_value
+        # Handle None
+        elif value == 'None':
+            result[key] = None
+        # Handle boolean values
+        elif value == 'true':
+            result[key] = True
+        elif value == 'false':
+            result[key] = False
+        # Handle numeric values
+        else:
+            try:
+                result[key] = int(value)
+            except ValueError:
+                try:
+                    result[key] = float(value)
+                except ValueError:
+                    result[key] = value
+
+    return result
+
+
 def run_forge_admin_cli(args: list[str], no_json: bool = False) -> dict | None:
     """Run the specified forge-admin-cli command.
 
@@ -342,7 +405,11 @@ def run_forge_admin_cli(args: list[str], no_json: bool = False) -> dict | None:
         json_result = json.loads(result.stdout)
     except JSONDecodeError:
         print(f"JSON decode error:\n{result.stdout}", file=sys.stderr)
-        raise
+        # WAR for the case where the output is a Rust struct:
+        # https://nvbugspro.nvidia.com/bug/5309004
+        rstd = rust_struct_to_dict(result.stdout)
+        print(rstd)
+        return rstd
     else:
         return json_result
 
@@ -409,3 +476,9 @@ def get_machine_capabilities(machine_id: str) -> dict:
     }
 
     return capabilities
+
+
+def get_expected_machines(host_bmc_mac: str) -> dict:
+    """Get the expected machines from the forge-admin-cli."""
+    result = run_forge_admin_cli(["expected-machine", "show", host_bmc_mac])
+    return result

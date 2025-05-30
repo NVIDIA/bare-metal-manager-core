@@ -58,6 +58,11 @@ class ForgeVaultClient:
         ssh_private_key = read_response["data"]["data"]["ssh_private_key"]
         return ssh_private_key
 
+    def get_default_dell_bmc_password(self):
+        read_response = self.client.secrets.kv.v2.read_secret(mount_point=self.mount_point, path=self.path)
+        default_dell_bmc_password = read_response["data"]["data"]["default_dell_bmc_password"]
+        return default_dell_bmc_password
+
 
 def vault_login() -> hvac.Client:
     """Authenticate to Vault & return a client object.
