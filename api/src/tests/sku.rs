@@ -185,11 +185,13 @@ pub mod tests {
         crate::db::sku::delete(&mut txn, &actual_sku.id).await?;
 
         match crate::db::sku::find(&mut txn, &[expected_sku.id]).await {
-            Ok(sku) => panic!("Found deleted SKU: {sku:?}"),
-            Err(DatabaseError { source, .. }) => match source {
-                sqlx::Error::RowNotFound => {}
-                _ => panic!("Unexpected error: {source}"),
-            },
+            Ok(sku) => {
+                if !sku.is_empty() {
+                    let sku_name = sku[0].id.clone();
+                    panic!("Found a SKU when querying for deleted SKU: {sku_name}")
+                }
+            }
+            Err(carbide_error_type) => panic!("Unexpected error: {carbide_error_type}"),
         }
 
         Ok(())
@@ -260,11 +262,14 @@ pub mod tests {
         crate::db::sku::delete(&mut txn, &actual_sku.id).await?;
 
         match crate::db::sku::find(&mut txn, &[sku_id]).await {
-            Ok(sku) => panic!("Found deleted SKU: {sku:?}"),
-            Err(DatabaseError { source, .. }) => match source {
-                sqlx::Error::RowNotFound => {}
-                _ => panic!("Unexpected error: {source}"),
-            },
+            // We expect an okay result, but that it should be an empty list.
+            Ok(sku) => {
+                if !sku.is_empty() {
+                    let sku_name = sku[0].id.clone();
+                    panic!("Found a SKU when querying for deleted SKU: {sku_name}")
+                }
+            }
+            Err(carbide_error_type) => panic!("Unexpected error: {carbide_error_type}"),
         }
 
         Ok(())

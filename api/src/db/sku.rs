@@ -122,6 +122,10 @@ pub async fn get_sku_ids(txn: &mut PgConnection) -> Result<Vec<String>, Database
 }
 
 pub async fn find(txn: &mut PgConnection, sku_ids: &[String]) -> Result<Vec<Sku>, DatabaseError> {
+    if sku_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let query = "SELECT * FROM machine_skus WHERE id=ANY($1)";
 
     let skus: Vec<Sku> = sqlx::query_as(query)
@@ -130,14 +134,6 @@ pub async fn find(txn: &mut PgConnection, sku_ids: &[String]) -> Result<Vec<Sku>
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "find skus", e))?;
 
-    if skus.is_empty() {
-        return Err(DatabaseError::new(
-            file!(),
-            line!(),
-            "find skus",
-            sqlx::Error::RowNotFound,
-        ));
-    }
     Ok(skus)
 }
 

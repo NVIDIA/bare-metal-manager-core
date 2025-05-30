@@ -294,13 +294,13 @@ pub(crate) async fn handle_bom_validation_state(
                 ));
             };
 
-            let Some(expected_sku) = crate::db::sku::find(txn, &[sku_id.clone()]).await?.pop()
-            else {
-                return Err(StateHandlerError::MissingData {
-                    object_id: sku_id,
+            let expected_sku = crate::db::sku::find(txn, &[sku_id.clone()])
+                .await?
+                .pop()
+                .ok_or_else(|| StateHandlerError::MissingData {
+                    object_id: sku_id.clone(),
                     missing: "Assigned SKU is missing",
-                });
-            };
+                })?;
 
             let actual_sku = crate::db::sku::generate_sku_from_machine_at_version(
                 txn,
