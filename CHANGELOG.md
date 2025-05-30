@@ -11,6 +11,8 @@
 
 ### Fixed
 
+- [MR-4114](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4114): Re-enable LLDP back to dpu discovery flow for all DPUs that are running firmware 2.1 or greater
+
 ### Removed
 
 ### Internal
