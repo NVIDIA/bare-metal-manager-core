@@ -68,6 +68,8 @@ groupadd nsv
 
 # end nvinit setup
 
+systemctl enable nvidia-imex
+systemctl enable nvidia-fabricmanager
 
 for kernel in $(ls -1 /lib/modules/*/vmlinuz)
 do
