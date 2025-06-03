@@ -31,10 +31,6 @@ IPXE_BANNER_VERSION = { script = [
 ] }
 DOCA_HBN_URI = "nvcr.io/nvidia/doca/doca_hbn:2.3.0-doca2.8.0"
 BUILD_LOCATION = "/tmp/bfb-dump/initramfs-tmp"
-
-# BF3-23.10-5 - Minimum version for forge to work
-BF3_PREINGESTION_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/BF3/BF3BMC-23.10-5/OPN/bf3-bmc-23.10-5_opn.fwpkg"
-
 [tasks.upload-bfb-artifacts-to-urm]
 env = { "BFB_LOCATION" = "${BFB_UPSTREAM_LOCATION}", "HBN_CONFIG_URL" = "${HBN_UPSTREAM_CONFIG_URL}" }
 run_task = "internal-upload-bfb-artifacts-to-urm"
@@ -50,6 +46,15 @@ dependencies = [
   "bfb-hbn-export",
   "download-hbn-installer-to-bfb",
   "upload-artifacts-to-artifactory",
+]
+
+[tasks.save-bfb-for-preingestion]
+dependencies=["mkdir-static"]
+command = "cp"
+args = [
+  "-f",
+  "/tmp/bfb-dump/${BFB_NAME}",
+  "${REPO_ROOT}/pxe/static/blobs/internal/aarch64",
 ]
 
 [tasks.bfb-mv-to-build-dir]
@@ -124,7 +129,6 @@ dependencies = [
   "bfb-aarch64",
   "ipxe-aarch64",
   "setup-apt-repo-arm64",
-  "setup-firmware-repo",
 ]
 
 [tasks.build-boot-artifacts-bfb-ci]
@@ -134,7 +138,6 @@ dependencies = [
   "bfb-aarch64-ci",
   "ipxe-aarch64-ci",
   "setup-apt-repo-arm64",
-  "setup-firmware-repo",
 ]
 
 [tasks.create-ephemeral-image-x86-host-ci]
@@ -212,11 +215,8 @@ script = '''
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-arm64"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-dpu"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-scout"
-  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/firmware"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/x86_64"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-amd64"
-  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-scout"
-  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/firmware"
   mkdir -p "${REPO_ROOT}/pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output"
   mkdir -p "${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output"
 '''
@@ -518,6 +518,7 @@ dependencies = [
   "bfb-cleanup-tmp",
   "bfb-create-tmp",
   "bfb-download",
+  "save-bfb-for-preingestion",
   "bfbtools-download",
   "bfb-extract",
   "bfb-extract-efi-ci",
@@ -550,6 +551,7 @@ dependencies = [
   "bfb-cleanup-tmp",
   "bfb-create-tmp",
   "bfb-download",
+  "save-bfb-for-preingestion",
   "bfbtools-download",
   "bfb-extract",
   "bfb-extract-efi",
@@ -842,16 +844,6 @@ Origin: Ubuntu
 Label: Ubuntu
 Architecture: amd64" > Release
 '''
-
-[tasks.setup-firmware-repo]
-category = "iPXE Kernel"
-dependencies = ["mkdir-static"]
-description = "Download vendor specific firmware packages"
-script = [
-  "echo Downloading nvidia firmware",
-  "mkdir -p nvidia/dpu",
-  "wget -Nnv \"${BF3_PREINGESTION_BMC_PACKAGE}\" -P ${REPO_ROOT}/pxe/static/blobs/internal/firmware/nvidia/dpu",
-]
 
 [tasks.bfb-copy-efi]
 category = "iPXE Kernel"
