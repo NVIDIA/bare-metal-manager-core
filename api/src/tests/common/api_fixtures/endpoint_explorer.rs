@@ -13,8 +13,8 @@ use crate::{
     site_explorer::{EndpointExplorer, SiteExplorationMetrics},
 };
 
+use forge_ssh::ssh::SshConfig;
 use libredfish::model::oem::nvidia_dpu::NicMode;
-use utils::ssh::SshConfig;
 
 /// EndpointExplorer which returns predefined data
 #[derive(Clone, Default, Debug)]

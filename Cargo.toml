@@ -17,6 +17,7 @@ members = [
     "common/measured-boot",
     "common/metrics-endpoint",
     "common/secrets",
+    "common/ssh",
     "common/tls",
     "common/tonic-client-wrapper",
     "common/utils",
