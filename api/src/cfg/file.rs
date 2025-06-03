@@ -1017,20 +1017,6 @@ impl Default for DpuConfig {
                     current_version_reported_as: Some(Regex::new("BMC_Firmware").unwrap()),
                     preingest_upgrade_when_below: Some("BF-23.10-5".to_string()),
                     known_firmware: vec![
-                        // BF-23.10-5 (DOCA 2.5) is the minimum BMC firmware for BF3s that site explorer supports for auto-ingestion
-                        // Use this entry to facilitate BMC fw upgrades to BF-23.10-5 on DPUs that are at a lower BMC fw as part of
-                        // BF3 preingestion.
-                        FirmwareEntry {
-                            version: "BF-23.10-5".to_string(),
-                            mandatory_upgrade_from_priority: None,
-                            default: false,
-                            filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc-23.10-5_opn.fwpkg".to_string()),
-                            url: None,
-                            checksum: None,
-                            install_only_specified: false,
-                            power_drains_needed: None,
-                            preingestion_exclusive_config: true,
-                        },
                         // BF-24.07-14 (DOCA 2.8) is the expected BMC FW that we expect on BF3s after ingesting them
                         FirmwareEntry {
                         version: "BF-24.07-14".to_string(),

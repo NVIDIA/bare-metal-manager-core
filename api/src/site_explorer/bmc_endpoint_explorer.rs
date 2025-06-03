@@ -336,7 +336,7 @@ impl BmcEndpointExplorer {
         forge_ssh::ssh::enable_rshim(bmc_ip_address, username, password, ssh_config)
             .await
             .map_err(|err| EndpointExplorationError::Other {
-                details: format!("failed query RSHIM status on on {bmc_ip_address}: {err}"),
+                details: format!("failed enable RSHIM on {bmc_ip_address}: {err}"),
             })
     }
 
