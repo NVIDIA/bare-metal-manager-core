@@ -14,11 +14,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use forge_secrets::credentials::{CredentialProvider, Credentials};
+use forge_ssh::ssh::SshConfig;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 use tokio::time::{Duration, sleep};
-use utils::ssh::{SshConfig, copy_bfb_to_bmc_rshim, enable_rshim, is_rshim_enabled};
 
 use super::credentials::{CredentialClient, get_bmc_root_credential_key};
 use super::metrics::SiteExplorationMetrics;
@@ -313,11 +313,12 @@ impl BmcEndpointExplorer {
         let (username, password) = match credentials.clone() {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
-        let rshim_status = is_rshim_enabled(bmc_ip_address, username, password, ssh_config)
-            .await
-            .map_err(|err| EndpointExplorationError::Other {
-                details: format!("failed query RSHIM status on on {bmc_ip_address}: {err}"),
-            })?;
+        let rshim_status =
+            forge_ssh::ssh::is_rshim_enabled(bmc_ip_address, username, password, ssh_config)
+                .await
+                .map_err(|err| EndpointExplorationError::Other {
+                    details: format!("failed query RSHIM status on on {bmc_ip_address}: {err}"),
+                })?;
 
         Ok(rshim_status)
     }
@@ -332,7 +333,7 @@ impl BmcEndpointExplorer {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
-        enable_rshim(bmc_ip_address, username, password, ssh_config)
+        forge_ssh::ssh::enable_rshim(bmc_ip_address, username, password, ssh_config)
             .await
             .map_err(|err| EndpointExplorationError::Other {
                 details: format!("failed query RSHIM status on on {bmc_ip_address}: {err}"),
@@ -382,7 +383,7 @@ impl BmcEndpointExplorer {
         self.check_and_enable_rshim(bmc_ip_address, credentials, ssh_config.clone())
             .await?;
 
-        copy_bfb_to_bmc_rshim(
+        forge_ssh::ssh::copy_bfb_to_bmc_rshim(
             bmc_ip_address,
             username,
             password,

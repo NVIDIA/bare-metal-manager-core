@@ -11,7 +11,6 @@
  */
 
 use humantime::format_duration;
-use rpc::forge::SshTimeoutConfig;
 use ssh2::Session;
 use std::fs::{File, metadata};
 use std::io::{Read, Write};
@@ -75,19 +74,6 @@ impl Default for SshConfig {
 impl fmt::Display for SshConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self, f)
-    }
-}
-
-impl From<&SshTimeoutConfig> for SshConfig {
-    fn from(config: &SshTimeoutConfig) -> Self {
-        SshConfig {
-            tcp_connection_timeout: Duration::from_secs(
-                config.tcp_connection_timeout.unwrap_or(10),
-            ),
-            tcp_read_timeout: Duration::from_secs(config.tcp_read_timeout.unwrap_or(300)),
-            tcp_write_timeout: Duration::from_secs(config.tcp_write_timeout.unwrap_or(300)),
-            ssh_session_timeout: Duration::from_secs(config.ssh_session_timeout.unwrap_or(360)),
-        }
     }
 }
 

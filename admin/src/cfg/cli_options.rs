@@ -20,15 +20,15 @@ use ipnet::IpNet;
 use mac_address::MacAddress;
 
 use forge_network::virtualization::VpcVirtualizationType;
+use forge_ssh::ssh::{
+    DEFAULT_SSH_SESSION_TIMEOUT, DEFAULT_TCP_CONNECTION_TIMEOUT, DEFAULT_TCP_READ_TIMEOUT,
+    DEFAULT_TCP_WRITE_TIMEOUT, SshConfig,
+};
 use forge_uuid::machine::MachineId;
 use forge_uuid::vpc::{VpcId, VpcPrefixId};
 use libredfish::model::update_service::ComponentType;
 use rpc::forge::{OperatingSystem, SshTimeoutConfig};
 use serde::{Deserialize, Serialize};
-use utils::ssh::{
-    DEFAULT_SSH_SESSION_TIMEOUT, DEFAULT_TCP_CONNECTION_TIMEOUT, DEFAULT_TCP_READ_TIMEOUT,
-    DEFAULT_TCP_WRITE_TIMEOUT, SshConfig,
-};
 use utils::{admin_cli::OutputFormat, has_duplicates};
 
 use crate::cfg::instance_type;

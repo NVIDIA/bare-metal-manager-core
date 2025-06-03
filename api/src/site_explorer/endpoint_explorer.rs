@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use forge_ssh::ssh::SshConfig;
 use libredfish::model::oem::nvidia_dpu::NicMode;
-use utils::ssh::SshConfig;
 
 use crate::{
     db::expected_machine::ExpectedMachine,

@@ -11,12 +11,16 @@
  */
 
 use std::net::SocketAddr;
+use std::time::Duration;
 
+use forge_ssh::ssh::{
+    DEFAULT_SSH_SESSION_TIMEOUT, DEFAULT_TCP_CONNECTION_TIMEOUT, DEFAULT_TCP_READ_TIMEOUT,
+    DEFAULT_TCP_WRITE_TIMEOUT, SshConfig,
+};
 use mac_address::MacAddress;
 use rpc::forge::BmcCredentialStatusResponse;
 use tokio::net::lookup_host;
 use tonic::{Response, Status};
-use utils::ssh::SshConfig;
 
 use crate::db::DatabaseError;
 use crate::db::machine_interface::find_by_ip;
@@ -182,7 +186,28 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
-    let ssh_timeout_config: Option<SshConfig> = ssh_config.map(|config| SshConfig::from(&config));
+    let ssh_timeout_config: Option<SshConfig> = ssh_config.map(|config| SshConfig {
+        tcp_connection_timeout: Duration::from_secs(
+            config
+                .tcp_connection_timeout
+                .unwrap_or(DEFAULT_TCP_CONNECTION_TIMEOUT.as_secs()),
+        ),
+        tcp_read_timeout: Duration::from_secs(
+            config
+                .tcp_read_timeout
+                .unwrap_or(DEFAULT_TCP_READ_TIMEOUT.as_secs()),
+        ),
+        tcp_write_timeout: Duration::from_secs(
+            config
+                .tcp_write_timeout
+                .unwrap_or(DEFAULT_TCP_WRITE_TIMEOUT.as_secs()),
+        ),
+        ssh_session_timeout: Duration::from_secs(
+            config
+                .ssh_session_timeout
+                .unwrap_or(DEFAULT_SSH_SESSION_TIMEOUT.as_secs()),
+        ),
+    });
 
     api.endpoint_explorer
         .copy_bfb_to_dpu_rshim(bmc_addr, &machine_interface, bfb_path, ssh_timeout_config)
