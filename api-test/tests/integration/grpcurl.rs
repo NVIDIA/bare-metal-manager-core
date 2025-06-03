@@ -10,25 +10,30 @@
  * its affiliates is strictly prohibited.
  */
 
+use eyre::ContextCompat;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, process};
 
-use serde::{Deserialize, Serialize};
-
 pub fn grpcurl<T: ToString>(
-    addr: SocketAddr,
+    addrs: &[SocketAddr],
     endpoint: &str,
     data: Option<T>,
 ) -> eyre::Result<String> {
-    grpcurl_for(addr, endpoint, data, None)
+    grpcurl_for(addrs, endpoint, data, None)
 }
 
 pub fn grpcurl_for<T: ToString>(
-    addr: SocketAddr,
+    addrs: &[SocketAddr],
     endpoint: &str,
     data: Option<T>,
     for_ip: Option<&str>,
 ) -> eyre::Result<String> {
-    let address = addr.to_string();
+    let address = addrs
+        .choose(&mut thread_rng())
+        .context("No API servers configured")?
+        .to_string();
     let grpc_endpoint = format!("forge.Forge/{endpoint}");
     let mut args = vec![
         "-insecure",
@@ -66,8 +71,8 @@ pub fn grpcurl_for<T: ToString>(
 }
 
 // grpcurl then extra id from response and return that
-pub fn grpcurl_id(addr: SocketAddr, endpoint: &str, data: &str) -> eyre::Result<String> {
-    let response = grpcurl(addr, endpoint, Some(data))?;
+pub fn grpcurl_id(addrs: &[SocketAddr], endpoint: &str, data: &str) -> eyre::Result<String> {
+    let response = grpcurl(addrs, endpoint, Some(data))?;
     let resp: IdValue = serde_json::from_str(&response)?;
     Ok(resp.id.value)
 }

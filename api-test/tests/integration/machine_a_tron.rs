@@ -16,7 +16,8 @@ use machine_a_tron::{
     BmcMockRegistry, BmcRegistrationMode, HostMachineHandle, MachineATron, MachineATronConfig,
     MachineATronContext, api_throttler,
 };
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use rpc::forge_api_client::FailOverOn;
+use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, RetryConfig};
 use rpc::protos::forge_api_client::ForgeApiClient;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -32,6 +33,7 @@ use tokio::task::JoinHandle;
 /// timeout in case a ready state is not reached.
 pub async fn run_local(
     app_config: MachineATronConfig,
+    additional_api_urls: Vec<String>,
     repo_root: PathBuf,
     bmc_address_registry: BmcMockRegistry,
 ) -> eyre::Result<(Vec<HostMachineHandle>, MachineATronHandle)> {
@@ -43,10 +45,20 @@ pub async fn run_local(
     let host_tar_router =
         bmc_mock::tar_router(TarGzOption::Disk(&app_config.bmc_mock_host_tar), None)?;
 
-    let forge_api_client = ForgeApiClient::new(&ApiConfig::new(
+    let api_config = ApiConfig::new_with_multiple_urls(
         &app_config.carbide_api_url,
+        &additional_api_urls,
         &forge_client_config,
-    ));
+        RetryConfig {
+            retries: 10,
+            interval: Duration::from_secs(1),
+        },
+    );
+
+    // We want the API client to constantly switch between API servers if the test has more than one,
+    // to emulate what a load balancer would do.
+    let forge_api_client =
+        ForgeApiClient::new_with_failover_behavior(&api_config, FailOverOn::EveryApiCall);
 
     let api_throttler = api_throttler::run(
         tokio::time::interval(Duration::from_secs(2)),

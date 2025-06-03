@@ -12,7 +12,7 @@
 
 use std::{net::SocketAddr, process};
 
-pub fn metrics(metrics_endpoint: SocketAddr) -> eyre::Result<String> {
+pub fn metrics(metrics_endpoint: &SocketAddr) -> eyre::Result<String> {
     let endpoint = format!("http://{metrics_endpoint}/metrics");
     let args = vec![endpoint.clone()];
     // We don't pass the full path to curl here and rely on the fact
@@ -32,7 +32,7 @@ pub fn metrics(metrics_endpoint: SocketAddr) -> eyre::Result<String> {
 
 /// Waits for a specific metric line to show up. Returns the metrics
 pub async fn wait_for_metric_line(
-    metrics_endpoint: SocketAddr,
+    metrics_endpoints: &[SocketAddr],
     expected_line: &str,
 ) -> eyre::Result<String> {
     const MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -41,9 +41,11 @@ pub async fn wait_for_metric_line(
     let mut last_metrics = String::new();
 
     while start.elapsed() < MAX_WAIT {
-        last_metrics = metrics(metrics_endpoint)?;
-        if last_metrics.contains(expected_line) {
-            return Ok(last_metrics);
+        for addr in metrics_endpoints {
+            last_metrics = metrics(addr)?;
+            if last_metrics.contains(expected_line) {
+                return Ok(last_metrics);
+            }
         }
 
         tracing::info!("Waiting for metric line");

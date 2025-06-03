@@ -3,38 +3,128 @@ use crate::forge_tls_client::{
 };
 pub use crate::protos::forge_api_client::ForgeApiClient;
 use chrono::{DateTime, Utc};
+use nonempty::NonEmpty;
 use std::fs;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::SystemTime;
 use tonic::Status;
 
 impl ForgeApiClient {
     pub fn new(api_config: &ApiConfig<'_>) -> Self {
         Self::build(ForgeTlsConnectionProvider {
-            url: api_config.url.to_string(),
+            urls: NonEmpty::from((
+                api_config.url.to_string(),
+                api_config.additional_urls.to_vec(),
+            )),
             client_config: api_config.client_config.clone(),
             retry_config: api_config.retry_config,
+            last_connection_index: 0.into(),
+            fail_over_on: FailOverOn::ConnectionError,
+        })
+    }
+
+    pub fn new_with_failover_behavior(
+        api_config: &ApiConfig<'_>,
+        fail_over_on: FailOverOn,
+    ) -> Self {
+        Self::build(ForgeTlsConnectionProvider {
+            urls: NonEmpty::from((
+                api_config.url.to_string(),
+                api_config.additional_urls.to_vec(),
+            )),
+            client_config: api_config.client_config.clone(),
+            retry_config: api_config.retry_config,
+            last_connection_index: 0.into(),
+            fail_over_on,
         })
     }
 }
 
 #[derive(Debug)]
 struct ForgeTlsConnectionProvider {
-    url: String,
+    urls: NonEmpty<String>,
     client_config: ForgeClientConfig,
     retry_config: RetryConfig,
+    fail_over_on: FailOverOn,
+    last_connection_index: AtomicUsize,
+}
+
+#[derive(Debug, Clone, Copy)]
+/// Determines when ForgeTlsConnectionProvider should select the next server in the list, if
+/// configured for multiple carbide-api servers.
+pub enum FailOverOn {
+    /// Fail over whenever there is a failure connecting to carbide-api. Note that fail-back is not
+    /// (yet) supported.
+    ConnectionError,
+    /// Select a new carbide-api instance on every call to carbide-api. This is currently only
+    /// needed by tests, where we intentionally want to vary the connection to emulate what a load
+    /// balancer would do.
+    EveryApiCall,
+}
+
+impl ForgeTlsConnectionProvider {
+    fn current_endpoint_url(&self) -> &str {
+        // SAFETY: last_connection_index is always modulo urls.len()
+        self.urls
+            .get(self.last_connection_index.load(Ordering::SeqCst))
+            .unwrap()
+    }
+
+    fn next_endpoint_url(&self) -> &str {
+        let connection_index = self
+            .last_connection_index
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current_index| {
+                Some((current_index + 1) % self.urls.len())
+            })
+            .unwrap(); // SAFETY: we always return Some(), so this will always succeed.
+        // SAFETY: connection_index is always modulo urls.len()
+        self.urls.get(connection_index).unwrap()
+    }
 }
 
 #[async_trait::async_trait]
 impl tonic_client_wrapper::ConnectionProvider<ForgeClientT> for ForgeTlsConnectionProvider {
     async fn provide_connection(&self) -> Result<ForgeClientT, Status> {
-        ForgeTlsClient::retry_build(
-            &ApiConfig::new(&self.url, &self.client_config).with_retry_config(self.retry_config),
-        )
-        .await
-        .map_err(Into::into)
+        let mut url = if self.urls.len() <= 1 {
+            self.urls.first()
+        } else {
+            match self.fail_over_on {
+                FailOverOn::ConnectionError => self.current_endpoint_url(),
+                FailOverOn::EveryApiCall => self.next_endpoint_url(),
+            }
+        };
+
+        let mut retries = 0;
+        loop {
+            match ForgeTlsClient::retry_build(
+                &ApiConfig::new(url, &self.client_config).with_retry_config(RetryConfig {
+                    // We do our own retry counting
+                    retries: 1,
+                    interval: self.retry_config.interval,
+                }),
+            )
+            .await
+            .map_err(Into::into)
+            {
+                Ok(client) => return Ok(client),
+                Err(e) => {
+                    retries += 1;
+                    if retries > self.retry_config.retries {
+                        return Err(e);
+                    }
+                    url = self.next_endpoint_url();
+                }
+            }
+        }
     }
 
     async fn connection_is_stale(&self, last_connected: SystemTime) -> bool {
+        if matches!(self.fail_over_on, FailOverOn::EveryApiCall) {
+            // We can switch between API instances on every API call by just always considering the
+            // connection to be stale.
+            return true;
+        }
+
         if let Some(ref client_cert) = self.client_config.client_cert {
             if let Ok(mtime) = fs::metadata(&client_cert.cert_path).and_then(|m| m.modified()) {
                 if mtime > last_connected {
@@ -76,6 +166,6 @@ impl tonic_client_wrapper::ConnectionProvider<ForgeClientT> for ForgeTlsConnecti
     }
 
     fn connection_url(&self) -> &str {
-        self.url.as_str()
+        self.current_endpoint_url()
     }
 }

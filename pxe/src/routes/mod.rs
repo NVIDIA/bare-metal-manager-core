@@ -11,7 +11,7 @@
  */
 use ::rpc::{
     forge as rpc,
-    forge_tls_client::{self, ApiConfig, ForgeClientConfig, RetryConfig},
+    forge_tls_client::{self, ApiConfig, ForgeClientConfig},
 };
 
 pub(crate) mod cloud_init;
@@ -25,14 +25,10 @@ impl RpcContext {
     async fn get_pxe_instructions(
         arch: rpc::MachineArchitecture,
         machine_interface_id: uuid::Uuid,
-        url: String,
+        url: &str,
         client_config: &ForgeClientConfig,
     ) -> Result<String, String> {
-        let api_config = ApiConfig {
-            url: &url,
-            retry_config: RetryConfig::default(),
-            client_config,
-        };
+        let api_config = ApiConfig::new(url, client_config);
         let mut client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
             .await
             .map_err(|err| err.to_string())?;

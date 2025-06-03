@@ -10,47 +10,50 @@
  * its affiliates is strictly prohibited.
  */
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use tokio::sync::oneshot::{Receiver, Sender};
 use utils::HostPortPair;
 
 const DOMAIN_NAME: &str = "forge.integrationtest";
 
-pub struct ApiServerTestConfig {
-    pub firmware_directory: String,
-}
-
 // Use a struct for the args to start() so that callers can see argument names
 pub struct StartArgs {
     pub addr: SocketAddr,
+    pub metrics_addr: SocketAddr,
     pub root_dir: String,
     pub db_url: String,
-    pub vault_token: String,
+    pub vault_token: Option<String>,
     pub bmc_proxy: Option<HostPortPair>,
-    pub test_config: ApiServerTestConfig,
+    pub firmware_directory: PathBuf,
     pub stop_channel: Receiver<()>,
     pub ready_channel: Sender<()>,
 }
 
-pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
-    // Destructure start args
-    let StartArgs {
+pub async fn start(
+    StartArgs {
+        // Destructure start args
         addr,
+        metrics_addr,
         root_dir,
         db_url,
         vault_token,
         bmc_proxy,
-        test_config: ApiServerTestConfig { firmware_directory },
+        firmware_directory,
         stop_channel,
         ready_channel,
-    } = start_args;
-
+    }: StartArgs,
+) -> eyre::Result<()> {
     unsafe {
         std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");
         std::env::set_var("VAULT_KV_MOUNT_LOCATION", "secret");
         std::env::set_var("VAULT_PKI_MOUNT_LOCATION", "forgeca");
         std::env::set_var("VAULT_PKI_ROLE_NAME", "forge-cluster");
-        std::env::set_var("VAULT_TOKEN", vault_token);
+        if let Some(vault_token) = vault_token {
+            std::env::set_var("VAULT_TOKEN", vault_token);
+        }
     }
+
+    let firmware_directory_str = firmware_directory.to_string_lossy();
 
     let carbide_config_str = {
         let bmc_proxy_cfg = if let Some(bmc_proxy) = bmc_proxy {
@@ -63,7 +66,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         format!(
             r#"
         listen = "{addr}"
-        metrics_endpoint = "127.0.0.1:1080"
+        metrics_endpoint = "{metrics_addr}"
         database_url = "{db_url}"
         max_database_connections = 1000
         asn = 65535
@@ -198,7 +201,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         run_interval = "5s"
         max_uploads = 4
         concurrency_limit = 16
-        firmware_directory = "{firmware_directory}"
+        firmware_directory = "{firmware_directory_str}"
 
         [multi_dpu]
         enabled = false

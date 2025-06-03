@@ -14,14 +14,14 @@ use std::net::SocketAddr;
 
 use super::grpcurl::grpcurl_id;
 
-pub fn create(carbide_api_addr: SocketAddr) -> eyre::Result<String> {
+pub fn create(carbide_api_addrs: &[SocketAddr]) -> eyre::Result<String> {
     tracing::info!("Creating VPC");
 
     let data = serde_json::json!({
         "name": "tenant_vpc",
         "tenantOrganizationId": "tenant_organization1"
     });
-    let vpc_id = grpcurl_id(carbide_api_addr, "CreateVpc", &data.to_string())?;
+    let vpc_id = grpcurl_id(carbide_api_addrs, "CreateVpc", &data.to_string())?;
     tracing::info!("VPC created with ID {vpc_id}");
     Ok(vpc_id.to_string())
 }
