@@ -384,6 +384,21 @@ script = '''
     fi
 '''
 
+[tasks.ipxe-patch-grace-grace]
+category = "iPXE Kernel"
+description = "Patch iPXE for the Supermicro Grace/Grace servers"
+cwd = "${REPO_ROOT}/pxe/ipxe/upstream"
+script = '''
+    PATCH="${REPO_ROOT}/pxe/ipxe/local/0002-fix-for-grace-grace.patch"
+    echo "Testing if patch is reversible (i.e. already applied)"
+    if ! patch --dry-run -p1 --reverse --forward -i "${PATCH}" >/dev/null; then
+      echo "Reversing the patch failed, forward applying it."
+      patch -p1 --forward -i "${PATCH}"
+    else
+      echo "Reversing would be successful, assuming patch is already applied"
+    fi
+'''
+
 [tasks.ipxe-patch-measured-boot]
 category = 'iPXE Kernel'
 description = "Patch iPXE for measured boot and TPM support"
@@ -420,12 +435,12 @@ dependencies = ["ipxe-build-efi-x86_64"]
 [tasks.ipxe-aarch64]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
-dependencies = ["ipxe-config", "ipxe-patch-mlnx", "ipxe-install-efi-aarch64"]
+dependencies = ["ipxe-config", "ipxe-patch-mlnx", "ipxe-patch-grace-grace", "ipxe-install-efi-aarch64"]
 
 [tasks.ipxe-aarch64-ci]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
-dependencies = ["ipxe-config", "ipxe-patch-mlnx", "ipxe-install-efi-aarch64-ci"]
+dependencies = ["ipxe-config", "ipxe-patch-mlnx", "ipxe-patch-grace-grace", "ipxe-install-efi-aarch64-ci"]
 
 [tasks.ipxe-install-efi-aarch64]
 category = "iPXE Kernel"
