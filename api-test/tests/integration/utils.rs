@@ -26,21 +26,23 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use utils::HostPortPair;
 
-use crate::api_server::{ApiServerTestConfig, StartArgs};
+use crate::api_server::StartArgs;
 use crate::{api_server, find_prerequisites, vault, vault::Vault};
 
 #[derive(Debug, Clone)]
 pub struct IntegrationTestEnvironment {
-    pub carbide_api_addr: SocketAddr,
+    pub carbide_api_addrs: Vec<SocketAddr>,
     pub root_dir: PathBuf,
-    pub carbide_metrics_addr: SocketAddr,
+    pub carbide_metrics_addrs: Vec<SocketAddr>,
     pub db_url: String,
     pub db_pool: Pool<Postgres>,
     pub metrics: MetricsSetup,
 }
 
 impl IntegrationTestEnvironment {
-    pub async fn try_from_environment() -> eyre::Result<Option<IntegrationTestEnvironment>> {
+    pub async fn try_from_environment(
+        api_server_count: u8,
+    ) -> eyre::Result<Option<IntegrationTestEnvironment>> {
         let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT"))
         else {
             eprintln!(
@@ -50,14 +52,29 @@ impl IntegrationTestEnvironment {
         };
         let root_dir = PathBuf::from(repo_root.clone());
 
-        // Ask OS for a free port
-        let carbide_api_addr = {
-            let l = TcpListener::bind("127.0.0.1:0")?;
-            l.local_addr()
-        }?;
-
-        // TODO: Also pick a free port for metrics
-        let carbide_metrics_addr: SocketAddr = "127.0.0.1:1080".parse().unwrap();
+        // Pick free ports for each API server metrics server. This is still racy, as it's not
+        // guaranteed that the ports will still be available when we start the servers, but it's
+        // better than hardcoding them.
+        let (carbide_api_addrs, carbide_metrics_addrs) = {
+            let mut listeners = vec![]; // hold the listeners so that we don't get the same port twice
+            let mut api_addrs = vec![];
+            let mut metrics_addrs = vec![];
+            for _ in 0..api_server_count {
+                api_addrs.push({
+                    let l = TcpListener::bind("127.0.0.1:0")?;
+                    let addr = l.local_addr()?;
+                    listeners.push(l);
+                    addr
+                });
+                metrics_addrs.push({
+                    let l = TcpListener::bind("127.0.0.1:0")?;
+                    let addr = l.local_addr()?;
+                    listeners.push(l);
+                    addr
+                });
+            }
+            (api_addrs, metrics_addrs)
+        };
 
         // We have to do [sqlx::test] 's work manually here so that we can use a multi-threaded executor
         let db_url = env::var("DATABASE_URL")? + "/test_integration";
@@ -65,9 +82,9 @@ impl IntegrationTestEnvironment {
         sqlx::Postgres::create_database(&db_url).await?;
         let db_pool = sqlx::Pool::<sqlx::postgres::Postgres>::connect(&db_url).await?;
         Ok(Some(IntegrationTestEnvironment {
-            carbide_api_addr,
+            carbide_api_addrs,
             root_dir,
-            carbide_metrics_addr,
+            carbide_metrics_addrs,
             db_url,
             db_pool,
             metrics: metrics_endpoint::new_metrics_setup("carbide-api", "forge-system", true)?, // unique to each test
@@ -115,15 +132,16 @@ async fn drop_pg_database_with_retry_if_exists(db_url: &str) -> eyre::Result<()>
 pub async fn start_api_server(
     test_env: IntegrationTestEnvironment,
     bmc_proxy: Option<HostPortPair>,
-    test_config: ApiServerTestConfig,
+    firmware_directory: PathBuf,
+    addr_index: usize,
 ) -> eyre::Result<ApiServerHandle> {
     // Destructure into vars to save typing
     let IntegrationTestEnvironment {
-        carbide_api_addr,
+        carbide_api_addrs,
         db_pool,
         db_url,
         root_dir,
-        carbide_metrics_addr: _,
+        carbide_metrics_addrs,
         metrics,
     } = test_env;
 
@@ -160,19 +178,28 @@ pub async fn start_api_server(
 
     // Dependencies: Postgres, Vault and a Redfish BMC
     m.run(&db_pool).await?;
-    let vault = vault::start(bins.get("vault").unwrap())?;
-    let vault_token = vault.token().to_string();
+
+    // Only run vault once. The first instance will set the VAULT_TOKEN env var, so the second
+    // instance doesn't have to.
+    let (vault_token, _vault_handle) = if addr_index == 0 {
+        let vault = vault::start(bins.get("vault").unwrap())?;
+        (Some(vault.token().to_string()), Some(vault))
+    } else {
+        (None, None)
+    };
+
     let root_dir_clone = root_dir.to_str().unwrap().to_string();
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let join_handle = tokio::spawn(async move {
         api_server::start(StartArgs {
-            addr: carbide_api_addr,
+            addr: carbide_api_addrs[addr_index],
+            metrics_addr: carbide_metrics_addrs[addr_index],
             root_dir: root_dir_clone,
             db_url,
             vault_token,
             bmc_proxy,
-            test_config,
+            firmware_directory,
             stop_channel: stop_rx,
             ready_channel: ready_tx,
         })
@@ -188,7 +215,7 @@ pub async fn start_api_server(
     Ok(ApiServerHandle {
         stop_channel: Some(stop_tx),
         join_handle,
-        _vault_handle: vault,
+        _vault_handle,
     })
 }
 
@@ -196,7 +223,7 @@ pub async fn start_api_server(
 pub struct ApiServerHandle {
     stop_channel: Option<Sender<()>>,
     join_handle: JoinHandle<eyre::Result<()>>,
-    _vault_handle: Vault,
+    _vault_handle: Option<Vault>,
 }
 
 impl ApiServerHandle {

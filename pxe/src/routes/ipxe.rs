@@ -93,7 +93,7 @@ pub async fn boot(contents: MachineInterface, state: State<AppState>) -> impl In
             let instructions = RpcContext::get_pxe_instructions(
                 arch.into(),
                 machine_interface_id,
-                state.runtime_config.internal_api_url.clone(),
+                &state.runtime_config.internal_api_url,
                 &ForgeClientConfig::new(
                     state.runtime_config.forge_root_ca_path.clone(),
                     Some(ClientCert {

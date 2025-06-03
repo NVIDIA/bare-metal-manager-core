@@ -36,3 +36,5 @@ metrics-endpoint = { path = "../common/metrics-endpoint" }
 
 [build-dependencies]
 forge-version = { path = "../common/version" }
+[dependencies]
+rand = "0.8.5"

@@ -15,7 +15,7 @@ use std::net::SocketAddr;
 use super::grpcurl::{grpcurl, grpcurl_id};
 
 pub fn create(
-    carbide_api_addr: SocketAddr,
+    carbide_api_addrs: &[SocketAddr],
     vpc_id: &str,
     domain_id: &str,
     prefix_octet: u8,
@@ -30,10 +30,10 @@ pub fn create(
         "segment_type": if host_inband_network { "HOST_INBAND" } else { "TENANT" },
         "prefixes": [{"prefix":format!("10.10.{prefix_octet}.0/24"), "gateway": format!("10.10.{prefix_octet}.1"), "reserve_first": 10}]
     });
-    let segment_id = grpcurl_id(carbide_api_addr, "CreateNetworkSegment", &data.to_string())?;
+    let segment_id = grpcurl_id(carbide_api_addrs, "CreateNetworkSegment", &data.to_string())?;
     tracing::info!("Network Segment created with ID {segment_id}");
 
-    wait_for_network_segment_state(carbide_api_addr, &segment_id, "READY")?;
+    wait_for_network_segment_state(carbide_api_addrs, &segment_id, "READY")?;
 
     tracing::info!("Network Segment with ID {segment_id} is ready");
     Ok(segment_id)
@@ -41,7 +41,7 @@ pub fn create(
 
 // Waits for a network segment to reach a certain state
 pub fn wait_for_network_segment_state(
-    addr: SocketAddr,
+    addrs: &[SocketAddr],
     segment_id: &str,
     target_state: &str,
 ) -> eyre::Result<()> {
@@ -55,7 +55,7 @@ pub fn wait_for_network_segment_state(
 
     tracing::info!("Waiting for Network Segment {segment_id} state {target_state}");
     while start.elapsed() < MAX_WAIT {
-        let response = grpcurl(addr, "FindNetworkSegments", Some(&data))?;
+        let response = grpcurl(addrs, "FindNetworkSegments", Some(&data))?;
         let resp: serde_json::Value = serde_json::from_str(&response)?;
         latest_state = resp["networkSegments"][0]["state"]
             .as_str()

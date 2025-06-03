@@ -311,6 +311,7 @@ dependencies = [
  "itertools 0.14.0",
  "machine-a-tron",
  "metrics-endpoint",
+ "rand 0.8.5",
  "rpc",
  "serde",
  "serde_json",
@@ -2794,7 +2795,7 @@ version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8835f84f38484cc86f110a805655697908257fb9a7af005234060891557198e9"
 dependencies = [
- "nonempty",
+ "nonempty 0.7.0",
  "thiserror 1.0.69",
 ]
 
@@ -4619,6 +4620,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9e591e719385e6ebaeb5ce5d3887f7d5676fceca6411d1925ccc95745f3d6f7"
 
 [[package]]
+name = "nonempty"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "549e471b99ccaf2f89101bec68f4d244457d5a95a9c3d0672e9564124397741d"
+
+[[package]]
 name = "nonzero_ext"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6068,6 +6075,7 @@ dependencies = [
  "hyper-util",
  "log",
  "mac_address",
+ "nonempty 0.11.0",
  "prost",
  "prost-types",
  "resolv-conf",

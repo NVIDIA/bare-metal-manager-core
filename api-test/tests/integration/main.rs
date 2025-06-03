@@ -9,6 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use crate::utils::IntegrationTestEnvironment;
+use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
+use ::utils::HostPortPair;
+use bmc_mock::ListenerOrAddress;
+use eyre::ContextCompat;
+use futures::FutureExt;
+use futures::future::join_all;
+use itertools::Itertools;
+use sqlx::{Postgres, Row};
 use std::future::Future;
 use std::net::TcpListener;
 use std::sync::Arc;
@@ -19,16 +28,6 @@ use std::{
     path::{self, PathBuf},
     time::{self, Duration},
 };
-
-use crate::api_server::ApiServerTestConfig;
-use crate::utils::IntegrationTestEnvironment;
-use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
-use ::utils::HostPortPair;
-use bmc_mock::ListenerOrAddress;
-use futures::FutureExt;
-use futures::future::join_all;
-use itertools::Itertools;
-use sqlx::{Postgres, Row};
 use tokio::time::sleep;
 
 mod api_server;
@@ -84,11 +83,14 @@ fn setup() {
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial] // These tests drop/create a postgres database, prevent them from running concurrently
 async fn test_integration() -> eyre::Result<()> {
-    let Some(test_env) = IntegrationTestEnvironment::try_from_environment().await? else {
+    // NOTE: These tests run two carbide-api servers, and the clients are configured to randomly
+    // switch between them on every API call. This helps prevent issues that arise when multiple API
+    // severs may be running in production.
+    let Some(test_env) = IntegrationTestEnvironment::try_from_environment(2).await? else {
         return Ok(());
     };
 
-    let carbide_api_addr = test_env.carbide_api_addr;
+    let carbide_api_addrs = &test_env.carbide_api_addrs;
 
     let bmc_address_registry = BmcMockRegistry::default();
     let certs_dir = PathBuf::from(format!("{}/dev/bmc-mock", test_env.root_dir.display()));
@@ -110,22 +112,34 @@ async fn test_integration() -> eyre::Result<()> {
 
     // Begin the integration test by starting an API server. This will be shared between multiple
     // individual machine-a-tron-based tests, which can run in parallel against the same instance.
-    let server_handle = utils::start_api_server(
-        test_env.clone(),
-        Some(HostPortPair::HostAndPort(
-            "127.0.0.1".to_string(),
-            bmc_mock_handle.address.port(),
-        )),
-        ApiServerTestConfig {
-            firmware_directory: empty_firmware_dir.path().to_string_lossy().to_string(),
-        },
-    )
-    .await?;
+    let (server_handle_1, server_handle_2) = (
+        utils::start_api_server(
+            test_env.clone(),
+            Some(HostPortPair::HostAndPort(
+                "127.0.0.1".to_string(),
+                bmc_mock_handle.address.port(),
+            )),
+            empty_firmware_dir.path().to_owned(),
+            0,
+        )
+        .await?,
+        utils::start_api_server(
+            test_env.clone(),
+            Some(HostPortPair::HostAndPort(
+                "127.0.0.1".to_string(),
+                bmc_mock_handle.address.port(),
+            )),
+            empty_firmware_dir.path().to_owned(),
+            1,
+        )
+        .await?,
+    );
 
-    let tenant1_vpc = vpc::create(carbide_api_addr)?;
-    let domain_id = domain::create(carbide_api_addr, "tenant-1.local")?;
-    let managed_segment_id = subnet::create(carbide_api_addr, &tenant1_vpc, &domain_id, 10, false)?;
-    subnet::create(carbide_api_addr, &tenant1_vpc, &domain_id, 11, true)?;
+    let tenant1_vpc = vpc::create(carbide_api_addrs)?;
+    let domain_id = domain::create(carbide_api_addrs, "tenant-1.local")?;
+    let managed_segment_id =
+        subnet::create(carbide_api_addrs, &tenant1_vpc, &domain_id, 10, false)?;
+    subnet::create(carbide_api_addrs, &tenant1_vpc, &domain_id, 11, true)?;
 
     // Run several tests in parallel.
     let all_tests = join_all([
@@ -160,7 +174,8 @@ async fn test_integration() -> eyre::Result<()> {
         }
     }
 
-    server_handle.stop().await?;
+    server_handle_1.stop().await?;
+    server_handle_2.stop().await?;
     test_env.db_pool.close().await;
     bmc_mock_handle.stop().await?;
     Ok(())
@@ -171,15 +186,15 @@ async fn test_integration() -> eyre::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
 #[serial_test::serial] // This test is separate from
 async fn test_metrics_integration() -> eyre::Result<()> {
-    let Some(test_env) = IntegrationTestEnvironment::try_from_environment().await? else {
+    let Some(test_env) = IntegrationTestEnvironment::try_from_environment(2).await? else {
         return Ok(());
     };
 
     // Save typing...
     let IntegrationTestEnvironment {
-        carbide_api_addr,
+        carbide_api_addrs,
         root_dir: _,
-        carbide_metrics_addr,
+        carbide_metrics_addrs,
         db_pool,
         metrics: _,
         db_url: _,
@@ -205,17 +220,28 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
     // Begin the integration test by starting an API server. This will be shared between multiple
     // individual machine-a-tron-based tests, which can run in parallel against the same instance.
-    let server_handle = utils::start_api_server(
-        test_env.clone(),
-        Some(HostPortPair::HostAndPort(
-            "127.0.0.1".to_string(),
-            bmc_mock_handle.address.port(),
-        )),
-        ApiServerTestConfig {
-            firmware_directory: empty_firmware_dir.path().to_string_lossy().to_string(),
-        },
-    )
-    .await?;
+    let (server_handle_1, server_handle_2) = (
+        utils::start_api_server(
+            test_env.clone(),
+            Some(HostPortPair::HostAndPort(
+                "127.0.0.1".to_string(),
+                bmc_mock_handle.address.port(),
+            )),
+            empty_firmware_dir.path().to_owned(),
+            0,
+        )
+        .await?,
+        utils::start_api_server(
+            test_env.clone(),
+            Some(HostPortPair::HostAndPort(
+                "127.0.0.1".to_string(),
+                bmc_mock_handle.address.port(),
+            )),
+            empty_firmware_dir.path().to_owned(),
+            1,
+        )
+        .await?,
+    );
 
     // Before the initial host bootstrap, the dns_records view
     // should contain 0 entries.
@@ -230,6 +256,8 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         Ipv4Addr::new(172, 20, 0, 1),
         |machine_handle| {
             let db_pool = db_pool.clone();
+            let carbide_api_addrs = carbide_api_addrs.to_vec();
+            let carbide_metrics_addrs = carbide_metrics_addrs.to_vec();
             async move {
                 machine_handle.dpus()[0].wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90)).await?;
 
@@ -245,7 +273,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                 // time since the emitted metrics are for states at the start of the iteration.
                 // Therefore wait for the updated metrics to show up.
                 let metrics = metrics::wait_for_metric_line(
-                    carbide_metrics_addr,
+                    &carbide_metrics_addrs,
                     r#"forge_machines_per_state{fresh="true",state="ready",substate=""} 1"#,
                 )
                     .await?;
@@ -255,14 +283,14 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                     "machine_reboot_attempts_in_booting_with_discovery_image",
                 );
 
-                let vpc_id = vpc::create(carbide_api_addr)?;
-                let domain_id = domain::create(carbide_api_addr, "tenant-1.local")?;
-                let segment_id = subnet::create(carbide_api_addr, &vpc_id, &domain_id, 10, false)?;
+                let vpc_id = vpc::create(&carbide_api_addrs)?;
+                let domain_id = domain::create(&carbide_api_addrs, "tenant-1.local")?;
+                let segment_id = subnet::create(&carbide_api_addrs, &vpc_id, &domain_id, 10, false)?;
                 let host_machine_id = machine_handle.observed_machine_id().expect("Should have gotten a machine ID by now").id;
 
                 // Create instance with phone_home enabled
                 let instance_id = instance::create(
-                    carbide_api_addr,
+                    &carbide_api_addrs,
                     &host_machine_id,
                     Some(&segment_id),
                     Some("test"),
@@ -271,7 +299,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                 )?;
 
                 let metrics = metrics::wait_for_metric_line(
-                    carbide_metrics_addr,
+                    &carbide_metrics_addrs,
                     r#"forge_machines_per_state{fresh="true",state="assigned",substate="ready"} 1"#,
                 )
                     .await?;
@@ -285,22 +313,22 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                     "machine_reboot_attempts_in_booting_with_discovery_image",
                 );
 
-                instance::release(carbide_api_addr, &host_machine_id, &instance_id, true)?;
+                instance::release(&carbide_api_addrs, &host_machine_id, &instance_id, true)?;
 
-                let metrics = metrics::wait_for_metric_line(carbide_metrics_addr, r#"forge_machines_per_state{fresh="true",state="waitingforcleanup",substate="hostcleanup"} 1"#).await?;
+                let metrics = metrics::wait_for_metric_line(&carbide_metrics_addrs, r#"forge_machines_per_state{fresh="true",state="waitingforcleanup",substate="hostcleanup"} 1"#).await?;
                 metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
 
                 machine::wait_for_state(
-                    carbide_api_addr,
+                    &carbide_api_addrs,
                     &host_machine_id,
                     "MachineValidation",
                 )?;
 
-                machine::wait_for_state(carbide_api_addr, &host_machine_id, "Discovered")?;
+                machine::wait_for_state(&carbide_api_addrs, &host_machine_id, "Discovered")?;
 
                 // It stays in Discovered until we notify that reboot happened, which this test doesn't
                 let metrics = metrics::wait_for_metric_line(
-                    carbide_metrics_addr,
+                    &carbide_metrics_addrs,
                     r#"forge_machines_per_state{fresh="true",state="hostnotready",substate="discovered"} 1"#,
                 )
                     .await?;
@@ -342,12 +370,13 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
                 Ok(())
             }
-        }
+        },
     ).await?;
 
     sleep(time::Duration::from_millis(500)).await;
     bmc_mock_handle.stop().await?;
-    server_handle.stop().await?;
+    server_handle_1.stop().await?;
+    server_handle_2.stop().await?;
     db_pool.close().await;
     Ok(())
 }
@@ -367,7 +396,7 @@ async fn test_machine_a_tron_multidpu(
         admin_dhcp_relay_address,
         |machine_handle| {
             let segment_id = segment_id.to_string();
-            let carbide_api_addr = test_env.carbide_api_addr;
+            let carbide_api_addrs = &test_env.carbide_api_addrs;
             async move {
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
@@ -378,7 +407,7 @@ async fn test_machine_a_tron_multidpu(
                     .to_string();
                 tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
                 let instance_id = instance::create(
-                    carbide_api_addr,
+                    carbide_api_addrs,
                     &machine_id,
                     Some(&segment_id),
                     None,
@@ -391,7 +420,7 @@ async fn test_machine_a_tron_multidpu(
                     .await?;
 
                 let instance_json = instance::get_instance_json_by_machine_id(
-                    carbide_api_addr,
+                    carbide_api_addrs,
                     machine_handle
                         .observed_machine_id()
                         .expect("HostMachine should have a Machine ID once it's in ready state")
@@ -417,7 +446,7 @@ async fn test_machine_a_tron_multidpu(
                 tracing::info!(
                     "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
                 );
-                instance::release(carbide_api_addr, &machine_id, &instance_id, false)?;
+                instance::release(carbide_api_addrs, &machine_id, &instance_id, false)?;
 
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
@@ -505,6 +534,15 @@ where
     F: Fn(HostMachineHandle) -> O,
     O: Future<Output = eyre::Result<()>>,
 {
+    let api_addr = test_env
+        .carbide_api_addrs
+        .first()
+        .copied()
+        .context("No carbide API addresses configured")?;
+    let additional_api_urls = test_env.carbide_api_addrs[1..]
+        .iter()
+        .map(|a| format!("https://{}:{}", a.ip(), a.port()))
+        .collect();
     let mat_config = MachineATronConfig {
         machines: BTreeMap::from([(
             "config".to_string(),
@@ -533,11 +571,7 @@ where
                 dpu_agent_version: None,
             }),
         )]),
-        carbide_api_url: format!(
-            "https://{}:{}",
-            test_env.carbide_api_addr.ip(),
-            test_env.carbide_api_addr.port()
-        ),
+        carbide_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
         log_file: None,
         bmc_mock_host_tar: PathBuf::from(format!(
             "{}/dev/bmc-mock/dell_poweredge_r750.tar.gz",
@@ -565,6 +599,7 @@ where
 
     let (machine_handles, mat_handle) = machine_a_tron::run_local(
         mat_config,
+        additional_api_urls,
         test_env.root_dir.clone(),
         bmc_mock_registry.clone(),
     )

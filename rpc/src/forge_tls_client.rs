@@ -343,6 +343,7 @@ impl Default for RetryConfig {
 #[derive(Debug, Clone, Copy)]
 pub struct ApiConfig<'a> {
     pub url: &'a str,
+    pub additional_urls: &'a [String],
     pub client_config: &'a ForgeClientConfig,
     pub retry_config: RetryConfig,
 }
@@ -354,16 +355,32 @@ impl<'a> ApiConfig<'a> {
     pub fn new(url: &'a str, client_config: &'a ForgeClientConfig) -> Self {
         Self {
             url,
+            additional_urls: &[],
             client_config,
             retry_config: RetryConfig::default(),
         }
     }
 
+    pub fn new_with_multiple_urls(
+        url: &'a str,
+        additional_urls: &'a [String],
+        client_config: &'a ForgeClientConfig,
+        retry_config: RetryConfig,
+    ) -> Self {
+        Self {
+            url,
+            additional_urls,
+            client_config,
+            retry_config,
+        }
+    }
+
     // with_retry_config allows a caller to set their
     // own RetryConfig beyond the default.
-    pub fn with_retry_config(&self, retry_config: RetryConfig) -> Self {
+    pub fn with_retry_config(self, retry_config: RetryConfig) -> Self {
         Self {
             url: self.url,
+            additional_urls: self.additional_urls,
             client_config: self.client_config,
             retry_config,
         }

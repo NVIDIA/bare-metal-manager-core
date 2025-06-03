@@ -18,7 +18,11 @@ const MAX_RETRY: usize = 30; // Equal to 30s wait time
 
 /// Waits for a Machine to reach a certain target state
 /// If the Machine does not reach the state within 30s, the function will fail.
-pub fn wait_for_state(addr: SocketAddr, machine_id: &str, target_state: &str) -> eyre::Result<()> {
+pub fn wait_for_state(
+    addrs: &[SocketAddr],
+    machine_id: &str,
+    target_state: &str,
+) -> eyre::Result<()> {
     let data = serde_json::json!({
         "id": {"id": machine_id},
         "search_config": {"include_dpus": true}
@@ -26,7 +30,7 @@ pub fn wait_for_state(addr: SocketAddr, machine_id: &str, target_state: &str) ->
     tracing::info!("Waiting for Machine {machine_id} state {target_state}");
     let mut i = 0;
     while i < MAX_RETRY {
-        let response = grpcurl(addr, "FindMachines", Some(&data))?;
+        let response = grpcurl(addrs, "FindMachines", Some(&data))?;
         let resp: serde_json::Value = serde_json::from_str(&response)?;
         let state = resp["machines"][0]["state"].as_str().unwrap();
         if state.contains(target_state) {
