@@ -5005,7 +5005,7 @@ impl HostUpgradeState {
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         // Treat Ready (but flagged to do updates) the same as HostReprovisionState/CheckingFirmware
         let original_state = &state.managed_state;
-        let host_reprovision_state = match &state.managed_state {
+        let mut host_reprovision_state = match &state.managed_state {
             ManagedHostState::HostReprovision { reprovision_state } => reprovision_state,
             ManagedHostState::Ready => &HostReprovisionState::CheckingFirmware,
             ManagedHostState::Assigned { instance_state } => match &instance_state {
@@ -5025,6 +5025,19 @@ impl HostUpgradeState {
                 )));
             }
         };
+        if state
+            .host_snapshot
+            .host_reprovision_requested
+            .as_ref()
+            .is_some_and(|host_reprovision_requested| {
+                host_reprovision_requested.request_reset.unwrap_or(false)
+            })
+        {
+            tracing::info!(%machine_id, "Host firmware upgrade reset requested, returning to CheckingFirmware");
+            host_reprovision_state = &HostReprovisionState::CheckingFirmware;
+            db::host_machine_update::reset_host_reprovisioning_request(txn, machine_id, true)
+                .await?;
+        }
         match host_reprovision_state {
             HostReprovisionState::CheckingFirmware => {
                 self.host_checking_fw(state, services, machine_id, original_state, scenario, txn)
@@ -5124,7 +5137,7 @@ impl HostUpgradeState {
             if let Some(to_install) =
                 need_host_fw_upgrade(&explored_endpoint, &fw_info, firmware_type)
             {
-                tracing::debug!(
+                tracing::info!(%machine_id,
                     "Installing {:?} on {}",
                     to_install,
                     explored_endpoint.address
@@ -5151,6 +5164,7 @@ impl HostUpgradeState {
                             firmware_type,
                             final_version: to_install.version,
                             power_drains_needed: to_install.power_drains_needed,
+                            started_waiting: Some(Utc::now()),
                         };
                         return scenario.actual_new_state(reprovision_state);
                     }
@@ -5337,19 +5351,27 @@ impl HostUpgradeState {
         scenario: HostFirmwareScenario,
         txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
-        let (task_id, final_version, firmware_type, power_drains_needed) = match details {
-            HostReprovisionState::WaitingForFirmwareUpgrade {
-                task_id,
-                final_version,
-                firmware_type,
-                power_drains_needed,
-            } => (task_id, final_version, firmware_type, power_drains_needed),
-            _ => {
-                return Err(StateHandlerError::GenericError(eyre!(
-                    "Wrong enum in host_waiting_fw"
-                )));
-            }
-        };
+        let (task_id, final_version, firmware_type, power_drains_needed, started_waiting) =
+            match details {
+                HostReprovisionState::WaitingForFirmwareUpgrade {
+                    task_id,
+                    final_version,
+                    firmware_type,
+                    power_drains_needed,
+                    started_waiting,
+                } => (
+                    task_id,
+                    final_version,
+                    firmware_type,
+                    power_drains_needed,
+                    started_waiting,
+                ),
+                _ => {
+                    return Err(StateHandlerError::GenericError(eyre!(
+                        "Wrong enum in host_waiting_fw"
+                    )));
+                }
+            };
 
         let address = state
             .host_snapshot
@@ -5449,6 +5471,20 @@ impl HostUpgradeState {
                                     return scenario
                                         .actual_new_state(HostReprovisionState::CheckingFirmware);
                                 }
+                            }
+                        }
+
+                        // We have also observed (FORGE-6177) the upgrade somehow disappearing, but working when retried.  If a long time has passed, go back to checking to retry.
+                        if let Some(started_waiting) = started_waiting {
+                            if Utc::now().signed_duration_since(started_waiting)
+                                > chrono::TimeDelta::minutes(15)
+                            {
+                                tracing::info!(%machine_id,
+                                    "Timed out with missing Redfish task for firmware upgrade for {}, returning to CheckingFirmware",
+                                    &endpoint.address
+                                );
+                                return scenario
+                                    .actual_new_state(HostReprovisionState::CheckingFirmware);
                             }
                         }
                     }

@@ -1241,6 +1241,8 @@ pub enum ManagedHost {
         subcommand
     )]
     Quarantine(QuarantineAction),
+    #[clap(about = "Reset host reprovisioning back to CheckingFirmware")]
+    ResetHostReprovisioning(ResetHostReprovisioning),
 }
 
 #[derive(Parser, Debug)]
@@ -1632,6 +1634,13 @@ pub enum QuarantineAction {
     On(QuarantineOn),
     /// Take this machine out of quarantine
     Off(QuarantineOff),
+}
+
+/// Reset host reprovisioning state
+#[derive(Parser, Debug)]
+pub struct ResetHostReprovisioning {
+    #[clap(long, required(true), help = "Machine ID to reset host reprovision on")]
+    pub machine: String,
 }
 
 #[derive(Parser, Debug)]

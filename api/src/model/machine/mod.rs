@@ -1202,6 +1202,7 @@ pub enum HostReprovisionState {
         final_version: String,
         firmware_type: FirmwareComponentType,
         power_drains_needed: Option<u32>,
+        started_waiting: Option<DateTime<Utc>>,
     },
     ResetForNewFirmware {
         final_version: String,
@@ -1624,6 +1625,7 @@ pub struct HostReprovisionRequest {
     pub initiator: String,
     pub started_at: Option<DateTime<Utc>>,
     pub user_approval_received: bool,
+    pub request_reset: Option<bool>,
 }
 
 /// Should a forge-dpu-agent upgrade itself?

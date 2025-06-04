@@ -100,6 +100,7 @@ pub async fn trigger_host_reprovisioning_request(
         started_at: None,
         initiator: initiator.to_string(),
         user_approval_received: false,
+        request_reset: Some(false),
     };
 
     // The WHERE on controller state means that we'll update it in the case where we were in ready, but not when assigned.
@@ -125,5 +126,21 @@ pub async fn clear_host_reprovisioning_request(
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
+    Ok(())
+}
+
+pub async fn reset_host_reprovisioning_request(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    clear_reset: bool,
+) -> Result<(), DatabaseError> {
+    // The WHERE on controller state means that we'll update it in the case where we were in ready, but not when assigned.
+    let query = r#"UPDATE machines SET host_reprovisioning_requested = jsonb_set(host_reprovisioning_requested, '{request_reset}', $2::jsonb) WHERE id=$1 RETURNING id"#;
+    let _id = sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id.to_string())
+        .bind(sqlx::types::Json(!clear_reset))
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     Ok(())
 }

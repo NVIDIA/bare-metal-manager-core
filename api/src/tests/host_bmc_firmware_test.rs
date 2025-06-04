@@ -1072,6 +1072,12 @@ async fn test_instance_upgrading_actual(
     assert!(host.host_reprovision_requested.is_some());
     txn.commit().await.unwrap();
 
+    let request = rpc::common::MachineId {
+        id: host_machine_id.to_string(),
+    };
+    let request = Request::new(request);
+    env.api.reset_host_reprovisioning(request).await?;
+
     // Next one should start a UEFI upgrade
     env.run_machine_state_controller_iteration().await;
 

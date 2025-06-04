@@ -8,6 +8,7 @@
 - [MR-4106](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4106): Support sending trace/span data to OTLP endpoints (allows viewing trace data from Grafana Tempo)
 
 ### Changed
+- [FORGE-6177](https://jirasw.nvidia.com/browse/FORGE-6177) If a BMC forgets about an update task, go back to retrying the upgrade.
 
 ### Fixed
 
