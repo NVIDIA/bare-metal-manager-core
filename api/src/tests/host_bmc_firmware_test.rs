@@ -151,6 +151,23 @@ async fn test_preingestion_bmc_upgrade(
     }
     txn.commit().await?;
 
+    // Second firmware upload
+    mgr.run_single_iteration().await?;
+
+    let mut txn = pool.begin().await.unwrap();
+    let endpoints = DbExploredEndpoint::find_all(&mut txn).await?;
+    assert!(endpoints.len() == 1);
+    let endpoint = endpoints.first().unwrap();
+    if let PreingestionState::UpgradeFirmwareWait {
+        firmware_number, ..
+    } = endpoint.preingestion_state
+    {
+        assert_eq!(firmware_number, Some(1));
+    } else {
+        panic!("Bad preingestion state: {endpoint:?}");
+    };
+    txn.commit().await?;
+
     // Let it go to NewFirmwareReportedWait
     mgr.run_single_iteration().await?;
 
@@ -463,6 +480,30 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         panic!("Not in WaitingForFirmwareUpgrade");
     };
     assert_eq!(firmware_type, &FirmwareComponentType::Bmc);
+    txn.commit().await.unwrap();
+
+    // Another state machine pass
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(host.host_reprovision_requested.is_some());
+    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+        panic!("Not in HostReprovision");
+    };
+    let HostReprovisionState::WaitingForFirmwareUpgrade {
+        firmware_type,
+        firmware_number,
+        ..
+    } = reprovision_state
+    else {
+        panic!("Not in WaitingForFirmwareUpgrade");
+    };
+    assert_eq!(firmware_type, &FirmwareComponentType::Bmc);
+    assert_eq!(*firmware_number, Some(1));
     txn.commit().await.unwrap();
 
     // Another state machine pass
@@ -1202,6 +1243,8 @@ async fn test_instance_upgrading_actual(
     assert_eq!(firmware_type, FirmwareComponentType::Bmc);
     txn.commit().await.unwrap();
 
+    // Another state machine pass
+    env.run_machine_state_controller_iteration().await;
     // Another state machine pass
     env.run_machine_state_controller_iteration().await;
 

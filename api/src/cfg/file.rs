@@ -985,7 +985,8 @@ impl Default for DpuConfig {
                         version: "BF-24.07-14".to_string(),
                         mandatory_upgrade_from_priority: None,
                         default: true,
-                        filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc-ota-24.07-14-opn.tar".to_string()),
+                        filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc-ota-24.10-24-opn.tar".to_string()),
+                        filenames: vec![],
                         url: None,
                         checksum: None,
                         install_only_specified: false,
@@ -1001,6 +1002,7 @@ impl Default for DpuConfig {
                             mandatory_upgrade_from_priority: None,
                             default: true,
                             filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/cec_ota_BMGP-04.0f_prod.bin".to_string()),
+                            filenames: vec![],
                             url: None,
                             checksum: None,
                             install_only_specified: false,
@@ -1022,8 +1024,9 @@ impl Default for DpuConfig {
                         version: "BF-24.07-14".to_string(),
                         mandatory_upgrade_from_priority: None,
                         default: false,
-                        filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc-24.07-14_opn.fwpkg".to_string()),
-                        url: None,
+                        filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc-24.10-24_opn.fwpkg".to_string()),
+                        filenames: vec![],
+                            url: None,
                         checksum: None,
                         install_only_specified: false,
                         power_drains_needed: None,
@@ -1038,6 +1041,7 @@ impl Default for DpuConfig {
                             mandatory_upgrade_from_priority: None,
                             default: false,
                             filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/cec1736-ecfw-00.02.0182.0000-n02-rel-prod.fwpkg".to_string()),
+                            filenames: vec![],
                             url: None,
                             checksum: None,
                             install_only_specified: false,
@@ -1188,6 +1192,8 @@ pub struct FirmwareEntry {
     #[serde(default)]
     pub default: bool,
     pub filename: Option<String>,
+    #[serde(default)]
+    pub filenames: Vec<String>,
     pub url: Option<String>,
     pub checksum: Option<String>,
     #[serde(default)]
@@ -1202,9 +1208,17 @@ pub struct FirmwareEntry {
 }
 
 impl FirmwareEntry {
-    pub fn get_filename(&self) -> PathBuf {
-        // At present, we're just using the file key as a local file.  Eventually this gets retrieved from another container to reduce startup times.
-        match &self.filename {
+    pub fn get_filename(&self, pos: u32) -> PathBuf {
+        let pos = pos.try_into().unwrap_or(usize::MAX);
+        let filename = if self.filenames.is_empty() {
+            &self.filename
+        } else if pos < self.filenames.len() {
+            let filename_clone = self.filenames[pos].clone();
+            &Some(filename_clone)
+        } else {
+            &None
+        };
+        match filename {
             None => PathBuf::from("/dev/null"),
             Some(file_key) => PathBuf::from(file_key),
         }

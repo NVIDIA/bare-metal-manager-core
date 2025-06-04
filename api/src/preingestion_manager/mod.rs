@@ -274,15 +274,19 @@ async fn one_endpoint(
             final_version,
             upgrade_type,
             power_drains_needed,
+            firmware_number,
         } => {
             static_info
                 .in_upgrade_firmware_wait(
                     &mut txn,
-                    &endpoint,
-                    task_id,
-                    final_version,
-                    upgrade_type,
-                    power_drains_needed,
+                    &InUpgradeFirmwareWaitArgs {
+                        endpoint: &endpoint,
+                        task_id,
+                        final_version,
+                        upgrade_type,
+                        power_drains_needed,
+                        firmware_number: firmware_number.unwrap_or(0),
+                    },
                 )
                 .await?;
             false
@@ -512,6 +516,7 @@ impl PreingestionManagerStatic {
                         &to_install,
                         &fw_type,
                         &self.downloader,
+                        0,
                     )
                     .await?;
 
@@ -531,12 +536,17 @@ impl PreingestionManagerStatic {
     async fn in_upgrade_firmware_wait(
         &self,
         txn: &mut PgConnection,
-        endpoint: &ExploredEndpoint,
-        task_id: &str,
-        final_version: &str,
-        upgrade_type: &FirmwareComponentType,
-        power_drains_needed: &Option<u32>,
+        args: &InUpgradeFirmwareWaitArgs<'_>,
     ) -> CarbideResult<()> {
+        let (endpoint, task_id, final_version, upgrade_type, power_drains_needed, firmware_number) = (
+            args.endpoint,
+            args.task_id,
+            args.final_version,
+            args.upgrade_type,
+            args.power_drains_needed,
+            args.firmware_number,
+        );
+
         let redfish_client = match self
             .redfish_client_pool
             .create_client_for_ingested_host(endpoint.address, None, txn)
@@ -568,8 +578,39 @@ impl PreingestionManagerStatic {
                     }
                     Some(TaskState::Completed) => {
                         // Task has completed, update is done and we can clean up.  Site explorer will ingest this next time it runs on this endpoint.
-                        // First check if we should be rebooting though
 
+                        // If we have multiple firmware files to be uploaded, do the next one.
+                        if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
+                            if let Some(component_info) = fw_info.components.get(upgrade_type) {
+                                if let Some(selected_firmware) =
+                                    component_info.known_firmware.iter().find(|&x| x.default)
+                                {
+                                    let firmware_number = firmware_number + 1;
+                                    if firmware_number
+                                        < selected_firmware.filenames.len().try_into().unwrap_or(0)
+                                    {
+                                        tracing::info!(
+                                            "Installing {:?} chain step {} on {}",
+                                            selected_firmware,
+                                            firmware_number,
+                                            endpoint.address
+                                        );
+
+                                        initiate_update(
+                                            txn,
+                                            endpoint,
+                                            &self.redfish_client_pool,
+                                            selected_firmware,
+                                            upgrade_type,
+                                            &self.downloader,
+                                            firmware_number,
+                                        )
+                                        .await?;
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                        }
                         tracing::info!(
                             "Marking completion of Redfish task of firmware upgrade for {}",
                             &endpoint.address
@@ -992,6 +1033,15 @@ impl PreingestionManagerStatic {
     }
 }
 
+struct InUpgradeFirmwareWaitArgs<'a> {
+    endpoint: &'a ExploredEndpoint,
+    task_id: &'a str,
+    final_version: &'a str,
+    upgrade_type: &'a FirmwareComponentType,
+    power_drains_needed: &'a Option<u32>,
+    firmware_number: u32,
+}
+
 /// need_upgrade determines if the given endpoint needs a firmware upgrade based on the description in fw_info, and if
 /// so returns the FirmwareEntry matching the desired upgrade along with the ID that Redfish uses to specify its version.
 fn need_upgrade(
@@ -1035,11 +1085,12 @@ async fn initiate_update(
     to_install: &FirmwareEntry,
     firmware_type: &FirmwareComponentType,
     downloader: &FirmwareDownloader,
+    firmware_number: u32,
 ) -> Result<(), DatabaseError> {
-    if !to_install.get_filename().ends_with("bfb")
+    if !to_install.get_filename(firmware_number).ends_with("bfb")
         && !downloader
             .available(
-                &to_install.get_filename(),
+                &to_install.get_filename(firmware_number),
                 &to_install.get_url(),
                 &to_install.get_checksum(),
             )
@@ -1047,7 +1098,7 @@ async fn initiate_update(
     {
         tracing::debug!(
             "{} is being downloaded from {}, update deferred",
-            to_install.get_filename().display(),
+            to_install.get_filename(firmware_number).display(),
             to_install.get_url()
         );
 
@@ -1078,7 +1129,7 @@ async fn initiate_update(
             false => libredfish::model::update_service::ComponentType::Unknown,
             true => (*firmware_type).into(),
         };
-    let task = if to_install.get_filename().ends_with("bfb") {
+    let task = if to_install.get_filename(firmware_number).ends_with("bfb") {
         let _ = redfish_client
             .enable_rshim_bmc()
             .await
@@ -1086,7 +1137,7 @@ async fn initiate_update(
         let image_uri = format!(
             "{}/{}",
             to_install.get_url(),
-            to_install.get_filename().display()
+            to_install.get_filename(firmware_number).display()
         );
         tracing::debug!(
             "initiate_update: Using simple_update with image URI: {}",
@@ -1112,7 +1163,7 @@ async fn initiate_update(
     } else {
         match redfish_client
             .update_firmware_multipart(
-                to_install.get_filename().as_path(),
+                to_install.get_filename(firmware_number).as_path(),
                 true,
                 Duration::from_secs(120),
                 redfish_component_type,
@@ -1124,13 +1175,14 @@ async fn initiate_update(
                 tracing::warn!(
                     "Multipart update is not supported: {err}. Trying to use HttpPushUri"
                 );
-                let file = match File::open(to_install.get_filename().as_path()).await {
-                    Ok(f) => f,
-                    Err(e) => {
-                        tracing::error!("Failed to open a file: {e}");
-                        return Ok(());
-                    }
-                };
+                let file =
+                    match File::open(to_install.get_filename(firmware_number).as_path()).await {
+                        Ok(f) => f,
+                        Err(e) => {
+                            tracing::error!("Failed to open a file: {e}");
+                            return Ok(());
+                        }
+                    };
                 match redfish_client.update_firmware(file).await {
                     Ok(task) => task.id,
                     Err(e) => {
@@ -1163,6 +1215,7 @@ async fn initiate_update(
         &to_install.version,
         firmware_type,
         to_install.power_drains_needed,
+        firmware_number,
         txn,
     )
     .await?;

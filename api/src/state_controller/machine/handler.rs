@@ -1500,10 +1500,12 @@ impl MachineStateHandler {
     }
 }
 
+#[derive(Clone)]
 struct FullFirmwareInfo<'a> {
     model: &'a str,
     to_install: &'a FirmwareEntry,
     component_type: &'a FirmwareComponentType,
+    firmware_number: &'a u32,
 }
 
 /// need_host_fw_upgrade determines if the given endpoint needs a firmware upgrade based on the description in fw_info, and if so returns the FirmwareEntry matching the desired upgrade.
@@ -5143,8 +5145,8 @@ impl HostUpgradeState {
                     explored_endpoint.address
                 );
 
-                match self
-                    .initiate_host_fw_update(
+                return self
+                    .initiate_host_fw_update_new_state(
                         explored_endpoint.address,
                         state,
                         services,
@@ -5152,27 +5154,12 @@ impl HostUpgradeState {
                             model: fw_info.model.as_str(),
                             to_install: &to_install,
                             component_type: &firmware_type,
+                            firmware_number: &0,
                         },
+                        scenario,
                         txn,
                     )
-                    .await?
-                {
-                    Some(task_id) => {
-                        // Upload complete and updated started, will monitor task in future iterations
-                        let reprovision_state = HostReprovisionState::WaitingForFirmwareUpgrade {
-                            task_id,
-                            firmware_type,
-                            final_version: to_install.version,
-                            power_drains_needed: to_install.power_drains_needed,
-                            started_waiting: Some(Utc::now()),
-                        };
-                        return scenario.actual_new_state(reprovision_state);
-                    }
-                    None => {
-                        // Deferred upload due to download or other reason, recheck later
-                        return scenario.actual_new_state(HostReprovisionState::CheckingFirmware);
-                    }
-                };
+                    .await;
             }
         }
 
@@ -5252,7 +5239,7 @@ impl HostUpgradeState {
         if !self
             .downloader
             .available(
-                &to_install.get_filename(),
+                &to_install.get_filename(*fw_info.firmware_number),
                 &to_install.get_url(),
                 &to_install.get_checksum(),
             )
@@ -5260,7 +5247,7 @@ impl HostUpgradeState {
         {
             tracing::debug!(
                 "{} is being downloaded from {}, update deferred",
-                to_install.get_filename().display(),
+                to_install.get_filename(*fw_info.firmware_number).display(),
                 to_install.get_url()
             );
 
@@ -5325,7 +5312,7 @@ impl HostUpgradeState {
             };
         let task = match redfish_client
             .update_firmware_multipart(
-                to_install.get_filename().as_path(),
+                to_install.get_filename(*fw_info.firmware_number).as_path(),
                 true,
                 std::time::Duration::from_secs(120),
                 redfish_component_type,
@@ -5342,6 +5329,41 @@ impl HostUpgradeState {
         Ok(Some(task))
     }
 
+    // initiate_host_fw_update_new_state cals initiate_host_fw_update and returns the new state machine status
+    async fn initiate_host_fw_update_new_state(
+        &self,
+        address: IpAddr,
+        state: &ManagedHostStateSnapshot,
+        services: &StateHandlerServices,
+        fw_info: FullFirmwareInfo<'_>,
+        scenario: HostFirmwareScenario,
+        txn: &mut PgConnection,
+    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        tracing::debug!("Installing {:?} on {}", fw_info.to_install, address);
+
+        match self
+            .initiate_host_fw_update(address, state, services, fw_info.clone(), txn)
+            .await?
+        {
+            Some(task_id) => {
+                // Upload complete and updated started, will monitor task in future iterations
+                let reprovision_state = HostReprovisionState::WaitingForFirmwareUpgrade {
+                    task_id,
+                    firmware_type: *fw_info.component_type,
+                    final_version: fw_info.to_install.version.clone(),
+                    power_drains_needed: fw_info.to_install.power_drains_needed,
+                    firmware_number: Some(*fw_info.firmware_number),
+                    started_waiting: Some(Utc::now()),
+                };
+                scenario.actual_new_state(reprovision_state)
+            }
+            None => {
+                // Deferred upload due to download or other reason, recheck later
+                scenario.actual_new_state(HostReprovisionState::CheckingFirmware)
+            }
+        }
+    }
+
     async fn host_waiting_fw(
         &self,
         details: &HostReprovisionState,
@@ -5351,27 +5373,35 @@ impl HostUpgradeState {
         scenario: HostFirmwareScenario,
         txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
-        let (task_id, final_version, firmware_type, power_drains_needed, started_waiting) =
-            match details {
-                HostReprovisionState::WaitingForFirmwareUpgrade {
-                    task_id,
-                    final_version,
-                    firmware_type,
-                    power_drains_needed,
-                    started_waiting,
-                } => (
-                    task_id,
-                    final_version,
-                    firmware_type,
-                    power_drains_needed,
-                    started_waiting,
-                ),
-                _ => {
-                    return Err(StateHandlerError::GenericError(eyre!(
-                        "Wrong enum in host_waiting_fw"
-                    )));
-                }
-            };
+        let (
+            task_id,
+            final_version,
+            firmware_type,
+            power_drains_needed,
+            firmware_number,
+            started_waiting,
+        ) = match details {
+            HostReprovisionState::WaitingForFirmwareUpgrade {
+                task_id,
+                final_version,
+                firmware_type,
+                power_drains_needed,
+                firmware_number,
+                started_waiting,
+            } => (
+                task_id,
+                final_version,
+                firmware_type,
+                power_drains_needed,
+                firmware_number,
+                started_waiting,
+            ),
+            _ => {
+                return Err(StateHandlerError::GenericError(eyre!(
+                    "Wrong enum in host_waiting_fw"
+                )));
+            }
+        };
 
         let address = state
             .host_snapshot
@@ -5401,6 +5431,55 @@ impl HostUpgradeState {
                     }
                     Some(TaskState::Completed) => {
                         // Task has completed, update is done and we can clean up.  Site explorer will ingest this next time it runs on this endpoint.
+
+                        // If we have multiple firmware files to be uploaded, do the next one.
+                        if let Some(endpoint) =
+                            find_explored_refreshed_endpoint(state, machine_id, txn).await?
+                        {
+                            if let Some(fw_info) =
+                                self.parsed_hosts.find_fw_info_for_host(&endpoint)
+                            {
+                                if let Some(component_info) = fw_info.components.get(firmware_type)
+                                {
+                                    if let Some(selected_firmware) =
+                                        component_info.known_firmware.iter().find(|&x| x.default)
+                                    {
+                                        let firmware_number = firmware_number.unwrap_or(0) + 1;
+                                        if firmware_number
+                                            < selected_firmware
+                                                .filenames
+                                                .len()
+                                                .try_into()
+                                                .unwrap_or(0)
+                                        {
+                                            tracing::info!(
+                                                "Installing {:?} chain step {} on {}",
+                                                selected_firmware,
+                                                firmware_number,
+                                                endpoint.address
+                                            );
+
+                                            return self
+                                                .initiate_host_fw_update_new_state(
+                                                    endpoint.address,
+                                                    state,
+                                                    services,
+                                                    FullFirmwareInfo {
+                                                        model: fw_info.model.as_str(),
+                                                        to_install: selected_firmware,
+                                                        component_type: firmware_type,
+                                                        firmware_number: &firmware_number,
+                                                    },
+                                                    scenario,
+                                                    txn,
+                                                )
+                                                .await;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         tracing::debug!(
                             "Saw completion of host firmware upgrade task for {}",
                             machine_id

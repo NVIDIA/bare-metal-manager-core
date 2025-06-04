@@ -3,7 +3,8 @@
 ## [Unreleased (v2025.06.06-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.23-rc1-0...trunk)
 
 ### Added
-
+- [FORGE-6013](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3969): Sites can be configured with a timeframe in which they will skip needing a manual reboot request for upgrades.  Under the firmware_global section of their config, set both instance_autoreboot_period_start and instance_autoreboot_period_end with RFC 3339 style timestamps.
+- [FORGE-6113](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4023): Firmware definitions can now include multiple files as a tool for dealing with firmware that needs physical power cycles.
 - [MR-3905](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3905): Added support for quarantining hosts (disabling host networking)
 - [MR-4106](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4106): Support sending trace/span data to OTLP endpoints (allows viewing trace data from Grafana Tempo)
 

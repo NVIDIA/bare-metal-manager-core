@@ -287,6 +287,7 @@ pub enum PreingestionState {
         final_version: String,
         upgrade_type: FirmwareComponentType,
         power_drains_needed: Option<u32>,
+        firmware_number: Option<u32>,
     },
     ResetForNewFirmware {
         final_version: String,
