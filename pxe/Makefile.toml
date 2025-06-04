@@ -82,6 +82,13 @@ script = '''
   cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_arm64.deb mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
 '''
 
+[tasks.stage-disk_imaging-script]
+description="Copies the disk_imaging.sh script to the qcow profile directories"
+script = '''
+  cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager/mkosi.extra/opt/forge/disk_imaging.sh
+  cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager-aarch64/mkosi.extra/opt/forge/disk_imaging.sh
+'''
+
 [tasks.build-boot-artifacts-x86-host]
 dependencies = [
   "mkdir-static",
@@ -147,6 +154,7 @@ dependencies = [
   "copy-forge-scout-x86_64",
   "copy-forge-prod-root-ca-x86_64",
   "stage-nvinit",
+  "stage-disk_imaging-script",
   "mkosi-build-scout-x86_64",
   "mkosi-build-qcow-imager",
   "mkosi-copy-qcow-imager-to-webroot-x86_64",
@@ -163,6 +171,7 @@ dependencies = [
   "copy-forge-scout-x86_64",
   "copy-forge-dev-root-ca-x86_64",
   "stage-nvinit",
+  "stage-disk_imaging-script",
   "mkosi-build-scout-x86_64",
   "mkosi-build-qcow-imager",
   "mkosi-copy-qcow-imager-to-webroot-x86_64",
@@ -178,9 +187,12 @@ dependencies = [
   "copy-forge-scout-aarch64",
   "copy-forge-prod-root-ca-aarch64",
   "stage-nvinit",
+  "stage-disk_imaging-script",
   "mkosi-build-scout-aarch64",
+  "mkosi-build-qcow-imager-aarch64",
   "mkosi-copy-scout-to-webroot-aarch64",
-  "mkosi-clean-qcow-imager",
+  "mkosi-copy-qcow-imager-to-webroot-aarch64",
+  "mkosi-clean-qcow-imager-aarch64",
   "mkosi-clean-scout-aarch64",
 ]
 
@@ -192,9 +204,12 @@ dependencies = [
   "copy-forge-scout-aarch64",
   "copy-forge-dev-root-ca-aarch64",
   "stage-nvinit",
+  "stage-disk_imaging-script",
   "mkosi-build-scout-aarch64",
+  "mkosi-build-qcow-imager-aarch64",
   "mkosi-copy-scout-to-webroot-aarch64",
-  "mkosi-clean-qcow-imager",
+  "mkosi-copy-qcow-imager-to-webroot-aarch64",
+  "mkosi-clean-qcow-imager-aarch64",
   "mkosi-clean-scout-aarch64",
 ]
 
@@ -280,6 +295,11 @@ category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
 args = ["--profile", "qcow-imager", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
 
+[tasks.mkosi-clean-qcow-imager-aarch64]
+category = "Ephemeral Image"
+command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
+args = ["--profile", "qcow-imager-aarch64", "--output-dir=${MKOSI_BUILD_TMP}", "clean"]
+
 [tasks.mkosi-clean-scout-x86_64]
 category = "Ephemeral Image"
 command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
@@ -322,6 +342,14 @@ command = "/bin/bash"
 args = [
   "-c",
   "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager --output-dir=${MKOSI_BUILD_TMP} build",
+]
+
+[tasks.mkosi-build-qcow-imager-aarch64]
+category = "Ephemeral Image"
+command = "/bin/bash"
+args = [
+  "-c",
+  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile qcow-imager-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
 ]
 
 [tasks.mkosi-copy-qcow-imager-to-webroot-x86_64]
