@@ -36,10 +36,12 @@ class TestConfig:
     site_under_test: str
     short_site_name: str
     machine_under_test: str
+    machine_sku: str | None
     expected_dpu_count: int
-    factory_reset: str
-    dpu_fw_downgrade: str
+    factory_reset: bool
+    dpu_fw_downgrade: bool
     fw_downgrade_version: str | None
+    skip_postingestion_checks: bool
 
 @dataclass
 class SiteConfig:
@@ -97,19 +99,19 @@ def main():
         machine_capabilities = capabilities_generator.generate_capabilities([test_config.machine_under_test])
 
     # Optional DPU firmware downgrade step
-    if test_config.dpu_fw_downgrade == "true":
+    if test_config.dpu_fw_downgrade:
         perform_firmware_downgrade(test_config, site_config, machine_info)
         verify_firmware_versions(test_config, site_config, machine_info, downgraded=True)
 
     # Optional factory-reset step (soon to be non-optional if the DPU firmware was just downgraded)
-    if test_config.factory_reset == "true":
+    if test_config.factory_reset:
         perform_factory_reset(test_config, site_config, machine_info)
 
     # Perform force delete and wait for reingestion to Ready state
     force_delete_and_await_reingestion(test_config, site_config, machine_info)
 
     # If we performed a downgrade before reingestion, verify firmware has been upgraded by Forge
-    if test_config.dpu_fw_downgrade == "true":
+    if test_config.dpu_fw_downgrade:
         verify_firmware_versions(test_config, site_config, machine_info, downgraded=False)
 
     # Validate machine capabilities after ingestion (currently only tested in QA2)
@@ -120,11 +122,15 @@ def main():
             admin_cli
         )
 
-    # Create an instance, wait for it to be ready, and verify SSH access
-    instance_uuid = create_instance_and_verify(test_config, site_config, ngc_uuids)
+    if not test_config.skip_postingestion_checks:
+        print("Running post-ingestion checks")
+        # Create an instance, wait for it to be ready, and verify SSH access
+        instance_uuid = create_instance_and_verify(test_config, site_config, ngc_uuids)
 
-    # Delete the instance and wait for return to 'Ready'
-    delete_instance_and_verify(test_config, ngc_uuids, instance_uuid)
+        # Delete the instance and wait for return to 'Ready'
+        delete_instance_and_verify(test_config, ngc_uuids, instance_uuid)
+    else:
+        print("Skipping post-ingestion checks")
 
 
 def _error_and_exit(message: str, set_maintenance: bool = False, machine_id: str | None = None) -> None:
@@ -160,24 +166,25 @@ def setup_test_config() -> TestConfig:
     if machine_under_test is None:
         _error_and_exit("$MACHINE_UNDER_TEST must be provided")
 
+    machine_sku = os.environ.get("MACHINE_SKU", None)
+
     expected_dpu_count = int(os.environ.get("DPU_COUNT", "1"))
     if expected_dpu_count not in [1, 2]:
         _error_and_exit("$DPU_COUNT must be set to 1 or 2")
 
-    factory_reset = os.environ.get("FACTORY_RESET", "false").lower()
-    if factory_reset not in ["true", "false"]:
-        _error_and_exit("Invalid value provided for $FACTORY_RESET. Should be 'true' or 'false'")
+    try:
+        factory_reset = os.environ.get("FACTORY_RESET", "false").lower() == "true"
+        dpu_fw_downgrade = os.environ.get("FW_DOWNGRADE", "false").lower() == "true"
+        fw_downgrade_version = os.environ.get("FW_DOWNGRADE_VERSION", None)
+        if dpu_fw_downgrade:
+            if fw_downgrade_version is None:
+                _error_and_exit("$FW_DOWNGRADE_VERSION must be provided when $FW_DOWNGRADE is set to 'true'")
+            if fw_downgrade_version not in SUPPORTED_FW_VERSIONS_FOR_DOWNGRADE:
+                _error_and_exit("$FW_DOWNGRADE_VERSION currently only supports '2.2.1' or '2.5.0' (DOCA)")
 
-    dpu_fw_downgrade = os.environ.get("FW_DOWNGRADE", "false").lower()
-    if dpu_fw_downgrade not in ["true", "false"]:
-        _error_and_exit("Invalid value provided for $FW_DOWNGRADE. Should be 'true' or 'false'")
-
-    fw_downgrade_version = os.environ.get("FW_DOWNGRADE_VERSION", None)
-    if dpu_fw_downgrade == "true":
-        if fw_downgrade_version is None:
-            _error_and_exit("$FW_DOWNGRADE_VERSION must be provided when $FW_DOWNGRADE is set to 'true'")
-        if fw_downgrade_version not in SUPPORTED_FW_VERSIONS_FOR_DOWNGRADE:
-            _error_and_exit("$FW_DOWNGRADE_VERSION currently only supports '2.2.1' or '2.5.0' (DOCA)")
+        skip_postingestion_checks = os.environ.get("SKIP_POSTINGESTION_CHECKS", "false").lower() == "true"
+    except Exception as e:
+        _error_and_exit(f"Error setting environment variables: {e}")
 
     # Set env var for use by forge-admin-cli
     os.environ["CARBIDE_API_URL"] = f"https://api-{short_site_name}.frg.nvidia.com"
@@ -189,13 +196,15 @@ def setup_test_config() -> TestConfig:
         expected_dpu_count=expected_dpu_count,
         factory_reset=factory_reset,
         dpu_fw_downgrade=dpu_fw_downgrade,
-        fw_downgrade_version=fw_downgrade_version
+        fw_downgrade_version=fw_downgrade_version,
+        skip_postingestion_checks=skip_postingestion_checks,
+        machine_sku=machine_sku
     )
 
 
 def setup_site_config(test_config: TestConfig) -> SiteConfig:
     """Set up site and NGC configuration.
-    
+
     Args:
         test_config: The test configuration containing site information
     Returns:
@@ -286,7 +295,7 @@ def collect_machine_info(test_config: TestConfig) -> MachineInfo:
     print(f"DPUs in this machine: {dpu_info_map}")
 
     dpu_model = admin_cli.get_dpu_model(dpu_ids[0])  # Multi-DPUs can be assumed to be of same model (i.e. BF2 or BF3)
-    if dpu_model.startswith("BlueField SoC") and test_config.dpu_fw_downgrade == "true":
+    if dpu_model.startswith("BlueField SoC") and test_config.dpu_fw_downgrade:
         _error_and_exit("FW_DOWNGRADE option is not supported for BlueField-2 DPUs")
 
     # After force-delete, we'll use the (first) DPU to track state until the host is fully ingested
@@ -318,10 +327,13 @@ def collect_ngc_uuids(test_config: TestConfig, site_config: SiteConfig) -> NGCUU
     Returns:
         NGCUUIDs: Object containing all required UUIDs
     """
-    if test_config.expected_dpu_count == 1:
-        instance_type_name = "machine-lifecycle-test"
-    elif test_config.expected_dpu_count == 2:
-        instance_type_name = "machine-lifecycle-test-dual-dpu"
+    if test_config.machine_sku is not None:
+        instance_type_name = f"machine-lifecycle-test-{test_config.machine_sku}"
+    else:
+        if test_config.expected_dpu_count == 1:
+            instance_type_name = "machine-lifecycle-test"
+        elif test_config.expected_dpu_count == 2:
+            instance_type_name = "machine-lifecycle-test-dual-dpu"
     vpc_name = "machine-lifecycle-test-vpc"
     subnet_name = "machine-lifecycle-test-subnet"
     os_name = "machine-lifecycle-test-os"
@@ -730,7 +742,7 @@ def _factory_reset_dpu(test_config: TestConfig, site_config: SiteConfig, machine
     for dpu_id in machine_info.dpu_ids:
         bmc_ip = machine_info.dpu_info_map[dpu_id]["bmc_ip"]
         print(f"Resetting BIOS settings on DPU{i}")
-        if test_config.dpu_fw_downgrade == "true":
+        if test_config.dpu_fw_downgrade:
             # Different endpoint in redfish v1.9.0
             url = f"https://{bmc_ip}/redfish/v1/Systems/Bluefield/Bios/Actions/Bios.ResetBios"
             print(f"Executing redfish request. \nURL: {url}")
@@ -933,7 +945,7 @@ def force_delete_and_await_reingestion(
     """
     # Force-delete machine from Forge database
     print(f"Force-deleting machine {test_config.machine_under_test}")
-    if test_config.factory_reset == "true":
+    if test_config.factory_reset:
         admin_cli.force_delete_machine(test_config.machine_under_test, delete_creds=True)
     else:
         admin_cli.force_delete_machine(test_config.machine_under_test, delete_creds=False)
@@ -946,7 +958,7 @@ def force_delete_and_await_reingestion(
         print("Waiting for carbide to report DPU in any 'HostInitializing' state")
         hostinit_timeout = (
             config.WAIT_FOR_HOSTINIT_AFTER_DOWNGRADE
-            if test_config.dpu_fw_downgrade == "true"
+            if test_config.dpu_fw_downgrade
             else config.WAIT_FOR_HOSTINIT
         )
         admin_cli.wait_for_machine_hostinitializing(machine_info.machine_under_test_dpu, timeout=hostinit_timeout)
