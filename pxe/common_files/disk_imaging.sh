@@ -62,6 +62,8 @@ function get_distro_image() {
 	if [ "$distro_name" == "ubuntu" ]; then
 		if [ "$arch" == "x86_64" ]; then
 			arch=amd64
+		elif [ "$arch" == "aarch64" ]; then
+			arch=arm64
 		fi
 		if [ "$distro_version" == "24.04" ]; then
 			codename=noble
@@ -90,6 +92,8 @@ function get_distro_image() {
 	elif [ "$distro_name" == "debian" ]; then
 		if [ "$arch" == "x86_64" ]; then
 			arch=amd64
+		elif [ "$arch" == "aarch64" ]; then
+			arch=arm64
 		fi
 		if [ "$distro_version" == "10" ]; then
 			codename=buster

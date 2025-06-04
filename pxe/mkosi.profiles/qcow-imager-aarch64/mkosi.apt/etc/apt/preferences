@@ -1,0 +1,3 @@
+Package: dkms
+Pin: origin ports.ubuntu.com
+Pin-Priority: 900
