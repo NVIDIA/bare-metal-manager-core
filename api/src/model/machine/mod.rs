@@ -1202,6 +1202,7 @@ pub enum HostReprovisionState {
         final_version: String,
         firmware_type: FirmwareComponentType,
         power_drains_needed: Option<u32>,
+        firmware_number: Option<u32>,
         started_waiting: Option<DateTime<Utc>>,
     },
     ResetForNewFirmware {

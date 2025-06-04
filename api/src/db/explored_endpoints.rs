@@ -337,6 +337,7 @@ WHERE address = $3 AND version=$4";
         final_version: &str,
         upgrade_type: &FirmwareComponentType,
         power_drains_needed: Option<u32>,
+        firmware_number: u32,
         txn: &mut PgConnection,
     ) -> Result<(), DatabaseError> {
         let state = PreingestionState::UpgradeFirmwareWait {
@@ -344,6 +345,7 @@ WHERE address = $3 AND version=$4";
             final_version: final_version.to_owned(),
             upgrade_type: *upgrade_type,
             power_drains_needed,
+            firmware_number: Some(firmware_number),
         };
         DbExploredEndpoint::set_preingestion(address, state, txn).await
     }
