@@ -420,6 +420,7 @@ impl InternalRBACRules {
         x.perm("FindVpcPeeringIds", vec![ForgeAdminCLI]);
         x.perm("FindVpcPeeringsByIds", vec![ForgeAdminCLI]);
         x.perm("DeleteVpcPeering", vec![ForgeAdminCLI]);
+        x.perm("ResetHostReprovisioning", vec![ForgeAdminCLI]);
         x.perm("CopyBfbToDpuRshim", vec![ForgeAdminCLI]);
         x
     }

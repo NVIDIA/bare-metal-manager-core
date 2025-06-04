@@ -4982,6 +4982,39 @@ impl Forge for Api {
         ))
     }
 
+    async fn reset_host_reprovisioning(
+        &self,
+        request: Request<::rpc::common::MachineId>,
+    ) -> Result<Response<()>, Status> {
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin reset_host_reprovisioning",
+                e,
+            ))
+        })?;
+        let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
+        log_machine_id(&machine_id);
+        crate::db::host_machine_update::reset_host_reprovisioning_request(
+            &mut txn,
+            &machine_id,
+            false,
+        )
+        .await
+        .map_err(CarbideError::from)?;
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit reset_host_reprovisioning",
+                e,
+            ))
+        })?;
+
+        Ok(Response::new(()))
+    }
+
     async fn copy_bfb_to_dpu_rshim(
         &self,
         request: tonic::Request<rpc::CopyBfbToDpuRshimRequest>,

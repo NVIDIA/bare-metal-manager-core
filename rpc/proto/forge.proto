@@ -506,6 +506,7 @@ service Forge {
   rpc SetManagedHostQuarantineState(SetManagedHostQuarantineStateRequest) returns (SetManagedHostQuarantineStateResponse);
   rpc ClearManagedHostQuarantineState(ClearManagedHostQuarantineStateRequest) returns (ClearManagedHostQuarantineStateResponse);
 
+  rpc ResetHostReprovisioning(common.MachineId) returns (google.protobuf.Empty);
   // Copy BFB to DPU's RSHIM
   rpc CopyBfbToDpuRshim(CopyBfbToDpuRshimRequest) returns (google.protobuf.Empty);
 }

@@ -652,6 +652,12 @@ async fn main() -> color_eyre::Result<()> {
                     );
                 }
             },
+            ManagedHost::ResetHostReprovisioning(machine_id) => {
+                let machine_id = ::rpc::common::MachineId {
+                    id: machine_id.machine,
+                };
+                api_client.0.reset_host_reprovisioning(machine_id).await?;
+            }
         },
         CliCommand::Measurement(cmd) => {
             let args = cfg::measurement::GlobalOptions {
