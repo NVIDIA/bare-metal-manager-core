@@ -41,6 +41,7 @@ dependencies = [
   "bfb-cleanup-tmp",
   "bfb-create-tmp",
   "bfb-download",
+  "save-bfb-for-preingestion",
   "bfb-mv-to-build-dir",
   "bfb-hbn-download",
   "bfb-hbn-export",
@@ -49,13 +50,10 @@ dependencies = [
 ]
 
 [tasks.save-bfb-for-preingestion]
-dependencies=["mkdir-static"]
+description = "Copy the vanilla BFB file to the static blobs directory"
 command = "cp"
-args = [
-  "-f",
-  "/tmp/bfb-dump/${BFB_NAME}",
-  "${REPO_ROOT}/pxe/static/blobs/internal/aarch64",
-]
+args = ["/tmp/bfb-dump/${BFB_NAME}", "preingestion.bfb"]
+cwd = "static/blobs/internal/aarch64"
 
 [tasks.bfb-mv-to-build-dir]
 command = "mv"

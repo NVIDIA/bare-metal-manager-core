@@ -612,8 +612,8 @@ build-boot-artifacts-bfb:
       - pxe/static/blobs/internal/aarch64/ipxe.efi
       - pxe/static/blobs/internal/aarch64/carbide.efi
       - pxe/static/blobs/internal/aarch64/carbide.root
+      - pxe/static/blobs/internal/aarch64/preingestion.bfb
       - pxe/static/blobs/internal/apt
-      - pxe/static/blobs/internal/firmware
       - target/aarch64-unknown-linux-gnu/release/forge-scout
       - target/debs/*
     when: always
