@@ -2719,6 +2719,21 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     txn.commit().await.unwrap();
 
     let vpc_prefix_id = create_tenant_overlay_prefix(&env, vpc.id).await;
+    let vpc_prefix = env
+        .api
+        .get_vpc_prefixes(tonic::Request::new(rpc::forge::VpcPrefixGetRequest {
+            vpc_prefix_ids: vec![rpc::Uuid {
+                value: vpc_prefix_id.to_string(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .vpc_prefixes[0]
+        .clone();
+
+    assert_eq!(vpc_prefix.total_31_segments, 16);
+    assert_eq!(vpc_prefix.available_31_segments, 16);
 
     let (instance_id, _instance) = create_instance(
         &env,
@@ -2732,6 +2747,22 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         vec![],
     )
     .await;
+
+    let vpc_prefix = env
+        .api
+        .get_vpc_prefixes(tonic::Request::new(rpc::forge::VpcPrefixGetRequest {
+            vpc_prefix_ids: vec![rpc::Uuid {
+                value: vpc_prefix_id.to_string(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .vpc_prefixes[0]
+        .clone();
+
+    assert_eq!(vpc_prefix.total_31_segments, 16);
+    assert_eq!(vpc_prefix.available_31_segments, 15);
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);
@@ -2963,6 +2994,21 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .unwrap(),
         0
     );
+    let vpc_prefix = env
+        .api
+        .get_vpc_prefixes(tonic::Request::new(rpc::forge::VpcPrefixGetRequest {
+            vpc_prefix_ids: vec![rpc::Uuid {
+                value: vpc_prefix_id.to_string(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .vpc_prefixes[0]
+        .clone();
+
+    assert_eq!(vpc_prefix.total_31_segments, 16);
+    assert_eq!(vpc_prefix.available_31_segments, 16);
     txn.commit().await.unwrap();
 }
 

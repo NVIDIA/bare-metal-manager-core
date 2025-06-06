@@ -314,7 +314,14 @@ impl IntoTable for ShowOutput {
     type Row = VpcPrefix;
 
     fn header(&self) -> &[&str] {
-        &["VpcPrefixId", "VpcId", "Prefix", "Name"]
+        &[
+            "VpcPrefixId",
+            "VpcId",
+            "Prefix",
+            "Name",
+            "Total 31 Segments",
+            "Available 31 Segments",
+        ]
     }
 
     fn all_rows(&self) -> &[Self::Row] {
@@ -330,11 +337,22 @@ impl IntoTable for ShowOutput {
             .unwrap_or("");
         let prefix = row.prefix.as_str();
         let name = row.name.as_str();
-        vec![
+        let mut r = vec![
             vpc_prefix_id.into(),
             vpc_id.into(),
             prefix.into(),
             name.into(),
-        ]
+        ];
+
+        if row.total_31_segments != 0 {
+            r.push(row.total_31_segments.to_string().into());
+            r.push(row.available_31_segments.to_string().into());
+        } else {
+            // Total 31 segments can not be 0. This means logic is not yet implemented on server.
+            r.push("NA".into());
+            r.push("NA".into());
+        }
+
+        r
     }
 }

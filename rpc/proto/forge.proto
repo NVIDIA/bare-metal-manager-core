@@ -899,7 +899,9 @@ message VpcPrefix {
   string prefix = 2;
   string name = 3;
   common.UUID vpc_id = 4;
-    // UUID tenant_prefix_id = 5;
+  // UUID tenant_prefix_id = 5;
+  uint32 total_31_segments = 6;
+  uint32 available_31_segments = 7;
 }
 
 message VpcPrefixCreationRequest {
