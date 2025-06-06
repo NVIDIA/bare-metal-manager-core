@@ -11,6 +11,7 @@
  */
 
 use ipnetwork::IpNetwork;
+use itertools::Itertools;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, QueryBuilder, Row};
 
@@ -26,9 +27,55 @@ pub struct VpcPrefix {
     pub name: String,
     pub vpc_id: VpcId,
     pub last_used_prefix: Option<IpNetwork>,
+    pub total_31_segments: u32,
+    pub available_31_segments: u32,
 }
 
 impl VpcPrefix {
+    async fn update_stats(
+        prefixes: &mut [Self],
+        txn: &mut PgConnection,
+    ) -> Result<(), DatabaseError> {
+        let nw_prefixes = prefixes.iter().map(|x| x.prefix).collect_vec();
+        let sub_prefixes = NetworkPrefix::containing_prefixes(txn, &nw_prefixes).await?;
+
+        for vpc_prefix in prefixes {
+            if let IpNetwork::V4(ipv4_network) = vpc_prefix.prefix {
+                if let Some(used_prefixes) = sub_prefixes.get(&vpc_prefix.prefix) {
+                    let ip_net = forge_network::ip::prefix::Ipv4Net::new(
+                        ipv4_network.network(),
+                        ipv4_network.prefix(),
+                    )
+                    .map_err(|err| {
+                        DatabaseError::new(
+                            file!(),
+                            line!(),
+                            "vpc_prefix_update_stats_ipv4_conversion",
+                            sqlx::Error::Protocol(err.to_string()),
+                        )
+                    })?;
+
+                    let total_31_segments = ip_net
+                        .subnets(31)
+                        .map_err(|err| {
+                            DatabaseError::new(
+                                file!(),
+                                line!(),
+                                "vpc_prefix_update_stats_subnet_count",
+                                sqlx::Error::Protocol(err.to_string()),
+                            )
+                        })?
+                        .collect::<Vec<forge_network::ip::prefix::Ipv4Net>>();
+                    vpc_prefix.total_31_segments = total_31_segments.len() as u32;
+                    vpc_prefix.available_31_segments =
+                        vpc_prefix.total_31_segments - used_prefixes.len() as u32;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     // Get a list of prefixes matching a filter on the ID column.
     pub async fn get_by_id<'a, C>(
         txn: &mut PgConnection,
@@ -39,11 +86,14 @@ impl VpcPrefix {
     {
         let mut query = super::FilterableQueryBuilder::new("SELECT * FROM network_vpc_prefixes")
             .filter(&filter);
-        query
+        let mut container = query
             .build_query_as()
-            .fetch_all(txn)
+            .fetch_all(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
+
+        Self::update_stats(&mut container, txn).await?;
+        Ok(container)
     }
 
     // Get a list of prefixes matching a filter on the ID column with ROW based lock.
@@ -52,11 +102,14 @@ impl VpcPrefix {
         filter: &[VpcPrefixId],
     ) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * FROM network_vpc_prefixes WHERE id=ANY($1) FOR NO KEY UPDATE";
-        sqlx::query_as(query)
+        let mut container = sqlx::query_as(query)
             .bind(filter)
-            .fetch_all(txn)
+            .fetch_all(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Self::update_stats(&mut container, txn).await?;
+        Ok(container)
     }
 
     // Find the prefixes associated with a VPC.
@@ -66,11 +119,14 @@ impl VpcPrefix {
     ) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * FROM network_vpc_prefixes WHERE vpc_id=$1 \
             ORDER BY prefix";
-        sqlx::query_as(query)
+        let mut container = sqlx::query_as(query)
             .bind(vpc_id)
-            .fetch_all(txn)
+            .fetch_all(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Self::update_stats(&mut container, txn).await?;
+        Ok(container)
     }
 
     // Find all prefixes associated with any VPC in the list.
@@ -163,6 +219,8 @@ impl<'r> sqlx::FromRow<'r, PgRow> for VpcPrefix {
             name,
             vpc_id,
             last_used_prefix,
+            total_31_segments: 0,
+            available_31_segments: 0,
         })
     }
 }

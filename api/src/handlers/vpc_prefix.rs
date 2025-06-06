@@ -423,6 +423,8 @@ impl From<db::VpcPrefix> for rpc::VpcPrefix {
             prefix,
             name,
             vpc_id,
+            total_31_segments: db_vpc_prefix.total_31_segments,
+            available_31_segments: db_vpc_prefix.available_31_segments,
         }
     }
 }

@@ -10,12 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 use std::{
+    collections::HashMap,
     fmt::{Display, Formatter},
     net::IpAddr,
 };
 
 use ::rpc::forge as rpc;
 use ipnetwork::IpNetwork;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, PgConnection, Row};
@@ -125,6 +127,37 @@ impl NetworkPrefix {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(container)
+    }
+
+    /// Fetch the prefixes that matches and categories them as a Hashmap.
+    pub async fn containing_prefixes(
+        txn: &mut PgConnection,
+        prefixes: &[IpNetwork],
+    ) -> Result<HashMap<IpNetwork, Vec<Self>>, DatabaseError> {
+        let query = "select * from network_prefixes where prefix <<= ANY($1)";
+        let container: Vec<Self> = sqlx::query_as(query)
+            .bind(prefixes)
+            .fetch_all(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        let value = prefixes
+            .iter()
+            .map(|x| {
+                let prefixes = container
+                    .iter()
+                    .filter(|a| {
+                        a.vpc_prefix
+                            .map(|prefix| x.contains(prefix.network()))
+                            .unwrap_or_default()
+                    })
+                    .cloned()
+                    .collect_vec();
+                (*x, prefixes)
+            })
+            .collect::<HashMap<IpNetwork, Vec<Self>>>();
+
+        Ok(value)
     }
 
     pub fn gateway_cidr(&self) -> Option<String> {
