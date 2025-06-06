@@ -74,6 +74,7 @@ fn convert_instance_to_nice_format(
                 .map(|state| format!("{:?}", state))
                 .unwrap_or_default(),
         ),
+        ("CONFIG VERSION", instance.config_version.clone()),
         (
             "NETWORK CONFIG SYNCED",
             instance
@@ -116,6 +117,16 @@ fn convert_instance_to_nice_format(
                 .as_ref()
                 .and_then(|config| config.tenant.as_ref())
                 .map(|tenant| tenant.always_boot_with_custom_ipxe)
+                .unwrap_or_default()
+                .to_string(),
+        ),
+        (
+            "PHONE HOME ENABLED",
+            instance
+                .config
+                .as_ref()
+                .and_then(|config| config.tenant.as_ref())
+                .map(|tenant| tenant.phone_home_enabled)
                 .unwrap_or_default()
                 .to_string(),
         ),
@@ -198,6 +209,88 @@ fn convert_instance_to_nice_format(
                 "\t--------------------------------------------------"
             )?;
         }
+    }
+
+    if let Some(ib_config) = instance.config.clone().unwrap().infiniband {
+        if let Some(ib_status) = instance.status.clone().unwrap().infiniband {
+            writeln!(&mut lines, "IB INTERFACES:")?;
+            writeln!(
+                &mut lines,
+                "\t{:<width$}: {}",
+                "IB CONFIG VERSION",
+                instance.ib_config_version.clone()
+            )?;
+            writeln!(
+                &mut lines,
+                "\t{:<width$}: {}",
+                "CONFIG SYNCED", ib_status.configs_synced
+            )?;
+            for (i, interface) in ib_config.ib_interfaces.iter().enumerate() {
+                let status = &ib_status.ib_interfaces[i];
+                let data = &[
+                    (
+                        "FUNCTION_TYPE",
+                        forgerpc::InterfaceFunctionType::try_from(interface.function_type)
+                            .ok()
+                            .map(|ty| format!("{:?}", ty))
+                            .unwrap_or_else(|| "INVALID".to_string()),
+                    ),
+                    ("VENDOR", interface.vendor.clone().unwrap_or_default()),
+                    ("DEVICE", interface.device.clone()),
+                    ("DEVICE INSTANCE", interface.device_instance.to_string()),
+                    (
+                        "VF ID",
+                        interface
+                            .virtual_function_id
+                            .map(|x| x.to_string())
+                            .unwrap_or_default(),
+                    ),
+                    (
+                        "PARTITION ID",
+                        interface
+                            .ib_partition_id
+                            .clone()
+                            .map(|x| x.to_string())
+                            .unwrap_or_default(),
+                    ),
+                    ("PF GUID", status.pf_guid.clone().unwrap_or_default()),
+                    (
+                        "GUID",
+                        status
+                            .guid
+                            .clone()
+                            .map(|id| id.to_string())
+                            .unwrap_or_default(),
+                    ),
+                    ("LID", status.lid.to_string()),
+                ];
+
+                for (key, value) in data {
+                    writeln!(&mut lines, "\t{:<width$}: {}", key, value)?;
+                }
+                writeln!(
+                    &mut lines,
+                    "\t--------------------------------------------------"
+                )?;
+            }
+        }
+    }
+
+    if let Some(nsg_id) = instance.config.clone().unwrap().network_security_group_id {
+        writeln!(&mut lines, "NETWORK SECURITY GROUP ID: {}", nsg_id)?;
+    }
+
+    if let Some(metadata) = instance.metadata.clone() {
+        writeln!(
+            &mut lines,
+            "LABELS: {}",
+            metadata
+                .labels
+                .iter()
+                .map(|x| format!("{}: {}", x.key, x.value.clone().unwrap_or_default()))
+                .collect::<Vec<String>>()
+                .join(", ")
+        )?;
     }
 
     Ok(lines)
