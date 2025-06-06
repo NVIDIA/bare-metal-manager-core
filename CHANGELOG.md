@@ -1,23 +1,51 @@
 # Changelog
 
-## [Unreleased (v2025.06.06-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.23-rc1-0...trunk)
+## [Unreleased (v2025.06.20-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.06.06-rc1-0...trunk)
 
 ### Added
-- [FORGE-6013](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3969): Sites can be configured with a timeframe in which they will skip needing a manual reboot request for upgrades.  Under the firmware_global section of their config, set both instance_autoreboot_period_start and instance_autoreboot_period_end with RFC 3339 style timestamps.
-- [FORGE-6113](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4023): Firmware definitions can now include multiple files as a tool for dealing with firmware that needs physical power cycles.
-- [MR-3905](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3905): Added support for quarantining hosts (disabling host networking)
-- [MR-4106](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4106): Support sending trace/span data to OTLP endpoints (allows viewing trace data from Grafana Tempo)
+### Changed
+### Fixed
+### Removed
+### Internal
+
+## [Unreleased (v2025.06.06-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.23-rc3-0...v2025.06.06-rc1-0)
+
+### Added
+
+- [FORGE-6113](https://jirasw.nvidia.com/browse/FORGE-6113), [MR-4023](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4023): Added the ability to use firmware definitions with multiple files.
+- [FORGE-16](https://jirasw.nvidia.com/browse/), [MR-3905](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3905): Added the ability to quarantine hosts so that they are isolated from the network.
+- [MR-4106](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4106): Added the ability to enable tracing logs and view them from Grafana Tempo.
+- [MR-4129](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4129), [MR-4123](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4123): Added the ability to update DPUs with DOCA versions older than DOCA 2.5 using SSH.
+- [MR-4102](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4102): Added the ability to interact with a DPUs BMC through SSH in Carbide.
+- [MR-4097](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4097): Added the ability to view authentication logs on DPUs using Grafana.
+- [MR-4099](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4099): Added the ability to secure erase BOSS drives in Dell servers as part of host cleanup in the state machine.
 
 ### Changed
-- [FORGE-6177](https://jirasw.nvidia.com/browse/FORGE-6177) If a BMC forgets about an update task, go back to retrying the upgrade.
+
+- [FORGE-6177](https://jirasw.nvidia.com/browse/FORGE-6177), [MR-4111](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4111): If a BMC forgets about an update task, go back to retrying the update.
 
 ### Fixed
 
-- [MR-4114](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4114): Re-enable LLDP back to dpu discovery flow for all DPUs that are running firmware 2.1 or greater
-
-### Removed
+- [FORGE-6253](https://jirasw.nvidia.com/browse/FORGE-6253), [MR-4114](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4114): Fixed an issue where LLDP was disabled on DPUs.
+- [MR-4137](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4137): Fixed an issue with setting the BMC password on Vikings with BIOS versions 1.6.7.
+- [MR-4128](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4128): Fixed an issue where running iPXE was failing with Supermicro grace/grace servers because of iPXE trying to stop a driver which was already stopped.
+- [FORGE-6219](https://jirasw.nvidia.com/browse/FORGE-6219), [MR-4098](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4098): Fixed an issue where querying for a missing SKU would show a database error instead of returning an empty list.
+- [FORGE-6206](https://jirasw.nvidia.com/browse/FORGE-6206), [MR-4117](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4117): Fixed an issue where the last BIOS update time was not updated when setting the password using forge-admin-cli.
+- [MR-4118](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4118): Fixed an issue where there was a potential for leaking passwords in logs.
+- [FORGE-6223](https://jirasw.nvidia.com/browse/FORGE-6223), [MR-4103](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4103): Fixed an issue where forge-admin-cli would indefinitely retry connecting to carbide-api and display a generic error message when an expired certificate is used. The fix now handles TLS errors gracefully and prints a useful error message to the console.
 
 ### Internal
+
+- [MR-4125](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4125): Added the ability to skip  instance creation after the ingestion during machine lifecycle tests.
+- [MR-4130](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4130): Add qcow-imager for ARM64
+- [MR-4073](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4073): Added the ability to reset Dells to factory defaults in machine lifecycle tests
+- [MR-4124](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4124): Changed the ARM64 kernel version to linux-nvidia-64k-hwe-24.04 as recommended by the [MNNVL Bring-Up Guide](https://swserver.gitlab-master-pages.nvidia.com/mnnvl-bringup/deploying.html).
+- [MR-4122](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4122): Added testing with multiple carbide-api instances for integration tests.
+- [MR-4127](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4127): Removed the dependency on libssl.so.1.1 for forge-scout.
+- [MR-4092](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4092): Added documentation about SKU validation in the Forge Book.
+- [MR-4120](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4120): Changed machine vendor to a `Literal["lenovo", "dell"]` as we only support those currently.
+- [MR-4109](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4109): Added running `apt-get autoclean` after a new forge-dpu version was downloaded.
+- [MR-4108](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4108): Added the nvidia-imex-575 driver to ARM64 scout.
 
 ## [v2025.05.23-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.23-rc2-0...v2025.05.23-rc3-0)
 
