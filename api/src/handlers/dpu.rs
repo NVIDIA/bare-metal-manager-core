@@ -220,7 +220,7 @@ pub(crate) async fn get_managed_host_network_config(
                                         &mut txn,
                                         &[vpc_nsg_id],
                                         Some(&i.config.tenant.tenant_organization_id),
-                                        true,
+                                        false,
                                     )
                                     .await?
                                     .pop()
@@ -243,7 +243,7 @@ pub(crate) async fn get_managed_host_network_config(
                                     &mut txn,
                                     &[nsg_id.to_owned()],
                                     Some(&i.config.tenant.tenant_organization_id),
-                                    true,
+                                    false,
                                 )
                                 .await?
                                 .pop()
