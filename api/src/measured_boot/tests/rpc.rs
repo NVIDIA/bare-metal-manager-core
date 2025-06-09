@@ -186,11 +186,11 @@ mod tests {
         let princess_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
         ];
 
@@ -283,11 +283,11 @@ mod tests {
         let pcr_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
         ];
         let req = mbrpc::AttestCandidateMachineRequest {
@@ -361,11 +361,11 @@ mod tests {
         let pcr_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
         ];
 
@@ -529,11 +529,11 @@ mod tests {
         let pcr_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
         ];
 
@@ -626,11 +626,11 @@ mod tests {
         let pcr_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
         ];
         let req = mbrpc::CreateMeasurementBundleRequest {
@@ -737,62 +737,62 @@ mod tests {
         vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "d86624ca1c77f5420c4a13f3cbca22044230adaeb23f313e5f2e0c903bff522e"
+                sha_any: "d86624ca1c77f5420c4a13f3cbca22044230adaeb23f313e5f2e0c903bff522e"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "4a43aa687655d3a36a3dbec7bd48894f08f51a87f1027fdc5d325748797099c9"
+                sha_any: "4a43aa687655d3a36a3dbec7bd48894f08f51a87f1027fdc5d325748797099c9"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "1a279c880e6b1ba9c9b0d980760f97801af3d6e84aff0cd33e4fea28e6818d7e"
+                sha_any: "1a279c880e6b1ba9c9b0d980760f97801af3d6e84aff0cd33e4fea28e6818d7e"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
+                sha_any: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "60dd6f85e62e1e6250f3632c918457f05f1ba88f5b2fe55554d012c5a70d2ca2"
+                sha_any: "60dd6f85e62e1e6250f3632c918457f05f1ba88f5b2fe55554d012c5a70d2ca2"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 5,
-                sha256: "f2023fe2729073c1b3c175bd4e6206883661ad21c923bca43c20fc8b503ade09"
+                sha_any: "f2023fe2729073c1b3c175bd4e6206883661ad21c923bca43c20fc8b503ade09"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 6,
-                sha256: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
+                sha_any: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 7,
-                sha256: "59fc09fad43fa9527c3366b820d1f9068392e731992895a4f9654785c300128f"
+                sha_any: "59fc09fad43fa9527c3366b820d1f9068392e731992895a4f9654785c300128f"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 8,
-                sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+                sha_any: "0000000000000000000000000000000000000000000000000000000000000000"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 9,
-                sha256: "d3cab16f23b70f856f44efdb01dd2fdf96d3c80c56c5ebef25077347691e3227"
+                sha_any: "d3cab16f23b70f856f44efdb01dd2fdf96d3c80c56c5ebef25077347691e3227"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 10,
-                sha256: "60a8e8fec245e25100b86608a7cf2a284e22db5f90ec49dbe7a1725affef155b"
+                sha_any: "60a8e8fec245e25100b86608a7cf2a284e22db5f90ec49dbe7a1725affef155b"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 11,
-                sha256: "0a41386a6ec4387d5a41229a28e6369cd75325082371e3e18e6338dcb578c783"
+                sha_any: "0a41386a6ec4387d5a41229a28e6369cd75325082371e3e18e6338dcb578c783"
                     .to_string(),
             },
         ]
@@ -802,17 +802,17 @@ mod tests {
         vec![
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
+                sha_any: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 9,
-                sha256: "d3cab16f23b70f856f44efdb01dd2fdf96d3c80c56c5ebef25077347691e3227"
+                sha_any: "d3cab16f23b70f856f44efdb01dd2fdf96d3c80c56c5ebef25077347691e3227"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 11,
-                sha256: "0a41386a6ec4387d5a41229a28e6369cd75325082371e3e18e6338dcb578c783"
+                sha_any: "0a41386a6ec4387d5a41229a28e6369cd75325082371e3e18e6338dcb578c783"
                     .to_string(),
             },
         ]
@@ -868,17 +868,17 @@ mod tests {
         let pcr_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
+                sha_any: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 9,
-                sha256: "d3cab16f23b70f856f44efdb01dd2fdf96d3c80c56c5ebef25077347691e3227"
+                sha_any: "d3cab16f23b70f856f44efdb01dd2fdf96d3c80c56c5ebef25077347691e3227"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 11,
-                sha256: "0a41386a6ec4387d5a41229a28e6369cd75325082371e3e18e6338dcb578c783"
+                sha_any: "0a41386a6ec4387d5a41229a28e6369cd75325082371e3e18e6338dcb578c783"
                     .to_string(),
             },
         ];
@@ -899,25 +899,25 @@ mod tests {
         let pcr_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "20".to_string(),
+                sha_any: "20".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "1a279c880e6b1ba9c9b0d980760f97801af3d6e84aff0cd33e4fea28e6818d7e"
+                sha_any: "1a279c880e6b1ba9c9b0d980760f97801af3d6e84aff0cd33e4fea28e6818d7e"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "30".to_string(),
+                sha_any: "30".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "60dd6f85e62e1e6250f3632c918457f05f1ba88f5b2fe55554d012c5a70d2ca2"
+                sha_any: "60dd6f85e62e1e6250f3632c918457f05f1ba88f5b2fe55554d012c5a70d2ca2"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 5,
-                sha256: "50".to_string(),
+                sha_any: "50".to_string(),
             },
         ];
         let req = mbrpc::CreateMeasurementBundleRequest {
@@ -937,23 +937,23 @@ mod tests {
         let pcr_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "10".to_string(),
+                sha_any: "10".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "20".to_string(),
+                sha_any: "20".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "30".to_string(),
+                sha_any: "30".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "30".to_string(),
+                sha_any: "30".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "40".to_string(),
+                sha_any: "40".to_string(),
             },
         ];
         let req = mbrpc::CreateMeasurementBundleRequest {
@@ -973,21 +973,21 @@ mod tests {
         let pcr_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "20".to_string(),
+                sha_any: "20".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
+                sha_any: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 9,
-                sha256: "d3cab16f23b70f856f44efdb01dd2fdf96d3c80c56c5ebef25077347691e3227"
+                sha_any: "d3cab16f23b70f856f44efdb01dd2fdf96d3c80c56c5ebef25077347691e3227"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 11,
-                sha256: "0a41386a6ec4387d5a41229a28e6369cd75325082371e3e18e6338dcb578c783"
+                sha_any: "0a41386a6ec4387d5a41229a28e6369cd75325082371e3e18e6338dcb578c783"
                     .to_string(),
             },
         ];
@@ -1008,15 +1008,15 @@ mod tests {
         let pcr_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "20".to_string(),
+                sha_any: "20".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "40".to_string(),
+                sha_any: "40".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 6,
-                sha256: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
+                sha_any: "3d458cfe55cc03ea1f443f1562beec8df51c75e14a9fcf9a7234a13f198e7969"
                     .to_string(),
             },
         ];
@@ -1318,26 +1318,26 @@ mod tests {
         let pcr_values1: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
         ];
 
         let pcr_values2: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "cc".to_string(),
+                sha_any: "cc".to_string(),
             },
         ];
 
@@ -1419,19 +1419,19 @@ mod tests {
         let pcr_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "ww".to_string(),
+                sha_any: "ww".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "xx".to_string(),
+                sha_any: "xx".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "yy".to_string(),
+                sha_any: "yy".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "zz".to_string(),
+                sha_any: "zz".to_string(),
             },
         ];
 
@@ -1480,8 +1480,8 @@ mod tests {
         assert!(resp.bundle.is_some());
         let auto_bundle = resp.bundle.unwrap();
         assert_eq!(2, auto_bundle.values.len());
-        assert_eq!("ww".to_string(), auto_bundle.values[0].sha256);
-        assert_eq!("xx".to_string(), auto_bundle.values[1].sha256);
+        assert_eq!("ww".to_string(), auto_bundle.values[0].sha_any);
+        assert_eq!("xx".to_string(), auto_bundle.values[1].sha_any);
 
         // And that the machine is measured.
         let req = mbrpc::ShowCandidateMachineRequest {
@@ -1528,19 +1528,19 @@ mod tests {
         let pcr_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "ll".to_string(),
+                sha_any: "ll".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "mm".to_string(),
+                sha_any: "mm".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "nn".to_string(),
+                sha_any: "nn".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "oo".to_string(),
+                sha_any: "oo".to_string(),
             },
         ];
 
@@ -1589,8 +1589,8 @@ mod tests {
         assert!(resp.bundle.is_some());
         let auto_bundle = resp.bundle.unwrap();
         assert_eq!(2, auto_bundle.values.len());
-        assert_eq!("nn".to_string(), auto_bundle.values[0].sha256);
-        assert_eq!("oo".to_string(), auto_bundle.values[1].sha256);
+        assert_eq!("nn".to_string(), auto_bundle.values[0].sha_any);
+        assert_eq!("oo".to_string(), auto_bundle.values[1].sha_any);
 
         // And that the machine is measured.
         let req = mbrpc::ShowCandidateMachineRequest {
@@ -1704,47 +1704,47 @@ mod tests {
         let princess_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "cc".to_string(),
+                sha_any: "cc".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "dd".to_string(),
+                sha_any: "dd".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "ee".to_string(),
+                sha_any: "ee".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 5,
-                sha256: "ff".to_string(),
+                sha_any: "ff".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 6,
-                sha256: "gg".to_string(),
+                sha_any: "gg".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 7,
-                sha256: "hh".to_string(),
+                sha_any: "hh".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 8,
-                sha256: "ii".to_string(),
+                sha_any: "ii".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 9,
-                sha256: "jj".to_string(),
+                sha_any: "jj".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 10,
-                sha256: "kk".to_string(),
+                sha_any: "kk".to_string(),
             },
         ];
 
@@ -1762,47 +1762,47 @@ mod tests {
         let beer_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "pp".to_string(),
+                sha_any: "pp".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "qq".to_string(),
+                sha_any: "qq".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "rr".to_string(),
+                sha_any: "rr".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "ss".to_string(),
+                sha_any: "ss".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "tt".to_string(),
+                sha_any: "tt".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 5,
-                sha256: "uu".to_string(),
+                sha_any: "uu".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 6,
-                sha256: "vv".to_string(),
+                sha_any: "vv".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 7,
-                sha256: "ww".to_string(),
+                sha_any: "ww".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 8,
-                sha256: "xx".to_string(),
+                sha_any: "xx".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 9,
-                sha256: "yy".to_string(),
+                sha_any: "yy".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 10,
-                sha256: "zz".to_string(),
+                sha_any: "zz".to_string(),
             },
         ];
 
@@ -1820,47 +1820,47 @@ mod tests {
         let lime_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "kk".to_string(),
+                sha_any: "kk".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "ll".to_string(),
+                sha_any: "ll".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "mm".to_string(),
+                sha_any: "mm".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "nn".to_string(),
+                sha_any: "nn".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "oo".to_string(),
+                sha_any: "oo".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 5,
-                sha256: "pp".to_string(),
+                sha_any: "pp".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 6,
-                sha256: "qq".to_string(),
+                sha_any: "qq".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 7,
-                sha256: "rr".to_string(),
+                sha_any: "rr".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 8,
-                sha256: "ss".to_string(),
+                sha_any: "ss".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 9,
-                sha256: "tt".to_string(),
+                sha_any: "tt".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 10,
-                sha256: "uu".to_string(),
+                sha_any: "uu".to_string(),
             },
         ];
 
@@ -1885,20 +1885,20 @@ mod tests {
         // bundles[0] is the princess bundle.
         let princess_bundle = &resp.bundles[0];
         assert_eq!(8, princess_bundle.values.len());
-        assert_eq!("aa".to_string(), princess_bundle.values[0].sha256);
-        assert_eq!("ii".to_string(), princess_bundle.values[7].sha256);
+        assert_eq!("aa".to_string(), princess_bundle.values[0].sha_any);
+        assert_eq!("ii".to_string(), princess_bundle.values[7].sha_any);
 
         // bundles[1] is the beer bundle.
         let beer_bundle = &resp.bundles[1];
         assert_eq!(8, beer_bundle.values.len());
-        assert_eq!("pp".to_string(), beer_bundle.values[0].sha256);
-        assert_eq!("xx".to_string(), beer_bundle.values[7].sha256);
+        assert_eq!("pp".to_string(), beer_bundle.values[0].sha_any);
+        assert_eq!("xx".to_string(), beer_bundle.values[7].sha_any);
 
         // bundles[2] is the lime bundle.
         let lime_bundle = &resp.bundles[2];
         assert_eq!(8, lime_bundle.values.len());
-        assert_eq!("kk".to_string(), lime_bundle.values[0].sha256);
-        assert_eq!("ss".to_string(), lime_bundle.values[7].sha256);
+        assert_eq!("kk".to_string(), lime_bundle.values[0].sha_any);
+        assert_eq!("ss".to_string(), lime_bundle.values[7].sha_any);
 
         // And make sure the machines are measured.
         let req = mbrpc::ShowCandidateMachineRequest {

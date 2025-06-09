@@ -163,7 +163,7 @@ pub fn parse_range(arg: &str) -> crate::Result<PcrRange> {
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct PcrRegisterValue {
     pub pcr_register: i16,
-    pub sha256: String,
+    pub sha_any: String,
 }
 
 pub struct PcrRegisterValueVec(Vec<PcrRegisterValue>);
@@ -188,7 +188,7 @@ impl From<PcrRegisterValue> for PcrRegisterValuePb {
     fn from(val: PcrRegisterValue) -> Self {
         Self {
             pcr_register: val.pcr_register as i32,
-            sha256: val.sha256.clone(),
+            sha_any: val.sha_any.clone(),
         }
     }
 }
@@ -197,7 +197,7 @@ impl From<PcrRegisterValuePb> for PcrRegisterValue {
     fn from(msg: PcrRegisterValuePb) -> Self {
         Self {
             pcr_register: msg.pcr_register as i16,
-            sha256: msg.sha256,
+            sha_any: msg.sha_any,
         }
     }
 }
@@ -209,7 +209,7 @@ impl From<Vec<String>> for PcrRegisterValueVec {
             .enumerate()
             .map(|(pcr_index, pcr_val)| PcrRegisterValue {
                 pcr_register: pcr_index as i16,
-                sha256: pcr_val,
+                sha_any: pcr_val,
             })
             .collect();
         PcrRegisterValueVec(pcr_register_values)

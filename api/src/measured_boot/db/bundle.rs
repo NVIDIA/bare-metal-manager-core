@@ -392,7 +392,7 @@ pub fn intersects(
     let register_map = pcr_register_values_to_map(values)?;
     Ok(measurement_bundle.values.iter().all(|value_record| {
         if let Some(register_value) = register_map.get(&value_record.pcr_register) {
-            register_value.sha256 == value_record.sha256
+            register_value.sha_any == value_record.sha_any
         } else {
             false
         }
@@ -520,7 +520,7 @@ fn pcr_values_to_string(pcr_values: &[PcrRegisterValue]) -> String {
 
     sorted_values
         .into_iter()
-        .map(|value| format!("{}:{}", value.pcr_register, value.sha256))
+        .map(|value| format!("{}:{}", value.pcr_register, value.sha_any))
         .collect::<Vec<_>>()
         .join(",")
 }
@@ -693,7 +693,7 @@ pub fn sub_bundle_intersects(
 ) -> bool {
     match_array.iter().all(|value_record| {
         if let Some(register_value) = register_map.get(&value_record.pcr_register) {
-            register_value.sha256 == value_record.sha256
+            register_value.sha_any == value_record.sha_any
         } else {
             false
         }
@@ -733,7 +733,7 @@ fn remove_all_subsets(bundles: &mut Vec<MeasurementBundle>) {
         let senior_values_map: HashMap<i16, String> = senior_bundle
             .pcr_values()
             .iter()
-            .map(|v| (v.pcr_register, v.sha256.clone()))
+            .map(|v| (v.pcr_register, v.sha_any.clone()))
             .collect();
 
         for (j, candidate_to_be_removed) in bundles.iter().enumerate().skip(i + 1) {
@@ -744,7 +744,7 @@ fn remove_all_subsets(bundles: &mut Vec<MeasurementBundle>) {
             let mut candidate_values_map: HashMap<i16, String> = candidate_to_be_removed
                 .pcr_values()
                 .iter()
-                .map(|v| (v.pcr_register, v.sha256.clone()))
+                .map(|v| (v.pcr_register, v.sha_any.clone()))
                 .collect();
 
             candidate_values_map.retain(|k, v| !is_same_kv(k, v, &senior_values_map));
@@ -852,13 +852,13 @@ mod tests {
         record_uuid: uuid::Uuid,
         bundle_uuid: uuid::Uuid,
         pcr_register: i16,
-        sha256: &str,
+        sha_any: &str,
     ) -> MeasurementBundleValueRecord {
         MeasurementBundleValueRecord {
             value_id: MeasurementBundleValueId(record_uuid),
             bundle_id: MeasurementBundleId(bundle_uuid),
             pcr_register,
-            sha256: sha256.to_string(),
+            sha_any: sha_any.to_string(),
             ts: chrono::DateTime::from_timestamp(1431648000, 0).unwrap(),
         }
     }
@@ -1000,29 +1000,29 @@ mod tests {
         [
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "6bc7446ebe68990ca674a8c05321f36a278c5f111f6066fa79aafd4060b7f15f"
+                sha_any: "6bc7446ebe68990ca674a8c05321f36a278c5f111f6066fa79aafd4060b7f15f"
                     .to_string(),
             },
             PcrRegisterValue {
                 // matching
                 pcr_register: 1,
-                sha256: "605fb593f71f163f2537351a6f9dd1aeed89aa9118302ea91b4a9ce672d8c245"
+                sha_any: "605fb593f71f163f2537351a6f9dd1aeed89aa9118302ea91b4a9ce672d8c245"
                     .to_string(),
             },
             PcrRegisterValue {
                 // matching
                 pcr_register: 2,
-                sha256: "e90f1be07663d4fbe85248ad906b2ce419aa45acc30d8372f0e6477939851c5b"
+                sha_any: "e90f1be07663d4fbe85248ad906b2ce419aa45acc30d8372f0e6477939851c5b"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 5,
-                sha256: "07aa618176b5874efe473c7ae90c3f9838fa5c3c81c13bf6e78454d4cd546042"
+                sha_any: "07aa618176b5874efe473c7ae90c3f9838fa5c3c81c13bf6e78454d4cd546042"
                     .to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 8,
-                sha256: "605fb593f71f163f2537351a6f9dd1aeed89aa9118302ea91b4a9ce672d8c245"
+                sha_any: "605fb593f71f163f2537351a6f9dd1aeed89aa9118302ea91b4a9ce672d8c245"
                     .to_string(),
             },
         ]
@@ -1148,15 +1148,15 @@ mod tests {
         let pcr_values = vec![
             PcrRegisterValue {
                 pcr_register: 8,
-                sha256: String::from("ocho"),
+                sha_any: String::from("ocho"),
             },
             PcrRegisterValue {
                 pcr_register: 5,
-                sha256: String::from("cinco"),
+                sha_any: String::from("cinco"),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: String::from("uno"),
+                sha_any: String::from("uno"),
             },
         ];
 

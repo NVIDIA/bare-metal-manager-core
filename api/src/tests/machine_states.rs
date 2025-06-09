@@ -1217,11 +1217,11 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     let pcr_values: Vec<PcrRegisterValue> = vec![
         PcrRegisterValue {
             pcr_register: 0,
-            sha256: "aa".to_string(),
+            sha_any: "aa".to_string(),
         },
         PcrRegisterValue {
             pcr_register: 1,
-            sha256: "bb".to_string(),
+            sha_any: "bb".to_string(),
         },
     ];
 

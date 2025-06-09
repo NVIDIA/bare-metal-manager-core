@@ -486,8 +486,8 @@ pub struct MeasurementBundleValueRecord {
     // at 0) that the corresponding sha256 is from.
     pub pcr_register: i16,
 
-    // sha256 is the sha256 from the PCR register.
-    pub sha256: String,
+    // sha_any is any shaXXX from the PCR register.
+    pub sha_any: String,
 
     // ts is the timestamp the record was created.
     #[cfg_attr(
@@ -528,7 +528,7 @@ impl From<MeasurementBundleValueRecord> for PcrRegisterValue {
     fn from(val: MeasurementBundleValueRecord) -> Self {
         PcrRegisterValue {
             pcr_register: val.pcr_register,
-            sha256: val.sha256.clone(),
+            sha_any: val.sha_any.clone(),
         }
     }
 }
@@ -543,7 +543,7 @@ impl From<MeasurementBundleValueRecord> for MeasurementBundleValueRecordPb {
                 value: val.bundle_id.to_string(),
             }),
             pcr_register: val.pcr_register as i32,
-            sha256: val.sha256,
+            sha_any: val.sha_any,
             ts: Some(val.ts.into()),
         }
     }
@@ -557,7 +557,7 @@ impl TryFrom<MeasurementBundleValueRecordPb> for MeasurementBundleValueRecord {
             value_id: MeasurementBundleValueId::try_from(msg.value_id)?,
             bundle_id: MeasurementBundleId::try_from(msg.bundle_id)?,
             pcr_register: msg.pcr_register as i16,
-            sha256: msg.sha256.clone(),
+            sha_any: msg.sha_any.clone(),
             ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
         })
     }
@@ -646,12 +646,12 @@ pub struct MeasurementReportValueRecord {
     pub report_id: MeasurementReportId,
 
     // pcr_register is the specific PCR register index (starting
-    // at 0) that the corresponding sha256 is from.
+    // at 0) that the corresponding sha_any is from.
     pub pcr_register: i16,
 
-    // sha256 is the sha256 value reported for the given
+    // sha_any is the sha_any value reported for the given
     // PCR register from the machine.
-    pub sha256: String,
+    pub sha_any: String,
 
     // ts is the timestamp this record was created.
     #[cfg_attr(
@@ -678,7 +678,7 @@ impl From<MeasurementReportValueRecord> for PcrRegisterValue {
     fn from(val: MeasurementReportValueRecord) -> Self {
         Self {
             pcr_register: val.pcr_register,
-            sha256: val.sha256.clone(),
+            sha_any: val.sha_any.clone(),
         }
     }
 }
@@ -693,7 +693,7 @@ impl From<MeasurementReportValueRecord> for MeasurementReportValueRecordPb {
                 value: val.report_id.to_string(),
             }),
             pcr_register: val.pcr_register as i32,
-            sha256: val.sha256,
+            sha_any: val.sha_any,
             ts: Some(val.ts.into()),
         }
     }
@@ -707,7 +707,7 @@ impl TryFrom<MeasurementReportValueRecordPb> for MeasurementReportValueRecord {
             value_id: MeasurementReportValueId::try_from(msg.value_id)?,
             report_id: MeasurementReportId::try_from(msg.report_id)?,
             pcr_register: msg.pcr_register as i16,
-            sha256: msg.sha256.clone(),
+            sha_any: msg.sha_any.clone(),
             ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
         })
     }

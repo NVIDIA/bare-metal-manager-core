@@ -169,10 +169,46 @@ pub(crate) fn activate_credential(
     Ok(digest)
 }
 
+fn detect_pcr_hash_algo(ctx: &mut Context) -> Result<HashingAlgorithm, Box<dyn std::error::Error>> {
+    let is_sha256 = probe_sample_pcr_value(ctx, HashingAlgorithm::Sha256)?;
+    let is_sha384 = probe_sample_pcr_value(ctx, HashingAlgorithm::Sha384)?;
+
+    // prefer SHA256 over SHA384
+    if is_sha256 {
+        return Ok(HashingAlgorithm::Sha256);
+    }
+
+    if is_sha384 {
+        return Ok(HashingAlgorithm::Sha384);
+    }
+
+    Err(Box::new(CarbideClientError::TpmError(
+        "TPM PCR is using an unsupported hash. Only SHA256 and SHA384 are supported".to_string(),
+    )))
+}
+
+fn probe_sample_pcr_value(
+    ctx: &mut Context,
+    probe_hash: HashingAlgorithm,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let pcr_selection_list = PcrSelectionListBuilder::new()
+        .with_selection(probe_hash, &[PcrSlot::Slot0])
+        .build()?;
+
+    let (_, _, digest_list) = ctx.pcr_read(pcr_selection_list)?;
+
+    Ok(!digest_list.is_empty())
+}
+
 pub(crate) fn get_pcr_quote(
     ctx: &mut Context,
     ak_handle: &KeyHandle,
 ) -> Result<(Attest, Signature, Vec<Digest>), Box<dyn std::error::Error>> {
+    // it used to be that PCR values would only be in SHA256, this can now
+    // be in SHA384 also. We figure out which ones those are by probing them.
+    let pcr_hash_algo = detect_pcr_hash_algo(ctx)?;
+    tracing::info!("Using PCR HASH {:?}", pcr_hash_algo);
+
     let ak_auth_session_option = ctx.start_auth_session(
         None,
         None,
@@ -197,7 +233,7 @@ pub(crate) fn get_pcr_quote(
 
     let selection_list = PcrSelectionListBuilder::new()
         .with_selection(
-            HashingAlgorithm::Sha256,
+            pcr_hash_algo,
             &[
                 PcrSlot::Slot0,
                 PcrSlot::Slot1,

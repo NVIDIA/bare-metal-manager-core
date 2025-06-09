@@ -112,115 +112,115 @@ mod tests {
         let princess_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "cc".to_string(),
+                sha_any: "cc".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "pppppppppppppppppp".to_string(),
+                sha_any: "pppppppppppppppppp".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "ee".to_string(),
+                sha_any: "ee".to_string(),
             },
         ];
 
         let beer_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "cc".to_string(),
+                sha_any: "cc".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "oooooooooooooooooo".to_string(),
+                sha_any: "oooooooooooooooooo".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "ee".to_string(),
+                sha_any: "ee".to_string(),
             },
         ];
 
         let bad_dell_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "xxxxxxxxx".to_string(),
+                sha_any: "xxxxxxxxx".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "cc".to_string(),
+                sha_any: "cc".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "dd".to_string(),
+                sha_any: "dd".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "ee".to_string(),
+                sha_any: "ee".to_string(),
             },
         ];
 
         let dgx_h100_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "cc".to_string(),
+                sha_any: "cc".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "dd".to_string(),
+                sha_any: "dd".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "ee".to_string(),
+                sha_any: "ee".to_string(),
             },
         ];
 
         let dgx_h100_v1_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "xx".to_string(),
+                sha_any: "xx".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "yy".to_string(),
+                sha_any: "yy".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "zz".to_string(),
+                sha_any: "zz".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "dd".to_string(),
+                sha_any: "dd".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "pp".to_string(),
+                sha_any: "pp".to_string(),
             },
         ];
 
