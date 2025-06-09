@@ -105,6 +105,14 @@ impl EndpointExplorer for MockEndpointExplorer {
         true
     }
 
+    async fn disable_secure_boot(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
     async fn forge_setup(
         &self,
         _address: SocketAddr,

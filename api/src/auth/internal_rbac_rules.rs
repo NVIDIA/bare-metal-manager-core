@@ -317,6 +317,7 @@ impl InternalRBACRules {
         x.perm("GetMachineValidationRuns", vec![ForgeAdminCLI]);
         x.perm("AdminBmcReset", vec![ForgeAdminCLI]);
         x.perm("AdminPowerControl", vec![ForgeAdminCLI]);
+        x.perm("DisableSecureBoot", vec![ForgeAdminCLI]);
         x.perm("ForgeSetup", vec![ForgeAdminCLI]);
         x.perm("OnDemandMachineValidation", vec![ForgeAdminCLI]);
         x.perm("TpmAddCaCert", vec![ForgeAdminCLI, SiteAgent]);

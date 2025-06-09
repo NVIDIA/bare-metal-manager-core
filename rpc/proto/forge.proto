@@ -469,6 +469,8 @@ service Forge {
   rpc AdminBmcReset(AdminBmcResetRequest) returns (AdminBmcResetResponse);
   // Admin Power Control
   rpc AdminPowerControl(AdminPowerControlRequest) returns (AdminPowerControlResponse);
+  // Disable Secure Boot
+  rpc DisableSecureBoot(BmcEndpointRequest) returns (DisableSecureBootResponse);
   // Start Forge Setup
   rpc ForgeSetup(ForgeSetupRequest) returns (ForgeSetupResponse);
 
@@ -2599,6 +2601,9 @@ message AdminForceDeleteMachineResponse {
   repeated string dpu_machine_ids = 49;
   repeated string dpu_machine_interface_ids = 50;
 
+}
+
+message DisableSecureBootResponse {
 }
 
 message ForgeSetupStatusRequest {

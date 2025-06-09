@@ -116,6 +116,21 @@ pub(crate) async fn bmc_credential_status(
     }))
 }
 
+pub(crate) async fn disable_secure_boot(
+    api: &Api,
+    request: ::rpc::forge::BmcEndpointRequest,
+) -> Result<Response<()>, tonic::Status> {
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    api.endpoint_explorer
+        .disable_secure_boot(bmc_addr, &machine_interface)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    Ok(Response::new(()))
+}
+
 pub(crate) async fn forge_setup(
     api: &Api,
     request: ::rpc::forge::BmcEndpointRequest,

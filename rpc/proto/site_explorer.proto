@@ -31,6 +31,8 @@ message EndpointExplorationReport {
   repeated Service service = 15;
   // `ForgeSetupStatus` reported by Redfish
   ForgeSetupStatus forge_setup_status = 16;
+  // `SecureBootStatus` reported by Redfish
+  SecureBootStatus secure_boot_status = 17;
 }
 
 message ExploredEndpoint {
@@ -236,4 +238,8 @@ message BootOption {
   string id = 2;
   optional bool boot_option_enabled = 3;
   optional string uefi_device_path = 4;
+}
+
+message SecureBootStatus {
+  bool is_enabled = 1;
 }

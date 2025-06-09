@@ -113,5 +113,6 @@ fn build_exploration_report(
         versions: HashMap::default(),
         model: None,
         forge_setup_status: None,
+        secure_boot_status: None,
     }
 }
