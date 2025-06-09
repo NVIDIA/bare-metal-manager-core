@@ -1948,7 +1948,22 @@ impl Forge for Api {
                             ..
                         },
                     ..
-                } => (Action::Reset, None),
+                } => {
+                    let last_cleanup_time = host_machine.last_cleanup_time;
+                    let state_version = host_machine.state.version;
+                    tracing::info!(
+                        "last_cleanup_time: {:?}, state_version: {:?}",
+                        last_cleanup_time,
+                        state_version
+                    );
+                    // Check scout has already cleaned up the machine
+                    if last_cleanup_time.unwrap_or_default() > state_version.timestamp() {
+                        tracing::info!("Cleanup is already done");
+                        (Action::Noop, None)
+                    } else {
+                        (Action::Reset, None)
+                    }
+                }
                 ManagedHostState::BomValidating {
                     bom_validating_state: BomValidating::UpdatingInventory(_),
                 } => {
