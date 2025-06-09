@@ -37,10 +37,6 @@
             inbound: {}
           p0009_vpc_peer_ingress_to_host:
             outbound: {}
-          p0015_vpc_peer_in:
-            inbound: {}
-          p0015_vpc_peer_out:
-            outbound: {}
           dhcp_flood_prevention:
             inbound: {} 
         bridge:
@@ -77,10 +73,6 @@
           p0009_vpc_peer_egress_from_host:
             inbound: {}
           p0009_vpc_peer_ingress_to_host:
-            outbound: {}
-          p0015_vpc_peer_in:
-            inbound: {}
-          p0015_vpc_peer_out:
             outbound: {} 
         ip:
           address:
@@ -218,6 +210,8 @@
                 route-target:
                   11414:1337: {}
                   11414:0: {}
+                  11414:1025186: {}
+                  11414:1025187: {}
                   auto: {}
     acl:
       dhcp_flood_prevention:

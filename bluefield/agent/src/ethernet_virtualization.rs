@@ -1904,6 +1904,15 @@ mod tests {
         let svi_ip1: IpAddr = IpAddr::from_str("10.217.5.172").unwrap();
         let svi_ip2: IpAddr = IpAddr::from_str("10.217.5.164").unwrap();
 
+        let vpc_peer_vnis = match virtualization_type {
+            VpcVirtualizationType::EthernetVirtualizer
+            | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+                vec![]
+            }
+            _ => {
+                vec![1025186, 1025187]
+            }
+        };
         let tenant_interfaces = vec![
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual.into(),
@@ -1916,7 +1925,7 @@ mod tests {
                 interface_prefix: interface_prefix_1.to_string(),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 vpc_peer_prefixes: vec!["10.217.6.176/29".to_string()],
-                vpc_peer_vnis: vec![],
+                vpc_peer_vnis,
                 prefix: "10.217.5.169/29".to_string(),
                 fqdn: "myhost.forge.1".to_string(),
                 booturl: None,
