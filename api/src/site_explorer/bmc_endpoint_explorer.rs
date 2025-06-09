@@ -18,7 +18,11 @@ use forge_ssh::ssh::SshConfig;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
+use tokio::fs::{self, File};
+use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep};
+
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::credentials::{CredentialClient, get_bmc_root_credential_key};
 use super::metrics::SiteExplorationMetrics;
@@ -32,11 +36,16 @@ use crate::{
     site_explorer::EndpointExplorer,
 };
 
+const UNIFIED_PREINGESTION_BFB_PATH: &str =
+    "/forge-boot-artifacts/blobs/internal/aarch64/preingestion_unified_update.bfb";
+const PREINGESTION_BFB_PATH: &str = "/forge-boot-artifacts/blobs/internal/aarch64/preingestion.bfb";
+
 /// An `EndpointExplorer` which uses redfish APIs to query the endpoint
 pub struct BmcEndpointExplorer {
     redfish_client: RedfishClient,
     ipmi_tool: Arc<dyn IPMITool>,
     credential_client: CredentialClient,
+    mutex: Arc<Mutex<()>>,
 }
 
 impl BmcEndpointExplorer {
@@ -49,6 +58,7 @@ impl BmcEndpointExplorer {
             redfish_client: RedfishClient::new(redfish_client_pool),
             ipmi_tool,
             credential_client: CredentialClient::new(credential_provider),
+            mutex: Arc::new(Mutex::new(())),
         }
     }
 
@@ -369,16 +379,89 @@ impl BmcEndpointExplorer {
         })
     }
 
+    async fn create_unified_preingestion_bfb(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<(), EndpointExplorationError> {
+        let mutex_clone = Arc::clone(&self.mutex);
+        let _lock = mutex_clone.lock().await;
+
+        if fs::metadata(UNIFIED_PREINGESTION_BFB_PATH).await.is_err() {
+            tracing::info!("Writing {UNIFIED_PREINGESTION_BFB_PATH}");
+            let bf_cfg_contents = format!(
+                "BMC_USER=\"{}\"\nBMC_PASSWORD=\"{}\"\nBMC_REBOOT=\"yes\"\nCEC_REBOOT=\"yes\"\n",
+                username, password
+            );
+
+            let mut preingestion_bfb = File::open(PREINGESTION_BFB_PATH).await.map_err(|err| {
+                EndpointExplorationError::Other {
+                    details: format!("failed to open {PREINGESTION_BFB_PATH}: {err}"),
+                }
+            })?;
+
+            let mut unified_bfb =
+                File::create(UNIFIED_PREINGESTION_BFB_PATH)
+                    .await
+                    .map_err(|err| EndpointExplorationError::Other {
+                        details: format!("failed to create {UNIFIED_PREINGESTION_BFB_PATH}: {err}"),
+                    })?;
+
+            let mut buffer = [0; 1024 * 1024]; // 1 MB buffer
+
+            tracing::info!("Writing BFB to {UNIFIED_PREINGESTION_BFB_PATH}");
+            loop {
+                let n = preingestion_bfb.read(&mut buffer).await.map_err(|err| {
+                    EndpointExplorationError::Other {
+                        details: format!("failed to read BFB: {err}"),
+                    }
+                })?;
+
+                if n == 0 {
+                    break;
+                }
+
+                unified_bfb.write_all(&buffer[..n]).await.map_err(|err| {
+                    EndpointExplorationError::Other {
+                        details: format!(
+                            "failed to write BFB to {UNIFIED_PREINGESTION_BFB_PATH}: {err}"
+                        ),
+                    }
+                })?;
+            }
+
+            tracing::info!("Writing bf.cfg to {UNIFIED_PREINGESTION_BFB_PATH}:\n{bf_cfg_contents}");
+
+            unified_bfb
+                .write_all(bf_cfg_contents.as_bytes())
+                .await
+                .map_err(|err| EndpointExplorationError::Other {
+                    details: format!("failed to write bf.cfg: {err}"),
+                })?;
+
+            unified_bfb
+                .sync_all()
+                .await
+                .map_err(|err| EndpointExplorationError::Other {
+                    details: format!("failed to flush {UNIFIED_PREINGESTION_BFB_PATH}: {err}"),
+                })?;
+        }
+
+        Ok(())
+    }
+
     async fn copy_bfb_to_dpu_rshim(
         &self,
         bmc_ip_address: SocketAddr,
-        bfb_path: String,
         credentials: Credentials,
         ssh_config: Option<SshConfig>,
     ) -> Result<(), EndpointExplorationError> {
         let (username, password) = match credentials.clone() {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
+
+        self.create_unified_preingestion_bfb(&username, &password)
+            .await?;
 
         self.check_and_enable_rshim(bmc_ip_address, credentials, ssh_config.clone())
             .await?;
@@ -388,12 +471,12 @@ impl BmcEndpointExplorer {
             username,
             password,
             ssh_config,
-            bfb_path.clone(),
+            UNIFIED_PREINGESTION_BFB_PATH.to_string(),
         )
         .await
         .map_err(|err| EndpointExplorationError::Other {
             details: format!(
-                "failed to copy BFB from {bfb_path} to BMC RSHIM on {bmc_ip_address}: {err}"
+                "failed to copy BFB from {UNIFIED_PREINGESTION_BFB_PATH} to BMC RSHIM on {bmc_ip_address}: {err}"
             ),
         })
     }
@@ -617,14 +700,13 @@ impl EndpointExplorer for BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-        bfb_path: String,
         ssh_config: Option<SshConfig>,
     ) -> Result<(), EndpointExplorationError> {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
-                self.copy_bfb_to_dpu_rshim(bmc_ip_address, bfb_path, credentials, ssh_config)
+                self.copy_bfb_to_dpu_rshim(bmc_ip_address, credentials, ssh_config)
                     .await
             }
             Err(e) => {

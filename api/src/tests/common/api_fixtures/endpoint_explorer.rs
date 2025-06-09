@@ -143,7 +143,6 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         _bmc_ip_address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-        _bfb_path: String,
         _ssh_config: Option<SshConfig>,
     ) -> Result<(), EndpointExplorationError> {
         Ok(())

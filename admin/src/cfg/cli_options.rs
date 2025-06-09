@@ -2167,8 +2167,6 @@ pub struct CopyBfbToDpuRshimArgs {
     pub mac: Option<MacAddress>,
     #[clap(flatten)]
     pub timeout_config: Option<TimeoutConfig>,
-    #[clap(help = "BMC IP address or hostname with optional port")]
-    pub bfb_path: String,
 }
 #[derive(Parser, Debug)]
 pub struct ReExploreOptions {

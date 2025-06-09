@@ -98,7 +98,6 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-        bfb_path: String,
         ssh_config: Option<SshConfig>,
     ) -> Result<(), EndpointExplorationError>;
 }

@@ -2249,7 +2249,7 @@ message SshRequest {
 
 message CopyBfbToDpuRshimRequest {
   SshRequest ssh_request = 1;
-  string bfb_path = 2;
+  reserved 2;
 }
 
 message UpdateMachineHardwareInfoRequest {

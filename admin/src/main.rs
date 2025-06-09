@@ -1061,12 +1061,7 @@ async fn main() -> color_eyre::Result<()> {
             }
             SiteExplorer::CopyBfbToDpuRshim(args) => {
                 api_client
-                    .copy_bfb_to_dpu_rshim(
-                        args.address,
-                        args.mac,
-                        args.timeout_config,
-                        args.bfb_path,
-                    )
+                    .copy_bfb_to_dpu_rshim(args.address, args.mac, args.timeout_config)
                     .await?;
             }
         },
