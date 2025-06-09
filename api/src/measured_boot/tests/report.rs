@@ -49,31 +49,31 @@ mod tests {
         let values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "cc".to_string(),
+                sha_any: "cc".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "dd".to_string(),
+                sha_any: "dd".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "ee".to_string(),
+                sha_any: "ee".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 5,
-                sha256: "ff".to_string(),
+                sha_any: "ff".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 6,
-                sha256: "gg".to_string(),
+                sha_any: "gg".to_string(),
             },
         ];
         let input_value_map = pcr_register_values_to_map(&values)?;
@@ -107,13 +107,13 @@ mod tests {
         for (pcr_register, input_value) in input_value_map.iter() {
             let report_value = report_value_map.get(pcr_register);
             assert!(report_value.is_some());
-            assert_eq!(report_value.unwrap().sha256, input_value.sha256);
+            assert_eq!(report_value.unwrap().sha_any, input_value.sha_any);
             let same_report_value = same_report_value_map.get(pcr_register);
             assert!(same_report_value.is_some());
-            assert_eq!(same_report_value.unwrap().sha256, input_value.sha256);
+            assert_eq!(same_report_value.unwrap().sha_any, input_value.sha_any);
             let report2_value = report2_value_map.get(pcr_register);
             assert!(report2_value.is_some());
-            assert_eq!(report2_value.unwrap().sha256, input_value.sha256);
+            assert_eq!(report2_value.unwrap().sha_any, input_value.sha_any);
         }
         assert_eq!(
             serde_json::to_string_pretty(&report).unwrap(),
@@ -124,31 +124,31 @@ mod tests {
         let values3: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "xx".to_string(),
+                sha_any: "xx".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "yy".to_string(),
+                sha_any: "yy".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "zz".to_string(),
+                sha_any: "zz".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "dd".to_string(),
+                sha_any: "dd".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "ee".to_string(),
+                sha_any: "ee".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 5,
-                sha256: "ff".to_string(),
+                sha_any: "ff".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 6,
-                sha256: "pp".to_string(),
+                sha_any: "pp".to_string(),
             },
         ];
         let input3_value_map = pcr_register_values_to_map(&values3)?;
@@ -172,10 +172,10 @@ mod tests {
         for (pcr_register, input_value) in input3_value_map.iter() {
             let report3_value = report3_value_map.get(pcr_register);
             assert!(report3_value.is_some());
-            assert_eq!(report3_value.unwrap().sha256, input_value.sha256);
+            assert_eq!(report3_value.unwrap().sha_any, input_value.sha_any);
             let same_report3_value = same_report3_value_map.get(pcr_register);
             assert!(same_report3_value.is_some());
-            assert_eq!(same_report3_value.unwrap().sha256, input_value.sha256);
+            assert_eq!(same_report3_value.unwrap().sha_any, input_value.sha_any);
         }
 
         // And then get everything thus far.
@@ -220,31 +220,31 @@ mod tests {
         let values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "cc".to_string(),
+                sha_any: "cc".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "dd".to_string(),
+                sha_any: "dd".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "ee".to_string(),
+                sha_any: "ee".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 5,
-                sha256: "ff".to_string(),
+                sha_any: "ff".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 6,
-                sha256: "gg".to_string(),
+                sha_any: "gg".to_string(),
             },
         ];
         let input_value_map = pcr_register_values_to_map(&values)?;
@@ -292,31 +292,31 @@ mod tests {
         let values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "cc".to_string(),
+                sha_any: "cc".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "dd".to_string(),
+                sha_any: "dd".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "ee".to_string(),
+                sha_any: "ee".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 5,
-                sha256: "ff".to_string(),
+                sha_any: "ff".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 6,
-                sha256: "gg".to_string(),
+                sha_any: "gg".to_string(),
             },
         ];
 
@@ -386,35 +386,35 @@ mod tests {
         let values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "cc".to_string(),
+                sha_any: "cc".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "dd".to_string(),
+                sha_any: "dd".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "ee".to_string(),
+                sha_any: "ee".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 5,
-                sha256: "ff".to_string(),
+                sha_any: "ff".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 6,
-                sha256: "gg".to_string(),
+                sha_any: "gg".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 7,
-                sha256: "hh".to_string(),
+                sha_any: "hh".to_string(),
             },
         ];
 
@@ -463,31 +463,31 @@ mod tests {
         let values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 2,
-                sha256: "cc".to_string(),
+                sha_any: "cc".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 3,
-                sha256: "dd".to_string(),
+                sha_any: "dd".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 4,
-                sha256: "ee".to_string(),
+                sha_any: "ee".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 5,
-                sha256: "ff".to_string(),
+                sha_any: "ff".to_string(),
             },
             PcrRegisterValue {
                 pcr_register: 6,
-                sha256: "gg".to_string(),
+                sha_any: "gg".to_string(),
             },
         ];
 

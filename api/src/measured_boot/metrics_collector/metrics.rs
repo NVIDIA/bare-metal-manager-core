@@ -216,7 +216,7 @@ fn hydrate_meter(
                                         "pcr_index",
                                         pcr_register.pcr_register.to_string(),
                                     ),
-                                    KeyValue::new("pcr_value", pcr_register.sha256.clone()),
+                                    KeyValue::new("pcr_value", pcr_register.sha_any.clone()),
                                 ],
                             ]
                             .concat(),

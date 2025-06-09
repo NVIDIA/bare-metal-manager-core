@@ -58,10 +58,10 @@ pub fn parse_pcr_register_values(arg: &str) -> eyre::Result<PcrRegisterValue> {
     let pcr_register = pair[0]
         .parse::<i16>()
         .map_err(|_| eyre::eyre!("pcr_register must be a number"))?;
-    let sha256 = pair[1].to_string();
+    let sha = pair[1].to_string();
     Ok(PcrRegisterValue {
         pcr_register,
-        sha256,
+        sha_any: sha,
     })
 }
 

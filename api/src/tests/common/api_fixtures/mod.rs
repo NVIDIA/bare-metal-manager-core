@@ -1856,11 +1856,11 @@ pub async fn inject_machine_measurements(env: &TestEnv, machine_id: rpc::common:
     let pcr_values: Vec<PcrRegisterValue> = vec![
         PcrRegisterValue {
             pcr_register: 0,
-            sha256: "aa".to_string(),
+            sha_any: "aa".to_string(),
         },
         PcrRegisterValue {
             pcr_register: 1,
-            sha256: "bb".to_string(),
+            sha_any: "bb".to_string(),
         },
     ];
 

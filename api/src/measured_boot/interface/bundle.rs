@@ -73,7 +73,7 @@ pub async fn insert_measurement_bundle_value_records(
                 txn,
                 bundle_id,
                 value.pcr_register,
-                &value.sha256,
+                &value.sha_any,
             )
             .await?,
         );
@@ -89,7 +89,7 @@ pub async fn insert_measurement_bundle_value_record(
     pcr_register: i16,
     value: &String,
 ) -> Result<MeasurementBundleValueRecord, DatabaseError> {
-    let query = "insert into measurement_bundles_values(bundle_id, pcr_register, sha256) values($1, $2, $3) returning *";
+    let query = "insert into measurement_bundles_values(bundle_id, pcr_register, sha_any) values($1, $2, $3) returning *";
 
     sqlx::query_as(query)
         .bind(bundle_id)
@@ -408,14 +408,14 @@ pub async fn import_measurement_bundles_value(
     bundle: &MeasurementBundleValueRecord,
 ) -> Result<MeasurementBundleValueRecord, DatabaseError> {
     let query = format!(
-        "insert into {}(value_id, bundle_id, pcr_register, sha256, ts) values($1, $2, $3, $4, $5) returning *",
+        "insert into {}(value_id, bundle_id, pcr_register, sha_any, ts) values($1, $2, $3, $4, $5) returning *",
         MeasurementBundleValueRecord::db_table_name()
     );
     sqlx::query_as(&query)
         .bind(bundle.value_id)
         .bind(bundle.bundle_id)
         .bind(bundle.pcr_register)
-        .bind(bundle.sha256.clone())
+        .bind(bundle.sha_any.clone())
         .bind(bundle.ts)
         .fetch_one(txn)
         .await

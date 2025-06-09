@@ -123,7 +123,7 @@ impl ToTable for MeasurementReport {
         for value_record in self.values.iter() {
             values_table.add_row(prettytable::row![
                 value_record.pcr_register,
-                value_record.sha256
+                value_record.sha_any
             ]);
         }
         table.add_row(prettytable::row!["report_id", self.report_id]);

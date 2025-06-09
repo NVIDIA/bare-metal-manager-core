@@ -42,14 +42,14 @@ fn test_metrics_collector() {
         (
             PcrRegisterValue {
                 pcr_register: 0,
-                sha256: "aa".to_string(),
+                sha_any: "aa".to_string(),
             },
             5,
         ),
         (
             PcrRegisterValue {
                 pcr_register: 1,
-                sha256: "bb".to_string(),
+                sha_any: "bb".to_string(),
             },
             5,
         ),

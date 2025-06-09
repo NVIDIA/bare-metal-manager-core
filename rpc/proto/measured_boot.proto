@@ -20,7 +20,7 @@ import "google/protobuf/timestamp.proto";
 //             provided, one will be automatically generated for you.
 //
 // pcr_values: These are the PCR values to associate with the bundle, which
-//             contains the register index and corresponding sha256 for
+//             contains the register index and corresponding sha_any for
 //             the register.
 //
 // state:      This is the state of the bundle. If unset, it will default
@@ -302,7 +302,7 @@ message ListMeasurementJournalResponse {
 //
 // machine_id: The machine ID to attest.
 // pcr_values: The list of PCR values (which is the register
-//             index + sha256 value).
+//             index + sha_any value).
 
 message AttestCandidateMachineRequest {
   string machine_id = 1;
@@ -538,7 +538,7 @@ message ListMeasurementReportResponse {
 
 // MatchMeasurementReportRequest is used to find all reports
 // matching the provided PCR values (where the PCR value is
-// the register index + sha256 value).
+// the register index + sha_any value).
 
 message MatchMeasurementReportRequest {
   repeated PcrRegisterValuePb pcr_values = 1;
@@ -971,7 +971,7 @@ message MeasurementBundleValueRecordPb {
   UUID value_id = 1;
   UUID bundle_id = 2;
   int32 pcr_register = 3;
-  string sha256 = 4;
+  string sha_any = 4;
   google.protobuf.Timestamp ts = 5;
 }
 
@@ -1028,7 +1028,7 @@ message MeasurementReportValueRecordPb {
   UUID value_id = 1;
   UUID report_id = 2;
   int32 pcr_register = 3;
-  string sha256 = 4;
+  string sha_any = 4;
   google.protobuf.Timestamp ts = 5;
 }
 
@@ -1113,7 +1113,7 @@ enum MeasurementApprovedTypePb {
 
 message PcrRegisterValuePb {
   int32 pcr_register = 1;
-  string sha256 = 2;
+  string sha_any = 2;
 }
 
 enum MeasurementMachineStatePb {

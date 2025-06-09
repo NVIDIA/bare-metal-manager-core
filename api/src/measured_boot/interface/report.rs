@@ -24,18 +24,18 @@ use forge_uuid::machine::MachineId;
 use measured_boot::pcr::PcrRegisterValue;
 use sqlx::{PgConnection, Postgres, QueryBuilder};
 
-/// match_latest_reports takes a list of PcrRegisterValues (i.e. register:sha256)
+/// match_latest_reports takes a list of PcrRegisterValues (i.e. register:shaXXX)
 /// and returns all latest matching report entries for it.
 ///
 /// The intent is bundle operations can call this to see what reports
 /// match the bundle.
 pub fn where_pcr_pairs(query: &mut QueryBuilder<'_, Postgres>, values: &[PcrRegisterValue]) {
-    query.push("where (pcr_register, sha256) in (");
+    query.push("where (pcr_register, sha_any) in (");
     for (pair_index, value) in values.iter().enumerate() {
         query.push("(");
         query.push_bind(value.pcr_register);
         query.push(",");
-        query.push_bind(value.sha256.clone());
+        query.push_bind(value.sha_any.clone());
         query.push(")");
         if pair_index < values.len() - 1 {
             query.push(", ");
@@ -134,11 +134,11 @@ async fn insert_measurement_report_value_record(
     report_id: MeasurementReportId,
     value: &PcrRegisterValue,
 ) -> Result<MeasurementReportValueRecord, DatabaseError> {
-    let query = "insert into measurement_reports_values(report_id, pcr_register, sha256) values($1, $2, $3) returning *";
+    let query = "insert into measurement_reports_values(report_id, pcr_register, sha_any) values($1, $2, $3) returning *";
     sqlx::query_as(query)
         .bind(report_id)
         .bind(value.pcr_register)
-        .bind(&value.sha256)
+        .bind(&value.sha_any)
         .fetch_one(txn)
         .await
         .map_err(|e| {

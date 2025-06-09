@@ -145,7 +145,7 @@ impl ToTable for MeasurementBundle {
         for value_record in self.values.iter() {
             values_table.add_row(prettytable::row![
                 value_record.pcr_register,
-                value_record.sha256
+                value_record.sha_any
             ]);
         }
         table.add_row(prettytable::row!["bundle_id", self.bundle_id]);
