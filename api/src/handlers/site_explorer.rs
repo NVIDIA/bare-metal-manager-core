@@ -354,3 +354,69 @@ pub(crate) async fn is_bmc_in_managed_host(
         in_managed_host,
     }))
 }
+
+pub(crate) async fn delete_explored_endpoint(
+    api: &Api,
+    request: Request<rpc::DeleteExploredEndpointRequest>,
+) -> Result<Response<rpc::DeleteExploredEndpointResponse>, tonic::Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    let bmc_ip = IpAddr::from_str(&req.ip_address).map_err(CarbideError::from)?;
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin delete_explored_endpoint",
+            e,
+        ))
+    })?;
+
+    // Check if the endpoint exists
+    let endpoints = DbExploredEndpoint::find_all_by_ip(bmc_ip, &mut txn)
+        .await
+        .map_err(CarbideError::from)?;
+
+    if endpoints.is_empty() {
+        return Ok(Response::new(rpc::DeleteExploredEndpointResponse {
+            deleted: false,
+            message: Some(format!("No explored endpoint found with IP {}", bmc_ip)),
+        }));
+    }
+
+    // Check if a machine exists for this endpoint
+    let in_managed_host = crate::site_explorer::is_endpoint_in_managed_host(bmc_ip, &mut txn)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    if in_managed_host {
+        return Err(CarbideError::InvalidArgument(format!(
+            "Cannot delete endpoint {} because a machine exists for it. Did you mean to force-delete the machine?",
+            bmc_ip
+        ))
+        .into());
+    }
+
+    // Delete the endpoint
+    DbExploredEndpoint::delete(&mut txn, bmc_ip)
+        .await
+        .map_err(CarbideError::from)?;
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit delete_explored_endpoint",
+            e,
+        ))
+    })?;
+
+    Ok(Response::new(rpc::DeleteExploredEndpointResponse {
+        deleted: true,
+        message: Some(format!(
+            "Successfully deleted explored endpoint with IP {}",
+            bmc_ip
+        )),
+    }))
+}
