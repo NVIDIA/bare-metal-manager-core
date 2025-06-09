@@ -55,7 +55,7 @@ mod cfg;
 mod metrics;
 use crate::metrics::{HealthHashData, scrape_machine_health};
 
-const DEFAULT_CONCURRENCY: usize = 16;
+const DEFAULT_CONCURRENCY: usize = 32;
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
@@ -283,18 +283,13 @@ pub async fn scrape_single_machine(
     if health_data.host_error_count > 0 {
         let now: DateTime<Utc> = Utc::now();
         if health_data.host_error_count < 24 {
-            // try every 30 minutes for 12 hours
-            if (now.timestamp() - health_data.last_host_error_ts) < (30 * 60) {
-                scrape_machine = false;
-            }
-        } else if health_data.host_error_count < 36 {
-            // try every 60 minutes for next 12 hours
-            if (now.timestamp() - health_data.last_host_error_ts) < (60 * 60) {
+            // try every 5 minutes for 2 hours
+            if (now.timestamp() - health_data.last_host_error_ts) < (5 * 60) {
                 scrape_machine = false;
             }
         } else {
-            // try once a day
-            if (now.timestamp() - health_data.last_host_error_ts) < (24 * 60 * 60) {
+            // try every 15 minutes
+            if (now.timestamp() - health_data.last_host_error_ts) < (15 * 60) {
                 scrape_machine = false;
             }
         }
