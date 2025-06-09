@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased (v2025.06.20-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.06.06-rc1-0...trunk)
+## [Unreleased (v2025.06.20-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.06.06-rc2-0...trunk)
 
 ### Added
 ### Changed
@@ -8,7 +8,7 @@
 ### Removed
 ### Internal
 
-## [Unreleased (v2025.06.06-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.23-rc3-0...v2025.06.06-rc1-0)
+## [v2025.06.06-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.23-rc3-0...v2025.06.06-rc1-0)
 
 ### Added
 
