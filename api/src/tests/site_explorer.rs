@@ -197,6 +197,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                 versions: HashMap::default(),
                 model: None,
                 forge_setup_status: None,
+                secure_boot_status: None,
             }),
         ),
     ]);
@@ -605,6 +606,7 @@ async fn test_site_explorer_audit_exploration_results(
                 service: Vec::new(),
                 versions: HashMap::default(),
                 forge_setup_status: None,
+                secure_boot_status: None,
             },
         ),
         (
@@ -627,6 +629,7 @@ async fn test_site_explorer_audit_exploration_results(
                 service: Vec::new(),
                 versions: HashMap::default(),
                 forge_setup_status: None,
+                secure_boot_status: None,
             },
         ),
         (
@@ -644,6 +647,7 @@ async fn test_site_explorer_audit_exploration_results(
                 service: Vec::new(),
                 versions: HashMap::default(),
                 forge_setup_status: None,
+                secure_boot_status: None,
             },
         ),
         (
@@ -665,6 +669,7 @@ async fn test_site_explorer_audit_exploration_results(
                 service: Vec::new(),
                 versions: HashMap::default(),
                 forge_setup_status: None,
+                secure_boot_status: None,
             },
         ),
         (

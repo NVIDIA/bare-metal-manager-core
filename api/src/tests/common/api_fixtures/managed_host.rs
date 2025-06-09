@@ -270,6 +270,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
             versions: Default::default(),
             model: None,
             forge_setup_status: None,
+            secure_boot_status: None,
         }
     }
 }

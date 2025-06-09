@@ -77,6 +77,8 @@ pub struct EndpointExplorationReport {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forge_setup_status: Option<ForgeSetupStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secure_boot_status: Option<SecureBootStatus>,
 }
 
 impl EndpointExplorationReport {
@@ -137,6 +139,7 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
             chassis: report.chassis.into_iter().map(Into::into).collect(),
             service: report.service.into_iter().map(Into::into).collect(),
             forge_setup_status: report.forge_setup_status.map(Into::into),
+            secure_boot_status: report.secure_boot_status.map(Into::into),
         }
     }
 }
@@ -630,6 +633,7 @@ impl EndpointExplorationReport {
             versions: HashMap::default(),
             model: None,
             forge_setup_status: None,
+            secure_boot_status: None,
         }
     }
 
@@ -1193,6 +1197,21 @@ impl From<NetworkAdapter> for rpc::site_explorer::NetworkAdapter {
     }
 }
 
+/// `SecureBootStatus` definition.
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub struct SecureBootStatus {
+    pub is_enabled: bool,
+}
+
+impl From<SecureBootStatus> for rpc::site_explorer::SecureBootStatus {
+    fn from(secure_boot_status: SecureBootStatus) -> Self {
+        rpc::site_explorer::SecureBootStatus {
+            is_enabled: secure_boot_status.is_enabled,
+        }
+    }
+}
+
 /// `Service` definition. Matches redfish definition
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -1556,6 +1575,7 @@ mod tests {
             versions: HashMap::default(),
             model: None,
             forge_setup_status: None,
+            secure_boot_status: None,
         };
 
         let inventory_map = report.get_inventory_map();
@@ -1613,6 +1633,7 @@ mod tests {
             versions: HashMap::default(),
             model: None,
             forge_setup_status: None,
+            secure_boot_status: None,
         };
         report
             .generate_machine_id(false)

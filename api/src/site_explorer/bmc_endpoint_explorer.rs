@@ -314,6 +314,20 @@ impl BmcEndpointExplorer {
             .await
     }
 
+    pub async fn disable_secure_boot(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+    ) -> Result<(), EndpointExplorationError> {
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        self.redfish_client
+            .disable_secure_boot(bmc_ip_address, username, password)
+            .await
+    }
+
     async fn is_rshim_enabled(
         &self,
         bmc_ip_address: SocketAddr,
@@ -604,6 +618,26 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 tracing::info!(
                     %bmc_ip_address,
                     "Site explorer does not support rebooting the endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    bmc_mac_address,
+                );
+                Err(e)
+            }
+        }
+    }
+
+    async fn disable_secure_boot(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        let bmc_mac_address = interface.mac_address;
+
+        match self.get_bmc_root_credentials(bmc_mac_address).await {
+            Ok(credentials) => self.disable_secure_boot(bmc_ip_address, credentials).await,
+            Err(e) => {
+                tracing::info!(
+                    %bmc_ip_address,
+                    "BMC endpoint explorer does not support disabling secure boot for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
                     bmc_mac_address,
                 );
                 Err(e)

@@ -268,6 +268,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/explored-endpoint/:endpoint_ip/delete",
                 post(explored_endpoint::delete_endpoint),
             )
+            .route(
+                "/explored-endpoint/:endpoint_ip/disable-secure-boot",
+                post(explored_endpoint::disable_secure_boot),
+            )
             .route("/host", get(machine::show_hosts_html))
             .route("/host.json", get(machine::show_hosts_json))
             .route("/ib-partition", get(ib_partition::show_html))

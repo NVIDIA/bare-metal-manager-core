@@ -162,6 +162,20 @@
 			</div>
 		</td>
 	</tr>
+	<tr>
+		<th>Secure Boot</th>
+		<td style="display: flex; align-items: center;">
+			<div style="flex-grow: 1;">
+				<em>Current Status</em> - {{ secure_boot_status }}
+			</div>
+			{% include "restart_reminder.html" %}
+			<div style="flex-shrink: 0;">
+				<form id="disable_secure_boot" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/disable-secure-boot" onclick="reminder(event)">
+					<input style="margin-left: 0;" type="submit" value="Disable Secure Boot">
+				</form>
+			</div>
+		</td>
+	</tr>
 </table>
 
 {% match endpoint.report %}

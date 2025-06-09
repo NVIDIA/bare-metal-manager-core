@@ -3011,6 +3011,49 @@ impl Forge for Api {
         Ok(Response::new(rpc::AdminBmcResetResponse {}))
     }
 
+    async fn disable_secure_boot(
+        &self,
+        request: tonic::Request<rpc::BmcEndpointRequest>,
+    ) -> Result<Response<::rpc::forge::DisableSecureBootResponse>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin disable_secure_boot",
+                e,
+            ))
+        })?;
+
+        let bmc_endpoint_request =
+            validate_and_complete_bmc_endpoint_request(&mut txn, Some(req), None).await?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit disable_secure_boot",
+                e,
+            ))
+        })?;
+
+        crate::handlers::bmc_endpoint_explorer::disable_secure_boot(
+            self,
+            bmc_endpoint_request.clone(),
+        )
+        .await?;
+
+        let endpoint_address = bmc_endpoint_request.ip_address.clone();
+        tracing::info!(
+            "disable_secure_boot request succeeded to {}",
+            endpoint_address
+        );
+
+        Ok(Response::new(rpc::DisableSecureBootResponse {}))
+    }
+
     async fn forge_setup(
         &self,
         request: tonic::Request<rpc::ForgeSetupRequest>,

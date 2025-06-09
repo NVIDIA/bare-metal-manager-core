@@ -25,7 +25,7 @@ use crate::model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
     EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
     ForgeSetupDiff, ForgeSetupStatus, Inventory, Manager, NetworkAdapter, PCIeDevice, PowerState,
-    Service, SystemStatus, UefiDevicePath,
+    SecureBootStatus, Service, SystemStatus, UefiDevicePath,
 };
 use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
@@ -246,6 +246,13 @@ impl RedfishClient {
             .inspect_err(|error| tracing::warn!(%error, "Failed to fetch forge setup status."))
             .ok();
 
+        let secure_boot_status = fetch_secure_boot_status(client.as_ref())
+            .await
+            .inspect_err(
+                |error| tracing::warn!(%error, "Failed to fetch forge secure boot status."),
+            )
+            .ok();
+
         Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
@@ -259,6 +266,7 @@ impl RedfishClient {
             versions: HashMap::default(),
             model: None,
             forge_setup_status,
+            secure_boot_status,
         })
     }
 
@@ -291,6 +299,25 @@ impl RedfishClient {
             .map_err(map_redfish_client_creation_error)?;
 
         client.power(action).await.map_err(map_redfish_error)?;
+        Ok(())
+    }
+
+    pub async fn disable_secure_boot(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+    ) -> Result<(), EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client
+            .disable_secure_boot()
+            .await
+            .map_err(map_redfish_error)?;
+
         Ok(())
     }
 
@@ -842,6 +869,28 @@ async fn fetch_forge_setup_status(client: &dyn Redfish) -> Result<ForgeSetupStat
         is_done: status.is_done,
         diffs,
     })
+}
+
+async fn fetch_secure_boot_status(client: &dyn Redfish) -> Result<SecureBootStatus, RedfishError> {
+    let status = client.get_secure_boot().await?;
+
+    let secure_boot_enable =
+        status
+            .secure_boot_enable
+            .ok_or_else(|| RedfishError::GenericError {
+                error: "expected secure_boot_enable_field set in secure boot response".to_string(),
+            })?;
+
+    let secure_boot_current_boot =
+        status
+            .secure_boot_current_boot
+            .ok_or_else(|| RedfishError::GenericError {
+                error: "expected secure_boot_current_boot set in secure boot response".to_string(),
+            })?;
+
+    let is_enabled = secure_boot_enable && secure_boot_current_boot.is_enabled();
+
+    Ok(SecureBootStatus { is_enabled })
 }
 
 pub(crate) fn map_redfish_client_creation_error(

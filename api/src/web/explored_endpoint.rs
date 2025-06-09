@@ -20,7 +20,9 @@ use axum::{Form, Json};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, BmcEndpointRequest, admin_power_control_request};
-use rpc::site_explorer::{ExploredEndpoint, ForgeSetupStatus, SiteExplorationReport};
+use rpc::site_explorer::{
+    ExploredEndpoint, ForgeSetupStatus, SecureBootStatus, SiteExplorationReport,
+};
 use serde::Deserialize;
 
 use super::filters;
@@ -365,6 +367,7 @@ struct ExploredEndpointDetail {
     forge_setup_status: String,
     credentials_set: String,
     has_machine: bool,
+    secure_boot_status: String,
 }
 struct ExploredEndpointInfo {
     endpoint: ExploredEndpoint,
@@ -384,6 +387,9 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
                 .is_some(),
             forge_setup_status: forge_setup_status_to_string(
                 report_ref.and_then(|report| report.forge_setup_status.as_ref()),
+            ),
+            secure_boot_status: secure_boot_status_to_string(
+                report_ref.and_then(|report| report.secure_boot_status.as_ref()),
             ),
             endpoint: endpoint_info.endpoint,
             credentials_set: endpoint_info.credentials_set,
@@ -730,6 +736,27 @@ pub async fn clear_bmc_credentials(
     Redirect::to(&view_url).into_response()
 }
 
+pub async fn disable_secure_boot(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(endpoint_ip): AxumPath<String>,
+) -> Response {
+    let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
+
+    if let Err(err) = state
+        .disable_secure_boot(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+            ip_address: endpoint_ip.clone(),
+            mac_address: None,
+        }))
+        .await
+        .map(|response| response.into_inner())
+    {
+        tracing::error!(%err, endpoint_ip = %endpoint_ip, "disable_secure_boot");
+        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+    }
+
+    Redirect::to(&view_url).into_response()
+}
+
 pub async fn forge_setup(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
@@ -803,6 +830,19 @@ fn forge_setup_status_to_string(status: Option<&ForgeSetupStatus>) -> String {
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("Mismatch: {}", diffs_string)
+        }
+    }
+}
+
+fn secure_boot_status_to_string(status: Option<&SecureBootStatus>) -> String {
+    match status {
+        None => "Unable to fetch Secure Boot Status".to_string(),
+        Some(s) => {
+            if s.is_enabled {
+                "Enabled".to_string()
+            } else {
+                "Disabled".to_string()
+            }
         }
     }
 }
