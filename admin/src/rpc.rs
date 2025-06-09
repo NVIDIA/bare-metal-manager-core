@@ -668,7 +668,6 @@ impl ApiClient {
         address: String,
         mac_address: Option<MacAddress>,
         timeout_config: Option<TimeoutConfig>,
-        bfb_path: String,
     ) -> CarbideCliResult<()> {
         let request = rpc::CopyBfbToDpuRshimRequest {
             ssh_request: Some(SshRequest {
@@ -678,7 +677,6 @@ impl ApiClient {
                 }),
                 timeout_config: timeout_config.map(|config| config.to_rpc_timeout_config()),
             }),
-            bfb_path,
         };
 
         self.0

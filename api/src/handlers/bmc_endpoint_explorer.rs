@@ -181,7 +181,6 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     api: &Api,
     request: &::rpc::forge::BmcEndpointRequest,
     ssh_config: Option<::rpc::forge::SshTimeoutConfig>,
-    bfb_path: String,
 ) -> Result<Response<()>, tonic::Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
@@ -210,7 +209,7 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     });
 
     api.endpoint_explorer
-        .copy_bfb_to_dpu_rshim(bmc_addr, &machine_interface, bfb_path, ssh_timeout_config)
+        .copy_bfb_to_dpu_rshim(bmc_addr, &machine_interface, ssh_timeout_config)
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 

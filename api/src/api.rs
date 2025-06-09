@@ -5045,7 +5045,22 @@ impl Forge for Api {
 
         let (bmc_endpoint_request, ssh_config) = match req.ssh_request {
             Some(ssh_req) => match ssh_req.endpoint_request {
-                Some(bmc_request) => (bmc_request, ssh_req.timeout_config),
+                Some(bmc_request) => {
+                    // Port 22 is the default SSH port--carbide-api assumes port :4443
+                    let ip_address: String = if bmc_request.ip_address.contains(':') {
+                        bmc_request.ip_address
+                    } else {
+                        format!("{}:22", bmc_request.ip_address)
+                    };
+
+                    (
+                        BmcEndpointRequest {
+                            ip_address,
+                            mac_address: bmc_request.mac_address,
+                        },
+                        ssh_req.timeout_config,
+                    )
+                }
                 None => {
                     return Err(CarbideError::MissingArgument("bmc_endpoint_request").into());
                 }
@@ -5059,7 +5074,6 @@ impl Forge for Api {
             self,
             &bmc_endpoint_request,
             ssh_config,
-            req.bfb_path,
         )
         .await?;
 
