@@ -2087,6 +2087,8 @@ pub enum SiteExplorer {
     ReExplore(ReExploreOptions),
     #[clap(about = "Clear the last known error for the BMC in the latest site exploration report.")]
     ClearError(ExploreOptions),
+    #[clap(about = "Delete an explored endpoint from the database.")]
+    Delete(DeleteExploredEndpointOptions),
     IsBmcInManagedHost(ExploreOptions),
     HaveCredentials(ExploreOptions),
     CopyBfbToDpuRshim(CopyBfbToDpuRshimArgs),
@@ -2171,6 +2173,12 @@ pub struct CopyBfbToDpuRshimArgs {
 #[derive(Parser, Debug)]
 pub struct ReExploreOptions {
     #[clap(help = "BMC IP address")]
+    pub address: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct DeleteExploredEndpointOptions {
+    #[clap(long, help = "BMC IP address of the endpoint to delete")]
     pub address: String,
 }
 

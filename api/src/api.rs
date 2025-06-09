@@ -1753,6 +1753,13 @@ impl Forge for Api {
         crate::handlers::site_explorer::re_explore_endpoint(self, request).await
     }
 
+    async fn delete_explored_endpoint(
+        &self,
+        request: Request<rpc::DeleteExploredEndpointRequest>,
+    ) -> Result<Response<rpc::DeleteExploredEndpointResponse>, tonic::Status> {
+        crate::handlers::site_explorer::delete_explored_endpoint(self, request).await
+    }
+
     // DEPRECATED: use find_explored_endpoint_ids, find_explored_endpoints_by_ids and find_explored_managed_host_ids, find_explored_managed_hosts_by_ids instead
     async fn get_site_exploration_report(
         &self,

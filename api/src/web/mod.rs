@@ -264,6 +264,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/explored-endpoint/:endpoint_ip/clear-credentials",
                 post(explored_endpoint::clear_bmc_credentials),
             )
+            .route(
+                "/explored-endpoint/:endpoint_ip/delete",
+                post(explored_endpoint::delete_endpoint),
+            )
             .route("/host", get(machine::show_hosts_html))
             .route("/host.json", get(machine::show_hosts_json))
             .route("/ib-partition", get(ib_partition::show_html))

@@ -3024,3 +3024,142 @@ async fn test_site_explorer_unknown_vendor(
 
     Ok(())
 }
+
+#[crate::sqlx_test]
+async fn test_delete_explored_endpoint(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    // Delete an endpoint that doesn't exist
+    let non_existent_ip = "192.168.1.100";
+    let response = env
+        .api
+        .delete_explored_endpoint(Request::new(rpc::forge::DeleteExploredEndpointRequest {
+            ip_address: non_existent_ip.to_string(),
+        }))
+        .await?
+        .into_inner();
+
+    assert!(!response.deleted);
+    assert_eq!(
+        response.message,
+        Some(format!(
+            "No explored endpoint found with IP {}",
+            non_existent_ip
+        ))
+    );
+
+    // Create an explored endpoint that's not part of a managed host
+    let standalone_endpoint_ip = "192.168.1.50";
+    let mut txn = env.pool.begin().await?;
+
+    DbExploredEndpoint::insert(
+        IpAddr::from_str(standalone_endpoint_ip)?,
+        &EndpointExplorationReport::default(),
+        &mut txn,
+    )
+    .await?;
+    txn.commit().await?;
+
+    // Verify the endpoint exists
+    let mut txn = env.pool.begin().await?;
+    let endpoints =
+        DbExploredEndpoint::find_all_by_ip(IpAddr::from_str(standalone_endpoint_ip)?, &mut txn)
+            .await?;
+    assert_eq!(endpoints.len(), 1);
+    txn.commit().await?;
+
+    // Delete the standalone endpoint - should succeed
+    let response = env
+        .api
+        .delete_explored_endpoint(Request::new(rpc::forge::DeleteExploredEndpointRequest {
+            ip_address: standalone_endpoint_ip.to_string(),
+        }))
+        .await?
+        .into_inner();
+
+    assert!(response.deleted);
+    assert_eq!(
+        response.message,
+        Some(format!(
+            "Successfully deleted explored endpoint with IP {}",
+            standalone_endpoint_ip
+        ))
+    );
+
+    // Verify the endpoint was deleted
+    let mut txn = env.pool.begin().await?;
+    let endpoints =
+        DbExploredEndpoint::find_all_by_ip(IpAddr::from_str(standalone_endpoint_ip)?, &mut txn)
+            .await?;
+    assert_eq!(endpoints.len(), 0);
+    txn.commit().await?;
+
+    // Create explored endpoints that are part of a managed host
+    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+
+    // Get the machines to find their BMC IPs
+    let mut txn = env.pool.begin().await?;
+    let host_machine =
+        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+            .await?
+            .unwrap();
+    let dpu_machine =
+        db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+            .await?
+            .unwrap();
+    txn.commit().await?;
+
+    let host_ip = host_machine.bmc_info.ip.as_ref().unwrap();
+    let dpu_ip = dpu_machine.bmc_info.ip.as_ref().unwrap();
+
+    // Now try to delete the host endpoint - should fail because it's part of a machine
+    let error = env
+        .api
+        .delete_explored_endpoint(Request::new(rpc::forge::DeleteExploredEndpointRequest {
+            ip_address: host_ip.to_string(),
+        }))
+        .await
+        .expect_err("Should fail with InvalidArgument error");
+
+    assert_eq!(error.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        error.message(),
+        format!(
+            "Cannot delete endpoint {} because a machine exists for it. Did you mean to force-delete the machine?",
+            host_ip
+        )
+    );
+
+    // Try to delete the DPU endpoint - should also fail
+    let error = env
+        .api
+        .delete_explored_endpoint(Request::new(rpc::forge::DeleteExploredEndpointRequest {
+            ip_address: dpu_ip.to_string(),
+        }))
+        .await
+        .expect_err("Should fail with InvalidArgument error");
+
+    assert_eq!(error.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        error.message(),
+        format!(
+            "Cannot delete endpoint {} because a machine exists for it. Did you mean to force-delete the machine?",
+            dpu_ip
+        )
+    );
+
+    // Verify both endpoints still exist
+    let mut txn = env.pool.begin().await?;
+    let host_endpoints =
+        DbExploredEndpoint::find_all_by_ip(IpAddr::from_str(host_ip)?, &mut txn).await?;
+    assert_eq!(host_endpoints.len(), 1);
+
+    let dpu_endpoints =
+        DbExploredEndpoint::find_all_by_ip(IpAddr::from_str(dpu_ip)?, &mut txn).await?;
+    assert_eq!(dpu_endpoints.len(), 1);
+    txn.commit().await?;
+
+    Ok(())
+}

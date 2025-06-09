@@ -3,7 +3,52 @@
 {% block title %}Explored Endpoint {{ endpoint.address }}{% endblock %}
 
 {% block content %}
-<div id="json"><a id="json-link" href="">JSON</a></div>
+<style>
+    #json {
+        float: right;
+    }
+    
+    #delete-link {
+        padding: 10px;
+        border-radius: 4px;
+        background-color: #ff4136 !important;
+        color: white !important;
+        text-decoration: none;
+        display: inline-block;
+        text-align: center;
+        cursor: pointer;
+        min-width: 80px;
+    }
+    
+    #delete-link:hover {
+        background-color: #e60026 !important;
+        border-color: #e60026 !important;
+    }
+    
+    #delete-link.disabled {
+        background-color: #999999 !important;
+        cursor: not-allowed;
+        opacity: 0.6;
+    }
+    
+    #delete-link.disabled:hover {
+        background-color: #999999 !important;
+        border-color: #999999 !important;
+    }
+</style>
+
+<div id="json">
+    {% if has_machine %}
+    <a id="delete-link" class="disabled" href="#" onclick="return false;">Delete</a>
+    {% else %}
+    <a id="delete-link" href="#" onclick="if(confirm('Are you sure you want to delete this endpoint?')) { document.getElementById('delete-form').submit(); } return false;">Delete</a>
+    {% endif %}
+    <a id="json-link" href="">JSON</a>
+</div>
+
+<form id="delete-form" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/delete" style="display: none;">
+</form>
+
 <h1>Endpoint {{ endpoint.address }}</h1>
 <table class="detailsview">
 	<tr>

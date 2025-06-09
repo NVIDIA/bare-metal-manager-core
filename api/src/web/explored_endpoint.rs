@@ -364,10 +364,12 @@ struct ExploredEndpointDetail {
     last_exploration_error: String,
     forge_setup_status: String,
     credentials_set: String,
+    has_machine: bool,
 }
 struct ExploredEndpointInfo {
     endpoint: ExploredEndpoint,
     credentials_set: String,
+    has_machine: bool,
 }
 
 impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
@@ -385,6 +387,7 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
             ),
             endpoint: endpoint_info.endpoint,
             credentials_set: endpoint_info.credentials_set,
+            has_machine: endpoint_info.has_machine,
         }
     }
 }
@@ -439,6 +442,22 @@ pub async fn detail(
     if show_json {
         return (StatusCode::OK, Json(endpoint)).into_response();
     }
+
+    // Check if this endpoint has a machine
+    let has_machine = match state
+        .is_bmc_in_managed_host(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+            ip_address: endpoint_ip.clone(),
+            mac_address: None,
+        }))
+        .await
+    {
+        Ok(response) => response.into_inner().in_managed_host,
+        Err(err) => {
+            tracing::error!(%err, "is_bmc_in_managed_host check failed");
+            // Default to true if we can't determine the status so we can't delete the endpoint
+            true
+        }
+    };
 
     // Site Explorer doesn't link Host Explored Endpoints with their machine, only DPUs.
     // So do it here.
@@ -509,6 +528,7 @@ pub async fn detail(
     let endpoint_info = ExploredEndpointInfo {
         endpoint,
         credentials_set,
+        has_machine,
     };
 
     let display = ExploredEndpointDetail::from(endpoint_info);
@@ -732,6 +752,38 @@ pub async fn forge_setup(
     }
 
     Redirect::to(&view_url).into_response()
+}
+
+pub async fn delete_endpoint(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(endpoint_ip): AxumPath<String>,
+) -> Response {
+    let list_url = "/admin/explored-endpoint";
+
+    match state
+        .delete_explored_endpoint(tonic::Request::new(
+            rpc::forge::DeleteExploredEndpointRequest {
+                ip_address: endpoint_ip.clone(),
+            },
+        ))
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(response) => {
+            if response.deleted {
+                tracing::info!(endpoint_ip = %endpoint_ip, "Successfully deleted explored endpoint");
+            } else {
+                tracing::warn!(endpoint_ip = %endpoint_ip, message = ?response.message, "Failed to delete explored endpoint");
+            }
+        }
+        Err(err) => {
+            tracing::error!(%err, endpoint_ip = %endpoint_ip, "delete_explored_endpoint");
+            return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+        }
+    }
+
+    // Redirect to the list page after deletion
+    Redirect::to(list_url).into_response()
 }
 
 fn forge_setup_status_to_string(status: Option<&ForgeSetupStatus>) -> String {

@@ -206,6 +206,8 @@ service Forge {
   // Prioritizes the exploration of a certain endpoint in the next regular site-explorer run
   // The results of this run will be persisted in the database
   rpc ReExploreEndpoint(ReExploreEndpointRequest) returns (google.protobuf.Empty);
+  // Delete an explored endpoint from the database
+  rpc DeleteExploredEndpoint(DeleteExploredEndpointRequest) returns (DeleteExploredEndpointResponse);
   // paginated APIs to get site explorer explored endpoints
   rpc FindExploredEndpointIds(site_explorer.ExploredEndpointSearchFilter) returns (site_explorer.ExploredEndpointIdList);
   rpc FindExploredEndpointsByIds(site_explorer.ExploredEndpointsByIdsRequest) returns (site_explorer.ExploredEndpointList);
@@ -2206,6 +2208,18 @@ message ReExploreEndpointRequest {
   // If this is set, it will schedule re-exploration of the endpoint only if the
   // report version number is equivalent to the version in the request
   optional string if_version_match = 2;
+}
+
+message DeleteExploredEndpointRequest {
+  // The IP address of the BMC endpoint to delete
+  string ip_address = 1;
+}
+
+message DeleteExploredEndpointResponse {
+  // Whether the endpoint was successfully deleted
+  bool deleted = 1;
+  // Optional message with additional information
+  optional string message = 2;
 }
 
 message BmcEndpointRequest {

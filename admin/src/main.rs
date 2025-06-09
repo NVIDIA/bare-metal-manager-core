@@ -1025,6 +1025,25 @@ async fn main() -> color_eyre::Result<()> {
                     .clear_site_exploration_error(opts.address)
                     .await?;
             }
+            SiteExplorer::Delete(opts) => {
+                let response = api_client.0.delete_explored_endpoint(opts.address).await?;
+
+                if response.deleted {
+                    println!(
+                        "{}",
+                        response
+                            .message
+                            .unwrap_or_else(|| "Endpoint deleted successfully.".to_string())
+                    );
+                } else {
+                    eprintln!(
+                        "{}",
+                        response
+                            .message
+                            .unwrap_or_else(|| "Failed to delete endpoint.".to_string())
+                    );
+                }
+            }
             SiteExplorer::IsBmcInManagedHost(opts) => {
                 let is_bmc_in_managed_host = api_client
                     .is_bmc_in_managed_host(&opts.address, opts.mac)
