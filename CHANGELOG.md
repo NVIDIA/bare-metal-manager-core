@@ -8,6 +8,14 @@
 ### Removed
 ### Internal
 
+## [v2025.06.06-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.06.06-rc2-0...v2025.06.06-rc3-0)
+
+### Added
+
+- [MR-4139](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4139): Do not require the user to specify the BFB to copy to a DPU's BMC.
+  - Old method: `forge-admin-cli site-explorer copy-bfb-to-dpu-rshim 10.217.157.95:22 '/forge-boot-artifacts/blobs/internal/aarch64/preingestion_unified_update.bfb'`
+  - New method: `forge-admin-cli site-explorer copy-bfb-to-dpu-rshim 10.217.157.95:22`
+
 ## [v2025.06.06-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.23-rc3-0...v2025.06.06-rc1-0)
 
 ### Added
