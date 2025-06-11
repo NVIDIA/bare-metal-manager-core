@@ -5,6 +5,9 @@
 ### Added
 ### Changed
 ### Fixed
+
+- [MR-4149](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4149): Fixed cloud init failing to run on user supplied cloud images
+
 ### Removed
 ### Internal
 
