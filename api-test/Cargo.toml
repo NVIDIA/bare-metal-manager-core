@@ -21,6 +21,8 @@ futures = "0.3"
 itertools = "0.14"
 ctor = "0.2"
 temp-dir = "0.1.14"
+rand = "0.8.5"
+lazy_static = "1.5.0"
 
 # [local-dependencies]
 agent = { path = "../bluefield/agent" }
@@ -36,5 +38,3 @@ metrics-endpoint = { path = "../common/metrics-endpoint" }
 
 [build-dependencies]
 forge-version = { path = "../common/version" }
-[dependencies]
-rand = "0.8.5"

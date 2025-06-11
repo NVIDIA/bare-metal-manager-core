@@ -16,7 +16,7 @@ use super::{
 };
 use std::net::SocketAddr;
 
-pub fn create(
+pub async fn create(
     addrs: &[SocketAddr],
     host_machine_id: &str,
     segment_id: Option<&str>,
@@ -69,36 +69,36 @@ pub fn create(
              "description": "tests/integration/instance"
         },
     });
-    let instance_id = grpcurl_id(addrs, "AllocateInstance", &data.to_string())?;
+    let instance_id = grpcurl_id(addrs, "AllocateInstance", &data.to_string()).await?;
     tracing::info!("Instance created with ID {instance_id}");
 
     if !wait_until_ready {
         return Ok(instance_id);
     }
 
-    wait_for_state(addrs, host_machine_id, "Assigned/WaitingForNetworkConfig")?;
+    wait_for_state(addrs, host_machine_id, "Assigned/WaitingForNetworkConfig").await?;
 
     if phone_home_enable {
-        wait_for_instance_state(addrs, &instance_id, "PROVISIONING")?;
-        let before_phone = get_instance_state(addrs, &instance_id)?;
+        wait_for_instance_state(addrs, &instance_id, "PROVISIONING").await?;
+        let before_phone = get_instance_state(addrs, &instance_id).await?;
         assert_eq!(before_phone, "PROVISIONING");
         // Phone home to transition to the ready state
-        phone_home(addrs, &instance_id)?;
-        wait_for_instance_state(addrs, &instance_id, "READY")?;
-        let after_phone = get_instance_state(addrs, &instance_id)?;
+        phone_home(addrs, &instance_id).await?;
+        wait_for_instance_state(addrs, &instance_id, "READY").await?;
+        let after_phone = get_instance_state(addrs, &instance_id).await?;
         assert_eq!(after_phone, "READY");
     }
 
     // These 2 states should be equivalent
-    wait_for_instance_state(addrs, &instance_id, "READY")?;
-    wait_for_state(addrs, host_machine_id, "Assigned/Ready")?;
+    wait_for_instance_state(addrs, &instance_id, "READY").await?;
+    wait_for_state(addrs, host_machine_id, "Assigned/Ready").await?;
 
     tracing::info!("Instance with ID {instance_id} is ready");
 
     Ok(instance_id)
 }
 
-pub fn release(
+pub async fn release(
     addrs: &[SocketAddr],
     host_machine_id: &str,
     instance_id: &str,
@@ -108,7 +108,7 @@ pub fn release(
         "id": {"id": host_machine_id},
         "search_config": {"include_dpus": false}
     });
-    let resp = grpcurl(addrs, "FindMachines", Some(data))?;
+    let resp = grpcurl(addrs, "FindMachines", Some(data)).await?;
     let response: serde_json::Value = serde_json::from_str(&resp)?;
     let machine_json = &response["machines"][0];
     let ip_address = machine_json["interfaces"][0]["address"][0]
@@ -121,23 +121,23 @@ pub fn release(
     let data = serde_json::json!({
         "id": {"value": instance_id}
     });
-    let resp = grpcurl(addrs, "ReleaseInstance", Some(data))?;
+    let resp = grpcurl(addrs, "ReleaseInstance", Some(data)).await?;
     tracing::info!("ReleaseInstance response: {}", resp);
 
     if !wait_until_ready {
         return Ok(());
     }
 
-    wait_for_instance_state(addrs, instance_id, "TERMINATING")?;
-    wait_for_state(addrs, host_machine_id, "Assigned/BootingWithDiscoveryImage")?;
+    wait_for_instance_state(addrs, instance_id, "TERMINATING").await?;
+    wait_for_state(addrs, host_machine_id, "Assigned/BootingWithDiscoveryImage").await?;
 
     tracing::info!("Instance with ID {instance_id} at {ip_address} is terminating");
 
-    wait_for_state(addrs, host_machine_id, "WaitingForCleanup/HostCleanup")?;
+    wait_for_state(addrs, host_machine_id, "WaitingForCleanup/HostCleanup").await?;
     let data = serde_json::json!({
         "id": {"value": instance_id}
     });
-    let response = grpcurl(addrs, "FindInstances", Some(&data))?;
+    let response = grpcurl(addrs, "FindInstances", Some(&data)).await?;
     let resp: serde_json::Value = serde_json::from_str(&response)?;
     tracing::info!("FindInstances Response: {}", resp);
     assert!(resp["instances"].as_array().unwrap().is_empty());
@@ -147,24 +147,24 @@ pub fn release(
     Ok(())
 }
 
-pub fn phone_home(addrs: &[SocketAddr], instance_id: &str) -> eyre::Result<()> {
+pub async fn phone_home(addrs: &[SocketAddr], instance_id: &str) -> eyre::Result<()> {
     let data = serde_json::json!({
         "instance_id": {"value": instance_id},
     });
 
     tracing::info!("Phoning home with data: {data}");
 
-    grpcurl(addrs, "UpdateInstancePhoneHomeLastContact", Some(&data))?;
+    grpcurl(addrs, "UpdateInstancePhoneHomeLastContact", Some(&data)).await?;
 
     Ok(())
 }
 
-pub fn get_instance_state(addrs: &[SocketAddr], instance_id: &str) -> eyre::Result<String> {
+pub async fn get_instance_state(addrs: &[SocketAddr], instance_id: &str) -> eyre::Result<String> {
     let data = serde_json::json!({
         "id": {"value": instance_id}
     });
 
-    let response = grpcurl(addrs, "FindInstances", Some(&data))?;
+    let response = grpcurl(addrs, "FindInstances", Some(&data)).await?;
     let resp: serde_json::Value = serde_json::from_str(&response)?;
     let state = resp["instances"][0]["status"]["tenant"]["state"]
         .as_str()
@@ -175,17 +175,17 @@ pub fn get_instance_state(addrs: &[SocketAddr], instance_id: &str) -> eyre::Resu
     Ok(state)
 }
 
-pub fn get_instance_json_by_machine_id(
+pub async fn get_instance_json_by_machine_id(
     addrs: &[SocketAddr],
     machine_id: &str,
 ) -> eyre::Result<serde_json::Value> {
     let data = serde_json::json!({ "id": machine_id });
-    let response = grpcurl(addrs, "FindInstanceByMachineID", Some(&data))?;
+    let response = grpcurl(addrs, "FindInstanceByMachineID", Some(&data)).await?;
     Ok(serde_json::from_str(&response)?)
 }
 
 /// Waits for an instance to reach a certain state
-pub fn wait_for_instance_state(
+pub async fn wait_for_instance_state(
     addrs: &[SocketAddr],
     instance_id: &str,
     target_state: &str,
@@ -197,7 +197,7 @@ pub fn wait_for_instance_state(
 
     tracing::info!("Waiting for Instance {instance_id} state {target_state}");
     while start.elapsed() < MAX_WAIT {
-        latest_state = get_instance_state(addrs, instance_id)?;
+        latest_state = get_instance_state(addrs, instance_id).await?;
 
         if latest_state.contains(target_state) {
             return Ok(());

@@ -35,7 +35,7 @@ pub async fn run_local(
     app_config: MachineATronConfig,
     additional_api_urls: Vec<String>,
     repo_root: PathBuf,
-    bmc_address_registry: BmcMockRegistry,
+    bmc_address_registry: Option<BmcMockRegistry>,
 ) -> eyre::Result<(Vec<HostMachineHandle>, MachineATronHandle)> {
     let forge_root_ca_path = get_forge_root_ca_path(None, None); // Will get it from the local repo
     let forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
@@ -76,12 +76,16 @@ pub async fn run_local(
     );
 
     let app_context = Arc::new(MachineATronContext {
+        bmc_registration_mode: if let Some(bmc_address_registry) = bmc_address_registry.as_ref() {
+            BmcRegistrationMode::BackingInstance(bmc_address_registry.clone())
+        } else {
+            BmcRegistrationMode::None(app_config.bmc_mock_port)
+        },
         app_config,
         forge_client_config,
         bmc_mock_certs_dir: Some(repo_root.join("dev/bmc-mock")),
         host_tar_router,
         dpu_tar_router,
-        bmc_registration_mode: BmcRegistrationMode::BackingInstance(bmc_address_registry.clone()),
         api_throttler,
         desired_firmware_versions: desired_firmware,
         forge_api_client,

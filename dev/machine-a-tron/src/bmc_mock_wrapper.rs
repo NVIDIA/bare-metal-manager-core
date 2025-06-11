@@ -85,8 +85,7 @@ impl BmcMockWrapper {
             )]))),
             Some(certs_dir),
             Some(ListenerOrAddress::Address(address)),
-        )
-        .await?)
+        )?)
     }
 
     pub fn router(&self) -> &Router {

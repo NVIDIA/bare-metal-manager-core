@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::utils::IntegrationTestEnvironment;
 use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
 use ::utils::HostPortPair;
 use bmc_mock::ListenerOrAddress;
@@ -22,10 +21,9 @@ use std::future::Future;
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::{
-    collections::{BTreeMap, HashMap},
-    env,
+    collections::BTreeMap,
     net::Ipv4Addr,
-    path::{self, PathBuf},
+    path::PathBuf,
     time::{self, Duration},
 };
 use tokio::time::sleep;
@@ -42,41 +40,11 @@ mod utils;
 mod vault;
 mod vpc;
 
+use utils::IntegrationTestEnvironment;
+
 #[ctor::ctor]
 fn setup() {
-    use tracing::metadata::LevelFilter;
-    use tracing_subscriber::{
-        filter::EnvFilter, fmt::TestWriter, prelude::*, util::SubscriberInitExt,
-    };
-
-    if let Err(e) = tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::Layer::default()
-                .compact()
-                .with_writer(TestWriter::new),
-        )
-        .with(
-            EnvFilter::builder()
-                .with_default_directive(LevelFilter::INFO.into())
-                .from_env_lossy()
-                .add_directive("sqlx=warn".parse().unwrap())
-                .add_directive("tower=warn".parse().unwrap())
-                .add_directive("rustify=off".parse().unwrap())
-                .add_directive("rustls=warn".parse().unwrap())
-                .add_directive("hyper=warn".parse().unwrap())
-                .add_directive("h2=warn".parse().unwrap())
-                // Silence permissive mode related messages
-                .add_directive("carbide::auth=error".parse().unwrap()),
-        )
-        .try_init()
-    {
-        // Note: Resist the temptation to ignore this error. We really should only have one place in
-        // the test binary that initializes logging.
-        panic!(
-            "Failed to initialize trace logging for api-test tests. It's possible some earlier \
-            code path has already set a global default log subscriber: {e}"
-        );
-    }
+    setup_logging()
 }
 
 /// Run multiple machine-a-tron integration tests in parallel against a shared carbide API instance.
@@ -101,8 +69,7 @@ async fn test_integration() -> eyre::Result<()> {
             // let OS choose available port
             TcpListener::bind("127.0.0.1:0")?,
         )),
-    )
-    .await?;
+    )?;
 
     // For preingestion firmware checks to work, carbide needs a directory which exists to be
     // configured as the firmware_directory. It can be empty, because our mocks should be showing
@@ -121,6 +88,7 @@ async fn test_integration() -> eyre::Result<()> {
             )),
             empty_firmware_dir.path().to_owned(),
             0,
+            true,
         )
         .await?,
         utils::start_api_server(
@@ -131,15 +99,16 @@ async fn test_integration() -> eyre::Result<()> {
             )),
             empty_firmware_dir.path().to_owned(),
             1,
+            true,
         )
         .await?,
     );
 
-    let tenant1_vpc = vpc::create(carbide_api_addrs)?;
-    let domain_id = domain::create(carbide_api_addrs, "tenant-1.local")?;
+    let tenant1_vpc = vpc::create(carbide_api_addrs).await?;
+    let domain_id = domain::create(carbide_api_addrs, "tenant-1.local").await?;
     let managed_segment_id =
-        subnet::create(carbide_api_addrs, &tenant1_vpc, &domain_id, 10, false)?;
-    subnet::create(carbide_api_addrs, &tenant1_vpc, &domain_id, 11, true)?;
+        subnet::create(carbide_api_addrs, &tenant1_vpc, &domain_id, 10, false).await?;
+    subnet::create(carbide_api_addrs, &tenant1_vpc, &domain_id, 11, true).await?;
 
     // Run several tests in parallel.
     let all_tests = join_all([
@@ -186,7 +155,7 @@ async fn test_integration() -> eyre::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
 #[serial_test::serial] // This test is separate from
 async fn test_metrics_integration() -> eyre::Result<()> {
-    let Some(test_env) = IntegrationTestEnvironment::try_from_environment(2).await? else {
+    let Some(test_env) = IntegrationTestEnvironment::try_from_environment(1).await? else {
         return Ok(());
     };
 
@@ -209,8 +178,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
             // let OS choose available port
             TcpListener::bind("127.0.0.1:0")?,
         )),
-    )
-    .await?;
+    )?;
 
     // For preingestion firmware checks to work, carbide needs a directory which exists to be
     // configured as the firmware_directory. It can be empty, because our mocks should be showing
@@ -220,28 +188,17 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
     // Begin the integration test by starting an API server. This will be shared between multiple
     // individual machine-a-tron-based tests, which can run in parallel against the same instance.
-    let (server_handle_1, server_handle_2) = (
-        utils::start_api_server(
-            test_env.clone(),
-            Some(HostPortPair::HostAndPort(
-                "127.0.0.1".to_string(),
-                bmc_mock_handle.address.port(),
-            )),
-            empty_firmware_dir.path().to_owned(),
-            0,
-        )
-        .await?,
-        utils::start_api_server(
-            test_env.clone(),
-            Some(HostPortPair::HostAndPort(
-                "127.0.0.1".to_string(),
-                bmc_mock_handle.address.port(),
-            )),
-            empty_firmware_dir.path().to_owned(),
-            1,
-        )
-        .await?,
-    );
+    let server_handle = utils::start_api_server(
+        test_env.clone(),
+        Some(HostPortPair::HostAndPort(
+            "127.0.0.1".to_string(),
+            bmc_mock_handle.address.port(),
+        )),
+        empty_firmware_dir.path().to_owned(),
+        0,
+        true,
+    )
+    .await?;
 
     // Before the initial host bootstrap, the dns_records view
     // should contain 0 entries.
@@ -283,9 +240,9 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                     "machine_reboot_attempts_in_booting_with_discovery_image",
                 );
 
-                let vpc_id = vpc::create(&carbide_api_addrs)?;
-                let domain_id = domain::create(&carbide_api_addrs, "tenant-1.local")?;
-                let segment_id = subnet::create(&carbide_api_addrs, &vpc_id, &domain_id, 10, false)?;
+                let vpc_id = vpc::create(&carbide_api_addrs).await?;
+                let domain_id = domain::create(&carbide_api_addrs, "tenant-1.local").await?;
+                let segment_id = subnet::create(&carbide_api_addrs, &vpc_id, &domain_id, 10, false).await?;
                 let host_machine_id = machine_handle.observed_machine_id().expect("Should have gotten a machine ID by now").id;
 
                 // Create instance with phone_home enabled
@@ -296,7 +253,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                     Some("test"),
                     true,
                     true,
-                )?;
+                ).await?;
 
                 let metrics = metrics::wait_for_metric_line(
                     &carbide_metrics_addrs,
@@ -313,7 +270,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                     "machine_reboot_attempts_in_booting_with_discovery_image",
                 );
 
-                instance::release(&carbide_api_addrs, &host_machine_id, &instance_id, true)?;
+                instance::release(&carbide_api_addrs, &host_machine_id, &instance_id, true).await?;
 
                 let metrics = metrics::wait_for_metric_line(&carbide_metrics_addrs, r#"forge_machines_per_state{fresh="true",state="waitingforcleanup",substate="hostcleanup"} 1"#).await?;
                 metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
@@ -322,9 +279,9 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                     &carbide_api_addrs,
                     &host_machine_id,
                     "MachineValidation",
-                )?;
+                ).await?;
 
-                machine::wait_for_state(&carbide_api_addrs, &host_machine_id, "Discovered")?;
+                machine::wait_for_state(&carbide_api_addrs, &host_machine_id, "Discovered").await?;
 
                 // It stays in Discovered until we notify that reboot happened, which this test doesn't
                 let metrics = metrics::wait_for_metric_line(
@@ -375,8 +332,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
     sleep(time::Duration::from_millis(500)).await;
     bmc_mock_handle.stop().await?;
-    server_handle_1.stop().await?;
-    server_handle_2.stop().await?;
+    server_handle.stop().await?;
     db_pool.close().await;
     Ok(())
 }
@@ -413,7 +369,8 @@ async fn test_machine_a_tron_multidpu(
                     None,
                     false,
                     false,
-                )?;
+                )
+                .await?;
 
                 machine_handle
                     .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(60))
@@ -426,7 +383,8 @@ async fn test_machine_a_tron_multidpu(
                         .expect("HostMachine should have a Machine ID once it's in ready state")
                         .to_string()
                         .as_str(),
-                )?;
+                )
+                .await?;
                 let serde_json::Value::Object(interface) =
                     &instance_json["instances"][0]["status"]["network"]["interfaces"][0]
                 else {
@@ -446,7 +404,7 @@ async fn test_machine_a_tron_multidpu(
                 tracing::info!(
                     "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
                 );
-                instance::release(carbide_api_addrs, &machine_id, &instance_id, false)?;
+                instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
 
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
@@ -601,7 +559,7 @@ where
         mat_config,
         additional_api_urls,
         test_env.root_dir.clone(),
-        bmc_mock_registry.clone(),
+        Some(bmc_mock_registry.clone()),
     )
     .await
     .unwrap();
@@ -611,39 +569,6 @@ where
     mat_handle.stop().await?;
 
     results.into_iter().try_collect()
-}
-
-fn find_prerequisites() -> eyre::Result<HashMap<String, PathBuf>> {
-    let mut bins = HashMap::with_capacity(2);
-    let paths: Vec<path::PathBuf> = env::split_paths(&env::var_os("PATH").unwrap()).collect();
-    bins.insert("vault", find_first_in("vault", &paths));
-    bins.insert("grpcurl", find_first_in("grpcurl", &paths));
-    bins.insert("curl", find_first_in("curl", &paths));
-
-    let mut full_paths = HashMap::with_capacity(bins.len());
-    for (k, v) in bins.drain() {
-        match v {
-            Some(full_path) => {
-                full_paths.insert(k.to_string(), full_path);
-            }
-            None => {
-                eyre::bail!("Missing prerequisite binary: {k}");
-            }
-        }
-    }
-
-    Ok(full_paths)
-}
-
-// Look for a binary in the given paths, return full path or None if not found
-fn find_first_in(binary: &str, paths: &[path::PathBuf]) -> Option<path::PathBuf> {
-    for path in paths {
-        let candidate = path.join(binary);
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-    None
 }
 
 // Get the current number of rows in the dns_records view,
@@ -658,4 +583,40 @@ pub async fn get_dns_record_count(pool: &sqlx::Pool<Postgres>) -> i64 {
     let query = "SELECT COUNT(*) as row_cnt FROM dns_records";
     let rows = sqlx::query::<_>(query).fetch_one(&mut *txn).await.unwrap();
     rows.try_get("row_cnt").unwrap()
+}
+
+pub fn setup_logging() {
+    use tracing::metadata::LevelFilter;
+    use tracing_subscriber::{
+        filter::EnvFilter, fmt::TestWriter, prelude::*, util::SubscriberInitExt,
+    };
+
+    if let Err(e) = tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::Layer::default()
+                .compact()
+                .with_writer(TestWriter::new),
+        )
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy()
+                .add_directive("sqlx=warn".parse().unwrap())
+                .add_directive("tower=warn".parse().unwrap())
+                .add_directive("rustify=off".parse().unwrap())
+                .add_directive("rustls=warn".parse().unwrap())
+                .add_directive("hyper=warn".parse().unwrap())
+                .add_directive("h2=warn".parse().unwrap())
+                // Silence permissive mode related messages
+                .add_directive("carbide::auth=error".parse().unwrap()),
+        )
+        .try_init()
+    {
+        // Note: Resist the temptation to ignore this error. We really should only have one place in
+        // the test binary that initializes logging.
+        panic!(
+            "Failed to initialize trace logging for api-test tests. It's possible some earlier \
+            code path has already set a global default log subscriber: {e}"
+        );
+    }
 }

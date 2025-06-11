@@ -9,25 +9,41 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{
-    env,
-    net::{SocketAddr, TcpListener},
-    path::PathBuf,
-    time::Duration,
-};
-
 use eyre::Report;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use forge_secrets::forge_vault;
 use metrics_endpoint::MetricsSetup;
 use sqlx::{Pool, Postgres, migrate::MigrateDatabase};
+use std::collections::HashMap;
+use std::{
+    env,
+    net::{SocketAddr, TcpListener},
+    path,
+    path::PathBuf,
+    time::Duration,
+};
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use utils::HostPortPair;
 
 use crate::api_server::StartArgs;
-use crate::{api_server, find_prerequisites, vault, vault::Vault};
+use crate::{api_server, vault, vault::Vault};
+
+lazy_static::lazy_static! {
+    pub static ref LOCALHOST_CERTS: CertPaths = {
+        let repo_root = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")).expect("REPO_ROOT must be set");
+        let certs = PathBuf::from(repo_root).join("dev/certs/localhost");
+
+        CertPaths {
+            ca_cert: certs.join("ca.crt").canonicalize().unwrap(),
+            server_cert: certs.join("localhost.crt").canonicalize().unwrap(),
+            server_key: certs.join("localhost.key").canonicalize().unwrap(),
+            client_cert: certs.join("client.crt").canonicalize().unwrap(),
+            client_key: certs.join("client.key").canonicalize().unwrap(),
+        }
+    };
+}
 
 #[derive(Debug, Clone)]
 pub struct IntegrationTestEnvironment {
@@ -37,6 +53,14 @@ pub struct IntegrationTestEnvironment {
     pub db_url: String,
     pub db_pool: Pool<Postgres>,
     pub metrics: MetricsSetup,
+}
+
+pub struct CertPaths {
+    pub ca_cert: PathBuf,
+    pub server_cert: PathBuf,
+    pub server_key: PathBuf,
+    pub client_cert: PathBuf,
+    pub client_key: PathBuf,
 }
 
 impl IntegrationTestEnvironment {
@@ -134,6 +158,7 @@ pub async fn start_api_server(
     bmc_proxy: Option<HostPortPair>,
     firmware_directory: PathBuf,
     addr_index: usize,
+    put_dev_bin_in_path: bool,
 ) -> eyre::Result<ApiServerHandle> {
     // Destructure into vars to save typing
     let IntegrationTestEnvironment {
@@ -154,12 +179,14 @@ pub async fn start_api_server(
         env::set_var("NO_DPU_ARMOS_NETWORK", "true");
 
         // Put our fake `crictl` on front of path so that forge-dpu-agent's HBN health checks succeed
-        let dev_bin = root_dir.join("dev/bin");
-        if let Some(path) = env::var_os("PATH") {
-            let mut paths = env::split_paths(&path).collect::<Vec<_>>();
-            paths.insert(0, dev_bin);
-            let new_path = env::join_paths(paths)?;
-            env::set_var("PATH", new_path);
+        if put_dev_bin_in_path {
+            let dev_bin = root_dir.join("dev/bin");
+            if let Some(path) = env::var_os("PATH") {
+                let mut paths = env::split_paths(&path).collect::<Vec<_>>();
+                paths.insert(0, dev_bin);
+                let new_path = env::join_paths(paths)?;
+                env::set_var("PATH", new_path);
+            }
         }
     }
 
@@ -188,25 +215,27 @@ pub async fn start_api_server(
         (None, None)
     };
 
-    let root_dir_clone = root_dir.to_str().unwrap().to_string();
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-    let join_handle = tokio::spawn(async move {
-        api_server::start(StartArgs {
-            addr: carbide_api_addrs[addr_index],
-            metrics_addr: carbide_metrics_addrs[addr_index],
-            root_dir: root_dir_clone,
-            db_url,
-            vault_token,
-            bmc_proxy,
-            firmware_directory,
-            stop_channel: stop_rx,
-            ready_channel: ready_tx,
-        })
-        .await
-        .inspect_err(|e| {
-            eprintln!("Failed to start API server: {:#}", e);
-        })
+    let join_handle = tokio::spawn({
+        let root_dir = root_dir.clone();
+        async move {
+            api_server::start(StartArgs {
+                addr: carbide_api_addrs[addr_index],
+                metrics_addr: carbide_metrics_addrs[addr_index],
+                root_dir,
+                db_url,
+                vault_token,
+                bmc_proxy,
+                firmware_directory,
+                stop_channel: stop_rx,
+                ready_channel: ready_tx,
+            })
+            .await
+            .inspect_err(|e| {
+                eprintln!("Failed to start API server: {:#}", e);
+            })
+        }
     });
 
     ready_rx.await.unwrap();
@@ -272,4 +301,37 @@ pub async fn populate_initial_vault_secrets(metrics: &MetricsSetup) -> Result<()
         )
         .await?;
     Ok(())
+}
+
+fn find_prerequisites() -> eyre::Result<HashMap<String, PathBuf>> {
+    let mut bins = HashMap::with_capacity(2);
+    let paths: Vec<path::PathBuf> = env::split_paths(&env::var_os("PATH").unwrap()).collect();
+    bins.insert("vault", find_first_in("vault", &paths));
+    bins.insert("grpcurl", find_first_in("grpcurl", &paths));
+    bins.insert("curl", find_first_in("curl", &paths));
+
+    let mut full_paths = HashMap::with_capacity(bins.len());
+    for (k, v) in bins.drain() {
+        match v {
+            Some(full_path) => {
+                full_paths.insert(k.to_string(), full_path);
+            }
+            None => {
+                eyre::bail!("Missing prerequisite binary: {k}");
+            }
+        }
+    }
+
+    Ok(full_paths)
+}
+
+// Look for a binary in the given paths, return full path or None if not found
+fn find_first_in(binary: &str, paths: &[path::PathBuf]) -> Option<path::PathBuf> {
+    for path in paths {
+        let candidate = path.join(binary);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
 }

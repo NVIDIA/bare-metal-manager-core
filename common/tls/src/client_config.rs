@@ -143,10 +143,7 @@ pub fn get_forge_root_ca_path(
 
     // and this is the location for developers executing from within carbide's repo
     if let Ok(project_root) = env::var("REPO_ROOT") {
-        let path = format!(
-            "{}/dev/certs/forge_developer_local_only_root_cert_pem",
-            project_root
-        );
+        let path = format!("{}/dev/certs/localhost/ca.crt", project_root);
         if Path::new(path.as_str()).exists() {
             return path;
         }
