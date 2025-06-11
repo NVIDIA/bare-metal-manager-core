@@ -124,9 +124,8 @@ function get_distro_image() {
 function add_cloud_init() {
 	echo "fetching from cloud-init url: $cloud_init_url" | tee $log_output
 	if [ -d /mnt/etc/cloud/cloud.cfg.d ]; then
-		curl --retry 5 --retry-all-errors -k "$cloud_init_url/user-data" --output /mnt/etc/cloud/cloud.cfg.d/user-data.cfg 2>&1 | tee $log_output
-		echo "verifying cloud-init user data written to /etc/cloud/cloud.cfg.d/user-data.cfg" | tee $log_output
-		chroot /mnt /bin/sh -c 'cloud-init schema --config-file /etc/cloud/cloud.cfg.d/user-data.cfg' 2>&1 | tee $log_output
+		echo "datasource_list: [ NoCloud, None ]" | tee /mnt/etc/cloud/cloud.cfg.d/98-forge-dslist.cfg
+		curl --retry 5 --retry-all-errors -k "$cloud_init_url/user-data" --output /mnt/etc/cloud/cloud.cfg.d/99-user-data.cfg 2>&1 | tee $log_output
 	fi
 }
 
