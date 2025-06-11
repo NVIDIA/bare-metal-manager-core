@@ -10,21 +10,23 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::utils::LOCALHOST_CERTS;
 use eyre::ContextCompat;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
-use std::{net::SocketAddr, process};
+use std::net::SocketAddr;
+use tokio::process;
 
-pub fn grpcurl<T: ToString>(
+pub async fn grpcurl<T: ToString>(
     addrs: &[SocketAddr],
     endpoint: &str,
     data: Option<T>,
 ) -> eyre::Result<String> {
-    grpcurl_for(addrs, endpoint, data, None)
+    grpcurl_for(addrs, endpoint, data, None).await
 }
 
-pub fn grpcurl_for<T: ToString>(
+pub async fn grpcurl_for<T: ToString>(
     addrs: &[SocketAddr],
     endpoint: &str,
     data: Option<T>,
@@ -36,10 +38,15 @@ pub fn grpcurl_for<T: ToString>(
         .to_string();
     let grpc_endpoint = format!("forge.Forge/{endpoint}");
     let mut args = vec![
-        "-insecure",
+        "-cacert",
+        LOCALHOST_CERTS.ca_cert.to_str().unwrap(),
+        "-cert",
+        LOCALHOST_CERTS.client_cert.to_str().unwrap(),
+        "-key",
+        LOCALHOST_CERTS.client_key.to_str().unwrap(),
         "-emit-defaults",
         "-max-time",
-        "5",
+        "60",
         &address,
         &grpc_endpoint,
     ];
@@ -55,9 +62,10 @@ pub fn grpcurl_for<T: ToString>(
         args.insert(0, "-d");
         args.insert(1, &post_data);
     }
+
     // We don't pass the full path to grpcurl here and rely on the fact
     // that `Command` searches the PATH. This makes function signatures tidier.
-    let out = process::Command::new("grpcurl").args(args).output()?;
+    let out = process::Command::new("grpcurl").args(args).output().await?;
     let response = String::from_utf8_lossy(&out.stdout);
     if !out.status.success() {
         tracing::error!("grpcurl {endpoint} STDOUT: {response}");
@@ -71,8 +79,9 @@ pub fn grpcurl_for<T: ToString>(
 }
 
 // grpcurl then extra id from response and return that
-pub fn grpcurl_id(addrs: &[SocketAddr], endpoint: &str, data: &str) -> eyre::Result<String> {
-    let response = grpcurl(addrs, endpoint, Some(data))?;
+pub async fn grpcurl_id(addrs: &[SocketAddr], endpoint: &str, data: &str) -> eyre::Result<String> {
+    let response = grpcurl(addrs, endpoint, Some(data)).await?;
+    tracing::info!("grpcurl respose: {response}");
     let resp: IdValue = serde_json::from_str(&response)?;
     Ok(resp.id.value)
 }

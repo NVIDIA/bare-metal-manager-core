@@ -85,8 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(RwLock::new(routers_by_ip)),
         args.cert_path,
         listen_addr.map(ListenerOrAddress::Address),
-    )
-    .await?;
+    )?;
     handle.wait().await?;
     Ok(())
 }

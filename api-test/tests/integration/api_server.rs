@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use crate::utils::LOCALHOST_CERTS;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use tokio::sync::oneshot::{Receiver, Sender};
@@ -20,7 +21,7 @@ const DOMAIN_NAME: &str = "forge.integrationtest";
 pub struct StartArgs {
     pub addr: SocketAddr,
     pub metrics_addr: SocketAddr,
-    pub root_dir: String,
+    pub root_dir: PathBuf,
     pub db_url: String,
     pub vault_token: Option<String>,
     pub bmc_proxy: Option<HostPortPair>,
@@ -54,6 +55,11 @@ pub async fn start(
     }
 
     let firmware_directory_str = firmware_directory.to_string_lossy();
+    let root_dir_str = root_dir.to_string_lossy();
+
+    let root_cafile_path = LOCALHOST_CERTS.ca_cert.to_str().unwrap();
+    let identity_pemfile_path = LOCALHOST_CERTS.server_cert.to_string_lossy();
+    let identity_keyfile_path = LOCALHOST_CERTS.server_key.to_string_lossy();
 
     let carbide_config_str = {
         let bmc_proxy_cfg = if let Some(bmc_proxy) = bmc_proxy {
@@ -62,6 +68,8 @@ pub async fn start(
             // None is encoded by omitting the option altogether... just drop a comment
             String::from("# no bmc_proxy set")
         };
+
+        let addr = format!("[::]:{}", addr.port());
 
         format!(
             r#"
@@ -93,14 +101,14 @@ pub async fn start(
         service_level = 0
 
         [tls]
-        root_cafile_path = "{root_dir}/dev/certs/forge_developer_local_only_root_cert_pem"
-        identity_pemfile_path = "{root_dir}/dev/certs/server_identity.pem"
-        identity_keyfile_path = "{root_dir}/dev/certs/server_identity.key"
+        root_cafile_path = "{root_cafile_path}"
+        identity_pemfile_path = "{identity_pemfile_path}"
+        identity_keyfile_path = "{identity_keyfile_path}"
         admin_root_cafile_path = "nothing_will_read_from_this_during_integration_tests"
 
         [auth]
         permissive_mode = true
-        casbin_policy_file = "{root_dir}/api/casbin-policy.csv"
+        casbin_policy_file = "{root_dir_str}/api/casbin-policy.csv"
 
         [pools.vpc-vni]
         type = "integer"

@@ -148,16 +148,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .parent()
                 .map(Path::to_path_buf);
 
-            Some(
-                bmc_mock::run_combined_mock(
-                    bmc_mock_registry.clone(),
-                    certs_dir,
-                    Some(ListenerOrAddress::Address(
-                        format!("0.0.0.0:{}", bmc_mock_port).parse().unwrap(),
-                    )),
-                )
-                .await?,
-            )
+            Some(bmc_mock::run_combined_mock(
+                bmc_mock_registry.clone(),
+                certs_dir,
+                Some(ListenerOrAddress::Address(
+                    format!("0.0.0.0:{}", bmc_mock_port).parse().unwrap(),
+                )),
+            )?)
         }
         BmcRegistrationMode::None(_) => {
             // Otherwise each mock machine runs its own listener

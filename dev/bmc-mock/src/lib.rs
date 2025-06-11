@@ -194,7 +194,7 @@ pub enum SystemPowerControl {
 /// Information on what machine to mock will be passed by carbide via the `x-really-to-mac` HTTP header,
 /// which will be used to route the request to the appropriate entry in the `bmc_routers_by_mac_address`
 /// table.
-pub async fn run_combined_mock<T: AsRef<OsStr>>(
+pub fn run_combined_mock<T: AsRef<OsStr>>(
     bmc_routers_by_ip_address: Arc<RwLock<HashMap<String, Router>>>,
     cert_path: Option<T>,
     listener_or_address: Option<ListenerOrAddress>,
