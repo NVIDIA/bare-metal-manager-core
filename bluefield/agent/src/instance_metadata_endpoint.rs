@@ -25,7 +25,7 @@ use governor::state::NotKeyed;
 use mockall::automock;
 use nonzero_ext::nonzero;
 
-use crate::instance_metadata_fetcher::InstanceMetadata;
+use crate::periodic_config_fetcher::InstanceMetadata;
 use crate::util::{create_forge_client, phone_home};
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use rpc::forge::ManagedHostNetworkConfigResponse;
@@ -470,7 +470,7 @@ mod tests {
     use ::rpc::Uuid;
     use rpc::MachineId;
 
-    use crate::instance_metadata_fetcher::{IBDeviceConfig, IBInstanceConfig, InstanceMetadata};
+    use crate::periodic_config_fetcher::{IBDeviceConfig, IBInstanceConfig, InstanceMetadata};
 
     use super::*;
 

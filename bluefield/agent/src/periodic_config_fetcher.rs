@@ -16,17 +16,35 @@ use std::{
 };
 
 use arc_swap::ArcSwapOption;
-use config_version::ConfigVersion;
 use eyre::Context;
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
+
+use config_version::ConfigVersion;
 
 use ::rpc::Instance;
+use ::rpc::MachineId;
 use ::rpc::Uuid as uuid;
+use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::ForgeClientConfig;
-use rpc::MachineId;
 
-use crate::util::{create_forge_client, get_instance};
+use crate::util::{create_forge_client, get_periodic_dpu_config};
 
+pub struct PeriodicFetcherState {
+    config: PeriodicConfigFetcherConfig,
+    netconf: ArcSwapOption<rpc::ManagedHostNetworkConfigResponse>,
+    instmeta: ArcSwapOption<InstanceMetadata>,
+    is_cancelled: AtomicBool,
+}
+
+/// Fetches the desired network configuration for a managed host in regular intervals
+pub struct PeriodicConfigFetcher {
+    state: Arc<PeriodicFetcherState>,
+    join_handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+pub struct PeriodicConfigFetcherReader {
+    state: Arc<PeriodicFetcherState>,
+}
 /// The instance metadata - as fetched from the
 /// Forge Site Controller
 #[derive(Clone, Debug)]
@@ -58,25 +76,17 @@ pub struct IBInstanceConfig {
     pub lid: u32,
 }
 
-pub struct InstanceMetadataFetcherState {
-    current: ArcSwapOption<InstanceMetadata>,
-    config: InstanceMetadataFetcherConfig,
-    is_cancelled: AtomicBool,
-}
+impl PeriodicConfigFetcherReader {
+    pub fn net_conf_read(&self) -> Option<Arc<rpc::ManagedHostNetworkConfigResponse>> {
+        self.state.netconf.load_full()
+    }
 
-impl InstanceMetadataFetcherState {
-    pub fn read(&self) -> Option<Arc<InstanceMetadata>> {
-        self.current.load_full()
+    pub fn meta_data_conf_reader(&self) -> Option<Arc<InstanceMetadata>> {
+        self.state.instmeta.load_full()
     }
 }
 
-/// Fetches the desired network configuration for a managed host in regular intervals
-pub struct InstanceMetadataFetcher {
-    state: Arc<InstanceMetadataFetcherState>,
-    join_handle: Option<tokio::task::JoinHandle<()>>,
-}
-
-impl Drop for InstanceMetadataFetcher {
+impl Drop for PeriodicConfigFetcher {
     fn drop(&mut self) {
         // Signal the background task and wait for it to shut down
         // TODO: Might be nicer if it would be interrupted during waiting for 30s
@@ -91,18 +101,25 @@ impl Drop for InstanceMetadataFetcher {
     }
 }
 
-impl InstanceMetadataFetcher {
-    pub fn new(config: InstanceMetadataFetcherConfig) -> Self {
+impl PeriodicConfigFetcher {
+    pub async fn new(config: PeriodicConfigFetcherConfig) -> Self {
         let forge_client_config = config.forge_client_config.clone();
-        let state = Arc::new(InstanceMetadataFetcherState {
-            current: ArcSwapOption::default(),
+        let state = Arc::new(PeriodicFetcherState {
+            netconf: ArcSwapOption::default(),
+            instmeta: ArcSwapOption::default(),
             config,
             is_cancelled: AtomicBool::new(false),
         });
 
+        // Do an initial synchronous fetch so that caller has data to use
+        // This gets a DPU on the network immediately
+        single_fetch(&forge_client_config, state.clone()).await;
+
         let task_state = state.clone();
         let join_handle = tokio::spawn(async move {
-            run_instance_metadata_fetcher(forge_client_config, task_state).await;
+            while single_fetch(&forge_client_config, task_state.clone()).await {
+                tokio::time::sleep(task_state.config.config_fetch_interval).await;
+            }
         });
 
         Self {
@@ -111,13 +128,14 @@ impl InstanceMetadataFetcher {
         }
     }
 
-    /// Returns a reader for fetching the latest retrieved instance metadata
-    pub fn reader(&self) -> Arc<InstanceMetadataFetcherState> {
-        self.state.clone()
+    pub fn reader(&self) -> Box<PeriodicConfigFetcherReader> {
+        Box::new(PeriodicConfigFetcherReader {
+            state: self.state.clone(),
+        })
     }
 }
 
-pub struct InstanceMetadataFetcherConfig {
+pub struct PeriodicConfigFetcherConfig {
     /// The interval in which the config is fetched
     pub config_fetch_interval: Duration,
     pub machine_id: String,
@@ -125,50 +143,83 @@ pub struct InstanceMetadataFetcherConfig {
     pub forge_client_config: ForgeClientConfig,
 }
 
-async fn run_instance_metadata_fetcher(
-    forge_client_config: ForgeClientConfig,
-    state: Arc<InstanceMetadataFetcherState>,
-) {
-    loop {
-        if state
-            .is_cancelled
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
-            trace!("Instance metadata fetcher was dropped. Stopping config reading");
-            return;
+async fn single_fetch(
+    forge_client_config: &ForgeClientConfig,
+    state: Arc<PeriodicFetcherState>,
+) -> bool {
+    if state
+        .is_cancelled
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        trace!("Periodic fetcher was dropped. Stopping config reading");
+        return false;
+    }
+
+    trace!(
+        "Fetching periodic configuration for Machine {}",
+        state.config.machine_id
+    );
+
+    match fetch(
+        state.config.machine_id.clone(),
+        &state.config.forge_api,
+        forge_client_config,
+    )
+    .await
+    {
+        Ok(resp) => {
+            state.netconf.store(Some(Arc::new(resp.clone())));
+
+            match instance_metadata_from_instance(resp.instance).await {
+                Ok(Some(config)) => {
+                    state.instmeta.store(Some(Arc::new(config)));
+                }
+                Ok(None) => {
+                    state.instmeta.store(None);
+                }
+                Err(err) => {
+                    error!(
+                        "Failed to fetch the latest configuration: {err}.\n Will retry in {:?}",
+                        state.config.config_fetch_interval
+                    );
+                }
+            };
         }
-
-        trace!(
-            "Fetching managed host network configuration for Machine {}",
-            state.config.machine_id
-        );
-
-        match fetch_latest_metadata(&forge_client_config, &state).await {
-            Ok(Some(config)) => {
-                state.current.store(Some(Arc::new(config)));
+        Err(err) => match err.downcast_ref::<tonic::Status>() {
+            Some(grpc_status) if grpc_status.code() == tonic::Code::NotFound => {
+                warn!("DPU not found: {}", state.config.machine_id);
+                state.netconf.store(None);
+                state.instmeta.store(None);
             }
-            Ok(None) => {
-                state.current.store(None);
-            }
-            Err(err) => {
+            _ => {
                 error!(
-                    "Failed to fetch the latest configuration: {err}.\n Will retry in {:?}",
+                    "Failed to fetch the latest configuration. Will retry in {:?}. {err:#?}",
                     state.config.config_fetch_interval
                 );
             }
-        };
+        },
+    };
 
-        tokio::time::sleep(state.config.config_fetch_interval).await;
-    }
+    true
 }
 
-async fn fetch_latest_metadata(
+/// Make the network request to get network config
+pub async fn fetch(
+    dpu_machine_id: String,
+    forge_api: &str,
     client_config: &ForgeClientConfig,
-    state: &InstanceMetadataFetcherState,
+) -> Result<rpc::ManagedHostNetworkConfigResponse, eyre::Report> {
+    let mut client = create_forge_client(forge_api, client_config).await?;
+
+    get_periodic_dpu_config(&mut client, dpu_machine_id).await
+}
+
+pub async fn instance_metadata_from_instance(
+    instance: Option<Instance>,
 ) -> Result<Option<InstanceMetadata>, eyre::Error> {
-    let mut client = create_forge_client(&state.config.forge_api, client_config).await?;
-    let Some(instance) = get_instance(&mut client, state.config.machine_id.clone()).await? else {
-        return Ok(None);
+    let instance = match instance {
+        Some(instance) => instance,
+        None => return Ok(None),
     };
 
     let hostname = match instance.id.clone() {

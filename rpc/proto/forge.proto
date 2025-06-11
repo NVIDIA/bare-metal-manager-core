@@ -2359,6 +2359,8 @@ message ManagedHostNetworkConfigResponse {
   // VPCs in the site will not be configured to get out to
   // the Internet.
   optional uint32 internet_l3_vni = 106;
+
+  optional Instance instance = 107;
 }
 
 message ManagedHostQuarantineState {

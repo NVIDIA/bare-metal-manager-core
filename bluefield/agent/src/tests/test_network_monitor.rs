@@ -53,7 +53,7 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
 
     let td = tempfile::tempdir()?;
     let agent_config_file = tempfile::NamedTempFile::new()?;
-    let opts = match common::setup_agent_run_env(&addr, &td, &agent_config_file) {
+    let opts = match common::setup_agent_run_env(&addr, &td, &agent_config_file, false) {
         Ok(Some(opts)) => opts,
         Ok(None) => {
             return Ok(());

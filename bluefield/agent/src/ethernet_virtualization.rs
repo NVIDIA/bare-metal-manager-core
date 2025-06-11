@@ -2147,6 +2147,7 @@ mod tests {
             multidpu_enabled: false,
             internet_l3_vni: Some(1337),
             stateful_acls_enabled: true,
+            instance: None,
         }
     }
 
@@ -2515,6 +2516,7 @@ mod tests {
             multidpu_enabled: false,
             internet_l3_vni: Some(1337),
             stateful_acls_enabled: true,
+            instance: None,
         };
 
         let f = tempfile::NamedTempFile::new()?;

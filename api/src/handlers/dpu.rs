@@ -43,42 +43,12 @@ use tonic::{Request, Response, Status};
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
 const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan48";
 
-pub(crate) async fn get_managed_host_network_config(
+pub(crate) async fn get_managed_host_network_config_inner(
     api: &Api,
-    request: Request<rpc::ManagedHostNetworkConfigRequest>,
-) -> Result<tonic::Response<rpc::ManagedHostNetworkConfigResponse>, tonic::Status> {
-    log_request_data(&request);
-
-    let request = request.into_inner();
-    let dpu_machine_id = match &request.dpu_machine_id {
-        Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-        None => {
-            return Err(CarbideError::MissingArgument("dpu_machine_id").into());
-        }
-    };
-    log_machine_id(&dpu_machine_id);
-
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_managed_host_network_config",
-            e,
-        ))
-    })?;
-
-    let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
-        &dpu_machine_id,
-        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
-    )
-    .await
-    .map_err(CarbideError::from)?
-    .ok_or(CarbideError::NotFoundError {
-        kind: "machine",
-        id: dpu_machine_id.to_string(),
-    })?;
-
+    dpu_machine_id: MachineId,
+    snapshot: crate::model::machine::ManagedHostStateSnapshot,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<rpc::ManagedHostNetworkConfigResponse, tonic::Status> {
     let dpu_snapshot = match snapshot
         .dpu_snapshots
         .iter()
@@ -93,6 +63,9 @@ pub(crate) async fn get_managed_host_network_config(
         }
     };
 
+    let maybe_instance =
+        Option::<rpc::Instance>::try_from(snapshot.clone()).map_err(CarbideError::from)?;
+
     let primary_dpu_snapshot = snapshot
         .host_snapshot
         .interfaces
@@ -100,7 +73,7 @@ pub(crate) async fn get_managed_host_network_config(
         .find(|x| x.primary_interface)
         .ok_or_else(|| CarbideError::internal("Primary Interface is missing.".to_string()))?;
 
-    let primary_dpu = db::machine_interface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
+    let primary_dpu = db::machine_interface::find_one(txn, primary_dpu_snapshot.id).await?;
     let is_primary_dpu = primary_dpu
         .attached_dpu_machine_id
         .map(|x| x == dpu_snapshot.id)
@@ -141,7 +114,7 @@ pub(crate) async fn get_managed_host_network_config(
     }
 
     let (admin_interface_rpc, host_interface_id) = ethernet_virtualization::admin_network(
-        &mut txn,
+        txn,
         &snapshot.host_snapshot.id,
         &dpu_snapshot.id,
         use_fnn_over_admin_nw,
@@ -180,7 +153,7 @@ pub(crate) async fn get_managed_host_network_config(
                 // network segment is empty, return error.
                 return Err(CarbideError::NetworkSegmentNotAllocated.into());
             };
-            let vpc = Vpc::find_by_segment(&mut txn, network_segment_id)
+            let vpc = Vpc::find_by_segment(txn, network_segment_id)
                 .await
                 .map_err(CarbideError::from)?;
 
@@ -217,7 +190,7 @@ pub(crate) async fn get_managed_host_network_config(
                                 // Make our DB query for the IDs to get our NetworkSecurityGroup
                                 let network_security_group =
                                     network_security_group::find_by_ids(
-                                        &mut txn,
+                                        txn,
                                         &[vpc_nsg_id],
                                         Some(&i.config.tenant.tenant_organization_id),
                                         false,
@@ -240,7 +213,7 @@ pub(crate) async fn get_managed_host_network_config(
                             // Make our DB query for the IDs to get our NetworkSecurityGroup
                             let network_security_group  =
                                 network_security_group::find_by_ids(
-                                    &mut txn,
+                                    txn,
                                     &[nsg_id.to_owned()],
                                     Some(&i.config.tenant.tenant_organization_id),
                                     false,
@@ -293,7 +266,7 @@ pub(crate) async fn get_managed_host_network_config(
             // instance creation.
             let segment_ids = interfaces.iter().filter_map(|x|x.network_segment_id).collect_vec();
             let segment_details = NetworkSegment::find_by(
-                &mut txn,
+                txn,
                 ObjectColumnFilter::List(network_segment::IdColumn, &segment_ids),
                 NetworkSegmentSearchConfig::default(),
             ).await
@@ -310,7 +283,7 @@ pub(crate) async fn get_managed_host_network_config(
 
             let domain = match segment.subdomain_id {
                 Some(domain_id) => {
-                    Domain::find_by_uuid(&mut txn, domain_id)
+                    Domain::find_by_uuid(txn, domain_id)
                         .await
                         .map_err(CarbideError::from)?
                         .ok_or_else(|| CarbideError::NotFoundError {
@@ -339,7 +312,7 @@ pub(crate) async fn get_managed_host_network_config(
             let tenant_loopback_ip = if VpcVirtualizationType::Fnn == network_virtualization_type {
                 let tenant_loopback_ip = VpcDpuLoopback::get_or_allocate_loopback_ip_for_vpc(
                     &api.common_pools,
-                    &mut txn,
+                    txn,
                     &dpu_machine_id,
                     &vpc.id,
                 )
@@ -368,7 +341,7 @@ pub(crate) async fn get_managed_host_network_config(
 
                 tenant_interfaces.push(
                     ethernet_virtualization::tenant_network(
-                        &mut txn,
+                        txn,
                         instance.id,
                         iface,
                         fqdn.clone(),
@@ -390,15 +363,6 @@ pub(crate) async fn get_managed_host_network_config(
             tenant_interfaces
         }
     };
-
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit get_managed_host_network_config",
-            e,
-        ))
-    })?;
 
     // If admin network is in use, use admin network's vpc_vni.
     if use_admin_network {
@@ -515,10 +479,62 @@ pub(crate) async fn get_managed_host_network_config(
         min_dpu_functioning_links: api.runtime_config.min_dpu_functioning_links,
         dpu_network_pinger_type: api.runtime_config.dpu_network_monitor_pinger_type.clone(),
         internet_l3_vni: api.runtime_config.internet_l3_vni,
+        instance: maybe_instance,
     };
 
     // If this all worked, we shouldn't emit a log line
     tracing::Span::current().record("logfmt.suppress", true);
+
+    Ok(resp)
+}
+
+pub(crate) async fn get_managed_host_network_config(
+    api: &Api,
+    request: Request<rpc::ManagedHostNetworkConfigRequest>,
+) -> Result<tonic::Response<rpc::ManagedHostNetworkConfigResponse>, tonic::Status> {
+    log_request_data(&request);
+
+    let request = request.into_inner();
+    let dpu_machine_id = match &request.dpu_machine_id {
+        Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
+        None => {
+            return Err(CarbideError::MissingArgument("dpu_machine_id").into());
+        }
+    };
+    log_machine_id(&dpu_machine_id);
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin get_managed_host_network_config",
+            e,
+        ))
+    })?;
+
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &dpu_machine_id,
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "machine",
+        id: dpu_machine_id.to_string(),
+    })?;
+
+    let resp =
+        get_managed_host_network_config_inner(api, dpu_machine_id, snapshot, &mut txn).await?;
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit get_managed_host_network_config",
+            e,
+        ))
+    })?;
 
     Ok(Response::new(resp))
 }

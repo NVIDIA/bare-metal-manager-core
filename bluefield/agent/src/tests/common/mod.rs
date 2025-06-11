@@ -27,8 +27,6 @@ use tempfile::{NamedTempFile, TempDir};
 const TLS_CERT: &[u8] = include_bytes!("../../../test-certs/tls.crt");
 const TLS_KEY: &[u8] = include_bytes!("../../../test-certs/tls.key");
 
-const TEST_METADATA_SERVICE: bool = false;
-
 // TODO: Add settings to config file and switch this to true
 // Then assert that it works
 const AGENT_CONFIG: &str = r#"
@@ -61,6 +59,7 @@ pub fn setup_agent_run_env(
     addr: &SocketAddr,
     td: &TempDir,
     acf: &NamedTempFile,
+    test_metadata_service: bool,
 ) -> eyre::Result<Option<Options>> {
     let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")) else {
         tracing::warn!(
@@ -103,7 +102,7 @@ pub fn setup_agent_run_env(
         version: false,
         config_path: Some(acf.path().to_path_buf()),
         cmd: Some(crate::AgentCommand::Run(crate::RunOptions {
-            enable_metadata_service: TEST_METADATA_SERVICE,
+            enable_metadata_service: test_metadata_service,
             override_machine_id: None,
             override_network_virtualization_type: None,
             skip_upgrade_check: false,
