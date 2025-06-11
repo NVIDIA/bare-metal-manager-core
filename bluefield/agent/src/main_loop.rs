@@ -48,12 +48,18 @@ use crate::network_monitor::{self, NetworkPingerType};
 use crate::util::{UrlResolver, get_host_boot_timestamp};
 use crate::{
     FMDS_MINIMUM_HBN_VERSION, HBNDeviceNames, NVUE_MINIMUM_HBN_VERSION, RunOptions, command_line,
-    ethernet_virtualization, hbn, health, instance_metadata_endpoint, instance_metadata_fetcher,
-    machine_inventory_updater, mtu, netlink, network_config_fetcher, nvue, pretty_cmd, sysfs,
-    upgrade,
+    ethernet_virtualization, hbn, health, instance_metadata_endpoint, machine_inventory_updater,
+    mtu, netlink, nvue, periodic_config_fetcher, pretty_cmd, sysfs, upgrade,
 };
 
 // Main loop when running in daemon mode
+// Before going into its main loop functionality, the
+// code first launches a periodic config fetcher thread.
+// The periodic config fetcher uses a grpc call to
+// carbide to get network config information as well as
+// instance metadata information and stores it. The main loop and the instance
+// metadata service use the information fetched be the periodic fetcher by reading
+// the information stored by the periodic config fetcher.
 pub async fn setup_and_run(
     machine_id: String,
     factory_mac_address: MacAddress,
@@ -118,19 +124,6 @@ pub async fn setup_and_run(
     if let Err(e) = duppet::sync(duppet_files, duppet_options) {
         tracing::error!("error during duppet sync: {}", e);
     }
-
-    let instance_metadata_fetcher =
-        Arc::new(instance_metadata_fetcher::InstanceMetadataFetcher::new(
-            instance_metadata_fetcher::InstanceMetadataFetcherConfig {
-                config_fetch_interval: Duration::from_secs(
-                    agent_config.period.network_config_fetch_secs,
-                ),
-                machine_id: machine_id.to_string(),
-                forge_api: forge_api_server.clone(),
-                forge_client_config: forge_client_config.clone(),
-            },
-        ));
-    let instance_metadata_reader = instance_metadata_fetcher.reader();
 
     let instance_metadata_state = Arc::new(
         instance_metadata_endpoint::InstanceMetadataRouterStateImpl::new(
@@ -199,10 +192,9 @@ pub async fn setup_and_run(
     };
 
     let build_version = forge_version::v!(build_version).to_string();
-    // `new` does a network call and spawns a task. It fetches an initial config from carbide-api,
-    // then spawns a task fetching config every network_config_fetch_secs.
-    let network_config_fetcher = network_config_fetcher::NetworkConfigFetcher::new(
-        network_config_fetcher::NetworkConfigFetcherConfig {
+
+    let periodic_config_fetcher = periodic_config_fetcher::PeriodicConfigFetcher::new(
+        periodic_config_fetcher::PeriodicConfigFetcherConfig {
             config_fetch_interval: Duration::from_secs(
                 agent_config.period.network_config_fetch_secs,
             ),
@@ -213,7 +205,7 @@ pub async fn setup_and_run(
     )
     .await;
 
-    let network_config_reader = network_config_fetcher.reader();
+    let periodic_config_reader = periodic_config_fetcher.reader();
 
     let service_addrs = if !agent_config.machine.is_fake_dpu {
         let mut url_resolver = UrlResolver::try_new()?;
@@ -266,8 +258,8 @@ pub async fn setup_and_run(
     let (close_sender, mut close_receiver) = watch::channel(false);
 
     // Initialize network monitor and perform network check once
-    let network_pinger_type = network_config_reader
-        .read()
+    let network_pinger_type = periodic_config_reader
+        .net_conf_read()
         .as_ref()
         .as_ref()
         .and_then(|response| response.dpu_network_pinger_type.as_ref())
@@ -314,8 +306,7 @@ pub async fn setup_and_run(
         forge_client_config,
         build_version,
         machine_id: machine_id.to_string(),
-        network_config_reader,
-        instance_metadata_reader,
+        periodic_config_reader,
         instance_metadata_state,
         client_cert_renewer,
         hbn_device_names,
@@ -346,8 +337,7 @@ struct MainLoop {
     machine_id: String,
     factory_mac_address: MacAddress,
     build_version: String,
-    network_config_reader: Box<network_config_fetcher::NetworkConfigReader>,
-    instance_metadata_reader: Arc<instance_metadata_fetcher::InstanceMetadataFetcherState>,
+    periodic_config_reader: Box<periodic_config_fetcher::PeriodicConfigFetcherReader>,
     instance_metadata_state: Arc<InstanceMetadataRouterStateImpl>,
     client_cert_renewer: ClientCertRenewer,
     hbn_device_names: HBNDeviceNames,
@@ -470,9 +460,9 @@ impl MainLoop {
         status_out.last_dhcp_requests = last_dhcp_requests;
 
         // `read` does not block
-        match self.network_config_reader.read() {
+        match self.periodic_config_reader.net_conf_read() {
             Some(conf) => {
-                let instance_data = self.instance_metadata_reader.read();
+                let instance_data = self.periodic_config_reader.meta_data_conf_reader();
 
                 let proposed_routes: Vec<_> = conf
                     .tenant_interfaces

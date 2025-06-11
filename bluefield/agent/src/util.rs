@@ -173,18 +173,19 @@ pub async fn get_instance(
     Ok(instances.first().cloned())
 }
 
-pub async fn get_asn(
+// Use grpc call GetPeriodicDpuConfig and return the retrieved info
+pub async fn get_periodic_dpu_config(
     client: &mut ForgeClientT,
     dpu_machine_id: String,
-) -> Result<u32, eyre::Error> {
+) -> Result<rpc::forge::ManagedHostNetworkConfigResponse, eyre::Error> {
     let request = tonic::Request::new(ManagedHostNetworkConfigRequest {
         dpu_machine_id: Some(rpc::MachineId {
             id: dpu_machine_id.clone(),
         }),
     });
 
-    let network_config = match client.get_managed_host_network_config(request).await {
-        Ok(response) => response.into_inner(),
+    let resp = match client.get_managed_host_network_config(request).await {
+        Ok(response) => response,
         Err(err) => {
             return Err(eyre::eyre!(
                 "Error while executing the FindInstanceByMachineId gRPC call: {}",
@@ -193,7 +194,7 @@ pub async fn get_asn(
         }
     };
 
-    Ok(network_config.asn)
+    Ok(resp.into_inner())
 }
 
 // phone_home returns the timestamp returned from Carbide as a string

@@ -16,6 +16,7 @@ docker run --rm -v $REPO_ROOT:/carbide \
   -e CARGO_TARGET_DIR=/target/$COMPONENT \
   -e CARGO_HOME=/cache/cargo/$COMPONENT \
   -e SCCACHE_DIR=/cache/sccache \
+  -e USER=$USER \
   -v $REPO_ROOT/.skaffold/target:/target \
   -v $REPO_ROOT/.skaffold/cache:/cache \
   --user $(id -u):$(id -g) \

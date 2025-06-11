@@ -25,7 +25,7 @@ pub fn build() {
     );
     println!(
         "cargo:rustc-env=FORGE_BUILD_DATE={}",
-        run("date", &["--iso-8601", "--utc"])
+        run("date", &["--iso-8601=seconds", "--utc"])
     );
     println!(
         "cargo:rustc-env=FORGE_BUILD_RUSTC_VERSION={}",

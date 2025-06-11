@@ -30,6 +30,9 @@ use axum::routing::{get, post};
 use chrono::{DateTime, TimeZone, Utc};
 use eyre::WrapErr;
 use forge_network::virtualization::VpcVirtualizationType;
+use http_body_util::{BodyExt, Full};
+use hyper::body::Bytes;
+use hyper_util::rt::TokioExecutor;
 use ipnetwork::IpNetwork;
 use rpc::forge::{DpuInfo, FlatInterfaceNetworkSecurityGroupConfig};
 use tokio::sync::Mutex;
@@ -56,7 +59,7 @@ struct TestOut {
 // a single nvue_startup.yaml config).
 #[tokio::test(flavor = "multi_thread")]
 pub async fn test_etv() -> eyre::Result<()> {
-    let out = run_common_parts(VpcVirtualizationType::EthernetVirtualizer).await?;
+    let out = run_common_parts(VpcVirtualizationType::EthernetVirtualizer, false).await?;
     if out.is_skip {
         return Ok(());
     }
@@ -108,7 +111,7 @@ async fn test_nvue_generic(
     virtualization_type: VpcVirtualizationType,
     expected: &str,
 ) -> eyre::Result<()> {
-    let out = run_common_parts(virtualization_type).await?;
+    let out = run_common_parts(virtualization_type, false).await?;
     if out.is_skip {
         return Ok(());
     }
@@ -151,10 +154,101 @@ async fn test_nvue_generic(
     Ok(())
 }
 
+// Query the FMDS endpoint to retrieve tenant metadata
+// and make sure it matches expected values. run_common_parts
+// launches the forge_dpu_agent, and by passing in true to run_common_parts,
+// we are asking it to launch the metadata service. run_common_parts also launches
+// a gRPC server that returns data in response to GetManagedHostNetworkConfig call,
+// and that data populates the data retrieved by the metadata endpoint server.
+#[tokio::test(flavor = "multi_thread")]
+// Test retrieving instance metadata using FMDS
+pub async fn test_fmds_get_data() -> eyre::Result<()> {
+    let out = run_common_parts(VpcVirtualizationType::EthernetVirtualizer, true).await?;
+    if out.is_skip {
+        return Ok(());
+    }
+
+    // Test get hostname
+    let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build_http();
+    let request: hyper::Request<Full<Bytes>> = hyper::Request::builder()
+        .method(hyper::Method::GET)
+        .uri("http://0.0.0.0:7777/latest/meta-data/hostname".to_string())
+        .body("".into())
+        .unwrap();
+
+    let response = client.request(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body_str = std::str::from_utf8(&body).unwrap();
+
+    assert_eq!(body_str, "9afaedd3-b36e-4603-a029-8b94a82b89a0");
+
+    // Test get machine_id
+    let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build_http();
+    let request: hyper::Request<Full<Bytes>> = hyper::Request::builder()
+        .method(hyper::Method::GET)
+        .uri("http://0.0.0.0:7777/latest/meta-data/machine-id".to_string())
+        .body("".into())
+        .unwrap();
+
+    let response = client.request(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body_str = std::str::from_utf8(&body).unwrap();
+
+    assert_eq!(
+        body_str,
+        "fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g"
+    );
+
+    // Test get instance-id
+    let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build_http();
+    let request: hyper::Request<Full<Bytes>> = hyper::Request::builder()
+        .method(hyper::Method::GET)
+        .uri("http://0.0.0.0:7777/latest/meta-data/instance-id".to_string())
+        .body("".into())
+        .unwrap();
+
+    let response = client.request(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body_str = std::str::from_utf8(&body).unwrap();
+
+    assert_eq!(body_str, "9afaedd3-b36e-4603-a029-8b94a82b89a0");
+
+    // Test get asn
+    let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build_http();
+    let request: hyper::Request<Full<Bytes>> = hyper::Request::builder()
+        .method(hyper::Method::GET)
+        .uri("http://0.0.0.0:7777/latest/meta-data/asn".to_string())
+        .body("".into())
+        .unwrap();
+
+    let response = client.request(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body_str = std::str::from_utf8(&body).unwrap();
+
+    assert_eq!(body_str, "65535");
+
+    Ok(())
+}
+
 // run_common_parts exists, because most of the test is
 // shared between the [legacy] ETV files mechanism and the
 // new nvue templating mechanism.
-async fn run_common_parts(virtualization_type: VpcVirtualizationType) -> eyre::Result<TestOut> {
+async fn run_common_parts(
+    virtualization_type: VpcVirtualizationType,
+    test_metadata_service: bool,
+) -> eyre::Result<TestOut> {
     forge_host_support::init_logging()?;
 
     let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
@@ -197,18 +291,19 @@ async fn run_common_parts(virtualization_type: VpcVirtualizationType) -> eyre::R
 
     let td: tempfile::TempDir = tempfile::tempdir()?;
     let agent_config_file = tempfile::NamedTempFile::new()?;
-    let opts = match common::setup_agent_run_env(&addr, &td, &agent_config_file) {
-        Ok(Some(opts)) => opts,
-        Ok(None) => {
-            return Ok(TestOut {
-                is_skip: true,
-                ..Default::default()
-            });
-        }
-        Err(e) => {
-            return Err(e);
-        }
-    };
+    let opts =
+        match common::setup_agent_run_env(&addr, &td, &agent_config_file, test_metadata_service) {
+            Ok(Some(opts)) => opts,
+            Ok(None) => {
+                return Ok(TestOut {
+                    is_skip: true,
+                    ..Default::default()
+                });
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        };
 
     // Start forge-dpu-agent
     tokio::spawn(async move {
@@ -223,11 +318,13 @@ async fn run_common_parts(virtualization_type: VpcVirtualizationType) -> eyre::R
     let start = std::time::Instant::now();
     loop {
         let statel = state.lock().await;
-        if statel.num_health_reports.load(Ordering::SeqCst) > 1 {
+        if statel.num_health_reports.load(Ordering::SeqCst) > 1
+            && statel.num_netconf_fetches.load(Ordering::SeqCst) > 1
+        {
             break;
         }
 
-        if start.elapsed() > std::time::Duration::from_secs(30) {
+        if start.elapsed() > std::time::Duration::from_secs(60) {
             return Err(eyre::eyre!(
                 "Health report was not sent 2 times in 30s. State: {:?}",
                 statel
@@ -470,6 +567,81 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         }),
     };
 
+    let instance = rpc::Instance {
+        id: Some(rpc::Uuid {
+            value: "9afaedd3-b36e-4603-a029-8b94a82b89a0".to_string(),
+        }),
+        machine_id: Some(rpc::MachineId {
+            id: "fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g".to_string(),
+        }),
+        metadata: None,
+        instance_type_id: None,
+        config: Some(rpc::InstanceConfig {
+            tenant: Some(rpc::TenantConfig {
+                tenant_organization_id: "Forge-simulation-tenant".to_string(),
+                user_data: Some("".to_string()),
+                custom_ipxe: " chain http://10.217.126.4/public/blobs/internal/x86_64/qcow-imager.efi loglevel=7 console=ttyS0,115200 console=tty0 pci=realloc=off image_url=https://pbss.s8k.io/v1/AUTH_team-forge/images.qcow2/carbide-dev-environment/carbide-dev-environment-latest.qcow2".to_string(),
+                always_boot_with_custom_ipxe: false,
+                phone_home_enabled: false,
+                hostname: None,
+                tenant_keyset_ids: vec![],
+            }),
+            os: Some(rpc::forge::OperatingSystem {
+                phone_home_enabled: false,
+                run_provisioning_instructions_on_every_boot: false,
+                user_data: Some("".to_string()),
+                variant: Some(rpc::forge::operating_system::Variant::Ipxe(rpc::forge::IpxeOperatingSystem {
+                    ipxe_script: " chain http://10.217.126.4/public/blobs/internal/x86_64/qcow-imager.efi loglevel=7 console=ttyS0,115200 console=tty0 pci=realloc=off image_url=https://pbss.s8k.io/v1/AUTH_team-forge/images.qcow2/carbide-dev-environment/carbide-dev-environment-latest.qcow2".to_string(),
+                    user_data: Some("".to_string()),
+                })),
+            }),
+            network: Some(rpc::InstanceNetworkConfig {
+                interfaces: vec![rpc::InstanceInterfaceConfig {
+                    function_type: rpc::InterfaceFunctionType::Physical.into(),
+                    network_segment_id: Some(rpc::Uuid {
+                        value: "a7cdeab1-84ec-48a2-ab59-62863d311f26".to_string(),
+                    }),
+                    network_details: Some(rpc::forge::instance_interface_config::NetworkDetails::SegmentId(rpc::Uuid {
+                        value: "a7cdeab1-84ec-48a2-ab59-62863d311f26".to_string(),
+                    })),
+                }],
+            }),
+            infiniband: None,
+            storage: None,
+            network_security_group_id: None,
+        }),
+        status: Some(rpc::InstanceStatus {
+            tenant: Some(rpc::InstanceTenantStatus {
+                state: rpc::TenantState::Ready.into(),
+                state_details: "".to_string(),
+            }),
+            network: Some(rpc::InstanceNetworkStatus {
+                interfaces: vec![rpc::InstanceInterfaceStatus {
+                    virtual_function_id: None,
+                    mac_address: Some("5C:25:73:9E:92:F2".to_string()),
+                    addresses: vec!["10.217.104.146".to_string()],
+                    gateways: vec!["10.217.104.145/30".to_string()],
+                    prefixes: vec!["10.217.104.146/32".to_string()],
+                }],
+                configs_synced: rpc::SyncState::Synced.into(),
+            }),
+            infiniband: Some(rpc::InstanceInfinibandStatus {
+                ib_interfaces: vec![],
+                configs_synced: rpc::SyncState::Synced.into(),
+            }),
+            storage: Some(rpc::forge::InstanceStorageStatus {
+                volumes: vec![],
+                configs_synced: rpc::SyncState::Synced.into(),
+            }),
+            configs_synced: rpc::SyncState::Synced.into(),
+            update: None,
+        }),
+        network_config_version: "V1-T1748645613333257".to_string(),
+        ib_config_version: "V1-T1748645613333260".to_string(),
+        config_version: "V1-T1748645613333260".to_string(),
+        storage_config_version: "V1-T1748645613333260".to_string(),
+    };
+
     let netconf = rpc::forge::ManagedHostNetworkConfigResponse {
         asn: 65535,
         dhcp_servers: vec!["127.0.0.1".to_string()],
@@ -503,6 +675,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         dpu_network_pinger_type: Some("HbnExec".to_string()),
         internet_l3_vni: Some(1337),
         stateful_acls_enabled: true,
+        instance: Some(instance),
     };
     common::respond(netconf)
 }

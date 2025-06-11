@@ -15,6 +15,8 @@ use itertools::Itertools;
 use rpc::forge;
 use std::ops::DerefMut;
 
+use ::rpc::forge::ManagedHostNetworkConfigRequest;
+
 use crate::{
     db,
     model::machine::ManagedHostStateSnapshot,
@@ -731,6 +733,108 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
             result
         ),
     }
+
+    Ok(())
+}
+
+// Create a machine with a single DPU, and create an instance on that machine.
+// Call GetManagedHostNetworkConfig and make sure instance metadata matches
+// expected results.
+#[crate::sqlx_test]
+async fn test_single_dpu_instance_allocation(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
+
+    // Create single DPU host
+    let single_dpu_host = api_fixtures::site_explorer::new_host(&env, Default::default()).await?;
+
+    let tenant_segment = db::network_segment::NetworkSegment::find_by_name(
+        env.pool.begin().await?.deref_mut(),
+        "TENANT",
+    )
+    .await?;
+
+    // Create an instance on a host with DPUs, without specifying a network config, which is not allowed
+    let result = crate::handlers::instance::allocate(
+        env.api.as_ref(),
+        tonic::Request::new(forge::InstanceAllocationRequest {
+            machine_id: Some(single_dpu_host.host_snapshot.id.into()),
+            instance_type_id: None,
+            config: Some(forge::InstanceConfig {
+                tenant: Some(forge::TenantConfig {
+                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
+                    user_data: None,
+                    custom_ipxe: "exit".to_string(),
+                    always_boot_with_custom_ipxe: false,
+                    phone_home_enabled: false,
+                    hostname: None,
+                    tenant_keyset_ids: vec![],
+                }),
+                os: None,
+                network: Some(forge::InstanceNetworkConfig {
+                    interfaces: vec![forge::InstanceInterfaceConfig {
+                        function_type: forge::InterfaceFunctionType::Physical as i32,
+                        network_segment_id: Some(tenant_segment.id.into()),
+                        network_details: None,
+                    }],
+                }),
+
+                infiniband: None,
+                storage: None,
+                network_security_group_id: None,
+            }),
+            instance_id: None,
+            metadata: None,
+        }),
+    )
+    .await
+    .expect("Instance allocation with no network config should have been successful")
+    .into_inner();
+
+    let instid = result.id.unwrap();
+    let mid = result.machine_id.unwrap();
+
+    let machine = env
+        .api
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            machine_ids: vec![mid.clone()],
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .machines
+        .remove(0);
+
+    let mut dpu_ids = if !machine.associated_dpu_machine_ids.is_empty() {
+        machine
+            .associated_dpu_machine_ids
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+    } else {
+        vec![]
+    };
+
+    let dpu_id = dpu_ids.remove(0);
+
+    let dpu_id = rpc::MachineId { id: dpu_id };
+
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_id),
+        }))
+        .await
+        .unwrap();
+
+    let resp = response.into_inner();
+
+    let inst = resp.instance.unwrap();
+
+    assert_eq!(inst.machine_id, Some(mid));
+    assert_eq!(inst.id, Some(instid));
 
     Ok(())
 }
