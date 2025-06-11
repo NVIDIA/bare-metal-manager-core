@@ -1,12 +1,12 @@
 [package]
-name = "api-test"
+name = "api-test-helper"
 version = "0.1.0"
-description = "End-to-end test for carbide-api"
+description = "Helpers to launch carbide-api for integration testing"
 edition.workspace = true
 license-file.workspace = true
 authors.workspace = true
 
-[dev-dependencies]
+[dependencies]
 chrono = "0.4.34"
 eyre = "*"
 serde = { version = "1.0", features = ["derive"] }
@@ -25,16 +25,16 @@ rand = "0.8.5"
 lazy_static = "1.5.0"
 
 # [local-dependencies]
-agent = { path = "../bluefield/agent" }
-bmc-mock = { path = "../dev/bmc-mock" }
-carbide-api = { path = "../api" }
-forge-version = { path = "../common/version" }
-rpc = { path = "../rpc" }
-machine-a-tron = { path = "../dev/machine-a-tron" }
-forge-tls = { path = "../common/tls" }
-forge_secrets = { path = "../common/secrets" }
-utils = { path = "../common/utils" }
-metrics-endpoint = { path = "../common/metrics-endpoint" }
+agent = { path = "../../bluefield/agent" }
+bmc-mock = { path = "../../dev/bmc-mock" }
+carbide-api = { path = "../../api" }
+forge-version = { path = "../version" }
+rpc = { path = "../../rpc" }
+machine-a-tron = { path = "../../dev/machine-a-tron" }
+forge-tls = { path = "../tls" }
+forge_secrets = { path = "../secrets" }
+utils = { path = "../utils" }
+metrics-endpoint = { path = "../metrics-endpoint" }
 
 [build-dependencies]
-forge-version = { path = "../common/version" }
+forge-version = { path = "../version" }

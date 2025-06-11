@@ -3,9 +3,9 @@ resolver = "2"
 members = [
     "admin",
     "api",
-    "api-test",
     "bluefield/agent",
     "bluefield/otel/otel-agent",
+    "common/api-test-helper",
     "common/carbide-macros",
     "common/bmc-vendor",
     "common/config-version",
