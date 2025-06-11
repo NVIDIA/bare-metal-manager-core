@@ -1,7 +1,7 @@
 [Unit]
 Description=Prometheus Node Exporter
 Documentation=https://github.com/prometheus/node_exporter?tab=readme-ov-file
-After=network.target
+After=networking.service network-online.target time-sync.target containerd@mgmt.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

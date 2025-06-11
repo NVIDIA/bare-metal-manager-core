@@ -306,7 +306,6 @@ processors:
     # Add hostname at the resource level
     detectors: ["system"]
     system:
-      hostname_sources: ["os"]
       resource_attributes:
         host.name:
           enabled: true
