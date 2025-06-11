@@ -201,7 +201,7 @@ pub async fn start_api_server(
 
     let bins = find_prerequisites()?;
 
-    let m = sqlx::migrate!("../api/migrations");
+    let m = sqlx::migrate!("../../api/migrations");
 
     // Dependencies: Postgres, Vault and a Redfish BMC
     m.run(&db_pool).await?;

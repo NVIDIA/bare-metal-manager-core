@@ -128,4 +128,8 @@ ctor = "0.2"
 lazy_static = "1.4.0"
 const_format = "0.2.26"
 rcgen = "0.13.1"
+serial_test = "3"
 carbide-macros = { path = "../common/carbide-macros" }
+machine-a-tron = { path = "../dev/machine-a-tron" }
+bmc-mock = { path = "../dev/bmc-mock" }
+api-test-helper = { path = "../common/api-test-helper" }

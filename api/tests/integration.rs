@@ -11,6 +11,9 @@
  */
 use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
 use ::utils::HostPortPair;
+use api_test_helper::{
+    IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, utils, vpc,
+};
 use bmc_mock::ListenerOrAddress;
 use eyre::ContextCompat;
 use futures::FutureExt;
@@ -28,23 +31,9 @@ use std::{
 };
 use tokio::time::sleep;
 
-mod api_server;
-mod domain;
-pub mod grpcurl;
-mod instance;
-mod machine;
-mod machine_a_tron;
-mod metrics;
-mod subnet;
-mod utils;
-mod vault;
-mod vpc;
-
-use utils::IntegrationTestEnvironment;
-
 #[ctor::ctor]
 fn setup() {
-    setup_logging()
+    api_test_helper::setup_logging()
 }
 
 /// Run multiple machine-a-tron integration tests in parallel against a shared carbide API instance.
@@ -555,7 +544,7 @@ where
         api_refresh_interval: Duration::from_millis(500),
     };
 
-    let (machine_handles, mat_handle) = machine_a_tron::run_local(
+    let (machine_handles, mat_handle) = api_test_helper::machine_a_tron::run_local(
         mat_config,
         additional_api_urls,
         test_env.root_dir.clone(),
@@ -583,40 +572,4 @@ pub async fn get_dns_record_count(pool: &sqlx::Pool<Postgres>) -> i64 {
     let query = "SELECT COUNT(*) as row_cnt FROM dns_records";
     let rows = sqlx::query::<_>(query).fetch_one(&mut *txn).await.unwrap();
     rows.try_get("row_cnt").unwrap()
-}
-
-pub fn setup_logging() {
-    use tracing::metadata::LevelFilter;
-    use tracing_subscriber::{
-        filter::EnvFilter, fmt::TestWriter, prelude::*, util::SubscriberInitExt,
-    };
-
-    if let Err(e) = tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::Layer::default()
-                .compact()
-                .with_writer(TestWriter::new),
-        )
-        .with(
-            EnvFilter::builder()
-                .with_default_directive(LevelFilter::INFO.into())
-                .from_env_lossy()
-                .add_directive("sqlx=warn".parse().unwrap())
-                .add_directive("tower=warn".parse().unwrap())
-                .add_directive("rustify=off".parse().unwrap())
-                .add_directive("rustls=warn".parse().unwrap())
-                .add_directive("hyper=warn".parse().unwrap())
-                .add_directive("h2=warn".parse().unwrap())
-                // Silence permissive mode related messages
-                .add_directive("carbide::auth=error".parse().unwrap()),
-        )
-        .try_init()
-    {
-        // Note: Resist the temptation to ignore this error. We really should only have one place in
-        // the test binary that initializes logging.
-        panic!(
-            "Failed to initialize trace logging for api-test tests. It's possible some earlier \
-            code path has already set a global default log subscriber: {e}"
-        );
-    }
 }
