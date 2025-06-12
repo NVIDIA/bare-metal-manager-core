@@ -137,12 +137,18 @@ pub fn wait_until_all_ports_available() {
 // https://redmine.mellanox.com/issues/3753899
 // 2.1 aligns with XX.40.1000 firmwware, so if the middle section of firmware is equal or greater
 // than 40, then LLDP should work.
-pub fn is_lldp_working(fw_version: &str) -> bool {
+
+// LLDP is not fully configured on sites and causes issues. It makes the dpu agent hang at startup.
+// For now this will return false until a better fix is worked out.
+pub fn is_lldp_working(_fw_version: &str) -> bool {
+    /*
     fw_version
         .split('.')
         .nth(1) // second chunk is what we care about
         .and_then(|m| m.parse::<u8>().ok()) // turn it into a number
         .is_some_and(|n| n >= 40) // ensure its greater than or equal to 2.1 (40)
+     */
+    false
 }
 
 /// query lldp info for high speed ports p0..1, oob_net0 (some ports may not exist, warn on errors)
@@ -325,8 +331,8 @@ mod tests {
     #[test]
     fn check_fw_versions_for_lldp() {
         assert!(!dpu::is_lldp_working("xx.39.yyyy"));
-        assert!(dpu::is_lldp_working("xx.40.yyyy"));
-        assert!(dpu::is_lldp_working("xx.41.yyyy"));
+        assert!(!dpu::is_lldp_working("xx.40.yyyy"));
+        assert!(!dpu::is_lldp_working("xx.41.yyyy"));
 
         //broken data should return false
         assert!(!dpu::is_lldp_working("xx.zz.yyyy"));
