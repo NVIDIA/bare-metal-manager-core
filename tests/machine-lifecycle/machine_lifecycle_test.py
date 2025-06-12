@@ -484,8 +484,8 @@ def _apply_bmc_cec_firmware(
             utils.apply_dpu_bmc_firmware(
                 bmc_fw_path,
                 machine_info.dpu_info_map[dpu_id]["bmc_ip"],
-                machine_info.host_bmc_username,
-                site_config.host_bmc_password
+                site_config.dpu_bmc_username,
+                site_config.dpu_bmc_password
             )
         except Exception as e:
             _error_and_exit(f"BMC firmware downgrade failed on {dpu_id}: {e}")
@@ -497,8 +497,8 @@ def _apply_bmc_cec_firmware(
             utils.apply_dpu_bmc_firmware(
                 cec_fw_path,
                 machine_info.dpu_info_map[dpu_id]["bmc_ip"],
-                machine_info.host_bmc_username,
-                site_config.host_bmc_password
+                site_config.dpu_bmc_username,
+                site_config.dpu_bmc_password
             )
         except Exception as e:
             _error_and_exit(f"CEC firmware downgrade failed on {dpu_id}: {e}")
@@ -537,15 +537,15 @@ def _apply_bfb_nic_firmware(
                 # Use redfish on BMC 23.10+ (i.e. DOCA 2.5.0)
                 utils.enable_rshim_on_dpu(
                     machine_info.dpu_info_map[dpu_id]["bmc_ip"],
-                    machine_info.host_bmc_username,
-                    site_config.host_bmc_password
+                    site_config.dpu_bmc_username,
+                    site_config.dpu_bmc_password
                 )
             else:
                 # Use ipmitool on BMC 23.09 and below
                 utils.enable_rshim_on_dpu_ipmi(
                     machine_info.dpu_info_map[dpu_id]["bmc_ip"],
-                    machine_info.host_bmc_username,
-                    site_config.host_bmc_password
+                    site_config.dpu_bmc_username,
+                    site_config.dpu_bmc_password
                 )
             time.sleep(10)
         except Exception as e:
@@ -558,8 +558,8 @@ def _apply_bfb_nic_firmware(
             utils.copy_bfb_to_dpu(
                 bfb_path,
                 machine_info.dpu_info_map[dpu_id]["bmc_ip"],
-                machine_info.host_bmc_username,
-                site_config.host_bmc_password
+                site_config.dpu_bmc_username,
+                site_config.dpu_bmc_password
             )
         except Exception as e:
             _error_and_exit(f"Failed to copy BFB to DPU {dpu_id}: {e}")
@@ -573,8 +573,8 @@ def _apply_bfb_nic_firmware(
             utils.apply_nic_firmware(
                 nic_fw_url,
                 machine_info.dpu_info_map[dpu_id]["bmc_ip"],
-                machine_info.host_bmc_username,
-                site_config.host_bmc_password
+                site_config.dpu_bmc_username,
+                site_config.dpu_bmc_password
             )
         except Exception as e:
             _error_and_exit(f"Failed to downgrade NIC firmware on DPU {dpu_id}: {e}")
@@ -654,8 +654,8 @@ def verify_firmware_versions(
         try:
             bmc_version = utils.get_reported_bmc_version(
                 machine_info.dpu_info_map[dpu_id]["bmc_ip"],
-                machine_info.host_bmc_username,
-                site_config.host_bmc_password
+                site_config.dpu_bmc_username,
+                site_config.dpu_bmc_password
             )
             if expected_bmc_version not in bmc_version:
                 _error_and_exit(f"DPU {dpu_id} reports BMC version {bmc_version}, expected {expected_bmc_version}")
@@ -663,8 +663,8 @@ def verify_firmware_versions(
 
             cec_version = utils.get_reported_cec_version(
                 machine_info.dpu_info_map[dpu_id]["bmc_ip"],
-                machine_info.host_bmc_username,
-                site_config.host_bmc_password
+                site_config.dpu_bmc_username,
+                site_config.dpu_bmc_password
             )
             if expected_cec_version not in cec_version:
                 _error_and_exit(f"DPU {dpu_id} reports CEC version {cec_version}, expected {expected_cec_version}")
@@ -677,8 +677,8 @@ def verify_firmware_versions(
         try:
             bfb_version = utils.get_reported_bfb_version(
                 machine_info.dpu_info_map[dpu_id]["bmc_ip"],
-                machine_info.host_bmc_username,
-                site_config.host_bmc_password,
+                site_config.dpu_bmc_username,
+                site_config.dpu_bmc_password,
             )
             if expected_bfb_version not in bfb_version:
                 _error_and_exit(f"DPU {dpu_id} reports BFB version {bfb_version}, expected {expected_bfb_version}")
@@ -686,8 +686,8 @@ def verify_firmware_versions(
 
             nic_version = utils.get_reported_nic_version(
                 machine_info.dpu_info_map[dpu_id]["bmc_ip"],
-                machine_info.host_bmc_username,
-                site_config.host_bmc_password,
+                site_config.dpu_bmc_username,
+                site_config.dpu_bmc_password,
             )
             if expected_nic_version not in nic_version:
                 _error_and_exit(f"DPU {dpu_id} reports NIC version {nic_version}, expected {expected_nic_version}")
@@ -748,7 +748,7 @@ def _factory_reset_dpu(test_config: TestConfig, site_config: SiteConfig, machine
             print(f"Executing redfish request. \nURL: {url}")
             response = requests.post(
                 url,
-                auth=(machine_info.host_bmc_username, site_config.host_bmc_password),
+                auth=(site_config.dpu_bmc_username, site_config.dpu_bmc_password),
                 verify=False
             )
         else:
@@ -757,7 +757,7 @@ def _factory_reset_dpu(test_config: TestConfig, site_config: SiteConfig, machine
             print(f"Executing redfish request. \nPayload: {data} \nURL: {url}")
             response = requests.patch(
                 url, json=data,
-                auth=(machine_info.host_bmc_username, site_config.host_bmc_password),
+                auth=(site_config.dpu_bmc_username, site_config.dpu_bmc_password),
                 verify=False
             )
         if response.status_code != 200:
@@ -779,8 +779,8 @@ def _factory_reset_dpu(test_config: TestConfig, site_config: SiteConfig, machine
         print(f"Factory-resetting DPU{i} BMC")
         admin_cli.factory_reset_bmc(
             machine_info.dpu_info_map[dpu_id]["bmc_ip"],
-            machine_info.host_bmc_username,
-            site_config.host_bmc_password
+            site_config.dpu_bmc_username,
+            site_config.dpu_bmc_password
         )
         time.sleep(5)
         network.wait_for_redfish_endpoint(hostname=machine_info.dpu_info_map[dpu_id]["bmc_ip"])
