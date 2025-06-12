@@ -170,8 +170,20 @@ pub(crate) fn activate_credential(
 }
 
 fn detect_pcr_hash_algo(ctx: &mut Context) -> Result<HashingAlgorithm, Box<dyn std::error::Error>> {
-    let is_sha256 = probe_sample_pcr_value(ctx, HashingAlgorithm::Sha256)?;
-    let is_sha384 = probe_sample_pcr_value(ctx, HashingAlgorithm::Sha384)?;
+    let is_sha256 = match probe_sample_pcr_value(ctx, HashingAlgorithm::Sha256) {
+        Ok(val) => val,
+        Err(err) => {
+            tracing::error!("Error probing hash SHA256, setting to FALSE: {}", err);
+            false
+        }
+    };
+    let is_sha384 = match probe_sample_pcr_value(ctx, HashingAlgorithm::Sha384) {
+        Ok(val) => val,
+        Err(err) => {
+            tracing::error!("Error probing hash SHA384, setting to FALSE: {}", err);
+            false
+        }
+    };
 
     // prefer SHA256 over SHA384
     if is_sha256 {
