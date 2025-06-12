@@ -9,6 +9,9 @@
 - [MR-4149](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4149): Fixed cloud init failing to run on user supplied cloud images
 
 ### Removed
+
+- [MR-4160](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4160): Removed lldp due to dpu agent startup issues when lldp was not configured in an environment
+- 
 ### Internal
 
 ## [v2025.06.06-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.06.06-rc2-0...v2025.06.06-rc3-0)
