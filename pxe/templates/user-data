@@ -32,7 +32,12 @@ DOF
     # already been called during firmware update, this is just to be sure
     # https://github.com/Mellanox/bfb-build/blob/9e80eb358e7bb9e62328039745cc43d69eefc64a/common/install.env/bmc#L118
     create_vlan
-    curl --verbose --insecure --retry 5 --retry-all-errors --user $BMC_USER:$BMC_PASSWORD  -d @data.json https://$BMC_IP/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases/db/Certificates
+    num_certs=$(curl --verbose --insecure --retry 5 --retry-all-errors --user $BMC_USER:$BMC_PASSWORD https://$BMC_IP/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases/db/Certificates| jq -r ' .Members' | grep odata.id | wc -l)
+    if [ -z "${num_certs}" ] || [ "${num_certs}" -eq "0" ]; then
+        # only run the call if there are no existing certs, otherwise it could cause subsequent installs of the DPU to fail
+        # https://nvbugswb.nvidia.com/NvBugs5/SWBug.aspx?bugid=5334987
+        curl --verbose --insecure --retry 5 --retry-all-errors --user $BMC_USER:$BMC_PASSWORD  -d @data.json https://$BMC_IP/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases/db/Certificates
+    fi
     ipmitool user set name $USER_ID ""
     set +eE
 }
