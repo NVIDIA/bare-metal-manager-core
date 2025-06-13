@@ -412,63 +412,16 @@ pub async fn has_passed_attestation(
     machine_id: &MachineId,
     _report_id: &MeasurementReportId,
 ) -> CarbideResult<bool> {
-    let measuring_outcome =
-        handle_measuring_state(&MeasuringState::WaitingForMeasurements, machine_id, txn)
-            .await
-            .map_err(|e| CarbideError::AttestQuoteError(e.to_string()))?;
+    let measuring_outcome = handle_measuring_state(
+        &MeasuringState::WaitingForMeasurements,
+        machine_id,
+        txn,
+        true,
+    )
+    .await
+    .map_err(|e| CarbideError::AttestQuoteError(e.to_string()))?;
 
     Ok(measuring_outcome == MeasuringOutcome::PassedOk)
-    // TODO: this will be removed before the MERGE, keeping here in case
-    // the code review will suggest to use this approach instead
-
-    /*// first, get the latest entry for a given machine id
-    let measurement_journal_entry =
-        measurement_journal::get_latest_journal_for_id(txn, machine_id.clone())
-            .await?
-            .ok_or(CarbideError::AttestQuoteError(format!(
-                "Could not find latest entry in the journal for machine with id {}",
-                machine_id
-            )))?;
-
-    if &measurement_journal_entry.report_id != report_id {
-        return Err(CarbideError::AttestQuoteError(format!(
-            "Could not find latest entry in the journal for machine with id {} for report id {}",
-            machine_id, report_id
-        )));
-    }
-    // now, get to the bundle to see if it's present and active
-    let measurement_bundle_id = match measurement_journal_entry.bundle_id {
-        Some(bundle_id) => bundle_id,
-        None => return Ok(false),
-    };
-
-    let measurement_bundle =
-        MeasurementBundle::from_id_with_txn(txn, measurement_bundle_id).await?;
-
-    let mut measurement_bundle_ok = true;
-    if (measurement_bundle.state != MeasurementBundleState::Active)
-        && (measurement_bundle.state != MeasurementBundleState::Obsolete)
-    {
-        measurement_bundle_ok = false;
-    }
-
-    let ek_cert_verification_status =
-        EkCertVerificationStatus::get_by_machine_id(txn, machine_id.clone())
-            .await
-            .map_err(|e| {
-                CarbideError::AttestQuoteError(format!(
-                    "No EkCertVerificationStatus found for MachineId {} due to error: {}",
-                    machine_id, e
-                ))
-            })?
-            .ok_or_else(|| {
-                CarbideError::AttestQuoteError(format!(
-                    "No EkCertVerificationStatus found for MachineId {}",
-                    machine_id
-                ))
-            })?;
-
-    Ok(measurement_bundle_ok && ek_cert_verification_status.signing_ca_found)*/
 }
 
 #[cfg(test)]

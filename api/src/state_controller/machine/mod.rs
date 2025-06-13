@@ -126,7 +126,11 @@ pub(crate) async fn handle_measuring_state(
     measuring_state: &MeasuringState,
     machine_id: &MachineId,
     txn: &mut PgConnection,
+    attestation_enabled: bool,
 ) -> Result<MeasuringOutcome, StateHandlerError> {
+    if !attestation_enabled {
+        return Ok(MeasuringOutcome::PassedOk);
+    }
     let (machine_state, ek_cert_verification_status) =
         get_measuring_prerequisites(machine_id, txn).await?;
 
