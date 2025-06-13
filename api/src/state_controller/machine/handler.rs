@@ -6048,9 +6048,9 @@ impl HostUpgradeState {
         } else {
             if !self.no_firmware_update_reset_retries {
                 if let Some(previous_reset_time) = previous_reset_time {
-                    if previous_reset_time + 20 * 60 <= Utc::now().timestamp() {
+                    if previous_reset_time + 30 * 60 <= Utc::now().timestamp() {
                         tracing::info!(
-                            "Upgrade for {} {:?} has taken more than 20 minutes to report new version; resetting again.",
+                            "Upgrade for {} {:?} has taken more than 30 minutes to report new version; resetting again.",
                             &endpoint.address,
                             firmware_type
                         );

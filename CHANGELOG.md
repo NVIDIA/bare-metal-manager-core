@@ -4,6 +4,7 @@
 
 ### Added
 ### Changed
+- [MR-4166](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4166): Changed time before we consider re-resetting a host during UEFI update from 20 to 30 minutes.
 ### Fixed
 
 - [MR-4149](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4149): Fixed cloud init failing to run on user supplied cloud images
