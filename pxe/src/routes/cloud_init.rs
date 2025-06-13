@@ -16,14 +16,12 @@ use std::{
 };
 
 use axum::{Router, extract::State, response::IntoResponse, routing::get};
+use axum_template::TemplateEngine;
 use base64::Engine as _;
 use forge_host_support::agent_config;
 use rpc::forge;
 
-use crate::{
-    common::{AppState, Machine},
-    config::RuntimeConfig,
-};
+use crate::common::{AppState, Machine};
 
 /// Generates the content of the /etc/forge/config.toml file
 //
@@ -54,8 +52,9 @@ fn user_data_handler(
     machine_interface_id: rpc::Uuid,
     machine_interface: forge::MachineInterface,
     domain: forge::Domain,
-    config: RuntimeConfig,
+    state: State<AppState>,
 ) -> (String, HashMap<String, String>) {
+    let config = state.runtime_config.clone();
     let forge_agent_config = generate_forge_agent_config(&machine_interface_id);
 
     let mut context: HashMap<String, String> = HashMap::new();
@@ -72,6 +71,11 @@ fn user_data_handler(
         "forge_agent_config_b64".to_string(),
         base64::engine::general_purpose::STANDARD.encode(forge_agent_config),
     );
+    let bmc_fw_update = state
+        .engine
+        .render("bmc_fw_update", HashMap::<String, String>::new())
+        .unwrap_or("".to_string());
+    context.insert("forge_bmc_fw_update".to_string(), bmc_fw_update);
 
     let start = SystemTime::now();
     let seconds_since_epoch = start
@@ -103,12 +107,9 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
                 discovery_instructions.domain,
             ) {
                 (Some(interface), Some(domain)) => match interface.id.clone() {
-                    Some(machine_interface_id) => user_data_handler(
-                        machine_interface_id,
-                        interface,
-                        domain,
-                        state.runtime_config.clone(),
-                    ),
+                    Some(machine_interface_id) => {
+                        user_data_handler(machine_interface_id, interface, domain, state.clone())
+                    }
                     None => print_and_generate_generic_error(format!(
                         "The interface ID should not be null: {:?}",
                         interface

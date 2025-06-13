@@ -18,7 +18,10 @@
 
   state DpuDiscoveringState {
     [*] --> DD_EnableRshim
-    DD_EnableRshim --> DD_DisableSecureBoot: Rshim is enabled
+    DD_EnableRshim --> if_state2: BMC FW version >= 24.10
+    if_state2 --> InstallDpuOsState: Install bfb via redfish
+    InstallDpuOsState --> DPU_Init
+    if_state2 --> DD_DisableSecureBoot: Rshim is enabled
   }
 
   DD_DisableSecureBoot --> DpuInit: Secure Boot is disabled

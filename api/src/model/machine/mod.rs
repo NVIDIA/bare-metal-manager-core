@@ -1064,6 +1064,9 @@ pub enum ReprovisionState {
     },
     // Deprecated
     FirmwareUpgrade,
+    InstallDpuOs {
+        substate: InstallDpuOsState,
+    },
     WaitingForNetworkInstall,
     PoweringOffHost,
     PowerDown,
@@ -1324,20 +1327,34 @@ pub enum DpuDiscoveringState {
     Initializing,
     Configuring,
     RebootAllDPUS,
+    EnableSecureBoot {
+        count: u32,
+        enable_secure_boot_state: SetSecureBootState,
+    },
     DisableSecureBoot {
         // this substate is optional because it was added after DisableSecureBoot was initially created (just in case we have a machine stuck in this state even though we shouldnt)
-        disable_secure_boot_state: Option<DisableSecureBootState>,
+        disable_secure_boot_state: Option<SetSecureBootState>,
         count: u32,
     },
     SetUefiHttpBoot,
     EnableRshim,
 }
 
+#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Hash, Clone, Ord, PartialOrd)]
+#[serde(tag = "installdpuosstate", rename_all = "lowercase")]
+pub enum InstallDpuOsState {
+    InstallingBFB,
+    WaitForInstallComplete { task_id: String, progress: String },
+    Completed,
+    InstallationError { msg: String },
+}
+
 #[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Hash, Copy, Clone, Ord, PartialOrd)]
 #[serde(tag = "disablesecurebootstate", rename_all = "lowercase")]
-pub enum DisableSecureBootState {
+pub enum SetSecureBootState {
     CheckSecureBootStatus,
-    DisableSecureBoot,
+    DisableSecureBoot, // Deprecated
+    SetSecureBoot,
     RebootDPU { reboot_count: u32 },
 }
 
@@ -1368,6 +1385,7 @@ impl DpuDiscoveringState {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "dpustate", rename_all = "lowercase")]
 pub enum DpuInitState {
+    InstallDpuOs { substate: InstallDpuOsState },
     Init,
     WaitingForPlatformPowercycle { substate: PerformPowerOperation },
     WaitingForPlatformConfiguration,
@@ -1419,6 +1437,18 @@ impl DpuInitState {
                 let entry = states.entry(*dpu_id).or_insert(self.clone());
                 *entry = self;
 
+                Ok(ManagedHostState::DPUInit {
+                    dpu_states: DpuInitStates { states },
+                })
+            }
+
+            ManagedHostState::DpuDiscoveringState { dpu_states } => {
+                // All DPUs must be moved to same DPUInit state.
+                let states = dpu_states
+                    .states
+                    .keys()
+                    .map(|x| (*x, self.clone()))
+                    .collect::<HashMap<MachineId, DpuInitState>>();
                 Ok(ManagedHostState::DPUInit {
                     dpu_states: DpuInitStates { states },
                 })
@@ -1950,10 +1980,18 @@ impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
     }
 }
 
+pub struct DpuInitNextStateResolver;
 pub struct InstanceNextStateResolver;
 pub struct MachineNextStateResolver;
 
-pub trait NextReprovisionState {
+pub trait NextState {
+    fn next_bfb_install_state(
+        &self,
+        current_state: &ManagedHostState,
+        install_os_substate: &InstallDpuOsState,
+        dpu_id: &MachineId,
+    ) -> Result<ManagedHostState, StateHandlerError>;
+
     fn next_state(
         &self,
         current_state: &ManagedHostState,
@@ -2041,7 +2079,7 @@ pub trait NextReprovisionState {
     }
 }
 
-impl NextReprovisionState for MachineNextStateResolver {
+impl NextState for MachineNextStateResolver {
     fn next_state(
         &self,
         current_state: &ManagedHostState,
@@ -2064,9 +2102,45 @@ impl NextReprovisionState for MachineNextStateResolver {
             ))),
         }
     }
+
+    fn next_bfb_install_state(
+        &self,
+        current_state: &ManagedHostState,
+        install_os_substate: &InstallDpuOsState,
+        dpu_id: &MachineId,
+    ) -> Result<ManagedHostState, StateHandlerError> {
+        let mut dpu_states = match current_state {
+            ManagedHostState::DPUReprovision { dpu_states } => dpu_states.states.clone(),
+            _ => {
+                return Err(StateHandlerError::InvalidState(format!(
+                    "Unhandled {} state for Non-Instance handling.",
+                    current_state
+                )));
+            }
+        };
+        match install_os_substate {
+            InstallDpuOsState::Completed => {
+                dpu_states.insert(*dpu_id, ReprovisionState::WaitingForNetworkInstall);
+                Ok(ManagedHostState::DPUReprovision {
+                    dpu_states: DpuReprovisionStates { states: dpu_states },
+                })
+            }
+            _ => {
+                dpu_states.insert(
+                    *dpu_id,
+                    ReprovisionState::InstallDpuOs {
+                        substate: install_os_substate.clone(),
+                    },
+                );
+                Ok(ManagedHostState::DPUReprovision {
+                    dpu_states: DpuReprovisionStates { states: dpu_states },
+                })
+            }
+        }
+    }
 }
 
-impl NextReprovisionState for InstanceNextStateResolver {
+impl NextState for InstanceNextStateResolver {
     fn next_state(
         &self,
         current_state: &ManagedHostState,
@@ -2095,6 +2169,75 @@ impl NextReprovisionState for InstanceNextStateResolver {
                 "Unhandled {} state for Instance handling.",
                 reprovision_state
             ))),
+        }
+    }
+
+    fn next_bfb_install_state(
+        &self,
+        current_state: &ManagedHostState,
+        install_os_substate: &InstallDpuOsState,
+        dpu_id: &MachineId,
+    ) -> Result<ManagedHostState, StateHandlerError> {
+        let mut dpu_states = match current_state {
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::DPUReprovision { dpu_states },
+            } => dpu_states.states.clone(),
+            _ => {
+                return Err(StateHandlerError::InvalidState(format!(
+                    "Unhandled {} state for Instance handling.",
+                    current_state
+                )));
+            }
+        };
+        match install_os_substate {
+            InstallDpuOsState::Completed => {
+                dpu_states.insert(*dpu_id, ReprovisionState::WaitingForNetworkInstall);
+                Ok(ManagedHostState::Assigned {
+                    instance_state: InstanceState::DPUReprovision {
+                        dpu_states: DpuReprovisionStates { states: dpu_states },
+                    },
+                })
+            }
+            _ => {
+                dpu_states.insert(
+                    *dpu_id,
+                    ReprovisionState::InstallDpuOs {
+                        substate: install_os_substate.clone(),
+                    },
+                );
+                Ok(ManagedHostState::Assigned {
+                    instance_state: InstanceState::DPUReprovision {
+                        dpu_states: DpuReprovisionStates { states: dpu_states },
+                    },
+                })
+            }
+        }
+    }
+}
+
+impl NextState for DpuInitNextStateResolver {
+    fn next_state(
+        &self,
+        current_state: &ManagedHostState,
+        dpu_id: &MachineId,
+        _host_snapshot: &Machine,
+    ) -> Result<ManagedHostState, StateHandlerError> {
+        DpuInitState::Init.next_state(current_state, dpu_id)
+    }
+
+    fn next_bfb_install_state(
+        &self,
+        current_state: &ManagedHostState,
+        install_os_substate: &InstallDpuOsState,
+        dpu_id: &MachineId,
+    ) -> Result<ManagedHostState, StateHandlerError> {
+        match install_os_substate {
+            // Move to DpuInit state
+            InstallDpuOsState::Completed => DpuInitState::Init.next_state(current_state, dpu_id),
+            _ => Ok(DpuInitState::InstallDpuOs {
+                substate: install_os_substate.clone(),
+            }
+            .next_state(current_state, dpu_id)?),
         }
     }
 }
@@ -2244,6 +2387,7 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
             match dpu_state {
                 DpuDiscoveringState::Initializing
                 | DpuDiscoveringState::Configuring
+                | DpuDiscoveringState::EnableSecureBoot { .. }
                 | DpuDiscoveringState::DisableSecureBoot { .. }
                 | DpuDiscoveringState::SetUefiHttpBoot
                 | DpuDiscoveringState::RebootAllDPUS
