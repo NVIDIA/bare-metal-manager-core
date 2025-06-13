@@ -1248,6 +1248,7 @@ impl MachineStateHandler {
                             &mh_snapshot.host_snapshot.id,
                             txn,
                             &details.cause,
+                            self.host_handler.host_handler_params.attestation_enabled,
                         )
                         .await?
                         {
@@ -1368,21 +1369,24 @@ impl MachineStateHandler {
             // attestation_enabled is set to true (defaults to false), and
             // is triggered when a machine being in Ready state suddently
             // ceases being attested
-            ManagedHostState::Measuring { measuring_state } => {
-                handle_measuring_state(measuring_state, &mh_snapshot.host_snapshot.id, txn)
-                    .await
-                    .map(|v| map_measuring_outcome_to_state_handler_outcome(&v, measuring_state))?
-            }
-            ManagedHostState::PostAssignedMeasuring { measuring_state } => {
-                handle_measuring_state(measuring_state, &mh_snapshot.host_snapshot.id, txn)
-                    .await
-                    .map(|v| {
-                        map_post_assigned_measuring_outcome_to_state_handler_outcome(
-                            &v,
-                            measuring_state,
-                        )
-                    })?
-            }
+            ManagedHostState::Measuring { measuring_state } => handle_measuring_state(
+                measuring_state,
+                &mh_snapshot.host_snapshot.id,
+                txn,
+                self.host_handler.host_handler_params.attestation_enabled,
+            )
+            .await
+            .map(|v| map_measuring_outcome_to_state_handler_outcome(&v, measuring_state))?,
+            ManagedHostState::PostAssignedMeasuring { measuring_state } => handle_measuring_state(
+                measuring_state,
+                &mh_snapshot.host_snapshot.id,
+                txn,
+                self.host_handler.host_handler_params.attestation_enabled,
+            )
+            .await
+            .map(|v| {
+                map_post_assigned_measuring_outcome_to_state_handler_outcome(&v, measuring_state)
+            })?,
             ManagedHostState::BomValidating {
                 bom_validating_state,
             } => {
@@ -2169,7 +2173,11 @@ async fn check_if_not_in_original_failure_cause_anymore(
     machine_id: &MachineId,
     txn: &mut PgConnection,
     original_failure_cause: &FailureCause,
+    attestation_enabled: bool,
 ) -> Result<bool, StateHandlerError> {
+    if !attestation_enabled {
+        return Ok(true);
+    }
     let (_, ek_cert_verification_status) = get_measuring_prerequisites(machine_id, txn).await?;
 
     // if the failure cause was ca validation and it no longer is, then we can try
@@ -4234,6 +4242,7 @@ impl StateHandler for HostMachineStateHandler {
                         measuring_state,
                         &mh_snapshot.host_snapshot.id,
                         txn,
+                        self.host_handler_params.attestation_enabled,
                     )
                     .await
                     {
