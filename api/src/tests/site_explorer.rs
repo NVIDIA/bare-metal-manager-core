@@ -1378,7 +1378,7 @@ async fn test_site_explorer_creates_managed_host(
                     dpu_machine.id,
                     DpuDiscoveringState::DisableSecureBoot {
                         disable_secure_boot_state: Some(
-                            crate::model::machine::DisableSecureBootState::CheckSecureBootStatus
+                            crate::model::machine::SetSecureBootState::CheckSecureBootStatus
                         ),
                         count: 0,
                     },

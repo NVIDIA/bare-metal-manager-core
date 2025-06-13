@@ -124,6 +124,7 @@ impl StateControllerIO for MachineStateControllerIO {
 
         fn dpuinit_state_name(dpu_state: &DpuInitState) -> &'static str {
             match dpu_state {
+                DpuInitState::InstallDpuOs { .. } => "installdpuos",
                 DpuInitState::Init => "init",
                 DpuInitState::WaitingForNetworkInstall => "waitingfornetworkinstall",
                 DpuInitState::WaitingForNetworkConfig => "waitingfornetworkconfig",
@@ -151,6 +152,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 DpuDiscoveringState::Initializing => "dpuinitializing",
                 DpuDiscoveringState::Configuring => "dpuconfiguring",
                 DpuDiscoveringState::DisableSecureBoot { .. } => "disablesecureboot",
+                DpuDiscoveringState::EnableSecureBoot { .. } => "enablesecureboot",
                 DpuDiscoveringState::SetUefiHttpBoot { .. } => "setuefihttpboot",
                 DpuDiscoveringState::RebootAllDPUS => "rebootalldpus",
                 DpuDiscoveringState::EnableRshim => "enablershim",

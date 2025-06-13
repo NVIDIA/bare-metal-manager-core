@@ -23,6 +23,7 @@ use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
 use itertools::Itertools;
 use libredfish::EnabledDisabled;
+use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{Boot, Redfish, RedfishError, SystemPowerControl, model::task::TaskState};
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
@@ -41,6 +42,7 @@ use crate::model::machine::{
     CreateBossVolumeContext, CreateBossVolumeState, NetworkConfigUpdateState,
     SecureEraseBossContext, SecureEraseBossState,
 };
+use crate::model::machine::{DpuInitNextStateResolver, InstallDpuOsState};
 use crate::{
     cfg::file::{
         BomValidationConfig, CarbideConfig, DpuModel, Firmware, FirmwareComponentType,
@@ -55,15 +57,15 @@ use crate::{
     model::{
         instance::config::network::NetworkDetails,
         machine::{
-            BomValidating, BomValidatingContext, CleanupState, DisableSecureBootState,
-            DpuDiscoveringState, DpuInitState, FailureCause, FailureDetails, FailureSource,
-            HostReprovisionState, InstanceNextStateResolver, InstanceState, LockdownInfo,
+            BomValidating, BomValidatingContext, CleanupState, DpuDiscoveringState, DpuInitState,
+            FailureCause, FailureDetails, FailureSource, HostReprovisionState,
+            InstanceNextStateResolver, InstanceState, LockdownInfo,
             LockdownMode::{self, Enable},
             LockdownState, Machine, MachineLastRebootRequestedMode, MachineNextStateResolver,
-            MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
-            NextReprovisionState, PerformPowerOperation, PowerDrainState, ReprovisionState,
-            RetryInfo, StateMachineArea, UefiSetupInfo, UefiSetupState, ValidationState, all_equal,
-            get_display_ids,
+            MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState, NextState,
+            PerformPowerOperation, PowerDrainState, ReprovisionState, RetryInfo,
+            SetSecureBootState, StateMachineArea, UefiSetupInfo, UefiSetupState, ValidationState,
+            all_equal, get_display_ids,
         },
         site_explorer::ExploredEndpoint,
     },
@@ -508,7 +510,7 @@ impl MachineStateHandler {
             );
             if restart_reprov {
                 if let Some(next_state) = self
-                    .restart_dpu_reprovision(&mh_state, mh_snapshot, ctx, txn, host_machine_id)
+                    .start_dpu_reprovision(&mh_state, mh_snapshot, ctx, txn, host_machine_id)
                     .await?
                 {
                     return Ok(StateHandlerOutcome::Transition(next_state));
@@ -1330,6 +1332,7 @@ impl MachineStateHandler {
                         txn,
                         &MachineNextStateResolver,
                         dpu_snapshot,
+                        ctx,
                     )
                     .await?
                     {
@@ -1432,7 +1435,9 @@ impl MachineStateHandler {
         ))
     }
 
-    async fn restart_dpu_reprovision(
+    // If current BMC FW allows to install bfb via redfish - performs redfish install,
+    // otherwise reboots a DPU for iPXE install.
+    async fn start_dpu_reprovision(
         &self,
         managed_state: &ManagedHostState,
         state: &ManagedHostStateSnapshot,
@@ -1447,6 +1452,27 @@ impl MachineStateHandler {
             .iter()
             .filter(|x| x.reprovision_requested.is_some())
             .collect_vec();
+
+        if dpus_for_reprov
+            .iter()
+            .all(|m| m.bmc_info.supports_bfb_install())
+        {
+            tracing::info!("All DPUs support BFB install via Redfish");
+            for dpu in dpus_for_reprov.iter() {
+                db::machine::update_dpu_reprovision_start_time(&dpu.id, txn).await?;
+            }
+
+            return Ok(Some(
+                ReprovisionState::InstallDpuOs {
+                    substate: InstallDpuOsState::InstallingBFB,
+                }
+                .next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
+                )?,
+            ));
+        }
 
         match managed_state {
             ManagedHostState::Assigned {
@@ -1940,6 +1966,142 @@ fn map_host_init_measuring_outcome_to_state_handler_outcome(
     }
 }
 
+async fn handle_bfb_install_state(
+    state: &ManagedHostStateSnapshot,
+    substate: InstallDpuOsState,
+    dpu_snapshot: &Machine,
+    txn: &mut PgConnection,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    next_state_resolver: &impl NextState,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let dpu_machine_id = &dpu_snapshot.id.clone();
+    let dpu_redfish_client_result = ctx
+        .services
+        .redfish_client_pool
+        .create_client_from_machine(dpu_snapshot, txn)
+        .await;
+
+    let dpu_redfish_client = match dpu_redfish_client_result {
+        Ok(redfish_client) => redfish_client,
+        Err(e) => {
+            return Ok(StateHandlerOutcome::Wait(format!(
+                "Waiting for RedFish to become available: {:?}",
+                e
+            )));
+        }
+    };
+    match substate {
+        InstallDpuOsState::Completed => Ok(StateHandlerOutcome::Transition(
+            next_state_resolver.next_bfb_install_state(
+                &state.managed_state,
+                &InstallDpuOsState::Completed,
+                dpu_machine_id,
+            )?,
+        )),
+        InstallDpuOsState::InstallationError { .. } => Ok(StateHandlerOutcome::DoNothing),
+
+        InstallDpuOsState::InstallingBFB => {
+            let task = dpu_redfish_client
+                .update_firmware_simple_update(
+                    "carbide-pxe.forge//public/blobs/internal/aarch64/forge.bfb",
+                    vec!["redfish/v1/UpdateService/FirmwareInventory/DPU_OS".to_string()],
+                    TransferProtocolType::HTTP,
+                )
+                .await
+                .map_err(|e| StateHandlerError::RedfishError {
+                    operation: "update_firmware_simple_update",
+                    error: e,
+                })?;
+            tracing::info!(
+                "DPU {} OS install task {} submitted.",
+                dpu_snapshot.id,
+                task.id
+            );
+            Ok(StateHandlerOutcome::Transition(
+                next_state_resolver.next_bfb_install_state(
+                    &state.managed_state,
+                    &InstallDpuOsState::WaitForInstallComplete {
+                        task_id: task.id,
+                        progress: "0".to_string(),
+                    },
+                    dpu_machine_id,
+                )?,
+            ))
+        }
+
+        InstallDpuOsState::WaitForInstallComplete { task_id, .. } => {
+            let task = dpu_redfish_client
+                .get_task(task_id.as_str())
+                .await
+                .map_err(|e| StateHandlerError::RedfishError {
+                    operation: "get_task",
+                    error: e,
+                })?;
+
+            tracing::info!(
+                "DPU {} OS install task {}: {:#?}",
+                dpu_snapshot.id,
+                task.id,
+                task.task_state
+            );
+
+            match task.task_state {
+                Some(TaskState::Completed) => {
+                    tracing::info!("Install BFB on {:#?} completed", dpu_snapshot.bmc_addr());
+                    let next_state = next_state_resolver.next_bfb_install_state(
+                        &state.managed_state,
+                        &InstallDpuOsState::Completed,
+                        dpu_machine_id,
+                    )?;
+                    Ok(StateHandlerOutcome::Transition(next_state))
+                }
+                Some(TaskState::Exception) => {
+                    let msg = format!(
+                        "BFB install task {} on {:#?} failed: {}.",
+                        task_id,
+                        dpu_snapshot.bmc_addr(),
+                        task.messages.iter().map(|t| t.message.clone()).join("\n")
+                    );
+                    tracing::error!(msg);
+                    let next_state = next_state_resolver.next_bfb_install_state(
+                        &state.managed_state,
+                        &InstallDpuOsState::InstallationError { msg },
+                        dpu_machine_id,
+                    )?;
+                    Ok(StateHandlerOutcome::Transition(next_state))
+                }
+                Some(TaskState::Running) | Some(TaskState::New) | Some(TaskState::Starting) => {
+                    let next_state = next_state_resolver.next_bfb_install_state(
+                        &state.managed_state,
+                        &InstallDpuOsState::WaitForInstallComplete {
+                            task_id,
+                            progress: task
+                                .percent_complete
+                                .map_or("unknown".to_string(), |p| p.to_string()),
+                        },
+                        dpu_machine_id,
+                    )?;
+                    Ok(StateHandlerOutcome::Transition(next_state))
+                }
+                _ => {
+                    let msg = format!(
+                        "BFB install task {} unknow state: {}",
+                        task_id,
+                        task.messages.iter().map(|t| t.message.clone()).join("\n")
+                    );
+                    tracing::error!(msg);
+                    let next_state = next_state_resolver.next_bfb_install_state(
+                        &state.managed_state,
+                        &InstallDpuOsState::InstallationError { msg },
+                        dpu_machine_id,
+                    )?;
+                    Ok(StateHandlerOutcome::Transition(next_state))
+                }
+            }
+        }
+    }
+}
+
 fn map_post_assigned_measuring_outcome_to_state_handler_outcome(
     measuring_outcome: &MeasuringOutcome,
     measuring_state: &MeasuringState,
@@ -2085,8 +2247,9 @@ async fn handle_dpu_reprovision(
     reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
     txn: &mut PgConnection,
-    next_state_resolver: &impl NextReprovisionState,
+    next_state_resolver: &impl NextState,
     dpu_snapshot: &Machine,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let dpu_machine_id = &dpu_snapshot.id;
     let reprovision_state = state
@@ -2095,6 +2258,17 @@ async fn handle_dpu_reprovision(
         .ok_or_else(|| StateHandlerError::MissingDpuFromState(*dpu_machine_id))?;
 
     match reprovision_state {
+        ReprovisionState::InstallDpuOs { substate } => {
+            handle_bfb_install_state(
+                state,
+                substate.clone(),
+                dpu_snapshot,
+                txn,
+                ctx,
+                next_state_resolver,
+            )
+            .await
+        }
         ReprovisionState::BmcFirmwareUpgrade { .. } => Ok(StateHandlerOutcome::Transition(
             next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
         )),
@@ -2611,6 +2785,22 @@ impl DpuMachineStateHandler {
             }
         };
 
+        let dpu_redfish_client_result = ctx
+            .services
+            .redfish_client_pool
+            .create_client_from_machine(dpu_snapshot, txn)
+            .await;
+
+        let dpu_redfish_client = match dpu_redfish_client_result {
+            Ok(redfish_client) => redfish_client,
+            Err(e) => {
+                return Ok(StateHandlerOutcome::Wait(format!(
+                    "Waiting for RedFish to become available: {:?}",
+                    e
+                )));
+            }
+        };
+
         match current_dpu_state {
             DpuDiscoveringState::Initializing => {
                 let next_state = DpuDiscoveringState::Configuring
@@ -2623,271 +2813,66 @@ impl DpuMachineStateHandler {
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
             DpuDiscoveringState::EnableRshim => {
-                let dpu_redfish_client_result = ctx
-                    .services
-                    .redfish_client_pool
-                    .create_client_from_machine(dpu_snapshot, txn)
-                    .await;
-
-                let dpu_redfish_client = match dpu_redfish_client_result {
-                    Ok(redfish_client) => redfish_client,
-                    Err(e) => {
-                        return Ok(StateHandlerOutcome::Wait(format!(
-                            "Waiting for RedFish to become available: {:?}",
-                            e
-                        )));
-                    }
-                };
-
                 let _ = dpu_redfish_client
                     .enable_rshim_bmc()
                     .await
                     .map_err(|e| tracing::info!("failed to enable rshim on DPU {e}"));
 
-                let next_state = DpuDiscoveringState::DisableSecureBoot {
-                    count: 0,
-                    disable_secure_boot_state: Some(DisableSecureBootState::CheckSecureBootStatus),
-                }
-                .next_state(&state.managed_state, dpu_machine_id)?;
+                let next_state = if state
+                    .dpu_snapshots
+                    .iter()
+                    .all(|m| m.bmc_info.supports_bfb_install())
+                {
+                    tracing::info!(
+                        "DPU {dpu_machine_id} supports BFB install. Moving to EnableSecureBoot state."
+                    );
+                    // Move with a redfish install path
+                    DpuDiscoveringState::EnableSecureBoot {
+                        count: 0,
+                        enable_secure_boot_state: SetSecureBootState::CheckSecureBootStatus,
+                    }
+                    .next_state(&state.managed_state, dpu_machine_id)?
+                } else {
+                    DpuDiscoveringState::DisableSecureBoot {
+                        count: 0,
+                        disable_secure_boot_state: Some(SetSecureBootState::CheckSecureBootStatus),
+                    }
+                    .next_state(&state.managed_state, dpu_machine_id)?
+                };
                 Ok(StateHandlerOutcome::Transition(next_state))
+            }
+            DpuDiscoveringState::EnableSecureBoot {
+                count,
+                enable_secure_boot_state,
+                ..
+            } => {
+                self.set_secure_boot(
+                    *count,
+                    state,
+                    *enable_secure_boot_state,
+                    true,
+                    dpu_snapshot,
+                    dpu_redfish_client.as_ref(),
+                )
+                .await
             }
             // The proceure to disable secure boot is documented on page 58-59 here: https://docs.nvidia.com/networking/display/nvidia-bluefield-management-and-initial-provisioning.pdf
             DpuDiscoveringState::DisableSecureBoot {
                 disable_secure_boot_state,
                 count,
             } => {
-                let next_state: ManagedHostState;
-
-                // Use the host snapshot instead of the DPU snapshot because
-                // the state.host_snapshot.current.version might be a bit more correct:
-                // the state machine is driven by the host state
-                let time_since_state_change =
-                    state.host_snapshot.state.version.since_state_change();
-
-                let dpu_redfish_client_result = ctx
-                    .services
-                    .redfish_client_pool
-                    .create_client_from_machine(dpu_snapshot, txn)
-                    .await;
-
-                let dpu_redfish_client = match dpu_redfish_client_result {
-                    Ok(redfish_client) => redfish_client,
-                    Err(e) => {
-                        return Ok(StateHandlerOutcome::Wait(format!(
-                            "Waiting for RedFish to become available: {:?}",
-                            e
-                        )));
-                    }
-                };
-
-                let wait_for_dpu_to_come_up = if time_since_state_change.num_minutes() > 5 {
-                    false
-                } else {
-                    let (has_dpu_finished_booting, dpu_boot_progress) =
-                        redfish::did_dpu_finish_booting(dpu_redfish_client.as_ref())
-                            .await
-                            .map_err(|e| StateHandlerError::RedfishError {
-                                operation: "did_dpu_finish_booting",
-                                error: e,
-                            })?;
-
-                    if *count > 0 && !has_dpu_finished_booting {
-                        tracing::info!(
-                            "Waiting for DPU {} to finish booting; boot progress: {dpu_boot_progress:#?}; DisableSecureBoot cycle: {count}",
-                            dpu_snapshot.id
-                        )
-                    }
-
-                    !has_dpu_finished_booting
-                };
-
-                match disable_secure_boot_state {
-                    Some(disable_secure_boot_state) => match disable_secure_boot_state {
-                        DisableSecureBootState::CheckSecureBootStatus => {
-                            // This is the logic:
-                            // CheckSecureBootStatus -> DisableSecureBoot -> DisableSecureBootState::RebootDPU{0} -> DisableSecureBootState::RebootDPU{1}
-                            // The first time we check to see if secure boot is disabled, we do not need to wait. The DPU should already be up.
-                            // However, we need to give time in between the second reboot and checking the status again.
-                            if *count > 0 && wait_for_dpu_to_come_up {
-                                return Ok(StateHandlerOutcome::Wait(format!(
-                                    "Waiting for DPU {dpu_machine_id} to come back up from last reboot; time since last reboot: {time_since_state_change}; DisableSecureBoot cycle: {count}",
-                                )));
-                            }
-
-                            match self
-                                .is_secure_boot_disabled(
-                                    dpu_machine_id,
-                                    dpu_redfish_client.as_ref(),
-                                )
-                                .await
-                            {
-                                Ok(is_secure_boot_disabled) => {
-                                    if is_secure_boot_disabled {
-                                        next_state = DpuDiscoveringState::SetUefiHttpBoot
-                                            .next_state(&state.managed_state, dpu_machine_id)?;
-                                    } else {
-                                        next_state = DpuDiscoveringState::DisableSecureBoot {
-                                            disable_secure_boot_state: Some(
-                                                DisableSecureBootState::DisableSecureBoot,
-                                            ),
-                                            count: *count,
-                                        }
-                                        .next_state(&state.managed_state, dpu_machine_id)?;
-                                    }
-                                }
-                                Err(StateHandlerError::MissingData { object_id, missing }) => {
-                                    tracing::info!(
-                                        "Missing data in secure boot status response for DPU {}: {}; rebooting DPU as a work-around",
-                                        object_id,
-                                        missing
-                                    );
-
-                                    /***
-                                     * If the DPU's BMC comes up after UEFI client was run on an ARM
-                                     * there is a known issue where the redfish query for the secure boot
-                                     * status comes back incomplete.
-                                     * Example:
-                                     * {
-                                            "@odata.id": "/redfish/v1/Systems/Bluefield/SecureBoot",
-                                            "@odata.type": "#SecureBoot.v1_1_0.SecureBoot",
-                                            "Description": "The UEFI Secure Boot associated with this system.",
-                                            "Id": "SecureBoot",
-                                            "Name": "UEFI Secure Boot",
-                                            "SecureBootDatabases": {
-                                                "@odata.id": "/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases"
-                                        }
-
-                                    (missing the SecureBootEnable and SecureBootCurrentBoot fields)
-                                    The known work around for this issue is to reboot the DPU's ARM. There is a pending FR
-                                    to fix this on the hardware level.
-                                    ***/
-
-                                    // Do not reboot the DPU indefinitely, something else might be wrong (DPU might be bust).
-                                    if *count < 10 {
-                                        dpu_redfish_client
-                                            .power(SystemPowerControl::ForceRestart)
-                                            .await
-                                            .map_err(|e| StateHandlerError::RedfishError {
-                                                operation: "force_restart",
-                                                error: e,
-                                            })?;
-
-                                        next_state = DpuDiscoveringState::DisableSecureBoot {
-                                            disable_secure_boot_state: Some(
-                                                DisableSecureBootState::CheckSecureBootStatus,
-                                            ),
-                                            count: *count + 1,
-                                        }
-                                        .next_state(&state.managed_state, dpu_machine_id)?;
-                                    } else {
-                                        return Err(StateHandlerError::MissingData {
-                                            object_id,
-                                            missing,
-                                        });
-                                    }
-                                }
-                                Err(e) => {
-                                    return Err(e);
-                                }
-                            }
-                        }
-                        DisableSecureBootState::DisableSecureBoot => {
-                            dpu_redfish_client
-                                .disable_secure_boot()
-                                .await
-                                .map_err(|e| StateHandlerError::RedfishError {
-                                    operation: "disable_secure_boot",
-                                    error: e,
-                                })?;
-
-                            next_state = DpuDiscoveringState::DisableSecureBoot {
-                                disable_secure_boot_state: Some(
-                                    DisableSecureBootState::RebootDPU { reboot_count: 0 },
-                                ),
-                                count: *count,
-                            }
-                            .next_state(&state.managed_state, dpu_machine_id)?;
-                        }
-                        // DPUs requires two reboots after the previous step in order to disable secure boot.
-                        // From the doc linked above: "the BlueField Arm OS must be rebooted twice. The first
-                        // reboot is for the UEFI redfish client to read the request from the BMC and apply it; the
-                        // second reboot is for the setting to take effect."
-                        // We do not need to wait between disabling secure boot and the first reboot.
-                        // But, we need to give the DPU time to come up after the initial reboot,
-                        // before we reboot it again.
-                        DisableSecureBootState::RebootDPU { reboot_count } => {
-                            if *reboot_count == 0 {
-                                next_state = DpuDiscoveringState::DisableSecureBoot {
-                                    disable_secure_boot_state: Some(
-                                        DisableSecureBootState::RebootDPU {
-                                            reboot_count: *reboot_count + 1,
-                                        },
-                                    ),
-                                    count: *count,
-                                }
-                                .next_state(&state.managed_state, dpu_machine_id)?;
-                            } else {
-                                if wait_for_dpu_to_come_up {
-                                    return Ok(StateHandlerOutcome::Wait(format!(
-                                        "Waiting for DPU {dpu_machine_id} to come back up from last reboot; time since last reboot: {time_since_state_change}",
-                                    )));
-                                }
-
-                                next_state = DpuDiscoveringState::DisableSecureBoot {
-                                    disable_secure_boot_state: Some(
-                                        DisableSecureBootState::CheckSecureBootStatus,
-                                    ),
-                                    count: *count + 1,
-                                }
-                                .next_state(&state.managed_state, dpu_machine_id)?;
-                            }
-
-                            //
-                            // Next just do a ForceRestart to netboot without secureboot.
-                            //
-                            // This will kick off the ARM OS install since we move to DPU/Init next.
-                            //
-                            dpu_redfish_client
-                                .power(SystemPowerControl::ForceRestart)
-                                .await
-                                .map_err(|e| StateHandlerError::RedfishError {
-                                    operation: "force_restart",
-                                    error: e,
-                                })?;
-                        }
-                    },
-                    None => {
-                        // Add the new sub-state to DpuDiscoveringState::DisableSecureBoot if we have a machine with the older version of the state
-                        next_state = DpuDiscoveringState::DisableSecureBoot {
-                            disable_secure_boot_state: Some(
-                                DisableSecureBootState::CheckSecureBootStatus,
-                            ),
-                            count: 0,
-                        }
-                        .next_state(&state.managed_state, dpu_machine_id)?;
-                    }
-                }
-
-                Ok(StateHandlerOutcome::Transition(next_state))
+                self.set_secure_boot(
+                    *count,
+                    state,
+                    disable_secure_boot_state.unwrap_or(SetSecureBootState::CheckSecureBootStatus),
+                    false,
+                    dpu_snapshot,
+                    dpu_redfish_client.as_ref(),
+                )
+                .await
             }
 
             DpuDiscoveringState::SetUefiHttpBoot => {
-                let dpu_redfish_client_result = ctx
-                    .services
-                    .redfish_client_pool
-                    .create_client_from_machine(dpu_snapshot, txn)
-                    .await;
-
-                let dpu_redfish_client = match dpu_redfish_client_result {
-                    Ok(redfish_client) => redfish_client,
-                    Err(e) => {
-                        return Ok(StateHandlerOutcome::Wait(format!(
-                            "Waiting for RedFish to become available: {:?}",
-                            e
-                        )));
-                    }
-                };
-
                 // This configures the DPU to boot once from UEFI HTTP.
                 //
                 // NOTE: since we don't have interface names yet (see comment about UEFI not
@@ -2949,6 +2934,17 @@ impl DpuMachineStateHandler {
             }
         };
         match &dpu_state {
+            DpuInitState::InstallDpuOs { substate } => {
+                handle_bfb_install_state(
+                    state,
+                    substate.clone(),
+                    dpu_snapshot,
+                    txn,
+                    ctx,
+                    &DpuInitNextStateResolver {},
+                )
+                .await
+            }
             DpuInitState::Init => {
                 // initial restart, firmware update and scout is run, first reboot of dpu discovery
                 let dpu_discovery_result = try_wait_for_dpu_discovery(
@@ -3191,6 +3187,242 @@ impl DpuMachineStateHandler {
                 ))
             }
         }
+    }
+
+    async fn set_secure_boot(
+        &self,
+        count: u32,
+        state: &mut ManagedHostStateSnapshot,
+        set_secure_boot_state: SetSecureBootState,
+        enable_secure_boot: bool,
+        dpu_snapshot: &Machine,
+        dpu_redfish_client: &dyn Redfish,
+    ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+        let next_state: ManagedHostState;
+        let dpu_machine_id = &dpu_snapshot.id.clone();
+
+        // Use the host snapshot instead of the DPU snapshot because
+        // the state.host_snapshot.current.version might be a bit more correct:
+        // the state machine is driven by the host state
+        let time_since_state_change = state.host_snapshot.state.version.since_state_change();
+
+        let wait_for_dpu_to_come_up = if time_since_state_change.num_minutes() > 5 {
+            false
+        } else {
+            let (has_dpu_finished_booting, dpu_boot_progress) =
+                redfish::did_dpu_finish_booting(dpu_redfish_client)
+                    .await
+                    .map_err(|e| StateHandlerError::RedfishError {
+                        operation: "did_dpu_finish_booting",
+                        error: e,
+                    })?;
+
+            if count > 0 && !has_dpu_finished_booting {
+                tracing::info!(
+                    "Waiting for DPU {} to finish booting; boot progress: {dpu_boot_progress:#?}; SetSecureBoot cycle: {count}",
+                    dpu_snapshot.id
+                )
+            }
+
+            !has_dpu_finished_booting
+        };
+
+        match set_secure_boot_state {
+            SetSecureBootState::CheckSecureBootStatus => {
+                // This is the logic:
+                // CheckSecureBootStatus -> DisableSecureBoot -> DisableSecureBootState::RebootDPU{0} -> DisableSecureBootState::RebootDPU{1}
+                // The first time we check to see if secure boot is disabled, we do not need to wait. The DPU should already be up.
+                // However, we need to give time in between the second reboot and checking the status again.
+                if count > 0 && wait_for_dpu_to_come_up {
+                    return Ok(StateHandlerOutcome::Wait(format!(
+                        "Waiting for DPU {dpu_machine_id} to come back up from last reboot; time since last reboot: {time_since_state_change}; DisableSecureBoot cycle: {count}",
+                    )));
+                }
+
+                match self
+                    .is_secure_boot_disabled(dpu_machine_id, dpu_redfish_client)
+                    .await
+                {
+                    Ok(is_secure_boot_disabled) if !enable_secure_boot => {
+                        if is_secure_boot_disabled {
+                            next_state = DpuDiscoveringState::SetUefiHttpBoot
+                                .next_state(&state.managed_state, dpu_machine_id)?;
+                        } else {
+                            next_state = DpuDiscoveringState::DisableSecureBoot {
+                                disable_secure_boot_state: Some(SetSecureBootState::SetSecureBoot),
+                                count,
+                            }
+                            .next_state(&state.managed_state, dpu_machine_id)?;
+                        }
+                    }
+                    Ok(is_secure_boot_disabled) => {
+                        if is_secure_boot_disabled {
+                            next_state = DpuDiscoveringState::EnableSecureBoot {
+                                enable_secure_boot_state: SetSecureBootState::SetSecureBoot,
+                                count,
+                            }
+                            .next_state(&state.managed_state, dpu_machine_id)?;
+                        } else {
+                            next_state = DpuInitState::InstallDpuOs {
+                                substate: InstallDpuOsState::InstallingBFB,
+                            }
+                            .next_state(&state.managed_state, dpu_machine_id)?;
+                        }
+                    }
+                    Err(StateHandlerError::MissingData { object_id, missing }) => {
+                        tracing::info!(
+                            "Missing data in secure boot status response for DPU {}: {}; rebooting DPU as a work-around",
+                            object_id,
+                            missing
+                        );
+
+                        /***
+                         * If the DPU's BMC comes up after UEFI client was run on an ARM
+                         * there is a known issue where the redfish query for the secure boot
+                         * status comes back incomplete.
+                         * Example:
+                         * {
+                                "@odata.id": "/redfish/v1/Systems/Bluefield/SecureBoot",
+                                "@odata.type": "#SecureBoot.v1_1_0.SecureBoot",
+                                "Description": "The UEFI Secure Boot associated with this system.",
+                                "Id": "SecureBoot",
+                                "Name": "UEFI Secure Boot",
+                                "SecureBootDatabases": {
+                                    "@odata.id": "/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases"
+                            }
+
+                        (missing the SecureBootEnable and SecureBootCurrentBoot fields)
+                        The known work around for this issue is to reboot the DPU's ARM. There is a pending FR
+                        to fix this on the hardware level.
+                        ***/
+
+                        // Do not reboot the DPU indefinitely, something else might be wrong (DPU might be bust).
+                        if count < 10 {
+                            dpu_redfish_client
+                                .power(SystemPowerControl::ForceRestart)
+                                .await
+                                .map_err(|e| StateHandlerError::RedfishError {
+                                    operation: "force_restart",
+                                    error: e,
+                                })?;
+                            if enable_secure_boot {
+                                next_state = DpuDiscoveringState::EnableSecureBoot {
+                                    enable_secure_boot_state: SetSecureBootState::RebootDPU {
+                                        reboot_count: 0,
+                                    },
+                                    count: count + 1,
+                                }
+                                .next_state(&state.managed_state, dpu_machine_id)?;
+                            } else {
+                                next_state = DpuDiscoveringState::DisableSecureBoot {
+                                    disable_secure_boot_state: Some(
+                                        SetSecureBootState::CheckSecureBootStatus,
+                                    ),
+                                    count: count + 1,
+                                }
+                                .next_state(&state.managed_state, dpu_machine_id)?;
+                            }
+                        } else {
+                            return Err(StateHandlerError::MissingData { object_id, missing });
+                        }
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
+                }
+            }
+            SetSecureBootState::DisableSecureBoot | SetSecureBootState::SetSecureBoot => {
+                if enable_secure_boot {
+                    dpu_redfish_client.enable_secure_boot().await.map_err(|e| {
+                        StateHandlerError::RedfishError {
+                            operation: "enable_secure_boot",
+                            error: e,
+                        }
+                    })?;
+
+                    next_state = DpuDiscoveringState::EnableSecureBoot {
+                        enable_secure_boot_state: SetSecureBootState::RebootDPU { reboot_count: 0 },
+                        count,
+                    }
+                    .next_state(&state.managed_state, dpu_machine_id)?;
+                } else {
+                    dpu_redfish_client
+                        .disable_secure_boot()
+                        .await
+                        .map_err(|e| StateHandlerError::RedfishError {
+                            operation: "disable_secure_boot",
+                            error: e,
+                        })?;
+
+                    next_state = DpuDiscoveringState::DisableSecureBoot {
+                        disable_secure_boot_state: Some(SetSecureBootState::RebootDPU {
+                            reboot_count: 0,
+                        }),
+                        count,
+                    }
+                    .next_state(&state.managed_state, dpu_machine_id)?;
+                }
+            }
+            // DPUs requires two reboots after the previous step in order to disable secure boot.
+            // From the doc linked above: "the BlueField Arm OS must be rebooted twice. The first
+            // reboot is for the UEFI redfish client to read the request from the BMC and apply it; the
+            // second reboot is for the setting to take effect."
+            // We do not need to wait between disabling secure boot and the first reboot.
+            // But, we need to give the DPU time to come up after the initial reboot,
+            // before we reboot it again.
+            SetSecureBootState::RebootDPU { reboot_count } => {
+                if reboot_count == 0 {
+                    next_state = if enable_secure_boot {
+                        DpuDiscoveringState::EnableSecureBoot {
+                            enable_secure_boot_state: SetSecureBootState::RebootDPU {
+                                reboot_count: reboot_count + 1,
+                            },
+                            count,
+                        }
+                        .next_state(&state.managed_state, dpu_machine_id)?
+                    } else {
+                        DpuDiscoveringState::DisableSecureBoot {
+                            disable_secure_boot_state: Some(SetSecureBootState::RebootDPU {
+                                reboot_count: reboot_count + 1,
+                            }),
+                            count,
+                        }
+                        .next_state(&state.managed_state, dpu_machine_id)?
+                    };
+                } else {
+                    if wait_for_dpu_to_come_up {
+                        return Ok(StateHandlerOutcome::Wait(format!(
+                            "Waiting for DPU {dpu_machine_id} to come back up from last reboot; time since last reboot: {time_since_state_change}",
+                        )));
+                    }
+                    if enable_secure_boot {
+                        next_state = DpuDiscoveringState::EnableSecureBoot {
+                            enable_secure_boot_state: SetSecureBootState::CheckSecureBootStatus,
+                            count: count + 1,
+                        }
+                        .next_state(&state.managed_state, dpu_machine_id)?;
+                    } else {
+                        next_state = DpuDiscoveringState::DisableSecureBoot {
+                            disable_secure_boot_state: Some(
+                                SetSecureBootState::CheckSecureBootStatus,
+                            ),
+                            count: count + 1,
+                        }
+                        .next_state(&state.managed_state, dpu_machine_id)?;
+                    }
+                }
+
+                dpu_redfish_client
+                    .power(SystemPowerControl::ForceRestart)
+                    .await
+                    .map_err(|e| StateHandlerError::RedfishError {
+                        operation: "force_restart",
+                        error: e,
+                    })?;
+            }
+        }
+
+        Ok(StateHandlerOutcome::Transition(next_state))
     }
 }
 
@@ -4667,6 +4899,7 @@ impl StateHandler for InstanceStateHandler {
                             txn,
                             &InstanceNextStateResolver,
                             dpu_snapshot,
+                            ctx,
                         )
                         .await?
                         {

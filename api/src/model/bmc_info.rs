@@ -1,4 +1,5 @@
 use ::rpc::forge as rpc;
+use version_compare::Cmp;
 
 use crate::{CarbideError, CarbideResult};
 use eyre::{Report, eyre};
@@ -19,6 +20,14 @@ pub struct BmcInfo {
     pub mac: Option<MacAddress>,
     pub version: Option<String>,
     pub firmware_version: Option<String>,
+}
+
+impl BmcInfo {
+    pub fn supports_bfb_install(&self) -> bool {
+        self.firmware_version
+            .as_ref()
+            .is_some_and(|v| version_compare::compare_to(v, "24.10", Cmp::Ge).is_ok_and(|r| r))
+    }
 }
 
 impl<'r> FromRow<'r, PgRow> for BmcInfo {

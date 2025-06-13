@@ -567,6 +567,7 @@ dependencies = [
   "replace-bfpxe-script",
   "bfb-rebuild-rootfs",
   "bfb-copy-rootfs",
+  "bfb-rebuild-bfb",
 ]
 
 [tasks.internal-bfb-aarch64]
@@ -600,6 +601,7 @@ dependencies = [
   "replace-bfpxe-script",
   "bfb-rebuild-rootfs",
   "bfb-copy-rootfs",
+  "bfb-rebuild-bfb",
 ]
 
 [tasks.bfb-cleanup-tmp]
@@ -904,6 +906,52 @@ category = "iPXE Kernel"
 description = "Copy the BFB root fs on aarch64 gitlab runner"
 command = "cp"
 args = ["/tmp/bfb-dump/dump-initramfs-v0", "carbide.root"]
+cwd = "static/blobs/internal/aarch64"
+
+[tasks.bfb-create-bfb]
+category = "iPXE Kernel"
+description = "Rebuild bfb with modified FS"
+dependencies = ["bfb-rebuild-rootfs"]
+command = "python3"
+args = [
+  "/tmp/bfb-dump/mlx-mkbfb",
+  "--initramfs",
+  "/tmp/bfb-dump/dump-initramfs-v0",
+  "/tmp/bfb-dump/${BFB_NAME}",
+  "forge_tmp.bfb",
+]
+cwd = "static/blobs/internal/aarch64"
+
+[tasks.bfb-add-custom_action]
+category = "iPXE Kernel"
+description = "Rebuild bfb with modified FS"
+script = '''
+cat ${REPO_ROOT}/pxe/templates/bmc_fw_update > bf.cfg
+echo "
+
+ENABLE_BR_HBN=yes
+ENABLE_BR_SFC=yes
+
+bfb_modify_os() {
+  set -e
+  dhclient oob_net0
+  cd /mnt/tmp/
+  curl http://carbide-pxe.forge/api/v0/cloud-init/user-data -o user_data.sh
+  sed -i '/ZOF/d' user_data.sh
+  source user_data.sh
+  forge_modify_os
+}" >> bf.cfg
+'''
+cwd = "static/blobs/internal/aarch64"
+
+[tasks.bfb-rebuild-bfb]
+category = "iPXE Kernel"
+dependencies = ["bfb-create-bfb", "bfb-add-custom_action"]
+description = "Rebuild bfb with modified FS"
+script = '''
+cat forge_tmp.bfb bf.cfg > forge.bfb
+rm forge_tmp.bfb
+'''
 cwd = "static/blobs/internal/aarch64"
 
 [tasks.container-boot-artifacts-x86_64-ci]

@@ -4,50 +4,14 @@ cat << \ZOF > /etc/bf.cfg
 ENABLE_BR_HBN=yes
 ENABLE_BR_SFC=yes
 
-BMC_PASSWORD="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 4)-$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 4)_$(tr -dc '0-9' </dev/urandom | head -c 2)$(tr -dc 'a-z' </dev/urandom | head -c 1)$(tr -dc 'A-Z' </dev/urandom | head -c 1)"
-BMC_USER="firmware_updater"
-BMC_REBOOT="yes"
-CEC_REBOOT="yes"
-USER_ID=8
-
-pre_bmc_components_update() {
-    set -eE
-    ipmitool user set name $USER_ID $BMC_USER
-    ipmitool user set password $USER_ID $BMC_PASSWORD
-    ipmitool user enable $USER_ID
-    ipmitool channel setaccess 1 $USER_ID ipmi=on
-    ipmitool user priv $USER_ID 0x4 1
-    set +eE
-}
-
-post_bmc_components_update() {
-    set -eE
-    tee data.json <<DOF
-    {
-        "CertificateString": "$(openssl x509 -inform der -outform pem -in /mnt/lib/firmware/mellanox/boot/capsule/certs/prod/db.cer | sed -e 's/[[:space:]]*$//' -e 's/$/\\n/')",
-        "CertificateType": "PEM"
-    }
-DOF
-    # Calling a method defined in the upstream installer with no guarantee itll stay that same name, but it should have
-    # already been called during firmware update, this is just to be sure
-    # https://github.com/Mellanox/bfb-build/blob/9e80eb358e7bb9e62328039745cc43d69eefc64a/common/install.env/bmc#L118
-    create_vlan
-    num_certs=$(curl --verbose --insecure --retry 5 --retry-all-errors --user $BMC_USER:$BMC_PASSWORD https://$BMC_IP/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases/db/Certificates| jq -r ' .Members' | grep odata.id | wc -l)
-    if [ -z "${num_certs}" ] || [ "${num_certs}" -eq "0" ]; then
-        # only run the call if there are no existing certs, otherwise it could cause subsequent installs of the DPU to fail
-        # https://nvbugswb.nvidia.com/NvBugs5/SWBug.aspx?bugid=5334987
-        curl --verbose --insecure --retry 5 --retry-all-errors --user $BMC_USER:$BMC_PASSWORD  -d @data.json https://$BMC_IP/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases/db/Certificates
-    fi
-    ipmitool user set name $USER_ID ""
-    set +eE
-}
+{{ forge_bmc_fw_update }}
 
 # This function is called by install.sh script embedded in the BFB
-bfb_modify_os()
+forge_modify_os()
 {
 # set errexit so that if any command fails, we exit the script
 set -e
-ilog "======== Start of bfb_modify_os ============"
+ilog "======== Start of forge_modify_os ============"
 ilog "$(/usr/sbin/fdisk -l)"
 ilog "$(/usr/bin/lsblk)"
 ilog "$(/usr/sbin/blkid)"
@@ -254,6 +218,9 @@ ilog "==================================="
 set +e
 }
 
+bfb_modify_os() {
+  forge_modify_os
+}
 ZOF
 
 # Do not remove these trailing spaces or this file will not work
