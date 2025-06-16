@@ -174,6 +174,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 InstanceState::Failed { .. } => "failed",
                 InstanceState::HostReprovision { .. } => "hostreprovisioning",
                 InstanceState::NetworkConfigUpdate { .. } => "networkconfigupdate",
+                InstanceState::WaitingForDpusToUp => "waitingfordpustoup",
             }
         }
 

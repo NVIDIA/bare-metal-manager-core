@@ -1583,6 +1583,7 @@ pub enum InstanceState {
     WaitingForStorageConfig,
     WaitingForRebootToReady,
     Ready,
+    WaitingForDpusToUp,
     BootingWithDiscoveryImage {
         #[serde(default)]
         retry: RetryInfo,

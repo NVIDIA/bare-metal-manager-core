@@ -4429,13 +4429,38 @@ impl StateHandler for InstanceStateHandler {
                             .await?;
                         }
 
+                        let redfish_client = ctx
+                            .services
+                            .redfish_client_pool
+                            .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
+                            .await?;
+                        let power_state = host_power_state(redfish_client.as_ref()).await?;
+                        let next_state = ManagedHostState::Assigned {
+                            instance_state: if power_state == libredfish::PowerState::Off {
+                                // Instance is in powered-off state. This means DPUs are also
+                                // powered-off. If we power on the host, DPU will take around10-15
+                                // mins to come up. During this time, DHCP/ipxe will fail for the
+                                // host and host will boot from the tenant-installed-OS.
+                                // To avoid that, we should wait until DPUs come up and become
+                                // healthy and restart host again to proceed.
+                                InstanceState::WaitingForDpusToUp
+                            } else {
+                                InstanceState::BootingWithDiscoveryImage {
+                                    retry: RetryInfo { count: 0 },
+                                }
+                            },
+                        };
                         // Reboot host. Host will boot with carbide discovery image now. Changes
                         // are done in get_pxe_instructions api.
                         // User will lose all access to instance now.
                         if let Err(err) = handler_host_power_control(
                             mh_snapshot,
                             ctx.services,
-                            SystemPowerControl::ForceRestart,
+                            if power_state == libredfish::PowerState::Off {
+                                SystemPowerControl::On
+                            } else {
+                                SystemPowerControl::ForceRestart
+                            },
                             txn,
                         )
                         .await
@@ -4474,17 +4499,39 @@ impl StateHandler for InstanceStateHandler {
                             .await?;
                         }
 
-                        let next_state = ManagedHostState::Assigned {
-                            instance_state: InstanceState::BootingWithDiscoveryImage {
-                                retry: RetryInfo { count: 0 },
-                            },
-                        };
                         Ok(StateHandlerOutcome::Transition(next_state))
                     } else {
                         Ok(StateHandlerOutcome::DoNothingWithDetails(
                             DoNothingDetails { line: line!() },
                         ))
                     }
+                }
+                InstanceState::WaitingForDpusToUp => {
+                    if are_dpus_up_trigger_reboot_if_needed(
+                        mh_snapshot,
+                        &self.reachability_params,
+                        ctx.services,
+                        txn,
+                    )
+                    .await
+                    {
+                        return Ok(StateHandlerOutcome::Wait(
+                            "Waiting for DPUs to come up.".to_string(),
+                        ));
+                    }
+                    handler_host_power_control(
+                        mh_snapshot,
+                        ctx.services,
+                        SystemPowerControl::ForceRestart,
+                        txn,
+                    )
+                    .await?;
+                    let next_state = ManagedHostState::Assigned {
+                        instance_state: InstanceState::BootingWithDiscoveryImage {
+                            retry: RetryInfo { count: 0 },
+                        },
+                    };
+                    Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 InstanceState::BootingWithDiscoveryImage { retry } => {
                     if !rebooted(&mh_snapshot.host_snapshot) {
@@ -5888,6 +5935,7 @@ pub async fn handler_host_power_control(
     action: SystemPowerControl,
     txn: &mut PgConnection,
 ) -> Result<(), StateHandlerError> {
+    let mut action = action;
     let redfish_client = services
         .redfish_client_pool
         .create_client_from_machine(&managedhost_snapshot.host_snapshot, txn)
@@ -5903,6 +5951,15 @@ pub async fn handler_host_power_control(
         let machine_id = &managedhost_snapshot.host_snapshot.id;
         tracing::warn!(%machine_id, %power_state, %action, "Target power state is already reached. Skipping power control action");
     } else {
+        if power_state == libredfish::PowerState::Off
+            && (action == SystemPowerControl::ForceRestart
+                || action == SystemPowerControl::GracefulRestart)
+        {
+            // A host can't be restarted if it is in power-off state.
+            // In this call, power on the system. State machine restart the system in next iteration.
+            tracing::warn!(%power_state, %action, "Power state is Off and requested action is restart. Trying to power on the host.");
+            action = SystemPowerControl::On;
+        }
         host_power_control(
             redfish_client.as_ref(),
             &managedhost_snapshot.host_snapshot,

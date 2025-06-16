@@ -116,7 +116,8 @@ impl InstanceStatus {
                 }
                 InstanceState::SwitchToAdminNetwork
                 | InstanceState::BootingWithDiscoveryImage { .. }
-                | InstanceState::WaitingForNetworkReconfig => tenant::TenantState::Terminating,
+                | InstanceState::WaitingForNetworkReconfig
+                | InstanceState::WaitingForDpusToUp => tenant::TenantState::Terminating,
                 InstanceState::DPUReprovision { .. } => tenant::TenantState::DpuReprovisioning,
                 InstanceState::Failed { .. } => tenant::TenantState::Failed,
                 InstanceState::HostReprovision { .. } => tenant::TenantState::HostReprovisioning,
