@@ -464,6 +464,7 @@ pub async fn handle_show(
                     include_dpus: true,
                     only_maintenance: args.fix,
                     only_quarantine: args.quarantine,
+                    include_predicted_host: true,
                     ..Default::default()
                 },
                 page_size,
