@@ -31,6 +31,7 @@
 				<td> Hardware Revision </td>
 				<td> Cores </td>
 				<td> Threads </td>
+				<td> Device Type </td>
 				<td> Inactive Devices </td>
 				{% for cap in capabilities %}
 				<tr>
@@ -43,6 +44,7 @@
 					<td>{{ cap.hardware_revision }}</td>
 					<td>{{ cap.cores }}</td>
 					<td>{{ cap.threads }}</td>
+					<td>{{ cap.device_type }}</td>
 					<td>{{ cap.inactive_devices }}</td>
 				</tr>
 			{% endfor %}

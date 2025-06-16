@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::{common as rpc_common, forge as rpc};
+use ::rpc::{common as rpc_common, errors::RpcDataConversionError, forge as rpc};
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use forge_uuid::instance_type::InstanceTypeId;
@@ -19,7 +19,8 @@ use serde::{Deserialize, Serialize};
 use crate::{CarbideError, model::metadata::Metadata};
 
 use super::machine::capabilities::{
-    self as machine_caps, MachineCapabilitiesSet, MachineCapabilityType,
+    self as machine_caps, MachineCapabilitiesSet, MachineCapabilityDeviceType,
+    MachineCapabilityType,
 };
 
 /* **************************************** */
@@ -45,6 +46,7 @@ pub struct InstanceTypeMachineCapabilityFilter {
     pub cores: Option<u32>,
     pub threads: Option<u32>,
     pub inactive_devices: Option<Vec<u32>>,
+    pub device_type: Option<MachineCapabilityDeviceType>,
 }
 
 impl InstanceTypeMachineCapabilityFilter {
@@ -145,6 +147,10 @@ impl InstanceTypeMachineCapabilityFilter {
             (None, _) => true,
             (Some(_), None) => false,
             (Some(c), Some(mc)) => c == mc,
+        }) && (match (&self.device_type, &mac_cap.device_type) {
+            (None, _) => true,
+            (Some(_), None) => false,
+            (Some(c), Some(mc)) => c == mc,
         })
     }
 
@@ -195,6 +201,25 @@ impl TryFrom<rpc::InstanceTypeMachineCapabilityFilterAttributes>
             cores: cap.cores,
             threads: cap.threads,
             inactive_devices: cap.inactive_devices.map(|l| l.items),
+            device_type: cap
+                .device_type
+                .map(|dt| {
+                    rpc::MachineCapabilityDeviceType::try_from(dt)
+                        .map_err(|_| {
+                            CarbideError::RpcDataConversionError(
+                                RpcDataConversionError::InvalidValue(
+                                    "MachineCapabilityDeviceType".to_string(),
+                                    dt.to_string(),
+                                ),
+                            )
+                        })
+                        .and_then(|rpc_dt| {
+                            rpc_dt
+                                .try_into()
+                                .map_err(CarbideError::RpcDataConversionError)
+                        })
+                })
+                .transpose()?,
         })
     }
 }
@@ -218,6 +243,9 @@ impl TryFrom<InstanceTypeMachineCapabilityFilter>
             inactive_devices: cap
                 .inactive_devices
                 .map(|l| rpc_common::Uint32List { items: l }),
+            device_type: cap
+                .device_type
+                .map(|dt| rpc::MachineCapabilityDeviceType::from(dt).into()),
         })
     }
 }
@@ -500,6 +528,7 @@ impl TryFrom<InstanceType> for rpc::InstanceType {
 
 #[cfg(test)]
 mod tests {
+    use crate::model::machine::capabilities::MachineCapabilityDeviceType;
     use std::collections::HashMap;
 
     use ::rpc::forge as rpc;
@@ -532,6 +561,7 @@ mod tests {
                     cores: Some(1),
                     threads: Some(2),
                     inactive_devices: Some(rpc_common::Uint32List { items: vec![2, 4] }),
+                    device_type: Some(rpc::MachineCapabilityDeviceType::Unknown as i32),
                 }],
             }),
             created_at: Some("2023-01-01 00:00:00 UTC".to_string()),
@@ -558,6 +588,7 @@ mod tests {
                 cores: Some(1),
                 threads: Some(2),
                 inactive_devices: Some(vec![2, 4]),
+                device_type: Some(MachineCapabilityDeviceType::Unknown),
             }],
         };
 
@@ -734,11 +765,13 @@ mod tests {
                     name: "e1000".to_string(),
                     vendor: Some("intel".to_string()),
                     count: 2,
+                    device_type: Some(MachineCapabilityDeviceType::Unknown),
                 },
                 capabilities::MachineCapabilityNetwork {
                     name: "e10000".to_string(),
                     vendor: Some("intel".to_string()),
                     count: 1,
+                    device_type: Some(MachineCapabilityDeviceType::Unknown),
                 },
             ],
             infiniband: vec![capabilities::MachineCapabilityInfiniband {
@@ -777,6 +810,7 @@ mod tests {
                 cores: Some(1),
                 threads: Some(2),
                 inactive_devices: None,
+                device_type: Some(MachineCapabilityDeviceType::Unknown),
             }],
         };
 

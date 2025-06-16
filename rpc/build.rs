@@ -533,6 +533,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.InstanceTypeMachineCapabilityFilterAttributes.capability_type",
             "#[serde(deserialize_with = \"MachineCapabilityType::from_string\", serialize_with = \"MachineCapabilityType::serialize_from_enum_i32\")]",
         )
+        .field_attribute(
+            "forge.InstanceTypeMachineCapabilityFilterAttributes.device_type",
+            "#[serde(deserialize_with = \"MachineCapabilityDeviceType::from_string\", serialize_with = \"MachineCapabilityDeviceType::serialize_from_enum_i32\")]",
+        )
         .type_attribute(
             "forge.InstanceTypeMachineCapabilityFilterAttributes",
             "#[derive(serde::Deserialize,serde::Serialize)]",

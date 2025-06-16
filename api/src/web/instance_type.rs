@@ -92,6 +92,7 @@ struct InstanceTypeCapabilitiesRowDisplay {
     cores: String,
     threads: String,
     inactive_devices: String,
+    device_type: String,
 }
 
 #[derive(Debug, Template)]
@@ -138,6 +139,10 @@ impl From<forgerpc::InstanceTypeMachineCapabilityFilterAttributes>
                 .unwrap_or_else(|| UNUSED_CAPABILITY_PROPERTY.to_string()),
             threads: c
                 .threads
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| UNUSED_CAPABILITY_PROPERTY.to_string()),
+            device_type: c
+                .device_type
                 .map(|v| v.to_string())
                 .unwrap_or_else(|| UNUSED_CAPABILITY_PROPERTY.to_string()),
             inactive_devices: c
