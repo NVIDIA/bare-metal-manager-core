@@ -641,6 +641,7 @@ build-boot-artifacts-ephemeral-image-x86-host:
     paths:
       - target/debs/*
       - pxe/static/blobs/internal/x86_64/scout.efi
+      - pxe/static/blobs/internal/x86_64/scout.cpio.zst
       - pxe/static/blobs/internal/x86_64/qcow-imager.efi
     when: always
     expire_in: 1 day
@@ -774,6 +775,7 @@ build-boot-artifacts-ephemeral-image-arm-host:
       - pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/*
       - pxe/static/blobs/internal/aarch64/scout.efi
       - pxe/static/blobs/internal/aarch64/qcow-imager.efi
+      - pxe/static/blobs/internal/aarch64/scout.cpio.zst
     when: always
     expire_in: 1 day
 
