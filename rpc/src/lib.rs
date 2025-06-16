@@ -692,6 +692,43 @@ impl forge::MachineCapabilityType {
     }
 }
 
+impl forge::MachineCapabilityDeviceType {
+    pub fn from_string<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s: &str = serde::Deserialize::deserialize(deserializer)?;
+
+        Ok(Some(match s.to_uppercase().as_str() {
+            "DPU" => Self::Dpu as i32,
+            "UNKNOWN" => Self::Unknown as i32,
+            _ => 0,
+        }))
+    }
+
+    pub fn serialize_from_enum_i32<S>(v: &Option<i32>, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match v {
+            Some(val) => s.serialize_str(
+                &forge::MachineCapabilityDeviceType::to_string_from_enum_i32(*val)
+                    .map_err(Error::custom)?,
+            ),
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn to_string_from_enum_i32(v: i32) -> Result<String, UnknownEnumValue> {
+        let t: forge::MachineCapabilityDeviceType = (v).try_into()?;
+
+        Ok(match t {
+            forge::MachineCapabilityDeviceType::Dpu => "DPU".to_string(),
+            forge::MachineCapabilityDeviceType::Unknown => "UNKNOWN".to_string(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;

@@ -357,6 +357,7 @@ pub async fn generate_sku_from_machine_at_version_2(
         hardware_info.clone(),
         machine.infiniband_status_observation.as_ref(),
         machine.associated_dpu_machine_ids(),
+        machine.interfaces.clone(),
     );
 
     let chassis = SkuComponentChassis {

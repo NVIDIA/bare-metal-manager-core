@@ -4070,6 +4070,11 @@ message MachineValidationRunResponse {
   string message = 1;
 }
 
+enum MachineCapabilityDeviceType {
+  MACHINE_CAPABILITY_DEVICE_TYPE_UNKNOWN = 0;
+  MACHINE_CAPABILITY_DEVICE_TYPE_DPU = 1;
+}
+
 message MachineCapabilityAttributesCpu {
   string name               = 1;
   uint32 count              = 2;
@@ -4104,9 +4109,10 @@ message MachineCapabilityAttributesStorage {
 }
 
 message MachineCapabilityAttributesNetwork {
-  string name                       = 1;
-  uint32 count                      = 2;
-  optional string vendor            = 3;
+  string name                                                   = 1;
+  uint32 count                                                  = 2;
+  optional string vendor                                        = 3;
+  optional MachineCapabilityDeviceType device_type              = 4;
 }
 
 message MachineCapabilityAttributesInfiniband {
@@ -4180,16 +4186,17 @@ enum MachineCapabilityType {
 // an InstanceType with that capability, the machine must also
 // have a capability that matches those properties.
 message InstanceTypeMachineCapabilityFilterAttributes {
-  MachineCapabilityType capability_type               = 1;
-  optional string name                                = 2; // Intel Xeon, Samsung SSD, etc.
-  optional string frequency                           = 3; // E.g., 2.4GHz, 1024MHz, etc
-  optional string capacity                            = 4; // E.g., 10GB, 256 MB, etc
-  optional string vendor                              = 5;
-  optional uint32 count                               = 6;
-  optional string hardware_revision                   = 7;
-  optional uint32 cores                               = 8;
-  optional uint32 threads                             = 9;
-  optional common.Uint32List inactive_devices         = 10;
+  MachineCapabilityType capability_type                   = 1;
+  optional string name                                    = 2; // Intel Xeon, Samsung SSD, etc.
+  optional string frequency                               = 3; // E.g., 2.4GHz, 1024MHz, etc
+  optional string capacity                                = 4; // E.g., 10GB, 256 MB, etc
+  optional string vendor                                  = 5;
+  optional uint32 count                                   = 6;
+  optional string hardware_revision                       = 7;
+  optional uint32 cores                                   = 8;
+  optional uint32 threads                                 = 9;
+  optional common.Uint32List inactive_devices             = 10;
+  optional MachineCapabilityDeviceType device_type = 11; // Only used for network capabilities
 }
 
 message CreateInstanceTypeRequest {

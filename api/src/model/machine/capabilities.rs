@@ -18,11 +18,13 @@ use std::{
 use ::rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 
+use super::infiniband::MachineInfinibandStatusObservation;
+use crate::model::machine::RpcDataConversionError;
 use crate::{
     CarbideError,
     model::{
-        hardware_info::InfinibandInterface, machine::HardwareInfo,
-        machine::infiniband::MachineInfinibandStatusObservation,
+        hardware_info::InfinibandInterface,
+        machine::{HardwareInfo, MachineInterfaceSnapshot},
     },
 };
 use forge_uuid::machine::MachineId;
@@ -208,6 +210,7 @@ pub struct MachineCapabilityNetwork {
     pub name: String,
     pub count: u32,
     pub vendor: Option<String>,
+    pub device_type: Option<MachineCapabilityDeviceType>,
 }
 
 impl From<MachineCapabilityNetwork> for rpc::MachineCapabilityAttributesNetwork {
@@ -216,6 +219,9 @@ impl From<MachineCapabilityNetwork> for rpc::MachineCapabilityAttributesNetwork 
             name: cap.name,
             count: cap.count,
             vendor: cap.vendor,
+            device_type: cap
+                .device_type
+                .map(|dt| rpc::MachineCapabilityDeviceType::from(dt).into()),
         }
     }
 }
@@ -367,6 +373,46 @@ impl From<MachineCapabilitiesSet> for rpc::MachineCapabilitiesSet {
     }
 }
 
+/* ********************************************* */
+/*       MachineCapabilityDeviceType       */
+/* ********************************************* */
+
+/// MachineCapabilityDeviceType describes different types of network devices.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MachineCapabilityDeviceType {
+    Unknown,
+    Dpu,
+}
+
+impl fmt::Display for MachineCapabilityDeviceType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MachineCapabilityDeviceType::Unknown => write!(f, "UNKNOWN"),
+            MachineCapabilityDeviceType::Dpu => write!(f, "DPU"),
+        }
+    }
+}
+
+impl From<MachineCapabilityDeviceType> for rpc::MachineCapabilityDeviceType {
+    fn from(t: MachineCapabilityDeviceType) -> Self {
+        match t {
+            MachineCapabilityDeviceType::Unknown => rpc::MachineCapabilityDeviceType::Unknown,
+            MachineCapabilityDeviceType::Dpu => rpc::MachineCapabilityDeviceType::Dpu,
+        }
+    }
+}
+
+impl TryFrom<rpc::MachineCapabilityDeviceType> for MachineCapabilityDeviceType {
+    type Error = RpcDataConversionError;
+
+    fn try_from(t: rpc::MachineCapabilityDeviceType) -> Result<Self, Self::Error> {
+        match t {
+            rpc::MachineCapabilityDeviceType::Unknown => Ok(MachineCapabilityDeviceType::Unknown),
+            rpc::MachineCapabilityDeviceType::Dpu => Ok(MachineCapabilityDeviceType::Dpu),
+        }
+    }
+}
+
 impl MachineCapabilitiesSet {
     /// The arrays in each property of a capability set are not guaranteed to
     /// to have deterministic ordering, which is probably fine for most cases.
@@ -386,6 +432,7 @@ impl MachineCapabilitiesSet {
         hardware_info: HardwareInfo,
         ib_status: Option<&MachineInfinibandStatusObservation>,
         dpu_machine_ids: Vec<MachineId>,
+        machine_interfaces: Vec<MachineInterfaceSnapshot>,
     ) -> Self {
         //
         //  Process CPU data
@@ -560,6 +607,13 @@ impl MachineCapabilitiesSet {
                 None => continue,
                 Some(n) => n,
             };
+            let device_type = match machine_interfaces.iter().find(|i| {
+                i.mac_address == network_interface_info.mac_address
+                    && i.attached_dpu_machine_id.is_some()
+            }) {
+                None => MachineCapabilityDeviceType::Unknown,
+                Some(_i) => MachineCapabilityDeviceType::Dpu,
+            };
 
             match network_interface_map.get_mut(&interface_name) {
                 None => {
@@ -569,6 +623,7 @@ impl MachineCapabilitiesSet {
                             name: interface_name.clone(),
                             count: 1,
                             vendor: Some(pci_properties.vendor),
+                            device_type: Some(device_type),
                         },
                     );
                 }
@@ -646,9 +701,12 @@ impl MachineCapabilitiesSet {
 mod tests {
     use super::*;
     use crate::model::{
-        hardware_info::*, machine::infiniband::MachineIbInterfaceStatusObservation,
+        MacAddress, NetworkSegmentId,
+        hardware_info::*,
+        machine::{MachineInterfaceId, infiniband::MachineIbInterfaceStatusObservation},
     };
     use ::rpc::forge as rpc;
+    use std::str::FromStr;
 
     const X86_INFO_JSON: &[u8] = include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -756,15 +814,17 @@ mod tests {
     #[test]
     fn test_model_network_capability_to_rpc_conversion() {
         let req_type = rpc::MachineCapabilityAttributesNetwork {
-            name: "intel e1000 Disk".to_string(),
+            name: "BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller".to_string(),
             count: 1,
-            vendor: Some("intel".to_string()),
+            vendor: Some("0x14e4".to_string()),
+            device_type: Some(MachineCapabilityDeviceType::Unknown as i32),
         };
 
         let machine_cap = MachineCapabilityNetwork {
-            name: "intel e1000 Disk".to_string(),
+            name: "BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller".to_string(),
             count: 1,
-            vendor: Some("intel".to_string()),
+            vendor: Some("0x14e4".to_string()),
+            device_type: Some(MachineCapabilityDeviceType::Unknown),
         };
 
         assert_eq!(
@@ -859,6 +919,7 @@ mod tests {
                 name: "intel e1000".to_string(),
                 count: 1,
                 vendor: Some("intel".to_string()),
+                device_type: Some(MachineCapabilityDeviceType::Unknown as i32),
             }],
             infiniband: vec![rpc::MachineCapabilityAttributesInfiniband {
                 name: "infiniband".to_string(),
@@ -915,6 +976,7 @@ mod tests {
                 name: "intel e1000".to_string(),
                 count: 1,
                 vendor: Some("intel".to_string()),
+                device_type: Some(MachineCapabilityDeviceType::Unknown),
             }],
             infiniband: vec![MachineCapabilityInfiniband {
                 name: "infiniband".to_string(),
@@ -977,12 +1039,14 @@ mod tests {
                     name: "BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller".to_string(),
                     count: 2,
                     vendor: Some("0x14e4".to_string()),
+                    device_type: Some(MachineCapabilityDeviceType::Unknown),
                 },
                 MachineCapabilityNetwork {
                     name: "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
                         .to_string(),
                     count: 2,
                     vendor: Some("0x15b3".to_string()),
+                    device_type: Some(MachineCapabilityDeviceType::Dpu),
                 },
                 MachineCapabilityNetwork {
                     name:
@@ -990,6 +1054,7 @@ mod tests {
                             .to_string(),
                     count: 2,
                     vendor: Some("0x14e4".to_string()),
+                    device_type: Some(MachineCapabilityDeviceType::Unknown),
                 },
             ],
             infiniband: vec![
@@ -1022,12 +1087,54 @@ mod tests {
             serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap(),
             None,
             vec![
-                "fm100ds1mqf1l64lmr7vf5i2lg25s08ntul0lacrc84aqphb7qqat09cru0"
+                "fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80"
                     .parse()
                     .unwrap(),
-                "fm100ds5k5q9m3mdu4j8b5lnu50lq5ab84od0eqrid3dmte16uscr8vbpeg"
+                "fm100dsmu2vhi1042hb8lrunopesh641tiguh6uttjr780ghbk9orl5tcg0"
                     .parse()
                     .unwrap(),
+            ],
+            vec![
+                MachineInterfaceSnapshot {
+                    id: MachineInterfaceId::from(uuid::Uuid::nil()),
+                    hostname: String::new(),
+                    primary_interface: true,
+                    mac_address: MacAddress::from_str("08:c0:eb:cb:0e:96").unwrap(),
+                    attached_dpu_machine_id: Some(
+                        MachineId::from_str(
+                            "fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0",
+                        )
+                        .unwrap(),
+                    ),
+                    domain_id: None,
+                    machine_id: None,
+                    segment_id: NetworkSegmentId::from(uuid::Uuid::nil()),
+                    vendors: Vec::new(),
+                    created: chrono::Utc::now(),
+                    last_dhcp: None,
+                    addresses: Vec::new(),
+                    network_segment_type: None,
+                },
+                MachineInterfaceSnapshot {
+                    id: MachineInterfaceId::from(uuid::Uuid::nil()),
+                    hostname: String::new(),
+                    primary_interface: true,
+                    mac_address: MacAddress::from_str("08:c0:eb:cb:0e:97").unwrap(),
+                    attached_dpu_machine_id: Some(
+                        MachineId::from_str(
+                            "fm100dsg23d2f4tq4tt5m2hgib5pcldrm3gvefbduau7gj3itgc3iqg3lpg",
+                        )
+                        .unwrap(),
+                    ),
+                    domain_id: None,
+                    machine_id: None,
+                    segment_id: NetworkSegmentId::from(uuid::Uuid::nil()),
+                    vendors: Vec::new(),
+                    created: chrono::Utc::now(),
+                    last_dhcp: None,
+                    addresses: Vec::new(),
+                    network_segment_type: None,
+                },
             ],
         );
 
@@ -1088,6 +1195,21 @@ mod tests {
             serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap(),
             Some(&ib_status),
             vec![],
+            vec![MachineInterfaceSnapshot {
+                id: MachineInterfaceId::from(uuid::Uuid::nil()),
+                hostname: String::new(),
+                primary_interface: true,
+                mac_address: MacAddress::from_str("00:00:00:00:00:00").unwrap(),
+                attached_dpu_machine_id: None,
+                domain_id: None,
+                machine_id: None,
+                segment_id: NetworkSegmentId::from(uuid::Uuid::nil()),
+                vendors: Vec::new(),
+                created: chrono::Utc::now(),
+                last_dhcp: None,
+                addresses: Vec::new(),
+                network_segment_type: None,
+            }],
         );
 
         compare_cap.sort();
@@ -1142,6 +1264,7 @@ mod tests {
         let mut compare_cap = MachineCapabilitiesSet::from_hardware_info(
             serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap(),
             Some(&ib_status),
+            vec![],
             vec![],
         );
 

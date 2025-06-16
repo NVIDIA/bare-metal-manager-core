@@ -243,7 +243,8 @@ mod tests {
     use super::*;
     use crate::model::{
         instance_type::InstanceTypeMachineCapabilityFilter,
-        machine::capabilities::MachineCapabilityType, metadata::Metadata,
+        machine::capabilities::{MachineCapabilityDeviceType, MachineCapabilityType},
+        metadata::Metadata,
     };
 
     #[crate::sqlx_test]
@@ -267,6 +268,7 @@ mod tests {
             cores: Some(1),
             threads: Some(2),
             inactive_devices: Some(vec![2, 4]),
+            device_type: Some(MachineCapabilityDeviceType::Unknown),
         };
 
         let update_cap_attrs = InstanceTypeMachineCapabilityFilter {
@@ -280,6 +282,7 @@ mod tests {
             cores: None,
             threads: None,
             inactive_devices: None,
+            device_type: Some(MachineCapabilityDeviceType::Unknown),
         };
 
         // Create a NewInstanceType to feed to the query
