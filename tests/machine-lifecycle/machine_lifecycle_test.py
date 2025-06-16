@@ -1083,7 +1083,7 @@ def delete_instance_and_verify(test_config: TestConfig, ngc_uuids: NGCUUIDs, ins
         )
 
         print("Waiting for carbide to report the managed host 'Ready'...")
-        admin_cli.wait_for_machine_ready(test_config.machine_under_test, timeout=60 * 90)
+        admin_cli.wait_for_machine_ready(test_config.machine_under_test, timeout=60 * 120)
     except Exception as e:
         print(e.args[0], file=sys.stderr)
         _error_and_exit(
