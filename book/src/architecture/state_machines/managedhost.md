@@ -18,6 +18,7 @@
 
   state DpuDiscoveringState {
     [*] --> DD_EnableRshim
+    state if_state2 <<choice>>
     DD_EnableRshim --> if_state2: BMC FW version >= 24.10
     if_state2 --> InstallDpuOsState: Install bfb via redfish
     InstallDpuOsState --> DPU_Init
@@ -82,7 +83,11 @@
     A_WaitingForNetworkConfig --> A_WaitingForStorageConfig: DPU Agent responded with network ready status
     A_WaitingForStorageConfig --> A_WaitingForRebootToReady: Storage is ready, reboot now.
     A_WaitingForRebootToReady --> A_Ready: Tenant Network Ready
-    A_Ready --> A_BootingWithDiscoveryImage: Instance delete request received, or reprovision requested
+    state if_state_release <<choice>>
+    A_Ready --> if_state_release: Instance delete request received, or reprovision requested
+    if_state_release --> A_BootingWithDiscoveryImage: If host power state is ON, restart the host
+    if_state_release --> A_WaitingForDpusToUp: If host power state is OFF. Power on the host and wait for DPU to come up.
+    A_WaitingForDpusToUp --> A_BootingWithDiscoveryImage: Restart the host.
     A_BootingWithDiscoveryImage --> A_SwitchToAdminNetwork: Host rebooted with discovery image
     A_SwitchToAdminNetwork --> A_WaitingForNetworkReconfig: Configured to move to Admin Network
     A_BootingWithDiscoveryImage --> A_DPUReprovision: DPU reprovisioning in progress.  Roughly follows DPUReprovision.
