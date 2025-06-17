@@ -4748,7 +4748,7 @@ impl StateHandler for InstanceStateHandler {
                     }
                 }
                 InstanceState::WaitingForDpusToUp => {
-                    if are_dpus_up_trigger_reboot_if_needed(
+                    if !are_dpus_up_trigger_reboot_if_needed(
                         mh_snapshot,
                         &self.reachability_params,
                         ctx.services,
