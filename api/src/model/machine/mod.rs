@@ -1073,6 +1073,7 @@ pub enum ReprovisionState {
     PowerDown,
     // Deprecated
     BufferTime,
+    VerifyFirmareVersions,
     WaitingForNetworkConfig,
     RebootHostBmc,
     RebootHost,
@@ -2047,7 +2048,7 @@ pub trait NextState {
                     // Mark all DPUs in PowerDown state.
                     all_machine_ids,
                 ),
-            ReprovisionState::PowerDown => ReprovisionState::WaitingForNetworkConfig
+            ReprovisionState::PowerDown => ReprovisionState::VerifyFirmareVersions
                 .next_state_with_all_dpus_updated(
                     &state.managed_state,
                     &state.dpu_snapshots,
@@ -2055,11 +2056,19 @@ pub trait NextState {
                     // triggered.
                     dpu_ids_for_reprov,
                 ),
-            ReprovisionState::BufferTime => ReprovisionState::WaitingForNetworkConfig
+            ReprovisionState::BufferTime => ReprovisionState::VerifyFirmareVersions
                 .next_state_with_all_dpus_updated(
                     &state.managed_state,
                     &state.dpu_snapshots,
-                    all_machine_ids,
+                    dpu_ids_for_reprov,
+                ),
+            ReprovisionState::VerifyFirmareVersions => ReprovisionState::WaitingForNetworkConfig
+                .next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    // Move only DPUs in WaitingForNetworkInstall for which reprovision is
+                    // triggered.
+                    dpu_ids_for_reprov,
                 ),
             ReprovisionState::WaitingForNetworkConfig => ReprovisionState::RebootHostBmc
                 .next_state_with_all_dpus_updated(

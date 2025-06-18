@@ -672,6 +672,25 @@ fn dpu_fw_example() -> HashMap<String, Firmware> {
                         }],
                     },
                 ),
+                (
+                    FirmwareComponentType::Nic,
+                    FirmwareComponent {
+                        current_version_reported_as: Some(Regex::new("DPU_NIC").unwrap()),
+                        preingest_upgrade_when_below: None,
+                        known_firmware: vec![FirmwareEntry {
+                            version: "32.39.2048".to_string(),
+                            default: true,
+                            filename: Some("/dev/null".to_string()),
+                            filenames: vec![],
+                            url: Some("file://dev/null".to_string()),
+                            checksum: None,
+                            mandatory_upgrade_from_priority: None,
+                            install_only_specified: false,
+                            power_drains_needed: None,
+                            preingestion_exclusive_config: false,
+                        }],
+                    },
+                ),
             ]),
         },
     )])
