@@ -23,6 +23,7 @@ pub async fn create(
     hostname: Option<&str>,
     phone_home_enable: bool,
     wait_until_ready: bool,
+    keyset_ids: &[&str],
 ) -> eyre::Result<String> {
     tracing::info!(
         "Creating instance with machine: {host_machine_id}, with network segment: {}",
@@ -36,12 +37,14 @@ pub async fn create(
                 "custom_ipxe": "chain --autofree https://boot.netboot.xyz",
                 "phone_home_enabled": phone_home_enable,
                 "hostname": hostname,
+                "tenantKeysetIds": keyset_ids,
         }),
         None => serde_json::json!({
                  "tenant_organization_id": "MyOrg",
                  "user_data": "hello",
                  "custom_ipxe": "chain --autofree https://boot.netboot.xyz",
                  "phone_home_enabled": phone_home_enable,
+                "tenantKeysetIds": keyset_ids,
         }),
     };
 

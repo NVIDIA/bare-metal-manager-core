@@ -10,7 +10,7 @@ use tokio::time::Instant;
 use uuid::Uuid;
 
 use crate::api_client::{ClientApiError, DpuNetworkStatusArgs, MockDiscoveryData};
-use crate::bmc_mock_wrapper::{BmcMockRegistry, BmcMockWrapper};
+use crate::bmc_mock_wrapper::{BmcMockRegistry, BmcMockWrapper, BmcMockWrapperHandle};
 use crate::config::{MachineATronContext, MachineConfig};
 use crate::dhcp_wrapper::{DhcpRelayError, DhcpRequestInfo, DhcpResponseInfo, DpuDhcpRelay};
 use crate::machine_state_machine::MachineStateError::MissingMachineId;
@@ -20,7 +20,7 @@ use crate::machine_utils::{
 };
 use crate::{PersistedDpuMachine, PersistedHostMachine, dhcp_wrapper};
 use bmc_mock::{
-    BmcCommand, BmcMockError, BmcMockHandle, HostMachineInfo, MachineInfo, MockPowerState,
+    BmcCommand, BmcMockError, HostMachineInfo, HostnameQuerying, MachineInfo, MockPowerState,
     POWER_CYCLE_DELAY, PowerStateQuerying, SetSystemPowerError, SetSystemPowerReq,
     SetSystemPowerResult, SystemPowerControl,
 };
@@ -57,6 +57,21 @@ impl PowerStateQuerying for LiveStatePowerQuery {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct LiveStateHostnameQuery(pub Arc<RwLock<LiveState>>);
+
+impl HostnameQuerying for LiveStateHostnameQuery {
+    fn get_hostname(&self) -> String {
+        self.0
+            .read()
+            .unwrap()
+            .observed_machine_id
+            .as_ref()
+            .map(|id| id.id.clone())
+            .unwrap_or("localhost".to_string())
+    }
+}
+
 /// Represents state which changes over time with this machine. This is kept in an `Arc<RwLock>` so
 /// that callers can query it at any time. It is updated after every state transition.
 #[derive(Debug)]
@@ -71,6 +86,7 @@ pub struct LiveState {
     pub state_string: String,
     pub api_state: String,
     pub tpm_ek_certificate: Option<Vec<u8>>,
+    pub ssh_host_key: Option<String>,
 }
 
 impl Default for LiveState {
@@ -87,6 +103,7 @@ impl Default for LiveState {
             state_string: MachineState::BmcInit.to_string(),
             api_state: "Unknown".to_string(),
             tpm_ek_certificate: None,
+            ssh_host_key: None,
         }
     }
 }
@@ -865,18 +882,21 @@ impl MachineStateMachine {
     async fn run_bmc_mock(
         &self,
         ip_address: Ipv4Addr,
-    ) -> Result<Option<Arc<BmcMockHandle>>, MachineStateError> {
+    ) -> Result<Option<Arc<BmcMockWrapperHandle>>, MachineStateError> {
         let mut bmc_mock = BmcMockWrapper::new(
             self.machine_info.clone(),
             self.bmc_command_channel.clone(),
             self.app_context.clone(),
             Arc::new(LiveStatePowerQuery(self.live_state.clone())),
+            Arc::new(LiveStateHostnameQuery(self.live_state.clone())),
         );
 
         let maybe_bmc_mock_handle = match &self.app_context.bmc_registration_mode {
             BmcRegistrationMode::None(port) => {
                 let address = SocketAddr::new(ip_address.into(), *port);
                 let handle = bmc_mock.start(address, true).await?;
+                self.live_state.write().unwrap().ssh_host_key =
+                    handle.ssh_handle.as_ref().map(|h| h.host_pubkey.clone());
                 Some(Arc::new(handle))
             }
             BmcRegistrationMode::BackingInstance(registry) => {
@@ -915,7 +935,7 @@ impl MachineStateMachine {
 #[derive(Debug, Clone)]
 struct BmcInitializedState {
     bmc_dhcp_info: DhcpResponseInfo,
-    _bmc_mock_handle: Option<Arc<BmcMockHandle>>,
+    _bmc_mock_handle: Option<Arc<BmcMockWrapperHandle>>,
 }
 
 #[derive(Debug, Clone)]
@@ -1107,7 +1127,7 @@ impl From<tonic::Status> for MachineStateError {
 #[derive(thiserror::Error, Debug)]
 pub enum AddressConfigError {
     #[error("Error running ip command: {0}")]
-    IoError(#[from] std::io::Error),
+    Io(#[from] std::io::Error),
     #[error("Error running ip command: {0:?}, output: {1:?}")]
     CommandFailure(tokio::process::Command, std::process::Output),
 }

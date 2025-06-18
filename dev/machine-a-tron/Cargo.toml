@@ -42,6 +42,8 @@ tempfile = "3"
 duration-str = "0.12"
 rand = "0.9"
 rcgen = "0.13.1"
+russh = { version = "0.52.1" }
+rand_core = "0.6.4" # russh needs an old version >_<
 
 # [local-dependencies]
 rpc = { path = "../../rpc" }

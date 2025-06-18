@@ -31,9 +31,9 @@ use crate::api_server::StartArgs;
 use crate::{api_server, vault, vault::Vault};
 
 lazy_static::lazy_static! {
+    pub static ref REPO_ROOT: PathBuf = PathBuf::from(env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")).expect("REPO_ROOT must be set in integration tests"));
     pub static ref LOCALHOST_CERTS: CertPaths = {
-        let repo_root = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")).expect("REPO_ROOT must be set");
-        let certs = PathBuf::from(repo_root).join("dev/certs/localhost");
+        let certs = REPO_ROOT.join("dev/certs/localhost");
 
         CertPaths {
             ca_cert: certs.join("ca.crt").canonicalize().unwrap(),

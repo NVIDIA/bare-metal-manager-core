@@ -67,6 +67,8 @@ pub enum BmcMockError {
     Io(#[from] std::io::Error),
     #[error("BMC Mock Configuration error: {0}")]
     Config(String),
+    #[error("Error running SSH server for BMC Mock: {0}")]
+    MockSshServer(String),
 }
 
 #[derive(Debug)]
@@ -125,6 +127,10 @@ pub enum MockPowerState {
 
 pub trait PowerStateQuerying: std::fmt::Debug + Send + Sync {
     fn get_power_state(&self) -> MockPowerState;
+}
+
+pub trait HostnameQuerying: std::fmt::Debug + Send + Sync {
+    fn get_hostname(&self) -> String;
 }
 
 // Simulate a 5-second power cycle

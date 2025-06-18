@@ -8,6 +8,7 @@ mod host_machine;
 mod machine_a_tron;
 mod machine_state_machine;
 mod machine_utils;
+mod mock_ssh_server;
 mod subnet;
 mod tabs;
 mod tui;

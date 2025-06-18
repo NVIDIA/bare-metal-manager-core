@@ -242,6 +242,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                     Some("test"),
                     true,
                     true,
+                    &[],
                 ).await?;
 
                 let metrics = metrics::wait_for_metric_line(
@@ -358,6 +359,7 @@ async fn test_machine_a_tron_multidpu(
                     None,
                     false,
                     false,
+                    &[],
                 )
                 .await?;
 
@@ -542,12 +544,13 @@ where
         persist_dir: None,
         cleanup_on_quit: false,
         api_refresh_interval: Duration::from_millis(500),
+        mock_bmc_ssh_server: false,
     };
 
-    let (machine_handles, mat_handle) = api_test_helper::machine_a_tron::run_local(
+    let (machine_handles, _mat_handle) = api_test_helper::machine_a_tron::run_local(
         mat_config,
         additional_api_urls,
-        test_env.root_dir.clone(),
+        &test_env.root_dir,
         Some(bmc_mock_registry.clone()),
     )
     .await
@@ -555,7 +558,6 @@ where
 
     let results = join_all(machine_handles.into_iter().map(run_assertions)).await;
     assert_eq!(results.len(), host_count as usize);
-    mat_handle.stop().await?;
 
     results.into_iter().try_collect()
 }

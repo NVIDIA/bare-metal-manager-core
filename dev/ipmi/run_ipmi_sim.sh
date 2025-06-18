@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
 
+DIR="$(cd "$(dirname "${0}")" && pwd)"
+cd "${DIR}"
 mkdir -p /tmp/ipmi_state
-ipmi_sim -c ${REPO_ROOT}/dev/ipmi/lan.conf -f ${REPO_ROOT}/dev/ipmi/cmd.conf -s /tmp/ipmi_state
+exec ipmi_sim -c "${DIR}/lan.conf" -f "${DIR}/cmd.conf" -s /tmp/ipmi_state

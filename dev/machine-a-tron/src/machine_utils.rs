@@ -10,6 +10,7 @@ use rcgen::{CertifiedKey, generate_simple_self_signed};
 use reqwest::{ClientBuilder, StatusCode};
 use rpc::forge::MachineArchitecture;
 use std::collections::HashSet;
+use std::path::Path;
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -168,7 +169,6 @@ pub async fn get_next_free_machine(
 pub async fn add_address_to_interface(
     address: &str,
     interface: &str,
-    sudo_command: &Option<String>,
 ) -> Result<(), AddressConfigError> {
     if interface_has_address(interface, address).await? {
         tracing::info!(
@@ -180,16 +180,12 @@ pub async fn add_address_to_interface(
     }
 
     tracing::info!("Adding address {} to interface {}", address, interface);
-    let wrapper_cmd = sudo_command
-        .as_ref()
-        .map(|s| s.to_string())
-        .unwrap_or("/usr/bin/env".to_string());
-    let mut cmd = tokio::process::Command::new(&wrapper_cmd);
+    let wrapper_cmd = find_sudo_command();
+    let mut cmd = tokio::process::Command::new(wrapper_cmd);
     let output = cmd
         .args(["ip", "a", "add", address, "dev", interface])
         .output()
-        .await
-        .map_err(AddressConfigError::IoError)?;
+        .await?;
 
     if !output.status.success() {
         return Err(AddressConfigError::CommandFailure(cmd, output));
@@ -211,8 +207,7 @@ async fn interface_has_address(interface: &str, address: &str) -> Result<bool, A
             interface,
         ])
         .output()
-        .await
-        .map_err(AddressConfigError::IoError)?;
+        .await?;
 
     if !output.status.success() {
         return Err(AddressConfigError::CommandFailure(cmd, output));
@@ -232,4 +227,24 @@ pub fn create_random_self_signed_cert() -> Vec<u8> {
     );
 
     cert.der().to_vec()
+}
+
+fn find_sudo_command() -> &'static str {
+    std::env::var("PATH")
+        .ok()
+        .and_then(|path| {
+            path.split(":").find_map(|dir| {
+                if std::fs::exists(Path::new(dir).join("sudo")).unwrap_or(false) {
+                    Some("sudo")
+                } else if std::fs::exists(Path::new(dir).join("doas")).unwrap_or(false) {
+                    Some("doas")
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or_else(|| {
+            tracing::warn!("could not find sudo or doas in PATH, falling back on /usr/bin/env");
+            "/usr/bin/env"
+        })
 }

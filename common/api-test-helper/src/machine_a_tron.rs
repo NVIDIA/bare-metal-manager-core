@@ -19,7 +19,7 @@ use machine_a_tron::{
 use rpc::forge_api_client::FailOverOn;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, RetryConfig};
 use rpc::protos::forge_api_client::ForgeApiClient;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
@@ -34,7 +34,7 @@ use tokio::task::JoinHandle;
 pub async fn run_local(
     app_config: MachineATronConfig,
     additional_api_urls: Vec<String>,
-    repo_root: PathBuf,
+    repo_root: &Path,
     bmc_address_registry: Option<BmcMockRegistry>,
 ) -> eyre::Result<(Vec<HostMachineHandle>, MachineATronHandle)> {
     let forge_root_ca_path = get_forge_root_ca_path(None, None); // Will get it from the local repo
@@ -97,7 +97,7 @@ pub async fn run_local(
     let (stop_tx, stop_rx) = oneshot::channel();
     let machine_handles_clone = machine_handles.clone();
     let join_handle = tokio::spawn(async move {
-        stop_rx.await?;
+        stop_rx.await.ok(); // this finishes when stop_tx is dropped
 
         try_join_all(
             machine_handles_clone
@@ -112,20 +112,13 @@ pub async fn run_local(
     Ok((
         machine_handles,
         MachineATronHandle {
-            stop_tx,
-            join_handle,
+            _stop_tx: stop_tx,
+            _join_handle: join_handle,
         },
     ))
 }
 
 pub struct MachineATronHandle {
-    stop_tx: oneshot::Sender<()>,
-    join_handle: JoinHandle<eyre::Result<()>>,
-}
-
-impl MachineATronHandle {
-    pub async fn stop(self) -> eyre::Result<()> {
-        _ = self.stop_tx.send(());
-        self.join_handle.await?
-    }
+    _stop_tx: oneshot::Sender<()>,
+    _join_handle: JoinHandle<eyre::Result<()>>,
 }

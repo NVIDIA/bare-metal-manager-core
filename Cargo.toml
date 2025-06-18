@@ -32,6 +32,7 @@ members = [
     "pxe",
     "rpc",
     "scout",
+    "ssh-console",
 ]
 
 [workspace.package]
