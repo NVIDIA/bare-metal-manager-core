@@ -23,7 +23,15 @@
 	{% for m in machines %}
 		<tr>
 			<td>{{ m.id|machine_id_link|safe }}</td>
-			<td>{{ m.state }}</td>
+			<td>
+				{% if m.state == "Ready" || m.state == "Assigned/Ready" %}
+					<span class="bubble success">{{ m.state }}</span>
+				{% else if m.state.to_lowercase().contains("failed") %}
+					<span class="bubble error">{{ m.state }}</span>
+				{% else %}
+					<span class="bubble">{{ m.state }}</span>
+				{% endif %}
+			</td>
 			<td>{{ m.dpu_type }}</td>
 			<td>{{ m.dpu_agent_version }}</td>
 			<td>{{ m.firmware_version }}</td>

@@ -25,8 +25,15 @@
 			<td>{{ ns.id }}</td>
 			<td>{{ ns.created }}</td>
 			<td>
-				{{ ns.state }}
-				{% if ns.time_in_state_above_sla %}⏱️{% endif %}
+				{% if ns.state.to_lowercase().contains("failed") %}
+					<span class="bubble error">{{ ns.state }}{% if ns.time_in_state_above_sla %} ⏱️{% endif %}</span>
+				{% else if ns.time_in_state_above_sla %}
+					<span class="bubble warning">{{ ns.state }} ⏱️</span>
+				{% else if ns.state == "Ready" || ns.state == "Assigned/Ready" %}
+					<span class="bubble success">{{ ns.state }}</span>
+				{% else %}
+					<span class="bubble">{{ ns.state }}</span>
+				{% endif %}
 			</td>
 			<td>{{ ns.sub_domain }}</td>
 			<td>{{ ns.mtu }}</td>
@@ -56,8 +63,15 @@
 			<td>{{ ns.id }}</td>
 			<td>{{ ns.created }}</td>
 			<td>
-				{{ ns.state }}
-				{% if ns.time_in_state_above_sla %}⏱️{% endif %}
+				{% if ns.state.to_lowercase().contains("failed") %}
+					<span class="bubble error">{{ ns.state }}{% if ns.time_in_state_above_sla %} ⏱️{% endif %}</span>
+				{% else if ns.time_in_state_above_sla %}
+					<span class="bubble warning">{{ ns.state }} ⏱️</span>
+				{% else if ns.state == "Ready" || ns.state == "Assigned/Ready" %}
+					<span class="bubble success">{{ ns.state }}</span>
+				{% else %}
+					<span class="bubble">{{ ns.state }}</span>
+				{% endif %}
 			</td>
 			<td>{{ ns.sub_domain }}</td>
 			<td>{{ ns.mtu }}</td>
@@ -89,8 +103,15 @@
 			<td><a href="/admin/vpc/{{ ns.vpc_id }}">{{ ns.vpc_id }}</a></td>
 			<td>{{ ns.created }}</td>
 			<td>
-				{{ ns.state }}
-				{% if ns.time_in_state_above_sla %}⏱️{% endif %}
+				{% if ns.state.to_lowercase().contains("failed") %}
+					<span class="bubble error">{{ ns.state }}{% if ns.time_in_state_above_sla %} ⏱️{% endif %}</span>
+				{% else if ns.time_in_state_above_sla %}
+					<span class="bubble warning">{{ ns.state }} ⏱️</span>
+				{% else if ns.state == "Ready" || ns.state == "Assigned/Ready" %}
+					<span class="bubble success">{{ ns.state }}</span>
+				{% else %}
+					<span class="bubble">{{ ns.state }}</span>
+				{% endif %}
 			</td>
 			<td>{{ ns.sub_domain }}</td>
 			<td>{{ ns.mtu }}</td>

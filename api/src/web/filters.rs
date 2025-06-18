@@ -88,20 +88,23 @@ pub fn label_list_fmt(labels: &[rpc::forge::Label], truncate: bool) -> ::askama:
 }
 
 /// Formats a list of Health Probe Alerts
-/// If there is no alert, the generated String will be "None"
+/// If there is no alert, generates a green "None" bubble
+/// Generates HTML using the unified bubble system
 pub fn health_alerts_fmt(
     alerts: &[health_report::HealthProbeAlert],
     include_message: bool,
 ) -> ::askama::Result<String> {
     if alerts.is_empty() {
-        return Ok("None".to_string());
+        return Ok(r#"<span class="bubble success">None</span>"#.to_string());
     }
 
     let mut result = String::new();
     for alert in alerts.iter() {
         if !result.is_empty() {
-            result += "<br>";
+            result += " ";
         }
+
+        result += r#"<span class="bubble error">"#;
         askama_escape::Html.write_escaped(&mut result, &alert.id.to_string())?;
         if let Some(target) = alert.target.as_ref() {
             result += " [Target: ";
@@ -113,6 +116,7 @@ pub fn health_alerts_fmt(
             result += ": ";
             askama_escape::Html.write_escaped(&mut result, &alert.message)?;
         }
+        result += r#"</span>"#;
     }
     Ok(result)
 }

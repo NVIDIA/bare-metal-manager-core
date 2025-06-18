@@ -3,92 +3,111 @@
 {% block title %}{{ machine_type }} Health {{ id }}{% endblock %}
 
 {% block content %}
-<h1>{{ machine_type }} Health <a href="/admin/machine/{{ id }}">{{ id }}</a></h1>
+<h1>{{ machine_type }} Health: <a href="/admin/machine/{{ id }}">{{ id }}</a></h1>
 
-<details>
-	<summary>
-		<h2 style="display: inline-block;">Add Override</h2>
-	</summary>
-	<p>
-		<b>Instructions:</b>
-		<i><ul>
-			<li>Fill out the form below and press the submit button to submit a health override.</li>
-			<li>The probe <b>id</b> and <b>message</b> fields need to be populated.</li>
-			<li>Probe <b>target</b>s are optional.</li>
-			<li>The preset buttons below allow to pre-populate the textbox for certain use-cases.</li>
-		</ul></i>
-	</p>
-	<p>
-		<b>Presets:</b>
-		<ul>
-			<li><input type="submit" value="Blank Example" onclick="setOverrideTextBoxToTemplate(templateHealthReport)"></li>
-			<li><input type="submit" value="Host Update (To allow manual DPU Reprovisioning)" onclick="setOverrideTextBoxToTemplate(templateMergeHostUpdateMaintenance)"></li>
-			<li><input type="submit" value="Internal Maintenance" onclick="setOverrideTextBoxToTemplate(templateMergeInternalMaintenance)"></li>
-			<li><input type="submit" value="Do not reboot machine for recovery" onclick="setOverrideTextBoxToTemplate(templateStopRebootForRecovery)"></li>
-			<li><input type="submit" value="Out For Repair Maintenance" onclick="setOverrideTextBoxToTemplate(templateMergeOfrMaintenance)"></li>
-			<li><input type="submit" value="Degraded" onclick="setOverrideTextBoxToTemplate(templateMergeDegradedMaintenance)"></li>
-			<li><input type="submit" value="Validation" onclick="setOverrideTextBoxToTemplate(templateMergeValidationMaintenance)"></li>
-			<li><input type="submit" value="Suppress External Alerting Only" onclick="setOverrideTextBoxToTemplate(templateMergeSuppressExternalAlerting)"></li>
-			<li><input type="submit" value="Merge: Alert which prevents allocations" onclick="setOverrideTextBoxToTemplate(templateMergeSingleAlert)"></li>
-			<li><input type="submit" value="Replace: Alert which prevents allocations" onclick="setOverrideTextBoxToTemplate(templateReplaceSingleAlert)"></li>
-			<li><input type="submit" value="Replace: Mark machine as healthy" onclick="setOverrideTextBoxToTemplate(templateReplaceAsHealthy)"></li>
-		</ul>
-	</p>
-	<textarea id="override" rows="20" style="width: 100%">
-	</textarea>
-	<p><input type="submit" id="submit_add" value="Submit Override"></p>
-</details>
+<!-- Aggregate Health Card -->
+<div class="card">
+	{{ aggregate_health|safe }}
+</div>
 
+<!-- Active Overrides - Show if any exist -->
 {% if !overrides.is_empty() %}
-<h2>Active overrides:</h2>
-<table class="sortable detailsview">
-<thead>
-	<tr>
-		<th>Source</th>
-		<th>Mode</th>
-		<th>Remove</th>
-		<th>Alerts</th>
-		<th>Details</th>
-	</tr>
-</thead>
-<tbody>
-	{% for override in overrides %}
-	<tr>
-		<td>{{ override.health_report.source }}</td>
-		<td>{{ override.mode }}</td>
-		<td><input type="button" id="remove-override-{{ override.health_report.source }}" value="Remove"></td>
-		<td>{{ override.health_report.alerts|health_alerts_fmt(false)|safe }}</td>
-		<td style="overflow: auto;">
-			<details>
-				<summary><b>Expand</b></summary>
-				<pre style="max-width: 50vw;"><code class="prettyjson">{{ override|json|safe }}</code></pre>
-			</details>
-		</td>
-	</tr>
-	{% endfor %}
-</tbody>
-</table>
+<div class="card">
+	<h2>Active Health Overrides</h2>
+	<table class="sortable overview">
+		<thead>
+			<tr>
+				<th>Source</th>
+				<th>Mode</th>
+				<th>Alerts</th>
+				<th>Actions</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for override in overrides %}
+			<tr>
+				<td>{{ override.health_report.source }}</td>
+				<td>{{ override.mode }}</td>
+				<td>
+					{{ override.health_report.alerts|health_alerts_fmt(false)|safe }}
+					<details>
+						<summary>View JSON Details</summary>
+						<div style="overflow: auto; max-height: 300px; border: 1px solid var(--border-color); border-radius: 8px; background-color: var(--bg-tertiary); margin-top: 0.5rem;">
+							<pre style="margin: 0; padding: 1rem; background-color: transparent; white-space: pre-wrap;"><code class="prettyjson">{{ override|json|safe }}</code></pre>
+						</div>
+					</details>
+				</td>
+				<td>
+					<button id="remove-override-{{ override.health_report.source }}" class="delete-button">Remove</button>
+				</td>
+			</tr>
+			{% endfor %}
+		</tbody>
+	</table>
+</div>
 {% endif %}
 
-{{ aggregate_health|safe }}
+<!-- Health Override Management Card -->
+<div class="card">
+	<h2>Health Override Management</h2>
+	<details>
+		<summary>Add New Health Override</summary>
+		
+		<div style="padding: 1.5rem 0;">
+			<h3>Quick Start Templates</h3>
+			<p style="color: var(--text-muted); margin-bottom: 1rem;">
+				Select a template to pre-fill the configuration, then customize as needed:
+			</p>
+			
+			<div class="button-group horizontal">
+				<button onclick="setOverrideTextBoxToTemplate(templateHealthReport)">Blank Template</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateMergeHostUpdateMaintenance)">Host Update</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateMergeInternalMaintenance)">Internal Maintenance</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateStopRebootForRecovery)">Prevent Reboot</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateMergeOfrMaintenance)">Out for Repair</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateMergeDegradedMaintenance)">Degraded</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateMergeValidationMaintenance)">Validation</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateMergeSuppressExternalAlerting)">Suppress Alerts</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateMergeSingleAlert)">Merge Alert</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateReplaceSingleAlert)">Replace Alert</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateReplaceAsHealthy)">Mark Healthy</button>
+			</div>
 
-<details>
-	<summary>
-		<h2 style="display: inline-block;">Component Health</h2>
-		<br><i>Health of individual components is hidden. Expand for details.</i>
-	</summary>
-	{% for component in component_health %}
-	{{ component|safe }}
-	{%endfor%}
-</details>
+			<h3>Override Configuration</h3>
+			<p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.5rem;">
+				Required fields: <strong>id</strong> and <strong>message</strong>. Target is optional.
+			</p>
+			<textarea id="override" rows="16"></textarea>
+			<button id="submit_add">Submit Override</button>
+		</div>
+	</details>
+</div>
 
-<details open>
-	<summary>
-		<h2 style="display: inline-block;">History</h2>
-		<a href="/admin/machine/{{ id }}/health-history">Open History on separate page</a>
-	</summary>
+<!-- Detailed Health Information Card -->
+<div class="card">
+	<h2>Detailed Health Information</h2>
+	<details>
+		<summary>View Component Health Details</summary>
+		<div style="padding: 1rem 0;">
+			{% for component in component_health %}
+			<div style="margin-bottom: 2rem;">
+				{{ component|safe }}
+			</div>
+			{%endfor%}
+		</div>
+	</details>
+</div>
+
+<!-- Health History Card -->
+<div class="card">
+	<h2>Health History</h2>
+	<p style="margin-bottom: 1rem;">
+		<a href="/admin/machine/{{ id }}/health-history" style="font-size: 0.9rem;">
+			View extended history timeline →
+		</a>
+	</p>
 	{{ history|safe }}
-</details>
+</div>
 
 {% endblock %}
 

@@ -5,7 +5,7 @@
 {% block content %}
 
 <h1>Attestation Summary</h1>
-<div style="font:italic">(if the machine is not listed in the table below, this means the scout has never had a chance to run)</div>
+<div><em>(if the machine is not listed in the table below, this means the scout has never had a chance to run)</em></div>
 <table class="detailsview">
     <thead>
 		<tr>
@@ -21,11 +21,11 @@
             <td>{{ attested_machine.machine_id|machine_id_link }}</td>
             {% if attested_machine.bundle_id.is_none() %}
             <td>
-                <a style="color:#eb0c4f" href="/admin/machine/{{ attested_machine.machine_id.to_string() }}/attestation-results">Attestation Failed</a>
+                <a class="text-error" href="/admin/machine/{{ attested_machine.machine_id.to_string() }}/attestation-results">Attestation Failed</a>
             </td>
             {% else %}
             <td>
-                <a style="color:#0ec01d" href="/admin/machine/{{ attested_machine.machine_id.to_string() }}/attestation-results">Attestation Successful</a>
+                <a class="text-success" href="/admin/machine/{{ attested_machine.machine_id.to_string() }}/attestation-results">Attestation Successful</a>
             </td>
             {% endif %}
             <td>{{ attested_machine.profile_name }}</td>

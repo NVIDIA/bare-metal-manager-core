@@ -22,7 +22,7 @@
 			<td><a href="/admin/machinevalidation/resultdetails/{{ result.validation_id }}/{{ result.test_id }}">{{
 					result.name }}</a></td>
 			<td>{{ result.context }}</td>
-			<td>{% if result.status == "0" %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}{{ result.status }}</div></td>
+			                <td>{% if result.status == "0" %}<span class="bubble success">{% else %}<span class="bubble error">{% endif %}{{ result.status }}</span></td>
 			<td>{{ result.start_time }}</td>
 			<td>{{ result.end_time }}</td>
 

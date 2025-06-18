@@ -1,70 +1,48 @@
 {% extends "base.html" %}
 
-{% block title %}Search results{% endblock %}
-
-{% block css %}
-/* Select the form element and set its width, margin, padding, border, and background color */
-form.ip_finder {
-	width: fit-content;
-	padding: 20px;
-	border: 1px solid #ccc;
-	background-color: #f0f0f0;
-}
-
-/* Select the label element and set its font size, font weight, and margin */
-form.ip_finder label {
-	font-size: 18px;
-}
-
-/* Select the input element and set its width, height, padding, border, and outline */
-form.ip_finder input {
-	width: 200px;
-}
-
-/* Select the input element with type="submit" and set its width, margin, background color, color, and cursor */
-form.ip_finder input[type="submit"] {
-	width: 100px;
-}
-
-/* Select the ul element and set its width, margin, padding, list-style, and border */
-ul.ip_finder {
-	padding: 20px;
-	list-style: none;
-}
-
-/* Select the li element and set its font-size, line-height, and margin */
-ul.ip_finder li {
-	line-height: 1.5;
-	margin-bottom: 10px;
-}
-
-ul.ip_finder a {
-	font-weight: bold;
-}
-
-{% endblock %}
+{% block title %}IP Address Search{% endblock %}
 
 {% block content %}
-<h1>IP address matches</h1>
+<h1>IP Address Search</h1>
 
 {% if found.is_empty() %}
 	{% if !ip.is_empty() %}
-		<p>IP did not match anything</p>
+		<div class="card">
+			<p class="text-warning font-bold" style="font-size: 1.25rem; margin-bottom: 1rem;">No results found</p>
+			<p>The IP address <strong>{{ ip }}</strong> did not match any records.</p>
+		</div>
 	{% endif %}
 {% else %}
-<h2>IP address appears in {{ found.len() }} places</h2>
-<ul class="ip_finder">
-	{% for m in found %}
-		<li>
-			{% if !m.url.is_empty() %}
-				<a href="{{ m.url }}">{{ m.name }}</a>
-			{% else %}
-				<b>{{ m.name }}</b>
-			{% endif %}
-			: {{ m.message }}
-		</li>
-	{% endfor %}
-</ul>
+
+<div class="card">
+	<p class="text-success font-bold" style="font-size: 1.25rem; margin-bottom: 1rem;">{{ ip }} appears in {{ found.len() }} place{% if found.len() != 1 %}s{% endif %}</p>
+	
+	<table class="sortable overview">
+		<thead>
+			<tr>
+				<th>Type</th>
+				<th>Details</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for m in found %}
+			<tr>
+				<td>
+					{% if !m.url.is_empty() %}
+						<span class="bubble">
+							<a href="{{ m.url }}">{{ m.name }}</a>
+						</span>
+					{% else %}
+						<span class="bubble">{{ m.name }}</span>
+					{% endif %}
+				</td>
+				<td>{{ m.message }}</td>
+			</tr>
+			{% endfor %}
+		</tbody>
+	</table>
+</div>
+
 {% endif %}
 
 {% endblock %}

@@ -36,64 +36,52 @@
 				<td>{{ st.health.alerts|health_alerts_fmt(false)|safe }}</td>
 				<td>{{ st.health.alerts|health_alert_classifications_fmt|safe }}</td>
 			{% endif %}
-			<td {% if !st.is_agent_updated %}style="color: red"{% endif %}>{{ st.agent_version }}</td>
+			            <td {% if !st.is_agent_updated %}class="cell-error"{% endif %}>{{ st.agent_version }}</td>
 			<td>{{ st.network_config_version|config_version|safe }}</td>
 		</tr>
 		{% endfor %}
 	</tbody>
 	<tfoot>
 		<tr>
-			<th>{{ dpus.len() }} item{% if dpus.len() != 1 %}s{% endif %}</th>
-			<th></th>
-			{% if active_filter == "unhealthy" %}
-				<th></th>
-				<th></th>
-			{% endif %}
-			<th></th>
-			<th></th>
-		</tr>
-		<tr>
-			<th>
-				{% if pages > 1 %}
-					<a href="/admin/network-status?current_page=0&limit={{limit}}">[&lt; First]</a>
-					{% if current_page > 0 %}
-						<a href="/admin/network-status?current_page={{previous}}&limit={{limit}}">[&lt;&lt; Previous]</a>
-					{% else %}
-						[&lt;&lt; Previous]
-					{% endif %}
-
-					{% if pages == 0 %}
-						[Next &gt;&gt;]
-						[Last &gt;]
-					{% else%}
-						{% if current_page < (pages-1) %}
-							<a href="/admin/network-status?current_page={{next}}&limit={{limit}}">[Next &gt;&gt;]</a>
-						{% else %}
-							[Next &gt;&gt;]
-						{% endif %}
-						<a href="/admin/network-status?current_page={{(pages - 1)}}&limit={{limit}}">[Last &gt;]</a>
-					{% endif %}
-
-					<br/>
-					Page: ...				    				
-						{% for p in page_range_start..page_range_end %}
-							{% if p == current_page %}
-								[{{p}}]
-							{% else %}
-								<a href="/admin/network-status?current_page={{p}}&limit={{limit}}">[{{p}}]</a> 
-							{% endif %}
-						{% endfor %}
-					...
-				{% endif %}
+			<th colspan="{% if active_filter == "unhealthy" %}6{% else %}4{% endif %}">
+				{{ dpus.len() }} item{% if dpus.len() != 1 %}s{% endif %}
 			</th>
-			<th></th>
-			{% if active_filter == "unhealthy" %}
-				<th></th>
-				<th></th>
-			{% endif %}
-			<th></th>
-			<th></th>
 		</tr>
+		{% if pages > 1 %}
+		<tr>
+			<th colspan="{% if active_filter == "unhealthy" %}6{% else %}4{% endif %}">
+				<a href="/admin/network-status?current_page=0&limit={{limit}}">[&lt; First]</a>
+				{% if current_page > 0 %}
+					<a href="/admin/network-status?current_page={{previous}}&limit={{limit}}">[&lt;&lt; Previous]</a>
+				{% else %}
+					[&lt;&lt; Previous]
+				{% endif %}
+
+				{% if pages == 0 %}
+					[Next &gt;&gt;]
+					[Last &gt;]
+				{% else%}
+					{% if current_page < (pages-1) %}
+						<a href="/admin/network-status?current_page={{next}}&limit={{limit}}">[Next &gt;&gt;]</a>
+					{% else %}
+						[Next &gt;&gt;]
+					{% endif %}
+					<a href="/admin/network-status?current_page={{(pages - 1)}}&limit={{limit}}">[Last &gt;]</a>
+				{% endif %}
+
+				<br/>
+				Page: ...				    				
+					{% for p in page_range_start..page_range_end %}
+						{% if p == current_page %}
+							[{{p}}]
+						{% else %}
+							<a href="/admin/network-status?current_page={{p}}&limit={{limit}}">[{{p}}]</a> 
+						{% endif %}
+					{% endfor %}
+				...
+			</th>
+		</tr>
+		{% endif %}
 	</tfoot>
 </table>
 

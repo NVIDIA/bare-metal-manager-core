@@ -4,21 +4,7 @@
 
 {% block content %}
 <h1>Machine Validation Run <a href="/admin/machinevalidation/runs/{{ validation_id }}">{{ validation_id }}</a> Test {{ test_id }}</h1>
-<style>
-	.stdout-output {
-		font-family: monospace;
-		white-space: pre-wrap;
-		padding: 10px;
-		border-radius: 4px;
-	}
 
-	.stderr-output {
-		font-family: monospace;
-		white-space: pre-wrap;
-		padding: 10px;
-		border-radius: 4px;
-	}
-</style>
 <table class="sortable overview">
 	{% for result in validation_results %}
 	<tr>
@@ -35,7 +21,7 @@
 	</tr>
 	<tr>
 		<th>Status</th>
-		<td>{% if result.status == "0" %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}{{ result.status }}</div></td>
+		                <td>{% if result.status == "0" %}<span class="bubble success">{% else %}<span class="bubble error">{% endif %}{{ result.status }}</span></td>
 	</tr>
 	<tr>
 		<th>Command</th>
@@ -48,13 +34,13 @@
 	<tr>
 		<th>Stdout</th>
 		<td>
-			<div class="stdout-output">{{ result.stdout|colorize_output()|safe }}</div>
+			<pre><code>{{ result.stdout|colorize_output()|safe }}</code></pre>
 		</td>
 	</tr>
 	<tr>
 		<th>Stderr</th>
 		<td>
-			<div class="stderr-output">{{ result.stderr|colorize_output()|safe }}</div>
+			<pre><code>{{ result.stderr|colorize_output()|safe }}</code></pre>
 		</td>
 	</tr>
 	<tr>

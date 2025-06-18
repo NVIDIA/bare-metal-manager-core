@@ -17,20 +17,30 @@
 		{% endif %}
 		</td>
 	</tr>
-	<tr><th>State</th><td>{{ state }}</td></tr>
+			<tr><th>State</th><td>
+			{% if state.to_lowercase().contains("failed") %}
+				<span class="bubble error">{{ state }}{% if time_in_state_above_sla %} ⏱️{% endif %}</span>
+			{% else if time_in_state_above_sla %}
+				<span class="bubble warning">{{ state }} ⏱️</span>
+			{% else if state == "Ready" || state == "Assigned/Ready" %}
+				<span class="bubble success">{{ state }}</span>
+			{% else %}
+				<span class="bubble">{{ state }}</span>
+			{% endif %}
+		</td></tr>
 	<tr><th>State Version</th><td>{{ state_version|config_version|safe }}</td></tr>
 	<tr><th>Time in state</th><td>{{ time_in_state }}</td></tr>
 	<tr><th>Last Reboot</th><td>{{ last_reboot }}</td></tr>
 	<tr><th>State SLA</th><td>{{ state_sla }}</td></tr>
 	<tr><th>Time in State is above SLA</th><td>{{ time_in_state_above_sla }}</td></tr>
 	{% if !state_reason.is_empty() %}
-	<tr><th>State machine is blocked</th><td>{{ state_reason }}</td></tr>
+	<tr><th>State machine is blocked</th><td><span class="bubble error">{{ state_reason }}</span></td></tr>
 	{% endif %}
 
 	{% if !network_config.is_empty() %}
 	<tr>
 		<th>Network config (sent to forge-dpu-agent)</th>
-		<td><div style="max-height: 20vh; overflow: auto; margin: 0; padding: 0;"><pre><code>{{ network_config }}</code></pre></div></td>
+		<td><div><pre><code>{{ network_config }}</code></pre></div></td>
 	</tr>
 	{% endif %}
 	<tr><th>Version</th><td>{{ version }}</td></tr>
@@ -83,11 +93,9 @@
 	<tr>
 		<th>Health Probe Alerts</th>
 		<td>
-			{% if health.alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
 			<a href="/admin/machine/{{ id }}/health">
 				{{ health.alerts|health_alerts_fmt(true)|safe }}
 			</a>
-			</div>
 		</td>
 	</tr>
 	<tr>
@@ -140,7 +148,7 @@
 				<p>Machines in maintenance mode cannot be assigned an instance</p>
 				{% else %}
 				<input type="hidden" name="action" value="exit"/>
-				<button style="margin-left: 0" type="submit">Exit maintenance</button>
+				<button type="submit">Exit maintenance</button>
 				{% endif %}
 			</form>
 		</td>
@@ -149,13 +157,14 @@
 		<th>Quarantine State</th>
 		<td>
 		{% if let Some(quarantine_state) = quarantine_state %}
-			<div class="unhealthy">
-				Host is quarantined! Mode: {{ quarantine_state.mode_str() }}, Reason:
+			<div class="health-container">
+				<span class="bubble error">Host is quarantined! Mode: {{ quarantine_state.mode_str() }}, Reason:
 			{% if quarantine_state_is_link %}
 				<a href="{{ quarantine_state.reason_str() }}">{{ quarantine_state.reason_str() }}</a>
 			{% else %}
 				{{ quarantine_state.reason_str() }}
 			{% endif %}
+			</span>
 			</div>
 		{% endif %}
 			<form id="quarantine_action" method="POST" action="/admin/machine/{{ id }}/quarantine">
@@ -176,7 +185,7 @@
 				<p>Quarantined machines will have host networking disabled</p>
 			{% else %}
 				<input type="hidden" name="action" value="disable"/>
-				<button style="margin-left: 0" type="submit">End Quarantine</button>
+				<button type="submit">End Quarantine</button>
 			{% endif %}
 			</form>
 		</td>
@@ -195,15 +204,21 @@
 	<tr><th>Version</th><td>{{ bmc_info.version|option_fmt }}</td></tr>
 	<tr><th>Firmware Version</th><td>{{ bmc_info.firmware_version|option_fmt }}</td></tr>
 	<tr>
-		<th>Power Control</th>
-		<td>
-			{% include "power_control.html" %}
+		<th>Power Actions</th>
+		<td class="action-cell">
+			<div></div>
+			<div>
+				{% include "power_control.html" %}
+			</div>
 		</td>
 	</tr>
 	<tr>
-		<th>Reset BMC</th>
-		<td>
-			{% include "bmc_reset.html" %}
+		<th>BMC Actions</th>
+		<td class="action-cell">
+			<div></div>
+			<div>
+				{% include "bmc_reset.html" %}
+			</div>
 		</td>
 	</tr>
 </table>
@@ -225,7 +240,7 @@ Missing BMC Data
 		<td>
 			<details>
 				<summary>Expand Report</summary>
-				<div style="max-height: 40vh; overflow: auto; margin: 0; padding: 0;">
+				<div>
 					<pre><code>{{ discovery_info_json }}</code></pre>
 				</div>
 			</details>
@@ -272,13 +287,13 @@ Missing BMC Data
 			<td>{{ interface.slot }}</td>
 			<td>{{ interface.lid }}</td>
 			{% if interface.ufm_visible == "false" %}
-			<td style="background-color: red">
+			<td class="cell-error">
 			{% else if interface.ufm_visible == "unknown" %}
-			<td style="background-color: yellow">
+			<td class="cell-warning">
 			{% else %}
 			<td>
 			{% endif %}
-			{{ interface.ufm_visible }}
+				{{ interface.ufm_visible }}
 			</td>
 		</tr>
 	{% endfor %}
@@ -305,7 +320,7 @@ Missing BMC Data
                 <td>{{ run.context }}</td>
                 <td>{{ run.start_time }}</td>
                 <td>{{ run.end_time }}</td>
-                <td>{% if run.status == "Completed(Success)" %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}{{ run.status }}</div></td>
+                <td>{% if run.status == "Completed(Success)" %}<span class="bubble success">{% else %}<span class="bubble error">{% endif %}{{ run.status }}</span></td>
             </tr>
             {% endfor %}
         </tbody>
@@ -359,7 +374,7 @@ Missing BMC Data
 		<td>
 			<details>
 				<summary>Expand Capabilities</summary>
-				<div style="max-height: 40vh; overflow: auto; margin: 0; padding: 0;">
+				<div>
 					<pre><code>{{ capabilities_json }}</code></pre>
 				</div>
 			</details>

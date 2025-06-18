@@ -21,7 +21,7 @@
 	<tr><th>Device Type</th><td>{{ d.device_type }}</td></tr>
 	<tr><th>Connected DPU(s)</th>
 		<td>
-		<table style="width: 100%;">
+		<table>
 			<thead><tr><th>ID</th><th>Local port</th><th>Remote port</th></tr></thead>
 			<tbody>
 			{% for dpu in d.connected_dpus %}

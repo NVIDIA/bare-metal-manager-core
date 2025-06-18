@@ -21,8 +21,15 @@
 			<td><a href="/admin/tenant/{{ p.tenant_organization_id }}">{{ p.tenant_organization_id }}</a></td>
 			<td>{{ p.name }}</td>
 			<td>
-				{{ p.state }}
-				{% if p.time_in_state_above_sla %}⏱️{% endif %}
+				{% if p.state.to_lowercase().contains("failed") %}
+					<span class="bubble error">{{ p.state }}{% if p.time_in_state_above_sla %} ⏱️{% endif %}</span>
+				{% else if p.time_in_state_above_sla %}
+					<span class="bubble warning">{{ p.state }} ⏱️</span>
+				{% else if p.state == "Ready" || p.state == "Assigned/Ready" %}
+					<span class="bubble success">{{ p.state }}</span>
+				{% else %}
+					<span class="bubble">{{ p.state }}</span>
+				{% endif %}
 			</td>
 			<td>{{ p.pkey }}</td>
 		</tr>

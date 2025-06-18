@@ -12,15 +12,15 @@
 		<tr>
 			<td>{{ record.timestamp }}</td>
 			<td>
-				{% if record.health.alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
-					{{ record.health.alerts|health_alerts_fmt(false)|safe }}
-				</div>
+				{{ record.health.alerts|health_alerts_fmt(false)|safe }}
 			</td>
 			<td>{{ record.health.alerts|health_alert_classifications_fmt|safe }}</td>
-			<td style="overflow: auto;">
+			<td>
 				<details>
-					<summary><b>Expand</b></summary>
-					<pre style="max-width: 50vw;"><code class="prettyjson">{{ record.health|json|safe }}</code></pre>
+					<summary>Expand</summary>
+					<div style="overflow: auto; max-height: 300px; border: 1px solid var(--border-color); border-radius: 8px; background-color: var(--bg-tertiary); margin-top: 0.5rem;">
+						<pre style="margin: 0; padding: 1rem; background-color: transparent; white-space: pre-wrap;"><code class="prettyjson">{{ record.health|json|safe }}</code></pre>
+					</div>
 				</details>
 			</td>
 		</tr>
