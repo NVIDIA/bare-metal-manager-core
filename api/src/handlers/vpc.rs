@@ -49,7 +49,7 @@ pub(crate) async fn create(
     if let Some(ref nsg_id) = vpc_creation_request.network_security_group_id {
         let id = nsg_id.parse::<NetworkSecurityGroupId>().map_err(|e| {
             CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
-                e.to_string(),
+                e.value(),
             ))
         })?;
 
@@ -117,7 +117,7 @@ pub(crate) async fn update(
     if let Some(ref nsg_id) = vpc_update_request.network_security_group_id {
         let id = nsg_id.parse::<NetworkSecurityGroupId>().map_err(|e| {
             CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
-                e.to_string(),
+                e.value(),
             ))
         })?;
 

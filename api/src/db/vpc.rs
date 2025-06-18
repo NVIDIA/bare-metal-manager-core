@@ -381,7 +381,7 @@ impl TryFrom<rpc::VpcCreationRequest> for NewVpc {
                 .transpose()
                 .map_err(|e: NetworkSecurityGroupIdParseError| {
                     CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
-                        e.to_string(),
+                        e.value(),
                     ))
                 })?,
             network_virtualization_type: virt_type,
@@ -429,7 +429,7 @@ impl TryFrom<rpc::VpcUpdateRequest> for UpdateVpc {
                 .transpose()
                 .map_err(|e: NetworkSecurityGroupIdParseError| {
                     CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
-                        e.to_string(),
+                        e.value(),
                     ))
                 })?,
             if_version_match,

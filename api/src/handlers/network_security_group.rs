@@ -42,7 +42,7 @@ pub(crate) async fn create(
         None => NetworkSecurityGroupId::from(Uuid::new_v4()),
         Some(i) => i.parse::<NetworkSecurityGroupId>().map_err(|e| {
             CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
-                e.to_string(),
+                e.value(),
             ))
         })?,
     };
@@ -208,7 +208,7 @@ pub(crate) async fn find_by_ids(
         .collect::<Result<Vec<NetworkSecurityGroupId>, _>>()
         .map_err(|e| {
             CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
-                e.to_string(),
+                e.value(),
             ))
         })?;
 
@@ -278,7 +278,7 @@ pub(crate) async fn update(
     // Get the target ID
     let id = req.id.parse::<NetworkSecurityGroupId>().map_err(|e| {
         CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
-            e.to_string(),
+            e.value(),
         ))
     })?;
 
@@ -432,7 +432,7 @@ pub(crate) async fn delete(
 
     let id = req.id.parse::<NetworkSecurityGroupId>().map_err(|e| {
         CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
-            e.to_string(),
+            e.value(),
         ))
     })?;
 
@@ -650,7 +650,7 @@ pub(crate) async fn get_attachments(
         .collect::<Result<Vec<NetworkSecurityGroupId>, _>>()
         .map_err(|e| {
             CarbideError::from(RpcDataConversionError::InvalidNetworkSecurityGroupId(
-                e.to_string(),
+                e.value(),
             ))
         })?;
 

@@ -35,7 +35,7 @@ pub(crate) async fn create(
     let id = match req.id {
         None => InstanceTypeId::from(Uuid::new_v4()),
         Some(i) => i.parse::<InstanceTypeId>().map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.to_string()))
+            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
         })?,
     };
 
@@ -159,7 +159,7 @@ pub(crate) async fn find_by_ids(
     // we can send to the DB.
     for id in req.instance_type_ids {
         instance_type_ids.push(id.parse::<InstanceTypeId>().map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.to_string()))
+            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
         })?);
     }
 
@@ -214,7 +214,7 @@ pub(crate) async fn update(
 
     // Get the target ID
     let id = req.id.parse::<InstanceTypeId>().map_err(|e| {
-        CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.to_string()))
+        CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
     })?;
 
     // Prepare the metadata
@@ -360,7 +360,7 @@ pub(crate) async fn delete(
         .id
         .parse::<InstanceTypeId>()
         .map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.to_string()))
+            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
         })?;
 
     // Prepare our txn to delete from the DB
@@ -452,7 +452,7 @@ pub(crate) async fn associate_machines(
         .instance_type_id
         .parse::<InstanceTypeId>()
         .map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.to_string()))
+            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
         })?;
 
     // Prepare our txn to associate machines with the instance type
@@ -503,7 +503,7 @@ pub(crate) async fn associate_machines(
         .instance_type_id
         .parse::<InstanceTypeId>()
         .map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.to_string()))
+            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
         })?;
 
     // Query the DB to make sure the instance type is valid/active.

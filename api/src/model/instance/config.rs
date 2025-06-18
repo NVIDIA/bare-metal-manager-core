@@ -121,7 +121,7 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
                 .map(|nsg| nsg.parse())
                 .transpose()
                 .map_err(|e: NetworkSecurityGroupIdParseError| {
-                    RpcDataConversionError::InvalidNetworkSecurityGroupId(e.to_string())
+                    RpcDataConversionError::InvalidNetworkSecurityGroupId(e.value())
                 })?,
         })
     }
