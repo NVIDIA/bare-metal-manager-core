@@ -15,7 +15,6 @@
 		<th>Health Alerts</th>
 		<th>Health Overrides #</th>
 		<th>Associated DPU/Host</th>
-		<th>Hostname</th>
 		<th>Labels</th>
 		<th>Instance Type</th>
 		<th>IP Address</th>
@@ -73,7 +72,6 @@
 				{{ m.associated_host_id|machine_id_link|safe }}
 				{% endif %}
 			</td>
-			<td><a href="/admin/machine/{{ m.id }}">{{ m.hostname }}</a></td>
 			<td>{{ m.metadata.labels|label_list_fmt(true)|safe }}</td>
 			<td>
 				{% if !m.instance_type_id.is_empty() %}
