@@ -1105,7 +1105,7 @@ impl Default for DpuConfig {
                                     ),
                                     preingest_upgrade_when_below: None,
                                     known_firmware: vec![FirmwareEntry {
-                                        version: "32.41.1300".to_string(),
+                                        version: "32.42.1000".to_string(),
                                         mandatory_upgrade_from_priority: None,
                                         default: true,
                                         filename: None,
