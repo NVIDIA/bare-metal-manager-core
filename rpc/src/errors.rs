@@ -26,7 +26,7 @@ pub enum RpcDataConversionError {
     InvalidConfigVersion(String),
     #[error("Machine ID {0} is not valid")]
     InvalidMachineId(String),
-    #[error("InstanceType ID {0} is not valid")]
+    #[error("Network Security Group ID {0} is not valid")]
     InvalidNetworkSecurityGroupId(String),
     #[error("Instance Type ID {0} is not valid")]
     InvalidInstanceTypeId(String),

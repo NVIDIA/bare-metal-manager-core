@@ -83,7 +83,7 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
             .map(|i| i.parse::<InstanceTypeId>())
             .transpose()
             .map_err(|e| {
-                CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.to_string()))
+                CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.value()))
             })?;
 
         let config = request

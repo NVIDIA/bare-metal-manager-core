@@ -814,13 +814,13 @@ impl TryFrom<rpc::NetworkSecurityGroupStatus> for NetworkSecurityGroupStatusObse
 
     fn try_from(status: rpc::NetworkSecurityGroupStatus) -> Result<Self, Self::Error> {
         Ok(NetworkSecurityGroupStatusObservation {
-            id: status.id.parse::<NetworkSecurityGroupId>().map_err(|e| {
-                RpcDataConversionError::InvalidNetworkSecurityGroupId(e.to_string())
+            id: status
+                .id
+                .parse::<NetworkSecurityGroupId>()
+                .map_err(|e| RpcDataConversionError::InvalidNetworkSecurityGroupId(e.value()))?,
+            version: status.version.parse::<ConfigVersion>().map_err(|_| {
+                RpcDataConversionError::InvalidConfigVersion(status.version.clone())
             })?,
-            version: status
-                .version
-                .parse::<ConfigVersion>()
-                .map_err(|e| RpcDataConversionError::InvalidConfigVersion(e.to_string()))?,
             source: status.source().try_into()?,
         })
     }

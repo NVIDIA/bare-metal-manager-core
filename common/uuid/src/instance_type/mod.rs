@@ -18,6 +18,15 @@ pub enum InstanceTypeIdParseError {
     Empty,
 }
 
+impl InstanceTypeIdParseError {
+    pub fn value(self) -> String {
+        match self {
+            InstanceTypeIdParseError::Invalid(v) => v,
+            InstanceTypeIdParseError::Empty => String::new(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct InstanceTypeId {
     value: String,

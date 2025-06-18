@@ -18,6 +18,15 @@ pub enum NetworkSecurityGroupIdParseError {
     Empty,
 }
 
+impl NetworkSecurityGroupIdParseError {
+    pub fn value(self) -> String {
+        match self {
+            NetworkSecurityGroupIdParseError::Invalid(v) => v,
+            NetworkSecurityGroupIdParseError::Empty => String::new(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Default, Hash)]
 pub struct NetworkSecurityGroupId {
     value: String,
