@@ -257,6 +257,11 @@ pub struct CarbideConfig {
 
     #[serde(default)]
     pub selected_profile: libredfish::BiosProfileType,
+
+    /// SpxConfig refers to East West Ethernet (aka
+    /// Cluster Interconnect Network) configuration
+    #[serde(default)]
+    pub spx_config: Option<SpxConfig>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -1907,6 +1912,8 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .bom_validation
                 .ignore_unassigned_machines,
             dpu_nic_firmware_update_versions: value.dpu_config.dpu_nic_firmware_update_versions,
+            spx_enabled: value.spx_config.clone().unwrap_or_default().enabled,
+            mqtt_endpoint: value.spx_config.clone().unwrap_or_default().mqtt_endpoint,
         }
     }
 }
@@ -1942,6 +1949,25 @@ fn subdirectories_sorted_by_modification_date(topdir: &PathBuf) -> Vec<fs::DirEn
         x_time.partial_cmp(&y_time).unwrap_or(Ordering::Equal)
     });
     dirs
+}
+
+fn default_mqtt_endpoint() -> String {
+    "mqtt.forge".to_string()
+}
+/// SPX (aka Cluster Ineteconnect Network) related configuration
+/// In addition to enabling SPX and specifying
+/// the mqtt endpoint, you need to specify the vni range to
+/// be used by SPX as pools.spx-vni
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+
+pub struct SpxConfig {
+    /// Global enable/disable of Cluster Interconnect Network
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// MQTT endpoint for communcation with the Agent on the NICs
+    #[serde(default = "default_mqtt_endpoint")]
+    pub mqtt_endpoint: String,
 }
 
 /// MachineValidation related configuration
@@ -2950,5 +2976,23 @@ max_partition_per_tenant = 3
         assert_eq!(test.max_concurrent_updates(0, 9), Some(1));
 
         Ok(())
+    }
+
+    #[test]
+    fn deserialize_spx_config() {
+        let toml = r#"
+enabled=true
+mqtt_endpoint = "mqtt.forge"
+        "#;
+
+        let spx_config: SpxConfig = Figment::new().merge(Toml::string(toml)).extract().unwrap();
+
+        assert_eq!(
+            spx_config,
+            SpxConfig {
+                enabled: true,
+                mqtt_endpoint: "mqtt.forge".to_string(),
+            }
+        );
     }
 }
