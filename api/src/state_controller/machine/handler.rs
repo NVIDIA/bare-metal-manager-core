@@ -292,6 +292,7 @@ impl MachineStateHandler {
                 builder.reachability_params,
                 builder.common_pools,
                 host_upgrade.clone(),
+                builder.hardware_models.clone().unwrap_or_default(),
             ),
             reachability_params: builder.reachability_params,
             host_upgrade,
@@ -1329,11 +1330,11 @@ impl MachineStateHandler {
                     if let StateHandlerOutcome::Transition(next_state) = handle_dpu_reprovision(
                         mh_snapshot,
                         &self.reachability_params,
-                        ctx.services,
                         txn,
                         &MachineNextStateResolver,
                         dpu_snapshot,
                         ctx,
+                        &self.dpu_handler.hardware_models,
                     )
                     .await?
                     {
@@ -2253,11 +2254,11 @@ pub fn identify_dpu(dpu_snapshot: &Machine) -> DpuModel {
 async fn handle_dpu_reprovision(
     state: &ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
-    services: &StateHandlerServices,
     txn: &mut PgConnection,
     next_state_resolver: &impl NextState,
     dpu_snapshot: &Machine,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    hardware_models: &FirmwareConfig,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let dpu_machine_id = &dpu_snapshot.id;
     let reprovision_state = state
@@ -2290,7 +2291,7 @@ async fn handle_dpu_reprovision(
             if let Some(dpu_id) = try_wait_for_dpu_discovery(
                 state,
                 reachability_params,
-                services,
+                ctx.services,
                 true,
                 txn,
                 dpu_machine_id,
@@ -2326,7 +2327,8 @@ async fn handle_dpu_reprovision(
                 ));
             }
 
-            handler_host_power_control(state, services, SystemPowerControl::ForceOff, txn).await?;
+            handler_host_power_control(state, ctx.services, SystemPowerControl::ForceOff, txn)
+                .await?;
             Ok(StateHandlerOutcome::Transition(
                 next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
             ))
@@ -2345,7 +2347,8 @@ async fn handle_dpu_reprovision(
                 ));
             }
 
-            let redfish_client = services
+            let redfish_client = ctx
+                .services
                 .redfish_client_pool
                 .create_client_from_machine(&state.host_snapshot, txn)
                 .await?;
@@ -2357,7 +2360,7 @@ async fn handle_dpu_reprovision(
                     "Machine {} is still not power-off state. Turning off for host again.",
                     state.host_snapshot.id
                 );
-                handler_host_power_control(state, services, SystemPowerControl::ForceOff, txn)
+                handler_host_power_control(state, ctx.services, SystemPowerControl::ForceOff, txn)
                     .await?;
 
                 return Ok(StateHandlerOutcome::Wait(format!(
@@ -2380,7 +2383,7 @@ async fn handle_dpu_reprovision(
             )
             .await?;
 
-            handler_host_power_control(state, services, SystemPowerControl::On, txn).await?;
+            handler_host_power_control(state, ctx.services, SystemPowerControl::On, txn).await?;
             Ok(StateHandlerOutcome::Transition(
                 next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
             ))
@@ -2388,6 +2391,22 @@ async fn handle_dpu_reprovision(
         ReprovisionState::BufferTime => Ok(StateHandlerOutcome::Transition(
             next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
         )),
+        ReprovisionState::VerifyFirmareVersions => {
+            check_bmc_fw_component_version(
+                ctx.services,
+                dpu_snapshot,
+                txn,
+                hardware_models,
+                true,
+                state,
+                reachability_params,
+            )
+            .await?;
+
+            Ok(StateHandlerOutcome::Transition(
+                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
+            ))
+        }
         ReprovisionState::WaitingForNetworkConfig => {
             for dsnapshot in &state.dpu_snapshots {
                 if !is_dpu_up(state, dsnapshot) {
@@ -2398,8 +2417,14 @@ async fn handle_dpu_reprovision(
                     // Reboot only dpu for which handler is called.
                     if dpu_snapshot.id == dsnapshot.id {
                         reboot_status = Some(
-                            reboot_if_needed(state, dsnapshot, reachability_params, services, txn)
-                                .await?,
+                            reboot_if_needed(
+                                state,
+                                dsnapshot,
+                                reachability_params,
+                                ctx.services,
+                                txn,
+                            )
+                            .await?,
                         );
                     }
 
@@ -2418,8 +2443,14 @@ async fn handle_dpu_reprovision(
                     // Reboot only dpu for which handler is called.
                     if dpu_snapshot.id == dsnapshot.id {
                         reboot_status = Some(
-                            reboot_if_needed(state, dsnapshot, reachability_params, services, txn)
-                                .await?,
+                            reboot_if_needed(
+                                state,
+                                dsnapshot,
+                                reachability_params,
+                                ctx.services,
+                                txn,
+                            )
+                            .await?,
                         );
                     }
                     // TODO: Make is_network_ready give us more details as a string
@@ -2452,7 +2483,8 @@ async fn handle_dpu_reprovision(
                     state.host_snapshot.id
                 );
 
-                let redfish_client = services
+                let redfish_client = ctx
+                    .services
                     .redfish_client_pool
                     .create_client_from_machine(&state.host_snapshot, txn)
                     .await?;
@@ -2487,7 +2519,8 @@ async fn handle_dpu_reprovision(
                             ))
                         })?;
 
-                    if let Err(ipmitool_error) = services
+                    if let Err(ipmitool_error) = ctx
+                        .services
                         .ipmi_tool
                         .bmc_cold_reset(
                             bmc_ip_address,
@@ -2516,7 +2549,7 @@ async fn handle_dpu_reprovision(
         }
         ReprovisionState::RebootHost => {
             // We can expect transient issues here in case we just rebooted the host's BMC and it has not come up yet
-            handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn)
+            handler_host_power_control(state, ctx.services, SystemPowerControl::ForceRestart, txn)
                 .await?;
 
             // We need to wait for the host to reboot and submit its new Hardware information in
@@ -2587,6 +2620,8 @@ async fn check_bmc_fw_component_version(
     txn: &mut PgConnection,
     hardware_models: &FirmwareConfig,
     host_power_cycle_done: bool,
+    state: &ManagedHostStateSnapshot,
+    reachability_params: &ReachabilityParams,
 ) -> Result<bool, StateHandlerError> {
     let redfish_client = services
         .redfish_client_pool
@@ -2610,7 +2645,11 @@ async fn check_bmc_fw_component_version(
             error: e,
         })?;
 
-    for component in [FirmwareComponentType::Bmc, FirmwareComponentType::Cec] {
+    for component in [
+        FirmwareComponentType::Bmc,
+        FirmwareComponentType::Cec,
+        FirmwareComponentType::Nic,
+    ] {
         let component_name = redfish_component_name_map.get(&component).unwrap();
         let inventory_id = inventories
             .iter()
@@ -2671,6 +2710,38 @@ async fn check_bmc_fw_component_version(
                 );
                 return Ok(true);
             }
+
+            /*
+            https://nvbugspro.nvidia.com/bug/5322000
+            Try rebooting the ARM to complete the NIC firmware update.
+            Sometimes the NIC firmware fails to get updated in the DPU provisioning flow with the following error:
+
+            (Starting NIC FW: 24.41.1000. Trying to go to 24.42.1000 )
+            [03:43:20] INFO: Rebooting...
+
+            [03:43:33] INFO: NIC Firmware reset failed
+
+            [03:43:33] INFO: NIC Firmware reset failed
+            */
+            if component == FirmwareComponentType::Nic {
+                let status = trigger_reboot_if_needed(
+                    dpu_snapshot,
+                    state,
+                    None,
+                    reachability_params,
+                    services,
+                    txn,
+                )
+                .await?;
+
+                tracing::info!(
+                    "The NIC firmware on DPU {} hasnt updated succesfully. Expected version: {}, Current version: {}. Reboot Status: {status:#?}",
+                    dpu_snapshot.id,
+                    expected_version,
+                    cur_version
+                );
+            }
+
             return Err(StateHandlerError::FirmwareUpdateError(eyre::eyre!(
                 "{:#?} FW didn't update succesfully. Expected version: {}, Current version: {}",
                 component,
@@ -2678,6 +2749,13 @@ async fn check_bmc_fw_component_version(
                 cur_version,
             )));
         }
+
+        tracing::info!(
+            "{}: {:#?} FW updated succesfully to {}",
+            dpu_snapshot.id,
+            component,
+            expected_version,
+        );
     }
 
     Ok(false)
@@ -3080,6 +3158,8 @@ impl DpuMachineStateHandler {
                     txn,
                     &self.hardware_models,
                     true,
+                    state,
+                    &self.reachability_params,
                 )
                 .await?;
 
@@ -4418,6 +4498,7 @@ pub struct InstanceStateHandler {
     reachability_params: ReachabilityParams,
     common_pools: Option<Arc<CommonPools>>,
     host_upgrade: Arc<HostUpgradeState>,
+    hardware_models: FirmwareConfig,
 }
 
 impl InstanceStateHandler {
@@ -4426,12 +4507,14 @@ impl InstanceStateHandler {
         reachability_params: ReachabilityParams,
         common_pools: Option<Arc<CommonPools>>,
         host_upgrade: Arc<HostUpgradeState>,
+        hardware_models: FirmwareConfig,
     ) -> Self {
         InstanceStateHandler {
             attestation_enabled,
             reachability_params,
             common_pools,
             host_upgrade,
+            hardware_models,
         }
     }
 }
@@ -4951,11 +5034,11 @@ impl StateHandler for InstanceStateHandler {
                         if let StateHandlerOutcome::Transition(next_state) = handle_dpu_reprovision(
                             mh_snapshot,
                             &self.reachability_params,
-                            ctx.services,
                             txn,
                             &InstanceNextStateResolver,
                             dpu_snapshot,
                             ctx,
+                            &self.hardware_models,
                         )
                         .await?
                         {

@@ -974,83 +974,158 @@ impl Default for DpuConfig {
         Self {
             dpu_nic_firmware_initial_update_enabled: false,
             dpu_nic_firmware_reprovision_update_enabled: true,
-            dpu_models: HashMap::from([("bluefield2".to_string(), Firmware {
-                vendor: BMCVendor::Nvidia,
-                model: "Bluefield 2 SmartNIC Main Card".to_string(),
-                ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
-                components: HashMap::from([(FirmwareComponentType::Bmc, FirmwareComponent {
-                    current_version_reported_as: Some(Regex::new("BMC_Firmware").unwrap()),
-                    preingest_upgrade_when_below: None,
-                    known_firmware: vec![FirmwareEntry {
-                        version: "BF-24.07-14".to_string(),
-                        mandatory_upgrade_from_priority: None,
-                        default: true,
-                        filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc-ota-24.10-24-opn.tar".to_string()),
-                        filenames: vec![],
-                        url: None,
-                        checksum: None,
-                        install_only_specified: false,
-                        power_drains_needed: None,
-                        preingestion_exclusive_config: false,
-                    }],
-                }),
-                    (FirmwareComponentType::Cec, FirmwareComponent {
-                        current_version_reported_as: Some(Regex::new("Bluefield_FW_ERoT").unwrap()),
-                        preingest_upgrade_when_below: None,
-                        known_firmware: vec![FirmwareEntry {
-                            version: "4-15".to_string(),
-                            mandatory_upgrade_from_priority: None,
-                            default: true,
-                            filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/cec_ota_BMGP-04.0f_prod.bin".to_string()),
-                            filenames: vec![],
-                            url: None,
-                            checksum: None,
-                            install_only_specified: false,
-                            power_drains_needed: None,
-                            preingestion_exclusive_config: false,
-                            }],
-                    })]),
-
-            }), ("bluefield3".to_string(), Firmware {
-                vendor: BMCVendor::Nvidia,
-                model: "Bluefield 3 SmartNIC Main Card".to_string(),
-                ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
-                components: HashMap::from([(FirmwareComponentType::Bmc, FirmwareComponent {
-                    current_version_reported_as: Some(Regex::new("BMC_Firmware").unwrap()),
-                    preingest_upgrade_when_below: Some("BF-23.10-5".to_string()),
-                    known_firmware: vec![
-                        // BF-24.07-14 (DOCA 2.8) is the expected BMC FW that we expect on BF3s after ingesting them
-                        FirmwareEntry {
-                        version: "BF-24.07-14".to_string(),
-                        mandatory_upgrade_from_priority: None,
-                        default: false,
-                        filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc-24.10-24_opn.fwpkg".to_string()),
-                        filenames: vec![],
-                            url: None,
-                        checksum: None,
-                        install_only_specified: false,
-                        power_drains_needed: None,
-                        preingestion_exclusive_config: false,
-                    }],
-                }),
-                    (FirmwareComponentType::Cec, FirmwareComponent {
-                        current_version_reported_as: Some(Regex::new("Bluefield_FW_ERoT").unwrap()),
-                        preingest_upgrade_when_below: None,
-                        known_firmware: vec![FirmwareEntry {
-                            version: "00.02.0182.0000_n02".to_string(),
-                            mandatory_upgrade_from_priority: None,
-                            default: false,
-                            filename: Some("/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/cec1736-ecfw-00.02.0182.0000-n02-rel-prod.fwpkg".to_string()),
-                            filenames: vec![],
-                            url: None,
-                            checksum: None,
-                            install_only_specified: false,
-                            power_drains_needed: None,
-                            preingestion_exclusive_config: false,
-                            }],
-                    })]),
-            })]),
-            dpu_nic_firmware_update_versions: vec!["24.42.1000".to_string(), "32.42.1000".to_string()],
+            dpu_models: HashMap::from([
+                (
+                    "bluefield2".to_string(),
+                    Firmware {
+                        vendor: BMCVendor::Nvidia,
+                        model: "Bluefield 2 SmartNIC Main Card".to_string(),
+                        ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
+                        components: HashMap::from([
+                            (
+                                FirmwareComponentType::Bmc,
+                                FirmwareComponent {
+                                    current_version_reported_as: Some(
+                                        Regex::new("BMC_Firmware").unwrap(),
+                                    ),
+                                    preingest_upgrade_when_below: None,
+                                    known_firmware: vec![FirmwareEntry {
+                                        version: "BF-24.07-14".to_string(),
+                                        mandatory_upgrade_from_priority: None,
+                                        default: true,
+                                        filename: None,
+                                        filenames: vec![],
+                                        url: None,
+                                        checksum: None,
+                                        install_only_specified: false,
+                                        power_drains_needed: None,
+                                        preingestion_exclusive_config: false,
+                                    }],
+                                },
+                            ),
+                            (
+                                FirmwareComponentType::Cec,
+                                FirmwareComponent {
+                                    current_version_reported_as: Some(
+                                        Regex::new("Bluefield_FW_ERoT").unwrap(),
+                                    ),
+                                    preingest_upgrade_when_below: None,
+                                    known_firmware: vec![FirmwareEntry {
+                                        version: "4-15".to_string(),
+                                        mandatory_upgrade_from_priority: None,
+                                        default: true,
+                                        filename: None,
+                                        filenames: vec![],
+                                        url: None,
+                                        checksum: None,
+                                        install_only_specified: false,
+                                        power_drains_needed: None,
+                                        preingestion_exclusive_config: false,
+                                    }],
+                                },
+                            ),
+                            (
+                                FirmwareComponentType::Nic,
+                                FirmwareComponent {
+                                    current_version_reported_as: Some(
+                                        Regex::new("DPU_NIC").unwrap(),
+                                    ),
+                                    preingest_upgrade_when_below: None,
+                                    known_firmware: vec![FirmwareEntry {
+                                        version: "24.42.1000".to_string(),
+                                        mandatory_upgrade_from_priority: None,
+                                        default: true,
+                                        filename: None,
+                                        filenames: vec![],
+                                        url: None,
+                                        checksum: None,
+                                        install_only_specified: false,
+                                        power_drains_needed: None,
+                                        preingestion_exclusive_config: false,
+                                    }],
+                                },
+                            ),
+                        ]),
+                    },
+                ),
+                (
+                    "bluefield3".to_string(),
+                    Firmware {
+                        vendor: BMCVendor::Nvidia,
+                        model: "Bluefield 3 SmartNIC Main Card".to_string(),
+                        ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
+                        components: HashMap::from([
+                            (
+                                FirmwareComponentType::Bmc,
+                                FirmwareComponent {
+                                    current_version_reported_as: Some(
+                                        Regex::new("BMC_Firmware").unwrap(),
+                                    ),
+                                    preingest_upgrade_when_below: None,
+                                    known_firmware: vec![FirmwareEntry {
+                                        version: "BF-24.07-14".to_string(),
+                                        mandatory_upgrade_from_priority: None,
+                                        default: true,
+                                        filename: None,
+                                        filenames: vec![],
+                                        url: None,
+                                        checksum: None,
+                                        install_only_specified: false,
+                                        power_drains_needed: None,
+                                        preingestion_exclusive_config: false,
+                                    }],
+                                },
+                            ),
+                            (
+                                FirmwareComponentType::Cec,
+                                FirmwareComponent {
+                                    current_version_reported_as: Some(
+                                        Regex::new("Bluefield_FW_ERoT").unwrap(),
+                                    ),
+                                    preingest_upgrade_when_below: None,
+                                    known_firmware: vec![FirmwareEntry {
+                                        version: "00.02.0182.0000_n02".to_string(),
+                                        mandatory_upgrade_from_priority: None,
+                                        default: true,
+                                        filename: None,
+                                        filenames: vec![],
+                                        url: None,
+                                        checksum: None,
+                                        install_only_specified: false,
+                                        power_drains_needed: None,
+                                        preingestion_exclusive_config: false,
+                                    }],
+                                },
+                            ),
+                            (
+                                FirmwareComponentType::Nic,
+                                FirmwareComponent {
+                                    current_version_reported_as: Some(
+                                        Regex::new("DPU_NIC").unwrap(),
+                                    ),
+                                    preingest_upgrade_when_below: None,
+                                    known_firmware: vec![FirmwareEntry {
+                                        version: "32.41.1300".to_string(),
+                                        mandatory_upgrade_from_priority: None,
+                                        default: true,
+                                        filename: None,
+                                        filenames: vec![],
+                                        url: None,
+                                        checksum: None,
+                                        install_only_specified: false,
+                                        power_drains_needed: None,
+                                        preingestion_exclusive_config: false,
+                                    }],
+                                },
+                            ),
+                        ]),
+                    },
+                ),
+            ]),
+            dpu_nic_firmware_update_versions: vec![
+                "24.42.1000".to_string(),
+                "32.42.1000".to_string(),
+            ],
         }
     }
 }

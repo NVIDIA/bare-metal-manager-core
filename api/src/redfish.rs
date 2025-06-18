@@ -931,6 +931,19 @@ pub mod test_support {
             }",
                 )
                 .unwrap())
+            } else if id == "DPU_NIC" {
+                Ok(serde_json::from_str(
+                    "{
+            \"@odata.id\": \"/redfish/v1/UpdateService/FirmwareInventory/DPU_NIC\",
+            \"@odata.type\": \"#SoftwareInventory.v1_4_0.SoftwareInventory\",
+            \"Description\": \"Other image\",
+            \"Id\": \"DPU_NIC\",
+            \"Manufacturer\": \"NVIDIA\",
+            \"Name\": \"Software Inventory\",
+            \"Version\": \"32.39.2048\"
+            }",
+                )
+                .unwrap())
             } else {
                 let state = self.state.lock().unwrap();
                 Ok(serde_json::from_str(
@@ -1079,6 +1092,7 @@ pub mod test_support {
             Ok(vec![
                 "BMC_Firmware".to_string(),
                 "Bluefield_FW_ERoT".to_string(),
+                "DPU_NIC".to_string(),
             ])
         }
 

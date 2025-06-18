@@ -252,6 +252,24 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         dpu.current_state(),
         &ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::VerifyFirmareVersions)]),
+            },
+        }
+    );
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(
                     dpu_machine_id,
                     ReprovisionState::WaitingForNetworkConfig
@@ -515,6 +533,25 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         }
     );
     txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(dpu_machine_id, ReprovisionState::VerifyFirmareVersions)]),
+            },
+        }
+    );
+    txn.commit().await.unwrap();
+
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
 
@@ -766,6 +803,30 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             }
         }
     );
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: crate::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id,
+                        ReprovisionState::VerifyFirmareVersions
+                    )]),
+                },
+            }
+        }
+    );
+
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -1087,6 +1148,31 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         }
     );
     txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: crate::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id,
+                        ReprovisionState::VerifyFirmareVersions
+                    )]),
+                },
+            }
+        }
+    );
+
+    txn.commit().await.unwrap();
+
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
 
@@ -2006,6 +2092,27 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         &ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([
+                    (dpu_machine_id_1, ReprovisionState::VerifyFirmareVersions),
+                    (dpu_machine_id_2, ReprovisionState::NotUnderReprovision),
+                ]),
+            },
+        }
+    );
+    txn.rollback().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: HashMap::from([
                     (dpu_machine_id_1, ReprovisionState::WaitingForNetworkConfig),
                     (dpu_machine_id_2, ReprovisionState::NotUnderReprovision),
                 ]),
@@ -2280,6 +2387,27 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
                 states: HashMap::from([
                     (dpu_machine_id_1, ReprovisionState::PowerDown),
                     (dpu_machine_id_2, ReprovisionState::PowerDown)
+                ]),
+            },
+        }
+    );
+    txn.rollback().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: HashMap::from([
+                    (dpu_machine_id_1, ReprovisionState::VerifyFirmareVersions),
+                    (dpu_machine_id_2, ReprovisionState::VerifyFirmareVersions)
                 ]),
             },
         }
@@ -2634,6 +2762,30 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         }
     );
     txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: crate::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id,
+                        ReprovisionState::VerifyFirmareVersions
+                    )]),
+                },
+            }
+        }
+    );
+    txn.commit().await.unwrap();
+
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
 
@@ -2842,6 +2994,30 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         }
     );
     txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: crate::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id,
+                        ReprovisionState::VerifyFirmareVersions
+                    )]),
+                },
+            }
+        }
+    );
+    txn.commit().await.unwrap();
+
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
 
