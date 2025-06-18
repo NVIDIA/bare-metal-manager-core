@@ -1,5 +1,6 @@
 use eyre::Context;
 use std::collections::HashMap;
+use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
@@ -636,5 +637,13 @@ impl HostMachineHandle {
         if let Some(join_handle) = self.0.join_handle.lock().unwrap().take() {
             join_handle.abort();
         }
+    }
+
+    pub fn bmc_ssh_host_pubkey(&self) -> Option<String> {
+        self.0.live_state.read().unwrap().ssh_host_key.clone()
+    }
+
+    pub fn bmc_ip(&self) -> Option<Ipv4Addr> {
+        self.0.live_state.read().unwrap().bmc_ip
     }
 }

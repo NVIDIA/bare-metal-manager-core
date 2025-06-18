@@ -168,6 +168,11 @@ pub struct MachineATronConfig {
     #[serde(default = "default_bmc_mock_port")]
     pub bmc_mock_port: u16,
 
+    /// Set this to true if you want each mock machine to run a mock BMC ssh server. This is useful
+    /// for testing things like ssh-console.
+    #[serde(default = "default_false")]
+    pub mock_bmc_ssh_server: bool,
+
     /// Set this to true if all BMC-mocks should be behind a single address (using HTTP headers to
     /// proxy to the real mock). This is the case for machine-a-tron running inside kubernetes
     /// clusters where there is a single k8s Service and we can't dynamically assign IP's.

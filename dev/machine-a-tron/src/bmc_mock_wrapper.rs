@@ -1,14 +1,18 @@
+use crate::config::MachineATronContext;
+use crate::machine_state_machine::MachineStateError;
+use crate::machine_utils::add_address_to_interface;
+use crate::mock_ssh_server;
+use crate::mock_ssh_server::MockSshServerHandle;
 use axum::Router;
+use bmc_mock::{
+    BmcCommand, BmcMockError, BmcMockHandle, HostnameQuerying, ListenerOrAddress, MachineInfo,
+    PowerStateQuerying,
+};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
-
-use crate::config::MachineATronContext;
-use crate::machine_state_machine::MachineStateError;
-use crate::machine_utils::add_address_to_interface;
-use bmc_mock::{BmcCommand, BmcMockHandle, ListenerOrAddress, MachineInfo, PowerStateQuerying};
 
 /// BmcMockWrapper launches a single instance of bmc-mock, configured to mock a single BMC for
 /// either a DPU or a Host. It will rewrite certain responses to customize them for the machines
@@ -17,6 +21,7 @@ use bmc_mock::{BmcCommand, BmcMockHandle, ListenerOrAddress, MachineInfo, PowerS
 pub struct BmcMockWrapper {
     app_context: Arc<MachineATronContext>,
     bmc_mock_router: Router,
+    hostname: Arc<dyn HostnameQuerying>,
 }
 
 impl BmcMockWrapper {
@@ -25,6 +30,7 @@ impl BmcMockWrapper {
         command_channel: mpsc::UnboundedSender<BmcCommand>,
         app_context: Arc<MachineATronContext>,
         mock_power_state: Arc<dyn PowerStateQuerying>,
+        hostname: Arc<dyn HostnameQuerying>,
     ) -> Self {
         let tar_router = match machine_info {
             MachineInfo::Dpu(_) => app_context.dpu_tar_router.clone(),
@@ -41,6 +47,7 @@ impl BmcMockWrapper {
         BmcMockWrapper {
             app_context,
             bmc_mock_router,
+            hostname,
         }
     }
 
@@ -48,7 +55,7 @@ impl BmcMockWrapper {
         &mut self,
         address: SocketAddr,
         add_ip_alias: bool,
-    ) -> Result<BmcMockHandle, MachineStateError> {
+    ) -> Result<BmcMockWrapperHandle, MachineStateError> {
         let root_ca_path = self.app_context.forge_client_config.root_ca_path.as_str();
         let certs_dir = self
             .app_context
@@ -68,29 +75,63 @@ impl BmcMockWrapper {
             add_address_to_interface(
                 &address.ip().to_string(),
                 &self.app_context.app_config.interface,
-                &self.app_context.app_config.sudo_command,
             )
             .await
             .inspect_err(|e| tracing::warn!("{}", e))
             .map_err(MachineStateError::ListenAddressConfigError)?;
         }
 
+        let ssh_handle = if self.app_context.app_config.mock_bmc_ssh_server {
+            // We have to use a nonstandard port here even if we're using an ip alias, since most
+            // hosts listen to SSH on port 22 already on *all* interfaces, including any aliases we
+            // create for the test.
+            let port = add_ip_alias.then_some(2222);
+            Some(
+                mock_ssh_server::spawn(
+                    address.ip(),
+                    port,
+                    self.hostname.clone(),
+                    "root".to_string(),
+                    "password".to_string(),
+                )
+                .await
+                .map_err(|error| {
+                    BmcMockError::MockSshServer(format!(
+                        "error running mock SSH server on {}:{}: {error:?}",
+                        address.ip(),
+                        port.map(|p| p.to_string()).unwrap_or("<none>".to_string()),
+                    ))
+                })?,
+            )
+        } else {
+            None
+        };
+
         tracing::info!("Starting bmc mock on {:?}", address);
 
         let bmc_mock_router = self.bmc_mock_router.clone();
-        Ok(bmc_mock::run_combined_mock(
-            Arc::new(RwLock::new(HashMap::from([(
-                "".to_string(),
-                bmc_mock_router,
-            )]))),
-            Some(certs_dir),
-            Some(ListenerOrAddress::Address(address)),
-        )?)
+        Ok(BmcMockWrapperHandle {
+            _bmc_mock: bmc_mock::run_combined_mock(
+                Arc::new(RwLock::new(HashMap::from([(
+                    "".to_string(),
+                    bmc_mock_router,
+                )]))),
+                Some(certs_dir),
+                Some(ListenerOrAddress::Address(address)),
+            )?,
+            ssh_handle,
+        })
     }
 
     pub fn router(&self) -> &Router {
         &self.bmc_mock_router
     }
+}
+
+#[derive(Debug)]
+pub struct BmcMockWrapperHandle {
+    pub _bmc_mock: BmcMockHandle,
+    pub ssh_handle: Option<MockSshServerHandle>,
 }
 
 /// BmcMockRegistry is shared state that MachineATron's mock hosts can use to register their BMC
