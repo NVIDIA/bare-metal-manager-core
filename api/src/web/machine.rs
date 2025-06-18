@@ -243,8 +243,8 @@ async fn show(
     let instance_type_ids: Vec<String> = machines
         .iter()
         .filter_map(|m| match m.instance_type_id.is_empty() {
-            true => Some(m.instance_type_id.clone()),
-            false => None,
+            false => Some(m.instance_type_id.clone()),
+            true => None,
         })
         .collect();
 

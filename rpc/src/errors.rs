@@ -28,7 +28,7 @@ pub enum RpcDataConversionError {
     InvalidMachineId(String),
     #[error("InstanceType ID {0} is not valid")]
     InvalidNetworkSecurityGroupId(String),
-    #[error("NetworkSecurityGroup ID {0} is not valid")]
+    #[error("Instance Type ID {0} is not valid")]
     InvalidInstanceTypeId(String),
     #[error("Timestamp {0} is not valid")]
     InvalidTimestamp(String),
