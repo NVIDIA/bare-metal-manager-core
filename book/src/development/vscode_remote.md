@@ -13,11 +13,6 @@ development feeling.
     - Open VS Code
     - Press `Cmd + Shift + P` to open the Command Palette.
     - Type `Shell Command: Install 'code' command in PATH` and select it. This sets up the code command for your terminal.
-- For MacBook and VS Code 1.8X or 1.9x version:
-    - Port forwarding may fail if VS Code is version 1.8x or 1.9x.
-    - To resolve this issue, remove the `~/.ssh/known_hosts` file. 
-    *Source*: [Stack Overflow](https://stackoverflow.com/questions/75837749/vscode-failed-to-set-up-socket-for-dynamic-port-forward-to-remote-port-connect)
-    - **Note**: Be sure to back up the file before deleting it.
 - Update the `~/.ssh/config` file to set up the jump host and remote instance. Example
     ```
     Host my_instance
@@ -47,6 +42,11 @@ development feeling.
         ```
         doas systemctl restart sshd
         ```
+    - For MacBook:
+      - Port forwarding may fail initially.
+      - To resolve this issue, remove the `~/.ssh/known_hosts` file. 
+    *Source*: [Stack Overflow](https://stackoverflow.com/questions/75837749/vscode-failed-to-set-up-socket-for-dynamic-port-forward-to-remote-port-connect)
+      - **Note**: Be sure to back up the file before deleting it.
 
 ### Basic remote setup
 
@@ -100,7 +100,7 @@ To work inside the remote container, the following steps are performed:
 
         // Update the 'dockerFile' property if you aren't using the standard 'Dockerfile' filename.
         // "dockerFile": "../Dockerfile",
-        "dockerFile": "../dev/docker/Dockerfile.build-container",
+        "dockerFile": "../dev/docker/Dockerfile.build-container-x86_64",
 
         // Use 'forwardPorts' to make a list of ports inside the container available locally.
         // "forwardPorts": [],
@@ -144,7 +144,7 @@ server inside the development container:
     ```
 3. Create the user:
     ```
-    su postgres -c "/usr/lib/postgresql/14/bin/createuser -d root"
+    su postgres -c "/usr/lib/postgresql/15/bin/createuser -d root"
     ```
 4. Set permissions:
     ```
