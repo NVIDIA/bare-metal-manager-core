@@ -28,6 +28,7 @@ use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 use version_compare::Cmp;
 
+use crate::db::machine::MachineSearchConfig;
 use crate::{
     CarbideError, CarbideResult,
     cfg::file::{FirmwareComponentType, FirmwareConfig, SiteExplorerConfig},
@@ -36,7 +37,7 @@ use crate::{
         expected_machine::ExpectedMachine,
         explored_endpoints::DbExploredEndpoint,
         explored_managed_host::DbExploredManagedHost,
-        machine::MachineSearchConfig,
+        machine,
         machine_topology::MachineTopology,
         network_segment::{NetworkSegment, NetworkSegmentType},
     },
@@ -1269,6 +1270,7 @@ impl SiteExplorer {
             let bmc_target_port = self.config.override_target_port.unwrap_or(443);
             let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
             let firmware_config = self.firmware_config.clone();
+            let database_connection = self.database_connection.clone();
 
             let _abort_handle = task_set.spawn(
                 async move {
@@ -1294,7 +1296,17 @@ impl SiteExplorer {
                         .await;
 
                     if let Err(error) = result.clone() {
-                        tracing::info!(%error, "Failed to explore {}: {}",bmc_target_addr , error);
+                        // For logging purposes
+                        let machine_state = match get_machine_state_by_bmc_ip(
+                            &database_connection,
+                            &endpoint.address.to_string(),
+                        )
+                        .await
+                        {
+                            Ok(state) if !state.is_empty() => format!(" (state: {})", state),
+                            _ => String::new(),
+                        };
+                        tracing::info!(%error, "Failed to explore {}: {}{}", bmc_target_addr, error, machine_state);
                     }
 
                     // Try to generate a MachineId and parsed version info based on the retrieved data
@@ -2700,6 +2712,31 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
             source_type, e, source_mac
         )
     })
+}
+
+pub async fn get_machine_state_by_bmc_ip(
+    database_connection: &PgPool,
+    bmc_ip: &str,
+) -> Result<String, DatabaseError> {
+    let mut txn = database_connection.begin().await.map_err(|e| {
+        DatabaseError::new(file!(), line!(), "begin get_machine_state_by_bmc_ip", e)
+    })?;
+
+    let state = match MachineTopology::find_machine_id_by_bmc_ip(&mut txn, bmc_ip).await? {
+        Some(machine_id) => {
+            match machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await? {
+                Some(machine) => machine.current_state().to_string(),
+                None => String::new(),
+            }
+        }
+        None => String::new(),
+    };
+
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "end get_machine_state_by_bmc_ip", e))?;
+
+    Ok(state)
 }
 
 #[cfg(test)]

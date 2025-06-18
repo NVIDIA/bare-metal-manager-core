@@ -240,7 +240,6 @@ impl RedfishClient {
         let service = fetch_service(client.as_ref())
             .await
             .map_err(map_redfish_error)?;
-
         let forge_setup_status = fetch_forge_setup_status(client.as_ref())
             .await
             .inspect_err(|error| tracing::warn!(%error, "Failed to fetch forge setup status."))
@@ -938,6 +937,19 @@ pub(crate) fn map_redfish_error(error: RedfishError) -> EndpointExplorationError
                 EndpointExplorationError::Unreachable {
                     details: Some(details),
                 }
+            }
+        }
+        RedfishError::HTTPErrorCode {
+            status_code,
+            response_body,
+            url,
+        } if *status_code == http::StatusCode::FORBIDDEN && url.contains("FirmwareInventory") => {
+            EndpointExplorationError::VikingFWInventoryForbiddenError {
+                details: format!(
+                    "HTTP {status_code} at {url} - this is a known, intermittent issue for Vikings."
+                ),
+                response_body: Some(response_body.clone()),
+                response_code: Some(status_code.as_u16()),
             }
         }
         RedfishError::HTTPErrorCode {
