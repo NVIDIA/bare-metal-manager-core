@@ -900,6 +900,14 @@ pub enum EndpointExplorationError {
     #[serde(rename_all = "PascalCase")]
     Other { details: String },
 
+    #[error("VikingFWInventoryForbiddenError: {details}")]
+    #[serde(rename_all = "PascalCase")]
+    VikingFWInventoryForbiddenError {
+        details: String,
+        response_body: Option<String>,
+        response_code: Option<u16>,
+    },
+
     #[error("Invalid Redfish response for DPU BIOS: {details}")]
     #[serde(rename_all = "PascalCase")]
     InvalidDpuRedfishBiosResponse {
