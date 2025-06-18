@@ -103,6 +103,8 @@ pub async fn handle_show_version(
         r!(table, config, machine_validation_enabled);
         r!(table, config, bom_validation_enabled);
         r!(table, config, bom_validation_ignore_unassigned_machines);
+        r!(table, config, spx_enabled);
+        r!(table, config, mqtt_endpoint);
 
         _ = table.print_tty(true);
     }

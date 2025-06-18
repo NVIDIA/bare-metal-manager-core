@@ -36,7 +36,7 @@ use crate::{
         FirmwareComponentType, FirmwareEntry, FirmwareGlobal, HostHealthConfig, IBFabricConfig,
         IbFabricDefinition, IbPartitionStateControllerConfig, MachineStateControllerConfig,
         MeasuredBootMetricsCollectorConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
-        StateControllerConfig, default_max_find_by_ids,
+        SpxConfig, StateControllerConfig, default_max_find_by_ids,
     },
     db::{
         instance_type::create as create_instance_type,
@@ -916,6 +916,7 @@ pub fn get_config() -> CarbideConfig {
         bom_validation: BomValidationConfig::default(),
         listen_mode: ListenMode::Tls,
         listen_only: false,
+        spx_config: Some(SpxConfig::default()),
     }
 }
 
