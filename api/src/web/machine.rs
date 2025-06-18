@@ -322,6 +322,10 @@ pub async fn fetch_instance_type_names(
     api: &Api,
     instance_type_ids: Vec<String>,
 ) -> Result<HashMap<String, String>, Response> {
+    if instance_type_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
     let request =
         tonic::Request::new(rpc::forge::FindInstanceTypesByIdsRequest { instance_type_ids });
 
