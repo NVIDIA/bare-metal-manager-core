@@ -584,30 +584,6 @@ pub async fn clear_host_uefi_password(
         })
 }
 
-/// poll_redfish_job returns true if the job specified by job_id is at the state specified by job_state.
-/// it will return an error if the job could not be found.
-pub async fn poll_redfish_job(
-    redfish_client: &dyn Redfish,
-    job_id: &str,
-    expected_state: libredfish::JobState,
-) -> CarbideResult<bool> {
-    let job_state = redfish_client
-        .get_job_state(job_id)
-        .await
-        .map_err(CarbideError::RedfishError)?;
-
-    if job_state != expected_state {
-        tracing::trace!(
-            "Current state for redfish job {:#?}: {:#?}",
-            job_id,
-            job_state
-        );
-        return Ok(false);
-    }
-
-    Ok(true)
-}
-
 const LAST_OEM_STATE_OS_IS_RUNNING: &str = "OsIsRunning";
 
 // did_dpu_finish_booting returns true if the DPU has come up from the last reboot and the OS is running. It will return false if the DPU has not come up from the last reboot or is stuck booting.

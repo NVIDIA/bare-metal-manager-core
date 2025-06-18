@@ -69,7 +69,7 @@ use crate::{
         },
         site_explorer::ExploredEndpoint,
     },
-    redfish::{self, host_power_control, poll_redfish_job, set_host_uefi_password},
+    redfish::{self, host_power_control, set_host_uefi_password},
     resource_pool::common::CommonPools,
     state_controller::{
         machine::{
@@ -864,17 +864,17 @@ impl MachineStateHandler {
                                     ))),
                                 }?;
 
-                                if !poll_redfish_job(
-                                    redfish_client.as_ref(),
-                                    job_id,
-                                    libredfish::JobState::Completed,
-                                )
-                                .await
-                                .map_err(|e| {
-                                    StateHandlerError::GenericError(eyre::eyre!("{}", e))
-                                })? {
+                                let job_state =
+                                    redfish_client.get_job_state(job_id).await.map_err(|e| {
+                                        StateHandlerError::GenericError(eyre::eyre!(
+                                            "failed to query {}",
+                                            e
+                                        ))
+                                    })?;
+
+                                if !matches!(job_state, libredfish::JobState::Completed) {
                                     return Ok(StateHandlerOutcome::Wait(format!(
-                                        "waiting for job {:#?} to complete",
+                                        "waiting for job {:#?} to complete; current state: {job_state:#?}",
                                         job_id
                                     )));
                                 }
@@ -981,17 +981,17 @@ impl MachineStateHandler {
                                     ))),
                                 }?;
 
-                                if !poll_redfish_job(
-                                    redfish_client.as_ref(),
-                                    job_id,
-                                    libredfish::JobState::Scheduled,
-                                )
-                                .await
-                                .map_err(|e| {
-                                    StateHandlerError::GenericError(eyre::eyre!("{}", e))
-                                })? {
+                                let job_state =
+                                    redfish_client.get_job_state(job_id).await.map_err(|e| {
+                                        StateHandlerError::GenericError(eyre::eyre!(
+                                            "failed to query {}",
+                                            e
+                                        ))
+                                    })?;
+
+                                if !matches!(job_state, libredfish::JobState::Scheduled) {
                                     return Ok(StateHandlerOutcome::Wait(format!(
-                                        "waiting for job {:#?} to be scheduled",
+                                        "waiting for job {:#?} to be scheduled; current state: {job_state:#?}",
                                         job_id
                                     )));
                                 }
@@ -1047,17 +1047,17 @@ impl MachineStateHandler {
                                     ))),
                                 }?;
 
-                                if !poll_redfish_job(
-                                    redfish_client.as_ref(),
-                                    job_id,
-                                    libredfish::JobState::Completed,
-                                )
-                                .await
-                                .map_err(|e| {
-                                    StateHandlerError::GenericError(eyre::eyre!("{}", e))
-                                })? {
+                                let job_state =
+                                    redfish_client.get_job_state(job_id).await.map_err(|e| {
+                                        StateHandlerError::GenericError(eyre::eyre!(
+                                            "failed to query {}",
+                                            e
+                                        ))
+                                    })?;
+
+                                if !matches!(job_state, libredfish::JobState::Completed) {
                                     return Ok(StateHandlerOutcome::Wait(format!(
-                                        "waiting for job {:#?} to complete",
+                                        "waiting for job {:#?} to complete; current state: {job_state:#?}",
                                         job_id
                                     )));
                                 }
@@ -3975,16 +3975,16 @@ async fn handle_host_uefi_setup(
         }
         UefiSetupState::WaitForPasswordJobScheduled => {
             if let Some(job_id) = uefi_setup_info.uefi_password_jid.clone() {
-                if !poll_redfish_job(
-                    redfish_client.as_ref(),
-                    &job_id,
-                    libredfish::JobState::Scheduled,
-                )
-                .await
-                .map_err(|e| StateHandlerError::GenericError(eyre::eyre!("{}", e)))?
-                {
+                let job_state = redfish_client.get_job_state(&job_id).await.map_err(|e| {
+                    StateHandlerError::RedfishError {
+                        operation: "get_job_state",
+                        error: e,
+                    }
+                })?;
+
+                if !matches!(job_state, libredfish::JobState::Scheduled) {
                     return Ok(StateHandlerOutcome::Wait(format!(
-                        "waiting for job {:#?} to complete",
+                        "waiting for job {:#?} to be scheduled; current state: {job_state:#?}",
                         job_id
                     )));
                 }
@@ -4031,16 +4031,17 @@ async fn handle_host_uefi_setup(
                     .redfish_client_pool
                     .create_client_from_machine(&state.host_snapshot, txn)
                     .await?;
-                if !poll_redfish_job(
-                    redfish_client.as_ref(),
-                    &job_id,
-                    libredfish::JobState::Completed,
-                )
-                .await
-                .map_err(|e| StateHandlerError::GenericError(eyre::eyre!("{}", e)))?
-                {
+
+                let job_state = redfish_client.get_job_state(&job_id).await.map_err(|e| {
+                    StateHandlerError::RedfishError {
+                        operation: "get_job_state",
+                        error: e,
+                    }
+                })?;
+
+                if !matches!(job_state, libredfish::JobState::Completed) {
                     return Ok(StateHandlerOutcome::Wait(format!(
-                        "waiting for job {:#?} to complete",
+                        "waiting for job {:#?} to complete; current state: {job_state:#?}",
                         job_id
                     )));
                 }
