@@ -12,7 +12,7 @@
 	</tr>
 </table>
 
-<h2 style="margin-left:10%">Dynamic</h2>
+<h2>Dynamic</h2>
 <table class="detailsview">
 	<tr>
 		<th>DPU agent upgrade policy</th>
@@ -32,7 +32,7 @@
 	<tr/>
 </table>
 
-<h2 style="margin-left:10%">Static</h2>
+<h2>Static</h2>
 <table class="detailsview">
 	<tr>
 		<th>Listen Address</th>
@@ -169,8 +169,8 @@
 	</tr>
 	<tr>
 		<th>DPU Firmware Versions</th>
-		<td>
-			<table style="width: 100%;">
+		<td style="padding: 0;">
+			<table>
 			    {% match carbide_config.dpu_config.find_bf2_entry() %}
 			    {% when Some with (val) %}
 				<tr>

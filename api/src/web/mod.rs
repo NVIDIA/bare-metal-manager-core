@@ -105,6 +105,7 @@ const DEFAULT_ALLOWED_ACCESS_GROUPS_ID_LIST: &str = "1f13d1bb-6d7e-4fa5-9abf-93e
 
 const SORTABLE_JS: &str = include_str!("../../templates/static/sortable.min.js");
 const SORTABLE_CSS: &str = include_str!("../../templates/static/sortable.min.css");
+const CARBIDE_CSS: &str = include_str!("../../templates/static/carbide.css");
 
 // It would appear the oauth2 author read about the typestate pattern and decided making
 // everyone declare 10 type parameters when storing a Client sounds like a great idea.
@@ -645,6 +646,9 @@ pub async fn static_data(
             .into_response(),
         "sortable.css" => {
             (StatusCode::OK, [(CONTENT_TYPE, "text/css")], SORTABLE_CSS).into_response()
+        }
+        "carbide.css" => {
+            (StatusCode::OK, [(CONTENT_TYPE, "text/css")], CARBIDE_CSS).into_response()
         }
         _ => (StatusCode::NOT_FOUND, "No such file").into_response(),
     }

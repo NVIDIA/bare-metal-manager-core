@@ -28,20 +28,25 @@
 				<td>{% if host.is_link_ref %}<a href="{{ host.maintenance_reference }}">{{ host.maintenance_reference }}</a>{% else %}{{ host.maintenance_reference }}{% endif %}</td>
 				<td>{{ host.maintenance_start_time }}</td>
 			{% endif %}
-			<td title="{{ host.state_reason }}">
-				{{ host.state }}
-				{% if host.time_in_state_above_sla %}⏱️{% endif %}
+						<td title="{{ host.state_reason }}">
+				{% if host.state.to_lowercase().contains("failed") %}
+					<span class="bubble error">{{ host.state }}{% if host.time_in_state_above_sla %} ⏱️{% endif %}</span>
+				{% else if host.time_in_state_above_sla %}
+					<span class="bubble warning">{{ host.state }} ⏱️</span>
+				{% else if host.state == "Ready" || host.state == "Assigned/Ready" %}
+					<span class="bubble success">{{ host.state }}</span>
+				{% else %}
+					<span class="bubble">{{ host.state }}</span>
+				{% endif %}
 			</td>
 			<td>
-				{% if host.health_probe_alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
-					<a href="/admin/machine/{{ host.machine_id }}/health">
-						{{ host.health_probe_alerts|health_alerts_fmt(false)|safe }}
-					</a>
-				</div>
+				<a href="/admin/machine/{{ host.machine_id }}/health">
+					{{ host.health_probe_alerts|health_alerts_fmt(false)|safe }}
+				</a>
 			</td>
 			<td><a href="/admin/machine/{{ host.machine_id }}/health">{{ host.health_overrides.len() }}</a></td>
 			<td style="padding: 0;">
-				<table style="width: 100%;">
+				<table>
 					<tr><th>Host BMC</th><td><a href="/admin/explored-endpoint/{{ host.host_bmc_ip }}">{{ host.host_bmc_ip }}</a></td></tr>
 					<tr><th>DPU BMC</th><td>{{ host.dpu_properties(DpuProperty::BmcIp)|safe }}</td></tr>
 					<tr><th>Host Admin</th><td>{{ host.host_admin_ip }}</td></tr>
@@ -49,7 +54,7 @@
 				</table>
 			</td>
 			<td style="padding: 0;">
-				<table style="width: 100%;">
+				<table>
 					<tr><th>Host BMC</th><td>{{ host.host_bmc_mac }}</td></tr>
 					<tr><th>DPU BMC</th><td>{{ host.dpu_properties(DpuProperty::BmcMac)|safe  }}</td></tr>
 					<tr><th>Host PF</th><td>{{ host.host_admin_mac }}</td></tr>

@@ -3,40 +3,6 @@
 {% block title %}Explored Endpoint {{ endpoint.address }}{% endblock %}
 
 {% block content %}
-<style>
-    #json {
-        float: right;
-    }
-    
-    #delete-link {
-        padding: 10px;
-        border-radius: 4px;
-        background-color: #ff4136 !important;
-        color: white !important;
-        text-decoration: none;
-        display: inline-block;
-        text-align: center;
-        cursor: pointer;
-        min-width: 80px;
-    }
-    
-    #delete-link:hover {
-        background-color: #e60026 !important;
-        border-color: #e60026 !important;
-    }
-    
-    #delete-link.disabled {
-        background-color: #999999 !important;
-        cursor: not-allowed;
-        opacity: 0.6;
-    }
-    
-    #delete-link.disabled:hover {
-        background-color: #999999 !important;
-        border-color: #999999 !important;
-    }
-</style>
-
 <div id="json">
     {% if has_machine %}
     <a id="delete-link" class="disabled" href="#" onclick="return false;">Delete</a>
@@ -46,21 +12,21 @@
     <a id="json-link" href="">JSON</a>
 </div>
 
-<form id="delete-form" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/delete" style="display: none;">
+<form id="delete-form" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/delete" hidden>
 </form>
 
 <h1>Endpoint {{ endpoint.address }}</h1>
 <table class="detailsview">
 	<tr>
 		<th>Address</th>
-		<td style="display: flex; align-items: center;">
-			<div style="flex-grow: 1;">
+		<td class="action-cell">
+			<div>
 				{{ endpoint.address }}
 			</div>
-			<div style="flex-shrink: 0;">
+			<div>
 				<form method="GET" action="/admin/redfish-browser">
 					<input type="hidden" name="url" value="https://{{ endpoint.address }}/redfish/v1">
-					<input style="margin-left: 0; width: 100%;" type="submit" value="Redfish Browser">
+					<input type="submit" value="Redfish Browser">
 				</form>
 			</div>
 		</td>
@@ -75,16 +41,20 @@
 	</tr>
 	<tr>
 		<th>Last Exploration Error</th>
-		<td style="display: flex;">
-			{% if has_exploration_error %}
-			<div style="flex-grow: 1;"><pre><code class="prettyjson">{{ last_exploration_error }}</code></pre></div>
-			<div style="flex-shrink: 0;">
+		{% if has_exploration_error %}
+		<td class="action-cell">
+			<div style="overflow: auto;">
+				<pre><code class="prettyjson">{{ last_exploration_error }}</code></pre>
+			</div>
+			<div style="margin-left: 1rem;">
 				<form id="clearlasterror_action" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/clear-last-error">
-					<input style="margin-left: 0" type="submit" value="Clear">
+					<input type="submit" value="Clear">
 				</form>
 			</div>
-			{% endif %}
 		</td>
+		{% else %}
+		<td></td>
+		{% endif %}
 	</tr>
 	<tr>
 		<th>Last Exploration Latency</th>
@@ -96,41 +66,41 @@
 	<tr><th>Report Version</th><td>{{ endpoint.report_version|config_version|safe }}</td></tr>
 	<tr>
 		<th>Exploration Requested</th>
-		<td style="display: flex; align-items: center;">
-			<div style="flex-grow: 1;">{{ endpoint.exploration_requested }}</div>
+		<td class="action-cell">
+			<div>{{ endpoint.exploration_requested }}</div>
 			{% if !endpoint.exploration_requested %}
-			<div style="flex-shrink: 0;">
+			<div>
 				<form id="reexplore_action" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/reexplore">
 					<input type="hidden" name="if_version_match" value="{{ endpoint.report_version }}"/>
-					<input style="margin-left: 0" type="submit" value="Request re-exploration">
+					<input type="submit" value="Request re-exploration">
 				</form>
 			</div>
 			{% endif %}
 		</td>
 	</tr>
 	<tr>
-		<th>Power Control</th>
-		<td style="display: flex; align-items: center;">
-			<div style="flex-grow: 1;"></div>
-			<div style="flex-shrink: 0;">
+		<th>Power Actions</th>
+		<td class="action-cell">
+			<div>
+				Last Redfish BMC Reboot: {{ endpoint.last_redfish_reboot }}
+				<br>
+				Last Redfish BMC Powercycle: {{ endpoint.last_redfish_powercycle }}
+			</div>
+			<div>
 				{% set bmc_ip = endpoint.address.clone() %}
 				{% include "power_control.html" %}
 			</div>
 		</td>
 	</tr>
 	<tr>
-		<th>Reset BMC</th>
-		<td style="display: flex; align-items: center;">
-			<div style="flex-grow: 1;">
+		<th>BMC Actions</th>
+		<td class="action-cell">
+			<div>
 				Last Redfish BMC Reset: {{ endpoint.last_redfish_bmc_reset }}
 				<br>
 				Last IPMI BMC Reset: {{ endpoint.last_ipmitool_bmc_reset }}
-				<br>
-				Last Redfish BMC Reboot: {{ endpoint.last_redfish_reboot }}
-				<br>
-				Last Redfish BMC Powercycle: {{ endpoint.last_redfish_powercycle }}
 			</div>
-			<div style="flex-shrink: 0;">
+			<div>
 				{% set bmc_ip = endpoint.address.clone() %}
 				{% include "bmc_reset.html" %}
 			</div>
@@ -138,40 +108,40 @@
 	</tr>
 	<tr>
 		<th>Forge Setup</th>
-		<td style="display: flex; align-items: center;">
-			<div style="flex-grow: 1;">
+		<td class="action-cell">
+			<div>
 				<em>Current Status</em> - {{ forge_setup_status }}
 			</div>
-			<div style="flex-shrink: 0;">
+			<div>
 				<form id="forge_setup" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/forge-setup">
-					<input style="margin-left: 0; width: 100%;" type="submit" value="Forge Setup">
+					<input type="submit" value="Forge Setup">
 				</form>
 			</div>
 		</td>
 	</tr>
 	<tr>
 		<th>Credentials</th>
-		<td style="display: flex; align-items: center;">
-			<div style="flex-grow: 1;">
+		<td class="action-cell">
+			<div>
 				<em>Current Status</em> - {{ credentials_set }}
 			</div>
-			<div style="flex-shrink: 0;">
+			<div>
 				<form id="clear_credentials" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/clear-credentials">
-					<input style="margin-left: 0; background: #ff4136" type="submit" value="Clear Credentials">
+					<input type="submit" class="delete-button" value="Clear Credentials">
 				</form>
 			</div>
 		</td>
 	</tr>
 	<tr>
 		<th>Secure Boot</th>
-		<td style="display: flex; align-items: center;">
-			<div style="flex-grow: 1;">
+		<td class="action-cell">
+			<div>
 				<em>Current Status</em> - {{ secure_boot_status }}
 			</div>
 			{% include "restart_reminder.html" %}
-			<div style="flex-shrink: 0;">
+			<div>
 				<form id="disable_secure_boot" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/disable-secure-boot" onclick="reminder(event)">
-					<input style="margin-left: 0;" type="submit" value="Disable Secure Boot">
+					<input type="submit" value="Disable Secure Boot">
 				</form>
 			</div>
 		</td>
@@ -192,13 +162,13 @@
 	<tr>
 		<th>Boot Order</th>
 		<td>
-			<pre style="overflow: auto; max-height: 300px; max-width: 100%; overflow-x: auto;">
-				<code>{{ system.boot_order|boot_order_fmt }}</code>
-			</pre>
+			<div style="overflow: auto;">
+				<pre><code>{{ system.boot_order|boot_order_fmt }}</code></pre>
+			</div>
 		</td>
 	</tr>
 	<tr><th>Ethernet Interfaces</th><td style="padding: 0;">
-		<table style="width: 100%;">
+		<table>
 			<thead>
 				<tr>
 					<th>ID</th>
@@ -222,7 +192,7 @@
 	<tr>
 		<th>PCIe Devices</th>
 		<td style="padding: 0;">
-			<table style="width: 100%;">
+			<table>
 				<thead>
 					<tr>
 						<th>ID</th>
@@ -260,7 +230,7 @@
 <table class="detailsview">
 	<tr><th>ID</th><td>{{ manager.id }}</td></tr>
 	<tr><th>Ethernet Interfaces</th><td style="padding: 0;">
-		<table style="width: 100%;">
+		<table>
 			<thead>
 				<tr>
 					<th>ID</th>
@@ -293,7 +263,7 @@
 	<tr><th>Serial Number</th><td>{{ chassis.serial_number|option_fmt }}</td></tr>
 	<tr><th>Part Number</th><td>{{ chassis.part_number|option_fmt }}</td></tr>
 	<tr><th>Network Adapters</th><td style="padding: 0;">
-		<table style="width: 100%;">
+		<table>
 			<thead>
 				<tr>
 					<th>ID</th>
@@ -324,7 +294,7 @@
 <table class="detailsview">
 	<tr><th>ID</th><td>{{ service.id }}</td></tr>
 	<tr><th>Inventory</th><td style="padding: 0;">
-		<table style="width: 100%;">
+		<table>
 			<thead>
 				<tr>
 					<th>ID</th>

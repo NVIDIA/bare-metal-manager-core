@@ -30,7 +30,6 @@
 			</select>
 		</div>
 		<div class="filter-item">
-				<label>&nbsp;</label>
 				<input type="submit" value="Update">
 		</div>
 	</form>
@@ -70,15 +69,12 @@
 			{% endmatch %}
 			<td>
 				{% if ep.has_exploration_error %}
-				<table align="left">
-					<tr>
-						<td style="overflow: auto;"><pre style="max-width: 15vw; max-height: 10vh;"><code class="prettyjson">{{ ep.last_exploration_error }}</code></pre></td>
-						<td><form id="clearlasterror_action" method="POST" action="/admin/explored-endpoint/{{ ep.address }}/clear-last-error">
-							<button style="margin-left: 0" type="submit">Clear</button>
-						</form>
-						</td>
-					</tr>
-				</table>
+				<div class="exploration-error-cell">
+					<pre><code class="prettyjson">{{ ep.last_exploration_error }}</code></pre>
+				</div>
+				<form id="clearlasterror_action" method="POST" action="/admin/explored-endpoint/{{ ep.address }}/clear-last-error">
+					<button type="submit">Clear</button>
+				</form>
 				{% endif %}
 			</td>
 		</tr>

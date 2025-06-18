@@ -35,16 +35,33 @@
 			<td>{{ loop.index }}</td> 
 			<td>{{ m.id|machine_id_link|safe }}</td>
 			<td>
-				{{ m.state }}
-				{% if !m.state.contains("Ready") %}({{ m.time_in_state }}){% endif %}
-				{% if m.time_in_state_above_sla %}⏱️{% endif %}
+				{% if m.state.to_lowercase().contains("failed") %}
+					<span class="bubble error">
+						{{ m.state }}
+						{% if !m.state.contains("Ready") %}({{ m.time_in_state }}){% endif %}
+						{% if m.time_in_state_above_sla %}⏱️{% endif %}
+					</span>
+				{% else if m.time_in_state_above_sla %}
+					<span class="bubble warning">
+						{{ m.state }}
+						{% if !m.state.contains("Ready") %}({{ m.time_in_state }}){% endif %}
+						⏱️
+					</span>
+				{% else if m.state == "Ready" || m.state == "Assigned/Ready" %}
+					<span class="bubble success">
+						{{ m.state }}
+					</span>
+				{% else %}
+					<span class="bubble">
+						{{ m.state }}
+						{% if !m.state.contains("Ready") %}({{ m.time_in_state }}){% endif %}
+					</span>
+				{% endif %}
 			</td>
 			<td>
-				{% if m.health_probe_alerts.len() == 0 %}<div class="healthy">{% else %}<div class="unhealthy">{% endif %}
-					<a href="/admin/machine/{{ m.id }}/health">
-						{{ m.health_probe_alerts|health_alerts_fmt(false)|safe }}
-					</a>
-				</div>
+				<a href="/admin/machine/{{ m.id }}/health">
+					{{ m.health_probe_alerts|health_alerts_fmt(false)|safe }}
+				</a>
 			</td>
 			<td><a href="/admin/machine/{{ m.id }}/health">{{ m.override_mode_counts }}</a></td>
 			<td>{% if m.is_host %}

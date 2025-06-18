@@ -2,260 +2,13 @@
 <html lang="en">
 	<head>
 		<title>carbide-web | {% block title %}Base{% endblock %}</title>
-<style>
-/* Set the width of the sidebar */
-nav {
-	width: 250px;
-	height: 100%;
-	position: fixed;
-	left: 0;
-	top: 0;
-	background-color: #f0f0f0;
-	overflow-x: hidden;
-	padding: 20px;
-}
-
-nav ul {
-	list-style-type: none;
-	margin: 0;
-	padding: 0;
-}
-
-nav a {
-	display: block;
-	color: #333;
-	text-decoration: none;
-	font-size: 18px;
-	padding: 10px;
-}
-
-/* Change the color on hover */
-nav a:hover {
-	background-color: #ddd;
-}
-
-nav ul ul {
-	margin-left: 20px;
-}
-
-main {
-	margin-left: 270px;
-	padding: 20px;
-}
-
-table {
-	border-collapse: collapse;
-	margin: 0 auto;
-}
-
-/* Overview table (sortable) */
-table.overview {
-	width: 100%;
-}
-
-/* Main tables on details pages */
-table.detailsview {
-	width: 100%;
-}
-
-th {
-	background-color: #333;
-	color: white;
-	padding: 15px;
-	text-align: left;
-	width: 20%;
-}
-
-td {
-	border: 1px solid #ddd;
-	padding: 15px;
-}
-
-/* Add stripes to the table rows */
-tr:nth-child(even) {
-	background-color: #f2f2f2;
-}
-
-td textarea {
-	width: 100%;
-	height: 20em;
-}
-
-a {
-	color: #0099ff;
-	text-decoration: none;
-}
-
-/* Add a hover effect to the a element and change its color and text-decoration */
-a:hover {
-	color: #0066cc;
-	text-decoration: underline;
-}
-
-label {
-	font-weight: bold;
-	margin-right: 10px;
-}
-
-input {
-	height: 30px;
-	padding: 5px;
-	border: 1px solid #999;
-	outline: none;
-}
-
-input[type="submit"] {
-	margin-left: 20px;
-	background-color: #0099ff;
-	color: white;
-	cursor: pointer;
-}
-
-/* Add a hover effect to the input element with type="submit" and change its background color */
-input[type="submit"]:hover {
-	background-color: #0066cc;
-}
-
-div#json {
-	/* Position it relative to its parent element */
-	position: relative;
-	/* Move it to the top right corner of the page */
-	top: 0;
-	right: 0;
-	text-align: right;
-	float: right;
-}
-
-/* Select the anchor element inside the nav element */
-div#json a {
-	/* Change the font color to white */
-	color: white;
-	/* Change the background color to dark blue */
-	background-color: #003366;
-	/* Add some padding around the text */
-	padding: 10px;
-	/* Remove the underline from the link */
-	text-decoration: none;
-	/* Add some margin around the link */
-	margin: 10px;
-	/* Add some border radius to make the link look rounded */
-	border-radius: 5px;
-}
-
-/* Pill style for Health Alert Classifications */
-div.health_alert_classification {
-	background-color: orangered;
-	border-radius: 16px;
-	margin: 2px 2px;
-	display: inline-block;
-	padding: 4px;
-	color: ghostwhite;
-	text-decoration: none;
-}
-
-/* Machine ID with center truncated, for list display */
-.machine_id {
-	width: 14ch;
-	display: inline-flex;
-	flex-wrap: nowrap;
-}
-.machine_id > div:first-child {
-	flex: 0 1 content;
-	text-overflow: ellipsis;
-	overflow: hidden;
-	white-space: nowrap;
-}
-.machine_id > div:nth-child(2) {
-	flex: 1 0 content;
-	white-space: nowrap;
-}
-
-.healthy {
-	color: green;
-}
-
-.unhealthy {
-	color: red;
-}
-
-/* Search box style */
-.search-container {
-	display: flex;
-	align-items: center;
-	margin-top: 10px;
-	margin-bottom: 20px;
-}
-
-.search-container input[type="search"] {
-	flex-grow: 1;
-	margin-right: 3px;
-	width: calc(100% - 40px);
-	box-sizing: border-box;
-}
-
-.search-container input[type="submit"] {
-	margin-left: 5px;
-	width: 30px;
-	height: 30px;
-	background: url('data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 5L22 19l-5-5zm-6 0C8.01 14 6 11.99 6 9.5S8.01 5 9.5 5 13 7.01 13 9.5 10.99 14 9.5 14z"/></svg>') no-repeat center;
-	background-size: 20px;
-	cursor: pointer;
-}
-
-.filter-container {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 15px;
-	margin-bottom: 20px;
-	padding: 20px;
-	background: #f9f9f9;
-	border-radius: 10px;
-	box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-}
-
-.filter-item {
-	flex: 1 1 200px;
-	display: flex;
-	flex-direction: column;
-	gap: 5px; 
-}
-
-.filter-item label {
-	font-weight: bold;
-}
-
-.filter-item select,
-.filter-item input {
-	padding: 10px;
-	border: 1px solid #ddd;
-	border-radius: 5px;
-	font-size: 14px;
-	height: 42px; /* Ensure consistent height for all inputs */
-}
-
-.filter-item input[type="submit"] {
-	background-color: #0099ff;
-	color: #fff;
-	cursor: pointer;
-	text-align: center;
-	width: 100px; /* Fixed width for the submit button */
-	height: 42px; /* Match height of other fields */
-	margin-left: 0;
-}
-
-.filter-item input[type="submit"]:hover {
-	background-color: #0056b3;
-}
-
-{% block css %}{% endblock %}
-</style>
-
+		<link href="/admin/static/carbide.css" rel="stylesheet" />
 		<link href="/admin/static/sortable.css" rel="stylesheet" />
 		{% block head %}{% endblock %}
 	</head>
 	<body>
 		<nav>
-			<h3><a href="/admin" style="font-size: inherit; padding: inherit;">carbide-web</a></h3>
+			<h3><a href="/admin" id="site-name">carbide-web</a></h3>
 			<form action="/admin/search" class="search-container">
 				<input type="search" placeholder="fm100.., 10.2.., etc" name="q" tabindex="1" title="Enter a machine id, UUID, IP address, MAC address, serial number, or shortcode">
 				<input type="submit" value="">
@@ -334,14 +87,22 @@ div.health_alert_classification {
 			// On domains like api-dev3.frg.nvidia.com extract "dev3" and use that to build Grafana and Argo CD URLs
 			function setURLs() {
 				let url = window.location.href;
-				let parts = url.split(".");
 				let name = "dev3";
-				if (parts.length >= 4) { // expected
-					let inner = parts[0].split("-"); // "api-dev3"
-					if (inner.length == 2) {
-						name = inner[1]; // "dev3"
-					}
+				let displayName = "localDev";
+				
+				// Check if URL matches expected format
+				const match = url.match(/https?:\/\/api-([^.]+)\.frg\.nvidia\.com/);
+				if (match) {
+					name = match[1];
+					displayName = name;
 				}
+				
+				// Set the site name
+				let siteNameElement = document.getElementById("site-name");
+				if (siteNameElement) {
+					siteNameElement.innerHTML = `carbide • ${displayName}`;
+				}
+				
 				let grafanaBaseUrl = "https://grafana-"+ name +".frg.nvidia.com";
 				document.getElementById("grafana-url").href = grafanaBaseUrl;
 				document.getElementById("serial-console-url").href = grafanaBaseUrl + "/d/ssh-console-logs-v2/serial-console?orgId=1";
@@ -360,9 +121,7 @@ div.health_alert_classification {
 			function prettifyJSONs() {
 				let elems = document.getElementsByClassName("prettyjson");
 				for (elem of elems) {
-					if (elem.parentElement.nodeName === "PRE") {
-						elem.parentElement.style.whiteSpace = "pre-wrap";
-					}
+					// No need to set whiteSpace style as it's handled by CSS now
 					try {
 						let jsObj = JSON.parse(elem.innerText);
 
@@ -405,3 +164,4 @@ div.health_alert_classification {
 		</script>
 	</body>
 </html>
+

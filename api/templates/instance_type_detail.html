@@ -22,17 +22,22 @@
 		<th>Capability Filters</th>
 		<td style="padding: 0;">
 			<table class="sortable overview">
-				<td> Type </td>
-				<td> Name </td>
-				<td> Frequency </td>
-				<td> Capacity </td>
-				<td> Vendor </td>
-				<td> Count </td>
-				<td> Hardware Revision </td>
-				<td> Cores </td>
-				<td> Threads </td>
-				<td> Device Type </td>
-				<td> Inactive Devices </td>
+				<thead>
+					<tr>
+						<th>Type</th>
+						<th>Name</th>
+						<th>Frequency</th>
+						<th>Capacity</th>
+						<th>Vendor</th>
+						<th>Count</th>
+						<th>Hardware Revision</th>
+						<th>Cores</th>
+						<th>Threads</th>
+						<td>Device Type</td>
+						<th>Inactive Devices</th>
+					</tr>
+				</thead>
+				<tbody>
 				{% for cap in capabilities %}
 				<tr>
 					<td>{{ cap.cap_type }}</td>
@@ -47,7 +52,8 @@
 					<td>{{ cap.device_type }}</td>
 					<td>{{ cap.inactive_devices }}</td>
 				</tr>
-			{% endfor %}
+				{% endfor %}
+				</tbody>
 			</table>
 		</td>
 	</tr>

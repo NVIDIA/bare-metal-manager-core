@@ -29,12 +29,7 @@
         </tr>
         {% for profile_attr in profile_attributes %}
         <tr>
-            <th>
-                <table>
-                    <th></th>
-                    <th>{{ profile_attr.0 }}</th>
-                </table>
-            </th>
+            <th style="padding-left: 2rem;">{{ profile_attr.0 }}</th>
             <td>{{ profile_attr.1 }}</td>
         </tr>
         {% endfor %}
@@ -52,7 +47,7 @@
             <th>Description</th>
 
             {% if attestation_status != "Attested" %}
-			<th style="color:#eb0c4f">Partially Matching Bundle</th>
+			<th class="text-error">Partially Matching Bundle</th>
             {% else %}
             <th>Bundle</th>
             {% endif %}
@@ -65,9 +60,9 @@
         <tr>
             <th>Attestation Outcome</th>
             {% if attestation_status != "Attested" %}
-            <td colspan="4" style="text-align:center;color:#eb0c4f;font-weight:bold">{{ attestation_status }}</td>
+            <td colspan="4" class="text-center text-error font-bold">{{ attestation_status }}</td>
             {% else %}
-            <td colspan="4" style="text-align:center;color:#0ec01d;font-weight:bold">{{ attestation_status }}</td>
+            <td colspan="4" class="text-center text-success font-bold">{{ attestation_status }}</td>
             {% endif %}
         </tr>
         <tr>
@@ -100,8 +95,8 @@
             <td>{{ pcr_row.bundle_value }}</td>
             <td>{{ pcr_row.report_value }}</td>
             {% else %}
-            <td style="color:#eb0c4f">{{ pcr_row.bundle_value }}</td>
-            <td style="color:#eb0c4f">{{ pcr_row.report_value }}</td>
+            <td class="text-error">{{ pcr_row.bundle_value }}</td>
+            <td class="text-error">{{ pcr_row.report_value }}</td>
             {% endif %}
 
             <td><input type="checkbox" name="PCR{{ pcr_row.pcr_slot }}"/></td>
@@ -111,7 +106,7 @@
         <tr>
             <th></th>
             <td colspan="2"></td>
-            <td colspan="2" style="text-align:center">
+            <td colspan="2" class="text-center">
                 <input type="hidden" name="reportname" value="{{ report_id }}"/>
                 <input type="submit" formaction="/admin/machine/{{ machine_id }}/attestation-submit-report-promotion" value="Promote Report" />
             </td>
