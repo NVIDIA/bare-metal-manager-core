@@ -17,6 +17,7 @@
 		<th>Associated DPU/Host</th>
 		<th>Hostname</th>
 		<th>Labels</th>
+		<th>Instance Type</th>
 		<th>IP Address</th>
 		<th>MAC Address</th>
 		<th>Sys Vendor</th>
@@ -57,6 +58,17 @@
 			</td>
 			<td><a href="/admin/machine/{{ m.id }}">{{ m.hostname }}</a></td>
 			<td>{{ m.metadata.labels|label_list_fmt(true)|safe }}</td>
+			<td>
+				{% if !m.instance_type_id.is_empty() %}
+				<a href="/admin/instance-type/{{ m.instance_type_id }}">
+					{% if !m.instance_type.is_empty() %}
+					{{ m.instance_type }}
+					{% else %}
+					{{ m.instance_type_id }}
+					{% endif %}
+				</a>
+				{% endif %}
+			</td>
 			<td>{{ m.ip_address }}</td>
 			<td>{{ m.mac_address }}</td>
 			<td>{{ m.sys_vendor}}</td>

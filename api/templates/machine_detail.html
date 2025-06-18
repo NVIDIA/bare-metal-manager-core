@@ -47,7 +47,13 @@
 	<tr>
 		<th>Instance Type</th>
 		<td>
-			<a href="/admin/instance-type/{{ instance_type_id }}">{{ instance_type_id }}</a>
+			<a href="/admin/instance-type/{{ instance_type_id }}">
+				{% if !instance_type.is_empty() %}
+				{{ instance_type }}
+				{% else %}
+				{{ instance_type_id }}
+				{% endif %}
+			</a>
 		</td>
 	</tr>
 		{% endif %}

@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use askama::Template;
@@ -53,6 +54,8 @@ struct MachineRowDisplay {
     health_probe_alerts: Vec<health_report::HealthProbeAlert>,
     override_mode_counts: String,
     metadata: rpc::forge::Metadata,
+    instance_type_id: String,
+    instance_type: String,
 }
 
 impl PartialOrd for MachineRowDisplay {
@@ -150,6 +153,8 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
                 }
             ),
             metadata: m.metadata.unwrap_or_default(),
+            instance_type_id: m.instance_type_id.unwrap_or_default(),
+            instance_type: String::new(),
         }
     }
 }
@@ -207,12 +212,12 @@ async fn show(
     AxumState(state): AxumState<Arc<Api>>,
     include_hosts: bool,
     include_dpus: bool,
-) -> impl IntoResponse {
-    let mut all_machines = match fetch_machines(state, include_dpus, false).await {
+) -> Response {
+    let mut all_machines = match fetch_machines(state.clone(), include_dpus, false).await {
         Ok(m) => m,
         Err(err) => {
             tracing::error!(%err, "find_machines");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string()));
+            return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response();
         }
     };
 
@@ -235,6 +240,25 @@ async fn show(
     }
     machines.sort_unstable();
 
+    let instance_type_ids: Vec<String> = machines
+        .iter()
+        .filter_map(|m| match m.instance_type_id.is_empty() {
+            true => Some(m.instance_type_id.clone()),
+            false => None,
+        })
+        .collect();
+
+    let instance_types = match fetch_instance_type_names(&state, instance_type_ids).await {
+        Ok(instance_types) => instance_types,
+        Err(e) => return e,
+    };
+
+    for m in machines.iter_mut() {
+        if let Some(instance_type) = instance_types.get(&m.instance_type_id) {
+            m.instance_type = instance_type.clone();
+        }
+    }
+
     let tmpl = MachineShow {
         machines,
         title: if include_hosts && include_dpus {
@@ -245,7 +269,7 @@ async fn show(
             "DPUs"
         },
     };
-    (StatusCode::OK, Html(tmpl.render().unwrap()))
+    (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
 pub async fn fetch_machine(
@@ -291,6 +315,34 @@ pub async fn fetch_machine(
     };
 
     Ok(machine)
+}
+
+/// Fetches Instance Type Names for the given Instance Type IDs
+pub async fn fetch_instance_type_names(
+    api: &Api,
+    instance_type_ids: Vec<String>,
+) -> Result<HashMap<String, String>, Response> {
+    let request =
+        tonic::Request::new(rpc::forge::FindInstanceTypesByIdsRequest { instance_type_ids });
+
+    let instance_types = api
+        .find_instance_types_by_ids(request)
+        .await
+        .map_err(|err| {
+            tracing::error!(%err, "find_instance_types_by_ids");
+            (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response()
+        })?
+        .into_inner()
+        .instance_types;
+
+    let mut result = HashMap::new();
+    for instance_type in instance_types {
+        if let Some(name) = instance_type.metadata.as_ref().map(|m| m.name.clone()) {
+            result.insert(instance_type.id, name);
+        }
+    }
+
+    Ok(result)
 }
 
 pub async fn fetch_machines(
@@ -377,6 +429,7 @@ struct MachineDetail {
     quarantine_state: Option<ManagedHostQuarantineState>,
     quarantine_state_is_link: bool,
     instance_type_id: String,
+    instance_type: String,
     has_instance_type: bool,
 }
 
@@ -670,6 +723,7 @@ impl From<forgerpc::Machine> for MachineDetail {
             quarantine_state,
             has_instance_type: m.instance_type_id.is_some(),
             instance_type_id: m.instance_type_id.unwrap_or_default(),
+            instance_type: "".to_string(),
         }
     }
 }
@@ -694,6 +748,17 @@ pub async fn detail(
     }
 
     let mut display: MachineDetail = machine.into();
+
+    if display.has_instance_type {
+        match fetch_instance_type_names(&state, vec![display.instance_type_id.clone()]).await {
+            Ok(mut instance_types) => {
+                display.instance_type = instance_types
+                    .remove(&display.instance_type_id)
+                    .unwrap_or_default()
+            }
+            Err(e) => return e,
+        };
+    }
 
     // Get validation results
     let validation_request = tonic::Request::new(rpc::forge::MachineValidationRunListGetRequest {
