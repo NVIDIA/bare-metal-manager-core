@@ -104,7 +104,7 @@ pub(crate) fn activate_credential(
         None,
         None,
         SessionType::Policy,
-        SymmetricDefinition::AES_256_CFB,
+        SymmetricDefinition::AES_128_CFB,
         HashingAlgorithm::Sha256,
     )?;
 
@@ -124,7 +124,7 @@ pub(crate) fn activate_credential(
         None,
         None,
         SessionType::Hmac,
-        SymmetricDefinition::AES_256_CFB,
+        SymmetricDefinition::AES_128_CFB,
         HashingAlgorithm::Sha256,
     )?;
 
@@ -226,7 +226,7 @@ pub(crate) fn get_pcr_quote(
         None,
         None,
         SessionType::Hmac,
-        SymmetricDefinition::AES_256_CFB,
+        SymmetricDefinition::AES_128_CFB,
         HashingAlgorithm::Sha256,
     )?;
 
