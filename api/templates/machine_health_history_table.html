@@ -1,4 +1,4 @@
-<table class="detailsview">
+<table class="detailsview" style="table-layout: fixed;">
 	<thead>
 		<tr>
 			<th>Time</th>
@@ -12,7 +12,7 @@
 		<tr>
 			<td>{{ record.timestamp }}</td>
 			<td>
-				{{ record.health.alerts|health_alerts_fmt(false)|safe }}
+				{{ record.health.alerts|health_alerts_fmt(false, true)|safe }}
 			</td>
 			<td>{{ record.health.alerts|health_alert_classifications_fmt|safe }}</td>
 			<td>

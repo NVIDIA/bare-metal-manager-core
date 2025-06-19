@@ -29,7 +29,7 @@
 				<td>{{ override.health_report.source }}</td>
 				<td>{{ override.mode }}</td>
 				<td>
-					{{ override.health_report.alerts|health_alerts_fmt(false)|safe }}
+					{{ override.health_report.alerts|health_alerts_fmt(false, false)|safe }}
 					<details>
 						<summary>View JSON Details</summary>
 						<div style="overflow: auto; max-height: 300px; border: 1px solid var(--border-color); border-radius: 8px; background-color: var(--bg-tertiary); margin-top: 0.5rem;">

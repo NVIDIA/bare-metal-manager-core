@@ -349,9 +349,15 @@ td {
 
 /* Bubble alignment in table cells */
 td .bubble {
-  text-align: center;
   display: inline-block;
   vertical-align: middle;
+}
+
+/* Prevent overflow in fixed layout tables */
+table[style*="table-layout: fixed"] td {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  max-width: 0;
 }
 
 tr:last-child td {
@@ -778,6 +784,8 @@ td form button {
   border: 1px solid;
   vertical-align: middle;
   margin: 0.25rem;
+  text-align: left;
+  max-width: 35ch;
   
   /* Default/neutral styling */
   background-color: var(--bg-tertiary);
@@ -949,6 +957,11 @@ div.health_alert_classification {
 .detailsview .machine_id > div:first-child {
   text-overflow: initial;
   overflow: visible;
+}
+
+/* Hide suffix in detail views to avoid duplication */
+.detailsview .machine_id > div:nth-child(2) {
+  display: none;
 }
 
 /* Details/Summary expandable sections */

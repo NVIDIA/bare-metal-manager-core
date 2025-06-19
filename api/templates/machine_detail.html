@@ -34,13 +34,13 @@
 	<tr><th>State SLA</th><td>{{ state_sla }}</td></tr>
 	<tr><th>Time in State is above SLA</th><td>{{ time_in_state_above_sla }}</td></tr>
 	{% if !state_reason.is_empty() %}
-	<tr><th>State machine is blocked</th><td><span class="bubble error">{{ state_reason }}</span></td></tr>
+	<tr><th>State machine is blocked</th><td><span class="bubble error" style="max-width: none;">{{ state_reason }}</span></td></tr>
 	{% endif %}
 
 	{% if !network_config.is_empty() %}
 	<tr>
 		<th>Network config (sent to forge-dpu-agent)</th>
-		<td><div><pre><code>{{ network_config }}</code></pre></div></td>
+		<td><div style="max-height: 300px; overflow: auto;"><pre><code>{{ network_config }}</code></pre></div></td>
 	</tr>
 	{% endif %}
 	<tr><th>Version</th><td>{{ version }}</td></tr>
@@ -94,7 +94,7 @@
 		<th>Health Probe Alerts</th>
 		<td>
 			<a href="/admin/machine/{{ id }}/health">
-				{{ health.alerts|health_alerts_fmt(true)|safe }}
+				{{ health.alerts|health_alerts_fmt(true, true)|safe }}
 			</a>
 		</td>
 	</tr>
