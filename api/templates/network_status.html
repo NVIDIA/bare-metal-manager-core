@@ -33,7 +33,7 @@
 			<td>{{ st.observed_at }}</td>
 			<td>{{ st.dpu_machine_id|machine_id_link|safe }}</td>
 			{% if active_filter == "unhealthy" %}
-				<td>{{ st.health.alerts|health_alerts_fmt(false)|safe }}</td>
+				<td>{{ st.health.alerts|health_alerts_fmt(false, false)|safe }}</td>
 				<td>{{ st.health.alerts|health_alert_classifications_fmt|safe }}</td>
 			{% endif %}
 			            <td {% if !st.is_agent_updated %}class="cell-error"{% endif %}>{{ st.agent_version }}</td>

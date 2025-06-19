@@ -41,7 +41,7 @@
 			</td>
 			<td>
 				<a href="/admin/machine/{{ host.machine_id }}/health">
-					{{ host.health_probe_alerts|health_alerts_fmt(false)|safe }}
+					{{ host.health_probe_alerts|health_alerts_fmt(false, false)|safe }}
 				</a>
 			</td>
 			<td><a href="/admin/machine/{{ host.machine_id }}/health">{{ host.health_overrides.len() }}</a></td>

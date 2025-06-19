@@ -60,7 +60,7 @@
 			</td>
 			<td>
 				<a href="/admin/machine/{{ m.id }}/health">
-					{{ m.health_probe_alerts|health_alerts_fmt(false)|safe }}
+					{{ m.health_probe_alerts|health_alerts_fmt(false, false)|safe }}
 				</a>
 			</td>
 			<td><a href="/admin/machine/{{ m.id }}/health">{{ m.override_mode_counts }}</a></td>

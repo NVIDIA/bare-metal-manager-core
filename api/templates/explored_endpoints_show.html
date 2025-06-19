@@ -69,8 +69,8 @@
 			{% endmatch %}
 			<td>
 				{% if ep.has_exploration_error %}
-				<div class="exploration-error-cell">
-					<pre><code class="prettyjson">{{ ep.last_exploration_error }}</code></pre>
+				<div style="max-width: 400px; max-height: 100px; overflow: auto; border: 1px solid var(--border-color); border-radius: 4px; padding: 0.5rem;">
+					<pre style="margin: 0; white-space: pre-wrap; font-size: 0.8rem;"><code class="prettyjson">{{ ep.last_exploration_error }}</code></pre>
 				</div>
 				<form id="clearlasterror_action" method="POST" action="/admin/explored-endpoint/{{ ep.address }}/clear-last-error">
 					<button type="submit">Clear</button>
