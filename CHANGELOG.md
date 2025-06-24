@@ -1,27 +1,90 @@
 # Changelog
 
-## [Unreleased (v2025.06.20-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.06.06-rc2-0...trunk)
+## [Unreleased (v2025.07.04-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/...trunk)
 
 ### Added
-### Changed
-- [MR-4166](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4166): Changed time before we consider re-resetting a host during UEFI update from 20 to 30 minutes.
-### Fixed
 
-- [MR-4149](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4149): Fixed cloud init failing to run on user supplied cloud images
+### Changed
+
+### Fixed
 
 ### Removed
 
-- [MR-4160](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4160): Removed lldp due to dpu agent startup issues when lldp was not configured in an environment
-- 
-### Internal
+### Internal Changes
+
+## [v2025.06.20-rc1-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.06.06-rc3-0...trunk)
+
+### Added
+
+- [MR-4170](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4170): Added the ability to view the state of a BIOS job in the State Machine to increase visibility into the lifecycle of a failed job.
+- [MR-4150](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4150): Added the ability to configure East-West Ethernet settings in Carbide.
+- [MR-4151](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4151): Added the ability to manage NIC firmware versions during the DPU reprovisioning flow with a retry mechanism.
+- [MR-4179](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4179): Added the ability to view the instance type name in carbide-web detail view of a machine.
+- [FORGE-6238](https://jirasw.nvidia.com/browse/FORGE-6238), [MR-4110](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4110): Added Device Type to the machine capability Network to be able to identify the network interface type as DPU.
+- [FORGE-4105](https://jirasw.nvidia.com/browse/FORGE-4105), [MR-3997](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3997): Added the ability to install BFB using Redfish if the BMC firmware version is version 24.10 or later.
+- [FORGE-4545](https://jirasw.nvidia.com/browse/FORGE-4545), [MR-3681](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/3681): Added the ability to view and toggle secure boot for an explored endpoint in carbide-web.
+- [FORGE-5969](https://jirasw.nvidia.com/browse/FORGE-5969), [MR-4131](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4131): Added the ability to delete an explored endpoint in carbide-web and forge-admin-cli, using `forge-admin-cli site-explorer delete --address $BMC_IP`.
+
+### Changed
+
+- [MR-4166](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4166): Changed time before we consider re-resetting a host during UEFI update from 20 to 30 minutes.
+- [MR-4176](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4176): Changed styling of the carbide-web UI.
+- [MR-4155](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4155): Changed the boot process to use a small loader image, and a separate large root filesystem, reducing boot time from 5 minutes to 1 minute.
+
+### Fixed
+
+- [MR-4171](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4171): Fixed an issue where Site Explorer was incorrectly tagging machines as not allocatable because of firmware inventory 403 errors.
+- [MR-4149](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4149): Fixed an issue with cloud init failing to run on user supplied cloud images.
+- [FORGE-6229](https://jirasw.nvidia.com/browse/FORGE-6229), [MR-4141](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4141), [MR-4159](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4159): Fixed an issue where some machines were not supporting SHA256 PCR values by adding support for any SHA (up to 512).
+- [FORGE-5974](https://jirasw.nvidia.com/browse/FORGE-5974), [MR-4165](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4165): Fixed an issue with Supermicro TPM chips that don't support AES256 encryption for communication between scout and the TPM by commonly using AES128.
+- [MR-4185](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4185): Fixed an issue where the incorrect default NIC firmware was used for DOCA 2.8 (now using 32.42.1000)
+- [MR-4184](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4184): Fixed an issue where API requests were failing due to an empty argument list for instance types.
+- [MR-4181](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4181): Fixed an issue with error messages where nested errors would cause formatting issues.
+- [MR-4180](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4180): Fixed an issue in carbide-web where empty instance types where used in search.
+- [MR-4173](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4173): Fixed an issue in the state machine handling logic that could cause DPUs to reboot unexpectedly.
+- [MR-4168](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4168): Fixed an issue where predicted hosts where not displayed when using `forge-admin-cli mh show`. 
+- [FORGE-6182](https://jirasw.nvidia.com/browse/FORGE-6182), [MR-4157](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4157): Fixed an issue where a machine would remain powered off during a restart operation in the state machine.
+- [FORGE-6351](https://jirasw.nvidia.com/browse/FORGE-6351), [MR-4164](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4164): Fixed an issue where the state machine remained blocked when a machine is in state 'Waiting For Measurement' and attestation was then subsequently disabled.
+- [5318791](https://nvbugspro.nvidia.com/bug/5318791), [MR-4156](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4156): Fixed an issue where DPU logs would be annotated with 'localhost' instead of the fully qualified domain name of the DPU, resulting in 'no DPU logs' alerts.
+- [MR-4016](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4016): Fixed an issue where DPUs made multiple gRPC calls every 30 seconds, by consolidating the information retrieval into a single call, reducing the number of database connections and SQL queries.
+- [FORGE-6301](https://jirasw.nvidia.com/browse/FORGE-6301), [MR-4126](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4126): Fixed an issue where hardware-health service would unneccessarily back-off up to a whole day if there were errors scraping health.
+- [MR-4147](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4147): Fixed an issue with failing database queries for managed host network configuration.
+- [FORGE-6207](https://jirasw.nvidia.com/browse/FORGE-6207), [MR-4132](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4132): Fixed an issue where NVME SSDs would become write-protected / read-only because of interrupted drive scrubbing.
+
+### Removed
+
+- [MR-4144](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4144): Removed old VPC peering ACL names from FNN NVUE template.
+- [MR-4183](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4183): Removed the hostname from the machine overview page in carbide-web.
+
+### Internal Changes
+
+- [MR-4175](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4175): Added stub for rewriting of ssh-console in Rust.
+- [MR-4182](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4182): Increased wait time to 3 hours after firmware downgrade in machine lifecycle tests.
+- [MR-4178](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4178): Updated documentation for remoote VSCode development.
+- [MR-4174](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4174): Added some post-build checks to ensure scout is functional.
+- [MR-4172](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4172): Updated state machine diagram with latest assigned state changes.
+- [MR-4169](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4169): Increased wait for ready state timeout in machine lifecycle tests.
+- [MR-4146](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4146): Restored factory reset on Lenovos in machine lifecycle tests.
+- [MR-4158](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4158): Extracted api-test helpers into a new api-test-helper crate.
+- [MR-4152](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4152): Tweaked integration test  in preparation for splitting into another crate.
+- [MR-4148](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4148): Added echo to unknown host instructions in ipxe for better debugging.
+
+## [v2025.06.06-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.06.06-rc3-0...v2025.06.06-rc4-0)
+
+### Fixed
+
+- [MR-4153](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4153): Fixed an issue where DPU installations become very slow if there are existing failed DPU BMC tasks by only adding certificate tasks when they are not in the database.
+
+### Removed
+
+- [MR-4160](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4160): Removed LLDP due to DPU agent startup issues when LLDP was not configured in an environment
+
 
 ## [v2025.06.06-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.06.06-rc2-0...v2025.06.06-rc3-0)
 
 ### Added
 
-- [MR-4139](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4139): Do not require the user to specify the BFB to copy to a DPU's BMC.
-  - Old method: `forge-admin-cli site-explorer copy-bfb-to-dpu-rshim 10.217.157.95:22 '/forge-boot-artifacts/blobs/internal/aarch64/preingestion_unified_update.bfb'`
-  - New method: `forge-admin-cli site-explorer copy-bfb-to-dpu-rshim 10.217.157.95:22`
+- [MR-4139](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4139): Added the ability to automatically identify the BFB firmware to copy when using `forge-admin-cli site-explorer copy-bfb-to-dpu-rshim` with automatic appending of the BFB configuration.
 
 ## [v2025.06.06-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.05.23-rc3-0...v2025.06.06-rc1-0)
 
