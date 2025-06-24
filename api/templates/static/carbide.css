@@ -743,13 +743,12 @@ td form button {
    ========================================================================
    
    This system provides consistent visual indicators for status, health,
-   and validation states throughout the application. There are 4 main
+   and validation states throughout the application. There are 3 main
    patterns organized by use case:
    
    1. BUBBLE SYSTEM - Primary status indicators (machine states, etc.)
    2. TABLE CELL BACKGROUNDS - Highlighted table cells  
-   3. HEALTH CONTAINERS - Multiple health alerts/probes
-   4. TEXT COLORS - Simple colored text without backgrounds
+   3. TEXT COLORS - Simple colored text without backgrounds
    
    Color Scheme:
    - Success/Healthy: Green (#76b900)
@@ -785,7 +784,6 @@ td form button {
   vertical-align: middle;
   margin: 0.25rem;
   text-align: left;
-  max-width: 35ch;
   
   /* Default/neutral styling */
   background-color: var(--bg-tertiary);
@@ -836,31 +834,6 @@ td.cell-warning {
   background-color: rgba(237, 137, 54, 0.1);
   color: var(--warning);
   font-weight: 500;
-}
-
-/* ------------------------------------------------------------------------
-   3. HEALTH CONTAINERS - Multiple Health Alerts/Probes
-   
-   Used for: Health probe alerts, validation results with multiple items
-   Format: <div class="health-container">
-             <span class="bubble error">Alert 1</span>
-             <span class="bubble error">Alert 2</span>
-           </div>
-   
-   Container provides flex layout for multiple status bubbles.
-   ------------------------------------------------------------------------ */
-
-.health-container {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  align-items: center;
-  vertical-align: middle;
-}
-
-/* Ensure health containers in table cells are properly aligned */
-td .health-container {
-  vertical-align: middle;
 }
 
 /* ------------------------------------------------------------------------
@@ -962,6 +935,12 @@ div.health_alert_classification {
 /* Hide suffix in detail views to avoid duplication */
 .detailsview .machine_id > div:nth-child(2) {
   display: none;
+}
+
+/* Restrict bubble width only in overview tables and health-related tables */
+.overview .bubble,
+table[style*="table-layout: fixed"] .bubble {
+  max-width: 35ch;
 }
 
 /* Details/Summary expandable sections */
