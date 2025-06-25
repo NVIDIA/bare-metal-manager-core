@@ -25,9 +25,9 @@ use crate::db::network_security_group;
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentSearchConfig};
 use crate::db::vpc::{Vpc, VpcDpuLoopback};
 use crate::db::{DatabaseError, ObjectColumnFilter, network_segment};
+use crate::handlers::utils::convert_and_log_machine_id;
 use crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
 use crate::model::hardware_info::MachineInventory;
-use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
 use crate::model::machine::{InstanceState, ManagedHostState};
@@ -495,13 +495,7 @@ pub(crate) async fn get_managed_host_network_config(
     log_request_data(&request);
 
     let request = request.into_inner();
-    let dpu_machine_id = match &request.dpu_machine_id {
-        Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-        None => {
-            return Err(CarbideError::MissingArgument("dpu_machine_id").into());
-        }
-    };
-    log_machine_id(&dpu_machine_id);
+    let dpu_machine_id = convert_and_log_machine_id(request.dpu_machine_id.as_ref())?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -546,14 +540,7 @@ pub(crate) async fn update_agent_reported_inventory(
     log_request_data(&request);
 
     let request = request.into_inner();
-    let dpu_machine_id = match &request.machine_id {
-        Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-        None => {
-            return Err(CarbideError::MissingArgument("machine_id").into());
-        }
-    };
-
-    log_machine_id(&dpu_machine_id);
+    let dpu_machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
     if let Some(inventory) = request.inventory.as_ref() {
         let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -594,13 +581,7 @@ pub(crate) async fn record_dpu_network_status(
     log_request_data(&request);
 
     let request = request.into_inner();
-    let dpu_machine_id = match &request.dpu_machine_id {
-        Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-        None => {
-            return Err(CarbideError::MissingArgument("dpu_machine_id").into());
-        }
-    };
-    log_machine_id(&dpu_machine_id);
+    let dpu_machine_id = convert_and_log_machine_id(request.dpu_machine_id.as_ref())?;
 
     // TODO: persist this somewhere
     let _fabric_interfaces_data = request.fabric_interfaces.as_slice();
@@ -930,15 +911,8 @@ pub(crate) async fn trigger_dpu_reprovisioning(
 
     log_request_data(&request);
     let req = request.into_inner();
-
     let machine_id = req.machine_id.as_ref().or(req.dpu_id.as_ref());
-
-    let machine_id = try_parse_machine_id(
-        machine_id.ok_or_else(|| Status::invalid_argument("Machine ID is missing"))?,
-    )
-    .map_err(CarbideError::from)?;
-
-    log_machine_id(&machine_id);
+    let machine_id = convert_and_log_machine_id(machine_id)?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(

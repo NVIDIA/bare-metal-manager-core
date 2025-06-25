@@ -11,8 +11,9 @@
  */
 use crate::{
     CarbideError,
-    api::{Api, log_machine_id, log_request_data},
+    api::{Api, log_request_data},
     db::{DatabaseError, machine_topology::MachineTopology},
+    handlers::utils::convert_and_log_machine_id,
 };
 use ::rpc::forge::{MachineHardwareInfoUpdateType, UpdateMachineHardwareInfoRequest};
 use tonic::{Request, Response, Status};
@@ -24,15 +25,7 @@ pub(crate) async fn handle_machine_hardware_info_update(
     log_request_data(&request);
     let update_hardware_info_request = request.into_inner();
 
-    let machine_id = crate::model::machine::machine_id::try_parse_machine_id(
-        &update_hardware_info_request
-            .machine_id
-            .ok_or(CarbideError::InvalidArgument(String::from(
-                "Machine ID not set",
-            )))?,
-    )
-    .map_err(CarbideError::from)?;
-    log_machine_id(&machine_id);
+    let machine_id = convert_and_log_machine_id(update_hardware_info_request.machine_id.as_ref())?;
 
     let request_hardware_info =
         update_hardware_info_request

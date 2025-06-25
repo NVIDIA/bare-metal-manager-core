@@ -1,4 +1,5 @@
 use crate::db::ib_partition::IBPartition;
+use crate::handlers::utils::convert_and_log_machine_id;
 use crate::ib::IBFabricManager;
 use crate::model::ConfigValidationError;
 use crate::model::instance::config::network::{InstanceNetworkConfig, NetworkDetails};
@@ -24,7 +25,6 @@ use crate::db::{
 use crate::instance::{InstanceAllocationRequest, allocate_instance, allocate_network};
 use crate::model::instance::config::InstanceConfig;
 use crate::model::instance::config::tenant_config::TenantConfig;
-use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::{InstanceState, ManagedHostState, ManagedHostStateSnapshot};
 use crate::model::metadata::Metadata;
 use crate::model::os::OperatingSystem;
@@ -216,8 +216,7 @@ pub(crate) async fn find_by_machine_id(
 ) -> Result<Response<rpc::InstanceList>, Status> {
     log_request_data(&request);
 
-    let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
-    log_machine_id(&machine_id);
+    let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -375,13 +374,7 @@ pub(crate) async fn invoke_power(
     })?;
 
     let request = request.into_inner();
-    let machine_id = match &request.machine_id {
-        Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-        None => {
-            return Err(Status::invalid_argument("A machine id is required"));
-        }
-    };
-    log_machine_id(&machine_id);
+    let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
     let snapshot = db::managed_host::load_snapshot(
         &mut txn,

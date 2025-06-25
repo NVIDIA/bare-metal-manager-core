@@ -17,10 +17,9 @@ use tonic::{Request, Response, Status};
 
 use crate::{
     CarbideError,
-    api::{Api, log_machine_id},
-    db,
-    db::{DatabaseError, machine::MachineSearchConfig},
-    model::machine::machine_id::try_parse_machine_id,
+    api::Api,
+    db::{self, DatabaseError, machine::MachineSearchConfig},
+    handlers::utils::convert_and_log_machine_id,
 };
 use forge_uuid::machine::MachineId;
 
@@ -37,13 +36,8 @@ pub async fn record_hardware_health_report(
         ))
     })?;
     let rpc::HardwareHealthReport { machine_id, report } = request.into_inner();
-    let machine_id = match machine_id {
-        Some(id) => try_parse_machine_id(&id).map_err(CarbideError::from)?,
-        None => {
-            return Err(CarbideError::MissingArgument("machine_id").into());
-        }
-    };
-    log_machine_id(&machine_id);
+    let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
+
     let Some(report) = report else {
         return Err(CarbideError::MissingArgument("report").into());
     };
@@ -91,8 +85,7 @@ pub async fn get_hardware_health_report(
         ))
     })?;
     let machine_id = request.into_inner();
-    let machine_id = try_parse_machine_id(&machine_id).map_err(CarbideError::from)?;
-    log_machine_id(&machine_id);
+    let machine_id = convert_and_log_machine_id(Some(&machine_id))?;
 
     let host_machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
         .await
@@ -138,8 +131,7 @@ pub async fn list_health_report_overrides(
             e,
         ))
     })?;
-    let machine_id = try_parse_machine_id(&machine_id.into_inner()).map_err(CarbideError::from)?;
-    log_machine_id(&machine_id);
+    let machine_id = convert_and_log_machine_id(Some(&machine_id.into_inner()))?;
 
     let host_machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
         .await
@@ -184,13 +176,7 @@ pub async fn record_log_parser_health_report(
         ))
     })?;
     let rpc::HardwareHealthReport { machine_id, report } = request.into_inner();
-    let machine_id = match machine_id {
-        Some(id) => try_parse_machine_id(&id).map_err(CarbideError::from)?,
-        None => {
-            return Err(CarbideError::MissingArgument("machine_id").into());
-        }
-    };
-    log_machine_id(&machine_id);
+    let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
     let Some(report) = report else {
         return Err(CarbideError::MissingArgument("report").into());
     };
@@ -274,13 +260,7 @@ pub async fn insert_health_report_override(
     else {
         return Err(CarbideError::MissingArgument("override").into());
     };
-    let machine_id = match machine_id {
-        Some(id) => try_parse_machine_id(&id).map_err(CarbideError::from)?,
-        None => {
-            return Err(CarbideError::MissingArgument("machine_id").into());
-        }
-    };
-    log_machine_id(&machine_id);
+    let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
     let Some(report) = report else {
         return Err(CarbideError::MissingArgument("report").into());
     };
@@ -347,13 +327,7 @@ pub async fn remove_health_report_override(
     })?;
 
     let rpc::RemoveHealthReportOverrideRequest { machine_id, source } = request.into_inner();
-    let machine_id = match machine_id {
-        Some(id) => try_parse_machine_id(&id).map_err(CarbideError::from)?,
-        None => {
-            return Err(CarbideError::MissingArgument("machine_id").into());
-        }
-    };
-    log_machine_id(&machine_id);
+    let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
 
     remove_by_source(&mut txn, machine_id, source).await?;
     txn.commit().await.map_err(|e| {

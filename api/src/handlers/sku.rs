@@ -1,12 +1,13 @@
 use crate::{
     CarbideError, CarbideResult,
-    api::{Api, log_machine_id, log_request_data},
+    api::{Api, log_request_data},
     db::{
         self, DatabaseError,
         machine::{MachineSearchConfig, find_machine_ids_by_sku_id},
     },
+    handlers::utils::convert_and_log_machine_id,
     model::{
-        machine::{BomValidating, ManagedHostState, machine_id::try_parse_machine_id},
+        machine::{BomValidating, ManagedHostState},
         sku::Sku,
     },
 };
@@ -87,6 +88,8 @@ pub(crate) async fn generate_from_machine(
     request: Request<::rpc::common::MachineId>,
 ) -> CarbideResult<Response<::rpc::forge::Sku>> {
     log_request_data(&request);
+    let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
+
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
             file!(),
@@ -95,9 +98,6 @@ pub(crate) async fn generate_from_machine(
             e,
         ))
     })?;
-
-    let machine_id = try_parse_machine_id(&request.into_inner())?;
-    log_machine_id(&machine_id);
 
     let sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id)
         .await
@@ -121,12 +121,7 @@ pub(crate) async fn assign_to_machine(
     })?;
 
     let sku_machine_pair = request.into_inner();
-    let rpc_machine_id = sku_machine_pair
-        .machine_id
-        .ok_or_else(|| CarbideError::InvalidArgument("Missing machine id".to_string()))?;
-
-    let machine_id = try_parse_machine_id(&rpc_machine_id)?;
-    log_machine_id(&machine_id);
+    let machine_id = convert_and_log_machine_id(sku_machine_pair.machine_id.as_ref())?;
 
     let machine =
         db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
@@ -183,6 +178,8 @@ pub(crate) async fn verify_for_machine(
     request: Request<::rpc::common::MachineId>,
 ) -> CarbideResult<Response<()>> {
     log_request_data(&request);
+    let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
+
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
             file!(),
@@ -191,9 +188,6 @@ pub(crate) async fn verify_for_machine(
             e,
         ))
     })?;
-
-    let machine_id = try_parse_machine_id(&request.into_inner())?;
-    log_machine_id(&machine_id);
 
     let machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
         .await
@@ -242,6 +236,8 @@ pub(crate) async fn remove_sku_association(
     request: Request<::rpc::common::MachineId>,
 ) -> CarbideResult<Response<()>> {
     log_request_data(&request);
+    let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
+
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
             file!(),
@@ -250,9 +246,6 @@ pub(crate) async fn remove_sku_association(
             e,
         ))
     })?;
-
-    let machine_id = try_parse_machine_id(&request.into_inner())?;
-    log_machine_id(&machine_id);
 
     let machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
         .await

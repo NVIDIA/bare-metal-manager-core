@@ -19,6 +19,7 @@ use std::time::Duration;
 
 use crate::db::attestation as db_attest;
 use crate::handlers::instance;
+use crate::handlers::utils::convert_and_log_machine_id;
 use crate::model::metadata::Metadata;
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::{BmcEndpointRequest, SkuIdList};
@@ -981,15 +982,7 @@ impl Forge for Api {
         log_request_data(&request);
 
         let req = request.into_inner();
-
-        // Extract and check UUID
-        let machine_id = match &req.machine_id {
-            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-            None => {
-                return Err(Status::invalid_argument("A machine UUID is required"));
-            }
-        };
-        log_machine_id(&machine_id);
+        let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
 
         let (machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
@@ -1027,14 +1020,7 @@ impl Forge for Api {
         let cleanup_info = request.into_inner();
         tracing::info!(?cleanup_info, "cleanup_machine_completed");
 
-        // Extract and check UUID
-        let machine_id = match &cleanup_info.machine_id {
-            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-            None => {
-                return Err(Status::invalid_argument("A machine UUID is required"));
-            }
-        };
-        log_machine_id(&machine_id);
+        let machine_id = convert_and_log_machine_id(cleanup_info.machine_id.as_ref())?;
 
         // Load machine from DB
         let (machine, mut txn) = self
@@ -1082,10 +1068,7 @@ impl Forge for Api {
         request: tonic::Request<rpc::ForgeScoutErrorReport>,
     ) -> Result<tonic::Response<rpc::ForgeScoutErrorReportResult>, tonic::Status> {
         log_request_data(&request);
-        if let Some(machine_id) = request.get_ref().machine_id.as_ref() {
-            let machine_id = try_parse_machine_id(machine_id).map_err(CarbideError::from)?;
-            log_machine_id(&machine_id);
-        }
+        let _machine_id = convert_and_log_machine_id(request.get_ref().machine_id.as_ref())?;
 
         // `log_request_data` will already provide us the error message
         // Therefore we don't have to do anything else
@@ -1106,9 +1089,7 @@ impl Forge for Api {
         request: Request<::rpc::common::MachineId>,
     ) -> Result<Response<rpc::Machine>, Status> {
         log_request_data(&request);
-
-        let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
-        log_machine_id(&machine_id);
+        let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(file!(), line!(), "begin get_machine", e))
@@ -1460,8 +1441,7 @@ impl Forge for Api {
 
         let machine_ids: Vec<MachineId> = match (request.id, request.fqdn) {
             (Some(id), _) => {
-                let machine_id = try_parse_machine_id(&id).map_err(CarbideError::from)?;
-                log_machine_id(&machine_id);
+                let machine_id = convert_and_log_machine_id(Some(&id))?;
                 vec![machine_id]
             }
             (None, Some(fqdn)) => {
@@ -1823,14 +1803,7 @@ impl Forge for Api {
 
         use ::rpc::forge_agent_control_response::Action;
 
-        let machine_id = match request.into_inner().machine_id {
-            Some(id) => try_parse_machine_id(&id).map_err(CarbideError::from)?,
-            None => {
-                tracing::warn!("forge agent control: missing machine ID");
-                return Err(Status::invalid_argument("Missing machine ID"));
-            }
-        };
-        log_machine_id(&machine_id);
+        let machine_id = convert_and_log_machine_id(request.into_inner().machine_id.as_ref())?;
 
         let (machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
@@ -2476,14 +2449,7 @@ impl Forge for Api {
     ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
         log_request_data(&request);
         let request = request.into_inner();
-
-        let machine_id = match &request.machine_id {
-            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-            None => {
-                return Err(Status::invalid_argument("A machine ID is required"));
-            }
-        };
-        log_machine_id(&machine_id);
+        let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
         // Prepare the metadata
         let metadata = match request.metadata {
@@ -2535,15 +2501,7 @@ impl Forge for Api {
     ) -> Result<tonic::Response<()>, tonic::Status> {
         log_request_data(&request);
         let req = request.into_inner();
-
-        let machine_id = match &req.host_id {
-            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-            None => {
-                tracing::warn!("set_maintenance: missing host ID");
-                return Err(Status::invalid_argument("Missing host ID"));
-            }
-        };
-        log_machine_id(&machine_id);
+        let machine_id = convert_and_log_machine_id(req.host_id.as_ref())?;
 
         let (host_machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
@@ -2741,15 +2699,7 @@ impl Forge for Api {
 
         log_request_data(&request);
         let req = request.into_inner();
-
-        let machine_id = try_parse_machine_id(
-            req.machine_id
-                .as_ref()
-                .ok_or_else(|| Status::invalid_argument("Machine ID is missing"))?,
-        )
-        .map_err(CarbideError::from)?;
-
-        log_machine_id(&machine_id);
+        let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -3265,13 +3215,7 @@ impl Forge for Api {
         })?;
 
         let request = request.into_inner();
-        let machine_id = match &request.host_id {
-            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-            None => {
-                return Err(Status::invalid_argument("A machine ID is required"));
-            }
-        };
-        log_machine_id(&machine_id);
+        let machine_id = convert_and_log_machine_id(request.host_id.as_ref())?;
 
         if !machine_id.machine_type().is_host() {
             return Err(Status::invalid_argument(
@@ -3320,6 +3264,15 @@ impl Forge for Api {
         &self,
         request: tonic::Request<rpc::SetHostUefiPasswordRequest>,
     ) -> Result<tonic::Response<rpc::SetHostUefiPasswordResponse>, tonic::Status> {
+        let request = request.into_inner();
+        let machine_id = convert_and_log_machine_id(request.host_id.as_ref())?;
+
+        if !machine_id.machine_type().is_host() {
+            return Err(Status::invalid_argument(
+                "Carbide only supports setting the UEFI password on discovered hosts",
+            ));
+        }
+
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
@@ -3328,21 +3281,6 @@ impl Forge for Api {
                 e,
             ))
         })?;
-
-        let request = request.into_inner();
-        let machine_id = match &request.host_id {
-            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-            None => {
-                return Err(Status::invalid_argument("A machine UUID is required"));
-            }
-        };
-        log_machine_id(&machine_id);
-
-        if !machine_id.machine_type().is_host() {
-            return Err(Status::invalid_argument(
-                "Carbide only supports setting the UEFI password on discovered hosts",
-            ));
-        }
 
         let snapshot = db::managed_host::load_snapshot(
             &mut txn,
@@ -3583,13 +3521,7 @@ impl Forge for Api {
 
         // TODO: consider if this code can be turned into a templated function and reused
         // in bind_attest_key
-        let machine_id = match &request.get_ref().machine_id {
-            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-            None => {
-                return Err(CarbideError::MissingArgument("machine_id").into());
-            }
-        };
-        log_machine_id(&machine_id);
+        let machine_id = convert_and_log_machine_id(request.get_ref().machine_id.as_ref())?;
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -4311,15 +4243,7 @@ impl Forge for Api {
         log_request_data(&request);
 
         let req = request.into_inner();
-
-        // Extract and check UUID
-        let machine_id = match &req.machine_id {
-            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-            None => {
-                return Err(Status::invalid_argument("A machine UUID is required"));
-            }
-        };
-        log_machine_id(&machine_id);
+        let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
 
         let (machine, mut txn) = self
             .load_machine(&machine_id, MachineSearchConfig::default())
@@ -4375,20 +4299,14 @@ impl Forge for Api {
                 CarbideError::from(DatabaseError::new(file!(), line!(), "connect", e))
             })?;
 
-        let machine_id = match &request.machine_id {
-            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-            None => {
-                return Err(Status::invalid_argument("A machine ID is required"));
-            }
-        };
-        let Some(machine) =
+        let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
+        let Some(_machine) =
             db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
                 .await
                 .map_err(CarbideError::from)?
         else {
             return Err(Status::not_found("The machine ID was not found"));
         };
-        log_machine_id(&machine.id);
 
         let state = match request.action() {
             rpc::machine_set_auto_update_request::SetAutoupdateAction::Enable => Some(true),
@@ -4821,8 +4739,10 @@ impl Forge for Api {
 
     async fn get_desired_firmware_versions(
         &self,
-        _request: tonic::Request<rpc::GetDesiredFirmwareVersionsRequest>,
+        request: tonic::Request<rpc::GetDesiredFirmwareVersionsRequest>,
     ) -> Result<tonic::Response<rpc::GetDesiredFirmwareVersionsResponse>, Status> {
+        log_request_data(&request);
+
         let entries = self
             .runtime_config
             .get_firmware_config()
@@ -4919,6 +4839,18 @@ impl Forge for Api {
         &self,
         request: tonic::Request<rpc::SetManagedHostQuarantineStateRequest>,
     ) -> Result<Response<rpc::SetManagedHostQuarantineStateResponse>, Status> {
+        log_request_data(&request);
+        let rpc::SetManagedHostQuarantineStateRequest {
+            quarantine_state,
+            machine_id,
+        } = request.into_inner();
+        let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
+        let Some(quarantine_state) = quarantine_state else {
+            return Err(CarbideError::MissingArgument("quarantine_state").into());
+        };
+        let quarantine_state: ManagedHostQuarantineState =
+            quarantine_state.try_into().map_err(CarbideError::from)?;
+
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
@@ -4927,21 +4859,6 @@ impl Forge for Api {
                 e,
             ))
         })?;
-        let rpc::SetManagedHostQuarantineStateRequest {
-            quarantine_state,
-            machine_id,
-        } = request.into_inner();
-        let Some(machine_id) = machine_id else {
-            return Err(CarbideError::MissingArgument("machine_id").into());
-        };
-        let machine_id: MachineId = machine_id
-            .try_into()
-            .map_err(|_| CarbideError::InvalidArgument("machine_id".to_string()))?;
-        let Some(quarantine_state) = quarantine_state else {
-            return Err(CarbideError::MissingArgument("quarantine_state").into());
-        };
-        let quarantine_state: ManagedHostQuarantineState =
-            quarantine_state.try_into().map_err(CarbideError::from)?;
 
         let prior_quarantine_state =
             db::machine::set_quarantine_state(&mut txn, &machine_id, quarantine_state)
@@ -4969,6 +4886,10 @@ impl Forge for Api {
         &self,
         request: tonic::Request<rpc::GetManagedHostQuarantineStateRequest>,
     ) -> Result<Response<rpc::GetManagedHostQuarantineStateResponse>, Status> {
+        log_request_data(&request);
+        let rpc::GetManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
+        let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
+
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
@@ -4977,14 +4898,6 @@ impl Forge for Api {
                 e,
             ))
         })?;
-
-        let rpc::GetManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
-        let Some(machine_id) = machine_id else {
-            return Err(CarbideError::MissingArgument("machine_id").into());
-        };
-        let machine_id: MachineId = machine_id
-            .try_into()
-            .map_err(|_| CarbideError::InvalidArgument("machine_id".to_string()))?;
 
         let quarantine_state = db::machine::get_quarantine_state(&mut txn, &machine_id)
             .await
@@ -5009,6 +4922,11 @@ impl Forge for Api {
         &self,
         request: tonic::Request<rpc::ClearManagedHostQuarantineStateRequest>,
     ) -> Result<Response<rpc::ClearManagedHostQuarantineStateResponse>, Status> {
+        log_request_data(&request);
+
+        let rpc::ClearManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
+        let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
+
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
@@ -5017,14 +4935,6 @@ impl Forge for Api {
                 e,
             ))
         })?;
-
-        let rpc::ClearManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
-        let Some(machine_id) = machine_id else {
-            return Err(CarbideError::MissingArgument("machine_id").into());
-        };
-        let machine_id: MachineId = machine_id
-            .try_into()
-            .map_err(|_| CarbideError::InvalidArgument("machine_id".to_string()))?;
 
         let prior_quarantine_state = db::machine::clear_quarantine_state(&mut txn, &machine_id)
             .await
@@ -5051,6 +4961,9 @@ impl Forge for Api {
         &self,
         request: Request<::rpc::common::MachineId>,
     ) -> Result<Response<()>, Status> {
+        log_request_data(&request);
+        let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
+
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
@@ -5059,8 +4972,6 @@ impl Forge for Api {
                 e,
             ))
         })?;
-        let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
-        log_machine_id(&machine_id);
         crate::db::host_machine_update::reset_host_reprovisioning_request(
             &mut txn,
             &machine_id,
@@ -5084,6 +4995,7 @@ impl Forge for Api {
         &self,
         request: tonic::Request<rpc::CopyBfbToDpuRshimRequest>,
     ) -> Result<Response<()>, Status> {
+        log_request_data(&request);
         let req = request.into_inner();
 
         let (bmc_endpoint_request, ssh_config) = match req.ssh_request {
