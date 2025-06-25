@@ -169,7 +169,7 @@ struct IbPartitionDetail {
     state: String,
     state_sla: String,
     time_in_state_above_sla: bool,
-    state_reason: String,
+    state_reason: Option<rpc::forge::ControllerStateReason>,
     pkey: String,
     service_level: String,
     rate_limit: String,
@@ -218,9 +218,7 @@ impl From<forgerpc::IbPartition> for IbPartitionDetail {
             state_reason: partition
                 .status
                 .as_ref()
-                .and_then(|s| s.state_reason.as_ref())
-                .and_then(utils::reason_to_user_string)
-                .unwrap_or_default(),
+                .and_then(|s| s.state_reason.clone()),
             pkey: partition
                 .status
                 .as_ref()

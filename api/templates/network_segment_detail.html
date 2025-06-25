@@ -27,9 +27,7 @@
 		</td></tr>
 	<tr><th>State SLA</th><td>{{ state_sla }}</td></tr>
 	<tr><th>Time in State is above SLA</th><td>{{ time_in_state_above_sla }}</td></tr>
-	{% if !state_reason.is_empty() %}
-	<tr><th>State machine is blocked</th><td>{{ state_reason }}</td></tr>
-	{% endif %}
+	<tr><th>State Handler Outcome</th><td>{{ state_reason|controller_state_reason_fmt|safe }}</td></tr>
 	<tr><th>Domain id</th><td><a href="/admin/domain">{{ domain_id }}</a></td></tr>
 	<tr><th>Domain name</th><td>{{ domain_name }}</td></tr>
 	<tr><th>Type</th><td>{{ segment_type }}</td></tr>
