@@ -21,7 +21,8 @@ use crate::{
         controller::StateController,
         machine::{context::MachineStateHandlerContextObjects, io::MachineStateControllerIO},
         state_handler::{
-            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+            DoNothingDetails, StateHandler, StateHandlerContext, StateHandlerError,
+            StateHandlerOutcome, do_nothing,
         },
     },
 };
@@ -68,7 +69,7 @@ impl StateHandler for TestMachineStateHandler {
             *guard.entry(machine_id.to_string()).or_default() += 1;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
-        Ok(StateHandlerOutcome::DoNothing)
+        Ok(do_nothing!())
     }
 }
 

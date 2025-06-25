@@ -27,6 +27,7 @@ use crate::{
         },
         state_handler::{
             DoNothingDetails, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+            do_nothing, transition, wait,
         },
     },
 };
@@ -64,7 +65,7 @@ pub(crate) async fn handle_machine_validation_state(
                     },
                 },
             };
-            Ok(StateHandlerOutcome::Transition(next_state))
+            Ok(transition!(next_state))
         }
         MachineValidatingState::MachineValidating {
             context,
@@ -91,7 +92,7 @@ pub(crate) async fn handle_machine_validation_state(
                     txn,
                 )
                 .await?;
-                return Ok(StateHandlerOutcome::Wait(status.status));
+                return Ok(wait!(status.status));
             }
             if !host_handler_params.machine_validation_config.enabled {
                 tracing::info!("Skipping Machine Validation");
@@ -115,17 +116,15 @@ pub(crate) async fn handle_machine_validation_state(
                         machine_validation.context.clone().unwrap_or_default(),
                     ))
                     .or_default() = 0_i32;
-                return Ok(StateHandlerOutcome::Transition(
-                    ManagedHostState::HostInit {
-                        machine_state: MachineState::Discovered {
-                            // Since we're skipping machine validation, we don't need to
-                            // wait on *another* reboot. We already waited for the prior
-                            // reboot to complete above, so tell the Discovered state to
-                            // skip it.
-                            skip_reboot_wait: true,
-                        },
+                return Ok(transition!(ManagedHostState::HostInit {
+                    machine_state: MachineState::Discovered {
+                        // Since we're skipping machine validation, we don't need to
+                        // wait on *another* reboot. We already waited for the prior
+                        // reboot to complete above, so tell the Discovered state to
+                        // skip it.
+                        skip_reboot_wait: true,
                     },
-                ));
+                }));
             }
             // Host validation completed
             if machine_validation_completed(&mh_snapshot.host_snapshot) {
@@ -152,25 +151,21 @@ pub(crate) async fn handle_machine_validation_state(
                         txn,
                     )
                     .await?;
-                    return Ok(StateHandlerOutcome::Transition(
-                        ManagedHostState::HostInit {
-                            machine_state: MachineState::Discovered {
-                                skip_reboot_wait: false,
-                            },
+                    return Ok(transition!(ManagedHostState::HostInit {
+                        machine_state: MachineState::Discovered {
+                            skip_reboot_wait: false,
                         },
-                    ));
+                    }));
                 } else {
                     tracing::info!("{} machine validation failed", mh_snapshot.host_snapshot.id);
-                    return Ok(StateHandlerOutcome::Transition(ManagedHostState::Failed {
+                    return Ok(transition!(ManagedHostState::Failed {
                         details: mh_snapshot.host_snapshot.failure_details.clone(),
                         machine_id: mh_snapshot.host_snapshot.id,
                         retry_count: 0,
                     }));
                 }
             }
-            Ok(StateHandlerOutcome::DoNothingWithDetails(
-                DoNothingDetails { line: line!() },
-            ))
+            Ok(do_nothing!())
         }
     }
 }
@@ -209,9 +204,7 @@ pub(crate) async fn handle_machine_validation_requested(
                     .map_err(StateHandlerError::from)?;
                     // Health Alert ?
                     // Rare screnario, if something googfed up in DB
-                    return Ok(Some(StateHandlerOutcome::DoNothingWithDetails(
-                        DoNothingDetails { line: line!() },
-                    )));
+                    return Ok(Some(do_nothing!()));
                 }
             };
 
@@ -222,7 +215,7 @@ pub(crate) async fn handle_machine_validation_requested(
                 },
             },
         };
-        return Ok(Some(StateHandlerOutcome::Transition(next_state)));
+        return Ok(Some(transition!(next_state)));
     }
     Ok(None)
 }
