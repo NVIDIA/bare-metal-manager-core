@@ -1202,6 +1202,11 @@ pub enum NetworkConfigUpdateState {
 #[serde(rename_all = "lowercase")]
 pub enum HostReprovisionState {
     CheckingFirmware,
+    CheckingFirmwareRepeat,
+    InitialReset {
+        phase: InitialResetPhase,
+        last_time: DateTime<Utc>,
+    },
     WaitingForFirmwareUpgrade {
         task_id: String,
         final_version: String,
@@ -1226,6 +1231,14 @@ pub enum HostReprovisionState {
         firmware_type: FirmwareComponentType,
         report_time: Option<DateTime<Utc>>,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum InitialResetPhase {
+    Start,
+    BMCWasReset,
+    WaitHostBoot,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -22,9 +22,10 @@ use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
 use itertools::Itertools;
-use libredfish::EnabledDisabled;
-use libredfish::model::update_service::TransferProtocolType;
-use libredfish::{Boot, Redfish, RedfishError, SystemPowerControl, model::task::TaskState};
+use libredfish::{
+    Boot, EnabledDisabled, PowerState, Redfish, RedfishError, SystemPowerControl,
+    model::{task::TaskState, update_service::TransferProtocolType},
+};
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
 use sku::{handle_bom_validation_requested, handle_bom_validation_state};
@@ -58,7 +59,7 @@ use crate::{
         instance::config::network::NetworkDetails,
         machine::{
             BomValidating, BomValidatingContext, CleanupState, DpuDiscoveringState, DpuInitState,
-            FailureCause, FailureDetails, FailureSource, HostReprovisionState,
+            FailureCause, FailureDetails, FailureSource, HostReprovisionState, InitialResetPhase,
             InstanceNextStateResolver, InstanceState, LockdownInfo,
             LockdownMode::{self, Enable},
             LockdownState, Machine, MachineLastRebootRequestedMode, MachineNextStateResolver,
@@ -5327,14 +5328,29 @@ impl HostUpgradeState {
             })
         {
             tracing::info!(%machine_id, "Host firmware upgrade reset requested, returning to CheckingFirmware");
-            host_reprovision_state = &HostReprovisionState::CheckingFirmware;
+            host_reprovision_state = &HostReprovisionState::CheckingFirmwareRepeat;
             db::host_machine_update::reset_host_reprovisioning_request(txn, machine_id, true)
                 .await?;
         }
         match host_reprovision_state {
             HostReprovisionState::CheckingFirmware => {
-                self.host_checking_fw(state, services, machine_id, original_state, scenario, txn)
+                self.host_checking_fw(state, services, original_state, scenario, false, txn)
                     .await
+            }
+            HostReprovisionState::CheckingFirmwareRepeat => {
+                self.host_checking_fw(state, services, original_state, scenario, true, txn)
+                    .await
+            }
+            HostReprovisionState::InitialReset { phase, last_time } => {
+                self.pre_update_resets(
+                    state,
+                    services,
+                    scenario,
+                    Some(phase.clone()),
+                    &Some(*last_time),
+                    txn,
+                )
+                .await
             }
             details @ HostReprovisionState::WaitingForFirmwareUpgrade { .. } => {
                 self.host_waiting_fw(details, state, services, machine_id, scenario, txn)
@@ -5373,13 +5389,14 @@ impl HostUpgradeState {
         &self,
         state: &ManagedHostStateSnapshot,
         services: &StateHandlerServices,
-        machine_id: &MachineId,
         original_state: &ManagedHostState,
         scenario: HostFirmwareScenario,
+        repeat: bool,
         txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        let machine_id = &state.host_snapshot.id;
         let mut ret = self
-            .host_checking_fw_noclear(state, services, machine_id, scenario, txn)
+            .host_checking_fw_noclear(state, services, machine_id, scenario, repeat, txn)
             .await?;
 
         // Check if we are returning to the ready state, and clear the host reprovisioning request if so.
@@ -5411,6 +5428,7 @@ impl HostUpgradeState {
         services: &StateHandlerServices,
         machine_id: &MachineId,
         scenario: HostFirmwareScenario,
+        repeat: bool,
         txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         let Some(explored_endpoint) =
@@ -5419,7 +5437,7 @@ impl HostUpgradeState {
             // find_explored_refreshed_endpoint's behavior is to return None to indicate we're waiting for an update, not to indicate there isn't anything.
 
             tracing::debug!("Managed host {machine_id} waiting for site explorer to revisit");
-            return scenario.actual_new_state(HostReprovisionState::CheckingFirmware);
+            return scenario.actual_new_state(HostReprovisionState::CheckingFirmwareRepeat);
         };
 
         let Some(fw_info) = self.parsed_hosts.find_fw_info_for_host(&explored_endpoint) else {
@@ -5435,6 +5453,12 @@ impl HostUpgradeState {
                     to_install,
                     explored_endpoint.address
                 );
+
+                if !repeat && to_install.pre_update_resets {
+                    return self
+                        .pre_update_resets(state, services, scenario, None, &None, txn)
+                        .await;
+                }
 
                 return self
                     .initiate_host_fw_update_new_state(
@@ -5514,6 +5538,95 @@ impl HostUpgradeState {
         }
     }
 
+    async fn pre_update_resets(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        services: &StateHandlerServices,
+        scenario: HostFirmwareScenario,
+        phase: Option<InitialResetPhase>,
+        last_time: &Option<DateTime<Utc>>,
+        txn: &mut PgConnection,
+    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        let redfish_client = services
+            .redfish_client_pool
+            .create_client_from_machine(&state.host_snapshot, txn)
+            .await?;
+
+        match phase.unwrap_or(InitialResetPhase::Start) {
+            InitialResetPhase::Start => {
+                redfish_client
+                    .power(SystemPowerControl::ForceOff)
+                    .await
+                    .map_err(|e| StateHandlerError::RedfishError {
+                        operation: "power off",
+                        error: e,
+                    })?;
+                let status = redfish_client.get_power_state().await.map_err(|e| {
+                    StateHandlerError::RedfishError {
+                        operation: "get power state",
+                        error: e,
+                    }
+                })?;
+                if status != PowerState::Off {
+                    return Err(StateHandlerError::GenericError(eyre!(
+                        "Host {} did not turn off when requested",
+                        state.host_snapshot.id
+                    )));
+                }
+                redfish_client
+                    .bmc_reset()
+                    .await
+                    .map_err(|e| StateHandlerError::RedfishError {
+                        operation: "BMC reset",
+                        error: e,
+                    })?;
+
+                scenario.actual_new_state(HostReprovisionState::InitialReset {
+                    phase: InitialResetPhase::BMCWasReset,
+                    last_time: Utc::now(),
+                })
+            }
+            InitialResetPhase::BMCWasReset => {
+                if let Err(_e) = redfish_client.get_tasks().await {
+                    // BMC not fully up yet
+                    return Ok(None);
+                }
+                redfish_client
+                    .power(SystemPowerControl::On)
+                    .await
+                    .map_err(|e| StateHandlerError::RedfishError {
+                        operation: "power on",
+                        error: e,
+                    })?;
+                let status = redfish_client.get_power_state().await.map_err(|e| {
+                    StateHandlerError::RedfishError {
+                        operation: "get power state",
+                        error: e,
+                    }
+                })?;
+                if status != PowerState::On {
+                    return Err(StateHandlerError::GenericError(eyre!(
+                        "Host {} did not turn on when requested",
+                        state.host_snapshot.id
+                    )));
+                }
+                scenario.actual_new_state(HostReprovisionState::InitialReset {
+                    phase: InitialResetPhase::WaitHostBoot,
+                    last_time: Utc::now(),
+                })
+            }
+            InitialResetPhase::WaitHostBoot => {
+                if Utc::now().signed_duration_since(last_time.unwrap_or(Utc::now()))
+                    < chrono::TimeDelta::minutes(20)
+                {
+                    // Wait longer
+                    return Ok(None);
+                }
+                // Now we can actually proceed with the upgrade.  Go back to checking firmware so we don't have to store all of that info.
+                scenario.actual_new_state(HostReprovisionState::CheckingFirmwareRepeat)
+            }
+        }
+    }
     /// Uploads a firmware update via multipart, returning the task ID, or None if upload was deferred
     async fn initiate_host_fw_update(
         &self,
@@ -5650,7 +5763,7 @@ impl HostUpgradeState {
             }
             None => {
                 // Deferred upload due to download or other reason, recheck later
-                scenario.actual_new_state(HostReprovisionState::CheckingFirmware)
+                scenario.actual_new_state(HostReprovisionState::CheckingFirmwareRepeat)
             }
         }
     }
@@ -5801,7 +5914,7 @@ impl HostUpgradeState {
 
                         // We need site explorer to requery the version, just in case it actually did get done
                         DbExploredEndpoint::set_waiting_for_explorer_refresh(address, txn).await?;
-                        scenario.actual_new_state(HostReprovisionState::CheckingFirmware)
+                        scenario.actual_new_state(HostReprovisionState::CheckingFirmwareRepeat)
                     }
                     _ => {
                         // Unexpected state
@@ -5838,8 +5951,9 @@ impl HostUpgradeState {
                                         "Marking completion of Redfish task of firmware upgrade for {} with missing task",
                                         &endpoint.address
                                     );
-                                    return scenario
-                                        .actual_new_state(HostReprovisionState::CheckingFirmware);
+                                    return scenario.actual_new_state(
+                                        HostReprovisionState::CheckingFirmwareRepeat,
+                                    );
                                 }
                             }
                         }
@@ -5853,8 +5967,9 @@ impl HostUpgradeState {
                                     "Timed out with missing Redfish task for firmware upgrade for {}, returning to CheckingFirmware",
                                     &endpoint.address
                                 );
-                                return scenario
-                                    .actual_new_state(HostReprovisionState::CheckingFirmware);
+                                return scenario.actual_new_state(
+                                    HostReprovisionState::CheckingFirmwareRepeat,
+                                );
                             }
                         }
                     }
@@ -6037,7 +6152,7 @@ impl HostUpgradeState {
                 tracing::error!("Failed to power off {}: {e}", &endpoint.address);
                 return Ok(None);
             }
-            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
                 tracing::error!("Failed to power on {}: {e}", &endpoint.address);
                 return Ok(None);
@@ -6083,17 +6198,17 @@ impl HostUpgradeState {
 
         let Some(fw_info) = self.parsed_hosts.find_fw_info_for_host(&endpoint) else {
             tracing::error!("Could no longer find firmware info for {machine_id}");
-            return scenario.actual_new_state(HostReprovisionState::CheckingFirmware);
+            return scenario.actual_new_state(HostReprovisionState::CheckingFirmwareRepeat);
         };
         let Some(current_version) = endpoint.find_version(&fw_info, *firmware_type) else {
             tracing::error!("Could no longer find current version for {machine_id}");
-            return scenario.actual_new_state(HostReprovisionState::CheckingFirmware);
+            return scenario.actual_new_state(HostReprovisionState::CheckingFirmwareRepeat);
         };
 
         if current_version == *final_version {
             // Done waiting, go back to overall checking of version`2s
             tracing::debug!("Done waiting for {machine_id} to reach version");
-            scenario.actual_new_state(HostReprovisionState::CheckingFirmware)
+            scenario.actual_new_state(HostReprovisionState::CheckingFirmwareRepeat)
         } else {
             if !self.no_firmware_update_reset_retries {
                 if let Some(previous_reset_time) = previous_reset_time {

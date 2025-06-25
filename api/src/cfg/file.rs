@@ -994,18 +994,7 @@ impl Default for DpuConfig {
                                         Regex::new("BMC_Firmware").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry {
-                                        version: "BF-24.07-14".to_string(),
-                                        mandatory_upgrade_from_priority: None,
-                                        default: true,
-                                        filename: None,
-                                        filenames: vec![],
-                                        url: None,
-                                        checksum: None,
-                                        install_only_specified: false,
-                                        power_drains_needed: None,
-                                        preingestion_exclusive_config: false,
-                                    }],
+                                    known_firmware: vec![FirmwareEntry::standard("BF-24.07-14")],
                                 },
                             ),
                             (
@@ -1015,18 +1004,7 @@ impl Default for DpuConfig {
                                         Regex::new("Bluefield_FW_ERoT").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry {
-                                        version: "4-15".to_string(),
-                                        mandatory_upgrade_from_priority: None,
-                                        default: true,
-                                        filename: None,
-                                        filenames: vec![],
-                                        url: None,
-                                        checksum: None,
-                                        install_only_specified: false,
-                                        power_drains_needed: None,
-                                        preingestion_exclusive_config: false,
-                                    }],
+                                    known_firmware: vec![FirmwareEntry::standard("4-15")],
                                 },
                             ),
                             (
@@ -1047,6 +1025,7 @@ impl Default for DpuConfig {
                                         install_only_specified: false,
                                         power_drains_needed: None,
                                         preingestion_exclusive_config: false,
+                                        pre_update_resets: false,
                                     }],
                                 },
                             ),
@@ -1067,18 +1046,10 @@ impl Default for DpuConfig {
                                         Regex::new("BMC_Firmware").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry {
-                                        version: "BF-24.07-14".to_string(),
-                                        mandatory_upgrade_from_priority: None,
-                                        default: true,
-                                        filename: None,
-                                        filenames: vec![],
-                                        url: None,
-                                        checksum: None,
-                                        install_only_specified: false,
-                                        power_drains_needed: None,
-                                        preingestion_exclusive_config: false,
-                                    }],
+                                    known_firmware: vec![
+                                        // BF-24.07-14 (DOCA 2.8) is the expected BMC FW that we expect on BF3s after ingesting them
+                                        FirmwareEntry::standard("BF-24.07-14"),
+                                    ],
                                 },
                             ),
                             (
@@ -1087,19 +1058,11 @@ impl Default for DpuConfig {
                                     current_version_reported_as: Some(
                                         Regex::new("Bluefield_FW_ERoT").unwrap(),
                                     ),
+
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry {
-                                        version: "00.02.0182.0000_n02".to_string(),
-                                        mandatory_upgrade_from_priority: None,
-                                        default: true,
-                                        filename: None,
-                                        filenames: vec![],
-                                        url: None,
-                                        checksum: None,
-                                        install_only_specified: false,
-                                        power_drains_needed: None,
-                                        preingestion_exclusive_config: false,
-                                    }],
+                                    known_firmware: vec![FirmwareEntry::standard(
+                                        "00.02.0182.0000_n02",
+                                    )],
                                 },
                             ),
                             (
@@ -1109,18 +1072,7 @@ impl Default for DpuConfig {
                                         Regex::new("DPU_NIC").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry {
-                                        version: "32.42.1000".to_string(),
-                                        mandatory_upgrade_from_priority: None,
-                                        default: true,
-                                        filename: None,
-                                        filenames: vec![],
-                                        url: None,
-                                        checksum: None,
-                                        install_only_specified: false,
-                                        power_drains_needed: None,
-                                        preingestion_exclusive_config: false,
-                                    }],
+                                    known_firmware: vec![FirmwareEntry::standard("32.42.1000")],
                                 },
                             ),
                         ]),
@@ -1285,9 +1237,58 @@ pub struct FirmwareEntry {
     // BF3s are the only machine with multiple firmware entries for a given firmware compoanent type (BMC FWs).
     // This flag is used to mark the firmware entry for BMC preingestion on BF3s.
     pub preingestion_exclusive_config: bool,
+    /// If true, we will need a series of resets before even trying to upgrade
+    #[serde(default)]
+    pub pre_update_resets: bool,
 }
 
 impl FirmwareEntry {
+    /// Creates a FirmwareEntry with default parameters for tests
+    pub fn standard(version: &str) -> Self {
+        Self {
+            version: version.to_string(),
+            default: true,
+            filename: Some("/dev/null".to_string()),
+            filenames: vec![],
+            url: Some("file://dev/null".to_string()),
+            checksum: None,
+            mandatory_upgrade_from_priority: None,
+            install_only_specified: false,
+            power_drains_needed: None,
+            preingestion_exclusive_config: false,
+            pre_update_resets: false,
+        }
+    }
+    pub fn standard_multiple_filenames(version: &str) -> Self {
+        let mut ret = FirmwareEntry::standard(version);
+        ret.filename = None;
+        ret.filenames = vec!["/dev/null".to_string(), "/dev/null".to_string()];
+        ret
+    }
+    pub fn standard_notdefault(version: &str) -> Self {
+        let mut ret = FirmwareEntry::standard(version);
+        ret.default = false;
+        ret
+    }
+    pub fn standard_filename(version: &str, filename: &str) -> Self {
+        let mut ret = FirmwareEntry::standard(version);
+        ret.filename = Some(filename.to_string());
+        ret.url = None;
+        ret
+    }
+    pub fn standard_filename_notdefault(version: &str, filename: &str) -> Self {
+        let mut ret = FirmwareEntry::standard_notdefault(version);
+        ret.filename = Some(filename.to_string());
+        ret.url = None;
+        ret
+    }
+    pub fn standard_powerdrains(version: &str, powerdrains: u32) -> Self {
+        let mut ret = FirmwareEntry::standard(version);
+        ret.power_drains_needed = Some(powerdrains);
+        ret.pre_update_resets = true;
+        ret
+    }
+
     pub fn get_filename(&self, pos: u32) -> PathBuf {
         let pos = pos.try_into().unwrap_or(usize::MAX);
         let filename = if self.filenames.is_empty() {

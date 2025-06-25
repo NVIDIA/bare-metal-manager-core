@@ -3,6 +3,7 @@
 ## [Unreleased (v2025.07.04-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/...trunk)
 
 ### Added
+- [MR-4162](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4162): Added pre_update_resets option for host firmware that will go through a series of steps we hope will smooth updates.
 
 ### Changed
 

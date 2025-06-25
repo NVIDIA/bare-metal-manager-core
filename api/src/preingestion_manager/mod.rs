@@ -12,9 +12,9 @@
 
 use std::{default::Default, sync::Arc, time::Duration};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use libredfish::{
-    RedfishError, SystemPowerControl,
+    PowerState, RedfishError, SystemPowerControl,
     model::{task::TaskState, update_service::TransferProtocolType},
 };
 use opentelemetry::metrics::Meter;
@@ -33,7 +33,9 @@ use crate::{
     },
     db::{DatabaseError, explored_endpoints::DbExploredEndpoint},
     firmware_downloader::FirmwareDownloader,
-    model::site_explorer::{ExploredEndpoint, PowerDrainState, PreingestionState},
+    model::site_explorer::{
+        ExploredEndpoint, InitialResetPhase, PowerDrainState, PreingestionState,
+    },
     preingestion_manager::metrics::PreingestionMetrics,
     redfish::{RedfishClientCreationError, RedfishClientPool},
 };
@@ -261,13 +263,19 @@ async fn one_endpoint(
         }
         PreingestionState::RecheckVersionsAfterFailure { .. } => {
             static_info
-                .start_firmware_uploads_or_continue(&mut txn, &endpoint)
+                .start_firmware_uploads_or_continue(&mut txn, &endpoint, true)
                 .await?
         }
         PreingestionState::RecheckVersions => {
             static_info
-                .start_firmware_uploads_or_continue(&mut txn, &endpoint)
+                .start_firmware_uploads_or_continue(&mut txn, &endpoint, true)
                 .await?
+        }
+        PreingestionState::InitialReset { phase, last_time } => {
+            static_info
+                .pre_update_resets(&mut txn, &endpoint, Some(phase), Some(last_time))
+                .await?;
+            false
         }
         PreingestionState::UpgradeFirmwareWait {
             task_id,
@@ -387,7 +395,7 @@ impl PreingestionManagerStatic {
                         );
                         // One or both of the versions are low enough to absolutely need upgrades first - do them both while we're at it.
                         let delayed_upgrade = self
-                            .start_firmware_uploads_or_continue(txn, endpoint)
+                            .start_firmware_uploads_or_continue(txn, endpoint, false)
                             .await?;
                         return Ok(delayed_upgrade);
                     } else {
@@ -417,6 +425,7 @@ impl PreingestionManagerStatic {
         &self,
         txn: &mut PgConnection,
         endpoint: &ExploredEndpoint,
+        repeat: bool,
     ) -> CarbideResult<bool> {
         if endpoint.waiting_for_explorer_refresh {
             tracing::debug!(
@@ -459,7 +468,7 @@ impl PreingestionManagerStatic {
         }
         for upgrade_type in ordering {
             let (done, delayed_upgrade) = self
-                .start_upgrade_if_needed(endpoint, &fw_info, upgrade_type, txn)
+                .start_upgrade_if_needed(endpoint, &fw_info, upgrade_type, repeat, txn)
                 .await?;
 
             if done {
@@ -486,6 +495,7 @@ impl PreingestionManagerStatic {
         endpoint: &ExploredEndpoint,
         fw_info: &Firmware,
         fw_type: FirmwareComponentType,
+        repeat: bool,
         txn: &mut PgConnection,
     ) -> Result<(bool, bool), DatabaseError> {
         {
@@ -506,6 +516,11 @@ impl PreingestionManagerStatic {
                         );
                         return Ok((true, true)); // Don't check others
                     };
+
+                    if !repeat && to_install.pre_update_resets {
+                        self.pre_update_resets(txn, endpoint, None, None).await?;
+                        return Ok((true, false));
+                    }
 
                     tracing::info!("Installing {:?} on {}", to_install, endpoint.address);
 
@@ -1030,6 +1045,107 @@ impl PreingestionManagerStatic {
         DbExploredEndpoint::set_preingestion_recheck_versions(endpoint.address, txn).await?;
 
         Ok(())
+    }
+
+    async fn pre_update_resets(
+        &self,
+        txn: &mut PgConnection,
+        endpoint: &ExploredEndpoint,
+        phase: Option<&InitialResetPhase>,
+        last_time: Option<&DateTime<Utc>>,
+    ) -> Result<(), DatabaseError> {
+        let redfish_client = match self
+            .redfish_client_pool
+            .create_client_for_ingested_host(endpoint.address, None, txn)
+            .await
+        {
+            Ok(redfish_client) => redfish_client,
+            Err(e) => {
+                tracing::warn!("Redfish connection to {} failed: {e}", endpoint.address);
+                return Ok(());
+            }
+        };
+
+        match phase.unwrap_or(&InitialResetPhase::Start) {
+            InitialResetPhase::Start => {
+                if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
+                    tracing::warn!("Could not turn off power on {}: {e}", endpoint.address);
+                    return Ok(());
+                }
+                let status = match redfish_client.get_power_state().await {
+                    Ok(status) => status,
+                    Err(e) => {
+                        tracing::warn!("Could not get power of {}: {e}", endpoint.address);
+                        return Ok(());
+                    }
+                };
+                if status != PowerState::Off {
+                    tracing::warn!("Host {} did not turn off when requested", endpoint.address);
+                    return Ok(());
+                }
+                if let Err(e) = redfish_client.bmc_reset().await {
+                    tracing::warn!("Could not reset BMC on {}: {e}", endpoint.address);
+                    return Ok(());
+                };
+
+                tracing::info!("{} initial reset BMC reset intiated", endpoint.address);
+                DbExploredEndpoint::set_preingestion_initial_reset(
+                    endpoint.address,
+                    InitialResetPhase::BMCWasReset,
+                    txn,
+                )
+                .await?;
+                Ok(())
+            }
+            InitialResetPhase::BMCWasReset => {
+                if let Err(e) = redfish_client.get_tasks().await {
+                    tracing::info!(
+                        "Waiting for {} BMC reset to complete: {e}",
+                        endpoint.address
+                    );
+                    return Ok(());
+                }
+                if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
+                    tracing::warn!("Could not turn on power on {}: {e}", endpoint.address);
+                    return Ok(());
+                }
+                let status = match redfish_client.get_power_state().await {
+                    Ok(status) => status,
+                    Err(e) => {
+                        tracing::warn!("Could not get power of {}: {e}", endpoint.address);
+                        return Ok(());
+                    }
+                };
+                if status != PowerState::On {
+                    tracing::warn!("Host {} did not turn on when requested", endpoint.address);
+                    return Ok(());
+                }
+                tracing::info!(
+                    "{} initial reset BMC reset complete, started host reset",
+                    endpoint.address
+                );
+                DbExploredEndpoint::set_preingestion_initial_reset(
+                    endpoint.address,
+                    InitialResetPhase::WaitHostBoot,
+                    txn,
+                )
+                .await?;
+                Ok(())
+            }
+            InitialResetPhase::WaitHostBoot => {
+                if Utc::now().signed_duration_since(last_time.unwrap_or(&Utc::now()))
+                    < chrono::TimeDelta::minutes(20)
+                {
+                    // Wait longer
+                    return Ok(());
+                }
+                // Now we can actually proceed with the upgrade.  Go back to checking firmware so we don't have to store all of that info.
+                tracing::info!("{} initial reset complete", endpoint.address);
+                DbExploredEndpoint::set_preingestion_recheck_versions(endpoint.address, txn)
+                    .await?;
+                Ok(())
+            }
+        }
     }
 }
 
