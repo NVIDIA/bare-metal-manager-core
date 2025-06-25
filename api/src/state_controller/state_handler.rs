@@ -101,6 +101,35 @@ pub enum StateHandlerOutcome<S> {
     Deleted, // The object was removed from the database
 }
 
+macro_rules! do_nothing {
+    () => {
+        StateHandlerOutcome::DoNothingWithDetails(DoNothingDetails { line: line!() })
+    };
+}
+
+macro_rules! transition {
+    ($next_state:expr) => {
+        StateHandlerOutcome::Transition($next_state)
+    };
+}
+
+macro_rules! wait {
+    ($reason:expr) => {
+        StateHandlerOutcome::Wait($reason)
+    };
+}
+
+macro_rules! deleted {
+    () => {
+        StateHandlerOutcome::Deleted
+    };
+}
+
+pub(crate) use deleted;
+pub(crate) use do_nothing;
+pub(crate) use transition;
+pub(crate) use wait;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
 pub struct DoNothingDetails {
     pub line: u32,

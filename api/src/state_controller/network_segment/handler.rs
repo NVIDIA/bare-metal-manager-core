@@ -23,7 +23,8 @@ use crate::{
     state_controller::{
         network_segment::context::NetworkSegmentStateHandlerContextObjects,
         state_handler::{
-            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+            DoNothingDetails, StateHandler, StateHandlerContext, StateHandlerError,
+            StateHandlerOutcome, deleted, do_nothing, transition, wait,
         },
     },
 };
@@ -106,7 +107,7 @@ impl StateHandler for NetworkSegmentStateHandler {
             NetworkSegmentControllerState::Provisioning => {
                 let new_state = NetworkSegmentControllerState::Ready;
                 tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                Ok(StateHandlerOutcome::Transition(new_state))
+                Ok(transition!(new_state))
             }
             NetworkSegmentControllerState::Ready => {
                 if state.is_marked_as_deleted() {
@@ -119,9 +120,9 @@ impl StateHandler for NetworkSegmentStateHandler {
                         },
                     };
                     tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                    Ok(StateHandlerOutcome::Transition(new_state))
+                    Ok(transition!(new_state))
                 } else {
-                    Ok(StateHandlerOutcome::DoNothing)
+                    Ok(do_nothing!())
                 }
             }
             NetworkSegmentControllerState::Deleting { deletion_state } => {
@@ -152,15 +153,15 @@ impl StateHandler for NetworkSegmentStateHandler {
                                 },
                             };
                             tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                            Ok(StateHandlerOutcome::Transition(new_state))
+                            Ok(transition!(new_state))
                         } else if chrono::Utc::now() >= *delete_at {
                             let new_state = NetworkSegmentControllerState::Deleting {
                                 deletion_state: NetworkSegmentDeletionState::DBDelete,
                             };
                             tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                            Ok(StateHandlerOutcome::Transition(new_state))
+                            Ok(transition!(new_state))
                         } else {
-                            Ok(StateHandlerOutcome::Wait(format!(
+                            Ok(wait!(format!(
                                 "Cannot delete from database until draining completes at {}",
                                 delete_at.to_rfc3339()
                             )))
@@ -178,7 +179,7 @@ impl StateHandler for NetworkSegmentStateHandler {
                             "Network Segment getting removed from the database",
                         );
                         NetworkSegment::final_delete(*segment_id, txn).await?;
-                        Ok(StateHandlerOutcome::Deleted)
+                        Ok(deleted!())
                     }
                 }
             }

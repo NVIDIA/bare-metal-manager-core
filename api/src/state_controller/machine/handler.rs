@@ -78,7 +78,8 @@ use crate::{
         },
         state_handler::{
             DoNothingDetails, MeasuringProblem, StateHandler, StateHandlerContext,
-            StateHandlerError, StateHandlerOutcome, StateHandlerServices,
+            StateHandlerError, StateHandlerOutcome, StateHandlerServices, deleted, do_nothing,
+            transition, wait,
         },
     },
 };
@@ -491,9 +492,7 @@ impl MachineStateHandler {
                         last_seen = %observed_at,
                         "DPU is not sending network status observations, marking unhealthy");
                         // The next iteration will run with the now unhealthy network
-                        return Ok(StateHandlerOutcome::DoNothingWithDetails(
-                            DoNothingDetails { line: line!() },
-                        ));
+                        return Ok(do_nothing!());
                     }
                 }
             }
@@ -514,7 +513,7 @@ impl MachineStateHandler {
                     .start_dpu_reprovision(&mh_state, mh_snapshot, ctx, txn, host_machine_id)
                     .await?
                 {
-                    return Ok(StateHandlerOutcome::Transition(next_state));
+                    return Ok(transition!(next_state));
                 }
             }
         }
@@ -544,7 +543,7 @@ impl MachineStateHandler {
                         retry_count: 0,
                     },
                 };
-                return Ok(StateHandlerOutcome::Transition(next_state));
+                return Ok(transition!(next_state));
             }
         }
 
@@ -559,16 +558,11 @@ impl MachineStateHandler {
                         machine_id = %host_machine_id,
                         "Skipping to HostInit because machine has no DPUs"
                     );
-                    Ok(StateHandlerOutcome::Transition(
-                        ManagedHostState::HostInit {
-                            machine_state: MachineState::WaitingForPlatformConfiguration,
-                        },
-                    ))
+                    Ok(transition!(ManagedHostState::HostInit {
+                        machine_state: MachineState::WaitingForPlatformConfiguration,
+                    }))
                 } else {
-                    let mut state_handler_outcome =
-                        StateHandlerOutcome::DoNothingWithDetails(DoNothingDetails {
-                            line: line!(),
-                        });
+                    let mut state_handler_outcome = do_nothing!();
                     for dpu_snapshot in &mh_snapshot.dpu_snapshots.clone() {
                         state_handler_outcome = self
                             .dpu_handler
@@ -636,11 +630,9 @@ impl MachineStateHandler {
                         )
                         .await?;
 
-                        return Ok(StateHandlerOutcome::Transition(next_state));
+                        return Ok(transition!(next_state));
                     } else {
-                        return Ok(StateHandlerOutcome::DoNothingWithDetails(
-                            DoNothingDetails { line: line!() },
-                        ));
+                        return Ok(do_nothing!());
                     }
                 }
                 if let Some(outcome) =
@@ -686,7 +678,7 @@ impl MachineStateHandler {
                         false,
                     )
                     .await?;
-                    return Ok(StateHandlerOutcome::Transition(next_state));
+                    return Ok(transition!(next_state));
                 }
 
                 // Check to see if measurement machine (i.e. attestation) state has changed
@@ -695,11 +687,9 @@ impl MachineStateHandler {
                 if self.host_handler.host_handler_params.attestation_enabled
                     && check_if_should_redo_measurements(&mh_snapshot.host_snapshot.id, txn).await?
                 {
-                    return Ok(StateHandlerOutcome::Transition(
-                        ManagedHostState::Measuring {
-                            measuring_state: MeasuringState::WaitingForMeasurements, // let's just start from the beginning
-                        },
-                    ));
+                    return Ok(transition!(ManagedHostState::Measuring {
+                        measuring_state: MeasuringState::WaitingForMeasurements, // let's just start from the beginning
+                    }));
                 }
 
                 // Check if instance to be created.
@@ -722,7 +712,7 @@ impl MachineStateHandler {
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::WaitingForNetworkSegmentToBeReady,
                     };
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    Ok(transition!(next_state))
                 } else {
                     // This feature has only been tested thoroughly on Dells and Lenovos
                     if (mh_snapshot.host_snapshot.bmc_vendor().is_dell()
@@ -734,21 +724,17 @@ impl MachineStateHandler {
                             mh_snapshot.host_snapshot.bmc_vendor(),
                             mh_snapshot.host_snapshot.id
                         );
-                        return Ok(StateHandlerOutcome::Transition(
-                            ManagedHostState::HostInit {
-                                machine_state: MachineState::UefiSetup {
-                                    uefi_setup_info: UefiSetupInfo {
-                                        uefi_password_jid: None,
-                                        uefi_setup_state: UefiSetupState::UnlockHost,
-                                    },
+                        return Ok(transition!(ManagedHostState::HostInit {
+                            machine_state: MachineState::UefiSetup {
+                                uefi_setup_info: UefiSetupInfo {
+                                    uefi_password_jid: None,
+                                    uefi_setup_state: UefiSetupState::UnlockHost,
                                 },
                             },
-                        ));
+                        }));
                     }
 
-                    Ok(StateHandlerOutcome::DoNothingWithDetails(
-                        DoNothingDetails { line: line!() },
-                    ))
+                    Ok(do_nothing!())
                 }
             }
 
@@ -789,7 +775,7 @@ impl MachineStateHandler {
                                         },
                                     };
 
-                                return Ok(StateHandlerOutcome::Transition(next_state));
+                                return Ok(transition!(next_state));
                             }
                         }
 
@@ -799,7 +785,7 @@ impl MachineStateHandler {
                             },
                         };
 
-                        Ok(StateHandlerOutcome::Transition(next_state))
+                        Ok(transition!(next_state))
                     }
                     CleanupState::SecureEraseBoss {
                         secure_erase_boss_context,
@@ -829,7 +815,7 @@ impl MachineStateHandler {
                                         },
                                     };
 
-                                Ok(StateHandlerOutcome::Transition(next_state))
+                                Ok(transition!(next_state))
                             }
                             SecureEraseBossState::SecureEraseBoss => {
                                 let jid = redfish_client
@@ -854,7 +840,7 @@ impl MachineStateHandler {
                                         },
                                     };
 
-                                Ok(StateHandlerOutcome::Transition(next_state))
+                                Ok(transition!(next_state))
                             }
                             SecureEraseBossState::WaitForJobCompletion => {
                                 let job_id = match &secure_erase_boss_context.secure_erase_jid {
@@ -873,7 +859,7 @@ impl MachineStateHandler {
                                     })?;
 
                                 if !matches!(job_state, libredfish::JobState::Completed) {
-                                    return Ok(StateHandlerOutcome::Wait(format!(
+                                    return Ok(wait!(format!(
                                         "waiting for job {:#?} to complete; current state: {job_state:#?}",
                                         job_id
                                     )));
@@ -886,7 +872,7 @@ impl MachineStateHandler {
                                         },
                                     };
 
-                                Ok(StateHandlerOutcome::Transition(next_state))
+                                Ok(transition!(next_state))
                             }
                         }
                     }
@@ -904,7 +890,7 @@ impl MachineStateHandler {
                                 txn,
                             )
                             .await?;
-                            return Ok(StateHandlerOutcome::Wait(status.status));
+                            return Ok(wait!(status.status));
                         }
 
                         // Reboot host
@@ -936,7 +922,7 @@ impl MachineStateHandler {
                             },
                         };
 
-                        Ok(StateHandlerOutcome::Transition(next_state))
+                        Ok(transition!(next_state))
                     }
                     CleanupState::CreateBossVolume {
                         create_boss_volume_context,
@@ -969,7 +955,7 @@ impl MachineStateHandler {
                                         },
                                     };
 
-                                Ok(StateHandlerOutcome::Transition(next_state))
+                                Ok(transition!(next_state))
                             }
                             CreateBossVolumeState::WaitForJobScheduled => {
                                 let job_id = match &create_boss_volume_context
@@ -990,7 +976,7 @@ impl MachineStateHandler {
                                     })?;
 
                                 if !matches!(job_state, libredfish::JobState::Scheduled) {
-                                    return Ok(StateHandlerOutcome::Wait(format!(
+                                    return Ok(wait!(format!(
                                         "waiting for job {:#?} to be scheduled; current state: {job_state:#?}",
                                         job_id
                                     )));
@@ -1010,7 +996,7 @@ impl MachineStateHandler {
                                         },
                                     };
 
-                                Ok(StateHandlerOutcome::Transition(next_state))
+                                Ok(transition!(next_state))
                             }
                             CreateBossVolumeState::RebootHost => {
                                 redfish_client
@@ -1035,7 +1021,7 @@ impl MachineStateHandler {
                                         },
                                     };
 
-                                Ok(StateHandlerOutcome::Transition(next_state))
+                                Ok(transition!(next_state))
                             }
                             CreateBossVolumeState::WaitForJobCompletion => {
                                 let job_id = match &create_boss_volume_context
@@ -1056,7 +1042,7 @@ impl MachineStateHandler {
                                     })?;
 
                                 if !matches!(job_state, libredfish::JobState::Completed) {
-                                    return Ok(StateHandlerOutcome::Wait(format!(
+                                    return Ok(wait!(format!(
                                         "waiting for job {:#?} to complete; current state: {job_state:#?}",
                                         job_id
                                     )));
@@ -1074,7 +1060,7 @@ impl MachineStateHandler {
                                         },
                                     };
 
-                                Ok(StateHandlerOutcome::Transition(next_state))
+                                Ok(transition!(next_state))
                             }
                             CreateBossVolumeState::LockHost => {
                                 redfish_client
@@ -1096,7 +1082,7 @@ impl MachineStateHandler {
                                         ),
                                     };
 
-                                Ok(StateHandlerOutcome::Transition(next_state))
+                                Ok(transition!(next_state))
                             }
                         }
                     }
@@ -1125,7 +1111,7 @@ impl MachineStateHandler {
                     machine_id = %host_machine_id,
                     "Machine is marked for forced deletion. Ignoring.",
                 );
-                Ok(StateHandlerOutcome::Deleted)
+                Ok(deleted!())
             }
             ManagedHostState::Failed {
                 details,
@@ -1154,7 +1140,7 @@ impl MachineStateHandler {
                             // Anytime host discovery is successful, move to next state.
                             db::machine::clear_failure_details(machine_id, txn).await?;
                             let next_state = handler_host_lockdown(txn, ctx, mh_snapshot).await?;
-                            return Ok(StateHandlerOutcome::Transition(next_state));
+                            return Ok(transition!(next_state));
                         }
 
                         // Wait till failure_retry_time is over except first time.
@@ -1173,7 +1159,7 @@ impl MachineStateHandler {
                                 details: details.clone(),
                                 machine_id: *machine_id,
                             };
-                            return Ok(StateHandlerOutcome::Transition(next_state));
+                            return Ok(transition!(next_state));
                         }
 
                         if trigger_reboot_if_needed(
@@ -1192,11 +1178,9 @@ impl MachineStateHandler {
                                 details: details.clone(),
                                 machine_id: *machine_id,
                             };
-                            Ok(StateHandlerOutcome::Transition(next_state))
+                            Ok(transition!(next_state))
                         } else {
-                            Ok(StateHandlerOutcome::DoNothingWithDetails(
-                                DoNothingDetails { line: line!() },
-                            ))
+                            Ok(do_nothing!())
                         }
                     }
                     FailureCause::NVMECleanFailed { .. } if machine_id.machine_type().is_host() => {
@@ -1216,7 +1200,7 @@ impl MachineStateHandler {
                             db::machine::clear_failure_details(machine_id, txn)
                                 .await
                                 .map_err(StateHandlerError::from)?;
-                            return Ok(StateHandlerOutcome::Transition(next_state));
+                            return Ok(transition!(next_state));
                         }
 
                         if trigger_reboot_if_needed(
@@ -1235,11 +1219,9 @@ impl MachineStateHandler {
                                 details: details.clone(),
                                 machine_id: *machine_id,
                             };
-                            Ok(StateHandlerOutcome::Transition(next_state))
+                            Ok(transition!(next_state))
                         } else {
-                            Ok(StateHandlerOutcome::DoNothingWithDetails(
-                                DoNothingDetails { line: line!() },
-                            ))
+                            Ok(do_nothing!())
                         }
                     }
                     FailureCause::MeasurementsRetired { .. }
@@ -1257,19 +1239,19 @@ impl MachineStateHandler {
                             match &details.source {
                                     FailureSource::StateMachineArea(area) => {
                                         match area{
-                                            StateMachineArea::MainFlow => Ok(StateHandlerOutcome::Transition(
+                                            StateMachineArea::MainFlow => Ok(transition!(
                                                 ManagedHostState::Measuring {
                                                     measuring_state: MeasuringState::WaitingForMeasurements
                                                 }
                                             )),
-                                            StateMachineArea::HostInit => Ok(StateHandlerOutcome::Transition(
+                                            StateMachineArea::HostInit => Ok(transition!(
                                                 ManagedHostState::HostInit {
                                                     machine_state: MachineState::Measuring{
                                                         measuring_state: MeasuringState::WaitingForMeasurements
                                                     }
                                                 }
                                             )),
-                                            StateMachineArea::AssignedInstance => Ok(StateHandlerOutcome::Transition(
+                                            StateMachineArea::AssignedInstance => Ok(transition!(
                                                 ManagedHostState::PostAssignedMeasuring {
                                                         measuring_state: MeasuringState::WaitingForMeasurements
                                                 }
@@ -1286,9 +1268,7 @@ impl MachineStateHandler {
                                     ))
                                 }
                         } else {
-                            Ok(StateHandlerOutcome::DoNothingWithDetails(
-                                DoNothingDetails { line: line!() },
-                            ))
+                            Ok(do_nothing!())
                         }
                     }
                     FailureCause::MachineValidation { .. }
@@ -1296,9 +1276,7 @@ impl MachineStateHandler {
                     {
                         match handle_machine_validation_requested(txn, mh_snapshot, true).await? {
                             Some(outcome) => Ok(outcome),
-                            None => Ok(StateHandlerOutcome::DoNothingWithDetails(
-                                DoNothingDetails { line: line!() },
-                            )),
+                            None => Ok(do_nothing!()),
                         }
                     }
                     _ => {
@@ -1313,9 +1291,7 @@ impl MachineStateHandler {
                             details.failed_at,
                         );
                         // TODO: Should this be StateHandlerError::ManualInterventionRequired ?
-                        Ok(StateHandlerOutcome::DoNothingWithDetails(
-                            DoNothingDetails { line: line!() },
-                        ))
+                        Ok(do_nothing!())
                     }
                 }
             }
@@ -1338,12 +1314,10 @@ impl MachineStateHandler {
                     )
                     .await?
                     {
-                        return Ok(StateHandlerOutcome::Transition(next_state));
+                        return Ok(transition!(next_state));
                     }
                 }
-                Ok(StateHandlerOutcome::DoNothingWithDetails(
-                    DoNothingDetails { line: line!() },
-                ))
+                Ok(do_nothing!())
             }
 
             ManagedHostState::HostReprovision { .. } => {
@@ -1358,11 +1332,9 @@ impl MachineStateHandler {
                     )
                     .await?
                 {
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    Ok(transition!(next_state))
                 } else {
-                    Ok(StateHandlerOutcome::DoNothingWithDetails(
-                        DoNothingDetails { line: line!() },
-                    ))
+                    Ok(do_nothing!())
                 }
             }
 
@@ -1661,7 +1633,7 @@ async fn handle_restart_verification(
             )
             .await?;
 
-            return Ok(Some(StateHandlerOutcome::Wait(format!(
+            return Ok(Some(wait!(format!(
                 "Waiting for {} force-restart verification - attempt {}/{}",
                 mh_snapshot.host_snapshot.id,
                 verification_attempts + 1,
@@ -1757,7 +1729,7 @@ async fn handle_restart_verification(
     }
 
     if !pending_message.is_empty() {
-        Ok(Some(StateHandlerOutcome::Wait(pending_message.join(", "))))
+        Ok(Some(wait!(pending_message.join(", "))))
     } else {
         Ok(None)
     }
@@ -1886,7 +1858,7 @@ fn map_measuring_outcome_to_state_handler_outcome(
     measuring_state: &MeasuringState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     match measuring_outcome {
-        MeasuringOutcome::NoChange => Ok(StateHandlerOutcome::Wait(
+        MeasuringOutcome::NoChange => Ok(wait!(
             match measuring_state {
                 MeasuringState::WaitingForMeasurements => {
                     "Waiting for machine to send measurement report"
@@ -1895,20 +1867,18 @@ fn map_measuring_outcome_to_state_handler_outcome(
                     "Waiting for matching measurement bundle for machine profile"
                 }
             }
-            .to_string(),
+            .to_string()
         )),
-        MeasuringOutcome::WaitForGoldenValues => Ok(StateHandlerOutcome::Transition(
-            ManagedHostState::Measuring {
-                measuring_state: MeasuringState::PendingBundle,
-            },
-        )),
-        MeasuringOutcome::WaitForScoutToSendMeasurements => Ok(StateHandlerOutcome::Transition(
-            ManagedHostState::Measuring {
+        MeasuringOutcome::WaitForGoldenValues => Ok(transition!(ManagedHostState::Measuring {
+            measuring_state: MeasuringState::PendingBundle,
+        })),
+        MeasuringOutcome::WaitForScoutToSendMeasurements => {
+            Ok(transition!(ManagedHostState::Measuring {
                 measuring_state: MeasuringState::WaitingForMeasurements,
-            },
-        )),
+            }))
+        }
         MeasuringOutcome::Unsuccessful((failure_details, machine_id)) => {
-            Ok(StateHandlerOutcome::Transition(ManagedHostState::Failed {
+            Ok(transition!(ManagedHostState::Failed {
                 details: FailureDetails {
                     cause: failure_details.cause.clone(),
                     failed_at: failure_details.failed_at,
@@ -1918,7 +1888,7 @@ fn map_measuring_outcome_to_state_handler_outcome(
                 retry_count: 0,
             }))
         }
-        MeasuringOutcome::PassedOk => Ok(StateHandlerOutcome::Transition(ManagedHostState::Ready)),
+        MeasuringOutcome::PassedOk => Ok(transition!(ManagedHostState::Ready)),
     }
 }
 
@@ -1927,7 +1897,7 @@ fn map_host_init_measuring_outcome_to_state_handler_outcome(
     measuring_state: &MeasuringState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     match measuring_outcome {
-        MeasuringOutcome::NoChange => Ok(StateHandlerOutcome::Wait(
+        MeasuringOutcome::NoChange => Ok(wait!(
             match measuring_state {
                 MeasuringState::WaitingForMeasurements => {
                     "Waiting for machine to send measurement report"
@@ -1936,24 +1906,22 @@ fn map_host_init_measuring_outcome_to_state_handler_outcome(
                     "Waiting for matching measurement bundle for machine profile"
                 }
             }
-            .to_string(),
+            .to_string()
         )),
-        MeasuringOutcome::WaitForGoldenValues => Ok(StateHandlerOutcome::Transition(
-            ManagedHostState::HostInit {
-                machine_state: MachineState::Measuring {
-                    measuring_state: MeasuringState::PendingBundle,
-                },
+        MeasuringOutcome::WaitForGoldenValues => Ok(transition!(ManagedHostState::HostInit {
+            machine_state: MachineState::Measuring {
+                measuring_state: MeasuringState::PendingBundle,
             },
-        )),
-        MeasuringOutcome::WaitForScoutToSendMeasurements => Ok(StateHandlerOutcome::Transition(
-            ManagedHostState::HostInit {
+        })),
+        MeasuringOutcome::WaitForScoutToSendMeasurements => {
+            Ok(transition!(ManagedHostState::HostInit {
                 machine_state: MachineState::Measuring {
                     measuring_state: MeasuringState::WaitingForMeasurements,
                 },
-            },
-        )),
+            }))
+        }
         MeasuringOutcome::Unsuccessful((failure_details, machine_id)) => {
-            Ok(StateHandlerOutcome::Transition(ManagedHostState::Failed {
+            Ok(transition!(ManagedHostState::Failed {
                 details: FailureDetails {
                     cause: failure_details.cause.clone(),
                     failed_at: failure_details.failed_at,
@@ -1963,11 +1931,9 @@ fn map_host_init_measuring_outcome_to_state_handler_outcome(
                 retry_count: 0,
             }))
         }
-        MeasuringOutcome::PassedOk => Ok(StateHandlerOutcome::Transition(
-            ManagedHostState::HostInit {
-                machine_state: MachineState::WaitingForDiscovery,
-            },
-        )),
+        MeasuringOutcome::PassedOk => Ok(transition!(ManagedHostState::HostInit {
+            machine_state: MachineState::WaitingForDiscovery,
+        })),
     }
 }
 
@@ -1989,21 +1955,21 @@ async fn handle_bfb_install_state(
     let dpu_redfish_client = match dpu_redfish_client_result {
         Ok(redfish_client) => redfish_client,
         Err(e) => {
-            return Ok(StateHandlerOutcome::Wait(format!(
+            return Ok(wait!(format!(
                 "Waiting for RedFish to become available: {:?}",
                 e
             )));
         }
     };
     match substate {
-        InstallDpuOsState::Completed => Ok(StateHandlerOutcome::Transition(
-            next_state_resolver.next_bfb_install_state(
+        InstallDpuOsState::Completed => {
+            Ok(transition!(next_state_resolver.next_bfb_install_state(
                 &state.managed_state,
                 &InstallDpuOsState::Completed,
                 dpu_machine_id,
-            )?,
-        )),
-        InstallDpuOsState::InstallationError { .. } => Ok(StateHandlerOutcome::DoNothing),
+            )?))
+        }
+        InstallDpuOsState::InstallationError { .. } => Ok(do_nothing!()),
 
         InstallDpuOsState::InstallingBFB => {
             let task = dpu_redfish_client
@@ -2022,16 +1988,14 @@ async fn handle_bfb_install_state(
                 dpu_snapshot.id,
                 task.id
             );
-            Ok(StateHandlerOutcome::Transition(
-                next_state_resolver.next_bfb_install_state(
-                    &state.managed_state,
-                    &InstallDpuOsState::WaitForInstallComplete {
-                        task_id: task.id,
-                        progress: "0".to_string(),
-                    },
-                    dpu_machine_id,
-                )?,
-            ))
+            Ok(transition!(next_state_resolver.next_bfb_install_state(
+                &state.managed_state,
+                &InstallDpuOsState::WaitForInstallComplete {
+                    task_id: task.id,
+                    progress: "0".to_string(),
+                },
+                dpu_machine_id,
+            )?))
         }
 
         InstallDpuOsState::WaitForInstallComplete { task_id, .. } => {
@@ -2058,7 +2022,7 @@ async fn handle_bfb_install_state(
                         &InstallDpuOsState::Completed,
                         dpu_machine_id,
                     )?;
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    Ok(transition!(next_state))
                 }
                 Some(TaskState::Exception) => {
                     let msg = format!(
@@ -2073,7 +2037,7 @@ async fn handle_bfb_install_state(
                         &InstallDpuOsState::InstallationError { msg },
                         dpu_machine_id,
                     )?;
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    Ok(transition!(next_state))
                 }
                 Some(TaskState::Running) | Some(TaskState::New) | Some(TaskState::Starting) => {
                     let next_state = next_state_resolver.next_bfb_install_state(
@@ -2086,7 +2050,7 @@ async fn handle_bfb_install_state(
                         },
                         dpu_machine_id,
                     )?;
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    Ok(transition!(next_state))
                 }
                 _ => {
                     let msg = format!(
@@ -2100,7 +2064,7 @@ async fn handle_bfb_install_state(
                         &InstallDpuOsState::InstallationError { msg },
                         dpu_machine_id,
                     )?;
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    Ok(transition!(next_state))
                 }
             }
         }
@@ -2112,7 +2076,7 @@ fn map_post_assigned_measuring_outcome_to_state_handler_outcome(
     measuring_state: &MeasuringState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     match measuring_outcome {
-        MeasuringOutcome::NoChange => Ok(StateHandlerOutcome::Wait(
+        MeasuringOutcome::NoChange => Ok(wait!(
             match measuring_state {
                 MeasuringState::WaitingForMeasurements => {
                     "Waiting for machine to send measurement report"
@@ -2121,20 +2085,20 @@ fn map_post_assigned_measuring_outcome_to_state_handler_outcome(
                     "Waiting for matching measurement bundle for machine profile"
                 }
             }
-            .to_string(),
+            .to_string()
         )),
-        MeasuringOutcome::WaitForGoldenValues => Ok(StateHandlerOutcome::Transition(
-            ManagedHostState::PostAssignedMeasuring {
+        MeasuringOutcome::WaitForGoldenValues => {
+            Ok(transition!(ManagedHostState::PostAssignedMeasuring {
                 measuring_state: MeasuringState::PendingBundle,
-            },
-        )),
-        MeasuringOutcome::WaitForScoutToSendMeasurements => Ok(StateHandlerOutcome::Transition(
-            ManagedHostState::PostAssignedMeasuring {
+            }))
+        }
+        MeasuringOutcome::WaitForScoutToSendMeasurements => {
+            Ok(transition!(ManagedHostState::PostAssignedMeasuring {
                 measuring_state: MeasuringState::WaitingForMeasurements,
-            },
-        )),
+            }))
+        }
         MeasuringOutcome::Unsuccessful((failure_details, machine_id)) => {
-            Ok(StateHandlerOutcome::Transition(ManagedHostState::Failed {
+            Ok(transition!(ManagedHostState::Failed {
                 details: FailureDetails {
                     cause: failure_details.cause.clone(),
                     failed_at: failure_details.failed_at,
@@ -2144,11 +2108,9 @@ fn map_post_assigned_measuring_outcome_to_state_handler_outcome(
                 retry_count: 0,
             }))
         }
-        MeasuringOutcome::PassedOk => Ok(StateHandlerOutcome::Transition(
-            ManagedHostState::WaitingForCleanup {
-                cleanup_state: CleanupState::Init,
-            },
-        )),
+        MeasuringOutcome::PassedOk => Ok(transition!(ManagedHostState::WaitingForCleanup {
+            cleanup_state: CleanupState::Init,
+        })),
     }
 }
 
@@ -2278,13 +2240,13 @@ async fn handle_dpu_reprovision(
             )
             .await
         }
-        ReprovisionState::BmcFirmwareUpgrade { .. } => Ok(StateHandlerOutcome::Transition(
-            next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
+        ReprovisionState::BmcFirmwareUpgrade { .. } => Ok(transition!(
+            next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?
         )),
         ReprovisionState::FirmwareUpgrade => {
             // Firmware upgrade is going on. Lets wait for it to over.
-            Ok(StateHandlerOutcome::Transition(
-                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
+            Ok(transition!(
+                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?
             ))
         }
         ReprovisionState::WaitingForNetworkInstall => {
@@ -2299,13 +2261,13 @@ async fn handle_dpu_reprovision(
             .await?
             {
                 // Return Wait.
-                return Ok(StateHandlerOutcome::Wait(format!(
+                return Ok(wait!(format!(
                     "DPU discovery for {dpu_id} is still not completed."
                 )));
             }
 
-            Ok(StateHandlerOutcome::Transition(
-                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
+            Ok(transition!(
+                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?
             ))
         }
         ReprovisionState::PoweringOffHost => {
@@ -2322,15 +2284,15 @@ async fn handle_dpu_reprovision(
                 .collect_vec();
 
             if !all_equal(dpus_states_for_reprov)? {
-                return Ok(StateHandlerOutcome::Wait(
-                    "Waiting for DPUs to come in PoweringOffHost state.".to_string(),
+                return Ok(wait!(
+                    "Waiting for DPUs to come in PoweringOffHost state.".to_string()
                 ));
             }
 
             handler_host_power_control(state, ctx.services, SystemPowerControl::ForceOff, txn)
                 .await?;
-            Ok(StateHandlerOutcome::Transition(
-                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
+            Ok(transition!(
+                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?
             ))
         }
         ReprovisionState::PowerDown => {
@@ -2342,9 +2304,7 @@ async fn handle_dpu_reprovision(
                 .unwrap_or(state.host_snapshot.state.version.timestamp());
 
             if wait(&basetime, reachability_params.power_down_wait) {
-                return Ok(StateHandlerOutcome::DoNothingWithDetails(
-                    DoNothingDetails { line: line!() },
-                ));
+                return Ok(do_nothing!());
             }
 
             let redfish_client = ctx
@@ -2363,7 +2323,7 @@ async fn handle_dpu_reprovision(
                 handler_host_power_control(state, ctx.services, SystemPowerControl::ForceOff, txn)
                     .await?;
 
-                return Ok(StateHandlerOutcome::Wait(format!(
+                return Ok(wait!(format!(
                     "Host {} is not still powered off. Trying again.",
                     state.host_snapshot.id
                 )));
@@ -2384,12 +2344,12 @@ async fn handle_dpu_reprovision(
             .await?;
 
             handler_host_power_control(state, ctx.services, SystemPowerControl::On, txn).await?;
-            Ok(StateHandlerOutcome::Transition(
-                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
+            Ok(transition!(
+                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?
             ))
         }
-        ReprovisionState::BufferTime => Ok(StateHandlerOutcome::Transition(
-            next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
+        ReprovisionState::BufferTime => Ok(transition!(
+            next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?
         )),
         ReprovisionState::VerifyFirmareVersions => {
             check_bmc_fw_component_version(
@@ -2403,8 +2363,8 @@ async fn handle_dpu_reprovision(
             )
             .await?;
 
-            Ok(StateHandlerOutcome::Transition(
-                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
+            Ok(transition!(
+                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?
             ))
         }
         ReprovisionState::WaitingForNetworkConfig => {
@@ -2428,9 +2388,7 @@ async fn handle_dpu_reprovision(
                         );
                     }
 
-                    return Ok(StateHandlerOutcome::Wait(format!(
-                        "{msg};\nreboot_status: {reboot_status:#?}"
-                    )));
+                    return Ok(wait!(format!("{msg};\nreboot_status: {reboot_status:#?}")));
                 }
 
                 if !managed_host_network_config_version_synced_and_dpu_healthy(dsnapshot) {
@@ -2454,7 +2412,7 @@ async fn handle_dpu_reprovision(
                         );
                     }
                     // TODO: Make is_network_ready give us more details as a string
-                    return Ok(StateHandlerOutcome::Wait(format!(
+                    return Ok(wait!(format!(
                         "Waiting for DPU {} to sync network config/become healthy;\nreboot status: {reboot_status:#?}",
                         dsnapshot.id
                     )));
@@ -2468,8 +2426,8 @@ async fn handle_dpu_reprovision(
                     .map_err(StateHandlerError::from)?;
             }
 
-            Ok(StateHandlerOutcome::Transition(
-                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
+            Ok(transition!(
+                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?
             ))
         }
         ReprovisionState::RebootHostBmc => {
@@ -2543,8 +2501,8 @@ async fn handle_dpu_reprovision(
                 }
             }
 
-            Ok(StateHandlerOutcome::Transition(
-                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
+            Ok(transition!(
+                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?
             ))
         }
         ReprovisionState::RebootHost => {
@@ -2554,17 +2512,13 @@ async fn handle_dpu_reprovision(
 
             // We need to wait for the host to reboot and submit its new Hardware information in
             // case of Ready.
-            Ok(StateHandlerOutcome::Transition(
-                next_state_resolver.next_state(
-                    &state.managed_state,
-                    dpu_machine_id,
-                    &state.host_snapshot,
-                )?,
-            ))
+            Ok(transition!(next_state_resolver.next_state(
+                &state.managed_state,
+                dpu_machine_id,
+                &state.host_snapshot,
+            )?))
         }
-        ReprovisionState::NotUnderReprovision => Ok(StateHandlerOutcome::DoNothingWithDetails(
-            DoNothingDetails { line: line!() },
-        )),
+        ReprovisionState::NotUnderReprovision => Ok(do_nothing!()),
     }
 }
 
@@ -2880,7 +2834,7 @@ impl DpuMachineStateHandler {
         let dpu_redfish_client = match dpu_redfish_client_result {
             Ok(redfish_client) => redfish_client,
             Err(e) => {
-                return Ok(StateHandlerOutcome::Wait(format!(
+                return Ok(wait!(format!(
                     "Waiting for RedFish to become available: {:?}",
                     e
                 )));
@@ -2891,12 +2845,12 @@ impl DpuMachineStateHandler {
             DpuDiscoveringState::Initializing => {
                 let next_state = DpuDiscoveringState::Configuring
                     .next_state(&state.managed_state, dpu_machine_id)?;
-                Ok(StateHandlerOutcome::Transition(next_state))
+                Ok(transition!(next_state))
             }
             DpuDiscoveringState::Configuring => {
                 let next_state = DpuDiscoveringState::EnableRshim
                     .next_state(&state.managed_state, dpu_machine_id)?;
-                Ok(StateHandlerOutcome::Transition(next_state))
+                Ok(transition!(next_state))
             }
             DpuDiscoveringState::EnableRshim => {
                 let _ = dpu_redfish_client
@@ -2925,7 +2879,7 @@ impl DpuMachineStateHandler {
                     }
                     .next_state(&state.managed_state, dpu_machine_id)?
                 };
-                Ok(StateHandlerOutcome::Transition(next_state))
+                Ok(transition!(next_state))
             }
             DpuDiscoveringState::EnableSecureBoot {
                 count,
@@ -2975,12 +2929,12 @@ impl DpuMachineStateHandler {
 
                 let next_state = DpuDiscoveringState::RebootAllDPUS
                     .next_state(&state.managed_state, dpu_machine_id)?;
-                Ok(StateHandlerOutcome::Transition(next_state))
+                Ok(transition!(next_state))
             }
             DpuDiscoveringState::RebootAllDPUS => {
                 if !state.managed_state.all_dpu_states_in_sync()? {
-                    return Ok(StateHandlerOutcome::Wait(
-                        "Waiting for all dpus to finish configuring.".to_string(),
+                    return Ok(wait!(
+                        "Waiting for all dpus to finish configuring.".to_string()
                     ));
                 }
 
@@ -2995,7 +2949,7 @@ impl DpuMachineStateHandler {
 
                 let next_state =
                     DpuInitState::Init.next_state_with_all_dpus_updated(&state.managed_state)?;
-                Ok(StateHandlerOutcome::Transition(next_state))
+                Ok(transition!(next_state))
             }
         }
     }
@@ -3044,7 +2998,7 @@ impl DpuMachineStateHandler {
                 .await?;
 
                 if let Some(dpu_id) = dpu_discovery_result {
-                    return Ok(StateHandlerOutcome::Wait(format!(
+                    return Ok(wait!(format!(
                         "Waiting for DPU {dpu_id} discovery and reboot"
                     )));
                 }
@@ -3064,7 +3018,7 @@ impl DpuMachineStateHandler {
                 };
                 let next_state =
                     machine_state.next_state_with_all_dpus_updated(&state.managed_state)?;
-                Ok(StateHandlerOutcome::Transition(next_state))
+                Ok(transition!(next_state))
             }
 
             DpuInitState::WaitingForPlatformPowercycle {
@@ -3072,8 +3026,8 @@ impl DpuMachineStateHandler {
             } => {
                 // Wait until all DPUs arrive in Off state.
                 if !state.managed_state.all_dpu_states_in_sync()? {
-                    return Ok(StateHandlerOutcome::Wait(
-                        "Waiting for all dpus to move to off state.".to_string(),
+                    return Ok(wait!(
+                        "Waiting for all dpus to move to off state.".to_string()
                     ));
                 }
 
@@ -3097,7 +3051,7 @@ impl DpuMachineStateHandler {
                 }
                 .next_state_with_all_dpus_updated(&state.managed_state)?;
 
-                Ok(StateHandlerOutcome::Transition(next_state))
+                Ok(transition!(next_state))
             }
             DpuInitState::WaitingForPlatformPowercycle {
                 substate: PerformPowerOperation::On,
@@ -3119,7 +3073,7 @@ impl DpuMachineStateHandler {
                 let next_state = DpuInitState::WaitingForPlatformConfiguration
                     .next_state_with_all_dpus_updated(&state.managed_state)?;
 
-                Ok(StateHandlerOutcome::Transition(next_state))
+                Ok(transition!(next_state))
             }
             DpuInitState::WaitingForPlatformConfiguration => {
                 let dpu_redfish_client = match ctx
@@ -3146,7 +3100,7 @@ impl DpuMachineStateHandler {
                         )
                         .await?;
 
-                        return Ok(StateHandlerOutcome::Wait(format!(
+                        return Ok(wait!(format!(
                             "{msg};\nDPU reboot status: {reboot_status:#?}",
                         )));
                     }
@@ -3186,7 +3140,7 @@ impl DpuMachineStateHandler {
                     )
                     .await?;
 
-                    return Ok(StateHandlerOutcome::Wait(format!(
+                    return Ok(wait!(format!(
                         "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
                         dpu_snapshot.id
                     )));
@@ -3212,7 +3166,7 @@ impl DpuMachineStateHandler {
                     )
                     .await?;
 
-                    return Ok(StateHandlerOutcome::Wait(format!(
+                    return Ok(wait!(format!(
                         "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
                         dpu_snapshot.id
                     )));
@@ -3225,7 +3179,7 @@ impl DpuMachineStateHandler {
                 let next_state = DpuInitState::WaitingForNetworkConfig
                     .next_state(&state.managed_state, dpu_machine_id)?;
 
-                Ok(StateHandlerOutcome::Transition(next_state))
+                Ok(transition!(next_state))
             }
 
             DpuInitState::WaitingForNetworkConfig => {
@@ -3252,7 +3206,7 @@ impl DpuMachineStateHandler {
                         }
 
                         // TODO: Make is_network_ready give us more details as a string
-                        return Ok(StateHandlerOutcome::Wait(format!(
+                        return Ok(wait!(format!(
                             "Waiting for DPU agent to apply network config and report healthy network for DPU {}\nreboot status: {reboot_status:#?}",
                             dsnapshot.id
                         )));
@@ -3262,7 +3216,7 @@ impl DpuMachineStateHandler {
                 let next_state = ManagedHostState::HostInit {
                     machine_state: MachineState::EnableIpmiOverLan,
                 };
-                Ok(StateHandlerOutcome::Transition(next_state))
+                Ok(transition!(next_state))
             }
             DpuInitState::WaitingForNetworkInstall => {
                 tracing::warn!(
@@ -3322,7 +3276,7 @@ impl DpuMachineStateHandler {
                 // The first time we check to see if secure boot is disabled, we do not need to wait. The DPU should already be up.
                 // However, we need to give time in between the second reboot and checking the status again.
                 if count > 0 && wait_for_dpu_to_come_up {
-                    return Ok(StateHandlerOutcome::Wait(format!(
+                    return Ok(wait!(format!(
                         "Waiting for DPU {dpu_machine_id} to come back up from last reboot; time since last reboot: {time_since_state_change}; DisableSecureBoot cycle: {count}",
                     )));
                 }
@@ -3479,7 +3433,7 @@ impl DpuMachineStateHandler {
                     };
                 } else {
                     if wait_for_dpu_to_come_up {
-                        return Ok(StateHandlerOutcome::Wait(format!(
+                        return Ok(wait!(format!(
                             "Waiting for DPU {dpu_machine_id} to come back up from last reboot; time since last reboot: {time_since_state_change}",
                         )));
                     }
@@ -3510,7 +3464,7 @@ impl DpuMachineStateHandler {
             }
         }
 
-        Ok(StateHandlerOutcome::Transition(next_state))
+        Ok(transition!(next_state))
     }
 }
 
@@ -3529,14 +3483,13 @@ impl StateHandler for DpuMachineStateHandler {
         txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        let mut state_handler_outcome =
-            StateHandlerOutcome::DoNothingWithDetails(DoNothingDetails { line: line!() });
+        let mut state_handler_outcome = do_nothing!();
 
         if state.host_snapshot.associated_dpu_machine_ids().is_empty() {
             let next_state = ManagedHostState::HostInit {
                 machine_state: MachineState::WaitingForPlatformConfiguration,
             };
-            Ok(StateHandlerOutcome::Transition(next_state))
+            Ok(transition!(next_state))
         } else {
             for dpu_snapshot in &state.dpu_snapshots.clone() {
                 state_handler_outcome = self
@@ -3913,16 +3866,14 @@ async fn handle_host_uefi_setup(
                     })?;
             }
 
-            Ok(StateHandlerOutcome::Transition(
-                ManagedHostState::HostInit {
-                    machine_state: MachineState::UefiSetup {
-                        uefi_setup_info: UefiSetupInfo {
-                            uefi_password_jid: None,
-                            uefi_setup_state: UefiSetupState::SetUefiPassword,
-                        },
+            Ok(transition!(ManagedHostState::HostInit {
+                machine_state: MachineState::UefiSetup {
+                    uefi_setup_info: UefiSetupInfo {
+                        uefi_password_jid: None,
+                        uefi_setup_state: UefiSetupState::SetUefiPassword,
                     },
                 },
-            ))
+            }))
         }
         UefiSetupState::SetUefiPassword => {
             match set_host_uefi_password(
@@ -3931,16 +3882,14 @@ async fn handle_host_uefi_setup(
             )
             .await
             {
-                Ok(job_id) => Ok(StateHandlerOutcome::Transition(
-                    ManagedHostState::HostInit {
-                        machine_state: MachineState::UefiSetup {
-                            uefi_setup_info: UefiSetupInfo {
-                                uefi_password_jid: job_id,
-                                uefi_setup_state: UefiSetupState::WaitForPasswordJobScheduled,
-                            },
+                Ok(job_id) => Ok(transition!(ManagedHostState::HostInit {
+                    machine_state: MachineState::UefiSetup {
+                        uefi_setup_info: UefiSetupInfo {
+                            uefi_password_jid: job_id,
+                            uefi_setup_state: UefiSetupState::WaitForPasswordJobScheduled,
                         },
                     },
-                )),
+                })),
                 Err(e) => {
                     let msg = format!(
                         "failed to set the BIOS password on {} ({}): {}",
@@ -3960,16 +3909,14 @@ async fn handle_host_uefi_setup(
                     // An operator will have to set the bios password manually
                     tracing::info!(msg);
 
-                    Ok(StateHandlerOutcome::Transition(
-                        ManagedHostState::HostInit {
-                            machine_state: MachineState::UefiSetup {
-                                uefi_setup_info: UefiSetupInfo {
-                                    uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
-                                    uefi_setup_state: UefiSetupState::LockdownHost,
-                                },
+                    Ok(transition!(ManagedHostState::HostInit {
+                        machine_state: MachineState::UefiSetup {
+                            uefi_setup_info: UefiSetupInfo {
+                                uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
+                                uefi_setup_state: UefiSetupState::LockdownHost,
                             },
                         },
-                    ))
+                    }))
                 }
             }
         }
@@ -3983,23 +3930,21 @@ async fn handle_host_uefi_setup(
                 })?;
 
                 if !matches!(job_state, libredfish::JobState::Scheduled) {
-                    return Ok(StateHandlerOutcome::Wait(format!(
+                    return Ok(wait!(format!(
                         "waiting for job {:#?} to be scheduled; current state: {job_state:#?}",
                         job_id
                     )));
                 }
             }
 
-            Ok(StateHandlerOutcome::Transition(
-                ManagedHostState::HostInit {
-                    machine_state: MachineState::UefiSetup {
-                        uefi_setup_info: UefiSetupInfo {
-                            uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
-                            uefi_setup_state: UefiSetupState::PowercycleHost,
-                        },
+            Ok(transition!(ManagedHostState::HostInit {
+                machine_state: MachineState::UefiSetup {
+                    uefi_setup_info: UefiSetupInfo {
+                        uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
+                        uefi_setup_state: UefiSetupState::PowercycleHost,
                     },
                 },
-            ))
+            }))
         }
         UefiSetupState::PowercycleHost => {
             host_power_control(
@@ -4013,16 +3958,14 @@ async fn handle_host_uefi_setup(
             .map_err(|e| {
                 StateHandlerError::GenericError(eyre!("handler_host_power_control failed: {}", e))
             })?;
-            Ok(StateHandlerOutcome::Transition(
-                ManagedHostState::HostInit {
-                    machine_state: MachineState::UefiSetup {
-                        uefi_setup_info: UefiSetupInfo {
-                            uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
-                            uefi_setup_state: UefiSetupState::WaitForPasswordJobCompletion,
-                        },
+            Ok(transition!(ManagedHostState::HostInit {
+                machine_state: MachineState::UefiSetup {
+                    uefi_setup_info: UefiSetupInfo {
+                        uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
+                        uefi_setup_state: UefiSetupState::WaitForPasswordJobCompletion,
                     },
                 },
-            ))
+            }))
         }
         UefiSetupState::WaitForPasswordJobCompletion => {
             if let Some(job_id) = uefi_setup_info.uefi_password_jid.clone() {
@@ -4040,7 +3983,7 @@ async fn handle_host_uefi_setup(
                 })?;
 
                 if !matches!(job_state, libredfish::JobState::Completed) {
-                    return Ok(StateHandlerOutcome::Wait(format!(
+                    return Ok(wait!(format!(
                         "waiting for job {:#?} to complete; current state: {job_state:#?}",
                         job_id
                     )));
@@ -4057,21 +4000,19 @@ async fn handle_host_uefi_setup(
                     ))
                 })?;
 
-            Ok(StateHandlerOutcome::Transition(
-                ManagedHostState::HostInit {
-                    machine_state: MachineState::UefiSetup {
-                        uefi_setup_info: UefiSetupInfo {
-                            uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
-                            uefi_setup_state: UefiSetupState::LockdownHost,
-                        },
+            Ok(transition!(ManagedHostState::HostInit {
+                machine_state: MachineState::UefiSetup {
+                    uefi_setup_info: UefiSetupInfo {
+                        uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
+                        uefi_setup_state: UefiSetupState::LockdownHost,
                     },
                 },
-            ))
+            }))
         }
-        UefiSetupState::LockdownHost => Ok(StateHandlerOutcome::Transition(
+        UefiSetupState::LockdownHost => Ok(transition!(
             handler_host_lockdown(txn, ctx, state).await.map_err(|e| {
                 StateHandlerError::GenericError(eyre!("handle_host_lockdown failed: {}", e))
-            })?,
+            })?
         )),
     }
 }
@@ -4129,7 +4070,7 @@ impl StateHandler for HostMachineStateHandler {
                         machine_state: MachineState::WaitingForPlatformConfiguration,
                     };
 
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    Ok(transition!(next_state))
                 }
                 MachineState::WaitingForPlatformConfiguration => {
                     tracing::info!(
@@ -4211,7 +4152,7 @@ impl StateHandler for HostMachineStateHandler {
                                 )
                                 .await?
                             };
-                        return Ok(StateHandlerOutcome::Wait(format!(
+                        return Ok(wait!(format!(
                             "redfish forge_setup failed: {e}; triggered host reboot?: {reboot_status:#?}"
                         )));
                     };
@@ -4225,11 +4166,9 @@ impl StateHandler for HostMachineStateHandler {
                     )
                     .await?;
 
-                    Ok(StateHandlerOutcome::Transition(
-                        ManagedHostState::HostInit {
-                            machine_state: MachineState::SetBootOrder,
-                        },
-                    ))
+                    Ok(transition!(ManagedHostState::HostInit {
+                        machine_state: MachineState::SetBootOrder,
+                    }))
                 }
                 MachineState::SetBootOrder => {
                     let next_state = if self.host_handler_params.attestation_enabled {
@@ -4250,7 +4189,7 @@ impl StateHandler for HostMachineStateHandler {
                             &mh_snapshot.host_snapshot.state.version.timestamp(),
                             self.host_handler_params.reachability_params.dpu_wait_time,
                         ) {
-                            return Ok(StateHandlerOutcome::Wait(format!(
+                            return Ok(wait!(format!(
                                 "Forced wait of {} for Host BIOS changes to take effect",
                                 self.host_handler_params.reachability_params.dpu_wait_time
                             )));
@@ -4290,7 +4229,7 @@ impl StateHandler for HostMachineStateHandler {
                             Err(e) => match e {
                                 RedfishError::UnnecessaryOperation => {
                                     // No need to reboot the host again if there was no action taken in this state
-                                    return Ok(StateHandlerOutcome::Transition(next_state));
+                                    return Ok(transition!(next_state));
                                 }
                                 _ => {
                                     return Err(StateHandlerError::RedfishError {
@@ -4316,7 +4255,7 @@ impl StateHandler for HostMachineStateHandler {
                         .await?;
                     }
 
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    Ok(transition!(next_state))
                 }
                 MachineState::Measuring { measuring_state } => {
                     match handle_measuring_state(
@@ -4336,7 +4275,7 @@ impl StateHandler for HostMachineStateHandler {
                         Err(StateHandlerError::MeasuringError(measuring_problem)) => {
                             match measuring_problem {
                                 MeasuringProblem::NoEkCertVerificationStatusFound(info) => {
-                                    return Ok(StateHandlerOutcome::Wait(format!(
+                                    return Ok(wait!(format!(
                                         "Waiting for Scout to start and send registration info (in discover_machine): {info}"
                                     )));
                                 }
@@ -4366,19 +4305,17 @@ impl StateHandler for HostMachineStateHandler {
                             txn,
                         )
                         .await?;
-                        return Ok(StateHandlerOutcome::Wait(status.status));
+                        return Ok(wait!(status.status));
                     }
 
-                    Ok(StateHandlerOutcome::Transition(
-                        ManagedHostState::HostInit {
-                            machine_state: MachineState::UefiSetup {
-                                uefi_setup_info: UefiSetupInfo {
-                                    uefi_password_jid: None,
-                                    uefi_setup_state: UefiSetupState::SetUefiPassword,
-                                },
+                    Ok(transition!(ManagedHostState::HostInit {
+                        machine_state: MachineState::UefiSetup {
+                            uefi_setup_info: UefiSetupInfo {
+                                uefi_password_jid: None,
+                                uefi_setup_state: UefiSetupState::SetUefiPassword,
                             },
                         },
-                    ))
+                    }))
                 }
                 MachineState::UefiSetup { uefi_setup_info } => {
                     Ok(
@@ -4396,7 +4333,7 @@ impl StateHandler for HostMachineStateHandler {
                                 &mh_snapshot.host_snapshot.state.version.timestamp(),
                                 self.host_handler_params.reachability_params.dpu_wait_time,
                             ) {
-                                Ok(StateHandlerOutcome::Wait(format!(
+                                Ok(wait!(format!(
                                     "Forced wait of {} for DPU to power down",
                                     self.host_handler_params.reachability_params.dpu_wait_time
                                 )))
@@ -4409,7 +4346,7 @@ impl StateHandler for HostMachineStateHandler {
                                         },
                                     },
                                 };
-                                Ok(StateHandlerOutcome::Transition(next_state))
+                                Ok(transition!(next_state))
                             }
                         }
                         LockdownState::WaitForDPUUp => {
@@ -4445,15 +4382,13 @@ impl StateHandler for HostMachineStateHandler {
                                             },
                                         ),
                                     };
-                                    Ok(StateHandlerOutcome::Transition(next_state))
+                                    Ok(transition!(next_state))
                                 } else {
                                     // We have not implemented LockdownMode::Disabled. This is a kind of placeholder for it, but we never needed it.
-                                    Ok(StateHandlerOutcome::DoNothingWithDetails(
-                                        DoNothingDetails { line: line!() },
-                                    ))
+                                    Ok(do_nothing!())
                                 }
                             } else {
-                                Ok(StateHandlerOutcome::Wait("Waiting for DPU to report UP by sending a network status observation".to_string()))
+                                Ok(wait!("Waiting for DPU to report UP by sending a network status observation".to_string()))
                             }
                         }
                     }
@@ -4465,7 +4400,7 @@ impl StateHandler for HostMachineStateHandler {
                     // or Measuring state, depending on if machine attestation
                     // is enabled or not.
                     if rebooted(&mh_snapshot.host_snapshot) || *skip_reboot {
-                        Ok(StateHandlerOutcome::Transition(ManagedHostState::Ready))
+                        Ok(transition!(ManagedHostState::Ready))
                     } else {
                         let status = trigger_reboot_if_needed(
                             &mh_snapshot.host_snapshot,
@@ -4476,7 +4411,7 @@ impl StateHandler for HostMachineStateHandler {
                             txn,
                         )
                         .await?;
-                        Ok(StateHandlerOutcome::Wait(format!(
+                        Ok(wait!(format!(
                             "Waiting for scout to call RebootCompleted grpc. {}",
                             status.status
                         )))
@@ -4569,7 +4504,7 @@ impl StateHandler for InstanceStateHandler {
 
                     // No network segment is configured with vpc_prefix_id.
                     if network_segment_ids_with_vpc.is_empty() {
-                        return Ok(StateHandlerOutcome::Transition(next_state));
+                        return Ok(transition!(next_state));
                     }
 
                     let network_segments_are_ready = NetworkSegment::are_network_segments_ready(
@@ -4578,11 +4513,11 @@ impl StateHandler for InstanceStateHandler {
                     )
                     .await?;
                     if !network_segments_are_ready {
-                        return Ok(StateHandlerOutcome::Wait(
-                            "Waiting for all segments to come in ready state.".to_string(),
+                        return Ok(wait!(
+                            "Waiting for all segments to come in ready state.".to_string()
                         ));
                     }
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    Ok(transition!(next_state))
                 }
                 InstanceState::WaitingForNetworkConfig => {
                     // It should be first state to process here.
@@ -4594,9 +4529,9 @@ impl StateHandler for InstanceStateHandler {
 
                     // Check DPU network config has been applied
                     if !mh_snapshot.managed_host_network_config_version_synced() {
-                        return Ok(StateHandlerOutcome::Wait(
+                        return Ok(wait!(
                             "Waiting for DPU agent(s) to apply network config and report healthy network"
-                                .to_string(),
+                                .to_string()
                         ));
                     }
 
@@ -4607,17 +4542,17 @@ impl StateHandler for InstanceStateHandler {
                     // Check instance network config has been applied
                     match check_instance_network_synced_and_dpu_healthy(instance, mh_snapshot)? {
                         InstanceNetworkSyncStatus::InstanceNetworkObservationNotAvailable => {
-                            return Ok(StateHandlerOutcome::Wait(
-                                "Instance has no network observation yet.".to_string(),
+                            return Ok(wait!(
+                                "Instance has no network observation yet.".to_string()
                             ));
                         }
                         InstanceNetworkSyncStatus::InstanceNetworkSynced => {}
                         InstanceNetworkSyncStatus::ZeroDpuNoObservationNeeded => {
-                            return Ok(StateHandlerOutcome::Transition(next_state));
+                            return Ok(transition!(next_state));
                         }
                         InstanceNetworkSyncStatus::InstanceNetworkNotSynced => {
-                            return Ok(StateHandlerOutcome::Wait(
-                                "Waiting for DPU agent to apply updated network config".to_string(),
+                            return Ok(wait!(
+                                "Waiting for DPU agent to apply updated network config".to_string()
                             ));
                         }
                     };
@@ -4630,7 +4565,7 @@ impl StateHandler for InstanceStateHandler {
                     )
                     .await?;
 
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    Ok(transition!(next_state))
                 }
                 InstanceState::WaitingForStorageConfig => {
                     if let Some(dpu_snapshot) = &mh_snapshot.dpu_snapshots.first() {
@@ -4657,7 +4592,7 @@ impl StateHandler for InstanceStateHandler {
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::WaitingForRebootToReady,
                     };
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    Ok(transition!(next_state))
                 }
                 InstanceState::WaitingForRebootToReady => {
                     // Reboot host
@@ -4675,7 +4610,7 @@ impl StateHandler for InstanceStateHandler {
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::Ready,
                     };
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    Ok(transition!(next_state))
                 }
                 InstanceState::Ready => {
                     // Machine is up after reboot. Hurray. Instance is up.
@@ -4694,7 +4629,7 @@ impl StateHandler for InstanceStateHandler {
                                     NetworkConfigUpdateState::WaitingForNetworkSegmentToBeReady,
                             },
                         };
-                        return Ok(StateHandlerOutcome::Transition(next_state));
+                        return Ok(transition!(next_state));
                     }
 
                     let reprov_can_be_started =
@@ -4824,11 +4759,9 @@ impl StateHandler for InstanceStateHandler {
                             .await?;
                         }
 
-                        Ok(StateHandlerOutcome::Transition(next_state))
+                        Ok(transition!(next_state))
                     } else {
-                        Ok(StateHandlerOutcome::DoNothingWithDetails(
-                            DoNothingDetails { line: line!() },
-                        ))
+                        Ok(do_nothing!())
                     }
                 }
                 InstanceState::WaitingForDpusToUp => {
@@ -4840,9 +4773,7 @@ impl StateHandler for InstanceStateHandler {
                     )
                     .await
                     {
-                        return Ok(StateHandlerOutcome::Wait(
-                            "Waiting for DPUs to come up.".to_string(),
-                        ));
+                        return Ok(wait!("Waiting for DPUs to come up.".to_string()));
                     }
                     handler_host_power_control(
                         mh_snapshot,
@@ -4856,7 +4787,7 @@ impl StateHandler for InstanceStateHandler {
                             retry: RetryInfo { count: 0 },
                         },
                     };
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    Ok(transition!(next_state))
                 }
                 InstanceState::BootingWithDiscoveryImage { retry } => {
                     if !rebooted(&mh_snapshot.host_snapshot) {
@@ -4879,9 +4810,9 @@ impl StateHandler for InstanceStateHandler {
                                     },
                                 },
                             };
-                            StateHandlerOutcome::Transition(next_state)
+                            transition!(next_state)
                         } else {
-                            StateHandlerOutcome::Wait(status.status)
+                            wait!(status.status)
                         };
                         return Ok(st);
                     }
@@ -4898,7 +4829,7 @@ impl StateHandler for InstanceStateHandler {
                         let next_state = ManagedHostState::Assigned {
                             instance_state: InstanceState::SwitchToAdminNetwork,
                         };
-                        return Ok(StateHandlerOutcome::Transition(next_state));
+                        return Ok(transition!(next_state));
                     }
 
                     // If we are here, DPU reprov MUST have been be requested.
@@ -4927,23 +4858,19 @@ impl StateHandler for InstanceStateHandler {
                                 &mh_snapshot.dpu_snapshots,
                                 dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
                             )?;
-                        Ok(StateHandlerOutcome::Transition(next_state))
+                        Ok(transition!(next_state))
                     } else if mh_snapshot
                         .host_snapshot
                         .host_reprovision_requested
                         .is_some()
                     {
-                        Ok(StateHandlerOutcome::Transition(
-                            ManagedHostState::Assigned {
-                                instance_state: InstanceState::HostReprovision {
-                                    reprovision_state: HostReprovisionState::CheckingFirmware,
-                                },
+                        Ok(transition!(ManagedHostState::Assigned {
+                            instance_state: InstanceState::HostReprovision {
+                                reprovision_state: HostReprovisionState::CheckingFirmware,
                             },
-                        ))
+                        }))
                     } else {
-                        Ok(StateHandlerOutcome::Wait(
-                            "Don't know how did we reach here.".to_string(),
-                        ))
+                        Ok(wait!("Don't know how did we reach here.".to_string()))
                     }
                 }
 
@@ -4964,15 +4891,15 @@ impl StateHandler for InstanceStateHandler {
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::WaitingForNetworkReconfig,
                     };
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    Ok(transition!(next_state))
                 }
                 InstanceState::WaitingForNetworkReconfig => {
                     // Has forge-dpu-agent applied the new network config so that
                     // we are back on the admin network?
                     if !mh_snapshot.managed_host_network_config_version_synced() {
-                        return Ok(StateHandlerOutcome::Wait(
+                        return Ok(wait!(
                             "Waiting for DPU agent(s) to apply network config and report healthy network"
-                                .to_string(),
+                                .to_string()
                         ));
                     }
                     check_host_health_for_alerts(mh_snapshot)?;
@@ -5028,7 +4955,7 @@ impl StateHandler for InstanceStateHandler {
                         }
                     };
 
-                    Ok(StateHandlerOutcome::Transition(next_state))
+                    Ok(transition!(next_state))
                 }
                 InstanceState::DPUReprovision { .. } => {
                     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
@@ -5043,12 +4970,10 @@ impl StateHandler for InstanceStateHandler {
                         )
                         .await?
                         {
-                            return Ok(StateHandlerOutcome::Transition(next_state));
+                            return Ok(transition!(next_state));
                         }
                     }
-                    Ok(StateHandlerOutcome::DoNothingWithDetails(
-                        DoNothingDetails { line: line!() },
-                    ))
+                    Ok(do_nothing!())
                 }
                 InstanceState::Failed {
                     details,
@@ -5065,9 +4990,7 @@ impl StateHandler for InstanceStateHandler {
                         details,
                         machine_id
                     );
-                    return Ok(StateHandlerOutcome::DoNothingWithDetails(
-                        DoNothingDetails { line: line!() },
-                    ));
+                    return Ok(do_nothing!());
                 }
                 InstanceState::HostReprovision { .. } => {
                     if let Some(next_state) = self
@@ -5081,11 +5004,9 @@ impl StateHandler for InstanceStateHandler {
                         )
                         .await?
                     {
-                        Ok(StateHandlerOutcome::Transition(next_state))
+                        Ok(transition!(next_state))
                     } else {
-                        Ok(StateHandlerOutcome::DoNothingWithDetails(
-                            DoNothingDetails { line: line!() },
-                        ))
+                        Ok(do_nothing!())
                     }
                 }
                 InstanceState::NetworkConfigUpdate {
@@ -5103,9 +5024,7 @@ impl StateHandler for InstanceStateHandler {
             }
         } else {
             // We are not in Assigned state. Should this be Err(StateHandlerError::InvalidHostState)?
-            Ok(StateHandlerOutcome::DoNothingWithDetails(
-                DoNothingDetails { line: line!() },
-            ))
+            Ok(do_nothing!())
         }
     }
 }
@@ -5148,8 +5067,8 @@ async fn handle_instance_network_config_update_request(
                     NetworkSegment::are_network_segments_ready(txn, &network_segment_ids_with_vpc)
                         .await?;
                 if !network_segments_are_ready {
-                    return Ok(StateHandlerOutcome::Wait(
-                        "Waiting for all segments to come in ready state.".to_string(),
+                    return Ok(wait!(
+                        "Waiting for all segments to come in ready state.".to_string()
                     ));
                 }
             }
@@ -5164,7 +5083,7 @@ async fn handle_instance_network_config_update_request(
             )
             .await?;
 
-            Ok(StateHandlerOutcome::Transition(next_state))
+            Ok(transition!(next_state))
         }
         NetworkConfigUpdateState::WaitingForConfigSynced => {
             let next_state = ManagedHostState::Assigned {
@@ -5176,18 +5095,14 @@ async fn handle_instance_network_config_update_request(
             Ok(
                 match check_instance_network_synced_and_dpu_healthy(instance, mh_snapshot)? {
                     InstanceNetworkSyncStatus::InstanceNetworkObservationNotAvailable => {
-                        StateHandlerOutcome::Wait(
-                            "Instance has no network observation yet.".to_string(),
-                        )
+                        wait!("Instance has no network observation yet.".to_string())
                     }
                     InstanceNetworkSyncStatus::ZeroDpuNoObservationNeeded
                     | InstanceNetworkSyncStatus::InstanceNetworkSynced => {
-                        StateHandlerOutcome::Transition(next_state)
+                        transition!(next_state)
                     }
                     InstanceNetworkSyncStatus::InstanceNetworkNotSynced => {
-                        StateHandlerOutcome::Wait(
-                            "Waiting for DPU agent to apply updated network config".to_string(),
-                        )
+                        wait!("Waiting for DPU agent to apply updated network config".to_string())
                     }
                 },
             )
@@ -5243,7 +5158,7 @@ async fn handle_instance_network_config_update_request(
             let next_state = ManagedHostState::Assigned {
                 instance_state: InstanceState::Ready,
             };
-            Ok(StateHandlerOutcome::Transition(next_state))
+            Ok(transition!(next_state))
         }
     }
 }
