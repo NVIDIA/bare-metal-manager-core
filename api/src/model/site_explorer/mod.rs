@@ -11,6 +11,7 @@
  */
 use std::{collections::HashMap, fmt::Display, net::IpAddr, str::FromStr};
 
+use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use forge_uuid::machine::{MachineId, MachineType};
 use itertools::Itertools;
@@ -285,6 +286,10 @@ impl EndpointExplorationReport {
 pub enum PreingestionState {
     Initial,
     RecheckVersions,
+    InitialReset {
+        phase: InitialResetPhase,
+        last_time: DateTime<Utc>,
+    },
     UpgradeFirmwareWait {
         task_id: String,
         final_version: String,
@@ -308,6 +313,14 @@ pub enum PreingestionState {
         reason: String,
     },
     Complete,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum InitialResetPhase {
+    Start,
+    BMCWasReset,
+    WaitHostBoot,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

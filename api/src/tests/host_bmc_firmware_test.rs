@@ -31,7 +31,8 @@ use crate::{
         machine::{HostReprovisionState, InstanceState, ManagedHostState},
         site_explorer::{
             Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport,
-            EndpointType, Inventory, PowerDrainState, PowerState, PreingestionState, Service,
+            EndpointType, InitialResetPhase, Inventory, PowerDrainState, PowerState,
+            PreingestionState, Service,
         },
     },
     preingestion_manager::PreingestionManager,
@@ -457,7 +458,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
         panic!("Not in HostReprovision");
     };
-    let HostReprovisionState::CheckingFirmware { .. } = reprovision_state else {
+    let HostReprovisionState::CheckingFirmwareRepeat { .. } = reprovision_state else {
         panic!("Not in reset {reprovision_state:?}");
     };
     txn.commit().await.unwrap();
@@ -501,7 +502,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         ..
     } = reprovision_state
     else {
-        panic!("Not in WaitingForFirmwareUpgrade");
+        panic!("Not in WaitingForFirmwareUpgrade {reprovision_state:?}");
     };
     assert_eq!(firmware_type, &FirmwareComponentType::Bmc);
     assert_eq!(*firmware_number, Some(1));
@@ -573,7 +574,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
         panic!("Not in HostReprovision");
     };
-    if reprovision_state != &HostReprovisionState::CheckingFirmware {
+    if reprovision_state != &HostReprovisionState::CheckingFirmwareRepeat {
         panic!("Not in checking");
     }
     txn.commit().await.unwrap();
@@ -833,7 +834,7 @@ fn test_merge_firmware_configs_write(
 }
 
 #[crate::sqlx_test]
-async fn test_preingestion_powercycling(
+async fn test_preingestion_preupdate_powercycling(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
@@ -869,6 +870,53 @@ async fn test_preingestion_powercycling(
 
     mgr.run_single_iteration().await?;
     // The "upload" is synchronous now and will be complete at this point.
+
+    // Expect "reset" the BMC
+    let mut txn = pool.begin().await.unwrap();
+    let endpoints = DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn).await?;
+    let endpoint = endpoints.first().unwrap().clone();
+    match &endpoint.preingestion_state {
+        PreingestionState::InitialReset { phase, .. } => {
+            assert_eq!(*phase, InitialResetPhase::BMCWasReset);
+        }
+        _ => {
+            panic!("Bad preingestion state: {:?}", endpoint.preingestion_state);
+        }
+    }
+    txn.commit().await?;
+    mgr.run_single_iteration().await?;
+
+    // Expect WaitHostBoot
+    let mut txn = pool.begin().await.unwrap();
+    let endpoints = DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn).await?;
+    let endpoint = endpoints.first().unwrap().clone();
+    match &endpoint.preingestion_state {
+        PreingestionState::InitialReset { phase, .. } => {
+            assert_eq!(*phase, InitialResetPhase::WaitHostBoot);
+        }
+        _ => {
+            panic!("Bad preingestion state: {:?}", endpoint.preingestion_state);
+        }
+    }
+    // Pretend we waited
+    DbExploredEndpoint::pregestion_hostboot_time_test(
+        IpAddr::V4(Ipv4Addr::from_str(addr).unwrap()),
+        &mut txn,
+    )
+    .await?;
+    txn.commit().await?;
+    mgr.run_single_iteration().await?;
+
+    // Recheck versions
+    let mut txn = pool.begin().await.unwrap();
+    let endpoints = DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn).await?;
+    let endpoint = endpoints.first().unwrap().clone();
+    assert_eq!(
+        endpoint.preingestion_state,
+        PreingestionState::RecheckVersions
+    );
+    txn.commit().await?;
+    mgr.run_single_iteration().await?;
 
     // At this point, we expect that it shows as having completed upload
     let mut txn = pool.begin().await.unwrap();
@@ -1215,7 +1263,7 @@ async fn test_instance_upgrading_actual(
     let InstanceState::HostReprovision { reprovision_state } = instance_state else {
         panic!("Unexpected state {:?}", host.state)
     };
-    let HostReprovisionState::CheckingFirmware { .. } = reprovision_state else {
+    let HostReprovisionState::CheckingFirmwareRepeat { .. } = reprovision_state else {
         panic!("Not in reset {reprovision_state:?}");
     };
     txn.commit().await.unwrap();
@@ -1325,7 +1373,7 @@ async fn test_instance_upgrading_actual(
     let InstanceState::HostReprovision { reprovision_state } = instance_state else {
         panic!("Unexpected state {:?}", host.state)
     };
-    if reprovision_state != HostReprovisionState::CheckingFirmware {
+    if reprovision_state != HostReprovisionState::CheckingFirmwareRepeat {
         panic!("Not in checking");
     }
     txn.commit().await.unwrap();

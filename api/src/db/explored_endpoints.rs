@@ -20,7 +20,8 @@ use crate::{
     cfg::file::FirmwareComponentType,
     db::DatabaseError,
     model::site_explorer::{
-        EndpointExplorationReport, ExploredEndpoint, PowerDrainState, PreingestionState,
+        EndpointExplorationReport, ExploredEndpoint, InitialResetPhase, PowerDrainState,
+        PreingestionState,
     },
 };
 
@@ -322,6 +323,18 @@ WHERE address = $3 AND version=$4";
         DbExploredEndpoint::set_preingestion(address, state, txn).await
     }
 
+    pub async fn set_preingestion_initial_reset(
+        address: IpAddr,
+        phase: InitialResetPhase,
+        txn: &mut PgConnection,
+    ) -> Result<(), DatabaseError> {
+        let state = PreingestionState::InitialReset {
+            phase,
+            last_time: Utc::now(),
+        };
+        DbExploredEndpoint::set_preingestion(address, state, txn).await
+    }
+
     pub async fn set_preingestion_recheck_versions_reason(
         address: IpAddr,
         reason: String,
@@ -389,6 +402,19 @@ WHERE address = $3 AND version=$4";
     ) -> Result<(), DatabaseError> {
         let state = PreingestionState::Complete;
         DbExploredEndpoint::set_preingestion(address, state, txn).await
+    }
+
+    pub async fn pregestion_hostboot_time_test(
+        address: IpAddr,
+        txn: &mut PgConnection,
+    ) -> Result<(), DatabaseError> {
+        let query = r#"UPDATE explored_endpoints SET preingestion_state = jsonb_set(preingestion_state, '{last_time}', '"2020-06-13T00:37:52.150893548Z"') WHERE address = $1"#;
+        sqlx::query(query)
+            .bind(address)
+            .execute(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
     }
 
     pub async fn insert(
