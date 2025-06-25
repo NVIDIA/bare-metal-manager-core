@@ -334,7 +334,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                                 .await;
 
                             let mut next_state = None;
-                            if let Ok(StateHandlerOutcome::Transition(next)) = &handler_outcome {
+                            if let Ok(StateHandlerOutcome::Transition { next_state: next, .. }) = &handler_outcome {
                                 next_state = Some(next.clone());
 
                                 if *next == controller_state.value {
@@ -355,14 +355,14 @@ impl<IO: StateControllerIO> StateController<IO> {
                             // but the object is stuck in the state for longer than the defined SLA,
                             // then transform the outcome into an error
                             let handler_outcome = match handler_outcome {
-                                Ok(StateHandlerOutcome::Wait(wait_condition))
+                                Ok(StateHandlerOutcome::Wait { reason, .. })
                                     if state_sla.time_in_state_above_sla =>
                                 {
                                     Err(StateHandlerError::TimeInStateAboveSla {
-                                        handler_outcome: format!("Wait(\"{wait_condition}\")"),
+                                        handler_outcome: format!("Wait(\"{reason}\")"),
                                     })
                                 }
-                                Ok(StateHandlerOutcome::DoNothing)
+                                Ok(StateHandlerOutcome::DoNothing {..})
                                     if state_sla.time_in_state_above_sla =>
                                 {
                                     Err(StateHandlerError::TimeInStateAboveSla {
@@ -374,14 +374,14 @@ impl<IO: StateControllerIO> StateController<IO> {
 
                             if is_success {
                                 // Commit transaction only when handler returned the Success. 
-                                if !matches!(handler_outcome, Ok(StateHandlerOutcome::Deleted)) {
+                                if !matches!(handler_outcome, Ok(StateHandlerOutcome::Deleted { .. })) {
                                     let db_outcome = handler_outcome.as_ref().into();
                                     io.persist_outcome(&mut txn, &object_id, db_outcome).await?;
                                 }
                                 txn.commit()
                                     .await
                                     .map_err(StateHandlerError::TransactionError)?;
-                            } else if !matches!(handler_outcome, Ok(StateHandlerOutcome::Deleted)) {
+                            } else if !matches!(handler_outcome, Ok(StateHandlerOutcome::Deleted { .. })) {
                                 // Whatever is the reason, outcome must be stored in db.
                                 let _ = txn.rollback().await;
                                 let mut txn = services.pool.begin().await?;

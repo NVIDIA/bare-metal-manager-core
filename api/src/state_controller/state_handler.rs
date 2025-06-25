@@ -93,35 +93,73 @@ pub trait StateHandler: std::fmt::Debug + Send + Sync + 'static {
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError>;
 }
 
-pub enum StateHandlerOutcome<S> {
-    Wait(String),  // String is reason we're waiting
-    Transition(S), // S is the next state
-    DoNothing,     // Nothing to do. Typically in Ready or Assigned/Ready
-    DoNothingWithDetails(DoNothingDetails),
-    Deleted, // The object was removed from the database
+/// References the source code that lead to the result
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct SourceReference {
+    pub file: &'static str,
+    pub line: u32,
 }
+
+pub enum StateHandlerOutcome<S> {
+    Wait {
+        /// The reason we're waiting
+        reason: String,
+        source_ref: SourceReference,
+    },
+    Transition {
+        /// The state we are transitioning to
+        next_state: S,
+        source_ref: SourceReference,
+    },
+    DoNothing {
+        source_ref: SourceReference,
+    }, // Nothing to do. Typically in Ready or Assigned/Ready
+    Deleted {
+        source_ref: SourceReference,
+    }, // The object was removed from the database
+}
+
+macro_rules! source_ref {
+    () => {
+        crate::state_controller::state_handler::SourceReference {
+            file: file!(),
+            line: line!(),
+        }
+    };
+}
+pub(crate) use source_ref;
 
 macro_rules! do_nothing {
     () => {
-        StateHandlerOutcome::DoNothingWithDetails(DoNothingDetails { line: line!() })
+        StateHandlerOutcome::DoNothing {
+            source_ref: crate::state_controller::state_handler::source_ref!(),
+        }
     };
 }
 
 macro_rules! transition {
     ($next_state:expr) => {
-        StateHandlerOutcome::Transition($next_state)
+        StateHandlerOutcome::Transition {
+            next_state: $next_state,
+            source_ref: crate::state_controller::state_handler::source_ref!(),
+        }
     };
 }
 
 macro_rules! wait {
     ($reason:expr) => {
-        StateHandlerOutcome::Wait($reason)
+        StateHandlerOutcome::Wait {
+            reason: $reason,
+            source_ref: crate::state_controller::state_handler::source_ref!(),
+        }
     };
 }
 
 macro_rules! deleted {
     () => {
-        StateHandlerOutcome::Deleted
+        StateHandlerOutcome::Deleted {
+            source_ref: crate::state_controller::state_handler::source_ref!(),
+        }
     };
 }
 
@@ -130,22 +168,14 @@ pub(crate) use do_nothing;
 pub(crate) use transition;
 pub(crate) use wait;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
-pub struct DoNothingDetails {
-    pub line: u32,
-}
-
 impl<S> std::fmt::Display for StateHandlerOutcome<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         use StateHandlerOutcome::*;
         let msg = match self {
-            Wait(s) => s.as_str(),
-            Transition(_) => "Transition to next state",
-            DoNothing => "Do nothing",
-            Deleted => "Deleted",
-            DoNothingWithDetails(do_nothing_details) => {
-                &format!("Do nothing at {}", do_nothing_details.line)
-            }
+            Wait { reason, .. } => reason.as_str(),
+            Transition { .. } => "Transition to next state",
+            DoNothing { .. } => "Do nothing",
+            Deleted { .. } => "Deleted",
         };
         write!(f, "{msg}")
     }
@@ -320,6 +350,6 @@ impl<
         _txn: &mut PgConnection,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
-        Ok(StateHandlerOutcome::DoNothing)
+        Ok(do_nothing!())
     }
 }

@@ -749,7 +749,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     assert!(
         matches!(
             host_machine.controller_state_outcome,
-            Some(PersistentStateHandlerOutcome::Transition)
+            Some(PersistentStateHandlerOutcome::Transition { .. })
         ),
         "Machine should have just transitioned into WaitingForNetworkConfig"
     );
@@ -767,9 +767,10 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
         .unwrap();
     txn.rollback().await.unwrap();
     let outcome = host_machine.controller_state_outcome.unwrap();
+    dbg!(&outcome);
     assert!(
-        matches!(outcome, PersistentStateHandlerOutcome::Wait{ reason } if !reason.is_empty()),
-        "Third iteration should be waiting for DPU agent, and include a wait reason",
+        matches!(outcome, PersistentStateHandlerOutcome::Wait{ reason, source_ref: Some(source_ref) } if !reason.is_empty() && source_ref.file.ends_with("/handler.rs")),
+        "Third iteration should be waiting for DPU agent, and include a wait reason and source reference",
     );
 }
 

@@ -77,9 +77,8 @@ use crate::{
             get_measuring_prerequisites, handle_measuring_state,
         },
         state_handler::{
-            DoNothingDetails, MeasuringProblem, StateHandler, StateHandlerContext,
-            StateHandlerError, StateHandlerOutcome, StateHandlerServices, deleted, do_nothing,
-            transition, wait,
+            MeasuringProblem, StateHandler, StateHandlerContext, StateHandlerError,
+            StateHandlerOutcome, StateHandlerServices, deleted, do_nothing, transition, wait,
         },
     },
 };
@@ -575,8 +574,10 @@ impl MachineStateHandler {
                             )
                             .await?;
 
-                        if let StateHandlerOutcome::Transition(..) = state_handler_outcome {
-                            return Ok(state_handler_outcome);
+                        if let outcome @ StateHandlerOutcome::Transition { .. } =
+                            state_handler_outcome
+                        {
+                            return Ok(outcome);
                         }
                     }
 
@@ -1303,18 +1304,19 @@ impl MachineStateHandler {
                     // TransitionNotPossible, means at least one DPU is not in ready to move into
                     // next state, thus no point of checking for next DPU. In this case, just break
                     // the loop.
-                    if let StateHandlerOutcome::Transition(next_state) = handle_dpu_reprovision(
-                        mh_snapshot,
-                        &self.reachability_params,
-                        txn,
-                        &MachineNextStateResolver,
-                        dpu_snapshot,
-                        ctx,
-                        &self.dpu_handler.hardware_models,
-                    )
-                    .await?
+                    if let outcome @ StateHandlerOutcome::Transition { .. } =
+                        handle_dpu_reprovision(
+                            mh_snapshot,
+                            &self.reachability_params,
+                            txn,
+                            &MachineNextStateResolver,
+                            dpu_snapshot,
+                            ctx,
+                            &self.dpu_handler.hardware_models,
+                        )
+                        .await?
                     {
-                        return Ok(transition!(next_state));
+                        return Ok(outcome);
                     }
                 }
                 Ok(do_nothing!())
@@ -3496,8 +3498,8 @@ impl StateHandler for DpuMachineStateHandler {
                     .handle_dpuinit_state(state, dpu_snapshot, txn, ctx)
                     .await?;
 
-                if let StateHandlerOutcome::Transition(..) = state_handler_outcome {
-                    return Ok(state_handler_outcome);
+                if let outcome @ StateHandlerOutcome::Transition { .. } = state_handler_outcome {
+                    return Ok(outcome);
                 }
             }
 
@@ -4959,18 +4961,19 @@ impl StateHandler for InstanceStateHandler {
                 }
                 InstanceState::DPUReprovision { .. } => {
                     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
-                        if let StateHandlerOutcome::Transition(next_state) = handle_dpu_reprovision(
-                            mh_snapshot,
-                            &self.reachability_params,
-                            txn,
-                            &InstanceNextStateResolver,
-                            dpu_snapshot,
-                            ctx,
-                            &self.hardware_models,
-                        )
-                        .await?
+                        if let outcome @ StateHandlerOutcome::Transition { .. } =
+                            handle_dpu_reprovision(
+                                mh_snapshot,
+                                &self.reachability_params,
+                                txn,
+                                &InstanceNextStateResolver,
+                                dpu_snapshot,
+                                ctx,
+                                &self.hardware_models,
+                            )
+                            .await?
                         {
-                            return Ok(transition!(next_state));
+                            return Ok(outcome);
                         }
                     }
                     Ok(do_nothing!())

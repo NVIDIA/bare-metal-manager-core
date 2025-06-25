@@ -603,10 +603,7 @@ pub async fn allocate_svi_ip(
 mod tests {
     use super::*;
     use crate::db::network_segment::NetworkSegmentType;
-    use crate::model::{
-        controller_outcome::PersistentStateHandlerOutcome,
-        instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
-    };
+    use crate::model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
     use chrono::Utc;
     use config_version::{ConfigVersion, Versioned};
     use forge_uuid::vpc::VpcId;
@@ -636,7 +633,7 @@ mod tests {
                         value: NetworkSegmentControllerState::Ready,
                         version,
                     },
-                    controller_state_outcome: Some(PersistentStateHandlerOutcome::DoNothing),
+                    controller_state_outcome: None,
                     history: Vec::new(),
                     vlan_id: None,
                     vni: None,

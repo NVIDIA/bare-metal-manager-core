@@ -18,6 +18,8 @@
 use std::collections::BTreeSet;
 
 use askama_escape::Escaper;
+use std::fmt::Write;
+
 /// Generates HTML links for Machine IDs
 pub fn machine_id_link<T: std::fmt::Display>(id: T) -> ::askama::Result<String> {
     machine_link(id.to_string(), "machine")
@@ -198,4 +200,42 @@ pub fn colorize_output(ansi_text: &str) -> ::askama::Result<String> {
         .convert(ansi_text)
         .unwrap_or_default();
     Ok(html)
+}
+
+/// Formats a state handler outcome
+pub fn controller_state_reason_fmt(
+    reason: &Option<::rpc::forge::ControllerStateReason>,
+) -> ::askama::Result<String> {
+    let Some(reason) = reason else {
+        return Ok(String::new());
+    };
+
+    let mut result = String::new();
+    let classes = match reason.outcome() {
+        rpc::forge::ControllerStateOutcome::Wait => "bubble warning".to_string(),
+        rpc::forge::ControllerStateOutcome::Error => "bubble error".to_string(),
+        _ => "bubble".to_string(),
+    };
+
+    write!(
+        &mut result,
+        "Outcome: <span class=\"{classes}\">{:?}</span>",
+        reason.outcome
+    )
+    .unwrap();
+    if let Some(message) = &reason.outcome_msg {
+        write!(&mut result, "<br>Message: ").unwrap();
+        askama_escape::Html.write_escaped(&mut result, message)?;
+    }
+
+    if let Some(source_ref) = reason.source_ref.as_ref() {
+        write!(
+            &mut result,
+            "<br>Source: {}:{}",
+            source_ref.file, source_ref.line
+        )
+        .unwrap();
+    }
+
+    Ok(result)
 }

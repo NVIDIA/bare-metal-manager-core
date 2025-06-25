@@ -23,8 +23,8 @@ use crate::{
     state_controller::{
         network_segment::context::NetworkSegmentStateHandlerContextObjects,
         state_handler::{
-            DoNothingDetails, StateHandler, StateHandlerContext, StateHandlerError,
-            StateHandlerOutcome, deleted, do_nothing, transition, wait,
+            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, deleted,
+            do_nothing, transition, wait,
         },
     },
 };

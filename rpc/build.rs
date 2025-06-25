@@ -308,6 +308,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "ControllerStateReason",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
+        .type_attribute("ControllerStateSourceReference", "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute(
             "RuntimeConfig",
             "#[derive(serde::Deserialize, serde::Serialize)]",

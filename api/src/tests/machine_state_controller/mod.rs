@@ -21,8 +21,7 @@ use crate::{
         controller::StateController,
         machine::{context::MachineStateHandlerContextObjects, io::MachineStateControllerIO},
         state_handler::{
-            DoNothingDetails, StateHandler, StateHandlerContext, StateHandlerError,
-            StateHandlerOutcome, do_nothing,
+            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, do_nothing,
         },
     },
 };

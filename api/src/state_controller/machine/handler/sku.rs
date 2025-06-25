@@ -13,7 +13,7 @@ use crate::{
         sku::diff_skus,
     },
     state_controller::state_handler::{
-        DoNothingDetails, StateHandlerError, StateHandlerOutcome, do_nothing, transition,
+        StateHandlerError, StateHandlerOutcome, do_nothing, transition,
     },
 };
 
