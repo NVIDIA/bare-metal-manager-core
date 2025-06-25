@@ -4391,7 +4391,7 @@ impl StateHandler for HostMachineStateHandler {
                                     Ok(do_nothing!())
                                 }
                             } else {
-                                Ok(wait!("Waiting for DPU to report UP by sending a network status observation".to_string()))
+                                Ok(wait!("Waiting for DPU to report UP. This requires forge-dpu-agent to call the RecordDpuNetworkStatus API".to_string()))
                             }
                         }
                     }
