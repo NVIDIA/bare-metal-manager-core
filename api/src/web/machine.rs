@@ -402,7 +402,7 @@ struct MachineDetail {
     state_sla: String,
     time_in_state_above_sla: bool,
     last_reboot: String,
-    state_reason: String,
+    state_reason: Option<::rpc::forge::ControllerStateReason>,
     machine_type: String,
     is_host: bool,
     network_config: String,
@@ -612,11 +612,7 @@ impl From<forgerpc::Machine> for MachineDetail {
                 },
             )
             .unwrap_or("N/A".to_string()),
-            state_reason: m
-                .state_reason
-                .as_ref()
-                .and_then(utils::reason_to_user_string)
-                .unwrap_or_default(),
+            state_reason: m.state_reason,
             version: m.version,
             metadata: m.metadata.unwrap_or_default(),
             machine_type: get_machine_type(&machine_id),

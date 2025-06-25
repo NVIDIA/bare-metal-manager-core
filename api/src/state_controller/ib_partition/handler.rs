@@ -17,8 +17,8 @@ use crate::{
     state_controller::{
         ib_partition::context::IBPartitionStateHandlerContextObjects,
         state_handler::{
-            DoNothingDetails, StateHandler, StateHandlerContext, StateHandlerError,
-            StateHandlerOutcome, deleted, do_nothing, transition, wait,
+            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome, deleted,
+            do_nothing, transition, wait,
         },
     },
 };

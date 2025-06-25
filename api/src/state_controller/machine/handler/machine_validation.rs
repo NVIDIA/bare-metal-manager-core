@@ -26,8 +26,8 @@ use crate::{
             handler::{handler_host_power_control, rebooted, trigger_reboot_if_needed},
         },
         state_handler::{
-            DoNothingDetails, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
-            do_nothing, transition, wait,
+            StateHandlerContext, StateHandlerError, StateHandlerOutcome, do_nothing, transition,
+            wait,
         },
     },
 };

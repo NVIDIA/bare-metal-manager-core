@@ -2037,6 +2037,7 @@ message HealthOverrideOrigin {
 message ControllerStateReason {
   ControllerStateOutcome outcome = 1;
   optional string outcome_msg = 2;
+  optional ControllerStateSourceReference source_ref = 3;
 }
 
 enum ControllerStateOutcome {
@@ -2045,6 +2046,12 @@ enum ControllerStateOutcome {
   TRANSITION = 2;
   DO_NOTHING = 3;
   TODO = 4;
+}
+
+// Location in the Source Code that lead to the specific state handling outcome
+message ControllerStateSourceReference {
+  string file = 1;
+  int32 line = 2;
 }
 
 message StateSla {
