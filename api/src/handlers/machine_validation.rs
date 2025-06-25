@@ -11,7 +11,7 @@
  */
 use crate::{
     CarbideError,
-    api::{Api, log_machine_id, log_request_data},
+    api::{Api, log_request_data},
     cfg::file::{MachineValidationConfig, MachineValidationTestSelectionMode},
     db::{
         self, DatabaseError,
@@ -23,9 +23,10 @@ use crate::{
         machine_validation_config::MachineValidationExternalConfig,
         machine_validation_suites,
     },
+    handlers::utils::convert_and_log_machine_id,
     model::machine::{
         FailureCause, FailureDetails, FailureSource, MachineValidationFilter, ManagedHostState,
-        ValidationState, machine_id::try_parse_machine_id,
+        ValidationState,
     },
 };
 use ::rpc::forge::{self as rpc, GetMachineValidationExternalConfigResponse};
@@ -43,13 +44,7 @@ pub(crate) async fn mark_machine_validation_complete(
     let req = request.into_inner();
 
     // Extract and check
-    let machine_id = match &req.machine_id {
-        Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-        None => {
-            return Err(Status::invalid_argument("A machine UUID is required"));
-        }
-    };
-    log_machine_id(&machine_id);
+    let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
 
     // Extract and check UUID
     let Some(rpc_id) = &req.validation_id else {
@@ -275,7 +270,7 @@ pub(crate) async fn get_machine_validation_results(
     let req: rpc::MachineValidationGetRequest = request.into_inner();
 
     let machine_id = match req.machine_id {
-        Some(id) => Some(try_parse_machine_id(&id).map_err(CarbideError::from)?),
+        Some(id) => Some(convert_and_log_machine_id(Some(&id))?),
         None => None,
     };
 
@@ -301,22 +296,17 @@ pub(crate) async fn get_machine_validation_results(
         ))
     })?;
     let mut db_results: Vec<MachineValidationResult> = Vec::new();
-    if machine_id.is_some() {
-        db_results = MachineValidationResult::find_by_machine_id(
-            &mut txn,
-            &machine_id.unwrap(),
-            req.include_history,
-        )
-        .await?;
-
-        if validation_id.is_some() {
-            db_results.retain(|x| x.validation_id == validation_id.unwrap_or_default())
-        }
-    }
-    if validation_id.is_some() {
+    if let Some(machine_id) = machine_id.as_ref() {
         db_results =
-            MachineValidationResult::find_by_validation_id(&mut txn, &validation_id.unwrap())
+            MachineValidationResult::find_by_machine_id(&mut txn, machine_id, req.include_history)
                 .await?;
+
+        if let Some(validation_id) = validation_id {
+            db_results.retain(|x| x.validation_id == validation_id)
+        }
+    } else if let Some(validation_id) = validation_id {
+        db_results =
+            MachineValidationResult::find_by_validation_id(&mut txn, &validation_id).await?;
     }
 
     let vec_rest = db_results
@@ -404,8 +394,7 @@ pub(crate) async fn get_machine_validation_runs(
     })?;
     let db_runs = match machine_validation_run_request.machine_id {
         Some(id) => {
-            let machine_id = try_parse_machine_id(&id).map_err(CarbideError::from)?;
-            log_machine_id(&machine_id);
+            let machine_id = convert_and_log_machine_id(Some(&id))?;
             MachineValidation::find(
                 &mut txn,
                 &machine_id,
@@ -438,15 +427,7 @@ pub(crate) async fn on_demand_machine_validation(
     log_request_data(&request);
 
     let req = request.into_inner();
-
-    // Extract and check
-    let machine_id = match &req.machine_id {
-        Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
-        None => {
-            return Err(Status::invalid_argument("A machine id is required"));
-        }
-    };
-    log_machine_id(&machine_id);
+    let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
 
     match req.action() {
         rpc::machine_validation_on_demand_request::Action::Start => {
