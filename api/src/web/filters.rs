@@ -219,19 +219,19 @@ pub fn controller_state_reason_fmt(
 
     write!(
         &mut result,
-        "Outcome: <span class=\"{classes}\">{:?}</span>",
-        reason.outcome
+        "<b>Outcome:</b> <span class=\"{classes}\">{:?}</span>",
+        reason.outcome()
     )
     .unwrap();
     if let Some(message) = &reason.outcome_msg {
-        write!(&mut result, "<br>Message: ").unwrap();
+        write!(&mut result, "<br><b>Message:</b> ").unwrap();
         askama_escape::Html.write_escaped(&mut result, message)?;
     }
 
     if let Some(source_ref) = reason.source_ref.as_ref() {
         write!(
             &mut result,
-            "<br>Source: {}:{}",
+            "<br><b>Source:</b> {}:{}",
             source_ref.file, source_ref.line
         )
         .unwrap();

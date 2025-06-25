@@ -29,9 +29,7 @@
 		</td></tr>
 	<tr><th>State SLA</th><td>{{ state_sla }}</td></tr>
 	<tr><th>Time in State is above SLA</th><td>{{ time_in_state_above_sla }}</td></tr>
-	{% if !state_reason.is_empty() %}
-	<tr><th>State machine is blocked</th><td>{{ state_reason }}</td></tr>
-	{% endif %}
+	<tr><th>State Handler Outcome</th><td>{{ state_reason|controller_state_reason_fmt|safe }}</td></tr>
 	<tr><th>Pkey</th><td>{{ pkey }}</td></tr>
 	<tr><th>Service Level</th><td>{{ service_level }}</td></tr>
 	<tr><th>Rate Limit</th><td>{{ rate_limit }}</td></tr>
