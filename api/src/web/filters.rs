@@ -231,11 +231,12 @@ pub fn controller_state_reason_fmt(
     if let Some(source_ref) = reason.source_ref.as_ref() {
         const GITLAB_REPO: &str = "https://gitlab-master.nvidia.com/nvmetal/carbide";
 
-        let git_sha = forge_version::v!(git_sha);
-        let commit_hash = if !git_sha.is_empty() {
-            git_sha
-        } else {
-            "trunk"
+        // TODO: forge_version::v!(git_sha) should work here - however it returns an
+        // outdated commit ID.
+        let build_version = forge_version::v!(build_version);
+        let commit_hash = match build_version.rfind('g') {
+            Some(idx) if idx != build_version.len() - 1 => &build_version[idx + 1..],
+            _ => "trunk",
         };
 
         write!(
