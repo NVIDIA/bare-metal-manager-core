@@ -40,6 +40,9 @@ pub enum PersistentStateHandlerOutcome {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         source_ref: Option<PersistentSourceReference>,
     },
+    /// Exists for backward compatibility with DB in case of a race condition with migration.
+    /// Remove in future
+    DoNothingWithDetails,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -115,6 +118,7 @@ impl From<PersistentStateHandlerOutcome> for rpc::forge::ControllerStateReason {
             PersistentStateHandlerOutcome::DoNothing { source_ref } => {
                 (DoNothing, None, source_ref)
             }
+            PersistentStateHandlerOutcome::DoNothingWithDetails => (DoNothing, None, None),
         };
         rpc::forge::ControllerStateReason {
             outcome: outcome.into(), // into converts it to i32
