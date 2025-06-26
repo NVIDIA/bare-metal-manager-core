@@ -3876,9 +3876,10 @@ async fn handle_host_uefi_setup(
                         e
                     );
 
-                    // This feature has only been tested thoroughly on Dells and Lenovos
+                    // This feature has only been tested thoroughly on Dells, Lenovos, and Vikings.
                     if state.host_snapshot.bmc_vendor().is_dell()
                         || state.host_snapshot.bmc_vendor().is_lenovo()
+                        || state.host_snapshot.bmc_vendor().is_nvidia()
                     {
                         return Err(StateHandlerError::GenericError(eyre::eyre!("{}", msg)));
                     }
