@@ -105,6 +105,7 @@ struct InstanceTypeDetailDisplay {
     created: String,
     labels: Vec<forgerpc::Label>,
     capabilities: Vec<InstanceTypeCapabilitiesRowDisplay>,
+    associated_machines: Vec<String>,
 }
 
 impl From<forgerpc::InstanceTypeMachineCapabilityFilterAttributes>
@@ -321,6 +322,26 @@ pub async fn show_detail(
 
     let metadata = itype.metadata.unwrap_or_default();
 
+    let associated_machine_ids = match api
+        .find_machine_ids(tonic::Request::new(forgerpc::MachineSearchConfig {
+            instance_type_id: Some(instance_type_id.clone()),
+            ..Default::default()
+        }))
+        .await
+    {
+        Ok(response) => response.into_inner().machine_ids,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!(
+                    "Unable to retrieve associated Machine ID for instance type ID {}: {}",
+                    instance_type_id, e
+                ),
+            )
+                .into_response();
+        }
+    };
+
     // Set up the final template object
     let tmpl = InstanceTypeDetailDisplay {
         id: itype.id,
@@ -338,6 +359,10 @@ pub async fn show_detail(
             .unwrap_or_default(),
         version: itype.version,
         created,
+        associated_machines: associated_machine_ids
+            .into_iter()
+            .map(|m| m.to_string())
+            .collect(),
     };
 
     // Away we go
