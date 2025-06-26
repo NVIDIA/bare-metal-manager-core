@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialType, Credentials};
 use mac_address::MacAddress;
@@ -20,6 +21,7 @@ use tonic::Response;
 use crate::api::Api;
 use crate::credentials::UpdateCredentials;
 use crate::db::DatabaseError;
+use crate::handlers::utils::convert_and_log_machine_id;
 use crate::ib::DEFAULT_IB_FABRIC_NAME;
 use crate::{CarbideError, db};
 
@@ -297,11 +299,26 @@ pub(crate) async fn update_machine_credentials(
     // Doing that would make credentials show up in the log stream
     tracing::Span::current().record("request", "MachineCredentialsUpdateRequest { }");
 
-    let request = UpdateCredentials::try_from(request.into_inner()).map_err(CarbideError::from)?;
-    crate::api::log_machine_id(&request.machine_id);
+    let request = request.into_inner();
+    let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
-    Ok(request
-        .update(api.credential_provider.as_ref())
+    let mac_address = match request.mac_address {
+        Some(v) => Some(v.parse().map_err(|_| {
+            CarbideError::from(RpcDataConversionError::InvalidMacAddress(
+                "mac_address".into(),
+            ))
+        })?),
+        None => None,
+    };
+
+    let update = UpdateCredentials {
+        machine_id,
+        mac_address,
+        credentials: request.credentials,
+    };
+
+    Ok(update
+        .execute(api.credential_provider.as_ref())
         .await
         .map(Response::new)?)
 }
