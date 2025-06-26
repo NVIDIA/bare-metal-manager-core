@@ -30,7 +30,7 @@ use forge_uuid::{
     domain::DomainId, instance_type::InstanceTypeId, machine::MachineId,
     machine::MachineInterfaceId, machine::RpcMachineTypeWrapper, network::NetworkSegmentId,
 };
-use libredfish::SystemPowerControl;
+use libredfish::{PowerState, SystemPowerControl};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column, Row};
@@ -445,7 +445,7 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
 }
 
 /// Represents the last_reboot_requested data
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub enum MachineLastRebootRequestedMode {
     Reboot,
     PowerOff,
@@ -1541,6 +1541,8 @@ pub struct SecureEraseBossContext {
     pub boss_controller_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secure_erase_jid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iteration: Option<u32>,
     pub secure_erase_boss_state: SecureEraseBossState,
 }
 
@@ -1550,6 +1552,10 @@ pub enum SecureEraseBossState {
     UnlockHost,
     SecureEraseBoss,
     WaitForJobCompletion,
+    HandleJobFailure {
+        failure: String,
+        power_state: PowerState,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1558,6 +1564,8 @@ pub struct CreateBossVolumeContext {
     pub boss_controller_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub create_boss_volume_jid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iteration: Option<u32>,
     pub create_boss_volume_state: CreateBossVolumeState,
 }
 
@@ -1568,6 +1576,10 @@ pub enum CreateBossVolumeState {
     WaitForJobScheduled,
     RebootHost,
     WaitForJobCompletion,
+    HandleJobFailure {
+        failure: String,
+        power_state: PowerState,
+    },
     LockHost,
 }
 
