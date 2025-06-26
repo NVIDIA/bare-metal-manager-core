@@ -6839,6 +6839,7 @@ dependencies = [
  "rpc",
  "serde",
  "serde_json",
+ "smbios-lib",
  "thiserror 2.0.12",
  "tokio",
  "tonic",

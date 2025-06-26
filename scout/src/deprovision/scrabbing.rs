@@ -13,9 +13,9 @@ use ::rpc::forge as rpc;
 use regex::Regex;
 use scout::CarbideClientError;
 use serde::Deserialize;
+use smbioslib::SMBiosSystemInformation;
 use std::fs;
 use std::str::FromStr;
-use uname::uname;
 
 use crate::CarbideClientResult;
 use crate::IN_QEMU_VM;
@@ -479,27 +479,26 @@ async fn do_cleanup(machine_id: &str) -> CarbideClientResult<rpc::MachineCleanup
 }
 
 fn is_host() -> bool {
-    // this is temporary fix. We should not run scrabbing on DPU.
-    // we need cleanup only on x86_64
-    match uname().map_err(|_| true) {
-        Ok(info) => match info.machine.as_str() {
-            "x86_64" => return true,
-            arch => {
-                tracing::debug!("We do not need cleanup for DPU machine. Arch is {}", arch);
-                return false;
-            }
-        },
-        Err(e) => tracing::error!("uname error: {}", e),
+    match smbioslib::table_load_from_device() {
+        Ok(data) => data.any(|sys_info: SMBiosSystemInformation| {
+            !sys_info
+                .product_name()
+                .to_string()
+                .to_lowercase()
+                .contains("bluefield")
+        }),
+        Err(_err) => true,
     }
-    true
 }
 
 pub(crate) async fn run(config: &Options, machine_id: &str) -> CarbideClientResult<()> {
     tracing::info!("full deprovision starts.");
     if !is_host() {
+        tracing::info!("full deprovision skipped, we are not running on a host.");
         // do not send API cleanup_machine_completed
         return Ok(());
     }
+    tracing::info!("Machine cleanup starting, we are running on a host.");
     let info = do_cleanup(machine_id).await?;
     let mut client = create_forge_client(config).await?;
     let request = tonic::Request::new(info);
