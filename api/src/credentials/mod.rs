@@ -1,13 +1,23 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
 use ::rpc::forge::{
-    MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse,
-    machine_credentials_update_request::CredentialPurpose,
+    MachineCredentialsUpdateResponse, machine_credentials_update_request::CredentialPurpose,
     machine_credentials_update_request::Credentials,
 };
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
 use mac_address::MacAddress;
 
-use crate::{CarbideError, CarbideResult, model::machine::machine_id::try_parse_machine_id};
-use ::rpc::errors::RpcDataConversionError;
+use crate::{CarbideError, CarbideResult};
 use forge_uuid::machine::MachineId;
 
 pub struct UpdateCredentials {
@@ -16,36 +26,8 @@ pub struct UpdateCredentials {
     pub credentials: Vec<Credentials>,
 }
 
-impl TryFrom<MachineCredentialsUpdateRequest> for UpdateCredentials {
-    type Error = RpcDataConversionError;
-
-    fn try_from(
-        user_credentials: MachineCredentialsUpdateRequest,
-    ) -> Result<Self, RpcDataConversionError> {
-        let machine_id = try_parse_machine_id(
-            &user_credentials
-                .machine_id
-                .ok_or(RpcDataConversionError::MissingArgument("machine_id"))?,
-        )?;
-
-        let mac_address = match user_credentials.mac_address {
-            Some(v) => Some(
-                v.parse()
-                    .map_err(|_| RpcDataConversionError::InvalidMacAddress("mac_address".into()))?,
-            ),
-            None => None,
-        };
-
-        Ok(Self {
-            machine_id,
-            mac_address,
-            credentials: user_credentials.credentials,
-        })
-    }
-}
-
 impl UpdateCredentials {
-    pub async fn update(
+    pub async fn execute(
         &self,
         credential_provider: &dyn CredentialProvider,
     ) -> CarbideResult<MachineCredentialsUpdateResponse> {
@@ -84,6 +66,7 @@ impl UpdateCredentials {
                 .await
                 .map_err(|err| CarbideError::internal(format!("{err}")))?;
         }
+
         Ok(MachineCredentialsUpdateResponse {})
     }
 }
