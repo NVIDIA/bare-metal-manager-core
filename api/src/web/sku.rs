@@ -21,6 +21,7 @@ use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
 use crate::api::Api;
+use crate::web::filters;
 
 #[derive(Template)]
 #[template(path = "sku_show.html")]
@@ -139,7 +140,7 @@ struct SkuDetail {
     description: String,
     created: String,
     components_json: String,
-    associated_machines: String,
+    associated_machines: Vec<String>,
 }
 
 impl From<forgerpc::Sku> for SkuDetail {
@@ -157,9 +158,8 @@ impl From<forgerpc::Sku> for SkuDetail {
             associated_machines: sku
                 .associated_machine_ids
                 .into_iter()
-                .map(|id| id.id)
-                .collect::<Vec<String>>()
-                .join("\n"),
+                .map(|id| id.to_string())
+                .collect::<Vec<String>>(),
         }
     }
 }

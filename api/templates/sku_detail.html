@@ -10,7 +10,15 @@
 	<tr><th>ID</th><td>{{ id }}</td></tr>
 	<tr><th>Description</th><td>{{ description }}</td></tr>
 	<tr><th>Created</th><td>{{ created }}</td></tr>
-	<tr><th>Associated Machines</th><td>{{ associated_machines }}</td></tr>
+	<tr>
+		<th>Associated Machines</th>
+		<td>
+			{% for m in associated_machines %}
+			{% if !loop.first %}<br>{% endif %}
+			{{ m|machine_id_link|safe }}
+			{% endfor %}
+		</td>
+	</tr>
 	<tr>
 		<th>SKU definition</th>
 		<td>
