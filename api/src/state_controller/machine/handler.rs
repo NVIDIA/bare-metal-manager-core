@@ -23,9 +23,10 @@ use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
 use itertools::Itertools;
 use libredfish::{
-    Boot, EnabledDisabled, PowerState, Redfish, RedfishError, SystemPowerControl,
+    Boot, Redfish, RedfishError, SystemPowerControl,
     model::{task::TaskState, update_service::TransferProtocolType},
 };
+use libredfish::{EnabledDisabled, PowerState};
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
 use sku::{handle_bom_validation_requested, handle_bom_validation_state};
@@ -773,6 +774,7 @@ impl MachineStateHandler {
                                                 secure_erase_jid: None,
                                                 secure_erase_boss_state:
                                                     SecureEraseBossState::UnlockHost,
+                                                iteration: Some(0),
                                             },
                                         },
                                     };
@@ -813,6 +815,7 @@ impl MachineStateHandler {
                                                 secure_erase_jid: None,
                                                 secure_erase_boss_state:
                                                     SecureEraseBossState::SecureEraseBoss,
+                                                iteration: secure_erase_boss_context.iteration,
                                             },
                                         },
                                     };
@@ -838,6 +841,7 @@ impl MachineStateHandler {
                                                 secure_erase_jid: jid,
                                                 secure_erase_boss_state:
                                                     SecureEraseBossState::WaitForJobCompletion,
+                                                iteration: secure_erase_boss_context.iteration,
                                             },
                                         },
                                     };
@@ -845,36 +849,23 @@ impl MachineStateHandler {
                                 Ok(transition!(next_state))
                             }
                             SecureEraseBossState::WaitForJobCompletion => {
-                                let job_id = match &secure_erase_boss_context.secure_erase_jid {
-                                    Some(jid) => Ok(jid),
-                                    None => Err(StateHandlerError::GenericError(eyre::eyre!(
-                                        "could not find job ID in the Secure Erase BOSS Context"
-                                    ))),
-                                }?;
-
-                                let job_state =
-                                    redfish_client.get_job_state(job_id).await.map_err(|e| {
-                                        StateHandlerError::GenericError(eyre::eyre!(
-                                            "failed to query {}",
-                                            e
-                                        ))
-                                    })?;
-
-                                if !matches!(job_state, libredfish::JobState::Completed) {
-                                    return Ok(wait!(format!(
-                                        "waiting for job {:#?} to complete; current state: {job_state:#?}",
-                                        job_id
-                                    )));
-                                }
-
-                                let next_state: ManagedHostState =
-                                    ManagedHostState::WaitingForCleanup {
-                                        cleanup_state: CleanupState::HostCleanup {
-                                            boss_controller_id: Some(boss_controller_id),
-                                        },
-                                    };
-
-                                Ok(transition!(next_state))
+                                wait_for_boss_controller_job_to_complete(
+                                    redfish_client.as_ref(),
+                                    mh_snapshot,
+                                )
+                                .await
+                            }
+                            SecureEraseBossState::HandleJobFailure {
+                                failure: _,
+                                power_state: _,
+                            } => {
+                                handle_bios_job_failure(
+                                    redfish_client.as_ref(),
+                                    mh_snapshot,
+                                    ctx.services,
+                                    txn,
+                                )
+                                .await
                             }
                         }
                     }
@@ -912,6 +903,7 @@ impl MachineStateHandler {
                                         create_boss_volume_jid: None,
                                         create_boss_volume_state:
                                             CreateBossVolumeState::CreateBossVolume,
+                                        iteration: Some(0),
                                     },
                                 },
                             },
@@ -953,6 +945,7 @@ impl MachineStateHandler {
                                                 create_boss_volume_jid: jid,
                                                 create_boss_volume_state:
                                                     CreateBossVolumeState::WaitForJobScheduled,
+                                                iteration: create_boss_volume_context.iteration,
                                             },
                                         },
                                     };
@@ -969,12 +962,12 @@ impl MachineStateHandler {
                                     ))),
                                 }?;
 
-                                let job_state =
-                                    redfish_client.get_job_state(job_id).await.map_err(|e| {
-                                        StateHandlerError::GenericError(eyre::eyre!(
-                                            "failed to query {}",
-                                            e
-                                        ))
+                                let job_state = redfish_client
+                                    .get_job_state(job_id)
+                                    .await
+                                    .map_err(|e| StateHandlerError::RedfishError {
+                                        operation: "get_job_state",
+                                        error: e,
                                     })?;
 
                                 if !matches!(job_state, libredfish::JobState::Scheduled) {
@@ -994,6 +987,7 @@ impl MachineStateHandler {
                                                     .clone(),
                                                 create_boss_volume_state:
                                                     CreateBossVolumeState::RebootHost,
+                                                iteration: create_boss_volume_context.iteration,
                                             },
                                         },
                                     };
@@ -1019,6 +1013,7 @@ impl MachineStateHandler {
                                                     .clone(),
                                                 create_boss_volume_state:
                                                     CreateBossVolumeState::WaitForJobCompletion,
+                                                iteration: create_boss_volume_context.iteration,
                                             },
                                         },
                                     };
@@ -1026,43 +1021,11 @@ impl MachineStateHandler {
                                 Ok(transition!(next_state))
                             }
                             CreateBossVolumeState::WaitForJobCompletion => {
-                                let job_id = match &create_boss_volume_context
-                                    .create_boss_volume_jid
-                                {
-                                    Some(jid) => Ok(jid),
-                                    None => Err(StateHandlerError::GenericError(eyre::eyre!(
-                                        "could not find job ID in the Create BOSS Volume Context"
-                                    ))),
-                                }?;
-
-                                let job_state =
-                                    redfish_client.get_job_state(job_id).await.map_err(|e| {
-                                        StateHandlerError::GenericError(eyre::eyre!(
-                                            "failed to query {}",
-                                            e
-                                        ))
-                                    })?;
-
-                                if !matches!(job_state, libredfish::JobState::Completed) {
-                                    return Ok(wait!(format!(
-                                        "waiting for job {:#?} to complete; current state: {job_state:#?}",
-                                        job_id
-                                    )));
-                                }
-
-                                let next_state: ManagedHostState =
-                                    ManagedHostState::WaitingForCleanup {
-                                        cleanup_state: CleanupState::CreateBossVolume {
-                                            create_boss_volume_context: CreateBossVolumeContext {
-                                                boss_controller_id,
-                                                create_boss_volume_jid: None,
-                                                create_boss_volume_state:
-                                                    CreateBossVolumeState::LockHost,
-                                            },
-                                        },
-                                    };
-
-                                Ok(transition!(next_state))
+                                wait_for_boss_controller_job_to_complete(
+                                    redfish_client.as_ref(),
+                                    mh_snapshot,
+                                )
+                                .await
                             }
                             CreateBossVolumeState::LockHost => {
                                 redfish_client
@@ -1085,6 +1048,18 @@ impl MachineStateHandler {
                                     };
 
                                 Ok(transition!(next_state))
+                            }
+                            CreateBossVolumeState::HandleJobFailure {
+                                failure: _,
+                                power_state: _,
+                            } => {
+                                handle_bios_job_failure(
+                                    redfish_client.as_ref(),
+                                    mh_snapshot,
+                                    ctx.services,
+                                    txn,
+                                )
+                                .await
                             }
                         }
                     }
@@ -6286,6 +6261,379 @@ async fn host_power_state(
             operation: "get_power_state",
             error: e,
         })
+}
+
+fn get_next_state_bios_job_failure(
+    mh_snapshot: &ManagedHostStateSnapshot,
+) -> Result<(ManagedHostState, PowerState), StateHandlerError> {
+    let (next_state, expected_power_state) = match &mh_snapshot.host_snapshot.state.value {
+        ManagedHostState::WaitingForCleanup { cleanup_state } => match cleanup_state {
+            CleanupState::SecureEraseBoss {
+                secure_erase_boss_context,
+            } => match &secure_erase_boss_context.secure_erase_boss_state {
+                SecureEraseBossState::HandleJobFailure {
+                    failure,
+                    power_state,
+                } => match power_state {
+                    libredfish::PowerState::Off => (
+                        ManagedHostState::WaitingForCleanup {
+                            cleanup_state: CleanupState::SecureEraseBoss {
+                                secure_erase_boss_context: SecureEraseBossContext {
+                                    boss_controller_id: secure_erase_boss_context
+                                        .boss_controller_id
+                                        .clone(),
+                                    secure_erase_jid: None,
+                                    iteration: secure_erase_boss_context.iteration,
+                                    secure_erase_boss_state:
+                                        SecureEraseBossState::HandleJobFailure {
+                                            failure: failure.to_string(),
+                                            power_state: libredfish::PowerState::On,
+                                        },
+                                },
+                            },
+                        },
+                        *power_state,
+                    ),
+                    libredfish::PowerState::On => (
+                        ManagedHostState::WaitingForCleanup {
+                            cleanup_state: CleanupState::SecureEraseBoss {
+                                secure_erase_boss_context: SecureEraseBossContext {
+                                    boss_controller_id: secure_erase_boss_context
+                                        .boss_controller_id
+                                        .clone(),
+                                    secure_erase_jid: None,
+                                    iteration: Some(
+                                        secure_erase_boss_context.iteration.unwrap_or_default() + 1,
+                                    ),
+                                    secure_erase_boss_state: SecureEraseBossState::SecureEraseBoss,
+                                },
+                            },
+                        },
+                        *power_state,
+                    ),
+                    _ => {
+                        return Err(StateHandlerError::GenericError(eyre::eyre!(
+                            "unexpected SecureEraseBossState::HandleJobFailure power_state for {}: {:#?}",
+                            mh_snapshot.host_snapshot.id,
+                            mh_snapshot.host_snapshot.state,
+                        )));
+                    }
+                },
+                _ => {
+                    return Err(StateHandlerError::GenericError(eyre::eyre!(
+                        "unexpected SecureEraseBossState state for {}: {:#?}",
+                        mh_snapshot.host_snapshot.id,
+                        mh_snapshot.host_snapshot.state,
+                    )));
+                }
+            },
+            CleanupState::CreateBossVolume {
+                create_boss_volume_context,
+            } => match &create_boss_volume_context.create_boss_volume_state {
+                CreateBossVolumeState::HandleJobFailure {
+                    failure,
+                    power_state,
+                } => match power_state {
+                    libredfish::PowerState::Off => (
+                        ManagedHostState::WaitingForCleanup {
+                            cleanup_state: CleanupState::CreateBossVolume {
+                                create_boss_volume_context: CreateBossVolumeContext {
+                                    boss_controller_id: create_boss_volume_context
+                                        .boss_controller_id
+                                        .clone(),
+                                    create_boss_volume_jid: None,
+                                    iteration: create_boss_volume_context.iteration,
+                                    create_boss_volume_state:
+                                        CreateBossVolumeState::HandleJobFailure {
+                                            failure: failure.to_string(),
+                                            power_state: libredfish::PowerState::On,
+                                        },
+                                },
+                            },
+                        },
+                        *power_state,
+                    ),
+                    libredfish::PowerState::On => (
+                        ManagedHostState::WaitingForCleanup {
+                            cleanup_state: CleanupState::CreateBossVolume {
+                                create_boss_volume_context: CreateBossVolumeContext {
+                                    boss_controller_id: create_boss_volume_context
+                                        .boss_controller_id
+                                        .clone(),
+                                    create_boss_volume_jid: None,
+                                    iteration: Some(
+                                        create_boss_volume_context.iteration.unwrap_or_default()
+                                            + 1,
+                                    ),
+                                    create_boss_volume_state:
+                                        CreateBossVolumeState::CreateBossVolume,
+                                },
+                            },
+                        },
+                        *power_state,
+                    ),
+                    _ => {
+                        return Err(StateHandlerError::GenericError(eyre::eyre!(
+                            "unexpected CreateBossVolumeState::HandleJobFailure power state for {}: {:#?}",
+                            mh_snapshot.host_snapshot.id,
+                            mh_snapshot.host_snapshot.state,
+                        )));
+                    }
+                },
+                _ => {
+                    return Err(StateHandlerError::GenericError(eyre::eyre!(
+                        "unexpected CreateBossVolume state for {}: {:#?}",
+                        mh_snapshot.host_snapshot.id,
+                        mh_snapshot.host_snapshot.state,
+                    )));
+                }
+            },
+            _ => {
+                return Err(StateHandlerError::GenericError(eyre::eyre!(
+                    "unexpected WaitingForCleanup state for {}: {:#?}",
+                    mh_snapshot.host_snapshot.id,
+                    mh_snapshot.host_snapshot.state,
+                )));
+            }
+        },
+        _ => {
+            return Err(StateHandlerError::GenericError(eyre::eyre!(
+                "unexpected host state for {}: {:#?}",
+                mh_snapshot.host_snapshot.id,
+                mh_snapshot.host_snapshot.state,
+            )));
+        }
+    };
+    Ok((next_state, expected_power_state))
+}
+
+async fn wait_for_boss_controller_job_to_complete(
+    redfish_client: &dyn Redfish,
+    mh_snapshot: &ManagedHostStateSnapshot,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let (boss_controller_id, boss_job_id, iterations, secure_erase_boss_controller) =
+        match &mh_snapshot.host_snapshot.state.value {
+            ManagedHostState::WaitingForCleanup { cleanup_state } => match cleanup_state {
+                CleanupState::SecureEraseBoss {
+                    secure_erase_boss_context,
+                } => match &secure_erase_boss_context.secure_erase_boss_state {
+                    SecureEraseBossState::WaitForJobCompletion => (
+                        secure_erase_boss_context.boss_controller_id.clone(),
+                        secure_erase_boss_context.secure_erase_jid.clone(),
+                        secure_erase_boss_context.iteration.unwrap_or_default(),
+                        // we are waiting for the secure erase job to complete
+                        true,
+                    ),
+                    _ => {
+                        return Err(StateHandlerError::GenericError(eyre::eyre!(
+                            "unexpected SecureEraseBoss state for {}: {:#?}",
+                            mh_snapshot.host_snapshot.id,
+                            mh_snapshot.host_snapshot.state,
+                        )));
+                    }
+                },
+                CleanupState::CreateBossVolume {
+                    create_boss_volume_context,
+                } => match &create_boss_volume_context.create_boss_volume_state {
+                    CreateBossVolumeState::WaitForJobCompletion => (
+                        create_boss_volume_context.boss_controller_id.clone(),
+                        create_boss_volume_context.create_boss_volume_jid.clone(),
+                        create_boss_volume_context.iteration.unwrap_or_default(),
+                        // we are waiting for the BOSS volume creation job to complete
+                        false,
+                    ),
+                    _ => todo!(),
+                },
+                _ => {
+                    return Err(StateHandlerError::GenericError(eyre::eyre!(
+                        "unexpected CreateBossVolume state for {}: {:#?}",
+                        mh_snapshot.host_snapshot.id,
+                        mh_snapshot.host_snapshot.state,
+                    )));
+                }
+            },
+            _ => {
+                return Err(StateHandlerError::GenericError(eyre::eyre!(
+                    "unexpected host state for {}: {:#?}",
+                    mh_snapshot.host_snapshot.id,
+                    mh_snapshot.host_snapshot.state,
+                )));
+            }
+        };
+
+    let job_id = match boss_job_id {
+        Some(jid) => Ok(jid),
+        None => Err(StateHandlerError::GenericError(eyre::eyre!(
+            "could not find job ID in the state's context"
+        ))),
+    }?;
+
+    let job_state = match redfish_client.get_job_state(&job_id).await {
+        Ok(state) => state,
+        Err(e) => {
+            // we have retried this operation too many times, lets wait for manual intervention
+            if iterations > 3 {
+                let action = match secure_erase_boss_controller {
+                    true => "secure erase",
+                    false => "create the R1 volume on",
+                };
+
+                return Err(StateHandlerError::GenericError(eyre::eyre!(
+                    "We have gone through {} iterations of trying to {action} the BOSS controller; Waiting for manual intervention after failing to query job {job_id}: {e}",
+                    iterations
+                )));
+            }
+
+            // failure path
+            let cleanup_state = match secure_erase_boss_controller {
+                // the job to decomission the boss controller failed--lets retry
+                true => CleanupState::SecureEraseBoss {
+                    secure_erase_boss_context: SecureEraseBossContext {
+                        boss_controller_id,
+                        secure_erase_jid: None,
+                        secure_erase_boss_state: SecureEraseBossState::HandleJobFailure {
+                            failure: e.to_string(),
+                            power_state: libredfish::PowerState::Off,
+                        },
+                        iteration: Some(iterations),
+                    },
+                },
+                // the job to crate the R1 Volume on top of the BOSS controller failed--lets retry
+                false => CleanupState::CreateBossVolume {
+                    create_boss_volume_context: CreateBossVolumeContext {
+                        boss_controller_id,
+                        create_boss_volume_jid: None,
+                        create_boss_volume_state: CreateBossVolumeState::HandleJobFailure {
+                            failure: e.to_string(),
+                            power_state: libredfish::PowerState::Off,
+                        },
+                        iteration: Some(iterations),
+                    },
+                },
+            };
+
+            let next_state: ManagedHostState =
+                ManagedHostState::WaitingForCleanup { cleanup_state };
+
+            return Ok(transition!(next_state));
+        }
+    };
+
+    if !matches!(job_state, libredfish::JobState::Completed) {
+        return Ok(wait!(format!(
+            "waiting for job {:#?} to complete; current state: {job_state:#?}",
+            job_id
+        )));
+    }
+
+    // healthy path
+    let cleanup_state = match secure_erase_boss_controller {
+        // now that we have finished doing a secure erase of the BOSS controller
+        // we can do a standard secure erase of the remaining drives through the /usr/sbin/nvme tool
+        true => CleanupState::HostCleanup {
+            boss_controller_id: Some(boss_controller_id),
+        },
+        // now that we have recreated the R1 volume on top of the BOSS controller, we can lock the host back down again.
+        false => CleanupState::CreateBossVolume {
+            create_boss_volume_context: CreateBossVolumeContext {
+                boss_controller_id,
+                create_boss_volume_jid: None,
+                create_boss_volume_state: CreateBossVolumeState::LockHost,
+                iteration: Some(iterations),
+            },
+        },
+    };
+
+    let next_state = ManagedHostState::WaitingForCleanup { cleanup_state };
+
+    Ok(transition!(next_state))
+}
+
+async fn handle_bios_job_failure(
+    redfish_client: &dyn Redfish,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    services: &StateHandlerServices,
+    txn: &mut PgConnection,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let (next_state, expected_power_state) = get_next_state_bios_job_failure(mh_snapshot)?;
+
+    let current_power_state =
+        redfish_client
+            .get_power_state()
+            .await
+            .map_err(|e| StateHandlerError::RedfishError {
+                operation: "get_power_state",
+                error: e,
+            })?;
+
+    match expected_power_state {
+        libredfish::PowerState::Off => {
+            if current_power_state != libredfish::PowerState::Off {
+                handler_host_power_control(
+                    mh_snapshot,
+                    services,
+                    SystemPowerControl::ForceOff,
+                    txn,
+                )
+                .await?;
+
+                return Ok(wait!(format!(
+                    "waiting for {} to power down; current power state: {current_power_state}",
+                    mh_snapshot.host_snapshot.id
+                )));
+            }
+
+            redfish_client
+                .bmc_reset()
+                .await
+                .map_err(|e| StateHandlerError::RedfishError {
+                    operation: "bmc_reset",
+                    error: e,
+                })?;
+
+            Ok(transition!(next_state))
+        }
+        libredfish::PowerState::On => {
+            let basetime = mh_snapshot
+                .host_snapshot
+                .last_reboot_requested
+                .as_ref()
+                .map(|x| x.time)
+                .unwrap_or(mh_snapshot.host_snapshot.state.version.timestamp());
+
+            if wait(
+                &basetime,
+                services
+                    .site_config
+                    .machine_state_controller
+                    .power_down_wait,
+            ) {
+                return Ok(wait!(format!(
+                    "waiting for {} to power down; power_down_wait: {}",
+                    mh_snapshot.host_snapshot.id,
+                    services
+                        .site_config
+                        .machine_state_controller
+                        .power_down_wait
+                )));
+            }
+
+            if current_power_state != libredfish::PowerState::On {
+                handler_host_power_control(mh_snapshot, services, SystemPowerControl::On, txn)
+                    .await?;
+
+                return Ok(wait!(format!(
+                    "waiting for {} to power on; current power state: {current_power_state}",
+                    mh_snapshot.host_snapshot.id,
+                )));
+            }
+
+            Ok(transition!(next_state))
+        }
+        _ => Err(StateHandlerError::GenericError(eyre::eyre!(
+            "unexpected expected_power_state while handling a bios job failure: {expected_power_state}"
+        ))),
+    }
 }
 
 pub async fn handler_host_power_control(
