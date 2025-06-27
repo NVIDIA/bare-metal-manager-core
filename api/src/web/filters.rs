@@ -56,6 +56,10 @@ fn machine_link(id: String, path: &str) -> ::askama::Result<String> {
 pub fn label_list_fmt(labels: &[rpc::forge::Label], truncate: bool) -> ::askama::Result<String> {
     const MAX_LABEL_LENGTH: usize = 32;
 
+    // Format labels by key to get a consistent order
+    let mut labels = labels.to_vec();
+    labels.sort_by(|l1, l2| l1.key.cmp(&l2.key));
+
     let mut result = String::new();
     for label in labels.iter() {
         if !result.is_empty() {
