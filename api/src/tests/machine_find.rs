@@ -607,3 +607,87 @@ async fn test_machine_capabilities_response(
 
     Ok(())
 }
+
+#[crate::sqlx_test]
+async fn test_find_machine_by_instance_type(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    // Find the existing instance types in the test env
+    let existing_instance_type_ids = env
+        .api
+        .find_instance_type_ids(tonic::Request::new(
+            rpc::forge::FindInstanceTypeIdsRequest {},
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .instance_type_ids;
+
+    let existing_instance_types = env
+        .api
+        .find_instance_types_by_ids(tonic::Request::new(
+            rpc::forge::FindInstanceTypesByIdsRequest {
+                instance_type_ids: existing_instance_type_ids,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .instance_types;
+
+    // Our known fixture instance type
+    let instance_type_id = existing_instance_types[0].id.clone();
+
+    let (tmp_machine_id, _) = create_managed_host(&env).await;
+
+    // Find the new host through the API
+    let machines = env
+        .api
+        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            instance_type_id: Some(instance_type_id.clone()),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .machine_ids;
+
+    // We should find nothing because we haven't associated our machine with
+    // an instance type
+    assert!(machines.is_empty());
+
+    // Associate the machine with the instance type
+    let _ = env
+        .api
+        .associate_machines_with_instance_type(tonic::Request::new(
+            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+                instance_type_id: instance_type_id.clone(),
+                machine_ids: vec![tmp_machine_id.to_string()],
+            },
+        ))
+        .await
+        .unwrap();
+
+    // Find the new host through the API
+    let machines = env
+        .api
+        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            instance_type_id: Some(instance_type_id),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .machine_ids;
+
+    // We should now find our machine
+    assert_eq!(machines.len(), 1);
+
+    // Confirm that what we found is the right
+    // machine
+    assert_eq!(machines[0].id, tmp_machine_id.to_string());
+
+    Ok(())
+}

@@ -1723,20 +1723,14 @@ pub async fn find_machine_ids(
     txn: &mut PgConnection,
     search_config: MachineSearchConfig,
 ) -> Result<Vec<MachineId>, DatabaseError> {
-    let mut qb = sqlx::QueryBuilder::new("SELECT id FROM machines");
-    let mut has_where = false;
+    let mut qb = sqlx::QueryBuilder::new("SELECT id FROM machines WHERE TRUE");
 
     if search_config.only_maintenance {
-        qb.push(" WHERE health_report_overrides->'merges'->'maintenance'->'alerts'->0->>'id' = 'Maintenance'");
-        has_where = true;
+        qb.push(" AND health_report_overrides->'merges'->'maintenance'->'alerts'->0->>'id' = 'Maintenance'");
     }
 
     if search_config.only_quarantine {
-        if has_where {
-            qb.push(" AND ");
-        } else {
-            qb.push(" WHERE ");
-        }
+        qb.push(" AND ");
 
         // If we're including DPU's, don't filter them out (DPU's don't get the quarantine state,
         // only the managed host does.)
@@ -1747,43 +1741,27 @@ pub async fn find_machine_ids(
         } else {
             qb.push("network_config->>'quarantine_state' IS NOT NULL ");
         }
-
-        has_where = true;
     }
 
     if !search_config.include_dpus {
-        if has_where {
-            qb.push(" AND ");
-        } else {
-            qb.push(" WHERE ");
-        }
-
-        qb.push("NOT starts_with(id, 'fm100d')");
-        has_where = true;
+        qb.push(" AND NOT starts_with(id, 'fm100d')");
     }
 
     if search_config.exclude_hosts {
-        if has_where {
-            qb.push(" AND ");
-        } else {
-            qb.push(" WHERE ");
-        }
-
-        qb.push("NOT starts_with(id, 'fm100h')");
-        has_where = true;
+        qb.push(" AND NOT starts_with(id, 'fm100h')");
     }
 
     if !search_config.include_predicted_host {
-        if has_where {
-            qb.push(" AND ");
-        } else {
-            qb.push(" WHERE ");
-        }
-        qb.push("NOT starts_with(id, 'fm100p')");
+        qb.push(" AND NOT starts_with(id, 'fm100p')");
     }
 
     if search_config.for_update {
         qb.push(" FOR UPDATE ");
+    }
+
+    if let Some(id) = search_config.instance_type_id {
+        qb.push(" AND instance_type_id = ");
+        qb.push_bind(id);
     }
 
     let q = qb.build_query_as();
