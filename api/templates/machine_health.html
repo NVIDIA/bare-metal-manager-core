@@ -5,60 +5,53 @@
 {% block content %}
 <h1>{{ machine_type }} Health: <a href="/admin/machine/{{ id }}">{{ id }}</a></h1>
 
-<!-- Aggregate Health Card -->
-<div class="card">
-	{{ aggregate_health|safe }}
-</div>
+<!-- Main Aggregate Health Status -->
+{{ aggregate_health|safe }}
 
-<!-- Active Overrides - Show if any exist -->
 {% if !overrides.is_empty() %}
-<div class="card">
-	<h2>Active Health Overrides</h2>
-	<table class="sortable overview">
-		<thead>
-			<tr>
-				<th>Source</th>
-				<th>Mode</th>
-				<th>Alerts</th>
-				<th>Actions</th>
-			</tr>
-		</thead>
-		<tbody>
-			{% for override in overrides %}
-			<tr>
-				<td>{{ override.health_report.source }}</td>
-				<td>{{ override.mode }}</td>
-				<td>
-					{{ override.health_report.alerts|health_alerts_fmt(false, false)|safe }}
+<h2>Active Health Overrides</h2>
+<table class="sortable overview">
+	<thead>
+		<tr>
+			<th>Source</th>
+			<th>Mode</th>
+			<th>Alerts</th>
+			<th>Classifications</th>
+			<th>Details</th>
+		</tr>
+	</thead>
+	<tbody>
+		{% for override in overrides %}
+		<tr>
+			<td>{{ override.health_report.source }}</td>
+			<td>{{ override.mode }}</td>
+			<td>{{ override.health_report.alerts|health_alerts_fmt(false, false)|safe }}</td>
+			<td>{{ override.health_report.alerts|health_alert_classifications_fmt|safe }}</td>
+			<td>
+				<div class="health-override-actions">
 					<details>
-						<summary>View JSON Details</summary>
+						<summary>JSON Details</summary>
 						<div style="overflow: auto; max-height: 300px; border: 1px solid var(--border-color); border-radius: 8px; background-color: var(--bg-tertiary); margin-top: 0.5rem;">
 							<pre style="margin: 0; padding: 1rem; background-color: transparent; white-space: pre-wrap;"><code class="prettyjson">{{ override|json|safe }}</code></pre>
 						</div>
 					</details>
-				</td>
-				<td>
 					<button id="remove-override-{{ override.health_report.source }}" class="delete-button">Remove</button>
-				</td>
-			</tr>
-			{% endfor %}
-		</tbody>
-	</table>
-</div>
+				</div>
+			</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
 {% endif %}
 
-<!-- Health Override Management Card -->
-<div class="card">
-	<h2>Health Override Management</h2>
-	<details>
-		<summary>Add New Health Override</summary>
-		
-		<div style="padding: 1.5rem 0;">
-			<h3>Quick Start Templates</h3>
-			<p style="color: var(--text-muted); margin-bottom: 1rem;">
-				Select a template to pre-fill the configuration, then customize as needed:
+<h2>Health Override Management</h2>
+<table class="detailsview">
+	<tr>
+		<th>Quick Templates</th>
+		<td>
+			<p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">
+				Select a template to pre-fill the configuration below:
 			</p>
-			
 			<div class="button-group horizontal">
 				<button onclick="setOverrideTextBoxToTemplate(templateHealthReport)">Blank Template</button>
 				<button onclick="setOverrideTextBoxToTemplate(templateMergeHostUpdateMaintenance)">Host Update</button>
@@ -72,42 +65,37 @@
 				<button onclick="setOverrideTextBoxToTemplate(templateReplaceSingleAlert)">Replace Alert</button>
 				<button onclick="setOverrideTextBoxToTemplate(templateReplaceAsHealthy)">Mark Healthy</button>
 			</div>
-
-			<h3>Override Configuration</h3>
+		</td>
+	</tr>
+	<tr>
+		<th>Override Configuration</th>
+		<td>
 			<p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.5rem;">
 				Required fields: <strong>id</strong> and <strong>message</strong>. Target is optional.
 			</p>
-			<textarea id="override" rows="16"></textarea>
+			<textarea id="override" rows="16" style="width: 100%; font-family: 'Consolas', 'Monaco', monospace; margin-bottom: 1rem;"></textarea>
 			<button id="submit_add">Submit Override</button>
-		</div>
-	</details>
-</div>
+		</td>
+	</tr>
+</table>
 
-<!-- Detailed Health Information Card -->
-<div class="card">
-	<h2>Detailed Health Information</h2>
-	<details>
-		<summary>View Component Health Details</summary>
-		<div style="padding: 1rem 0;">
-			{% for component in component_health %}
-			<div style="margin-bottom: 2rem;">
-				{{ component|safe }}
-			</div>
-			{%endfor%}
+<h2>Component Health Details</h2>
+<details>
+	<summary>View Detailed Component Health Information</summary>
+	<div style="padding: 1rem 0;">
+		{% for component in component_health %}
+		<div style="margin-bottom: 2rem;">
+			{{ component|safe }}
 		</div>
-	</details>
-</div>
+		{%endfor%}
+	</div>
+</details>
 
-<!-- Health History Card -->
-<div class="card">
-	<h2>Health History</h2>
-	<p style="margin-bottom: 1rem;">
-		<a href="/admin/machine/{{ id }}/health-history" style="font-size: 0.9rem;">
-			View extended history timeline →
-		</a>
-	</p>
-	{{ history|safe }}
-</div>
+<h2>Health History</h2>
+<p style="margin-bottom: 1rem;">
+	<a href="/admin/machine/{{ id }}/health-history">View extended history timeline →</a>
+</p>
+{{ history|safe }}
 
 {% endblock %}
 

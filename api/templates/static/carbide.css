@@ -872,32 +872,6 @@ div.health_alert_classification {
 }
 
 /* ------------------------------------------------------------------------
-   Table constraints within cards
-   ------------------------------------------------------------------------ */
-
-/* horizontal scroll wrapper for tables in cards */
-.card table {
-  width: 100%;
-  overflow-x: auto;
-  display: block;
-}
-
-.card table thead,
-.card table tbody {
-  display: table;
-  width: 100%;
-}
-
-.card table tr {
-  display: table-row;
-}
-
-.card table th,
-.card table td {
-  display: table-cell;
-}
-
-/* ------------------------------------------------------------------------
    Specialty Components
    ------------------------------------------------------------------------ */
 
@@ -1056,6 +1030,30 @@ details > *:not(summary) {
   color: var(--text-muted);
 }
 
+/* Health override actions - JSON details and remove button layout */
+.health-override-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-height: 1.5rem;
+}
+
+.health-override-actions details {
+  flex: 1;
+  min-width: 120px;
+  align-self: center;
+}
+
+.health-override-actions summary {
+  margin: 0;
+  line-height: 1.5rem;
+}
+
+.health-override-actions button {
+  flex-shrink: 0;
+}
 /* ------------------------------------------------------------------------
    Page-specific styles
    ------------------------------------------------------------------------ */
