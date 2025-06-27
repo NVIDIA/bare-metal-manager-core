@@ -6472,6 +6472,25 @@ async fn wait_for_boss_controller_job_to_complete(
     let job_state = match redfish_client.get_job_state(&job_id).await {
         Ok(state) => state,
         Err(e) => {
+            // It takes a little time between creating and scheduling the secure erase job.
+            // If the state machine queries the BMC for the job's state prior to the job being scheduled,
+            // the BMC's job service will return a 404. Wait here for five minutes to ensure
+            // that the job is scheduled prior to declaring an error.
+            if secure_erase_boss_controller
+                && mh_snapshot
+                    .host_snapshot
+                    .state
+                    .version
+                    .since_state_change()
+                    .num_minutes()
+                    < 5
+            {
+                return Err(StateHandlerError::RedfishError {
+                    operation: "get_job_state",
+                    error: e,
+                });
+            }
+
             // we have retried this operation too many times, lets wait for manual intervention
             if iterations > 3 {
                 let action = match secure_erase_boss_controller {
