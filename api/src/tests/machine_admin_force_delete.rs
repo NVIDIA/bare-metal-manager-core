@@ -38,6 +38,7 @@ use crate::tests::common;
 use common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_managed_host, create_managed_host_multi_dpu, create_test_env,
     dpu::create_dpu_machine,
+    get_instance_type_fixture_id,
     host::host_discover_dhcp,
     ib_partition::{DEFAULT_TENANT, create_ib_partition},
     instance::{create_instance, create_instance_with_ib_config, single_interface_network_config},
@@ -787,4 +788,51 @@ async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
         current_tenant_state, expected_tenant_state,
         "The instance has a tenant state of {current_tenant_state:#?} instead of {expected_tenant_state:#?}"
     );
+}
+
+#[crate::sqlx_test]
+async fn test_admin_force_delete_with_instance_type(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let instance_type_id = get_instance_type_fixture_id(&env).await;
+
+    let (tmp_machine_id, _) = create_managed_host(&env).await;
+
+    // Associate the machine with the instance type
+    let _ = env
+        .api
+        .associate_machines_with_instance_type(tonic::Request::new(
+            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+                instance_type_id: instance_type_id.clone(),
+                machine_ids: vec![tmp_machine_id.to_string()],
+            },
+        ))
+        .await
+        .unwrap();
+
+    // The request should fail because the machine is associated with an
+    // instance type.
+    env.api
+        .admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
+            host_query: tmp_machine_id.to_string(),
+            delete_interfaces: false,
+            delete_bmc_interfaces: false,
+            delete_bmc_credentials: false,
+        }))
+        .await
+        .unwrap_err();
+
+    // Now clear the instance type
+    let _ = env
+        .api
+        .remove_machine_instance_type_association(tonic::Request::new(
+            rpc::forge::RemoveMachineInstanceTypeAssociationRequest {
+                machine_id: tmp_machine_id.to_string(),
+            },
+        ))
+        .await
+        .unwrap();
+
+    // Delete should succeed now.
+    _ = force_delete(&env, &tmp_machine_id);
 }

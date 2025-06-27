@@ -2034,6 +2034,14 @@ impl Forge for Api {
         };
         log_machine_id(&machine.id);
 
+        if machine.instance_type_id.is_some() {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "association with instance type must be removed before deleting machine {}",
+                &machine.id
+            ))
+            .into());
+        }
+
         // TODO: This should maybe just use the snapshot loading functionality that the
         // state controller will use - which already contains the combined state
         let host_machine;
