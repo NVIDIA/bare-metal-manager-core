@@ -1,16 +1,15 @@
 <h2>{{ label }}</h2>
 {% match report %}
 {% when Some with (health) %}
-<h3>Alerts</h3>
-<table class="sortable detailsview" style="table-layout: fixed;">
+<table class="sortable detailsview">
 	<thead>
 		<tr>
-			<th style="width: 10%;">ID</th>
-			<th style="width: 15%;">Target</th>
-			<th style="width: 15%;">In Alert Since</th>
-			<th style="width: 35%;">Message</th>
-			<th style="width: 20%;">Tenant Message</th>
-			<th style="width: 5%;">Classifications</th>
+			<th>ID</th>
+			<th>Target</th>
+			<th>In Alert Since</th>
+			<th>Message</th>
+			<th>Tenant Message</th>
+			<th>Classifications</th>
 		</tr>
 	</thead>
 	<tbody>
@@ -28,10 +27,8 @@
 </table>
 
 <details class="successes-section">
-	<summary>
-		<h3 style="display: inline-block;">Successes</h3>
-	</summary>
-	<table class="sortable detailsview" style="table-layout: fixed;">
+	<summary>Successes</summary>
+	<table class="sortable detailsview">
 		<thead>
 			<tr>
 				<th>ID</th>
