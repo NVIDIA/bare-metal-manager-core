@@ -1187,6 +1187,33 @@ pub async fn create_test_env_with_overrides(
     }
 }
 
+pub async fn get_instance_type_fixture_id(env: &TestEnv) -> String {
+    // Find the existing instance types in the test env
+    let existing_instance_type_ids = env
+        .api
+        .find_instance_type_ids(tonic::Request::new(
+            rpc::forge::FindInstanceTypeIdsRequest {},
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .instance_type_ids;
+
+    env.api
+        .find_instance_types_by_ids(tonic::Request::new(
+            rpc::forge::FindInstanceTypesByIdsRequest {
+                instance_type_ids: existing_instance_type_ids,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .instance_types
+        .pop()
+        .unwrap()
+        .id
+}
+
 pub async fn populate_network_security_groups(api: Arc<Api>) {
     // Create tenant orgs
     let default_tenant_org = "Tenant1";
