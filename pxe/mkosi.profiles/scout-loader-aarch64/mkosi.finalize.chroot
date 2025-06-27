@@ -18,3 +18,11 @@ rm -rf /var/log/journal/*
 
 # Remove unnecessary kernel files
 rm -f /boot/System.map-* /boot/config-* /boot/vmlinu* /lib/modules/*/vmlinuz
+
+# Remove firmware files, we don't need these for the loader itself
+# They will be present in the secondary image that we load.
+rm -rf /usr/lib/firmware
+
+# Remove some large chunks of the modules tree.
+# They will be present in the secondary image that we load.
+rm -rf /usr/lib/modules/*/kernel/sound /usr/lib/modules/*/kernel/drivers/media /usr/lib/modules/*/kernel/drivers/net/wireless /usr/lib/modules/*/kernel/zfs
