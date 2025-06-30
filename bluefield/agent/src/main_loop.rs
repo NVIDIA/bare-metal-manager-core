@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::net::{IpAddr, Ipv4Addr};
 use std::ops::Add;
@@ -39,7 +39,7 @@ use version_compare::Version;
 use crate::dpu::DpuNetworkInterfaces;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
-use crate::duppet::{self, SummaryFormat, SyncOptions};
+use crate::duppet::{SummaryFormat, SyncOptions};
 use crate::ethernet_virtualization::ServiceAddresses;
 use crate::instance_metadata_endpoint::InstanceMetadataRouterStateImpl;
 use crate::instrumentation::{create_metrics, get_dpu_agent_meter};
@@ -49,7 +49,7 @@ use crate::util::{UrlResolver, get_host_boot_timestamp};
 use crate::{
     FMDS_MINIMUM_HBN_VERSION, HBNDeviceNames, NVUE_MINIMUM_HBN_VERSION, RunOptions, command_line,
     ethernet_virtualization, hbn, health, instance_metadata_endpoint, machine_inventory_updater,
-    mtu, netlink, nvue, periodic_config_fetcher, pretty_cmd, sysfs, upgrade,
+    managed_files, mtu, netlink, nvue, periodic_config_fetcher, pretty_cmd, sysfs, upgrade,
 };
 
 // Main loop when running in daemon mode
@@ -89,41 +89,6 @@ pub async fn setup_and_run(
     // Setup client certificate renewal
     let client_cert_renewer =
         ClientCertRenewer::new(forge_api_server.clone(), forge_client_config.clone());
-
-    let duppet_options = SyncOptions {
-        dry_run: false,
-        quiet: false,
-        no_color: false,
-        summary_format: SummaryFormat::PlainText,
-    };
-
-    // Sync out all duppet-managed config files. This can be called as part of
-    // main_loop running if we want (and can also be called willy nilly with
-    // ad-hoc sets of files, including whenever the nvue config changes if we
-    // wanted to pull it in), but for now we just do this one duppet sync
-    // during setup_and_run. Current files being managed are:
-    //
-    // - /etc/cron.daily/apt.clean
-    // - /etc/dhcp/dhclient-exit-hooks.d/ntpsec
-    // - /run/otelcol-contrib/machine-id
-    let duppet_files: HashMap<PathBuf, duppet::FileSpec> = HashMap::from([
-        (
-            "/etc/cron.daily/apt-clean".into(),
-            duppet::FileSpec::new_with_perms(include_str!("../templates/apt-clean"), 0o755),
-        ),
-        (
-            "/etc/dhcp/dhclient-exit-hooks.d/ntpsec".into(),
-            duppet::FileSpec::new_with_perms(include_str!("../templates/ntpsec"), 0o644),
-        ),
-        (
-            "/run/otelcol-contrib/machine-id".into(),
-            duppet::FileSpec::new_with_content(build_otel_machine_id_file(&machine_id)),
-        ),
-    ]);
-
-    if let Err(e) = duppet::sync(duppet_files, duppet_options) {
-        tracing::error!("error during duppet sync: {}", e);
-    }
 
     let instance_metadata_state = Arc::new(
         instance_metadata_endpoint::InstanceMetadataRouterStateImpl::new(
@@ -204,6 +169,15 @@ pub async fn setup_and_run(
         },
     )
     .await;
+
+    let duppet_options = SyncOptions {
+        dry_run: false,
+        quiet: false,
+        no_color: false,
+        summary_format: SummaryFormat::PlainText,
+    };
+
+    managed_files::main_sync(duppet_options, &machine_id, &periodic_config_fetcher);
 
     let periodic_config_reader = periodic_config_fetcher.reader();
 
@@ -1071,12 +1045,6 @@ fn dt(d: Duration) -> humantime::FormattedDuration {
     } else {
         Duration::from_millis(d.as_millis() as u64)
     })
-}
-
-// Write "machine.id=<value>" to a file so the OpenTelemetry collector can
-// apply it as a resource attribute.
-pub fn build_otel_machine_id_file(machine_id: &str) -> String {
-    format!("machine.id={}\n", machine_id)
 }
 
 // Do horrible things to the DPU including an out of band, unknown to forge, reboot.

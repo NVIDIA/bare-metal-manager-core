@@ -218,7 +218,9 @@ processors:
     send_batch_size: 8192
     timeout: 75s
   fileresource:
-    file_path: /run/otelcol-contrib/machine-id
+    file_paths: 
+      - /run/otelcol-contrib/machine-id
+      - /run/otelcol-contrib/host-machine-id
     poll_interval: 5s
   telemetry_stats:
     metric_scrape_interval: 1m
@@ -235,6 +237,7 @@ processors:
         by_label:
           names:
             - component
+            - host.machine.id
             - log.file.path
             - machine.id
             - systemd.unit
