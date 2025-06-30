@@ -298,6 +298,17 @@ async fn test_clear_completed_updates(
         .await
         .unwrap();
 
+    let health_override = crate::machine_update_manager::machine_update_module::create_host_update_health_report_dpufw();
+    // Mark the Host as in update.
+    crate::db::machine::insert_health_report_override(
+        &mut txn,
+        &host_machine_id,
+        health_report::OverrideMode::Merge,
+        &health_override,
+        false,
+    )
+    .await?;
+
     txn.commit().await.unwrap();
 
     let mut txn = env

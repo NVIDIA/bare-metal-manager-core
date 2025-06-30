@@ -63,6 +63,7 @@ lazy_static! {
 /// The name of the Health Override which will be used to indicate an ongoing host update
 pub const HOST_UPDATE_HEALTH_REPORT_SOURCE: &str = "host-update";
 pub const HOST_FW_UPDATE_HEALTH_REPORT_SOURCE: &str = "host-fw-update";
+pub const DPU_FIRMWARE_UPDATE_TARGET: &str = "DpuFirmware";
 
 /// Creates a Health override report that indicates that a host update is in progress
 pub fn create_host_update_health_report(
@@ -114,7 +115,7 @@ pub fn create_host_update_health_report_dpufw() -> health_report::HealthReport {
     });
 
     create_host_update_health_report(
-        Some("DpuFirmware".to_string()),
+        Some(DPU_FIRMWARE_UPDATE_TARGET.to_string()),
         initiator_host.to_string(),
         false,
     )
