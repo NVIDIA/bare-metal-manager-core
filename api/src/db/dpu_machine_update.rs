@@ -3,7 +3,8 @@ use crate::{
     cfg::file::CarbideConfig,
     db::{self, DatabaseError, machine::MachineSearchConfig, managed_host::LoadSnapshotOptions},
     machine_update_manager::machine_update_module::{
-        AutomaticFirmwareUpdateReference, DpuReprovisionInitiator, machine_updates_in_progress,
+        AutomaticFirmwareUpdateReference, DPU_FIRMWARE_UPDATE_TARGET, DpuReprovisionInitiator,
+        HOST_UPDATE_HEALTH_PROBE_ID, HOST_UPDATE_HEALTH_REPORT_SOURCE, machine_updates_in_progress,
     },
     model::machine::{ManagedHostState, ManagedHostStateSnapshot, ReprovisionRequest},
 };
@@ -246,8 +247,20 @@ impl DpuMachineUpdate {
         let updated_machines: Vec<DpuMachineUpdate> = snapshots
             .into_iter()
             .filter_map(|(machine_id, managed_host)| {
+                tracing::info!("Checking {} for update completion", machine_id);
                 // Skip looking at any machines that are not marked for updates
-                if !machine_updates_in_progress(&managed_host.host_snapshot) {
+                if !managed_host
+                    .host_snapshot
+                    .health_report_overrides
+                    .merges
+                    .get(HOST_UPDATE_HEALTH_REPORT_SOURCE)
+                    .is_some_and(|updater_report| {
+                        updater_report.alerts.iter().any(|alert| {
+                            alert.id == *HOST_UPDATE_HEALTH_PROBE_ID
+                                && alert.target.as_deref() == Some(DPU_FIRMWARE_UPDATE_TARGET)
+                        })
+                    })
+                {
                     return None;
                 }
                 // Skip any machines that are not done updating
