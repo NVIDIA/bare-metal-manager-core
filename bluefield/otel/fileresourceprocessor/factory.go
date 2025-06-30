@@ -2,7 +2,6 @@ package fileresourceprocessor
 
 import (
 	"context"
-	"time"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
@@ -28,12 +27,6 @@ func NewFactory() processor.Factory {
 		processor.WithMetrics(createMetricsProcessor, stability),
 		processor.WithLogs(createLogsProcessor, stability),
 	)
-}
-
-func createDefaultConfig() component.Config {
-	return &Config{
-		PollInterval: 1 * time.Minute,
-	}
 }
 
 func createTracesProcessor(
