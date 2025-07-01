@@ -156,7 +156,7 @@ impl RedfishClient {
                 // GH200 doesn't require change-on-first-use, but it's good practice. GB200
                 // probably will.
                 client
-                    .change_password_by_id("root", new_password.as_str())
+                    .change_password_by_id(curr_user.as_str(), new_password.as_str())
                     .await
                     .map_err(map_redfish_error)?;
             }
