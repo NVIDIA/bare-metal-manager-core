@@ -23,3 +23,6 @@ temp-dir = "0.1.14"
 futures = "0.3.31"
 api-test-helper = { path = "../common/api-test-helper" }
 russh = "0.52.1"
+ssh_console_mock_api_server = { path = "mock_api_server" }
+forge-uuid = { path = "../common/uuid" }
+rand = "0.9.1"

@@ -51,7 +51,7 @@ dependencies = [
  "serde_yaml",
  "tokio",
  "toml 0.8.20",
- "tonic",
+ "tonic 0.12.3",
  "tracing",
  "tracing-subscriber",
  "utils",
@@ -146,7 +146,7 @@ dependencies = [
  "opentelemetry_sdk",
  "prometheus",
  "prost",
- "rand 0.9.0",
+ "rand 0.9.1",
  "regex",
  "reqwest",
  "resolv-conf",
@@ -163,7 +163,7 @@ dependencies = [
  "surge-ping",
  "tempfile",
  "tokio",
- "tonic",
+ "tonic 0.12.3",
  "tower 0.5.2",
  "tower-http",
  "tracing",
@@ -195,7 +195,7 @@ dependencies = [
  "getrandom 0.2.15",
  "once_cell",
  "version_check",
- "zerocopy 0.7.35",
+ "zerocopy",
 ]
 
 [[package]]
@@ -1113,7 +1113,7 @@ dependencies = [
  "lazy_static",
  "libredfish",
  "mac_address",
- "rand 0.9.0",
+ "rand 0.9.1",
  "regex",
  "rustls",
  "rustls-pemfile",
@@ -1331,7 +1331,7 @@ dependencies = [
  "opentelemetry_sdk",
  "pkcs1",
  "prometheus",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rcgen",
  "regex",
  "reqwest",
@@ -1354,7 +1354,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "toml 0.8.20",
- "tonic",
+ "tonic 0.12.3",
  "tonic-reflection",
  "tower 0.5.2",
  "tower-http",
@@ -1381,7 +1381,7 @@ dependencies = [
  "forge-version",
  "rpc",
  "tokio",
- "tonic",
+ "tonic 0.12.3",
  "tracing",
  "tracing-subscriber",
  "trust-dns-resolver",
@@ -1425,7 +1425,7 @@ dependencies = [
  "tera",
  "tokio",
  "toml 0.8.20",
- "tonic",
+ "tonic 0.12.3",
  "tower 0.5.2",
  "tower-http",
  "tower-layer",
@@ -1725,7 +1725,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1831,8 +1831,8 @@ dependencies = [
  "prost-build",
  "prost-types",
  "tokio",
- "tonic",
- "tonic-build",
+ "tonic 0.12.3",
+ "tonic-build 0.12.3",
  "tower 0.4.13",
 ]
 
@@ -2345,7 +2345,7 @@ dependencies = [
  "tempfile",
  "test-cdylib",
  "tokio",
- "tonic",
+ "tonic 0.12.3",
 ]
 
 [[package]]
@@ -2366,7 +2366,7 @@ dependencies = [
  "socket2",
  "thiserror 2.0.12",
  "tokio",
- "tonic",
+ "tonic 0.12.3",
  "tracing",
  "tracing-subscriber",
  "utils",
@@ -2879,12 +2879,12 @@ dependencies = [
  "eyre",
  "forge-host-support",
  "forge-tls",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rpc",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
- "tonic",
+ "tonic 0.12.3",
  "tracing",
 ]
 
@@ -2909,7 +2909,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "toml 0.8.20",
- "tonic",
+ "tonic 0.12.3",
  "tracing",
  "tracing-subscriber",
  "tryhard",
@@ -2958,7 +2958,7 @@ dependencies = [
  "ssh2",
  "thiserror 2.0.12",
  "tokio",
- "tonic",
+ "tonic 0.12.3",
  "tracing",
 ]
 
@@ -2968,13 +2968,13 @@ version = "0.1.0"
 dependencies = [
  "eyre",
  "forge-host-support",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rpc",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
  "tokio",
- "tonic",
+ "tonic 0.12.3",
  "tracing",
 ]
 
@@ -2985,7 +2985,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.12",
- "tonic",
+ "tonic 0.12.3",
 ]
 
 [[package]]
@@ -3000,7 +3000,7 @@ dependencies = [
  "sha2 0.10.8",
  "sqlx",
  "thiserror 2.0.12",
- "tonic",
+ "tonic 0.12.3",
  "uuid",
 ]
 
@@ -3017,7 +3017,7 @@ dependencies = [
  "eyre",
  "mac_address",
  "opentelemetry",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rpc",
  "serde",
  "tokio",
@@ -3448,7 +3448,7 @@ dependencies = [
  "sha2 0.11.0-pre.4",
  "thiserror 2.0.12",
  "tokio",
- "tonic",
+ "tonic 0.12.3",
  "tracing",
  "tracing-subscriber",
  "utils",
@@ -4376,7 +4376,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.12",
  "tokio",
- "tonic",
+ "tonic 0.12.3",
 ]
 
 [[package]]
@@ -4456,7 +4456,7 @@ dependencies = [
  "lazy_static",
  "libredfish",
  "mac_address",
- "rand 0.9.0",
+ "rand 0.9.1",
  "rand_core 0.6.4",
  "ratatui",
  "rcgen",
@@ -4470,7 +4470,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "toml 0.8.20",
- "tonic",
+ "tonic 0.12.3",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -4490,7 +4490,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.12",
  "tokio",
- "tonic",
+ "tonic 0.12.3",
  "tracing",
  "utils",
 ]
@@ -4578,7 +4578,7 @@ dependencies = [
  "serde",
  "sqlx",
  "thiserror 2.0.12",
- "tonic",
+ "tonic 0.12.3",
  "utils",
 ]
 
@@ -5045,7 +5045,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "getrandom 0.2.15",
  "http",
@@ -5199,7 +5199,7 @@ dependencies = [
  "reqwest",
  "thiserror 2.0.12",
  "tokio",
- "tonic",
+ "tonic 0.12.3",
  "tracing",
 ]
 
@@ -5226,7 +5226,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry_sdk",
  "prost",
- "tonic",
+ "tonic 0.12.3",
 ]
 
 [[package]]
@@ -5276,7 +5276,7 @@ dependencies = [
  "forge-tls",
  "humantime",
  "prost",
- "rand 0.9.0",
+ "rand 0.9.1",
  "reqwest",
  "rpc",
  "rustls-pemfile",
@@ -5284,7 +5284,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.12",
  "tokio",
- "tonic",
+ "tonic 0.12.3",
  "tracing",
  "tracing-subscriber",
  "typed-builder",
@@ -5782,7 +5782,7 @@ version = "0.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77957b295656769bb8ad2b6a6b09d897d94f05c41b069aede1fcdaa675eaea04"
 dependencies = [
- "zerocopy 0.7.35",
+ "zerocopy",
 ]
 
 [[package]]
@@ -5931,7 +5931,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -6125,13 +6125,12 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3779b94aeb87e8bd4e834cee3650289ee9e0d5677f976ecdb6d219e5f4f6cd94"
+checksum = "9fbfd9d094a40bf3ae768db9361049ace4c0e04a4fd6b359518bd7b73a73dd97"
 dependencies = [
  "rand_chacha 0.9.0",
  "rand_core 0.9.3",
- "zerocopy 0.8.16",
 ]
 
 [[package]]
@@ -6467,8 +6466,8 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.12",
  "tokio",
- "tonic",
- "tonic-build",
+ "tonic 0.12.3",
+ "tonic-build 0.12.3",
  "tonic-client-wrapper",
  "tower 0.5.2",
  "tracing",
@@ -6841,7 +6840,7 @@ dependencies = [
  "smbios-lib",
  "thiserror 2.0.12",
  "tokio",
- "tonic",
+ "tonic 0.12.3",
  "tracing",
  "tryhard",
  "tss-esapi",
@@ -7548,10 +7547,13 @@ dependencies = [
  "bmc-mock",
  "ctor 0.4.2",
  "eyre",
+ "forge-uuid",
  "futures",
  "lazy_static",
  "machine-a-tron",
+ "rand 0.9.1",
  "russh",
+ "ssh_console_mock_api_server",
  "temp-dir",
  "thiserror 2.0.12",
  "tokio",
@@ -7583,6 +7585,25 @@ dependencies = [
  "libc",
  "libssh2-sys",
  "parking_lot",
+]
+
+[[package]]
+name = "ssh_console_mock_api_server"
+version = "0.1.0"
+dependencies = [
+ "api-test-helper",
+ "eyre",
+ "forge-uuid",
+ "forge-version",
+ "prost",
+ "prost-types",
+ "rustls",
+ "rustls-pemfile",
+ "tokio",
+ "tonic 0.13.1",
+ "tonic-build 0.13.1",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -7940,9 +7961,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.44.1"
+version = "1.45.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f382da615b842244d4b8738c82ed1275e6c5dd90c459a30941cd07080b06c91a"
+checksum = "75ef51a33ef1da925cea3e4eb122833cb377c61439ca401b770f54902b806779"
 dependencies = [
  "backtrace",
  "bytes",
@@ -8115,10 +8136,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "tonic"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e581ba15a835f4d9ea06c55ab1bd4dce26fc53752c69a04aac00703bfb49ba9"
+dependencies = [
+ "async-trait",
+ "axum 0.8.1",
+ "base64 0.22.1",
+ "bytes",
+ "h2",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-timeout",
+ "hyper-util",
+ "percent-encoding",
+ "pin-project",
+ "prost",
+ "socket2",
+ "tokio",
+ "tokio-rustls",
+ "tokio-stream",
+ "tower 0.5.2",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
 name = "tonic-build"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9557ce109ea773b399c9b9e5dca39294110b74f1f342cb347a80d1fce8c26a11"
+dependencies = [
+ "prettyplease",
+ "proc-macro2",
+ "prost-build",
+ "prost-types",
+ "quote",
+ "syn 2.0.100",
+]
+
+[[package]]
+name = "tonic-build"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eac6f67be712d12f0b41328db3137e0d0757645d8904b4cb7d51cd9c2279e847"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -8142,8 +8207,8 @@ dependencies = [
  "syn 2.0.100",
  "temp-dir",
  "thiserror 2.0.12",
- "tonic",
- "tonic-build",
+ "tonic 0.12.3",
+ "tonic-build 0.12.3",
 ]
 
 [[package]]
@@ -8156,7 +8221,7 @@ dependencies = [
  "prost-types",
  "tokio",
  "tokio-stream",
- "tonic",
+ "tonic 0.12.3",
 ]
 
 [[package]]
@@ -8187,9 +8252,12 @@ checksum = "d039ad9159c98b70ecfd540b2573b97f7f52c3e8d9f8ad57a24b916a536975f9"
 dependencies = [
  "futures-core",
  "futures-util",
+ "indexmap 2.7.1",
  "pin-project-lite",
+ "slab",
  "sync_wrapper",
  "tokio",
+ "tokio-util",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -8729,7 +8797,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.12",
  "tokio",
- "tonic",
+ "tonic 0.12.3",
  "tracing",
 ]
 
@@ -9038,7 +9106,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -9427,16 +9495,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b9b4fd18abc82b8136838da5d50bae7bdea537c574d8dc1a34ed098d6c166f0"
 dependencies = [
  "byteorder",
- "zerocopy-derive 0.7.35",
-]
-
-[[package]]
-name = "zerocopy"
-version = "0.8.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b8c07a70861ce02bad1607b5753ecb2501f67847b9f9ada7c160fff0ec6300c"
-dependencies = [
- "zerocopy-derive 0.8.16",
+ "zerocopy-derive",
 ]
 
 [[package]]
@@ -9444,17 +9503,6 @@ name = "zerocopy-derive"
 version = "0.7.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa4f8080344d4671fb4e831a13ad1e68092748387dfc4f55e356242fae12ce3e"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.100",
-]
-
-[[package]]
-name = "zerocopy-derive"
-version = "0.8.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5226bc9a9a9836e7428936cde76bb6b22feea1a8bfdbc0d241136e4d13417e25"
 dependencies = [
  "proc-macro2",
  "quote",

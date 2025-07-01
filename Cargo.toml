@@ -33,6 +33,7 @@ members = [
     "rpc",
     "scout",
     "ssh-console",
+    "ssh-console/mock_api_server",
 ]
 
 [workspace.package]

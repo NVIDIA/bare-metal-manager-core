@@ -3,7 +3,7 @@ use eyre::Context;
 use rand_core::OsRng;
 use russh::keys::PublicKeyBase64;
 use russh::server::{Auth, Config, Msg, Server as _, Session, run_stream};
-use russh::{Channel, ChannelId, Pty, server};
+use russh::{Channel, ChannelId, MethodKind, MethodSet, Pty, server};
 use std::net::{IpAddr, SocketAddr};
 use std::result::Result as StdResult;
 use std::sync::Arc;
@@ -13,6 +13,7 @@ use tokio::sync::oneshot;
 #[derive(Debug)]
 pub struct MockSshServerHandle {
     pub host_pubkey: String,
+    pub port: u16,
     _shutdown_handle: Option<oneshot::Sender<()>>,
 }
 
@@ -42,6 +43,8 @@ pub async fn spawn(
             .context("error listening on 0.0.0.0:0")?
     };
 
+    let port = listener.local_addr()?.port();
+
     let (tx, rx) = tokio::sync::oneshot::channel();
     tokio::spawn(server.run(
         Arc::new(russh::server::Config {
@@ -54,6 +57,7 @@ pub async fn spawn(
 
     Ok(MockSshServerHandle {
         _shutdown_handle: Some(tx),
+        port,
         host_pubkey,
     })
 }
@@ -167,10 +171,9 @@ impl server::Handler for MockSshHandler {
 
     async fn channel_open_session(
         &mut self,
-        channel: Channel<Msg>,
-        session: &mut Session,
+        _channel: Channel<Msg>,
+        _session: &mut Session,
     ) -> StdResult<bool, Self::Error> {
-        session.data(channel.id(), "\r\nracadm>>".into())?;
         Ok(true)
     }
 
@@ -197,6 +200,20 @@ impl server::Handler for MockSshHandler {
     ) -> StdResult<(), Self::Error> {
         session.channel_success(channel)?;
         Ok(())
+    }
+
+    async fn auth_none(&mut self, user: &str) -> StdResult<Auth, Self::Error> {
+        if user == self.accept_user {
+            Ok(server::Auth::Reject {
+                proceed_with_methods: Some(MethodSet::from([MethodKind::Password].as_slice())),
+                partial_success: false,
+            })
+        } else {
+            Ok(server::Auth::Reject {
+                proceed_with_methods: None,
+                partial_success: false,
+            })
+        }
     }
 
     async fn auth_password(&mut self, user: &str, password: &str) -> StdResult<Auth, Self::Error> {
@@ -232,6 +249,14 @@ impl server::Handler for MockSshHandler {
                 if matches!(self.console_state, ConsoleState::Bmc) {
                     self.console_state = ConsoleState::System;
                 }
+            } else if command.starts_with(b"backdoor_escape_console") {
+                tracing::info!(
+                    "Got command to simulate escaping console in state {:?}: {}",
+                    self.console_state,
+                    String::from_utf8_lossy(&command),
+                );
+                self.console_state = ConsoleState::Bmc;
+                session.data(channel, "\r\nracadm>>".into())?;
             } else {
                 tracing::info!("Got command in state {:?}: {command:?}", self.console_state,);
             }
@@ -244,7 +269,7 @@ impl server::Handler for MockSshHandler {
                     )?;
                 }
                 ConsoleState::Bmc => {
-                    session.data(channel, "\r\nracadm>> ".into())?;
+                    session.data(channel, "\r\nracadm>>".into())?;
                 }
             }
         } else {
@@ -254,7 +279,7 @@ impl server::Handler for MockSshHandler {
                     // ctrl+\
                     if matches!(self.console_state, ConsoleState::System) {
                         self.console_state = ConsoleState::Bmc;
-                        session.data(channel, "\r\nracadm>> ".into())?;
+                        session.data(channel, "\r\nracadm>>".into())?;
                     }
                 }
                 data => {
