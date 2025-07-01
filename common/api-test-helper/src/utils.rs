@@ -12,9 +12,11 @@
 use eyre::Report;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use forge_secrets::forge_vault;
+use forge_secrets::forge_vault::VaultConfig;
 use metrics_endpoint::MetricsSetup;
 use sqlx::{Pool, Postgres, migrate::MigrateDatabase};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::{
     env,
     net::{SocketAddr, TcpListener},
@@ -28,7 +30,8 @@ use tokio::time::sleep;
 use utils::HostPortPair;
 
 use crate::api_server::StartArgs;
-use crate::{api_server, vault, vault::Vault};
+use crate::vault::Vault;
+use crate::{api_server, vault};
 
 lazy_static::lazy_static! {
     pub static ref REPO_ROOT: PathBuf = PathBuf::from(env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")).expect("REPO_ROOT must be set in integration tests"));
@@ -53,6 +56,8 @@ pub struct IntegrationTestEnvironment {
     pub db_url: String,
     pub db_pool: Pool<Postgres>,
     pub metrics: MetricsSetup,
+    pub vault_config: VaultConfig,
+    pub _vault_handle: Arc<Vault>,
 }
 
 pub struct CertPaths {
@@ -66,6 +71,7 @@ pub struct CertPaths {
 impl IntegrationTestEnvironment {
     pub async fn try_from_environment(
         api_server_count: u8,
+        database_name: &str,
     ) -> eyre::Result<Option<IntegrationTestEnvironment>> {
         let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT"))
         else {
@@ -76,10 +82,10 @@ impl IntegrationTestEnvironment {
         };
         let root_dir = PathBuf::from(repo_root.clone());
 
-        // Pick free ports for each API server metrics server. This is still racy, as it's not
-        // guaranteed that the ports will still be available when we start the servers, but it's
-        // better than hardcoding them.
-        let (carbide_api_addrs, carbide_metrics_addrs) = {
+        // Pick free ports for addresses we need. This is still racy, as it's not guaranteed that
+        // the ports will still be available when we start the servers, but it's better than
+        // hardcoding them.
+        let (carbide_api_addrs, carbide_metrics_addrs, vault_addr) = {
             let mut listeners = vec![]; // hold the listeners so that we don't get the same port twice
             let mut api_addrs = vec![];
             let mut metrics_addrs = vec![];
@@ -97,11 +103,30 @@ impl IntegrationTestEnvironment {
                     addr
                 });
             }
-            (api_addrs, metrics_addrs)
+
+            // Pick an address for vault too
+            let vault_addr = {
+                let l = TcpListener::bind("127.0.0.1:0")?;
+                let addr = l.local_addr()?;
+                listeners.push(l);
+                addr
+            };
+
+            (api_addrs, metrics_addrs, vault_addr)
+        };
+
+        let vault = vault::start(vault_addr).await?;
+
+        let vault_config = VaultConfig {
+            address: Some(format!("http://{vault_addr}")),
+            kv_mount_location: Some("secret".to_string()),
+            pki_mount_location: Some("forgeca".to_string()),
+            pki_role_name: Some("forge-cluster".to_string()),
+            token: Some(vault.token.clone()),
         };
 
         // We have to do [sqlx::test] 's work manually here so that we can use a multi-threaded executor
-        let db_url = env::var("DATABASE_URL")? + "/test_integration";
+        let db_url = env::var("DATABASE_URL")? + "/" + database_name;
         drop_pg_database_with_retry_if_exists(&db_url).await?;
         sqlx::Postgres::create_database(&db_url).await?;
         let db_pool = sqlx::Pool::<sqlx::postgres::Postgres>::connect(&db_url).await?;
@@ -109,9 +134,11 @@ impl IntegrationTestEnvironment {
             carbide_api_addrs,
             root_dir,
             carbide_metrics_addrs,
+            vault_config,
             db_url,
             db_pool,
             metrics: metrics_endpoint::new_metrics_setup("carbide-api", "forge-system", true)?, // unique to each test
+            _vault_handle: Arc::new(vault),
         }))
     }
 }
@@ -168,6 +195,8 @@ pub async fn start_api_server(
         root_dir,
         carbide_metrics_addrs,
         metrics,
+        vault_config,
+        _vault_handle,
     } = test_env;
 
     unsafe {
@@ -199,21 +228,12 @@ pub async fn start_api_server(
     // which can also only be initialized once. What a mess.
     // Error is: "attempted to set a logger after the logging system was already initialized"
 
-    let bins = find_prerequisites()?;
-
     let m = sqlx::migrate!("../../api/migrations");
 
     // Dependencies: Postgres, Vault and a Redfish BMC
     m.run(&db_pool).await?;
 
-    // Only run vault once. The first instance will set the VAULT_TOKEN env var, so the second
-    // instance doesn't have to.
-    let (vault_token, _vault_handle) = if addr_index == 0 {
-        let vault = vault::start(bins.get("vault").unwrap())?;
-        (Some(vault.token().to_string()), Some(vault))
-    } else {
-        (None, None)
-    };
+    populate_initial_vault_secrets(&vault_config, &metrics).await?;
 
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
@@ -225,11 +245,11 @@ pub async fn start_api_server(
                 metrics_addr: carbide_metrics_addrs[addr_index],
                 root_dir,
                 db_url,
-                vault_token,
                 bmc_proxy,
                 firmware_directory,
                 stop_channel: stop_rx,
                 ready_channel: ready_tx,
+                vault_config,
             })
             .await
             .inspect_err(|e| {
@@ -239,12 +259,10 @@ pub async fn start_api_server(
     });
 
     ready_rx.await.unwrap();
-    populate_initial_vault_secrets(&metrics).await?;
 
     Ok(ApiServerHandle {
         stop_channel: Some(stop_tx),
         join_handle,
-        _vault_handle,
     })
 }
 
@@ -252,7 +270,6 @@ pub async fn start_api_server(
 pub struct ApiServerHandle {
     stop_channel: Option<Sender<()>>,
     join_handle: JoinHandle<eyre::Result<()>>,
-    _vault_handle: Option<Vault>,
 }
 
 impl ApiServerHandle {
@@ -265,8 +282,12 @@ impl ApiServerHandle {
     }
 }
 
-pub async fn populate_initial_vault_secrets(metrics: &MetricsSetup) -> Result<(), Report> {
-    let vault_client = forge_vault::create_vault_client(metrics.meter.clone()).await?;
+pub async fn populate_initial_vault_secrets(
+    vault_config_overrides: &VaultConfig,
+    metrics: &MetricsSetup,
+) -> Result<(), Report> {
+    let vault_client =
+        forge_vault::create_vault_client(vault_config_overrides, metrics.meter.clone()).await?;
     vault_client
         .set_credentials(
             CredentialKey::BmcCredentials {
@@ -303,7 +324,7 @@ pub async fn populate_initial_vault_secrets(metrics: &MetricsSetup) -> Result<()
     Ok(())
 }
 
-fn find_prerequisites() -> eyre::Result<HashMap<String, PathBuf>> {
+pub fn find_prerequisites() -> eyre::Result<HashMap<String, PathBuf>> {
     let mut bins = HashMap::with_capacity(2);
     let paths: Vec<path::PathBuf> = env::split_paths(&env::var_os("PATH").unwrap()).collect();
     bins.insert("vault", find_first_in("vault", &paths));

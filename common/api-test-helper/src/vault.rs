@@ -9,74 +9,70 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
-use std::io;
-use std::io::BufRead;
-use std::path;
-use std::process;
-use std::sync::mpsc;
-use std::thread;
+use eyre::Context;
+use std::net::SocketAddr;
+use std::process::Stdio;
+use tokio::io::AsyncBufReadExt;
+use tokio::process;
+use tokio::sync::oneshot;
 
 const ROOT_TOKEN: &str = "Root Token";
 
+#[derive(Debug)]
 pub struct Vault {
-    process: process::Child,
-    token: String,
+    pub process: process::Child,
+    pub token: String,
 }
 
-impl Vault {
-    pub fn token(&self) -> &str {
-        &self.token
-    }
-}
+pub async fn start(addr: SocketAddr) -> Result<Vault, eyre::Report> {
+    let bins = crate::utils::find_prerequisites()?;
 
-pub fn start(vault_bin: &path::Path) -> Result<Vault, eyre::Report> {
-    let mut process = process::Command::new(vault_bin)
-        .arg("server")
-        .arg("-dev")
-        .stdout(process::Stdio::piped())
-        .stderr(process::Stdio::piped())
-        .spawn()?;
+    let mut process =
+        tokio::process::Command::new(bins.get("vault").expect("vault command not found in PATH"))
+            .arg("server")
+            .arg("-dev")
+            .arg(format!("-dev-listen-address={addr}"))
+            .env_remove("VAULT_ADDR")
+            .env_remove("VAULT_CLIENT_KEY")
+            .env_remove("VAULT_CLIENT_CERT")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()?;
 
-    let stdout = io::BufReader::new(process.stdout.take().unwrap());
-    let stderr = io::BufReader::new(process.stderr.take().unwrap());
+    let stdout = tokio::io::BufReader::new(process.stdout.take().unwrap());
+    let stderr = tokio::io::BufReader::new(process.stderr.take().unwrap());
 
-    let (sender, receiver) = mpsc::channel();
-    thread::spawn(move || {
-        for line in stdout.lines() {
-            let line = line.unwrap();
+    let (token_tx, token_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let mut lines = stdout.lines();
+        let mut sender = Some(token_tx);
+        while let Some(line) = lines.next_line().await? {
             let mut parts = line.trim().split(':');
             if let Some(left) = parts.next() {
                 if left == ROOT_TOKEN {
-                    let _ = sender.send(parts.next().unwrap().to_string());
+                    if let Some(sender) = sender.take() {
+                        sender.send(parts.next().unwrap().to_string()).ok();
+                    }
                 }
             }
             // there's no logger so can't use tracing
             println!("{}", line);
         }
+        Ok::<(), eyre::Error>(())
     });
-    thread::spawn(move || {
-        for line in stderr.lines() {
+
+    tokio::spawn(async move {
+        let mut lines = stderr.lines();
+        while let Some(line) = lines.next_line().await? {
             // there's no logger so can't use tracing
-            eprintln!("{}", line.unwrap());
+            eprintln!("{}", line);
         }
+        Ok::<(), eyre::Error>(())
     });
 
     // Vault dev prints the token immediately on startup, so block and wait for it
-    let token = receiver.recv()?;
+    let token = token_rx.await.context("waiting for vault token")?;
     Ok(Vault { process, token })
-}
-
-impl Drop for Vault {
-    fn drop(&mut self) {
-        stop_vault(&self.process.id().to_string());
-    }
-}
-
-fn stop_vault(pid: &str) {
-    let mut kill = process::Command::new("kill")
-        .args(["-s", "TERM", pid])
-        .spawn()
-        .expect("'kill' vault");
-    kill.wait().expect("wait");
 }

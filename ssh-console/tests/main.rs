@@ -34,7 +34,7 @@ async fn test_legacy() -> eyre::Result<()> {
     if should_run_integration_tests() {
         legacy::setup().await?;
     }
-    let Some(env) = run_baseline_test_environment().await? else {
+    let Some(env) = run_baseline_test_environment("ssh_console_test_legacy").await? else {
         return Ok(());
     };
 
