@@ -1243,6 +1243,34 @@ pub enum ManagedHost {
     Quarantine(QuarantineAction),
     #[clap(about = "Reset host reprovisioning back to CheckingFirmware")]
     ResetHostReprovisioning(ResetHostReprovisioning),
+    #[clap(subcommand, about = "Power Manager related settings.")]
+    PowerOptions(PowerOptions),
+}
+
+#[derive(Parser, Debug)]
+pub enum PowerOptions {
+    Show(ShowPowerOptions),
+    Update(UpdatePowerOptions),
+}
+
+#[derive(Parser, Debug)]
+pub struct ShowPowerOptions {
+    #[clap(help = "ID of the host or nothing for all")]
+    pub machine: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct UpdatePowerOptions {
+    #[clap(help = "ID of the host")]
+    pub machine: String,
+    #[clap(long, short, help = "Desired Power State")]
+    pub desired_power_state: DesiredPowerState,
+}
+
+#[derive(ValueEnum, Parser, Debug, Clone, PartialEq)]
+pub enum DesiredPowerState {
+    On,
+    Off,
 }
 
 #[derive(Parser, Debug)]

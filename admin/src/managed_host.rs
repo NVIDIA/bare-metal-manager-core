@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::cfg::cli_options::ShowManagedHost;
+use crate::cfg::cli_options::{ShowManagedHost, ShowPowerOptions, UpdatePowerOptions};
 use crate::rpc::ApiClient;
 use ::rpc::{Machine, MachineId};
 use prettytable::{Cell, Row, Table};
+use rpc::forge::PowerOptions;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::fmt::Write;
@@ -555,6 +556,157 @@ pub async fn handle_show(
         output,
         output_format,
         output_options,
+    )
+    .await
+}
+
+pub async fn handle_power_options_show(
+    args: ShowPowerOptions,
+    output_format: OutputFormat,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    if let Some(machine_id) = args.machine {
+        let mut power_options = api_client
+            .get_power_options(vec![machine_id.clone()])
+            .await?;
+        if power_options.len() != 1 {
+            return Err(CarbideCliError::GenericError(format!(
+                "More than one entry is received for id: {machine_id}; Data: {:?}",
+                power_options
+            )));
+        }
+
+        let power_options = power_options.remove(0);
+        handle_power_options_show_one(&power_options, output_format).await?;
+
+        return Ok(());
+    }
+
+    handle_power_options_show_all(output_format, api_client).await
+}
+
+pub async fn handle_power_options_show_one(
+    power_option: &PowerOptions,
+    output_format: OutputFormat,
+) -> CarbideCliResult<()> {
+    if output_format == OutputFormat::Json {
+        println!("{}", serde_json::to_string(power_option).unwrap());
+        return Ok(());
+    }
+    let mut lines = String::new();
+    let width = 35;
+    writeln!(
+        &mut lines,
+        "{:<width$}: {}",
+        "Host ID",
+        power_option
+            .host_id
+            .clone()
+            .map(|x| x.to_string())
+            .unwrap_or_default()
+    )?;
+
+    writeln!(
+        &mut lines,
+        "{:<width$}: {:?}",
+        "Desired Power State",
+        power_option.desired_state()
+    )?;
+
+    writeln!(
+        &mut lines,
+        "{:<width$}: {}",
+        "Desired Power State (Updated at)",
+        power_option
+            .desired_state_updated_at
+            .map(|x| x.to_string())
+            .unwrap_or_default()
+    )?;
+
+    writeln!(
+        &mut lines,
+        "{:<width$}: {:?}",
+        "Actual Power State",
+        power_option.actual_state()
+    )?;
+
+    writeln!(
+        &mut lines,
+        "{:<width$}: {}",
+        "Actual Power State (Updated at)",
+        power_option
+            .actual_state_updated_at
+            .map(|x| x.to_string())
+            .unwrap_or_default()
+    )?;
+
+    print!("{}", lines);
+    Ok(())
+}
+
+pub async fn handle_power_options_show_all(
+    output_format: OutputFormat,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    let mut table = Table::new();
+    let all_options = api_client.get_power_options(vec![]).await?;
+
+    if output_format == OutputFormat::Json {
+        println!("{}", serde_json::to_string(&all_options).unwrap());
+        return Ok(());
+    }
+    let headers = vec!["Host ID", "Desired Power State", "Actual Power State"];
+
+    table.set_titles(Row::new(
+        headers.into_iter().map(Cell::new).collect::<Vec<Cell>>(),
+    ));
+
+    for power_option in all_options {
+        table.add_row(prettytable::row![
+            power_option
+                .host_id
+                .clone()
+                .map(|x| x.to_string())
+                .unwrap_or_default(),
+            format!(
+                "{:?}\n{}",
+                power_option.desired_state(),
+                power_option
+                    .desired_state_updated_at
+                    .map(|x| x.to_string())
+                    .unwrap_or_default()
+            ),
+            format!(
+                "{:?}\n{}",
+                power_option.actual_state(),
+                power_option
+                    .actual_state_updated_at
+                    .map(|x| x.to_string())
+                    .unwrap_or_default()
+            )
+        ]);
+    }
+
+    table.printstd();
+    Ok(())
+}
+
+pub async fn update_power_option(
+    args: UpdatePowerOptions,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    let power_state = match args.desired_power_state {
+        crate::cfg::cli_options::DesiredPowerState::On => ::rpc::forge::PowerState::On,
+        crate::cfg::cli_options::DesiredPowerState::Off => ::rpc::forge::PowerState::Off,
+    };
+    let updated_power_option = api_client
+        .update_power_options(args.machine, power_state)
+        .await?;
+    println!("Power options updated successfully!!");
+    println!("Updated power options are");
+    handle_power_options_show_one(
+        updated_power_option.first().unwrap(),
+        OutputFormat::AsciiTable,
     )
     .await
 }

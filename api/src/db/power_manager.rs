@@ -126,6 +126,9 @@ impl From<PowerOptions> for ::rpc::forge::PowerOptions {
             desired_state_updated_at: Some(value.desired_power_state_version.timestamp().into()),
             actual_state: rpc::forge::PowerState::from(value.last_fetched_power_state) as i32,
             actual_state_updated_at: Some(value.last_fetched_updated_at.into()),
+            host_id: Some(rpc::common::MachineId {
+                id: value.host_id.to_string(),
+            }),
         }
     }
 }
