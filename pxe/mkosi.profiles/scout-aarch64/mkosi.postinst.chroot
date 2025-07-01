@@ -96,3 +96,12 @@ do
     exit 1
   fi
 done
+
+for kern_ver in $(ls -1 /usr/lib/modules)
+do
+  if [ ! -d /usr/src/linux-headers-${kern_ver} ]
+  then
+    echo "ERROR: Kernel headers missing for kernel ${kern_ver}"
+    exit 1
+  fi
+done
