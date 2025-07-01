@@ -18,7 +18,7 @@ use ::rpc::forge::{
     GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
     IdentifySerialRequest, IsBmcInManagedHostResponse, MachineBootOverride, MachineHardwareInfo,
     MachineHardwareInfoUpdateType, NetworkPrefix, NetworkSecurityGroupAttributes,
-    NetworkSegmentCreationRequest, NetworkSegmentType, SshRequest,
+    NetworkSegmentCreationRequest, NetworkSegmentType, PowerState, SshRequest,
     UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest, VpcCreationRequest,
     VpcPeeringDeletionResult, VpcSearchQuery, VpcVirtualizationType,
 };
@@ -1940,5 +1940,42 @@ impl ApiClient {
         }
 
         Ok(all_itypes)
+    }
+
+    pub async fn get_power_options(
+        &self,
+        machine_id: Vec<String>,
+    ) -> CarbideCliResult<Vec<rpc::PowerOptions>> {
+        let all_options = self
+            .0
+            .get_power_options(rpc::PowerOptionRequest {
+                machine_id: machine_id
+                    .into_iter()
+                    .map(|x| ::rpc::common::MachineId { id: x })
+                    .collect::<Vec<::rpc::common::MachineId>>(),
+            })
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .response;
+
+        Ok(all_options)
+    }
+
+    pub async fn update_power_options(
+        &self,
+        machine_id: String,
+        power_state: PowerState,
+    ) -> CarbideCliResult<Vec<rpc::PowerOptions>> {
+        let power_options = self
+            .0
+            .update_power_option(rpc::PowerOptionUpdateRequest {
+                machine_id: Some(::rpc::common::MachineId { id: machine_id }),
+                power_state: power_state as i32,
+            })
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .response;
+
+        Ok(power_options)
     }
 }

@@ -169,6 +169,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.IBPartitionStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.IBPartition", "#[derive(serde::Serialize)]")
         .type_attribute("forge.IBPartitionList", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.PowerOptionResponse",
+            "#[derive(serde::Deserialize, serde::Serialize)]")
+        .type_attribute("forge.PowerOptions",
+            "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute(
             "forge.IpxeOperatingSystem",
             "#[derive(serde::Deserialize, serde::Serialize)]",

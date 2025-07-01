@@ -4660,6 +4660,7 @@ message PowerOptions {
   google.protobuf.Timestamp desired_state_updated_at = 2;
   PowerState actual_state = 3;
   google.protobuf.Timestamp actual_state_updated_at = 4;
+  common.MachineId host_id = 5;
 }
 
 message PowerOptionResponse {

@@ -658,6 +658,19 @@ async fn main() -> color_eyre::Result<()> {
                 };
                 api_client.0.reset_host_reprovisioning(machine_id).await?;
             }
+            ManagedHost::PowerOptions(options) => match options {
+                cfg::cli_options::PowerOptions::Show(show_power_options) => {
+                    managed_host::handle_power_options_show(
+                        show_power_options,
+                        config.format,
+                        &api_client,
+                    )
+                    .await?;
+                }
+                cfg::cli_options::PowerOptions::Update(update_power_options) => {
+                    managed_host::update_power_option(update_power_options, &api_client).await?;
+                }
+            },
         },
         CliCommand::Measurement(cmd) => {
             let args = cfg::measurement::GlobalOptions {
