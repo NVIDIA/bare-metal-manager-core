@@ -125,6 +125,19 @@ def get_vpc_uuid(vpc_name: str, site_uuid: str) -> str:
         raise ForgeNGCError(f"No VPC with name '{vpc_name}' found in site {site_uuid}.")
 
 
+def get_tenant_uuid() -> str:
+    """Get tenant UUID."""
+    ngc_command = ["ngc", "--format_type", "json", "forge", "tenant", "info"]
+    print(f"Executing {ngc_command}")
+    ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
+    if ngc_process.returncode:
+        print(f"ngc stdout: {ngc_process.stdout}")
+        print(f"ngc stderr: {ngc_process.stderr}")
+    ngc_process.check_returncode()
+    data = json.loads(ngc_process.stdout)
+    return data["id"]
+
+
 def wait_for_machine_ready(machine_id: str, site: Site, timeout: int) -> None:
     """Check repeatedly until the specified machine has status Ready (provider view), for up to `timeout` seconds."""
     wait_for_machine_status(machine_id, site, "Ready", timeout)
@@ -414,3 +427,110 @@ def wait_for_vpc_to_not_contain_instance(site_uuid: str, vpc_uuid: str, instance
             time.sleep(60)
     else:
         raise TimeoutError(f"VPC {vpc_uuid} still contains instance {instance_uuid} after {timeout} seconds.\n{instances}")
+
+def get_allocation(site: Site, allocation_name: str) -> dict:
+    ngc_command = [
+        "ngc",
+        "forge",
+        "--format_type",
+        "json",
+        "--org",
+        ENVS[site.environment].provider_org_name,
+        "allocation",
+        "list",
+        allocation_name]
+    print(f"Executing {ngc_command}")
+    ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
+    if ngc_process.returncode:
+        print(f"ngc stdout: {ngc_process.stdout}")
+        print(f"ngc stderr: {ngc_process.stderr}")
+    ngc_process.check_returncode()
+    return json.loads(ngc_process.stdout)[0]
+
+
+def delete_allocation(site: Site, allocation_name: str) -> None:
+    allocation_id = get_allocation(site, allocation_name)["id"]
+    ngc_command = [
+        "ngc",
+        "forge",
+        "--org",
+        ENVS[site.environment].provider_org_name,
+        "allocation",
+        "remove",
+        allocation_id]
+    print(f"Executing {ngc_command}")
+    ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
+    if ngc_process.returncode:
+        print(f"ngc stdout: {ngc_process.stdout}")
+        print(f"ngc stderr: {ngc_process.stderr}")
+    ngc_process.check_returncode()
+
+
+def create_allocation(site: Site, instance_type_id: str, site_id: str, allocation_name: str) -> None:
+    ngc_command = [
+        "ngc",
+        "forge",
+        "--format_type",
+        "json",
+        "--org",
+        ENVS[site.environment].provider_org_name,
+        "allocation",
+        "create",
+        "--constraint-type",
+        "Reserved",
+        "--constraint-value",
+        "1",
+        "--resource",
+        instance_type_id,
+        "--resource-type",
+        "InstanceType",
+        "--site",
+        site_id,
+        "--tenant",
+        get_tenant_uuid(),
+        allocation_name
+    ]
+    print(f"Executing {ngc_command}")
+    ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
+    if ngc_process.returncode:
+        print(f"ngc stdout: {ngc_process.stdout}")
+        print(f"ngc stderr: {ngc_process.stderr}")
+    ngc_process.check_returncode()
+    return json.loads(ngc_process.stdout)
+
+
+def unassign_instance_type(site: Site, machine_id: str) -> None:
+    """Unassign the given instance type from any machines."""
+    ngc_command = [
+        "ngc",
+        "--debug",
+        "forge",
+        "--org",
+        ENVS[site.environment].provider_org_name,
+        "machine",
+        "update",
+        "--clear-instance-type",
+        machine_id]
+    print(f"Executing {ngc_command}")
+    ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
+    if ngc_process.returncode:
+        print(f"ngc stdout: {ngc_process.stdout}")
+        print(f"ngc stderr: {ngc_process.stderr}")
+    ngc_process.check_returncode()
+
+
+def assign_instance_type(site: Site, instance_type_uuid: str, machine_id: str) -> None:
+    """Assign the given instance type to the given machine."""
+    ngc_command = [
+        "ngc",
+        "forge",
+        "--org",
+        ENVS[site.environment].provider_org_name,
+        "instance-type",
+        "assign", "--machine", machine_id, instance_type_uuid]
+    print(f"Executing {ngc_command}")
+    ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
+    if ngc_process.returncode:
+        print(f"ngc stdout: {ngc_process.stdout}")
+        print(f"ngc stderr: {ngc_process.stderr}")
+    ngc_process.check_returncode()
