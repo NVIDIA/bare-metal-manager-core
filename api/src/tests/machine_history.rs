@@ -1,3 +1,4 @@
+use crate::db::power_manager::PowerOptions;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -212,6 +213,8 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .unwrap();
 
     assert_eq!(machine.history.len(), 250);
+    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    assert!(!power_entry.is_empty());
 
     // Test whether history is retrievable for a forced deleted Machine
     env.api
@@ -233,6 +236,10 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             .machines
             .is_empty()
     );
+
+    let mut txn = env.pool.begin().await?;
+    let power_entry = PowerOptions::get_all(&mut txn).await?;
+    assert!(power_entry.is_empty());
 
     let mut rpc_histories = env
         .api

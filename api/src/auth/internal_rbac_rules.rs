@@ -424,6 +424,8 @@ impl InternalRBACRules {
         x.perm("DeleteVpcPeering", vec![ForgeAdminCLI]);
         x.perm("ResetHostReprovisioning", vec![ForgeAdminCLI]);
         x.perm("CopyBfbToDpuRshim", vec![ForgeAdminCLI]);
+        x.perm("GetPowerOptions", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("UpdatePowerOption", vec![ForgeAdminCLI, SiteAgent]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {
