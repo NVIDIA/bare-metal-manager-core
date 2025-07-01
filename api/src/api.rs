@@ -18,6 +18,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use crate::db::attestation as db_attest;
+use crate::db::power_manager::PowerOptions;
 use crate::handlers::instance;
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::model::metadata::Metadata;
@@ -2632,6 +2633,162 @@ impl Forge for Api {
         request: tonic::Request<rpc::IdentifySerialRequest>,
     ) -> Result<tonic::Response<rpc::IdentifySerialResponse>, tonic::Status> {
         crate::handlers::finder::identify_serial(self, request).await
+    }
+
+    async fn get_power_options(
+        &self,
+        request: tonic::Request<rpc::PowerOptionRequest>,
+    ) -> Result<tonic::Response<rpc::PowerOptionResponse>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+        let mut machine_ids = vec![];
+        for machine_id in &req.machine_id {
+            let machine_id = try_parse_machine_id(machine_id).map_err(CarbideError::from)?;
+            machine_ids.push(machine_id);
+        }
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin update_power_options ",
+                e,
+            ))
+        })?;
+
+        let power_options = if machine_ids.is_empty() {
+            PowerOptions::get_all(&mut txn).await
+        } else {
+            PowerOptions::get_by_ids(&machine_ids, &mut txn).await
+        }
+        .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "end update_power_option",
+                e,
+            ))
+        })?;
+
+        Ok(tonic::Response::new(rpc::PowerOptionResponse {
+            response: power_options
+                .into_iter()
+                .map(|x| x.into())
+                .collect::<Vec<rpc::PowerOptions>>(),
+        }))
+    }
+
+    async fn update_power_option(
+        &self,
+        request: tonic::Request<rpc::PowerOptionUpdateRequest>,
+    ) -> Result<tonic::Response<rpc::PowerOptionResponse>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let machine_id = req.machine_id.as_ref();
+
+        let machine_id = try_parse_machine_id(
+            machine_id.ok_or_else(|| Status::invalid_argument("Machine ID is missing"))?,
+        )
+        .map_err(CarbideError::from)?;
+
+        if machine_id.machine_type().is_dpu() {
+            return Err(tonic::Status::invalid_argument(
+                "Only host id is expected!!",
+            ));
+        }
+
+        log_machine_id(&machine_id);
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin update_power_options ",
+                e,
+            ))
+        })?;
+
+        let current_power_state = PowerOptions::get_by_ids(&[machine_id], &mut txn)
+            .await
+            .map_err(CarbideError::from)?;
+
+        // This should never happen until machine is not forced-deleted or does not exist.
+        let Some(current_power_options) = current_power_state.first() else {
+            return Err(tonic::Status::invalid_argument(
+                "Only host id is expected!!",
+            ));
+        };
+
+        let desired_power_state = req.power_state();
+
+        // if desired_state == Off, maintenance must be set.
+        if matches!(desired_power_state, rpc::PowerState::Off) {
+            let snapshot = db::managed_host::load_snapshot(
+                &mut txn,
+                &machine_id,
+                LoadSnapshotOptions {
+                    include_history: false,
+                    include_instance_data: false,
+                    host_health_config: self.runtime_config.host_health,
+                },
+            )
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            })?;
+
+            // Start reprovisioning only if the host has an HostUpdateInProgress health alert
+            let update_alert = snapshot
+                .aggregate_health
+                .alerts
+                .iter()
+                .find(|a| a.id == health_report::HealthProbeId::internal_maintenance());
+            if !update_alert.is_some_and(|alert| {
+                alert.classifications.contains(
+                    &health_report::HealthAlertClassification::suppress_external_alerting(),
+                )
+            }) {
+                return Err(Status::invalid_argument(
+                    "Machine must have a 'Maintenance' Health Alert with 'SupressExternalAlerting' classification.",
+                ));
+            }
+        }
+
+        // To avoid unnecessary version increment.
+        let desired_power_state = desired_power_state.into();
+        if desired_power_state == current_power_options.desired_power_state {
+            return Err(tonic::Status::invalid_argument(format!(
+                "Power State is already set as {:?}. No change is performed.",
+                desired_power_state
+            )));
+        }
+
+        let updated_value = db::power_manager::PowerOptions::update_desired_state(
+            &machine_id,
+            desired_power_state,
+            &current_power_options.desired_power_state_version,
+            &mut txn,
+        )
+        .await
+        .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "end update_power_option",
+                e,
+            ))
+        })?;
+
+        Ok(tonic::Response::new(rpc::PowerOptionResponse {
+            response: vec![updated_value.into()],
+        }))
     }
 
     /// Trigger DPU reprovisioning

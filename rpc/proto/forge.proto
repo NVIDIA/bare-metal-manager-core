@@ -513,6 +513,10 @@ service Forge {
   rpc ResetHostReprovisioning(common.MachineId) returns (google.protobuf.Empty);
   // Copy BFB to DPU's RSHIM
   rpc CopyBfbToDpuRshim(CopyBfbToDpuRshimRequest) returns (google.protobuf.Empty);
+
+  // Power Options
+  rpc GetPowerOptions(PowerOptionRequest) returns (PowerOptionResponse);
+  rpc UpdatePowerOption(PowerOptionUpdateRequest) returns (PowerOptionResponse);
 }
 
 message TpmCaAddedCaStatus{
@@ -4635,4 +4639,29 @@ message SkusByIdsRequest {
 }
 
 message SkuSearchFilter {
+}
+
+message PowerOptionRequest {
+  repeated common.MachineId machine_id = 1;
+}
+
+enum PowerState {
+  On = 0;
+  Off = 1;
+}
+
+message PowerOptionUpdateRequest {
+  common.MachineId machine_id = 1;
+  PowerState power_state = 2;
+}
+
+message PowerOptions {
+  PowerState desired_state = 1;
+  google.protobuf.Timestamp desired_state_updated_at = 2;
+  PowerState actual_state = 3;
+  google.protobuf.Timestamp actual_state_updated_at = 4;
+}
+
+message PowerOptionResponse {
+  repeated PowerOptions response = 1;
 }

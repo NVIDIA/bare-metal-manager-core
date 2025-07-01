@@ -42,6 +42,7 @@ mod machine_interface_addresses;
 mod machine_interfaces;
 mod machine_metadata;
 mod machine_network;
+mod machine_power;
 mod machine_state_controller;
 mod machine_states;
 mod machine_topology;

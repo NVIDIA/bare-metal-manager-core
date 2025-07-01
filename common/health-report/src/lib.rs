@@ -504,6 +504,12 @@ impl HealthProbeId {
     pub fn sku_validation() -> Self {
         HealthProbeId("SkuValidation".to_string())
     }
+
+    /// The ID is used to mark host under internal maintenance.
+    /// This is mandatory if tenant wants to turn off the machine.
+    pub fn internal_maintenance() -> Self {
+        HealthProbeId("Maintenance".to_string())
+    }
 }
 
 impl std::fmt::Debug for HealthProbeId {

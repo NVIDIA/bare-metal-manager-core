@@ -38,6 +38,7 @@ use uuid::Uuid;
 use super::{DatabaseError, ObjectFilter, queries};
 use crate::db;
 use crate::db::machine_topology::MachineTopology;
+use crate::db::power_manager::PowerOptions;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::MachineInventory;
@@ -1431,6 +1432,11 @@ pub async fn create(
             id: stable_machine_id.to_string(),
         })?;
     advance(&machine, txn, state, None).await?;
+
+    // Create a entry in power_options table as well.
+    if !machine.is_dpu() {
+        PowerOptions::create(&machine.id, txn).await?;
+    }
     Ok(machine)
 }
 

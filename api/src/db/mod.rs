@@ -44,6 +44,7 @@ pub mod network_prefix;
 pub mod network_security_group;
 pub mod network_segment;
 pub mod network_segment_state_history;
+pub mod power_manager;
 pub mod predicted_machine_interface;
 pub mod queries;
 pub mod resource_pool;
