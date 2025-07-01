@@ -1024,10 +1024,16 @@ enum TenantState {
   // an instance might enter a FAILED state before even fully activating, in case
   // activation failed.
   FAILED = 5;
+
+  // Deprecated in favor of `UPDATING`
   // DPU is being reprovisioned.
   DPU_REPROVISIONING = 6;
+  // Deprecated in favor of `UPDATING`
   // Host is doing firmware updates
   HOST_REPROVISIONING = 7;
+
+  // Host or DPU firmware updates
+  UPDATING = 8;
 }
 
 // Describe the desired configuration of an IBPartition
