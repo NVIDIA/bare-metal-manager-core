@@ -38,12 +38,13 @@ fn setup() {
 
 /// Run multiple machine-a-tron integration tests in parallel against a shared carbide API instance.
 #[tokio::test(flavor = "multi_thread")]
-#[serial_test::serial] // These tests drop/create a postgres database, prevent them from running concurrently
 async fn test_integration() -> eyre::Result<()> {
     // NOTE: These tests run two carbide-api servers, and the clients are configured to randomly
     // switch between them on every API call. This helps prevent issues that arise when multiple API
     // severs may be running in production.
-    let Some(test_env) = IntegrationTestEnvironment::try_from_environment(2).await? else {
+    let Some(test_env) =
+        IntegrationTestEnvironment::try_from_environment(2, "api_server_test_integration").await?
+    else {
         return Ok(());
     };
 
@@ -142,9 +143,11 @@ async fn test_integration() -> eyre::Result<()> {
 /// Run integration tests with machine-a-tron, asserting on metrics. This has to run as its own
 /// test, to make the values in the metrics buckets predictable.
 #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
-#[serial_test::serial] // This test is separate from
 async fn test_metrics_integration() -> eyre::Result<()> {
-    let Some(test_env) = IntegrationTestEnvironment::try_from_environment(1).await? else {
+    let Some(test_env) =
+        IntegrationTestEnvironment::try_from_environment(1, "api_server_test_metrics_integration")
+            .await?
+    else {
         return Ok(());
     };
 
@@ -156,6 +159,8 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         db_pool,
         metrics: _,
         db_url: _,
+        vault_config: _,
+        _vault_handle,
     } = test_env.clone();
 
     let bmc_address_registry = BmcMockRegistry::default();

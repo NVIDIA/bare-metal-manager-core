@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use crate::utils::LOCALHOST_CERTS;
+use forge_secrets::forge_vault::VaultConfig;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use tokio::sync::oneshot::{Receiver, Sender};
@@ -23,11 +24,11 @@ pub struct StartArgs {
     pub metrics_addr: SocketAddr,
     pub root_dir: PathBuf,
     pub db_url: String,
-    pub vault_token: Option<String>,
     pub bmc_proxy: Option<HostPortPair>,
     pub firmware_directory: PathBuf,
     pub stop_channel: Receiver<()>,
     pub ready_channel: Sender<()>,
+    pub vault_config: VaultConfig,
 }
 
 pub async fn start(
@@ -37,23 +38,13 @@ pub async fn start(
         metrics_addr,
         root_dir,
         db_url,
-        vault_token,
         bmc_proxy,
         firmware_directory,
         stop_channel,
         ready_channel,
+        vault_config,
     }: StartArgs,
 ) -> eyre::Result<()> {
-    unsafe {
-        std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");
-        std::env::set_var("VAULT_KV_MOUNT_LOCATION", "secret");
-        std::env::set_var("VAULT_PKI_MOUNT_LOCATION", "forgeca");
-        std::env::set_var("VAULT_PKI_ROLE_NAME", "forge-cluster");
-        if let Some(vault_token) = vault_token {
-            std::env::set_var("VAULT_TOKEN", vault_token);
-        }
-    }
-
     let firmware_directory_str = firmware_directory.to_string_lossy();
     let root_dir_str = root_dir.to_string_lossy();
 
@@ -231,6 +222,7 @@ pub async fn start(
         0,
         carbide_config_str,
         None,
+        vault_config,
         true,
         stop_channel,
         ready_channel,

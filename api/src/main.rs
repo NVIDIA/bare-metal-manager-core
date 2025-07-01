@@ -12,6 +12,7 @@
 
 use carbide::{Command, Options};
 use clap::CommandFactory;
+use forge_secrets::forge_vault::VaultConfig;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use std::path::Path;
@@ -60,7 +61,16 @@ async fn main() -> eyre::Result<()> {
 
             let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
             let (ready_tx, _ready_rx) = tokio::sync::oneshot::channel();
-            carbide::run(debug, config_str, site_config_str, false, stop_rx, ready_tx).await?;
+            carbide::run(
+                debug,
+                config_str,
+                site_config_str,
+                VaultConfig::default(),
+                false,
+                stop_rx,
+                ready_tx,
+            )
+            .await?;
         }
     }
     Ok(())

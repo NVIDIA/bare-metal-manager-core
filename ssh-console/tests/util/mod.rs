@@ -74,12 +74,15 @@ pub fn should_run_integration_tests() -> bool {
 /// Runs a baseline test environment for comparing results for leagacy ssh-console and (soon) new
 /// ssh-console. Adds to api_test_helper's IntegrationTestEnvironment by running an ipmi_sim and a
 /// machine-a-tron environment with 2 machines. Also creates tenants/orgs/instances.
-pub async fn run_baseline_test_environment() -> eyre::Result<Option<BaselineTestEnvironment>> {
+pub async fn run_baseline_test_environment(
+    database_name: &str,
+) -> eyre::Result<Option<BaselineTestEnvironment>> {
     if !should_run_integration_tests() {
         tracing::info!("Skipping ssh-console tests, RUN_SSH_CONSOLE_TESTS is not set");
         return Ok(None);
     }
-    let Some(test_env) = IntegrationTestEnvironment::try_from_environment(1).await? else {
+    let Some(test_env) = IntegrationTestEnvironment::try_from_environment(1, database_name).await?
+    else {
         return Ok(None);
     };
 

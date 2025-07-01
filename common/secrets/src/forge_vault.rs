@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use eyre::WrapErr;
+use eyre::{ContextCompat, WrapErr};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter};
 use rand::Rng;
@@ -517,21 +517,63 @@ impl CertificateProvider for ForgeVaultClient {
     }
 }
 
-pub async fn create_vault_client(meter: Meter) -> eyre::Result<Arc<ForgeVaultClient>> {
-    let vault_address = env::var("VAULT_ADDR").wrap_err("VAULT_ADDR")?;
-    let kv_mount_location =
-        env::var("VAULT_KV_MOUNT_LOCATION").wrap_err("VAULT_KV_MOUNT_LOCATION")?;
-    let pki_mount_location =
-        env::var("VAULT_PKI_MOUNT_LOCATION").wrap_err("VAULT_PKI_MOUNT_LOCATION")?;
-    let pki_role_name = env::var("VAULT_PKI_ROLE_NAME").wrap_err("VAULT_PKI_ROLE_NAME")?;
+#[derive(Default, Debug, Clone)]
+pub struct VaultConfig {
+    pub address: Option<String>,
+    pub kv_mount_location: Option<String>,
+    pub pki_mount_location: Option<String>,
+    pub pki_role_name: Option<String>,
+    pub token: Option<String>,
+}
 
+impl VaultConfig {
+    pub fn address(&self) -> eyre::Result<String> {
+        self.address
+            .clone()
+            .or(env::var("VAULT_ADDR").ok())
+            .context("VAULT_ADDR")
+    }
+
+    pub fn kv_mount_location(&self) -> eyre::Result<String> {
+        self.kv_mount_location
+            .clone()
+            .or(env::var("VAULT_KV_MOUNT_LOCATION").ok())
+            .context("VAULT_KV_MOUNT_LOCATION")
+    }
+
+    pub fn pki_mount_location(&self) -> eyre::Result<String> {
+        self.pki_mount_location
+            .clone()
+            .or(env::var("VAULT_PKI_MOUNT_LOCATION").ok())
+            .context("VAULT_PKI_MOUNT_LOCATION")
+    }
+
+    pub fn pki_role_name(&self) -> eyre::Result<String> {
+        self.pki_role_name
+            .clone()
+            .or(env::var("VAULT_PKI_ROLE_NAME").ok())
+            .context("VAULT_PKI_ROLE_NAME")
+    }
+
+    pub fn token(&self) -> eyre::Result<String> {
+        self.token
+            .clone()
+            .or(env::var("VAULT_TOKEN").ok())
+            .context("VAULT_TOKEN")
+    }
+}
+
+pub async fn create_vault_client(
+    vault_config: &VaultConfig,
+    meter: Meter,
+) -> eyre::Result<Arc<ForgeVaultClient>> {
     let vault_root_ca_path = "/var/run/secrets/forge-roots/ca.crt".to_string();
     let service_account_token_path =
         Path::new("/var/run/secrets/kubernetes.io/serviceaccount/token");
     let auth_type = if service_account_token_path.exists() {
         ForgeVaultAuthenticationType::ServiceAccount(service_account_token_path.to_owned())
     } else {
-        ForgeVaultAuthenticationType::Root(env::var("VAULT_TOKEN").wrap_err("VAULT_TOKEN")?)
+        ForgeVaultAuthenticationType::Root(vault_config.token()?)
     };
 
     let vault_requests_total_counter = meter
@@ -569,10 +611,10 @@ pub async fn create_vault_client(meter: Meter) -> eyre::Result<Arc<ForgeVaultCli
 
     let vault_client_config = ForgeVaultClientConfig {
         auth_type,
-        vault_address,
-        kv_mount_location,
-        pki_mount_location,
-        pki_role_name,
+        vault_address: vault_config.address()?,
+        kv_mount_location: vault_config.kv_mount_location()?,
+        pki_mount_location: vault_config.pki_mount_location()?,
+        pki_role_name: vault_config.pki_role_name()?,
         vault_root_ca_path,
     };
 

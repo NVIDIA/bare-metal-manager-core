@@ -20,6 +20,7 @@ use crate::redfish::RedfishClientPoolImpl;
 use crate::{CarbideError, dynamic_settings, setup};
 use eyre::WrapErr;
 use forge_secrets::forge_vault;
+use forge_secrets::forge_vault::VaultConfig;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::{Receiver, Sender};
@@ -30,6 +31,7 @@ pub async fn run(
     debug: u8,
     config_str: String,
     site_config_str: Option<String>,
+    vault_config: VaultConfig,
     skip_logging_setup: bool,
     stop_channel: Receiver<()>,
     ready_channel: Sender<()>,
@@ -104,7 +106,8 @@ pub async fn run(
         "Start carbide-api",
     );
 
-    let vault_client = forge_vault::create_vault_client(metrics.meter.clone()).await?;
+    let vault_client =
+        forge_vault::create_vault_client(&vault_config, metrics.meter.clone()).await?;
     let redfish_pool = {
         let rf_pool = libredfish::RedfishClientPool::builder()
             .build()
