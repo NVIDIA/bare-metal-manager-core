@@ -42,6 +42,7 @@ class TestConfig:
     dpu_fw_downgrade: bool
     fw_downgrade_version: str | None
     skip_postingestion_checks: bool
+    post_ingestion_cycles: int
 
 @dataclass
 class SiteConfig:
@@ -97,7 +98,6 @@ def main():
     # Collect machine capabilities before ingestion (currently only tested in QA2)
     if test_config.site_under_test == "pdx-qa2-new":
         machine_capabilities = capabilities_generator.generate_capabilities([test_config.machine_under_test])
-
     # Optional DPU firmware downgrade step
     if test_config.dpu_fw_downgrade:
         perform_firmware_downgrade(test_config, site_config, machine_info)
@@ -122,13 +122,26 @@ def main():
             admin_cli
         )
 
+    ngc.delete_allocation(
+        site_config.site,
+        f"machine-lifecycle-test-{test_config.machine_sku}"
+    )
+    ngc.unassign_instance_type(site_config.site, test_config.machine_under_test)
+    ngc.assign_instance_type(site_config.site, ngc_uuids.instance_type_uuid, test_config.machine_under_test)
+    ngc.create_allocation(
+        site_config.site,
+        ngc_uuids.instance_type_uuid,
+        ngc_uuids.site_uuid,
+        f"machine-lifecycle-test-{test_config.machine_sku}"
+    )
     if not test_config.skip_postingestion_checks:
-        print("Running post-ingestion checks")
-        # Create an instance, wait for it to be ready, and verify SSH access
-        instance_uuid = create_instance_and_verify(test_config, site_config, ngc_uuids)
+        for cnt in range(test_config.post_ingestion_cycles):
+            print(f"Running post-ingestion checks cycle {cnt + 1} of {test_config.post_ingestion_cycles}")
+            # Create an instance, wait for it to be ready, and verify SSH access
+            instance_uuid = create_instance_and_verify(test_config, site_config, ngc_uuids)
 
-        # Delete the instance and wait for return to 'Ready'
-        delete_instance_and_verify(test_config, ngc_uuids, instance_uuid)
+            # Delete the instance and wait for return to 'Ready'
+            delete_instance_and_verify(test_config, ngc_uuids, instance_uuid)
     else:
         print("Skipping post-ingestion checks")
 
@@ -152,7 +165,7 @@ def _error_and_exit(message: str, set_maintenance: bool = False, machine_id: str
 
 def setup_test_config() -> TestConfig:
     """Validate test parameters and setup configuration.
-    
+
     Returns:
         TestConfig: Validated configuration for the test
     """
@@ -189,6 +202,8 @@ def setup_test_config() -> TestConfig:
     # Set env var for use by forge-admin-cli
     os.environ["CARBIDE_API_URL"] = f"https://api-{short_site_name}.frg.nvidia.com"
 
+    post_ingestion_cycles = int(os.environ.get("POST_INGESTION_CYCLES", "1"))
+
     return TestConfig(
         site_under_test=site_under_test,
         short_site_name=short_site_name,
@@ -198,7 +213,8 @@ def setup_test_config() -> TestConfig:
         dpu_fw_downgrade=dpu_fw_downgrade,
         fw_downgrade_version=fw_downgrade_version,
         skip_postingestion_checks=skip_postingestion_checks,
-        machine_sku=machine_sku
+        machine_sku=machine_sku,
+        post_ingestion_cycles=post_ingestion_cycles
     )
 
 
@@ -327,13 +343,8 @@ def collect_ngc_uuids(test_config: TestConfig, site_config: SiteConfig) -> NGCUU
     Returns:
         NGCUUIDs: Object containing all required UUIDs
     """
-    if test_config.machine_sku is not None:
-        instance_type_name = f"machine-lifecycle-test-{test_config.machine_sku}"
-    else:
-        if test_config.expected_dpu_count == 1:
-            instance_type_name = "machine-lifecycle-test"
-        elif test_config.expected_dpu_count == 2:
-            instance_type_name = "machine-lifecycle-test-dual-dpu"
+
+    instance_type_name = f"machine-lifecycle-test-{test_config.machine_sku}"
     vpc_name = "machine-lifecycle-test-vpc"
     subnet_name = "machine-lifecycle-test-subnet"
     os_name = "machine-lifecycle-test-os"
