@@ -107,6 +107,7 @@ pub(crate) async fn get(
     Ok(tonic::Response::new(rpc::BmcMetaDataGetResponse {
         ip: bmc_endpoint_request.ip_address,
         port: None,
+        ssh_port: None,
         mac: bmc_mac_address.to_string(),
         user: username,
         password,

@@ -11,33 +11,63 @@
  */
 
 use crate::util::ipmi_sim::IpmiSimHandle;
-use crate::util::machine_a_tron::MachineATronTestHandle;
 use crate::util::ssh_client::ConnectionConfig;
-use crate::{TENANT_SSH_KEY_PATH, TENANT_SSH_PUBKEY};
-use api_test_helper::utils::{ApiServerHandle, REPO_ROOT, start_api_server};
-use api_test_helper::{IntegrationTestEnvironment, domain, subnet, tenant, vpc};
-use std::env;
-use std::net::{Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
+use crate::{ADMIN_SSH_KEY_PATH, TENANT_SSH_KEY_PATH, TENANT_SSH_PUBKEY};
+use bmc_mock::HostnameQuerying;
+use eyre::Context;
+use forge_uuid::machine::{MachineIdSource, MachineType};
+use futures::future::join_all;
+use machine_a_tron::MockSshServerHandle;
+use ssh_console_mock_api_server::{MockApiServerHandle, MockHost};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
-use temp_dir::TempDir;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use uuid::Uuid;
 
 pub mod ipmi_sim;
 pub mod legacy;
-pub mod machine_a_tron;
 pub mod ssh_client;
 
-lazy_static::lazy_static! {
-    pub static ref BMC_MOCK_CERTS_DIR: PathBuf = REPO_ROOT
-        .join("dev/bmc-mock")
-        .canonicalize()
-        .unwrap();
-    pub static ref LOCALHOST_CERTS_DIR: PathBuf = REPO_ROOT
-        .join("dev/certs/localhost")
-        .canonicalize()
-        .unwrap();
+pub mod fixtures {
+    use api_test_helper::utils::REPO_ROOT;
+    use std::path::PathBuf;
+
+    lazy_static::lazy_static! {
+        pub static ref BMC_MOCK_CERTS_DIR: PathBuf = REPO_ROOT
+            .join("dev/bmc-mock")
+            .canonicalize()
+            .unwrap();
+        pub static ref LOCALHOST_CERTS_DIR: PathBuf = REPO_ROOT
+            .join("dev/certs/localhost")
+            .canonicalize()
+            .unwrap();
+        pub static ref SSH_HOST_PUBKEY: PathBuf = REPO_ROOT
+            .join("ssh-console/tests/fixtures/ssh_host_ed25519_key.pub")
+            .canonicalize()
+            .unwrap();
+        pub static ref AUTHORIZED_KEYS_PATH: PathBuf = REPO_ROOT
+            .join("ssh-console/tests/fixtures/authorized_keys")
+            .canonicalize()
+            .unwrap();
+        pub static ref SSH_HOST_KEY: PathBuf = REPO_ROOT
+            .join("ssh-console/tests/fixtures/ssh_host_ed25519_key")
+            .canonicalize()
+            .unwrap();
+        pub static ref API_CA_CERT: PathBuf = REPO_ROOT
+            .join("dev/certs/localhost/ca.crt")
+            .canonicalize()
+            .unwrap();
+        pub static ref API_CLIENT_CERT: PathBuf = REPO_ROOT
+            .join("dev/certs/localhost/client.crt")
+            .canonicalize()
+            .unwrap();
+        pub static ref API_CLIENT_KEY: PathBuf = REPO_ROOT
+            .join("dev/certs/localhost/client.key")
+            .canonicalize()
+            .unwrap();
+    }
 }
 
 pub fn log_stdout_and_stderr(process: &mut tokio::process::Child, prefix: &str) {
@@ -65,84 +95,82 @@ pub fn log_stdout_and_stderr(process: &mut tokio::process::Child, prefix: &str) 
     });
 }
 
-pub fn should_run_integration_tests() -> bool {
-    env::var("RUN_SSH_CONSOLE_TESTS")
-        .map(|s| s == "1")
-        .unwrap_or(false)
-}
-
 /// Runs a baseline test environment for comparing results for leagacy ssh-console and (soon) new
 /// ssh-console. Adds to api_test_helper's IntegrationTestEnvironment by running an ipmi_sim and a
 /// machine-a-tron environment with 2 machines. Also creates tenants/orgs/instances.
 pub async fn run_baseline_test_environment(
-    database_name: &str,
+    machine_count: u8,
 ) -> eyre::Result<Option<BaselineTestEnvironment>> {
-    if !should_run_integration_tests() {
-        tracing::info!("Skipping ssh-console tests, RUN_SSH_CONSOLE_TESTS is not set");
-        return Ok(None);
-    }
-    let Some(test_env) = IntegrationTestEnvironment::try_from_environment(1, database_name).await?
-    else {
-        return Ok(None);
-    };
-
-    let carbide_api_addrs = test_env.carbide_api_addrs.clone();
-
     // Run ipmi_sim
     let ipmi_sim_handle = ipmi_sim::run().await?;
 
-    // Run carbide-api
-    let empty_firmware_dir = temp_dir::TempDir::with_prefix("firmware")?;
-    let api_server_handle = start_api_server(
-        test_env.clone(),
-        None,
-        empty_firmware_dir.path().to_path_buf(),
-        0,
-        false,
-    )
-    .await?;
+    let machine_ids = (0..machine_count)
+        .map(|_| {
+            forge_uuid::machine::MachineId::new(
+                MachineIdSource::Tpm,
+                rand::random(),
+                MachineType::Host,
+            )
+        })
+        .collect::<Vec<_>>();
 
-    // Create VPC/tenant/etc
-    let org_id = "MyOrg";
-    let tenant_keyset_id = Uuid::new_v4();
-    tenant::create(&carbide_api_addrs, org_id, "tenant-1").await?;
-    tenant::keyset::create(
-        &carbide_api_addrs,
-        org_id,
-        tenant_keyset_id,
-        &[TENANT_SSH_PUBKEY],
-    )
-    .await?;
-    let tenant1_vpc = vpc::create(&carbide_api_addrs).await?;
-    let domain_id = domain::create(&carbide_api_addrs, "tenant-1.local").await?;
-    subnet::create(&carbide_api_addrs, &tenant1_vpc, &domain_id, 11, true).await?;
-    let managed_segment_id =
-        subnet::create(&carbide_api_addrs, &tenant1_vpc, &domain_id, 10, false).await?;
+    let ssh_server_handles: Vec<MockSshServerHandle> = join_all((0..machine_count).map(|i| {
+        machine_a_tron::spawn_mock_ssh_server(
+            IpAddr::from_str("127.0.0.1").unwrap(),
+            None,
+            Arc::new(KnownHostname(machine_ids[i as usize].to_string())),
+            "root".to_string(),
+            "password".to_string(),
+        )
+    }))
+    .await
+    .into_iter()
+    .collect::<Result<_, _>>()
+    .context("Error spawning mock SSH server")?;
 
-    // Run machine-a-tron to get working host/dpus with their own mock BMC's
-    let mat_handle = machine_a_tron::run(
-        2,
-        carbide_api_addrs[0].port(),
-        Ipv4Addr::new(10, 10, 11, 2),
-        &managed_segment_id,
-        &[&tenant_keyset_id.to_string()],
-    )
-    .await?;
+    let mock_hosts: Vec<MockHost> = machine_ids
+        .iter()
+        .enumerate()
+        .map(|(i, machine_id)| MockHost {
+            machine_id: *machine_id,
+            instance_id: Uuid::new_v4(),
+            tenant_public_key: TENANT_SSH_PUBKEY.to_string(),
+            sys_vendor: "Dell".to_string(),
+            bmc_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            bmc_ssh_port: ssh_server_handles[i].port,
+            bmc_user: "root".to_string(),
+            bmc_password: "password".to_string(),
+        })
+        .collect();
+
+    let api_server_handle = ssh_console_mock_api_server::MockApiServer {
+        mock_hosts: mock_hosts.clone(),
+    }
+    .spawn()
+    .await
+    .context("error spawning mock API server")?;
 
     Ok(Some(BaselineTestEnvironment {
-        mat_handle,
-        test_env,
-        _api_server_handle: api_server_handle,
-        _empty_firmware_dir: empty_firmware_dir,
+        mock_api_server: api_server_handle,
+        mock_ssh_servers: ssh_server_handles,
+        mock_hosts,
         _ipmi_sim_handle: ipmi_sim_handle,
     }))
 }
 
+#[derive(Debug)]
+struct KnownHostname(String);
+
+impl HostnameQuerying for KnownHostname {
+    fn get_hostname(&self) -> String {
+        self.0.clone()
+    }
+}
+
 pub struct BaselineTestEnvironment {
-    pub mat_handle: MachineATronTestHandle,
-    pub test_env: IntegrationTestEnvironment,
-    _api_server_handle: ApiServerHandle,
-    _empty_firmware_dir: TempDir,
+    pub mock_api_server: MockApiServerHandle,
+    pub mock_hosts: Vec<MockHost>,
+    pub mock_ssh_servers: Vec<MockSshServerHandle>,
     _ipmi_sim_handle: IpmiSimHandle,
 }
 
@@ -151,43 +179,73 @@ impl BaselineTestEnvironment {
         &self,
         addr: SocketAddr,
         connection_name: &str,
+        assertions: &[BaselineTestAssertion],
     ) -> eyre::Result<()> {
         // Test each machine through legacy ssh-console
-        for (i, machine) in self.mat_handle.machines.iter().enumerate() {
-            let machine_id = machine.observed_machine_id().unwrap().id;
-            let instance_id = &self.mat_handle.instance_ids[i];
-            let expected_prompt = format!("root@{} # ", machine_id);
+        for (i, mock_host) in self.mock_hosts.iter().enumerate() {
+            let expected_prompt = format!("root@{} # ", mock_host.machine_id).into_bytes();
 
-            ssh_client::assert_connection_works_with_retries_and_timeout(
-                ConnectionConfig {
-                    connection_name: "legacy ssh-console to host",
-                    user: &machine_id,
-                    private_key_path: &TENANT_SSH_KEY_PATH,
-                    addr,
-                    expected_prompt: &expected_prompt,
-                },
-                // The legacy ssh-console tends to take a few retries right after it boots up. After the
-                // first machine works, don't do any more retries.
-                if i == 0 { 5 } else { 0 },
-                Duration::from_secs(10),
-            )
-            .await?;
+            for assertion in assertions {
+                match assertion {
+                    BaselineTestAssertion::ConnectAsMachineId => {
+                        ssh_client::assert_connection_works_with_retries_and_timeout(
+                            ConnectionConfig {
+                                connection_name: &format!("{connection_name} to host").to_string(),
+                                user: &mock_host.machine_id.to_string(),
+                                private_key_path: &ADMIN_SSH_KEY_PATH,
+                                addr,
+                                expected_prompt: &expected_prompt,
+                            },
+                            // The legacy ssh-console tends to take a few retries right after it boots up. After the
+                            // first machine works, don't do any more retries.
+                            if i == 0 { 5 } else { 0 },
+                            Duration::from_secs(10),
+                        )
+                        .await?;
 
-            // Then try connecting with instance_id as the username
-            ssh_client::assert_connection_works_with_retries_and_timeout(
-                ConnectionConfig {
-                    connection_name,
-                    user: instance_id,
-                    private_key_path: &TENANT_SSH_KEY_PATH,
-                    addr,
-                    expected_prompt: &expected_prompt,
-                },
-                0, // It already worked once, we shouldn't need to retry
-                Duration::from_secs(10),
-            )
-            .await?;
+                        // Make sure it *doesn't* work as the tenant user.
+                        let result_as_tenant =
+                            ssh_client::assert_connection_works(ConnectionConfig {
+                                connection_name: &format!("{connection_name} to host").to_string(),
+                                user: &mock_host.machine_id.to_string(),
+                                private_key_path: &TENANT_SSH_KEY_PATH,
+                                addr,
+                                expected_prompt: &expected_prompt,
+                            })
+                            .await;
+
+                        if result_as_tenant.is_ok() {
+                            return Err(eyre::format_err!(
+                                "Connection directly to machine_id succeeded as tenant, it should have failed"
+                            ));
+                        }
+                    }
+                    BaselineTestAssertion::ConnectAsInstanceId => {
+                        ssh_client::assert_connection_works_with_retries_and_timeout(
+                            ConnectionConfig {
+                                connection_name: &format!("{connection_name} to instance")
+                                    .to_string(),
+                                user: &mock_host.instance_id.to_string(),
+                                private_key_path: &TENANT_SSH_KEY_PATH,
+                                addr,
+                                expected_prompt: &expected_prompt,
+                            },
+                            0, // It already worked once, we shouldn't need to retry
+                            Duration::from_secs(10),
+                        )
+                        .await?;
+                    }
+                }
+            }
         }
 
         Ok(())
     }
+}
+
+#[allow(clippy::enum_variant_names)]
+pub enum BaselineTestAssertion {
+    #[allow(dead_code)]
+    ConnectAsMachineId,
+    ConnectAsInstanceId,
 }

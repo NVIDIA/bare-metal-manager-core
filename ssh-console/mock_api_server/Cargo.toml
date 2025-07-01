@@ -1,0 +1,25 @@
+[package]
+name = "ssh_console_mock_api_server"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+
+# local dependencies
+forge-version = { path = "../../common/version" }
+api-test-helper = { path = "../../common/api-test-helper" }
+forge-uuid = { path = "../../common/uuid" }
+
+tonic = { version = "0.13.1", features = ["tls-ring"] }
+prost = "0.13.5"
+prost-types = "0.13.5"
+tokio = { version = "1.45.1", features = ["macros"] }
+tracing = "0.1.41"
+uuid = "1.17.0"
+eyre = "0.6.12"
+rustls = { workspace = true, features = ["ring"] }
+rustls-pemfile = "2.2.0"
+
+[build-dependencies]
+forge-version = { path = "../../common/version" }
+tonic-build = { version = "0.13.1" }

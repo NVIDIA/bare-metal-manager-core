@@ -24,6 +24,7 @@ pub use dpu_machine::DpuMachineHandle;
 pub use host_machine::HostMachineHandle;
 pub use machine_a_tron::{AppEvent, MachineATron};
 pub use machine_state_machine::BmcRegistrationMode;
+pub use mock_ssh_server::{MockSshServerHandle, spawn as spawn_mock_ssh_server};
 use std::time::{Duration, Instant};
 pub use tui::{Tui, UiUpdate};
 pub use tui_host_logs::TuiHostLogs;

@@ -11,14 +11,22 @@
  */
 
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eyre::Context;
 use russh::ChannelMsg;
 use russh::keys::{PrivateKeyWithHashAlg, PublicKey};
 use std::net::SocketAddr;
+use std::ops::Add;
 use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
+
+// The BMC prompt we get from mock_ssh_server (we shouldn't see this when SSH'ing in.)
+static BMC_PROMPT: &[u8] = b"racadm>>";
+// How long to wait to see the "normal" prompt (`<host_id>@localhost # `)
+static PROMPT_WAIT_TIMEOUT: Duration = Duration::from_secs(3);
+// A sequence we can send to mock_ssh_server to simulate the serial console crashing/disconnecting
+// and dropping us back to the BMC (to make sure we don't get a BMC prompt.)
+static BMC_BACKDOOR_SEQUENCE: &[u8] = b"backdoor_escape_console\n";
 
 #[derive(Copy, Clone)]
 pub struct ConnectionConfig<'a> {
@@ -26,7 +34,7 @@ pub struct ConnectionConfig<'a> {
     pub user: &'a str,
     pub private_key_path: &'a Path,
     pub addr: SocketAddr,
-    pub expected_prompt: &'a str,
+    pub expected_prompt: &'a [u8],
 }
 
 pub async fn assert_connection_works_with_retries_and_timeout(
@@ -39,25 +47,26 @@ pub async fn assert_connection_works_with_retries_and_timeout(
         match tokio::time::timeout(per_try_timeout, assert_connection_works(connection_config))
             .await
         {
-            Ok(result) => match result {
-                Ok(()) => return Ok(()),
-                Err(error) => {
-                    tracing::error!(
-                        ?error,
-                        connection_name = connection_config.connection_name,
-                        "Error asserting working connection, will retry",
-                    );
-                    if retries > 0 {
-                        retries -= 1;
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                    } else {
-                        return Err(error).context(format!(
-                            "Could not connect to {} after {} retries",
-                            connection_config.connection_name, retry_count,
-                        ));
-                    }
+            // Didn't timeout, no error
+            Ok(Ok(())) => return Ok(()),
+            // Didn't timeout, returned error
+            Ok(Err(error)) => {
+                tracing::error!(
+                    ?error,
+                    connection_name = connection_config.connection_name,
+                    "Error asserting working connection, will retry",
+                );
+                if retries > 0 {
+                    retries -= 1;
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                } else {
+                    return Err(error).context(format!(
+                        "Could not connect to {} after {} retries",
+                        connection_config.connection_name, retry_count,
+                    ));
                 }
-            },
+            }
+            // Timed out
             Err(elapsed) => {
                 return Err(elapsed).context(format!(
                     "Timed out asserting working connection to {}",
@@ -68,7 +77,7 @@ pub async fn assert_connection_works_with_retries_and_timeout(
     }
 }
 
-async fn assert_connection_works(
+pub async fn assert_connection_works(
     ConnectionConfig {
         connection_name,
         user,
@@ -120,32 +129,80 @@ async fn assert_connection_works(
     // Request Shell
     channel.request_shell(false).await?;
 
-    let mut output_buf = String::new();
-    let mut prompt_found = false;
-    let mut newline_interval = tokio::time::interval(Duration::from_secs(1));
+    let mut output_buf: Vec<u8> = Vec::new();
+    let mut test_state = ConnectionTestState::WaitingForPrompt;
+    let mut timeout = Instant::now().add(PROMPT_WAIT_TIMEOUT);
+    let mut write_interval = tokio::time::interval(Duration::from_millis(100));
 
-    // Every second, write a newline to the connection, until we see a prompt.
+    // Phase 1: Every second, write a newline to the connection, until we see a prompt, then every
+    // 100ms, try to break out with ctrl+\. If 3 seconds go by and we got a prompt but didn't break
+    // out, move to phase 2.
+    //
+    // Phase 2: send `backdoor_escape_console` to the server, which mock_ssh_server will use to
+    // simulate the serial console getting disconnected and dropping back down to the BMC prompt. At
+    // this point, we expect to be disconnected.
     loop {
         tokio::select! {
-            _ = newline_interval.tick() => {
-                // Write a newline, unless we already saw the prompt, in which case we're waiting
-                // for EOF and shouldn't send anything else.
-                if !prompt_found {
-                    channel.make_writer().write_all(b"\r\n").await.context("Writing newline to server")?;
+            _ = tokio::time::sleep_until(timeout.into()) => {
+                match test_state {
+                    ConnectionTestState::TryingCtrlBackslash => {
+                        tracing::info!("Succesfully prevented ctrl+\\ from triggering escape, now simulating dropping to BMC prompt from other means");
+                        test_state = ConnectionTestState::TryingBackdoorEscape;
+                        timeout = Instant::now().add(Duration::from_secs(5));
+                    }
+                    ConnectionTestState::WaitingForPrompt => {
+                        return Err(eyre::format_err!("Did not see prompt after in 3 seconds"));
+                    }
+                    ConnectionTestState::TryingBackdoorEscape => {
+                        // legacy ssh-console will reconnect automatically, so we'll timeout here.
+                        // (as opposed to the new ssh-console which disconnects immediately when the
+                        // bmc-prompt is found.)
+                        tracing::info!("Test finished without seeing a bmc_prompt while using backdoor escape, success");
+                        break;
+                    }
+                }
+            }
+            _ = write_interval.tick() => {
+                match test_state {
+                    ConnectionTestState::WaitingForPrompt => {
+                        channel.data(b"\n".as_slice()).await.context("Writing newline to server")?;
+                    }
+                    ConnectionTestState::TryingCtrlBackslash => {
+                        channel.data(b"\x1c".as_slice()).await.context("Writing ctrl-\\ to server")?;
+                    }
+                    ConnectionTestState::TryingBackdoorEscape => {
+                        for byte in BMC_BACKDOOR_SEQUENCE {
+                            channel.data([*byte].as_slice()).await.context("Writing mock backdoor escape to server")?;
+                        }
+                    }
                 }
             }
             result = channel.wait() => match result {
                 Some(msg) => match msg {
                     ChannelMsg::Data { data } => {
-                        output_buf.push_str(&String::from_utf8_lossy(&data));
-                        if output_buf.ends_with(expected_prompt) {
-                            tracing::info!(connection_name, "Got prompt, success!");
-                            prompt_found = true;
-                            channel.eof().await?;
+                        output_buf.extend_from_slice(&data);
+                        match test_state {
+                            ConnectionTestState::WaitingForPrompt => {
+                                if output_buf.windows(expected_prompt.len()).any(|w| w == expected_prompt) {
+                                    tracing::info!("Got expected prompt, trying ctrl-\\");
+                                    test_state = ConnectionTestState::TryingCtrlBackslash;
+                                }
+                            }
+                            ConnectionTestState::TryingCtrlBackslash | ConnectionTestState::TryingBackdoorEscape => {
+                                // We should not generally get any data after sending ctrl-\, since
+                                // it should be trapped by ssh-console and not forwarded to the BMC.
+                                if output_buf.windows(BMC_PROMPT.len()).any(|window| window == BMC_PROMPT) {
+                                    return Err(eyre::format_err!("We escaped to the BMC prompt, this should have been prevented"));
+                                }
+                            }
                         }
                     }
                     ChannelMsg::Eof => {
-                        tracing::info!(connection_name, "Server sent EOF, all done");
+                        if matches!(test_state, ConnectionTestState::TryingBackdoorEscape) {
+                            tracing::info!(connection_name, "Server sent EOF, all done");
+                        } else {
+                            return Err(eyre::format_err!("Got disconnected when we weren't expecting it, test_state={test_state:?}"));
+                        }
                         break;
                     }
                     ChannelMsg::WindowAdjusted { .. } => {}
@@ -156,19 +213,29 @@ async fn assert_connection_works(
                     }
                 }
                 None => {
+                    tracing::error!(connection_name, "Unexpected end of SSH channel");
                     break;
                 }
             }
         }
     }
 
-    if !prompt_found {
+    if matches!(test_state, ConnectionTestState::WaitingForPrompt) {
         return Err(eyre::format_err!(format!(
             "Did not detect a prompt after connecting to {connection_name}"
         )));
     }
 
     Ok(())
+}
+
+#[derive(Debug)]
+enum ConnectionTestState {
+    WaitingForPrompt,
+    TryingCtrlBackslash,
+    // mock_ssh_server lets the string "backdoor_escape_console" cause the simulated console to exit
+    // and drop back to the BMC prompt, so that we can test the code which checks for this.
+    TryingBackdoorEscape,
 }
 
 struct PermissiveSshClient;
