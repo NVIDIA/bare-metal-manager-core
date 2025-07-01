@@ -248,10 +248,8 @@ impl ForgeClientConfig {
         &self,
     ) -> Option<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
         if let Some(client_cert) = self.client_cert.as_ref() {
-            let cert_path = client_cert.cert_path.clone();
-            let key_path = client_cert.key_path.clone();
             let certs = {
-                let fd = match std::fs::File::open(cert_path) {
+                let fd = match std::fs::File::open(&client_cert.cert_path) {
                     Ok(fd) => fd,
                     Err(_) => return None,
                 };
@@ -260,8 +258,21 @@ impl ForgeClientConfig {
                 let mut errors = vec![];
 
                 let valid_certificates = rustls_pemfile::certs(&mut buf)
-                    .filter_map(|result| result.map_err(|e| errors.push(e)).ok())
-                    .collect();
+                    .filter_map(|result| match result {
+                        Ok(v) => Some(Ok(v)),
+                        Err(err) => match err.kind() {
+                            std::io::ErrorKind::InvalidData => {
+                                errors.push(err);
+                                None
+                            }
+                            _ => Some(Err(err)),
+                        },
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap_or_else(|err| {
+                        errors.push(err);
+                        vec![]
+                    });
 
                 if !errors.is_empty() {
                     tracing::warn!( certs = ?errors, "Found error parsing one or more certificates");
@@ -271,7 +282,7 @@ impl ForgeClientConfig {
             };
 
             let key = {
-                let fd = match std::fs::File::open(key_path) {
+                let fd = match std::fs::File::open(&client_cert.key_path) {
                     Ok(fd) => fd,
                     Err(_) => return None,
                 };
