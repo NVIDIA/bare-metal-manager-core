@@ -69,7 +69,7 @@ impl PxeInstructions {
                 if machine_type == MachineType::Host || machine_type == MachineType::PredictedHost {
                     InstructionGenerator {
                         kernel: "${base-url}/internal/aarch64/scout.efi".to_string(),
-                        command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),
+                        command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off iommu=off cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),
                         initrd: None,
                     }
                 }
@@ -85,7 +85,7 @@ impl PxeInstructions {
             rpc::MachineArchitecture::X86 => {
                 InstructionGenerator {
                     kernel: "${base-url}/internal/x86_64/scout.efi".to_string(),
-                    command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),
+                    command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off iommu=off cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),
                     initrd: None,
                 }
             }
