@@ -219,7 +219,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Reprovisioning/PoweringOffHost")
+            .contains("Current state: Reprovisioning/PoweringOffHost. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -292,7 +292,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Reprovisioning/WaitingForNetworkConfig")
+            .contains("Current state: Reprovisioning/WaitingForNetworkConfig. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
@@ -782,7 +782,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/PoweringOffHost")
+            .contains("Current state: Assigned/Reprovision/PoweringOffHost. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -1126,7 +1126,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
 
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/PoweringOffHost")
+            .contains("Current state: Assigned/Reprovision/PoweringOffHost. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -1209,7 +1209,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
 
     assert!(
         pxe.pxe_script.contains(
-            "exit into the OS in 5 seconds - Assigned/Reprovision/WaitingForNetworkConfig"
+            "Current state: Assigned/Reprovision/WaitingForNetworkConfig. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. "
         )
     );
 
@@ -2134,7 +2134,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
 
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Reprovisioning/WaitingForNetworkConfig")
+            .contains("Current state: Reprovisioning/WaitingForNetworkConfig. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -2169,7 +2169,9 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         .unwrap()
         .into_inner();
 
-    assert!(pxe.pxe_script.contains("exit into the OS in 5 seconds"));
+    assert!(pxe.pxe_script.contains(
+        "This state assumes an OS is provisioned and will exit into the OS in 5 seconds. "
+    ));
 
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
@@ -2369,7 +2371,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
 
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Reprovisioning/PoweringOffHost")
+            .contains("Current state: Reprovisioning/PoweringOffHost. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -2448,7 +2450,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
 
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Reprovisioning/WaitingForNetworkConfig")
+            .contains("Current state: Reprovisioning/WaitingForNetworkConfig. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
     let response = forge_agent_control(&env, dpu_rpc_id_1.clone()).await;
@@ -2740,7 +2742,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
 
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/PoweringOffHost")
+            .contains("Current state: Assigned/Reprovision/PoweringOffHost. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -2822,7 +2824,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
 
     assert!(
         pxe.pxe_script.contains(
-            "exit into the OS in 5 seconds - Assigned/Reprovision/WaitingForNetworkConfig"
+            "Current state: Assigned/Reprovision/WaitingForNetworkConfig. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. "
         )
     );
 
@@ -2972,7 +2974,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
 
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Assigned/Reprovision/PoweringOffHost")
+            .contains("Current state: Assigned/Reprovision/PoweringOffHost. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -3054,7 +3056,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
 
     assert!(
         pxe.pxe_script.contains(
-            "exit into the OS in 5 seconds - Assigned/Reprovision/WaitingForNetworkConfig"
+            "Current state: Assigned/Reprovision/WaitingForNetworkConfig. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. "
         )
     );
 

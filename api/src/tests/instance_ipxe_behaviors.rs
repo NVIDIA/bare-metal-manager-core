@@ -64,7 +64,8 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     let pxe = fetch_ipxe_instructions(&env, host_interface_id.clone()).await;
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Assigned/Ready")
+            .contains("Current state: Assigned/Ready. This state assumes an OS is provisioned and will exit into the OS in 5 seconds."),
+        "Actual script: {}", pxe.pxe_script
     );
 
     // A regular reboot attempt should still lead to returning "exit"
@@ -72,7 +73,8 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     let pxe = fetch_ipxe_instructions(&env, host_interface_id.clone()).await;
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Assigned/Ready")
+            .contains("Current state: Assigned/Ready. This state assumes an OS is provisioned and will exit into the OS in 5 seconds."),
+        "Actual script: {}", pxe.pxe_script
     );
 
     // A reboot with flag `boot_with_custom_ipxe` should provide the custom iPXE
@@ -85,7 +87,8 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     let pxe = fetch_ipxe_instructions(&env, host_interface_id.clone()).await;
     assert!(
         pxe.pxe_script
-            .contains("exit into the OS in 5 seconds - Assigned/Ready")
+            .contains("Current state: Assigned/Ready. This state assumes an OS is provisioned and will exit into the OS in 5 seconds."),
+        "Actual script: {}", pxe.pxe_script
     );
 }
 

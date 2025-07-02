@@ -100,7 +100,7 @@ impl PxeInstructions {
         let error_instructions = |x: &ManagedHostState| -> String {
             format!(
                 r#"
-echo could not continue boot due to invalid state - {} ||
+echo Current state: {}. Could not continue boot due to invalid state ||
 sleep 5 ||
 exit ||
 "#,
@@ -111,7 +111,7 @@ exit ||
         let exit_instructions = |x: &ManagedHostState| -> String {
             format!(
                 r#"
-echo the current state assumes an OS is provisioned and will exit into the OS in 5 seconds - {} ||
+echo Current state: {}. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. To re-run iPXE instructions and OS installation, trigger a reboot request with flag rebootWithCustomIpxe/boot_with_custom_ipxe set. ||
 sleep 5 ||
 exit ||
 "#,
