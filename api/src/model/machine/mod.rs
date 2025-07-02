@@ -17,6 +17,7 @@ use super::{
     StateSla, bmc_info::BmcInfo, controller_outcome::PersistentStateHandlerOutcome,
     hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot, metadata::Metadata,
 };
+use crate::db::power_manager::PowerOptions;
 use crate::{
     CarbideError,
     cfg::file::{FirmwareComponentType, HardwareHealthReportsConfig},
@@ -618,6 +619,9 @@ pub struct Machine {
     pub hw_sku: Option<String>,
     pub hw_sku_status: Option<SkuStatus>,
     pub sku_validation_health_report: Option<HealthReport>,
+
+    /// Host's power options.
+    pub power_options: Option<PowerOptions>,
 }
 
 impl Machine {
