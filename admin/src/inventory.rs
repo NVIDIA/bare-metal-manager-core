@@ -67,7 +67,11 @@ struct BmcInfo {
 struct HostMachineInfo {
     ansible_host: String,
     machine_id: String,
+    // Deprecated field. Use all_dpu_machine_ids or primary_dpu_machine_id for primary dpu.
     dpu_machine_id: String,
+    // Primary DPU
+    primary_dpu_machine_id: String,
+    all_dpu_machine_ids: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -86,17 +90,29 @@ fn get_host_machine_info(machines: &[&::rpc::Machine]) -> HashMap<String, HostMa
         if let Some(primary_interface) = primary_interface {
             let hostname = primary_interface.hostname.clone();
             let address = primary_interface.address[0].clone();
+            let primary_dpu = primary_interface
+                .attached_dpu_machine_id
+                .clone()
+                .unwrap_or_default()
+                .to_string();
 
             machine_element.insert(
                 hostname,
                 HostMachineInfo {
                     ansible_host: address,
                     machine_id: machine.id.clone().unwrap_or_default().to_string(),
-                    dpu_machine_id: primary_interface
-                        .attached_dpu_machine_id
-                        .clone()
-                        .unwrap_or_default()
-                        .to_string(),
+                    dpu_machine_id: primary_dpu.clone(),
+                    primary_dpu_machine_id: primary_dpu,
+                    all_dpu_machine_ids: machine
+                        .interfaces
+                        .iter()
+                        .map(|x| {
+                            x.attached_dpu_machine_id
+                                .clone()
+                                .unwrap_or_default()
+                                .to_string()
+                        })
+                        .collect::<Vec<String>>(),
                 },
             );
         } else {
@@ -223,6 +239,7 @@ pub async fn print_inventory(
         .get_all_machines(
             rpc::forge::MachineSearchConfig {
                 include_predicted_host: true,
+                include_dpus: true,
                 ..Default::default()
             },
             page_size,
