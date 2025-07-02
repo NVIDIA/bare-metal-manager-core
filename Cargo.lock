@@ -4199,7 +4199,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -4230,9 +4230,9 @@ dependencies = [
 
 [[package]]
 name = "libredfish"
-version = "0.29.48"
+version = "0.29.49"
 source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
-checksum = "b71e333ca5fc788bb2928f0b8dd95808e76fb32ab5fafe9885e774b6be7ce325"
+checksum = "deccb69522522efe49af8ba271fa0bda2401495ebe78f8daf9478b5a9a157ae9"
 dependencies = [
  "async-trait",
  "chrono",
