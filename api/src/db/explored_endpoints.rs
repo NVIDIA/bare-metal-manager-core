@@ -228,15 +228,17 @@ impl DbExploredEndpoint {
         address: IpAddr,
         old_version: ConfigVersion,
         exploration_report: &EndpointExplorationReport,
+        waiting_for_explorer_refresh: bool,
         txn: &mut PgConnection,
     ) -> Result<bool, DatabaseError> {
         let new_version = old_version.increment();
         let query = "
-UPDATE explored_endpoints SET version=$1, exploration_report=$2, waiting_for_explorer_refresh = false, exploration_requested = false
-WHERE address = $3 AND version=$4";
+UPDATE explored_endpoints SET version=$1, exploration_report=$2, waiting_for_explorer_refresh=$3, exploration_requested = false
+WHERE address=$4 AND version=$5";
         let query_result = sqlx::query(query)
             .bind(new_version)
             .bind(sqlx::types::Json(exploration_report))
+            .bind(waiting_for_explorer_refresh)
             .bind(address)
             .bind(old_version)
             .execute(txn)
@@ -254,7 +256,7 @@ WHERE address = $3 AND version=$4";
         for row in Self::find_all_by_ip(address, txn).await? {
             let mut report = row.report;
             report.last_exploration_error = None;
-            Self::try_update(address, row.report_version, &report, txn).await?;
+            Self::try_update(address, row.report_version, &report, true, txn).await?;
         }
 
         Ok(())

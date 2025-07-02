@@ -1409,6 +1409,7 @@ impl SiteExplorer {
                                 address,
                                 old_version,
                                 &report,
+                                false,
                                 &mut txn,
                             )
                             .await?;
@@ -1422,6 +1423,7 @@ impl SiteExplorer {
                                 address,
                                 old_version,
                                 &old_report,
+                                true,
                                 &mut txn,
                             )
                             .await?;

@@ -197,6 +197,7 @@ async fn test_preingestion_bmc_upgrade(
             endpoint.address,
             endpoint.report_version,
             &endpoint.report,
+            false,
             &mut txn
         )
         .await?
@@ -441,6 +442,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         host.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,
+        false,
         &mut txn,
     )
     .await
@@ -536,6 +538,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         host.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,
+        false,
         &mut txn,
     )
     .await?;
@@ -946,6 +949,7 @@ async fn test_preingestion_preupdate_powercycling(
             endpoint.address,
             endpoint.report_version,
             &endpoint.report,
+            false,
             &mut txn
         )
         .await?
@@ -991,6 +995,7 @@ async fn test_preingestion_preupdate_powercycling(
                 endpoint.address,
                 endpoint.report_version,
                 &endpoint.report,
+                false,
                 &mut txn
             )
             .await?
@@ -1243,6 +1248,7 @@ async fn test_instance_upgrading_actual(
         host.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,
+        false,
         &mut txn,
     )
     .await
@@ -1327,6 +1333,7 @@ async fn test_instance_upgrading_actual(
         host.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,
+        false,
         &mut txn,
     )
     .await
