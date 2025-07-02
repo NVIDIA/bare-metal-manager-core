@@ -535,16 +535,33 @@ async fn fetch_ethernet_interfaces(
         }?;
 
         let mac_address = if let Some(iface_mac_address) = iface.mac_address {
-            let mac_addr = deserialize_input_mac_to_address(&iface_mac_address).map_err(|e| {
+            match deserialize_input_mac_to_address(&iface_mac_address).map_err(|e| {
                 RedfishError::GenericError {
                     error: format!("MAC address not valid: {} (err: {})", iface_mac_address, e),
                 }
-            })?;
-
-            Some(mac_addr)
+            }) {
+                Ok(mac) => Ok(Some(mac)),
+                Err(e) => {
+                    if iface
+                        .interface_enabled
+                        .is_some_and(|is_enabled| !is_enabled)
+                    {
+                        // disabled interfaces sometimes populate the MAC address with junk,
+                        // ignore this error and create the interface with an empty mac address
+                        // in the exploration report
+                        tracing::debug!(
+                            "could not parse MAC address for a disabled interface {iface_id} (link_status: {:#?}): {e}",
+                            iface.link_status
+                        );
+                        Ok(None)
+                    } else {
+                        Err(e)
+                    }
+                }
+            }
         } else {
-            None
-        };
+            Ok(None)
+        }?;
 
         let uefi_device_path = if let Some(uefi_device_path) = iface.uefi_device_path {
             let path_as_version_string = UefiDevicePath::from_str(&uefi_device_path)?;
