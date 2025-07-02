@@ -28,6 +28,7 @@ use crate::{
         MachineUpdateManager, machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE,
     },
     model::{
+        instance::status::tenant::TenantState,
         machine::{HostReprovisionState, InstanceState, ManagedHostState},
         site_explorer::{
             Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport,
@@ -1071,7 +1072,7 @@ async fn test_instance_upgrading_actual(
 
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
-    let (_instance_id, _instance) = create_instance(
+    let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
@@ -1119,6 +1120,28 @@ async fn test_instance_upgrading_actual(
         env.api.invoke_instance_power(request).await.unwrap();
     }
 
+    let mut txn = env.pool.begin().await.unwrap();
+    // Check that the TenantState is what we expect based on the instance/machine state.
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        TenantState::Configuring
+    );
+
     // A tick of the state machine, now we begin.
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
@@ -1132,6 +1155,26 @@ async fn test_instance_upgrading_actual(
     let InstanceState::BootingWithDiscoveryImage { .. } = instance_state else {
         panic!("Unexpected instance state {:?}", host.state);
     };
+
+    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
+
     assert!(host.host_reprovision_requested.is_some());
     println!("{:?}", host.health_report_overrides);
     assert!(
@@ -1165,6 +1208,25 @@ async fn test_instance_upgrading_actual(
         panic!("Unexpected state {:?}", host.state)
     };
     assert!(host.host_reprovision_requested.is_some());
+
+    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
     txn.commit().await.unwrap();
 
     let request = rpc::common::MachineId {
@@ -1194,6 +1256,27 @@ async fn test_instance_upgrading_actual(
         panic!("Not in WaitingForFirmwareUpgrade");
     };
     assert_eq!(firmware_type, FirmwareComponentType::Uefi);
+
+    // Verify expected TenantState
+    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
+
     txn.commit().await.unwrap();
 
     // The faked Redfish task will immediately show as completed, but we won't proceed further because "site explorer" (ie us) has not re-reported the info.
@@ -1213,6 +1296,27 @@ async fn test_instance_upgrading_actual(
     let HostReprovisionState::ResetForNewFirmware { .. } = reprovision_state else {
         panic!("Not in reset {reprovision_state:?}");
     };
+
+    // Check that the TenantState is what we expect based on the instance/machine state.
+    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
+
     txn.commit().await.unwrap();
 
     // Another state machine pass
@@ -1253,6 +1357,27 @@ async fn test_instance_upgrading_actual(
     )
     .await
     .unwrap();
+
+    // Check that the TenantState is what we expect based on the instance/machine state.
+    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
+
     txn.commit().await.unwrap();
 
     // Another state machine pass
@@ -1272,6 +1397,26 @@ async fn test_instance_upgrading_actual(
     let HostReprovisionState::CheckingFirmwareRepeat { .. } = reprovision_state else {
         panic!("Not in reset {reprovision_state:?}");
     };
+
+    // Check that the TenantState is what we expect based on the instance/machine state.
+    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
     txn.commit().await.unwrap();
 
     // Another state machine pass
@@ -1296,6 +1441,27 @@ async fn test_instance_upgrading_actual(
         panic!("Not in WaitingForFirmwareUpgrade");
     };
     assert_eq!(firmware_type, FirmwareComponentType::Bmc);
+
+    // Check that the TenantState is what we expect based on the instance/machine state.
+    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
+
     txn.commit().await.unwrap();
 
     // Another state machine pass
@@ -1317,6 +1483,26 @@ async fn test_instance_upgrading_actual(
     let HostReprovisionState::ResetForNewFirmware { .. } = reprovision_state else {
         panic!("Not in reset {reprovision_state:?}");
     };
+
+    // Check that the TenantState is what we expect based on the instance/machine state.
+    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
 
     // "Site explorer" pass to indicate that we're at the desired version
     let endpoints =
@@ -1365,6 +1551,26 @@ async fn test_instance_upgrading_actual(
         panic!("Not in waiting {reprovision_state:?}");
     };
 
+    // Check that the TenantState is what we expect based on the instance/machine state.
+    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
+
     // Another state machine pass
     env.run_machine_state_controller_iteration().await;
 
@@ -1383,6 +1589,27 @@ async fn test_instance_upgrading_actual(
     if reprovision_state != HostReprovisionState::CheckingFirmwareRepeat {
         panic!("Not in checking");
     }
+
+    // Check that the TenantState is what we expect based on the instance/machine state.
+    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
+
     txn.commit().await.unwrap();
 
     // Another state machine pass, and we should be complete
@@ -1400,6 +1627,22 @@ async fn test_instance_upgrading_actual(
         panic!("Unexpected state {:?}", host.state)
     };
 
+    // Check that the TenantState is what we expect based on the instance/machine state.
+    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        TenantState::Configuring
+    );
+
     update_manager.run_single_iteration().await.unwrap();
 
     assert!(host.host_reprovision_requested.is_none()); // Should be cleared
@@ -1411,6 +1654,23 @@ async fn test_instance_upgrading_actual(
         .await
         .unwrap()
         .unwrap();
+
+    // Make sure TenantState agrees
+    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        TenantState::Configuring
+    );
+
     txn.commit().await.unwrap();
 
     // Validate update_firmware_version_by_bmc_address behavior

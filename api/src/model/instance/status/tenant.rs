@@ -47,6 +47,10 @@ pub enum TenantState {
     DpuReprovisioning,
     /// Host is being reprovisioned.
     HostReprovisioning,
+    /// Firmware or other updates are being peformed, of which
+    /// the tenant should not have to be concerned with the
+    /// specific details.
+    Updating,
     /// The instance is ready and can be used by the tenant
     Ready,
     /// The instance has been ready, but the newest configuration that the tenant
@@ -76,6 +80,7 @@ impl TryFrom<TenantState> for rpc::TenantState {
             TenantState::Terminated => rpc::TenantState::Terminated,
             TenantState::Failed => rpc::TenantState::Failed,
             TenantState::HostReprovisioning => rpc::TenantState::HostReprovisioning,
+            TenantState::Updating => rpc::TenantState::Updating,
         })
     }
 }

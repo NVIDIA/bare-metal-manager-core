@@ -114,13 +114,23 @@ impl InstanceStatus {
                         (true, _) => tenant::TenantState::Provisioning,
                     }
                 }
+                // If termination had been requested (i.e., if the `deleted` column
+                // of the instance record in the DB is non-null), then things would
+                // have short-circuited to Terminating before ever even getting to
+                // this tenant_state function.
                 InstanceState::SwitchToAdminNetwork
-                | InstanceState::BootingWithDiscoveryImage { .. }
                 | InstanceState::WaitingForNetworkReconfig
                 | InstanceState::WaitingForDpusToUp => tenant::TenantState::Terminating,
-                InstanceState::DPUReprovision { .. } => tenant::TenantState::DpuReprovisioning,
+                // We're deprecating TenantState::DpuReprovisioning and
+                // TenantState::HostReprovisioning in favor of TenantState::Updating.
+                // Because forge-cloud already translates DpuReprovisioning to Updating,
+                // we can use that while we prepare it to accept TenantState::Updating.
+                // TODO: Replace TenantState::DpuReprovisioning with TenantState::Updating
+                // after cloud components for all sites have been updated.
+                InstanceState::BootingWithDiscoveryImage { .. }
+                | InstanceState::DPUReprovision { .. }
+                | InstanceState::HostReprovision { .. } => tenant::TenantState::DpuReprovisioning,
                 InstanceState::Failed { .. } => tenant::TenantState::Failed,
-                InstanceState::HostReprovision { .. } => tenant::TenantState::HostReprovisioning,
             },
             ManagedHostState::ForceDeletion => tenant::TenantState::Terminating,
             _ => {
