@@ -18,7 +18,7 @@
     <tbody>
         {% for attested_machine in attestations %}
         <tr>
-            <td>{{ attested_machine.machine_id|machine_id_link }}</td>
+            <td>{{ attested_machine.machine_id|machine_id_link|safe }}</td>
             {% if attested_machine.bundle_id.is_none() %}
             <td>
                 <a class="text-error" href="/admin/machine/{{ attested_machine.machine_id.to_string() }}/attestation-results">Attestation Failed</a>
