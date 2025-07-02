@@ -13,9 +13,12 @@ use forge_uuid::machine::MachineId;
  * its affiliates is strictly prohibited.
  */
 use crate::db::{self, machine::MachineSearchConfig};
-use crate::model::machine::{
-    DpuInitState, FailureDetails, InstanceState, MachineLastRebootRequestedMode, MachineState,
-    ManagedHostState, ReprovisionState,
+use crate::model::{
+    instance::status::tenant::TenantState,
+    machine::{
+        DpuInitState, FailureDetails, InstanceState, MachineLastRebootRequestedMode, MachineState,
+        ManagedHostState, ReprovisionState,
+    },
 };
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use chrono::Utc;
@@ -645,7 +648,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let (_instance_id, instance) = create_instance(
+    let (instance_id, instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
@@ -701,6 +704,31 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         }
     ));
 
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Check that the tenant state is what we expect now that reprovisioning has started.
+    let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        db_instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
+
     _ = forge_agent_control(&env, instance.machine_id.clone().unwrap()).await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
@@ -725,6 +753,31 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
                 },
             }
         }
+    );
+
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Check that the tenant state is still what we expect now that reprovisioning has started.
+    let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        db_instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
     );
 
     let pxe = env
@@ -766,6 +819,32 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             }
         }
     );
+
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Check that the tenant state is still what we expect now that reprovisioning has started.
+    let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        db_instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
+
     txn.commit().await.unwrap();
 
     let pxe = env
@@ -803,6 +882,32 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             }
         }
     );
+
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Check that the tenant state is still what we expect now that reprovisioning has started.
+    let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        db_instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
+
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -827,6 +932,31 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         }
     );
 
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Check that the tenant state is still what we expect now that reprovisioning has started.
+    let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        db_instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
+
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -849,6 +979,30 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
                 },
             }
         }
+    );
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Check that the tenant state is still what we expect now that reprovisioning has started.
+    let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        db_instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
     );
     txn.commit().await.unwrap();
     let pxe = env
@@ -879,6 +1033,17 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .await
         .unwrap()
         .unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Check that the tenant state is still what we expect now that reprovisioning has started.
+    let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
     txn.commit().await.unwrap();
 
     assert_eq!(
@@ -892,6 +1057,20 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         }
     );
 
+    assert_eq!(
+        db_instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
+
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -899,6 +1078,17 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .await
         .unwrap()
         .unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Check that the tenant state is still what we expect now that reprovisioning has started.
+    let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+
     txn.commit().await.unwrap();
 
     assert_eq!(
@@ -911,11 +1101,34 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             }
         }
     );
-
+    assert_eq!(
+        db_instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        // TODO:  This should become `Updating` after we finish
+        // deprecating Dpu/Host reprov states. DpuReprovisioning
+        // is just being used as a temporary alias for a generic
+        // `Updating`.
+        TenantState::DpuReprovisioning
+    );
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Check that the tenant state is still what we expect now that reprovisioning has completed.
+    let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -927,6 +1140,16 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             instance_state: InstanceState::Ready
         }
     ));
+
+    assert_eq!(
+        db_instance
+            .derive_status(host.state.clone().value, None, None)
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        TenantState::Configuring
+    );
 }
 
 #[crate::sqlx_test]
