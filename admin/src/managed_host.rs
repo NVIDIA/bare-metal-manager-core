@@ -609,6 +609,13 @@ pub async fn handle_power_options_show_one(
     writeln!(
         &mut lines,
         "{:<width$}: {:?}",
+        "Desired Power State Version",
+        power_option.desired_power_state_version.clone(),
+    )?;
+
+    writeln!(
+        &mut lines,
+        "{:<width$}: {:?}",
         "Desired Power State",
         power_option.desired_state()
     )?;
@@ -655,7 +662,12 @@ pub async fn handle_power_options_show_all(
         println!("{}", serde_json::to_string(&all_options).unwrap());
         return Ok(());
     }
-    let headers = vec!["Host ID", "Desired Power State", "Actual Power State"];
+    let headers = vec![
+        "Host ID",
+        "Desired Power State",
+        "Version",
+        "Actual Power State",
+    ];
 
     table.set_titles(Row::new(
         headers.into_iter().map(Cell::new).collect::<Vec<Cell>>(),
@@ -676,6 +688,7 @@ pub async fn handle_power_options_show_all(
                     .map(|x| x.to_string())
                     .unwrap_or_default()
             ),
+            power_option.desired_power_state_version.clone(),
             format!(
                 "{:?}\n{}",
                 power_option.actual_state(),

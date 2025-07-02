@@ -129,6 +129,7 @@ impl From<PowerOptions> for ::rpc::forge::PowerOptions {
             host_id: Some(rpc::common::MachineId {
                 id: value.host_id.to_string(),
             }),
+            desired_power_state_version: value.desired_power_state_version.to_string(),
         }
     }
 }
