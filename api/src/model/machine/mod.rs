@@ -1938,7 +1938,7 @@ impl ManagedHostState {
                 bom_validating_state,
             } => format!("BomValidating/{:?}", bom_validating_state),
             ManagedHostState::Validation { validation_state } => {
-                format!("Validation/{}", validation_state)
+                format!("{}", validation_state)
             }
         }
     }

@@ -92,7 +92,7 @@ impl From<ManagedHostOutputWrapper> for Row {
             .iter()
             .map(|x| {
                 x.split_once(' ')
-                    .map(|(x, y)| format!("{x}\n{y}"))
+                    .map(|(x, y)| format!("{x}\n{}", y.replace(", ", "\n")))
                     .unwrap_or(x.clone())
             })
             .collect::<Vec<String>>()
