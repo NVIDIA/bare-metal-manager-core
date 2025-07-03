@@ -1,9 +1,9 @@
+
 # Changelog
 
-## [Unreleased (v2025.07.04-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/...trunk)
+## [Unreleased (v2025.07.18-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.07.04-rc2-0...trunk)
 
 ### Added
-- [MR-4162](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4162): Added pre_update_resets option for host firmware that will go through a series of steps we hope will smooth updates.
 
 ### Changed
 
@@ -13,7 +13,68 @@
 
 ### Internal Changes
 
-## [v2025.06.20-rc1-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.06.06-rc3-0...trunk)
+## [v2025.07.04-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.06.20-rc1-0...v2025.07.04-rc2-0)
+
+### Added
+
+- [MR-4162](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4162): Added `pre_update_resets` option for host firmware that will go through a series of steps that will enhance updates.
+- [MR-4236](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4236): Added power options to host snapshot.
+- [FORGE-6312](https://jirasw.nvidia.com/browse/FORGE-6312), [MR-4224](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4224): Added kernel headers to ensure modules are built correctly.
+- [FORGE-6230](https://jirasw.nvidia.com/browse/FORGE-6230), [MR-4228](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4228): Added support to handle power options for a host in `forge-admin-cli` to be able to set the desired power state, e.g. `forge-admin-cli mh power-options update <machine id> --desired-power-state off`.
+- [FORGE-6230](https://jirasw.nvidia.com/browse/FORGE-6230), [MR-4192](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4192): Added support for storing power related parameters for machines.
+- [MR-4167](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4167): Added `host_machine_id` label to DPU logs for easier search of DPU logs in multi-DPU systems. This should also address an issue related to `noDpuLogsWarning`.
+- [MR-4210](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4210): Added the list of machine IDs that are associated with an instance type in carbide-web on its details page.
+- [MR-4215](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4215): Added the ability to query for machine IDs by instance type in the carbide API.
+- [MR-4209](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4209): Added the ability to navigate from the SKU details page to its associated machines in carbide-web via hyperlink.
+- [MR-4197](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4197): Added the ability to navigate from carbide-web's display of source code file name and line number to the source code in gitlab.
+- [MR-4196](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4196): Added the ability to view detailed state handler outcome including source code locations for network segments and IB partitions in carbide-web.
+- [MR-4195](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4195): Added the ability to view the source code file and line number when the state handler returns with an `Ok` outcome to be able to understand why a machine might be stuck due to a certain condition.
+
+### Changed
+
+- [MR-4225](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4225): Changed the boot console output to include hints on how to re-run OS installation.
+- [MR-4212](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4212), [MR-4193](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4193): Changed the host health page styling.
+
+### Fixed
+
+- [MR-4220](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4220): Fixed an issue where a tenant state of `Terminating` was reported during firmware updates.
+- [MR-4243](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4243): Fixed an issue with exploration of a BMC that has an Ethernet interface for which we cannot parse the MAC address in cases where the interface is not up.
+- [MR-4242](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4242): Fixed an issue where the machine link in carbide-web on the attestation page would not work as expected.
+- [FORGE-6502](https://jirasw.nvidia.com/browse/FORGE-6502), [MR-4240](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4240): Fixed an issue where clearing exploration errors would reset the preingestion state to `Complete`.
+- [MR-4238](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4238): Fixed an issues where DPUs would not be correctly shown in forge-admin-cli in a multi-DPU setup.
+- [FORGE-6468](https://jirasw.nvidia.com/browse/FORGE-6468), [MR-4207](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4207): Fixed an issue with the display of machine validation states in forge-admin-cli.
+- [MR-4235](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4235): Fixed an issue with the AccountLockoutThreshold value for GBx00.
+- [MR-4227](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4227): Fixed an isssue with an infinite loop when there is an IO Error reading TLS certificates.
+- [MR-4233](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4233): Fixed an issue where `UPDATING` Tenant state was missing.
+- [MR-4232](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4232): Fixed an issue where root was hard-coded as the user on GB200s.
+- [MR-4230](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4230): Fixed an issue where IOMMU is enabled in BIOS which causes the dcgmi tests to fail.
+- [FORGE-6482](https://jirasw.nvidia.com/browse/FORGE-6482), [MR-4219](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4219): Fixed an issue where the health alert from automatic updates is not removed after the update is completed.
+- [MR-4221](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4221):  Fixed an issue with a race condition when starting a secure-erase job for BOSS drives on a Dell server.
+- [MR-4211](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4211): Fixed an issue where labels in carbide-web were not consistently sorted.
+- [MR-4216](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4216): Fixed an issue where force-delete requests for machines associated with an instance type were not rejected.
+- [FORGE-6466](https://jirasw.nvidia.com/browse/FORGE-6466), [MR-4208](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4208): Fixed an issue where arm64 hosts were getting stuck forever in WAITINGFORCLEANUP/HOSTCLEANUP due to reliability issues on determining if we're running on a DPU or host.
+- [MR-4203](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4203): Fixed an issue where setting the BIOS password on Vikings was not enforced during ingestion.
+- [MR-4189](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4189): Fixed an issue where failing jobs for erasing BOSS drives were not retried.
+- [MR-4204](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4204): Fixed an issue where a wait condition message was not clear. It now reads 'Waiting for DPU to report UP. This requires forge-dpu-agent to call the RecordDpuNetworkStatus API'.
+- [MR-4199](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4199): Fixed an issue where an outdated value for the commit hash was displayed in the version information in carbide-web.
+- [MR-4198](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4198): Fixed an issue with state handlers misbehaving when carbide starts up before the database migration ran.
+
+### Removed
+
+- [MR-4218](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4218): Removed some large chunks from the aarch64 loader image which aren't needed to get the secondary image loaded.  
+- [MR-4191](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4191): Removed the hostname from the `forge-admin-cli mh show` command.
+
+### Internal Changes
+
+- [MR-4231](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4231): Faster integration tests for ssh-console.
+- [MR-4229](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4229): Made integration tests run concurrently.
+- [MR-4200](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4200): Added multiple instance creation retries in machine lifecycle test.
+- [MR-4217](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4217): Fixed several local dev-env breakages.
+- [MR-4205](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4205): Use helper methods `convert_and_log_machine_id` in `update_machine_credentials` more consistently.
+- [MR-4202](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4202): Added a helper function for converting Machine IDs in handlers.
+- [MR-4194](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4194): Added macros that produce `StateHandlerOutcome` values for additional debug information from state handlers.
+
+## [v2025.06.20-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.06.06-rc3-0...v2025.06.20-rc2-0)
 
 ### Added
 
