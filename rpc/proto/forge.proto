@@ -2381,6 +2381,10 @@ message ManagedHostNetworkConfigResponse {
   optional uint32 internet_l3_vni = 106;
 
   optional Instance instance = 107;
+
+  // The GNI-provided ASN of datacenter.
+  uint32 datacenter_asn = 108;
+
 }
 
 message ManagedHostQuarantineState {

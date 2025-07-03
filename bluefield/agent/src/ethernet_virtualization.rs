@@ -293,6 +293,7 @@ pub async fn update_nvue(
         use_admin_network: nc.use_admin_network,
         loopback_ip,
         asn: nc.asn,
+        datacenter_asn: nc.datacenter_asn,
         dpu_hostname: hostname.hostname,
         dpu_search_domain: hostname.search_domain,
         hbn_version: Some(hbn_version),
@@ -2105,6 +2106,7 @@ mod tests {
         };
         rpc::ManagedHostNetworkConfigResponse {
             asn: 4259912557,
+            datacenter_asn: 11414,
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
             vni_device: "vxlan48".to_string(),
@@ -2242,6 +2244,7 @@ mod tests {
             use_admin_network: true,
             loopback_ip: "10.217.5.39".to_string(),
             asn: 65535,
+            datacenter_asn: 11414,
             dpu_hostname: hostname.hostname,
             dpu_search_domain: hostname.search_domain,
             hbn_version: None,
@@ -2480,6 +2483,8 @@ mod tests {
 
         let mut network_config = rpc::ManagedHostNetworkConfigResponse {
             asn: 4259912557,
+            datacenter_asn: 11414,
+
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
             vni_device: "vxlan48".to_string(),

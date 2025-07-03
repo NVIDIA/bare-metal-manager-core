@@ -438,6 +438,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         deprecated_deny_prefixes,
         deny_prefixes,
         site_fabric_prefixes,
+        datacenter_asn: api.runtime_config.datacenter_asn,
         vpc_isolation_behavior: rpc::VpcIsolationBehaviorType::from(
             api.runtime_config.vpc_isolation_behavior,
         )
@@ -478,7 +479,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         multidpu_enabled: api.runtime_config.multi_dpu.enabled,
         min_dpu_functioning_links: api.runtime_config.min_dpu_functioning_links,
         dpu_network_pinger_type: api.runtime_config.dpu_network_monitor_pinger_type.clone(),
-        internet_l3_vni: api.runtime_config.internet_l3_vni,
+        internet_l3_vni: Some(api.runtime_config.internet_l3_vni),
         instance: maybe_instance,
     };
 

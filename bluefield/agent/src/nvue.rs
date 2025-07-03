@@ -224,6 +224,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         UseAdminNetwork: conf.use_admin_network,
         LoopbackIP: conf.loopback_ip,
         ASN: conf.asn,
+        DatacenterASN: conf.datacenter_asn,
         DPUHostname: conf.dpu_hostname,
         SearchDomain: conf.dpu_search_domain,
         Uplinks: conf.uplinks.clone(),
@@ -574,6 +575,7 @@ pub struct NvueConfig {
     pub use_admin_network: bool,
     pub loopback_ip: String,
     pub asn: u32,
+    pub datacenter_asn: u32,
     pub dpu_hostname: String,
     pub dpu_search_domain: String,
     pub hbn_version: Option<String>,
@@ -660,6 +662,7 @@ struct TmplNvue {
     UseAdminNetwork: bool, // akak service network
     LoopbackIP: String,
     ASN: u32,
+    DatacenterASN: u32,
     DPUHostname: String,  // The first part of the FQDN
     SearchDomain: String, // The rest of the FQDN
     Uplinks: Vec<String>,

@@ -205,13 +205,14 @@
               to-evpn:
                 route-target:
                   11414:0: {}
+                  11414:100000: {} 
             route-import:
               from-evpn:
                 route-target:
-                  11414:1337: {}
                   11414:0: {}
-                  11414:1025186: {}
-                  11414:1025187: {}
+                  11414:1337: {} 
+                  11414:1025186: {} 
+                  11414:1025187: {} 
                   auto: {}
     acl:
       dhcp_flood_prevention:

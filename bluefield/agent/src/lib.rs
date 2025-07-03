@@ -357,6 +357,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     use_admin_network: true,
                     loopback_ip: opts.loopback_ip.to_string(),
                     asn: opts.asn,
+                    datacenter_asn: opts.datacenter_asn,
                     dpu_hostname: opts.dpu_hostname,
                     dpu_search_domain: "".to_string(),
                     uplinks: opts.uplinks,
