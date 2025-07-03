@@ -727,6 +727,7 @@ pub fn get_config() -> CarbideConfig {
         database_url: "pgsql:://localhost".to_string(),
         max_database_connections: 1000,
         asn: 0,
+        datacenter_asn: 0,
         dhcp_servers: vec![],
         route_servers: vec![],
         enable_route_servers: false,
@@ -809,7 +810,7 @@ pub fn get_config() -> CarbideConfig {
         multi_dpu: MultiDpuConfig::default(),
         dpu_network_monitor_pinger_type: None,
         host_health: HostHealthConfig::default(),
-        internet_l3_vni: Some(1337),
+        internet_l3_vni: 1337,
         measured_boot_collector: MeasuredBootMetricsCollectorConfig {
             enabled: true,
             run_interval: std::time::Duration::from_secs(10),

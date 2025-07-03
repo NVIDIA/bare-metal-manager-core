@@ -228,8 +228,8 @@ pub struct CarbideConfig {
     // to toggle on a per-VPC basis (e.g. if a customer
     // wants to create a VPC that is guaranteed not to
     // be able to access the Internet).
-    #[serde(default)]
-    pub internet_l3_vni: Option<u32>,
+    #[serde(default = "default_internet_l3_vni")]
+    pub internet_l3_vni: u32,
 
     /// MeasuredBootMetricsCollector related configuration
     #[serde(default)]
@@ -262,6 +262,13 @@ pub struct CarbideConfig {
     /// Cluster Interconnect Network) configuration
     #[serde(default)]
     pub spx_config: Option<SpxConfig>,
+
+    /// FNN depends on various route-targets that
+    /// are DC-specific.  This value is used to
+    /// build those targets for import and,
+    ///  eventually, export
+    #[serde(default = "default_datacenter_asn")]
+    pub datacenter_asn: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -1655,6 +1662,22 @@ pub fn default_max_find_by_ids() -> u32 {
 
 pub fn default_max_network_security_group_size() -> u32 {
     200
+}
+
+pub fn default_internet_l3_vni() -> u32 {
+    // This is a number agreed upon between GNI and Forge
+    // that they will use to tag the default route.
+    // It will be combined with datacenter_asn to form
+    // a route-target of <DC_ASN>:<INTERNET_VNI>.
+    100001
+}
+
+pub fn default_datacenter_asn() -> u32 {
+    // This is a number previously provided by GNI.
+    // It represents a "global" (i.e., non-DC-specific)
+    // identifier.  It's used in pre-FNN sites and in FNN
+    // on DPU routes, but we'll transition away from that.
+    11414
 }
 
 pub fn default_to_true() -> bool {
