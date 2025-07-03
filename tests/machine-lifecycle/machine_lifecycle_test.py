@@ -107,6 +107,14 @@ def main():
     if test_config.factory_reset:
         perform_factory_reset(test_config, site_config, machine_info)
 
+    # We need to unassign the instance type before we can force-delete the machine
+    ngc.delete_allocation(
+        site_config.site,
+        f"machine-lifecycle-test-{test_config.machine_sku}",
+        strict=False,
+    )
+    ngc.unassign_instance_type(site_config.site, test_config.machine_under_test, strict=False)
+
     # Perform force delete and wait for reingestion to Ready state
     force_delete_and_await_reingestion(test_config, site_config, machine_info)
 
@@ -122,11 +130,7 @@ def main():
             admin_cli
         )
 
-    ngc.delete_allocation(
-        site_config.site,
-        f"machine-lifecycle-test-{test_config.machine_sku}"
-    )
-    ngc.unassign_instance_type(site_config.site, test_config.machine_under_test)
+    # Assign the instance type back to the machine
     ngc.assign_instance_type(site_config.site, ngc_uuids.instance_type_uuid, test_config.machine_under_test)
     ngc.create_allocation(
         site_config.site,
@@ -266,7 +270,7 @@ def setup_site_config(test_config: TestConfig) -> SiteConfig:
 
 def collect_machine_info(test_config: TestConfig) -> MachineInfo:
     """Collect and validate information about the machine before running the test.
-    
+
     Args:
         test_config: The test configuration containing machine information
     Returns:
@@ -279,6 +283,7 @@ def collect_machine_info(test_config: TestConfig) -> MachineInfo:
     elif "dell" in machine_vendor.lower():
         vendor = "dell"
     else:
+        vendor = ""  # make linter happy
         _error_and_exit(f"{machine_vendor=} is not valid. Expected to contain 'Lenovo' or 'Dell'")
 
     print(f"Machine vendor is {vendor}")
@@ -395,7 +400,7 @@ def verify_initial_machine_state(test_config: TestConfig) -> None:
 
 def _download_firmware_files(test_config: TestConfig) -> FirmwarePaths:
     """Download all required firmware files for a DPU downgrade.
-    
+
     Args:
         test_config: The test configuration containing firmware version information
     Returns:
@@ -445,7 +450,7 @@ def _power_cycle_host_and_wait(
     wait_for_redfish: bool = True
 ) -> None:
     """Power-cycle the host and wait for services to be available again.
-    
+
     Args:
         machine_info: Information about the machine under test
         site_config: The site configuration containing credentials
@@ -480,7 +485,7 @@ def _apply_bmc_cec_firmware(
     cec_fw_path: str
 ) -> None:
     """Apply BMC and CEC firmware to downgrade the DPU(s).
-    
+
     Args:
         test_config: The test configuration containing firmware version information
         site_config: The site configuration containing credentials
@@ -526,7 +531,7 @@ def _apply_bfb_nic_firmware(
     bfb_path: str
 ) -> None:
     """Apply BFB and NIC firmware to downgrade the DPU(s).
-    
+
     Args:
         test_config: The test configuration containing firmware version information
         site_config: The site configuration containing credentials
@@ -605,7 +610,7 @@ def _apply_firmware(
 ) -> None:
     """Apply firmware files to downgrade the DPU(s).
     This downgrades the BMC, CEC, BFB and NIC firmware before power-cycling the host
-    
+
     Args:
         test_config: The test configuration containing firmware version information
         site_config: The site configuration containing credentials
@@ -627,7 +632,7 @@ def _apply_firmware(
         admin_cli.disable_state_machine_intervention(test_config.machine_under_test)
     except subprocess.CalledProcessError:
         _error_and_exit("Setting health-alert pre-downgrade failed")
-    
+
     _apply_bmc_cec_firmware(test_config, site_config, machine_info, bmc_fw_path, cec_fw_path)
     _apply_bfb_nic_firmware(test_config, site_config, machine_info, bfb_path)
     time.sleep(20)  # Workaround for brief 400 error from redfish
@@ -640,7 +645,7 @@ def verify_firmware_versions(
     downgraded: bool = False
 ) -> None:
     """Verify that firmware versions have been downgraded to expected versions.
-    
+
     Args:
         test_config: The test configuration containing firmware version information
         site_config: The site configuration containing credentials
@@ -709,7 +714,7 @@ def verify_firmware_versions(
 
 def perform_firmware_downgrade(test_config: TestConfig, site_config: SiteConfig, machine_info: MachineInfo) -> None:
     """Perform DPU firmware downgrade, verify the versions, and remove the files after.
-    
+
     Args:
         test_config: The test configuration containing firmware version information
         site_config: The site configuration containing credentials
@@ -743,7 +748,7 @@ def perform_firmware_downgrade(test_config: TestConfig, site_config: SiteConfig,
 
 def _factory_reset_dpu(test_config: TestConfig, site_config: SiteConfig, machine_info: MachineInfo) -> None:
     """Perform factory reset on DPU(s).
-    
+
     Args:
         test_config: The test configuration containing test settings
         site_config: The site configuration containing credentials
@@ -800,7 +805,7 @@ def _factory_reset_dpu(test_config: TestConfig, site_config: SiteConfig, machine
 
 def _factory_reset_host(test_config: TestConfig, site_config: SiteConfig, machine_info: MachineInfo) -> None:
     """Perform factory reset on host.
-    
+
     Args:
         test_config: The test configuration containing test settings
         site_config: The site configuration containing credentials
@@ -925,7 +930,7 @@ def _factory_reset_host(test_config: TestConfig, site_config: SiteConfig, machin
 
 def perform_factory_reset(test_config: TestConfig, site_config: SiteConfig, machine_info: MachineInfo) -> None:
     """Perform a factory-reset on the DPU(s) and host.
-    
+
     Args:
         test_config: The test configuration containing test settings
         site_config: The site configuration containing credentials
@@ -948,7 +953,7 @@ def force_delete_and_await_reingestion(
     test_config: TestConfig, site_config: SiteConfig, machine_info: MachineInfo
 ) -> None:
     """Perform force delete operation and wait for machine to reach Ready state.
-    
+
     Args:
         test_config: The test configuration containing test settings
         site_config: The site configuration containing credentials
@@ -1007,7 +1012,7 @@ def force_delete_and_await_reingestion(
 
 def create_instance_and_verify(test_config: TestConfig, site_config: SiteConfig, ngc_uuids: NGCUUIDs) -> str | None:
     """Create an instance, wait for it to be ready, and verify SSH access.
-    
+
     Args:
         test_config: The test configuration containing test settings
         site_config: The site configuration containing site information
@@ -1075,7 +1080,7 @@ def create_instance_and_verify(test_config: TestConfig, site_config: SiteConfig,
 
 def delete_instance_and_verify(test_config: TestConfig, ngc_uuids: NGCUUIDs, instance_uuid: str) -> None:
     """Delete the instance and wait for deprovisioning to complete.
-    
+
     Args:
         test_config: The test configuration containing test settings
         ngc_uuids: Object containing all required NGC UUIDs

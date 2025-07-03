@@ -245,7 +245,7 @@ def get_instance_status(instance_uuid: str, site: Site) -> str:
     ngc_process = subprocess.run(ngc_command, capture_output=True, text=True)
     if ngc_process.returncode == 1 and "Client Error: 400 Response" in ngc_process.stderr:
         print(f"Instance {instance_uuid} not found:\n{ngc_process.stdout}", file=sys.stderr)
-        raise
+        raise ForgeNGCError(f"Instance {instance_uuid} not found")
     elif ngc_process.returncode:
         print(f"machine info stdout: {ngc_process.stdout}")
         print(f"machine info stderr: {ngc_process.stderr}")
@@ -428,7 +428,7 @@ def wait_for_vpc_to_not_contain_instance(site_uuid: str, vpc_uuid: str, instance
     else:
         raise TimeoutError(f"VPC {vpc_uuid} still contains instance {instance_uuid} after {timeout} seconds.\n{instances}")
 
-def get_allocation(site: Site, allocation_name: str) -> dict:
+def get_allocation(site: Site, allocation_name: str, strict: bool = True) -> dict | None:
     ngc_command = [
         "ngc",
         "forge",
@@ -445,11 +445,22 @@ def get_allocation(site: Site, allocation_name: str) -> dict:
         print(f"ngc stdout: {ngc_process.stdout}")
         print(f"ngc stderr: {ngc_process.stderr}")
     ngc_process.check_returncode()
-    return json.loads(ngc_process.stdout)[0]
+    try:
+        return json.loads(ngc_process.stdout)[0]
+    except IndexError:
+        if strict:
+            raise
+        return None
 
 
-def delete_allocation(site: Site, allocation_name: str) -> None:
-    allocation_id = get_allocation(site, allocation_name)["id"]
+def delete_allocation(site: Site, allocation_name: str, strict: bool = True) -> None:
+    allocation = get_allocation(site, allocation_name, strict)
+    if allocation is None:
+        # Doesn't exist, nothing to delete
+        if strict:
+            raise ValueError(f"Allocation {allocation_name} does not exist")
+        return
+    allocation_id = allocation["id"]
     ngc_command = [
         "ngc",
         "forge",
@@ -499,7 +510,7 @@ def create_allocation(site: Site, instance_type_id: str, site_id: str, allocatio
     return json.loads(ngc_process.stdout)
 
 
-def unassign_instance_type(site: Site, machine_id: str) -> None:
+def unassign_instance_type(site: Site, machine_id: str, strict: bool = True) -> None:
     """Unassign the given instance type from any machines."""
     ngc_command = [
         "ngc",
@@ -516,7 +527,8 @@ def unassign_instance_type(site: Site, machine_id: str) -> None:
     if ngc_process.returncode:
         print(f"ngc stdout: {ngc_process.stdout}")
         print(f"ngc stderr: {ngc_process.stderr}")
-    ngc_process.check_returncode()
+    if strict:
+        ngc_process.check_returncode()
 
 
 def assign_instance_type(site: Site, instance_type_uuid: str, machine_id: str) -> None:
