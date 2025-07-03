@@ -165,12 +165,15 @@ pub async fn assert_connection_works(
             _ = write_interval.tick() => {
                 match test_state {
                     ConnectionTestState::WaitingForPrompt => {
+                        tracing::debug!("Writing newline to server");
                         channel.data(b"\n".as_slice()).await.context("Writing newline to server")?;
                     }
                     ConnectionTestState::TryingCtrlBackslash => {
+                        tracing::debug!("Writing ctrl-\\ to server");
                         channel.data(b"\x1c".as_slice()).await.context("Writing ctrl-\\ to server")?;
                     }
                     ConnectionTestState::TryingBackdoorEscape => {
+                        tracing::debug!("Writing backdoor escape sequence to server");
                         for byte in BMC_BACKDOOR_SEQUENCE {
                             channel.data([*byte].as_slice()).await.context("Writing mock backdoor escape to server")?;
                         }

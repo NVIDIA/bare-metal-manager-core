@@ -19,6 +19,7 @@ mod util;
 use crate::util::{BaselineTestAssertion, run_baseline_test_environment};
 use api_test_helper::utils::REPO_ROOT;
 use util::legacy;
+use util::new_ssh_console;
 
 #[allow(dead_code)]
 static TENANT_SSH_KEY: &str = include_str!("fixtures/tenant_ssh_key");
@@ -64,26 +65,29 @@ async fn test_legacy() -> eyre::Result<()> {
     .await
 }
 
-// Soon:
-// #[tokio::test(flavor = "multi_thread")]
-// async fn test_new_ssh_console() -> eyre::Result<()> {
-//     let Some(env) = run_baseline_test_environment(2).await? else {
-//         return Ok(());
-//     };
-//
-//     // Run new ssh-console
-//     let handle = new_ssh_console::spawn(env.mock_api_server.addr.port()).await?;
-//
-//     env.run_baseline_assertions(
-//         handle.addr,
-//         "new-ssh-console",
-//         &[
-//             BaselineTestAssertion::ConnectAsInstanceId,
-//             BaselineTestAssertion::ConnectAsMachineId,
-//         ],
-//     )
-//         .await
-// }
+#[tokio::test(flavor = "multi_thread")]
+async fn test_new_ssh_console() -> eyre::Result<()> {
+    if std::env::var("REPO_ROOT").is_err() {
+        tracing::info!("Skipping running ssh-console integration tests, as REPO_ROOT is not set");
+        return Ok(());
+    }
+    let Some(env) = run_baseline_test_environment(2).await? else {
+        return Ok(());
+    };
+
+    // Run new ssh-console
+    let handle = new_ssh_console::spawn(env.mock_api_server.addr.port()).await?;
+
+    env.run_baseline_assertions(
+        handle.addr,
+        "new-ssh-console",
+        &[
+            BaselineTestAssertion::ConnectAsInstanceId,
+            BaselineTestAssertion::ConnectAsMachineId,
+        ],
+    )
+    .await
+}
 
 #[ctor::ctor]
 fn setup_test_logging() {

@@ -34,6 +34,7 @@ members = [
     "scout",
     "ssh-console",
     "ssh-console/mock_api_server",
+    "fuzz",
 ]
 
 [workspace.package]
