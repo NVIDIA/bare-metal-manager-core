@@ -157,6 +157,25 @@ impl MockSshHandler {
             accept_password,
         }
     }
+
+    fn print_prompt(
+        &self,
+        session: &mut Session,
+        channel: ChannelId,
+    ) -> StdResult<(), russh::Error> {
+        match self.console_state {
+            ConsoleState::System => {
+                session.data(
+                    channel,
+                    format!("\r\nroot@{} # ", self.prompt_hostname.get_hostname()).into(),
+                )?;
+            }
+            ConsoleState::Bmc => {
+                session.data(channel, "\nracadm>>".into())?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -189,7 +208,7 @@ impl server::Handler for MockSshHandler {
         session: &mut Session,
     ) -> StdResult<(), Self::Error> {
         session.channel_success(channel)?;
-        session.data(channel, "\r\nracadm>> ".into())?;
+        self.print_prompt(session, channel)?;
         Ok(())
     }
 
@@ -256,22 +275,11 @@ impl server::Handler for MockSshHandler {
                     String::from_utf8_lossy(&command),
                 );
                 self.console_state = ConsoleState::Bmc;
-                session.data(channel, "\r\nracadm>>".into())?;
             } else {
                 tracing::info!("Got command in state {:?}: {command:?}", self.console_state,);
             }
 
-            match self.console_state {
-                ConsoleState::System => {
-                    session.data(
-                        channel,
-                        format!("\r\nroot@{} # ", self.prompt_hostname.get_hostname()).into(),
-                    )?;
-                }
-                ConsoleState::Bmc => {
-                    session.data(channel, "\r\nracadm>>".into())?;
-                }
-            }
+            self.print_prompt(session, channel)?;
         } else {
             match data {
                 b"\x1c" => {

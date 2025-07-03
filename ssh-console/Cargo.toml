@@ -5,15 +5,33 @@ edition.workspace = true
 license-file.workspace = true
 authors.workspace = true
 
+[[bin]]
+name = "ssh-console"
+path = "src/main.rs"
+
 [dependencies]
+
+# local dependencies
+rpc = { path = "../rpc" }
+forge-tls = { path = "../common/tls" }
+forge-uuid = { path = "../common/uuid" }
+
 ctor = "0.4.2"
 eyre = "0.6.12"
 lazy_static = "1.5.0"
 tokio = { workspace = true, features = ["tokio-macros", "rt-multi-thread", "sync", "macros"] }
 tracing = "0.1.41"
-tracing-subscriber = "0.3.19"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 uuid = { version = "1.17.0", features = ["v4"] }
 thiserror = "2.0.12"
+toml = "0.8.23"
+serde = { version = "1.0.219", features = ["derive"] }
+clap = { version = "4.5.40", features = ["color", "derive", "env"] }
+russh = "0.52.1"
+http = { version = "1.3.1" }
+color-eyre = "0.6.5"
+tonic = { workspace = true, features = ["default"] }
+ringbuf = "0.4.8"
 
 [dev-dependencies]
 bmc-mock = { path = "../dev/bmc-mock" }
@@ -22,7 +40,6 @@ utils = { path = "../common/utils" }
 temp-dir = "0.1.14"
 futures = "0.3.31"
 api-test-helper = { path = "../common/api-test-helper" }
-russh = "0.52.1"
 ssh_console_mock_api_server = { path = "mock_api_server" }
 forge-uuid = { path = "../common/uuid" }
 rand = "0.9.1"

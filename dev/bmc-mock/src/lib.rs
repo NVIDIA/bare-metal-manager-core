@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::ffi::OsStr;
@@ -130,7 +130,7 @@ pub trait PowerStateQuerying: std::fmt::Debug + Send + Sync {
 }
 
 pub trait HostnameQuerying: std::fmt::Debug + Send + Sync {
-    fn get_hostname(&self) -> String;
+    fn get_hostname(&self) -> Cow<str>;
 }
 
 // Simulate a 5-second power cycle

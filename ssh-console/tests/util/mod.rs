@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use crate::util::ipmi_sim::IpmiSimHandle;
 use crate::util::ssh_client::ConnectionConfig;
 use crate::{ADMIN_SSH_KEY_PATH, TENANT_SSH_KEY_PATH, TENANT_SSH_PUBKEY};
@@ -19,6 +18,7 @@ use forge_uuid::machine::{MachineIdSource, MachineType};
 use futures::future::join_all;
 use machine_a_tron::MockSshServerHandle;
 use ssh_console_mock_api_server::{MockApiServerHandle, MockHost};
+use std::borrow::Cow;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -28,6 +28,7 @@ use uuid::Uuid;
 
 pub mod ipmi_sim;
 pub mod legacy;
+pub mod new_ssh_console;
 pub mod ssh_client;
 
 pub mod fixtures {
@@ -128,20 +129,22 @@ pub async fn run_baseline_test_environment(
     .collect::<Result<_, _>>()
     .context("Error spawning mock SSH server")?;
 
-    let mock_hosts: Vec<MockHost> = machine_ids
-        .iter()
-        .enumerate()
-        .map(|(i, machine_id)| MockHost {
-            machine_id: *machine_id,
-            instance_id: Uuid::new_v4(),
-            tenant_public_key: TENANT_SSH_PUBKEY.to_string(),
-            sys_vendor: "Dell".to_string(),
-            bmc_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
-            bmc_ssh_port: ssh_server_handles[i].port,
-            bmc_user: "root".to_string(),
-            bmc_password: "password".to_string(),
-        })
-        .collect();
+    let mock_hosts: Arc<Vec<MockHost>> = Arc::new(
+        machine_ids
+            .iter()
+            .enumerate()
+            .map(|(i, machine_id)| MockHost {
+                machine_id: *machine_id,
+                instance_id: Uuid::new_v4(),
+                tenant_public_key: TENANT_SSH_PUBKEY.to_string(),
+                sys_vendor: "Dell".to_string(),
+                bmc_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+                bmc_ssh_port: ssh_server_handles[i].port,
+                bmc_user: "root".to_string(),
+                bmc_password: "password".to_string(),
+            })
+            .collect(),
+    );
 
     let api_server_handle = ssh_console_mock_api_server::MockApiServer {
         mock_hosts: mock_hosts.clone(),
@@ -162,14 +165,14 @@ pub async fn run_baseline_test_environment(
 struct KnownHostname(String);
 
 impl HostnameQuerying for KnownHostname {
-    fn get_hostname(&self) -> String {
-        self.0.clone()
+    fn get_hostname(&self) -> Cow<str> {
+        Cow::Borrowed(self.0.as_str())
     }
 }
 
 pub struct BaselineTestEnvironment {
     pub mock_api_server: MockApiServerHandle,
-    pub mock_hosts: Vec<MockHost>,
+    pub mock_hosts: Arc<Vec<MockHost>>,
     pub mock_ssh_servers: Vec<MockSshServerHandle>,
     _ipmi_sim_handle: IpmiSimHandle,
 }
@@ -245,7 +248,6 @@ impl BaselineTestEnvironment {
 
 #[allow(clippy::enum_variant_names)]
 pub enum BaselineTestAssertion {
-    #[allow(dead_code)]
     ConnectAsMachineId,
     ConnectAsInstanceId,
 }

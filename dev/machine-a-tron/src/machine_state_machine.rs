@@ -1,6 +1,7 @@
 use mac_address::MacAddress;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, RwLock};
@@ -61,14 +62,14 @@ impl PowerStateQuerying for LiveStatePowerQuery {
 pub struct LiveStateHostnameQuery(pub Arc<RwLock<LiveState>>);
 
 impl HostnameQuerying for LiveStateHostnameQuery {
-    fn get_hostname(&self) -> String {
+    fn get_hostname(&self) -> Cow<str> {
         self.0
             .read()
             .unwrap()
             .observed_machine_id
             .as_ref()
-            .map(|id| id.id.clone())
-            .unwrap_or("localhost".to_string())
+            .map(|id| Cow::Owned(id.id.clone()))
+            .unwrap_or(Cow::Borrowed("localhost"))
     }
 }
 

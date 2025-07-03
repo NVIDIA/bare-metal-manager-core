@@ -10,6 +10,7 @@ use api_test_helper::utils::LOCALHOST_CERTS;
 use std::fs;
 use std::net::IpAddr;
 use std::net::{SocketAddr, ToSocketAddrs};
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
@@ -61,7 +62,7 @@ impl From<MockHost> for forge::Instance {
 
 #[derive(Debug)]
 pub struct MockApiServer {
-    pub mock_hosts: Vec<MockHost>,
+    pub mock_hosts: Arc<Vec<MockHost>>,
 }
 
 pub struct MockApiServerHandle {
