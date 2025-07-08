@@ -68,6 +68,15 @@ groupadd nsv
 
 # end nvinit setup
 
+# Setup the daily scout update check script
+cp /build-output/check-scout-updates.sh /opt/forge/
+cp /build-output/check-scout-updates.service /etc/systemd/system
+cp /build-output/check-scout-updates.timer /etc/systemd/system
+
+ln -s /etc/systemd/system/check-scout-updates.service /etc/systemd/system/multi-user.target.wants/check-scout-updates.service
+ln -s /etc/systemd/system/check-scout-updates.timer /etc/systemd/system/timers.target.wants/check-scout-updates.timer
+# end sdaily scout update check script
+
 # Some sanity checks for the image, to ensure forge-scout can run, and expected modules are present.
 if [ "$(ldd /opt/forge/forge-scout | fgrep -c 'not found')" != "0" ]
 then
