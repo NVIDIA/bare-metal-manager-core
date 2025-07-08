@@ -188,7 +188,7 @@ pub async fn get_periodic_dpu_config(
         Ok(response) => response,
         Err(err) => {
             return Err(eyre::eyre!(
-                "Error while executing the FindInstanceByMachineId gRPC call: {}",
+                "Error while executing the GetManagedHostNetworkConfig gRPC call: {}",
                 err.to_string()
             ));
         }
