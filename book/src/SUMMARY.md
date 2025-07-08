@@ -83,6 +83,7 @@
   - [Machine stuck in DPU `Reprovisioning`](playbooks/stuck_objects/dpu_reprovisioning.md)
   - [State is stuck in Forge Cloud](playbooks/stuck_objects/stuck_in_forge_cloud.md)
   - [Adding new machines to an existing site](playbooks/stuck_objects/adding_new_machines.md)
+  - [Troubleshooting noDpuLogsWarning alerts](playbooks/troubleshooting_noDpuLogsWarning_alerts.md)
 - [InfiniBand setup](playbooks/ib_runbook.md)
 - [Updating Expected Machines Manifest](playbooks/em_update.md)
 
