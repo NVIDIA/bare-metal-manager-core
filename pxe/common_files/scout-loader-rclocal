@@ -1,8 +1,11 @@
 #!/bin/bash
 
+set -o pipefail
+
 PCR=16
 OUTCONSOLE=""
 TMPFILE="/tmp/newrootfs"
+ROOTFS_INFO_FILE="/run/nextroot/rootfs_info.txt"
 
 send_msg() {
 	for dest in ${OUTCONSOLE}
@@ -49,21 +52,26 @@ then
     send_msg "LOADER: Downloading ${newrootfsurl}"
     while (( ${DONE} != 1 ))
     do
-      curl -sf -o - ${newrootfsurl} 2>/dev/null | tee ${TMPFILE} | zstd -d 2>/dev/null | cpio -i 2>/dev/null
+      # We store the HTTP HEAD info for the script which will check for updates later.
+      curl -sf --head ${newrootfsurl} 2>/dev/null | sed 's/\r//g' > ${ROOTFS_INFO_FILE}
       if (( $? == 0 ))
       then
-        if [ -e "/sys/class/tpm/tpm0/pcr-sha256/${PCR}" ]
+        curl -sf -o - ${newrootfsurl} 2>/dev/null | tee ${TMPFILE} | zstd -d 2>/dev/null | cpio -i 2>/dev/null
+        if (( $? == 0 ))
         then
-          send_msg "LOADER: Measuring to PCR sha256/${PCR}"
-	        tpm2_pcrextend "${PCR}:sha256=$(sha256sum ${TMPFILE} | awk '{print $1}')"
-        elif [ -e "/sys/class/tpm/tpm0/pcr-sha384/${PCR}" ]
-        then
-          send_msg "LOADER: Measuring to PCR sha384/${PCR}"
-	        tpm2_pcrextend "${PCR}:sha384=$(sha384sum ${TMPFILE} | awk '{print $1}')"
-        else
-          send_msg "LOADER: Unable to find PCR ${PCR}, is TPM installed and configured correctly?"
+          if [ -e "/sys/class/tpm/tpm0/pcr-sha256/${PCR}" ]
+          then
+            send_msg "LOADER: Measuring to PCR sha256/${PCR}"
+            tpm2_pcrextend "${PCR}:sha256=$(sha256sum ${TMPFILE} | awk '{print $1}')"
+          elif [ -e "/sys/class/tpm/tpm0/pcr-sha384/${PCR}" ]
+          then
+            send_msg "LOADER: Measuring to PCR sha384/${PCR}"
+            tpm2_pcrextend "${PCR}:sha384=$(sha384sum ${TMPFILE} | awk '{print $1}')"
+          else
+            send_msg "LOADER: Unable to find PCR ${PCR}, is TPM installed and configured correctly?"
+          fi
+          DONE=1
         fi
-	      DONE=1
       else
 	      sleep 1
       fi

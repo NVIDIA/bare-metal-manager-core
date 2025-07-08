@@ -94,6 +94,18 @@ script = '''
   cp ${REPO_ROOT}/pxe/common_files/scout-loader-rclocal ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-x86_64/mkosi.extra/etc/rc.local
 '''
 
+[tasks.stage-scout-update-check]
+description="Copies the scout-update script and systemd files to build-output"
+script = '''
+  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
+  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.service ${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
+  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.timer ${REPO_ROOT}/pxe/mkosi.profiles/scout-aarch64/mkosi.extra/build-output/
+
+  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
+  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.service ${REPO_ROOT}/pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
+  cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.timer ${REPO_ROOT}/pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/
+'''
+
 [tasks.build-boot-artifacts-x86-host]
 dependencies = [
   "mkdir-static",
@@ -161,6 +173,7 @@ dependencies = [
   "stage-nvinit",
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
+  "stage-scout-update-check",
   "mkosi-build-scout-x86_64",
   "mkosi-build-scout-loader-x86_64",
   "mkosi-build-qcow-imager",
@@ -182,6 +195,7 @@ dependencies = [
   "stage-nvinit",
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
+  "stage-scout-update-check",
   "mkosi-build-scout-x86_64",
   "mkosi-build-scout-loader-x86_64",
   "mkosi-build-qcow-imager",
@@ -202,6 +216,7 @@ dependencies = [
   "stage-nvinit",
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
+  "stage-scout-update-check",
   "mkosi-build-scout-aarch64",
   "mkosi-build-scout-loader-aarch64",
   "mkosi-build-qcow-imager-aarch64",
@@ -223,6 +238,7 @@ dependencies = [
   "stage-nvinit",
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
+  "stage-scout-update-check",
   "mkosi-build-scout-aarch64",
   "mkosi-build-scout-loader-aarch64",
   "mkosi-build-qcow-imager-aarch64",
