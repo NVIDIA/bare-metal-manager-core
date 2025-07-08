@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use askama::Template;
@@ -240,7 +240,7 @@ async fn show(
     }
     machines.sort_unstable();
 
-    let instance_type_ids: Vec<String> = machines
+    let instance_type_ids: HashSet<String> = machines
         .iter()
         .filter_map(|m| match m.instance_type_id.is_empty() {
             false => Some(m.instance_type_id.clone()),
@@ -248,10 +248,11 @@ async fn show(
         })
         .collect();
 
-    let instance_types = match fetch_instance_type_names(&state, instance_type_ids).await {
-        Ok(instance_types) => instance_types,
-        Err(e) => return e,
-    };
+    let instance_types =
+        match fetch_instance_type_names(&state, instance_type_ids.into_iter().collect()).await {
+            Ok(instance_types) => instance_types,
+            Err(e) => return e,
+        };
 
     for m in machines.iter_mut() {
         if let Some(instance_type) = instance_types.get(&m.instance_type_id) {
