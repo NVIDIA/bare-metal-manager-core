@@ -1,7 +1,7 @@
 [Unit]
 Description=OpenTelemetry Collector Contrib
 Documentation=https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/journaldreceiver
-After=networking.service network-online.target time-sync.target containerd@mgmt.service
+After=networking.service network-online.target time-sync.target containerd@mgmt.service cloud-final.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
