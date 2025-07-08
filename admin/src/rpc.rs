@@ -1942,6 +1942,36 @@ impl ApiClient {
         Ok(all_itypes)
     }
 
+    pub async fn create_instance_type_association(
+        &self,
+        instance_type_id: String,
+        machine_ids: Vec<String>,
+    ) -> CarbideCliResult<()> {
+        self.0
+            .associate_machines_with_instance_type(rpc::AssociateMachinesWithInstanceTypeRequest {
+                instance_type_id,
+                machine_ids,
+            })
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
+    }
+
+    pub async fn remove_instance_type_association(
+        &self,
+        machine_id: String,
+    ) -> CarbideCliResult<()> {
+        self.0
+            .remove_machine_instance_type_association(
+                rpc::RemoveMachineInstanceTypeAssociationRequest { machine_id },
+            )
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
+    }
+
     pub async fn get_power_options(
         &self,
         machine_id: Vec<String>,

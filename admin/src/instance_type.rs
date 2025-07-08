@@ -19,9 +19,8 @@ use rpc::forge::{
 use super::CarbideCliError;
 
 use crate::cfg::instance_type::{
-    CreateInstanceType, DeleteInstanceType,
-    ShowInstanceType, /*ShowInstanceTypeAssociations,*/
-    UpdateInstanceType,
+    AssociateInstanceType, CreateInstanceType, DeleteInstanceType, DisassociateInstanceType,
+    ShowInstanceType, UpdateInstanceType,
 };
 use crate::rpc::ApiClient;
 use ::rpc::forge::{self as forgerpc, FindInstanceTypesByIdsRequest};
@@ -287,6 +286,41 @@ pub async fn create(
     } else {
         convert_itypes_to_table(&[itype], true)?.printstd();
     }
+
+    Ok(())
+}
+
+pub async fn create_association(
+    associate_instance_type: AssociateInstanceType,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    if associate_instance_type.machine_ids.is_empty() {
+        return Err(CarbideCliError::GenericError(
+            "Machine ids can not be empty.".to_string(),
+        ));
+    }
+
+    api_client
+        .create_instance_type_association(
+            associate_instance_type.instance_type_id,
+            associate_instance_type.machine_ids,
+        )
+        .await?;
+
+    println!("Association is created successfully!!");
+
+    Ok(())
+}
+
+pub async fn remove_association(
+    disassociate_instance_type: DisassociateInstanceType,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    api_client
+        .remove_instance_type_association(disassociate_instance_type.machine_id)
+        .await?;
+
+    println!("Association is removed successfully!!");
 
     Ok(())
 }
