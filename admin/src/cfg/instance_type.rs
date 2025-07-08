@@ -25,6 +25,32 @@ pub enum InstanceTypeActions {
 
     #[clap(about = "Update an instance type", visible_alias = "u")]
     Update(UpdateInstanceType),
+
+    #[clap(
+        about = "Associate an instance type with machines",
+        visible_alias = "a"
+    )]
+    Associate(AssociateInstanceType),
+
+    #[clap(
+        about = "Remove an instance type association from a machines",
+        visible_alias = "r"
+    )]
+    Disassociate(DisassociateInstanceType),
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct AssociateInstanceType {
+    #[clap(help = "InstanceTypeId")]
+    pub instance_type_id: String,
+    #[clap(help = "Machine Ids, separated by comma", value_delimiter = ',')]
+    pub machine_ids: Vec<String>,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct DisassociateInstanceType {
+    #[clap(help = "Machine Id")]
+    pub machine_id: String,
 }
 
 #[derive(Parser, Debug, Clone)]
