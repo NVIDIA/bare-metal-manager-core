@@ -30,23 +30,27 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum RestError {
-    #[error("{0}")]
-    Internal(String),
-    #[error("'{0}' not found")]
-    NotFound(String),
-    #[error("failed to auth '{0}'")]
-    AuthFailure(String),
-    #[error("invalid configuration '{0}'")]
+    #[error("Invalid configuration: '{0}'")]
     InvalidConfig(String),
+    #[error("Response body can not be deserialized: {body}")]
+    MalformedResponse {
+        status_code: u16,
+        body: String,
+        headers: http::HeaderMap,
+    },
+    #[error("Failed to execute HTTP request: {0}")]
+    HttpConnectionError(String),
+    #[error("HTTP error code {status_code}")]
+    HttpError {
+        status_code: u16,
+        body: String,
+        headers: http::HeaderMap,
+    },
 }
 
 impl From<hyper::Error> for RestError {
     fn from(value: hyper::Error) -> Self {
-        if value.is_user() {
-            return RestError::AuthFailure(value.to_string());
-        }
-
-        RestError::Internal(value.to_string())
+        RestError::HttpConnectionError(value.to_string())
     }
 }
 
@@ -141,7 +145,7 @@ impl RestClient {
             let fd = match std::fs::File::open(auto_cert.ca_crt.clone()) {
                 Ok(fd) => fd,
                 Err(_) => {
-                    return Err(RestError::NotFound(format!(
+                    return Err(RestError::InvalidConfig(format!(
                         "Root CA file not found at '{}'",
                         auto_cert.ca_crt.clone()
                     )));
@@ -151,7 +155,7 @@ impl RestClient {
             let root_ca_certs = rustls_pemfile::certs(&mut buf)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| {
-                    RestError::Internal(format!(
+                    RestError::InvalidConfig(format!(
                         "Error reading Root CA file at '{}': {}",
                         auto_cert.tls_crt.clone(),
                         e
@@ -166,7 +170,7 @@ impl RestClient {
                     rustls_pemfile::certs(&mut buf).collect::<Result<Vec<_>, _>>()
                 })
                 .map_err(|e| {
-                    RestError::Internal(format!(
+                    RestError::InvalidConfig(format!(
                         "Error reading client cert at '{}': {}",
                         auto_cert.tls_crt.clone(),
                         e
@@ -178,7 +182,7 @@ impl RestClient {
                 let fd = match std::fs::File::open(auto_cert.tls_key.clone()) {
                     Ok(fd) => fd,
                     Err(_) => {
-                        return Err(RestError::NotFound(format!(
+                        return Err(RestError::InvalidConfig(format!(
                             "Client Private Key file not found at '{}'",
                             auto_cert.tls_key.clone()
                         )));
@@ -192,26 +196,26 @@ impl RestClient {
                         Item::Pkcs8Key(key) => Some(key.into()),
                         Item::Sec1Key(key) => Some(key.into()),
                         Item::X509Certificate(_) => {
-                            return Err(RestError::Internal(format!(
+                            return Err(RestError::InvalidConfig(format!(
                                 "Expected Client Private Key but certificate is found '{}'",
                                 auto_cert.tls_key.clone()
                             )));
                         }
                         Item::Crl(_) => {
-                            return Err(RestError::Internal(format!(
+                            return Err(RestError::InvalidConfig(format!(
                                 "Expected Client Private Key but certificate revocation list is found '{}'",
                                 auto_cert.tls_key
                             )));
                         }
                         _ => {
-                            return Err(RestError::Internal(format!(
+                            return Err(RestError::InvalidConfig(format!(
                                 "Client Private Key is corrupted '{}'",
                                 auto_cert.tls_key.clone()
                             )));
                         }
                     },
                     _ => {
-                        return Err(RestError::NotFound(format!(
+                        return Err(RestError::InvalidConfig(format!(
                             "Client Private Key file not found at '{}'",
                             auto_cert.tls_key.clone()
                         )));
@@ -271,39 +275,52 @@ impl RestClient {
     pub async fn get<'a, T: serde::de::DeserializeOwned>(
         &'a self,
         path: &'a str,
-    ) -> Result<T, RestError> {
+    ) -> Result<(T, ResponseDetails), RestError> {
         let resp = self.execute_request(Method::GET, path, None).await?;
-        if resp.eq("{}") {
-            return Err(RestError::NotFound(path.to_string()));
-        }
+        let data = match serde_json::from_str(&resp.body) {
+            Ok(data) => data,
+            Err(_) => {
+                return Err(RestError::MalformedResponse {
+                    status_code: resp.details.status_code,
+                    headers: resp.details.headers,
+                    body: resp.body,
+                });
+            }
+        };
 
-        let data = serde_json::from_str(&resp)
-            .map_err(|_| RestError::InvalidConfig("invalid response".to_string()))?;
-
-        Ok(data)
+        Ok((data, resp.details))
     }
 
     pub async fn list<'a, T: serde::de::DeserializeOwned>(
         &'a self,
         path: &'a str,
-    ) -> Result<T, RestError> {
+    ) -> Result<(T, ResponseDetails), RestError> {
         let resp = self.execute_request(Method::GET, path, None).await?;
-        let data = serde_json::from_str(&resp)
-            .map_err(|_| RestError::InvalidConfig("invalid response".to_string()))?;
 
-        Ok(data)
+        let data = match serde_json::from_str(&resp.body) {
+            Ok(data) => data,
+            Err(_) => {
+                return Err(RestError::MalformedResponse {
+                    status_code: resp.details.status_code,
+                    headers: resp.details.headers,
+                    body: resp.body,
+                });
+            }
+        };
+
+        Ok((data, resp.details))
     }
 
-    pub async fn post(&self, path: &str, data: String) -> Result<(), RestError> {
-        self.execute_request(Method::POST, path, Some(data)).await?;
+    pub async fn post(&self, path: &str, data: String) -> Result<ResponseDetails, RestError> {
+        let resp = self.execute_request(Method::POST, path, Some(data)).await?;
 
-        Ok(())
+        Ok(resp.details)
     }
 
-    pub async fn put(&self, path: &str, data: String) -> Result<(), RestError> {
-        self.execute_request(Method::PUT, path, Some(data)).await?;
+    pub async fn put(&self, path: &str, data: String) -> Result<ResponseDetails, RestError> {
+        let resp = self.execute_request(Method::PUT, path, Some(data)).await?;
 
-        Ok(())
+        Ok(resp.details)
     }
 
     async fn execute_request(
@@ -311,7 +328,7 @@ impl RestClient {
         method: Method,
         path: &str,
         data: Option<String>,
-    ) -> Result<String, RestError> {
+    ) -> Result<ExecuteRequestResult, RestError> {
         let url = format!("{}/{}", self.base_url, path.trim_matches('/'));
         let uri = url
             .parse::<Uri>()
@@ -329,28 +346,44 @@ impl RestClient {
             .map_err(|_| RestError::InvalidConfig("invalid rest request".to_string()))?;
 
         let response = match &self.scheme {
-            RestScheme::Http => self
-                .http_client
-                .request(req)
-                .await
-                .map_err(|e| RestError::Internal(format!("rest request failure: {:?}", e)))?,
-            RestScheme::Https => self
-                .https_client
-                .request(req)
-                .await
-                .map_err(|e| RestError::Internal(format!("rest request failure: {:?}", e)))?,
+            RestScheme::Http => self.http_client.request(req).await.map_err(|e| {
+                RestError::HttpConnectionError(format!("Rest request failure: {:?}", e))
+            })?,
+            RestScheme::Https => self.https_client.request(req).await.map_err(|e| {
+                RestError::HttpConnectionError(format!("Rest request failure: {:?}", e))
+            })?,
         };
 
         let status = response.status();
+        let headers = response.headers().clone();
         let body =
             String::from_utf8(response.into_body().collect().await?.to_bytes().into()).unwrap();
 
         match status {
-            StatusCode::OK => Ok(body),
-            StatusCode::CREATED => Ok(body),
-            _ => Err(RestError::Internal(body)),
+            StatusCode::OK | StatusCode::CREATED => Ok(ExecuteRequestResult {
+                details: ResponseDetails {
+                    status_code: status.as_u16(),
+                    headers,
+                },
+                body,
+            }),
+            status => Err(RestError::HttpError {
+                status_code: status.as_u16(),
+                body,
+                headers,
+            }),
         }
     }
+}
+
+pub struct ResponseDetails {
+    pub status_code: u16,
+    pub headers: http::HeaderMap,
+}
+
+struct ExecuteRequestResult {
+    pub body: String,
+    pub details: ResponseDetails,
 }
 
 // Wrap ClientConfig::builder_with_provider() with defaults

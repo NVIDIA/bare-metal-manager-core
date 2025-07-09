@@ -20,6 +20,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
+use crate::ib::ufmclient::rest::ResponseDetails;
+
 use self::rest::{RestClient, RestClientConfig, RestError, RestScheme};
 
 mod rest;
@@ -185,23 +187,49 @@ pub struct Ufm {
 
 #[derive(Error, Debug)]
 pub enum UFMError {
-    #[error("{0}")]
-    Internal(String),
-    #[error("'{0}' not found")]
-    NotFound(String),
-    #[error("invalid pkey '{0}'")]
+    #[error("Invalid pkey '{0}'")]
     InvalidPKey(String),
-    #[error("invalid configuration '{0}'")]
+    #[error("Invalid configuration: '{0}'")]
     InvalidConfig(String),
+    #[error("Response body can not be deserialized: {body}")]
+    MalformedResponse {
+        status_code: u16,
+        body: String,
+        headers: http::HeaderMap,
+    },
+    #[error("failed to execute HTTP request: {0}")]
+    HttpConnectionError(String),
+    #[error("HTTP error code {status_code}")]
+    HttpError {
+        status_code: u16,
+        body: String,
+        headers: http::HeaderMap,
+    },
 }
 
 impl From<RestError> for UFMError {
     fn from(e: RestError) -> Self {
         match e {
-            RestError::Internal(msg) => UFMError::Internal(msg),
-            RestError::NotFound(msg) => UFMError::NotFound(msg),
-            RestError::AuthFailure(msg) => UFMError::InvalidConfig(msg),
             RestError::InvalidConfig(msg) => UFMError::InvalidConfig(msg),
+            RestError::HttpConnectionError(msg) => UFMError::HttpConnectionError(msg),
+            RestError::HttpError {
+                status_code,
+                body,
+                headers,
+            } => UFMError::HttpError {
+                status_code,
+                body,
+                headers,
+            },
+            RestError::MalformedResponse {
+                status_code,
+                body,
+                headers,
+            } => UFMError::MalformedResponse {
+                status_code,
+                body,
+                headers,
+            },
         }
     }
 }
@@ -272,7 +300,7 @@ pub fn connect(conf: UFMConfig) -> Result<Ufm, UFMError> {
 impl Ufm {
     pub async fn get_sm_config(&self) -> Result<SmConfig, UFMError> {
         let path = String::from("/app/smconf");
-        let sm_config: SmConfig = self.client.get(&path).await?;
+        let sm_config: SmConfig = self.client.get(&path).await?.0;
 
         Ok(sm_config)
     }
@@ -374,7 +402,7 @@ impl Ufm {
             ip_over_ib: bool,
             qos_conf: PartitionQoS,
         }
-        let partitions: HashMap<String, PartitionData> = self.client.get(path).await?;
+        let partitions: HashMap<String, PartitionData> = self.client.get(path).await?.0;
 
         let mut results = HashMap::with_capacity(partitions.len());
         for (pkey, partition) in partitions.into_iter() {
@@ -402,7 +430,7 @@ impl Ufm {
             ip_over_ib: bool,
             qos_conf: PartitionQoS,
         }
-        let pk: Pkey = self.client.get(&path).await?;
+        let pk: Pkey = self.client.get(&path).await?.0;
 
         Ok(Partition {
             name: pk.partition,
@@ -422,7 +450,7 @@ impl Ufm {
         }
 
         let path = format!("resources/pkeys/{pkey}?guids_data=true");
-        let pkeywithguids: PkeyWithGUIDs = self.client.get(&path).await?;
+        let pkeywithguids: PkeyWithGUIDs = self.client.get(&path).await?.0;
 
         let filter = Filter::from(pkeywithguids.guids);
 
@@ -431,7 +459,7 @@ impl Ufm {
 
     pub async fn list_port(&self, filter: Option<Filter>) -> Result<Vec<Port>, UFMError> {
         let path = String::from("/resources/ports?sys_type=Computer");
-        let ports: Vec<Port> = self.client.list(&path).await?;
+        let ports: Vec<Port> = self.client.list(&path).await?.0;
 
         let f = filter.unwrap_or_default();
         let pkey_guids = match &f.pkey {
@@ -497,20 +525,18 @@ impl Ufm {
         }
 
         let path = String::from("/app/ufm_version");
-        let v: Version = self.client.get(&path).await?;
+        let v: Version = self.client.get(&path).await?.0;
 
         Ok(v.ufm_release_version)
     }
 
-    pub async fn raw_get(&self, path: &str) -> Result<serde_json::Value, UFMError> {
-        #[derive(Serialize, Deserialize, Debug)]
-        struct Version {
-            ufm_release_version: String,
-        }
+    pub async fn raw_get(
+        &self,
+        path: &str,
+    ) -> Result<(serde_json::Value, ResponseDetails), UFMError> {
+        let (v, details): (serde_json::Value, _) = self.client.get(path).await?;
 
-        let v: serde_json::Value = self.client.get(path).await?;
-
-        Ok(v)
+        Ok((v, details))
     }
 }
 
