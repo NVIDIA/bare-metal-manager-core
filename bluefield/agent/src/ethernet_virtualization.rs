@@ -36,7 +36,7 @@ use crate::{HBNDeviceNames, acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue
 use forge_network::virtualization::VpcVirtualizationType;
 
 /// None of the files we deal with should be bigger than this
-const MAX_EXPECTED_SIZE: u64 = 16384; // 16 KiB
+const MAX_EXPECTED_SIZE: u64 = 1048576; // 1 MiB
 
 /// ACL to prevent access to nvued's API
 const NVUED_BLOCK_RULE: &str = r"
