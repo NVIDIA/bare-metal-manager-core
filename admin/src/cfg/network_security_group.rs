@@ -87,11 +87,7 @@ pub struct CreateNetworkSecurityGroup {
 
 #[derive(Parser, Debug, Clone)]
 pub struct ShowNetworkSecurityGroup {
-    #[clap(
-        short = 'i',
-        long,
-        help = "Optional, network security group ID to restrict the search"
-    )]
+    #[clap(help = "Optional, network security group ID to restrict the search")]
     pub id: Option<String>,
 }
 
