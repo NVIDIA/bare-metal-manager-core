@@ -113,29 +113,36 @@ pub fn setup_logging(
             .try_init()
             .wrap_err("logging_subscriber.try_init()")?;
     } else {
-        // Exporter reads from OTEL_EXPORTER_OTLP_TRACES_ENDPOINT env var for endpoint
-        let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
-            .with_tonic()
-            .with_protocol(opentelemetry_otlp::Protocol::Grpc)
-            .build()?;
+        let maybe_otel_tracing_layer =
+            match std::env::var(opentelemetry_otlp::OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) {
+                Err(_) => None,
+                Ok(_) => {
+                    // Exporter reads from OTEL_EXPORTER_OTLP_TRACES_ENDPOINT env var for endpoint
+                    let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
+                        .with_tonic()
+                        .with_protocol(opentelemetry_otlp::Protocol::Grpc)
+                        .build()?;
 
-        let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
-            // CarbideSpanSampler selects spans that begin from our crate
-            .with_sampler(trace_sampler.into_sampler())
-            .with_batch_exporter(otlp_exporter)
-            .with_resource(
-                Resource::builder()
-                    .with_attributes([KeyValue::new("service.name", "carbide-api")])
-                    .build(),
-            )
-            .build();
+                    let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+                        // CarbideSpanSampler selects spans that begin from our crate
+                        .with_sampler(trace_sampler.into_sampler())
+                        .with_batch_exporter(otlp_exporter)
+                        .with_resource(
+                            Resource::builder()
+                                .with_attributes([KeyValue::new("service.name", "carbide-api")])
+                                .build(),
+                        )
+                        .build();
+                    Some(
+                        tracing_opentelemetry::layer()
+                            .with_tracer(tracer_provider.tracer("carbide"))
+                            .with_filter(trace_filter),
+                    )
+                }
+            };
 
         tracing_subscriber::registry()
-            .with(
-                tracing_opentelemetry::layer()
-                    .with_tracer(tracer_provider.tracer("carbide"))
-                    .with_filter(trace_filter),
-            )
+            .with(maybe_otel_tracing_layer)
             .with(logfmt_stdout_formatter.with_filter(combined_log_filter))
             .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
             .try_init()
