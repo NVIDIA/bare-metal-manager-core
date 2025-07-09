@@ -49,7 +49,7 @@ pub async fn wait_for_metric_line(
         }
 
         tracing::info!("Waiting for metric line");
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     }
 
     eyre::bail!(
