@@ -347,7 +347,7 @@ pub async fn update_nvue(
     path_acl.cleanup();
     let mut rules = NVUED_BLOCK_RULE.to_string();
     rules.push_str(acl_rules::ARP_SUPPRESSION_RULE);
-    match write(rules, &path_acl, "NVUE ACL") {
+    match write(rules, &path_acl, "NVUE ACL", false) {
         Ok(true) => {
             if !skip_post {
                 let cmd = acl_rules::RELOAD_CMD;
@@ -379,8 +379,15 @@ pub async fn update_nvue(
     let next_contents = nvue::build(conf)?;
     let path = FPath(hbn_root.join(nvue::PATH));
     path.cleanup();
-    if !write(next_contents, &path, "NVUE").wrap_err(format!("NVUE config at {}", path))? {
-        // config didn't change
+    // If switching to the admin network, we want to just force the write.
+    // We've seen a past incident where a tenant managed to create a config
+    // that exceeded MAX_EXPECTED_SIZE.  Because of the diff check failing, it
+    // also prevented a successful termination because the NVUE config couldn't
+    // be switched to the admin network.
+    if !write(next_contents, &path, "NVUE", nc.use_admin_network)
+        .wrap_err(format!("NVUE config at {}", path))?
+    {
+        // config didn't change OR we are switching to the admin network.
         return Ok(false);
     };
 
@@ -835,7 +842,7 @@ pub async fn reset(
     let mut errs = vec![];
     let mut post_actions = vec![];
     let dhcp_relay_path = FPath(hbn_root.join(dhcp::RELAY_PATH));
-    match write(dhcp::blank(), &dhcp_relay_path, "DHCP relay") {
+    match write(dhcp::blank(), &dhcp_relay_path, "DHCP relay", false) {
         Ok(true) => post_actions.push(PostAction {
             path: dhcp_relay_path,
             cmd: dhcp::RELOAD_CMD,
@@ -844,7 +851,7 @@ pub async fn reset(
         Err(err) => errs.push(format!("Write blank DHCP relay: {err:#}")),
     }
     let dhcp_server_path = FPath(hbn_root.join(dhcp::SERVER_PATH));
-    match write(dhcp::blank(), &dhcp_server_path, "DHCP server") {
+    match write(dhcp::blank(), &dhcp_server_path, "DHCP server", false) {
         Ok(true) => post_actions.push(PostAction {
             path: dhcp_server_path,
             cmd: dhcp::RELOAD_CMD,
@@ -856,6 +863,7 @@ pub async fn reset(
         interfaces::blank(),
         &paths.interfaces,
         "/etc/network/interfaces",
+        false,
     ) {
         Ok(true) => post_actions.push(PostAction {
             path: paths.interfaces,
@@ -864,7 +872,7 @@ pub async fn reset(
         Ok(false) => {}
         Err(err) => errs.push(format!("write blank interfaces: {err:#}")),
     }
-    match write(frr::blank(), &paths.frr, "frr.conf") {
+    match write(frr::blank(), &paths.frr, "frr.conf", false) {
         Ok(true) => post_actions.push(PostAction {
             path: paths.frr,
             cmd: frr::RELOAD_CMD,
@@ -907,7 +915,7 @@ fn write_dhcp_server_config(
     service_addrs: &ServiceAddresses,
     hbn_device_names: &HBNDeviceNames,
 ) -> eyre::Result<bool> {
-    match write(dhcp::blank(), dhcp_relay_path, "blank DHCP relay") {
+    match write(dhcp::blank(), dhcp_relay_path, "blank DHCP relay", false) {
         Ok(true) => {
             dhcp_relay_path.del("BAK");
         }
@@ -977,7 +985,12 @@ fn write_dhcp_server_config(
 
     let next_contents =
         dhcp::build_server_supervisord_config(dhcp::DhcpServerSupervisordConfig { interfaces })?;
-    match write(next_contents, &dhcp_server_path.server, "DHCP server") {
+    match write(
+        next_contents,
+        &dhcp_server_path.server,
+        "DHCP server",
+        false,
+    ) {
         Ok(true) => {
             has_changes = true;
             dhcp_server_path.server.del("BAK");
@@ -996,6 +1009,7 @@ fn write_dhcp_server_config(
         next_contents,
         &dhcp_server_path.config,
         "DHCP server config",
+        false,
     ) {
         Ok(true) => {
             has_changes = true;
@@ -1013,6 +1027,7 @@ fn write_dhcp_server_config(
         next_contents,
         &dhcp_server_path.host_config,
         "DHCP server host config",
+        false,
     ) {
         Ok(true) => {
             has_changes = true;
@@ -1094,7 +1109,7 @@ fn write_interfaces(
         loopback_ip,
         networks,
     })?;
-    write(next_contents, path, "/etc/network/interfaces")
+    write(next_contents, path, "/etc/network/interfaces", false)
 }
 
 fn write_frr(
@@ -1150,12 +1165,12 @@ fn write_frr(
         route_servers: nc.route_servers.clone(),
         use_admin_network: nc.use_admin_network,
     })?;
-    write(next_contents, path, "frr.conf")
+    write(next_contents, path, "frr.conf", false)
 }
 
 /// The etc/frr/daemons file has no templated parts
 fn write_daemons(path: &FPath) -> eyre::Result<bool> {
-    write(daemons::build(), path, "etc/frr/daemons")
+    write(daemons::build(), path, "etc/frr/daemons", false)
 }
 
 fn write_acl_rules(
@@ -1184,7 +1199,7 @@ fn write_acl_rules(
         deny_prefixes,
     };
     let contents = acl_rules::build(config)?;
-    write(contents, path, "forge-acl.rules")
+    write(contents, path, "forge-acl.rules", false)
 }
 
 // Compute the interface names along with the specific ACL config for each
@@ -1227,12 +1242,13 @@ fn write(
     path: &FPath,
     // Human readable description of the file, for error messages
     file_type: &str,
+    force: bool,
 ) -> eyre::Result<bool> {
     let path_tmp = path.temp();
     fs::write(&path_tmp, next_contents.clone())
         .wrap_err_with(|| format!("fs::write {}", path_tmp.display()))?;
 
-    let has_changed = if path.0.exists() {
+    let has_changed = if !force && path.0.exists() {
         let current = read_limited(path).wrap_err_with(|| format!("read_limited {path}"))?;
         current != next_contents
     } else {
