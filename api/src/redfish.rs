@@ -513,7 +513,8 @@ pub async fn host_power_control(
             if (action == SystemPowerControl::GracefulRestart)
                 || (action == SystemPowerControl::ForceRestart)
             {
-                let power_result = redfish_client.get_power_state().await;
+                let power_result: Result<PowerState, RedfishError> =
+                    redfish_client.get_power_state().await;
                 if let Ok(power_state) = power_result {
                     tracing::info!(
                         machine_id = machine.id.to_string(),

@@ -165,22 +165,30 @@ impl IBFabric for RestIBFabric {
     /// Make a raw HTTP GET request to the Fabric Manager using the given path,
     /// and return the response body.
     async fn raw_get(&self, path: &str) -> Result<IBFabricRawResponse, CarbideError> {
-        let value = self.ufm.raw_get(path).await?;
-        // TODO: Properly populate the status code and headers
-        Ok(IBFabricRawResponse {
-            body: serde_json::to_string(&value).unwrap_or_default(),
-            code: 200,
-            headers: http::HeaderMap::new(),
-        })
+        let response = match self.ufm.raw_get(path).await {
+            Ok((value, details)) => IBFabricRawResponse {
+                body: serde_json::to_string(&value).unwrap_or_default(),
+                code: details.status_code,
+                headers: details.headers,
+            },
+            Err(UFMError::HttpError {
+                status_code,
+                body,
+                headers,
+            }) => IBFabricRawResponse {
+                body,
+                code: status_code,
+                headers,
+            },
+            Err(e) => return Err(e.into()),
+        };
+        Ok(response)
     }
 }
 
 impl From<UFMError> for CarbideError {
     fn from(e: UFMError) -> Self {
-        match e {
-            UFMError::NotFound(id) => CarbideError::NotFoundError { kind: "", id },
-            _ => CarbideError::IBFabricError(e.to_string()),
-        }
+        CarbideError::IBFabricError(e.to_string())
     }
 }
 
