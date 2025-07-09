@@ -30,6 +30,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
 use bytes::Buf;
+use eyre::Context;
 use flate2::read::GzDecoder;
 use regex::Regex;
 use serde::Deserialize;
@@ -82,7 +83,10 @@ pub fn tar_router(
             let mut _owned_gz_data = None; // make sure data sent to gz_decoder lives long enough
             let gz_decoder = match targz {
                 TarGzOption::Disk(path) => {
-                    _owned_gz_data = Some(std::fs::read(path)?);
+                    _owned_gz_data = Some(
+                        std::fs::read(path)
+                            .wrap_err(format!("cannot read file by path: {path:?}"))?,
+                    );
                     GzDecoder::new(_owned_gz_data.as_ref().unwrap().reader())
                 }
                 TarGzOption::Memory(bytes) => GzDecoder::new(bytes.reader()),
