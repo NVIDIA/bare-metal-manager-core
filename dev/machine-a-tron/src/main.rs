@@ -56,8 +56,11 @@ fn init_log(
 #[tokio::main(flavor = "multi_thread", worker_threads = 32)]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = MachineATronArgs::parse();
-
-    let fig = Figment::new().merge(Toml::file(args.config_file.as_str()));
+    let config_path = Path::new(&args.config_file);
+    if !config_path.is_file() {
+        Err(format!("config: {} is not file", args.config_file.as_str()))?;
+    }
+    let fig = Figment::new().merge(Toml::file(config_path));
     let app_config: MachineATronConfig = fig.extract()?;
     let tui_host_logs = if app_config.tui_enabled {
         Some(TuiHostLogs::start_new(100))
