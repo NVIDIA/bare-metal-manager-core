@@ -870,7 +870,7 @@ async fn fetch_service(client: &dyn Redfish) -> Result<Vec<Service>, RedfishErro
 }
 
 async fn fetch_forge_setup_status(client: &dyn Redfish) -> Result<ForgeSetupStatus, RedfishError> {
-    let status = client.machine_setup_status().await?;
+    let status = client.machine_setup_status(None).await?;
     let mut diffs: Vec<ForgeSetupDiff> = Vec::new();
 
     for diff in status.diffs {

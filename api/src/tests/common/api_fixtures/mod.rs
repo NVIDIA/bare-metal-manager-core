@@ -253,7 +253,7 @@ impl TestEnv {
                     crate::model::machine::MachineState::WaitingForPlatformConfiguration => {
                         machine_state
                     }
-                    crate::model::machine::MachineState::SetBootOrder => machine_state,
+                    crate::model::machine::MachineState::SetBootOrder { .. } => machine_state,
                     crate::model::machine::MachineState::UefiSetup { .. } => machine_state,
                     crate::model::machine::MachineState::WaitingForDiscovery => machine_state,
                     crate::model::machine::MachineState::Discovered { .. } => machine_state,

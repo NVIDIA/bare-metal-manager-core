@@ -1163,7 +1163,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     // ---------------
     // now, since the CA has not been added, we should be stuck in the failed state
-    for _ in 0..4 {
+    for _ in 0..7 {
         env.run_machine_state_controller_iteration().await;
     }
 

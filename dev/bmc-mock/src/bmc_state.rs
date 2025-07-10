@@ -6,7 +6,7 @@ use rand::distr::StandardUniform;
 
 /// Dell Specific -- iDRAC job implementation
 /// TODO (spyda): move most of this logic to libredfish
-const BIOS_JOB_TYPE: &str = "BIOSConfiguration";
+const DELL_JOB_TYPE: &str = "DellConfiguration";
 
 #[derive(Debug, Clone)]
 pub struct Job {
@@ -18,8 +18,8 @@ pub struct Job {
 }
 
 impl Job {
-    pub fn is_bios_job(&self) -> bool {
-        matches!(self.job_type.as_str(), BIOS_JOB_TYPE)
+    pub fn is_dell_job(&self) -> bool {
+        matches!(self.job_type.as_str(), DELL_JOB_TYPE)
     }
 
     pub fn percent_complete(&self) -> i32 {
@@ -40,10 +40,8 @@ impl BmcState {
         self.jobs.lock().unwrap().get(job_id).cloned()
     }
 
-    pub fn add_job(&mut self, is_bios_job: bool) -> Result<String, Box<dyn std::error::Error>> {
+    pub fn add_job(&mut self) -> Result<String, Box<dyn std::error::Error>> {
         let mut jobs = self.jobs.lock().unwrap();
-
-        let job_type = if is_bios_job { BIOS_JOB_TYPE } else { "Reboot" };
 
         let job_id = rand::rng()
             .sample_iter::<u64, _>(StandardUniform)
@@ -54,7 +52,7 @@ impl BmcState {
         let job = Job {
             job_id: job_id.clone(),
             job_state: libredfish::JobState::Scheduled,
-            job_type: job_type.to_string(),
+            job_type: DELL_JOB_TYPE.to_string(),
             start_time: chrono::offset::Utc::now(),
             end_time: None,
         };
@@ -68,7 +66,7 @@ impl BmcState {
 
         let bios_jobs: Vec<Job> = jobs
             .values()
-            .filter(|job| job.is_bios_job())
+            .filter(|job| job.is_dell_job())
             .cloned()
             .collect();
         for mut job in bios_jobs {
