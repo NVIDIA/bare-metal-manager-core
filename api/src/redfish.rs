@@ -439,7 +439,10 @@ pub async fn host_power_control(
                         crate::model::machine::MachineState::WaitingForPlatformConfiguration,
                 }
                 | crate::model::machine::ManagedHostState::HostInit {
-                    machine_state: crate::model::machine::MachineState::SetBootOrder,
+                    machine_state:
+                        crate::model::machine::MachineState::SetBootOrder {
+                            set_boot_order_info: _,
+                        },
                 } => {}
                 _ => {
                     // We need to unlock BMC to perform boot modification, and relock it later
@@ -795,6 +798,7 @@ pub mod test_support {
 
         async fn machine_setup_status(
             &self,
+            _boot_interface_mac: Option<&str>,
         ) -> Result<libredfish::MachineSetupStatus, RedfishError> {
             Ok(libredfish::MachineSetupStatus {
                 is_done: true,
@@ -1405,8 +1409,11 @@ pub mod test_support {
             })
         }
 
-        async fn set_boot_order_dpu_first(&self, _mac_address: &str) -> Result<(), RedfishError> {
-            Ok(())
+        async fn set_boot_order_dpu_first(
+            &self,
+            _mac_address: &str,
+        ) -> Result<Option<String>, RedfishError> {
+            Ok(None)
         }
 
         async fn clear_uefi_password(

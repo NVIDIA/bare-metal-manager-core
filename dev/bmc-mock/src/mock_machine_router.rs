@@ -116,6 +116,10 @@ pub fn wrap_router_with_mock_machine(
             patch(patch_bios_settings),
         )
         .route(
+            rf!("Systems/System.Embedded.1"),
+        patch(patch_dell_system).get(get_dell_system),
+        )
+        .route(
             rf!("Systems/1/Bios/Actions/Bios.ChangePassword"),
             post(post_password_change),
         )
@@ -574,6 +578,14 @@ async fn get_pcie_device(
     Ok(Bytes::from(serde_json::to_string(&pcie_device)?))
 }
 
+async fn get_dell_system(
+    State(state): State<MockWrapperState>,
+    _path: Path<()>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    get_system(State(state), Path("System.Embedded.1".to_string()), request).await
+}
+
 async fn get_system(
     State(mut state): State<MockWrapperState>,
     Path(system_id): Path<String>,
@@ -736,6 +748,28 @@ async fn get_dpu_bios(
     }
 }
 
+async fn patch_dell_system(
+    State(mut state): State<MockWrapperState>,
+    _path: Path<()>,
+    _request: Request<Body>,
+) -> impl IntoResponse {
+    // Dell password change, needs a job ID to be returned in the Location: header
+    match state.bmc_state.add_job() {
+        Ok(job_id) => Response::builder()
+            .status(StatusCode::OK)
+            .header(
+                "location",
+                format!("/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/{}", job_id),
+            )
+            .body(Body::from(""))
+            .unwrap(),
+        Err(e) => Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Body::from(e.to_string()))
+            .unwrap(),
+    }
+}
+
 async fn patch_bios_settings(
     State(_state): State<MockWrapperState>,
     _path: Path<()>,
@@ -757,7 +791,7 @@ async fn post_dell_create_bios_job(
     _path: Path<()>,
     _request: Request<Body>,
 ) -> impl IntoResponse {
-    match state.bmc_state.add_job(true) {
+    match state.bmc_state.add_job() {
         Ok(job_id) => Response::builder()
             .status(StatusCode::OK)
             .header(

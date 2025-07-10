@@ -1425,7 +1425,9 @@ pub enum MachineState {
     Init,
     EnableIpmiOverLan,
     WaitingForPlatformConfiguration,
-    SetBootOrder,
+    SetBootOrder {
+        set_boot_order_info: Option<SetBootOrderInfo>,
+    },
     UefiSetup {
         uefi_setup_info: UefiSetupInfo,
     },
@@ -1537,6 +1539,23 @@ pub enum UefiSetupState {
     PowercycleHost,
     WaitForPasswordJobCompletion,
     LockdownHost,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub struct SetBootOrderInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set_boot_order_jid: Option<String>,
+    pub set_boot_order_state: SetBootOrderState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum SetBootOrderState {
+    SetBootOrder,
+    WaitForSetBootOrderJobScheduled,
+    RebootHost,
+    WaitForSetBootOrderJobCompletion,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

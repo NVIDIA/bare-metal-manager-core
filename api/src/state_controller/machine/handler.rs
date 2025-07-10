@@ -42,7 +42,7 @@ use crate::model::instance::config::network::InstanceInterfaceConfig;
 use crate::model::instance::snapshot::InstanceSnapshot;
 use crate::model::machine::{
     CreateBossVolumeContext, CreateBossVolumeState, NetworkConfigUpdateState,
-    SecureEraseBossContext, SecureEraseBossState,
+    SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
 };
 use crate::model::machine::{DpuInitNextStateResolver, InstallDpuOsState};
 use crate::{
@@ -3820,6 +3820,171 @@ async fn handler_host_lockdown(
     })
 }
 
+async fn handle_host_boot_order_setup(
+    txn: &mut PgConnection,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    host_handler_params: HostHandlerParams,
+    mh_snapshot: &mut ManagedHostStateSnapshot,
+    set_boot_order_info: Option<SetBootOrderInfo>,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    tracing::info!(
+        "Starting Boot Order Configuration for {}: {set_boot_order_info:#?}",
+        mh_snapshot.host_snapshot.id
+    );
+
+    let redfish_client = ctx
+        .services
+        .redfish_client_pool
+        .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
+        .await?;
+
+    let next_state = match set_boot_order_info {
+        Some(info) => match info.set_boot_order_state {
+            SetBootOrderState::SetBootOrder => {
+                if mh_snapshot.dpu_snapshots.is_empty() {
+                    // MachineState::SetBootOrder is a NO-OP for the Zero-DPU case
+                    ManagedHostState::HostInit {
+                        machine_state: MachineState::SetBootOrder {
+                            set_boot_order_info: Some(SetBootOrderInfo {
+                                set_boot_order_jid: None,
+                                set_boot_order_state:
+                                    SetBootOrderState::WaitForSetBootOrderJobCompletion,
+                            }),
+                        },
+                    }
+                } else {
+                    if wait(
+                        &mh_snapshot.host_snapshot.state.version.timestamp(),
+                        host_handler_params.reachability_params.dpu_wait_time,
+                    ) {
+                        return Ok(wait!(format!(
+                            "Forced wait of {} for Host BIOS changes to take effect",
+                            host_handler_params.reachability_params.dpu_wait_time
+                        )));
+                    }
+
+                    let primary_interface = mh_snapshot
+                        .host_snapshot
+                        .interfaces
+                        .iter()
+                        .find(|x| x.primary_interface)
+                        .ok_or_else(|| {
+                            StateHandlerError::GenericError(eyre::eyre!(
+                                "Missing primary interface from host: {}",
+                                mh_snapshot.host_snapshot.id
+                            ))
+                        })?;
+
+                    let jid = set_boot_order_dpu_first_and_handle_no_dpu_error(
+                        redfish_client.as_ref(),
+                        &primary_interface.mac_address.to_string(),
+                        mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
+                        &ctx.services.site_config,
+                    )
+                    .await
+                    .map_err(|e| StateHandlerError::RedfishError {
+                        operation: "set_boot_order_dpu_first",
+                        error: e,
+                    })?;
+
+                    ManagedHostState::HostInit {
+                        machine_state: MachineState::SetBootOrder {
+                            set_boot_order_info: Some(SetBootOrderInfo {
+                                set_boot_order_jid: jid,
+                                set_boot_order_state:
+                                    SetBootOrderState::WaitForSetBootOrderJobScheduled,
+                            }),
+                        },
+                    }
+                }
+            }
+            SetBootOrderState::WaitForSetBootOrderJobScheduled => {
+                if let Some(job_id) = &info.set_boot_order_jid {
+                    let job_state = redfish_client.get_job_state(job_id).await.map_err(|e| {
+                        StateHandlerError::RedfishError {
+                            operation: "get_job_state",
+                            error: e,
+                        }
+                    })?;
+
+                    if !matches!(job_state, libredfish::JobState::Scheduled) {
+                        return Ok(wait!(format!(
+                            "waiting for job {:#?} to be scheduled; current state: {job_state:#?}",
+                            job_id
+                        )));
+                    }
+                }
+
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::SetBootOrder {
+                        set_boot_order_info: Some(SetBootOrderInfo {
+                            set_boot_order_jid: info.set_boot_order_jid.clone(),
+                            set_boot_order_state: SetBootOrderState::RebootHost,
+                        }),
+                    },
+                }
+            }
+            SetBootOrderState::RebootHost => {
+                let power_control_action = match mh_snapshot.host_snapshot.bmc_vendor() {
+                    bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
+                    _ => SystemPowerControl::ForceRestart,
+                };
+
+                // Host needs to be rebooted to pick up the changes after calling forge_setup
+                handler_host_power_control(mh_snapshot, ctx.services, power_control_action, txn)
+                    .await?;
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::SetBootOrder {
+                        set_boot_order_info: Some(SetBootOrderInfo {
+                            set_boot_order_jid: info.set_boot_order_jid.clone(),
+                            set_boot_order_state:
+                                SetBootOrderState::WaitForSetBootOrderJobCompletion,
+                        }),
+                    },
+                }
+            }
+            SetBootOrderState::WaitForSetBootOrderJobCompletion => {
+                if let Some(job_id) = &info.set_boot_order_jid {
+                    let job_state = redfish_client.get_job_state(job_id).await.map_err(|e| {
+                        StateHandlerError::RedfishError {
+                            operation: "get_job_state",
+                            error: e,
+                        }
+                    })?;
+
+                    if !matches!(job_state, libredfish::JobState::Completed) {
+                        return Ok(wait!(format!(
+                            "waiting for job {:#?} to complete; current state: {job_state:#?}",
+                            job_id
+                        )));
+                    }
+                }
+
+                if host_handler_params.attestation_enabled {
+                    ManagedHostState::HostInit {
+                        machine_state: MachineState::Measuring {
+                            measuring_state: MeasuringState::WaitingForMeasurements,
+                        },
+                    }
+                } else {
+                    ManagedHostState::HostInit {
+                        machine_state: MachineState::WaitingForDiscovery,
+                    }
+                }
+            }
+        },
+        None => ManagedHostState::HostInit {
+            machine_state: MachineState::SetBootOrder {
+                set_boot_order_info: Some(SetBootOrderInfo {
+                    set_boot_order_jid: None,
+                    set_boot_order_state: SetBootOrderState::SetBootOrder,
+                }),
+            },
+        },
+    };
+
+    Ok(transition!(next_state))
+}
 /// TODO: we need to handle the case where the job is deleted for some reason
 async fn handle_host_uefi_setup(
     txn: &mut PgConnection,
@@ -4147,96 +4312,24 @@ impl StateHandler for HostMachineStateHandler {
                     .await?;
 
                     Ok(transition!(ManagedHostState::HostInit {
-                        machine_state: MachineState::SetBootOrder,
+                        machine_state: MachineState::SetBootOrder {
+                            set_boot_order_info: Some(SetBootOrderInfo {
+                                set_boot_order_jid: None,
+                                set_boot_order_state: SetBootOrderState::SetBootOrder,
+                            })
+                        }
                     }))
                 }
-                MachineState::SetBootOrder => {
-                    let next_state = if self.host_handler_params.attestation_enabled {
-                        ManagedHostState::HostInit {
-                            machine_state: MachineState::Measuring {
-                                measuring_state: MeasuringState::WaitingForMeasurements,
-                            },
-                        }
-                    } else {
-                        ManagedHostState::HostInit {
-                            machine_state: MachineState::WaitingForDiscovery,
-                        }
-                    };
-
-                    // This step is a NO-OP if there arent any DPUs in the host
-                    if !mh_snapshot.dpu_snapshots.is_empty() {
-                        if wait(
-                            &mh_snapshot.host_snapshot.state.version.timestamp(),
-                            self.host_handler_params.reachability_params.dpu_wait_time,
-                        ) {
-                            return Ok(wait!(format!(
-                                "Forced wait of {} for Host BIOS changes to take effect",
-                                self.host_handler_params.reachability_params.dpu_wait_time
-                            )));
-                        }
-
-                        tracing::info!(
-                            machine_id = %host_machine_id,
-                            "Starting Boot Order Configuration");
-
-                        let primary_interface = mh_snapshot
-                            .host_snapshot
-                            .interfaces
-                            .iter()
-                            .find(|x| x.primary_interface)
-                            .ok_or_else(|| {
-                                StateHandlerError::GenericError(eyre::eyre!(
-                                    "Missing primary interface from host: {}",
-                                    mh_snapshot.host_snapshot.id
-                                ))
-                            })?;
-
-                        let redfish_client = ctx
-                            .services
-                            .redfish_client_pool
-                            .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
-                            .await?;
-
-                        match set_boot_order_dpu_first_and_handle_no_dpu_error(
-                            redfish_client.as_ref(),
-                            &primary_interface.mac_address.to_string(),
-                            mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
-                            &ctx.services.site_config,
-                        )
-                        .await
-                        {
-                            Ok(_) => {}
-                            Err(e) => match e {
-                                RedfishError::UnnecessaryOperation => {
-                                    // No need to reboot the host again if there was no action taken in this state
-                                    return Ok(transition!(next_state));
-                                }
-                                _ => {
-                                    return Err(StateHandlerError::RedfishError {
-                                        operation: "set_boot_order_dpu_first",
-                                        error: e,
-                                    });
-                                }
-                            },
-                        }
-
-                        let power_control_action = match mh_snapshot.host_snapshot.bmc_vendor() {
-                            bmc_vendor::BMCVendor::Nvidia => SystemPowerControl::GracefulRestart,
-                            _ => SystemPowerControl::ForceRestart,
-                        };
-
-                        // Host needs to be rebooted to pick up the changes after calling forge_setup
-                        handler_host_power_control(
-                            mh_snapshot,
-                            ctx.services,
-                            power_control_action,
-                            txn,
-                        )
-                        .await?;
-                    }
-
-                    Ok(transition!(next_state))
-                }
+                MachineState::SetBootOrder {
+                    set_boot_order_info,
+                } => Ok(handle_host_boot_order_setup(
+                    txn,
+                    ctx,
+                    self.host_handler_params.clone(),
+                    mh_snapshot,
+                    set_boot_order_info.clone(),
+                )
+                .await?),
                 MachineState::Measuring { measuring_state } => {
                     match handle_measuring_state(
                         measuring_state,
@@ -6875,7 +6968,7 @@ async fn set_boot_order_dpu_first_and_handle_no_dpu_error(
     boot_interface_mac: &str,
     expected_dpu_count: usize,
     site_config: &CarbideConfig,
-) -> Result<(), RedfishError> {
+) -> Result<Option<String>, RedfishError> {
     let setup_result = redfish_client
         .set_boot_order_dpu_first(boot_interface_mac)
         .await;
@@ -6888,9 +6981,9 @@ async fn set_boot_order_dpu_first_and_handle_no_dpu_error(
             tracing::info!(
                 "redfish set_boot_order_dpu_first failed due to there being no DPUs on the host. This is expected as the host has no DPUs, and we are configured to allow this."
             );
-            Ok(())
+            Ok(None)
         }
-        (Ok(()), _, _) => Ok(()),
+        (Ok(job_id), _, _) => Ok(job_id),
         (Err(e), _, _) => Err(e),
     }
 }

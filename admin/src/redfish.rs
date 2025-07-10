@@ -132,7 +132,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 .await?;
         }
         ForgeSetupStatus => {
-            println!("{}", redfish.machine_setup_status().await?);
+            println!("{}", redfish.machine_setup_status(None).await?);
         }
         SetForgePasswordPolicy => {
             redfish.set_machine_password_policy().await?;
@@ -515,9 +515,20 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 .await?;
         }
         SetBootOrderDpuFirst(args) => {
-            redfish
+            if let Some(job_id) = redfish
                 .set_boot_order_dpu_first(&args.boot_interface_mac)
-                .await?;
+                .await?
+            {
+                tracing::info!(
+                    "succesfully configured BIOS job {job_id} to set {} first in the server's boot order",
+                    args.boot_interface_mac
+                )
+            } else {
+                tracing::info!(
+                    "succesfully set {} first in the server's boot order",
+                    args.boot_interface_mac
+                )
+            }
         }
         GetHostRshim => {
             if let Some(enabled_value) = redfish.get_host_rshim().await? {

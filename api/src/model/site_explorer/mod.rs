@@ -874,7 +874,9 @@ pub enum EndpointExplorationError {
     #[error("Redfish vendor '{vendor}' not supported")]
     UnsupportedVendor { vendor: String },
     /// A generic redfish error. No additional details are available
-    #[error("Error while performing Redfish request: {details}")]
+    #[error(
+        "Error while performing Redfish request: {details}: {response_body:?} (response code: {response_code:?})"
+    )]
     #[serde(rename_all = "PascalCase")]
     RedfishError {
         details: String,

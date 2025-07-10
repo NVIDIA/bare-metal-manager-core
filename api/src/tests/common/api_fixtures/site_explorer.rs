@@ -529,7 +529,7 @@ impl<'a> MockExploredHost<'a> {
                 .test_env
                 .run_machine_state_controller_iteration_until_state_condition(
                     &host_machine_id,
-                    3,
+                    6,
                     &mut txn,
                     |machine| {
                         machine.current_state() == &expected_state
@@ -557,7 +557,7 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                4,
+                6,
                 &mut txn,
                 ManagedHostState::HostInit {
                     machine_state: MachineState::WaitingForDiscovery,
@@ -771,7 +771,7 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                4,
+                7,
                 &mut txn,
                 ManagedHostState::HostInit {
                     machine_state: MachineState::WaitingForDiscovery,
