@@ -41,6 +41,7 @@ impl From<MachineInfinibandStatusObservation> for rpc::forge::InfinibandStatusOb
                 .into_iter()
                 .map(|interface| interface.into())
                 .collect(),
+            observed_at: Some(ib_status.observed_at.into()),
         }
     }
 }

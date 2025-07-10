@@ -274,6 +274,7 @@ Missing BMC Data
 			<th>Slot</th>
 			<th>LID</th>
 			<th>Visible from UFM</th>
+			<th>Observed at</th>
 		</tr>
 	</thead>
 	<tbody>
@@ -293,6 +294,7 @@ Missing BMC Data
 			{% endif %}
 				{{ interface.ufm_visible }}
 			</td>
+			<td>{{ interface.observed_at }}</td>
 		</tr>
 	{% endfor %}
 	</tbody>

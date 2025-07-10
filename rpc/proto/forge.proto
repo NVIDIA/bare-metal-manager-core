@@ -2134,6 +2134,8 @@ message MachineInterface {
 message InfinibandStatusObservation {
   // The GUID of the hardware device that this interface is attached to
   repeated MachineIbInterface ib_interfaces = 1;
+  // When the IB status was last observed
+  optional google.protobuf.Timestamp observed_at = 2;
 }
 
 // Infiniband interface description on a machine
