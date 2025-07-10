@@ -437,6 +437,7 @@ impl MachineStateHandler {
                 ManagedHostState::HostInit {
                     machine_state: MachineState::Discovered { .. },
                 }
+                | ManagedHostState::BomValidating { .. }
                 | ManagedHostState::Ready { .. }
                 | ManagedHostState::Assigned { .. } => {
                     if let Err(e) = ib::record_machine_infiniband_status_observation(
