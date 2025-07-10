@@ -617,6 +617,9 @@ impl MachineStateMachine {
             }
             Action::Reset => {
                 tracing::debug!("Got Reset action in scout image, sending cleanup_complete");
+                // Wait a bit before confirming the cleanup in order to mimic real
+                // cleanup and give the tests a higher chance to observe teh cleanup state
+                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                 self.app_context
                     .api_client()
                     .cleanup_complete(machine_id)
