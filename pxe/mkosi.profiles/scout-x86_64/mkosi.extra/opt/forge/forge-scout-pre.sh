@@ -39,3 +39,5 @@ mkdir -p /opt/shorelineagent/databases
 mkdir -p /opt/shorelineagent/onprem
 mkdir -p /opt/shorelineagent/secrets
 touch /opt/shorelineagent/scraper.yml
+
+modprobe mlx5_ib || true
