@@ -384,8 +384,13 @@ pub async fn update_nvue(
     // that exceeded MAX_EXPECTED_SIZE.  Because of the diff check failing, it
     // also prevented a successful termination because the NVUE config couldn't
     // be switched to the admin network.
-    if !write(next_contents, &path, "NVUE", nc.use_admin_network)
-        .wrap_err(format!("NVUE config at {}", path))?
+    if !write(
+        next_contents,
+        &path,
+        "NVUE",
+        nc.use_admin_network && path.0.exists() && path.0.metadata()?.len() > MAX_EXPECTED_SIZE,
+    )
+    .wrap_err(format!("NVUE config at {}", path))?
     {
         // config didn't change OR we are switching to the admin network.
         return Ok(false);
@@ -1247,6 +1252,18 @@ fn write(
     let path_tmp = path.temp();
     fs::write(&path_tmp, next_contents.clone())
         .wrap_err_with(|| format!("fs::write {}", path_tmp.display()))?;
+
+    if !force {
+        let path_tmp_size = path_tmp.metadata()?.len();
+        if path_tmp_size > MAX_EXPECTED_SIZE {
+            return Err(eyre::eyre!(
+                "new content for '{}' would exceed MAX_EXPECTED_SIZE: {} > {}",
+                path_tmp.display(),
+                path_tmp_size,
+                MAX_EXPECTED_SIZE
+            ));
+        }
+    }
 
     let has_changed = if !force && path.0.exists() {
         let current = read_limited(path).wrap_err_with(|| format!("read_limited {path}"))?;
