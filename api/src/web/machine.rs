@@ -464,6 +464,7 @@ struct MachineIbInterfaceDisplay {
     slot: String,
     lid: String,
     ufm_visible: String,
+    observed_at: String,
 }
 
 pub struct ValidationRun {
@@ -477,6 +478,8 @@ pub struct ValidationRun {
 
 impl From<forgerpc::Machine> for MachineDetail {
     fn from(m: forgerpc::Machine) -> Self {
+        let machine_id = m.id.unwrap_or_default().id;
+
         let mut history_records = Vec::new();
         for e in m.events.into_iter().rev() {
             history_records.push(MachineStateHistoryRecord {
@@ -554,6 +557,14 @@ impl From<forgerpc::Machine> for MachineDetail {
                     iface_display.slot = props.slot.clone().unwrap_or_default();
                 }
                 if let Some(ib_status) = m.ib_status.as_ref() {
+                    iface_display.observed_at = to_time(
+                        ib_status.observed_at,
+                        &rpc::MachineId {
+                            id: machine_id.clone(),
+                        },
+                    )
+                    .unwrap_or_default();
+
                     for iter_status in ib_status.ib_interfaces.iter() {
                         if Some(&iface_display.guid) == iter_status.guid.as_ref() {
                             iface_display.lid =
@@ -579,8 +590,6 @@ impl From<forgerpc::Machine> for MachineDetail {
         if let Some(inv) = m.inventory {
             inventory.extend(inv.components);
         }
-
-        let machine_id = m.id.unwrap_or_default().id;
 
         let quarantine_state = m
             .quarantine_state
