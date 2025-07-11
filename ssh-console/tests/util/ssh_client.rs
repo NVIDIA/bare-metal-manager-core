@@ -23,7 +23,7 @@ use std::sync::Arc;
 // The BMC prompt we get from mock_ssh_server (we shouldn't see this when SSH'ing in.)
 static BMC_PROMPT: &[u8] = b"racadm>>";
 // How long to wait to see the "normal" prompt (`<host_id>@localhost # `)
-static PROMPT_WAIT_TIMEOUT: Duration = Duration::from_secs(3);
+static PROMPT_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 // A sequence we can send to mock_ssh_server to simulate the serial console crashing/disconnecting
 // and dropping us back to the BMC (to make sure we don't get a BMC prompt.)
 static BMC_BACKDOOR_SEQUENCE: &[u8] = b"backdoor_escape_console\n";
@@ -131,7 +131,8 @@ pub async fn assert_connection_works(
 
     let mut output_buf: Vec<u8> = Vec::new();
     let mut test_state = ConnectionTestState::WaitingForPrompt;
-    let mut timeout = Instant::now().add(PROMPT_WAIT_TIMEOUT);
+    let prompt_timeout = Instant::now().add(PROMPT_WAIT_TIMEOUT);
+    let mut assertion_timeout = Instant::now().add(Duration::from_secs(3));
     let mut write_interval = tokio::time::interval(Duration::from_millis(100));
 
     // Phase 1: Every second, write a newline to the connection, until we see a prompt, then every
@@ -143,15 +144,17 @@ pub async fn assert_connection_works(
     // this point, we expect to be disconnected.
     loop {
         tokio::select! {
-            _ = tokio::time::sleep_until(timeout.into()) => {
+            _ = tokio::time::sleep_until(prompt_timeout.into()) => {
+                if let ConnectionTestState::WaitingForPrompt = test_state {
+                    return Err(eyre::format_err!("Did not see prompt after {PROMPT_WAIT_TIMEOUT:?}"));
+                }
+            }
+            _ = tokio::time::sleep_until(assertion_timeout.into()) => {
                 match test_state {
                     ConnectionTestState::TryingCtrlBackslash => {
                         tracing::info!("Succesfully prevented ctrl+\\ from triggering escape, now simulating dropping to BMC prompt from other means");
                         test_state = ConnectionTestState::TryingBackdoorEscape;
-                        timeout = Instant::now().add(Duration::from_secs(5));
-                    }
-                    ConnectionTestState::WaitingForPrompt => {
-                        return Err(eyre::format_err!("Did not see prompt after in 3 seconds"));
+                        assertion_timeout = Instant::now().add(Duration::from_secs(3));
                     }
                     ConnectionTestState::TryingBackdoorEscape => {
                         // legacy ssh-console will reconnect automatically, so we'll timeout here.
@@ -160,6 +163,7 @@ pub async fn assert_connection_works(
                         tracing::info!("Test finished without seeing a bmc_prompt while using backdoor escape, success");
                         break;
                     }
+                    _ => {}
                 }
             }
             _ = write_interval.tick() => {

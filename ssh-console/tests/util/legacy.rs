@@ -13,7 +13,7 @@
 use crate::util::fixtures::{
     API_CA_CERT, API_CLIENT_CERT, API_CLIENT_KEY, AUTHORIZED_KEYS_PATH, SSH_HOST_KEY,
 };
-use crate::util::{BaselineTestEnvironment, log_stdout_and_stderr};
+use crate::util::{BaselineTestEnvironment, MockBmcHandle, log_stdout_and_stderr};
 use api_test_helper::utils::REPO_ROOT;
 use eyre::Context;
 use lazy_static::lazy_static;
@@ -62,21 +62,23 @@ pub async fn run(
         let known_hosts_file = std::fs::File::create(&known_hosts_path)?;
         let mut writer = BufWriter::new(known_hosts_file);
 
-        for mock_ssh_server in &env.mock_ssh_servers {
-            writeln!(
-                writer,
-                "127.0.0.1:{} ssh-ed25519 {}",
-                mock_ssh_server.port, mock_ssh_server.host_pubkey
-            )?;
+        for mock_bmc_handle in &env.mock_bmc_handles {
+            if let MockBmcHandle::Ssh(mock_ssh_server) = &mock_bmc_handle {
+                writeln!(
+                    writer,
+                    "127.0.0.1:{} ssh-ed25519 {}",
+                    mock_ssh_server.port, mock_ssh_server.host_pubkey
+                )?;
+            }
         }
     }
 
     assert_eq!(
-        env.mock_ssh_servers.len(),
+        env.mock_bmc_handles.len(),
         1,
         "legacy tests only work against a single mock server"
     );
-    let bmc_ssh_port = env.mock_ssh_servers[0].port;
+    let bmc_ssh_or_ipmi_port = env.mock_bmc_handles[0].port();
 
     let mut process = tokio::process::Command::new(&bin)
         .current_dir(LEGACY_SSH_CONSOLE_DIR.as_path())
@@ -87,9 +89,9 @@ pub async fn run(
         .arg("-p")
         .arg(addr.port().to_string())
         .arg("--bmc-ssh-port")
-        .arg(bmc_ssh_port.to_string())
+        .arg(bmc_ssh_or_ipmi_port.to_string())
         .arg("--ipmi-port")
-        .arg("1623")
+        .arg(bmc_ssh_or_ipmi_port.to_string())
         .arg("-u")
         .arg(format!("localhost:{}", env.mock_api_server.addr.port()))
         .arg("-e")

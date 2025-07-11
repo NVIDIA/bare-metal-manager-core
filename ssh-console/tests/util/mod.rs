@@ -100,12 +100,11 @@ pub fn log_stdout_and_stderr(process: &mut tokio::process::Child, prefix: &str) 
 /// ssh-console. Adds to api_test_helper's IntegrationTestEnvironment by running an ipmi_sim and a
 /// machine-a-tron environment with 2 machines. Also creates tenants/orgs/instances.
 pub async fn run_baseline_test_environment(
-    machine_count: u8,
+    machines: Vec<MockBmcType>,
 ) -> eyre::Result<Option<BaselineTestEnvironment>> {
-    // Run ipmi_sim
-    let ipmi_sim_handle = ipmi_sim::run().await?;
-
-    let machine_ids = (0..machine_count)
+    // Generate random machine ID's for each mocked host
+    let machine_ids = machines
+        .iter()
         .map(|_| {
             forge_uuid::machine::MachineId::new(
                 MachineIdSource::Tpm,
@@ -115,36 +114,60 @@ pub async fn run_baseline_test_environment(
         })
         .collect::<Vec<_>>();
 
-    let ssh_server_handles: Vec<MockSshServerHandle> = join_all((0..machine_count).map(|i| {
-        machine_a_tron::spawn_mock_ssh_server(
-            IpAddr::from_str("127.0.0.1").unwrap(),
-            None,
-            Arc::new(KnownHostname(machine_ids[i as usize].to_string())),
-            "root".to_string(),
-            "password".to_string(),
-        )
-    }))
-    .await
-    .into_iter()
-    .collect::<Result<_, _>>()
-    .context("Error spawning mock SSH server")?;
+    let mock_bmc_handles: Vec<MockBmcHandle> =
+        join_all(machines.iter().enumerate().map(|(i, bmc_type)| {
+            let machine_id = machine_ids[i];
+            async move {
+                match bmc_type {
+                    MockBmcType::Ssh => Ok::<MockBmcHandle, eyre::Error>(MockBmcHandle::Ssh(
+                        machine_a_tron::spawn_mock_ssh_server(
+                            IpAddr::from_str("127.0.0.1").unwrap(),
+                            None,
+                            Arc::new(KnownHostname(machine_id.to_string())),
+                            "root".to_string(),
+                            "password".to_string(),
+                        )
+                        .await?,
+                    )),
+                    MockBmcType::Ipmi => Ok(MockBmcHandle::Ipmi(
+                        ipmi_sim::run(format!("root@{machine_id} # ")).await?,
+                    )),
+                }
+            }
+        }))
+        .await
+        .into_iter()
+        .collect::<Result<_, _>>()
+        .context("Error spawning mock SSH server")?;
 
     let mock_hosts: Arc<Vec<MockHost>> = Arc::new(
-        machine_ids
+        mock_bmc_handles
             .iter()
-            .enumerate()
-            .map(|(i, machine_id)| MockHost {
-                machine_id: *machine_id,
+            .zip(machine_ids.iter().copied())
+            .map(|(bmc_handle, machine_id)| MockHost {
+                machine_id,
                 instance_id: Uuid::new_v4(),
                 tenant_public_key: TENANT_SSH_PUBKEY.to_string(),
-                sys_vendor: "Dell".to_string(),
+                sys_vendor: match &bmc_handle {
+                    MockBmcHandle::Ssh(_) => "Dell",
+                    MockBmcHandle::Ipmi(_) => "Supermicro",
+                },
                 bmc_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
-                bmc_ssh_port: ssh_server_handles[i].port,
+                bmc_ssh_port: match &bmc_handle {
+                    MockBmcHandle::Ssh(s) => Some(s.port),
+                    MockBmcHandle::Ipmi(_) => None,
+                },
+                ipmi_port: match &bmc_handle {
+                    MockBmcHandle::Ssh(_) => None,
+                    MockBmcHandle::Ipmi(i) => Some(i.port),
+                },
                 bmc_user: "root".to_string(),
                 bmc_password: "password".to_string(),
             })
             .collect(),
     );
+
+    tracing::debug!("baseline test mock hosts: {mock_hosts:?}");
 
     let api_server_handle = ssh_console_mock_api_server::MockApiServer {
         mock_hosts: mock_hosts.clone(),
@@ -155,10 +178,29 @@ pub async fn run_baseline_test_environment(
 
     Ok(Some(BaselineTestEnvironment {
         mock_api_server: api_server_handle,
-        mock_ssh_servers: ssh_server_handles,
+        mock_bmc_handles,
         mock_hosts,
-        _ipmi_sim_handle: ipmi_sim_handle,
     }))
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MockBmcType {
+    Ssh,
+    Ipmi,
+}
+
+pub enum MockBmcHandle {
+    Ssh(MockSshServerHandle),
+    Ipmi(IpmiSimHandle),
+}
+
+impl MockBmcHandle {
+    fn port(&self) -> u16 {
+        match self {
+            MockBmcHandle::Ssh(s) => s.port,
+            MockBmcHandle::Ipmi(i) => i.port,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -173,8 +215,7 @@ impl HostnameQuerying for KnownHostname {
 pub struct BaselineTestEnvironment {
     pub mock_api_server: MockApiServerHandle,
     pub mock_hosts: Arc<Vec<MockHost>>,
-    pub mock_ssh_servers: Vec<MockSshServerHandle>,
-    _ipmi_sim_handle: IpmiSimHandle,
+    pub mock_bmc_handles: Vec<MockBmcHandle>,
 }
 
 impl BaselineTestEnvironment {
@@ -202,7 +243,7 @@ impl BaselineTestEnvironment {
                             // The legacy ssh-console tends to take a few retries right after it boots up. After the
                             // first machine works, don't do any more retries.
                             if i == 0 { 5 } else { 0 },
-                            Duration::from_secs(10),
+                            Duration::from_secs(30),
                         )
                         .await?;
 

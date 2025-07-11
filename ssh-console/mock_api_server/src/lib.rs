@@ -21,9 +21,10 @@ pub struct MockHost {
     pub machine_id: forge_uuid::machine::MachineId,
     pub instance_id: Uuid,
     pub tenant_public_key: String,
-    pub sys_vendor: String,
+    pub sys_vendor: &'static str,
     pub bmc_ip: IpAddr,
-    pub bmc_ssh_port: u16,
+    pub bmc_ssh_port: Option<u16>,
+    pub ipmi_port: Option<u16>,
     pub bmc_user: String,
     pub bmc_password: String,
 }
@@ -36,7 +37,7 @@ impl From<MockHost> for forge::Machine {
             }),
             discovery_info: Some(machine_discovery::DiscoveryInfo {
                 dmi_data: Some(machine_discovery::DmiData {
-                    sys_vendor: value.sys_vendor.clone(),
+                    sys_vendor: value.sys_vendor.to_string(),
                     ..Default::default()
                 }),
                 ..Default::default()

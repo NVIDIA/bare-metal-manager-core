@@ -25,9 +25,98 @@
 //! - [`bmc_vendor`]: Vendor-specific BMC interaction logic
 
 pub mod bmc_vendor;
+pub(crate) mod io_util;
 mod ssh_server;
 
 // pub mods are only ones used by main.rs and integration tests
 pub mod config;
 
+use eyre::Context;
+use russh::ChannelMsg;
 pub use ssh_server::{SpawnHandle, spawn};
+
+/// Take a russh::ChannelMsg being sent in either direction from the frontend or backend, and call
+/// the appropriate method on the underlying channel.
+///
+/// This is the main proxy logic between the client SSH connection and the server SSH connection.
+/// This whole thing would be unnecessary if [`russh::channels::ChanelWriteHalf::send_msg`] were
+/// public. :(
+pub(crate) async fn proxy_channel_message<S>(
+    channel_msg: &russh::ChannelMsg,
+    channel: &russh::Channel<S>,
+) -> eyre::Result<()>
+where
+    S: From<(russh::ChannelId, russh::ChannelMsg)> + Send + Sync + 'static,
+{
+    match channel_msg {
+        ChannelMsg::Open { .. } => {}
+        ChannelMsg::Data { data } => {
+            channel
+                .data(data.iter().as_slice())
+                .await
+                .context("error sending data")?;
+        }
+        ChannelMsg::ExtendedData { data, ext } => {
+            channel
+                .extended_data(*ext, data.iter().as_slice())
+                .await
+                .context("error sending extended data")?;
+        }
+        ChannelMsg::Eof => {
+            channel.eof().await.context("error sending eof")?;
+        }
+        ChannelMsg::Close => {
+            channel.close().await.context("error sending close")?;
+        }
+        ChannelMsg::RequestPty {
+            want_reply,
+            term,
+            col_width,
+            row_height,
+            pix_width,
+            pix_height,
+            terminal_modes,
+        } => {
+            channel
+                .request_pty(
+                    *want_reply,
+                    term,
+                    *col_width,
+                    *row_height,
+                    *pix_width,
+                    *pix_height,
+                    terminal_modes,
+                )
+                .await
+                .context("error sending pty request")?;
+        }
+        ChannelMsg::RequestShell { want_reply } => {
+            channel
+                .request_shell(*want_reply)
+                .await
+                .context("error sending shell request")?;
+        }
+        ChannelMsg::Signal { signal } => {
+            channel
+                .signal(signal.clone())
+                .await
+                .context("error sending signal")?;
+        }
+        ChannelMsg::WindowChange {
+            col_width,
+            row_height,
+            pix_width,
+            pix_height,
+        } => {
+            channel
+                .window_change(*col_width, *row_height, *pix_width, *pix_height)
+                .await
+                .context("error sending window change")?;
+        }
+        _ => {
+            tracing::debug!("Ignoring unknown channel message {channel_msg:?}");
+        }
+    }
+
+    Ok(())
+}

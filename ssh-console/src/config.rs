@@ -129,16 +129,16 @@ insecure_ipmi_ciphers = {insecure_ipmi_ciphers}
 
 ## Optional: For development mode, you can hardcode a list of BMC's to talk to.
 # [[bmcs]]
-# # host_id: the host ID this BMC overrides
-# host_id = "fm100hteau2jdt69qg575qld4lj05me09u2qp7ei38uv7volvprkck9enkg"
-# # instance_id: Optional, the instance_id to declare for this host
+# # machine_id: the machine ID this BMC overrides
+# machine_id = "fm100hteau2jdt69qg575qld4lj05me09u2qp7ei38uv7volvprkck9enkg"
+# # instance_id: Optional, the instance_id to declare for this machine
 # instance_id = "2020eb71-7674-4a15-a05b-c7d73da747b4"
 # ip = "127.0.0.1"
 # port = 22
-# protocol = "ssh"                  # How to connect to BMC. Allowed: ssh, ipmi. ipmi is not yet supported.
 # user = "user"                     # User to authenticate as when ssh-console connects to BMC
 # password = "password"             # Password to use when ssh-console connects to BMC
 # ssh_key_path = "/path/to/ssh_key" # Path to an SSH key to use when ssh-console connects to BMC (optional, overrides password.)
+# bmc_vendor = "dell"               # Vendor for this BMC, determines connection behavior (currently supported: "dell", "lenovo", "hpe", "supermicro")
 #
 # # [[bmcs]]
 # # ... more bmcs sections can define more than one
@@ -222,7 +222,7 @@ struct File {
     admin_certificate_role: String,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Debug, Clone)]
 pub struct BmcConfig {
     pub machine_id: String,
     pub instance_id: Option<String>,
@@ -231,8 +231,6 @@ pub struct BmcConfig {
     pub user: String,
     pub password: String,
     pub ssh_key_path: Option<PathBuf>,
-    #[serde(default)]
-    pub protocol: BmcProto,
     pub bmc_vendor: BmcVendor,
 }
 
@@ -240,14 +238,6 @@ impl BmcConfig {
     pub fn addr(&self) -> SocketAddr {
         SocketAddr::new(self.ip, self.port.unwrap_or(22))
     }
-}
-
-#[derive(Deserialize, Serialize, Default, PartialEq, Debug)]
-#[serde(rename_all = "snake_case")]
-pub enum BmcProto {
-    #[default]
-    Ssh,
-    Ipmi,
 }
 
 impl Default for File {

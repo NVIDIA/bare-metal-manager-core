@@ -2183,6 +2183,7 @@ message BMCMetaDataGetResponse {
   string mac = 4;
   optional uint32 port = 5;
   optional uint32 ssh_port = 6;
+  optional uint32 ipmi_port = 7;
 }
 
 message MachineCredentialsUpdateRequest {

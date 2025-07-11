@@ -10,17 +10,38 @@
  * its affiliates is strictly prohibited.
  */
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::borrow::Cow;
-use std::str::FromStr;
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq)]
-// TODO: IPMI serial support. Currently only supports vendors which can be SSH'd into.
-/// BMC vendor-specific behavior around:
+/// The escape sequence for IPMI is vendor-independent since it's specific to ipmitool.
+pub static IPMITOOL_ESCAPE_SEQUENCE: EscapeSequence =
+    EscapeSequence::Pair((b'~', &[b'.', b'B', b'?', 0x1a, 0x18]));
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum BmcVendor {
+    Ssh(SshBmcVendor),
+    Ipmi(IpmiBmcVendor),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum IpmiBmcVendor {
+    Supermicro,
+}
+
+impl IpmiBmcVendor {
+    pub fn config_string(&self) -> &'static str {
+        match self {
+            IpmiBmcVendor::Supermicro => "supermicro",
+        }
+    }
+}
+
+/// BMC vendor-specific behavior around how to handle SSH connections:
 /// - What prompt string is expected when at the BMC prompt
 /// - The command to activate the serial console
 /// - The escape sequence needed to exit the serial console
-pub enum BmcVendor {
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum SshBmcVendor {
     /// Dell iDRAC - uses "connect com2" command and Ctrl+\ escape sequence
     Dell,
     /// Lenovo XClarity - uses "console kill 1\nconsole 1" command and ESC ( escape sequence
@@ -29,37 +50,98 @@ pub enum BmcVendor {
     Hpe,
 }
 
-impl FromStr for BmcVendor {
-    type Err = eyre::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+impl BmcVendor {
+    pub fn from_sys_vendor_string(s: &str) -> Option<Self> {
         // Vendor string data here ultimately comes from DMI data, via the `sys_vendor` field.
         if s.contains("Dell") {
-            Ok(BmcVendor::Dell)
+            Some(BmcVendor::Ssh(SshBmcVendor::Dell))
         } else if s.contains("Lenovo") {
-            Ok(BmcVendor::Lenovo)
+            Some(BmcVendor::Ssh(SshBmcVendor::Lenovo))
         } else if s.contains("HPE") || s.contains("Hewlett") {
-            Ok(BmcVendor::Hpe)
+            Some(BmcVendor::Ssh(SshBmcVendor::Hpe))
+        } else if s.contains("Supermicro") {
+            Some(BmcVendor::Ipmi(IpmiBmcVendor::Supermicro))
         } else {
-            Err(eyre::format_err!("Unknown vendor string: {s:?}"))
+            None
+        }
+    }
+
+    pub fn from_config_string(s: &str) -> Option<Self> {
+        if s == SshBmcVendor::Dell.config_string() {
+            Some(BmcVendor::Ssh(SshBmcVendor::Dell))
+        } else if s == SshBmcVendor::Lenovo.config_string() {
+            Some(BmcVendor::Ssh(SshBmcVendor::Lenovo))
+        } else if s == SshBmcVendor::Hpe.config_string() {
+            Some(BmcVendor::Ssh(SshBmcVendor::Hpe))
+        } else if s == IpmiBmcVendor::Supermicro.config_string() {
+            Some(BmcVendor::Ipmi(IpmiBmcVendor::Supermicro))
+        } else {
+            None
+        }
+    }
+
+    pub fn config_string(&self) -> &'static str {
+        match self {
+            BmcVendor::Ssh(v) => v.config_string(),
+            BmcVendor::Ipmi(i) => i.config_string(),
+        }
+    }
+
+    pub fn filter_escape_sequences<'a>(
+        &self,
+        input: &'a [u8],
+        prev_pending: bool,
+    ) -> (Cow<'a, [u8]>, bool) {
+        match self {
+            BmcVendor::Ssh(ssh_bmc_vendor) => {
+                ssh_bmc_vendor.filter_escape_sequences(input, prev_pending)
+            }
+            BmcVendor::Ipmi(_) => {
+                // TODO: figure out how ipmitool will be escaped (ctrl+]?)
+                (Cow::Borrowed(input), false)
+            }
         }
     }
 }
 
-impl BmcVendor {
+impl Serialize for BmcVendor {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.config_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for BmcVendor {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        let str_value = String::deserialize(deserializer)?;
+        let Some(bmc_vendor) = Self::from_config_string(&str_value) else {
+            return Err(Error::custom(format!("Invalid BMC vendor: {}", str_value)));
+        };
+        Ok(bmc_vendor)
+    }
+}
+
+impl SshBmcVendor {
     pub fn serial_activate_command(&self) -> &'static [u8] {
         match self {
-            BmcVendor::Dell => b"connect com2",
-            BmcVendor::Lenovo => b"console kill 1\nconsole 1",
-            BmcVendor::Hpe => b"vsp",
+            SshBmcVendor::Dell => b"connect com2",
+            SshBmcVendor::Lenovo => b"console kill 1\nconsole 1",
+            SshBmcVendor::Hpe => b"vsp",
         }
     }
 
     pub fn bmc_prompt(&self) -> &'static [u8] {
         match self {
-            BmcVendor::Dell => b"\nracadm>>",
-            BmcVendor::Lenovo => b"\nsystem>",
-            BmcVendor::Hpe => b"\nhpiLO->",
+            SshBmcVendor::Dell => b"\nracadm>>",
+            SshBmcVendor::Lenovo => b"\nsystem>",
+            SshBmcVendor::Hpe => b"\nhpiLO->",
         }
     }
 
@@ -74,17 +156,33 @@ impl BmcVendor {
 
     fn escape_sequence(&self) -> EscapeSequence {
         match self {
-            BmcVendor::Dell => EscapeSequence::Single(0x1c), // ctrl+\
-            BmcVendor::Lenovo => EscapeSequence::Pair((0x1b, 0x28)), // ESC (
-            BmcVendor::Hpe => EscapeSequence::Pair((0x1b, 0x28)), // ESC (
+            SshBmcVendor::Dell => EscapeSequence::Single(0x1c), // ctrl+\
+            SshBmcVendor::Lenovo => EscapeSequence::Pair((0x1b, &[0x28])), // ESC (
+            SshBmcVendor::Hpe => EscapeSequence::Pair((0x1b, &[0x28])), // ESC (
+        }
+    }
+
+    pub fn config_string(&self) -> &'static str {
+        match self {
+            SshBmcVendor::Dell => "dell",
+            SshBmcVendor::Lenovo => "lenovo",
+            SshBmcVendor::Hpe => "hpe",
         }
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum BmcConnectionKind {
+    Ssh,
+    Ipmi,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum EscapeSequence {
+    // A single one-byte escape (ie. ctrl+\)
     Single(u8),
-    Pair((u8, u8)),
+    // A two-byte escape sequence, the latter of which can be one of several values.
+    Pair((u8, &'static [u8])),
 }
 
 impl EscapeSequence {
@@ -109,17 +207,17 @@ impl EscapeSequence {
             out.as_mut().unwrap()
         }
 
-        match *self {
+        match self {
             EscapeSequence::Single(esc) => {
                 // fast path: don't allocate if the whole string is clean.
-                if !input.contains(&esc) {
+                if !input.contains(esc) {
                     return (Cow::Borrowed(input), false);
                 }
                 // allocate once and filter
                 let mut buf = Vec::with_capacity(input.len());
-                for &b in input {
+                for b in input {
                     if b != esc {
-                        buf.push(b);
+                        buf.push(*b);
                     }
                 }
                 (Cow::Owned(buf), false)
@@ -130,15 +228,15 @@ impl EscapeSequence {
 
                 // handle pending from previous slice
                 if prev_pending {
-                    if let Some(&b0) = input.first() {
-                        if b0 == trail {
+                    if let Some(b0) = input.first() {
+                        if trail.contains(b0) {
                             // drop sequence
                             get_buf(&mut out, input, 0);
                             i = 1;
                         } else {
                             // false alarm: emit the lead
                             let buf = get_buf(&mut out, input, 0);
-                            buf.push(lead);
+                            buf.push(*lead);
                         }
                     } else {
                         return (Cow::Borrowed(input), true);
@@ -150,16 +248,16 @@ impl EscapeSequence {
                     // catch new adjacent escape windows in output
                     if let Some(buf) = &mut out {
                         // if this byte would create a lead+trail pair in the filtered output, drop it
-                        if input[i] == trail && buf.last() == Some(&lead) {
+                        if trail.contains(&input[i]) && buf.last() == Some(lead) {
                             prev_pending = true;
                             i += 1;
                             continue;
                         }
                     }
                     let b = input[i];
-                    if b == lead {
+                    if b == *lead {
                         if i + 1 < input.len() {
-                            if input[i + 1] == trail {
+                            if trail.contains(&input[i + 1]) {
                                 // matched: drop both
                                 get_buf(&mut out, input, i);
                                 i += 2;
@@ -200,7 +298,7 @@ fn test_filter_escape_sequence() {
     // Pass-through: no escapes
     {
         let result =
-            EscapeSequence::Pair((0x1b, 0x28)).filter_escape_sequences(b"hello world", false);
+            EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"hello world", false);
         assert_eq!(result, (Cow::Borrowed(b"hello world".as_slice()), false));
         // Make sure we don't allocate
         assert!(matches!(result.0, Cow::Borrowed(_)));
@@ -208,17 +306,17 @@ fn test_filter_escape_sequence() {
 
     // Only a trailing pending escape byte
     assert_eq!(
-        EscapeSequence::Pair((0x1b, 0x28)).filter_escape_sequences(b"hello world\x1b", false),
+        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"hello world\x1b", false),
         (Cow::Borrowed(b"hello world".as_slice()), true)
     );
 
     assert_eq!(
-        EscapeSequence::Pair((0x1b, 0x28)).filter_escape_sequences(b"\x28", true),
+        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"\x28", true),
         (Cow::Borrowed(b"".as_slice()), false)
     );
 
     assert!(
-        !EscapeSequence::Pair((0x1b, 0x28))
+        !EscapeSequence::Pair((0x1b, &[0x28]))
             .filter_escape_sequences(&[0x1b, 0x1b, 0x28, 0x28], false)
             .0
             .windows(2)
@@ -226,7 +324,7 @@ fn test_filter_escape_sequence() {
     );
 
     assert!(
-        !EscapeSequence::Pair((0x1b, 0x28))
+        !EscapeSequence::Pair((0x1b, &[0x28]))
             .filter_escape_sequences(&[0x1b, 0x28, 0x28], true)
             .0
             .windows(2)
@@ -234,42 +332,44 @@ fn test_filter_escape_sequence() {
     );
 
     assert_eq!(
-        EscapeSequence::Pair((0x1b, 0x28)).filter_escape_sequences(b"\x1b", false),
+        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"\x1b", false),
         (Cow::Borrowed(b"".as_slice()), true)
     );
 
     assert_eq!(
-        EscapeSequence::Pair((0x1b, 0x28)).filter_escape_sequences(b"hello world\x1b!", false),
+        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"hello world\x1b!", false),
         (Cow::Borrowed(b"hello world\x1b!".as_slice()), false)
     );
 
     assert_eq!(
-        EscapeSequence::Pair((0x1b, 0x28)).filter_escape_sequences(b"hello \x1b\x28 world", false),
+        EscapeSequence::Pair((0x1b, &[0x28]))
+            .filter_escape_sequences(b"hello \x1b\x28 world", false),
         (Cow::Borrowed(b"hello  world".as_slice()), false)
     );
 
     assert_eq!(
-        EscapeSequence::Pair((0x1b, 0x28)).filter_escape_sequences(b"hello world\x1b\x28", false),
+        EscapeSequence::Pair((0x1b, &[0x28]))
+            .filter_escape_sequences(b"hello world\x1b\x28", false),
         (Cow::Borrowed(b"hello world".as_slice()), false)
     );
 
     assert_eq!(
-        EscapeSequence::Pair((0x1b, 0x28)).filter_escape_sequences(b"Z", true),
+        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"Z", true),
         (Cow::Borrowed(b"\x1bZ".as_slice()), false)
     );
 
     assert_eq!(
-        EscapeSequence::Pair((0x1b, 0x28)).filter_escape_sequences(b"hello world", true),
+        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"hello world", true),
         (Cow::Borrowed(b"\x1bhello world".as_slice()), false)
     );
 
     assert_eq!(
-        EscapeSequence::Pair((0x1b, 0x28)).filter_escape_sequences(b"\x28hello world", true),
+        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"\x28hello world", true),
         (Cow::Borrowed(b"hello world".as_slice()), false)
     );
 
     assert_eq!(
-        EscapeSequence::Pair((0x1b, 0x28)).filter_escape_sequences(b"\x28hello world\x1b", true),
+        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"\x28hello world\x1b", true),
         (Cow::Borrowed(b"hello world".as_slice()), true)
     );
 
@@ -297,6 +397,42 @@ fn test_filter_escape_sequence() {
 
     assert_eq!(
         EscapeSequence::Single(0x1c).filter_escape_sequences(b"\x1c", false),
+        (Cow::Borrowed(b"".as_slice()), false)
+    );
+
+    let ipmitool_escape_sequence = IPMITOOL_ESCAPE_SEQUENCE;
+    assert_eq!(
+        ipmitool_escape_sequence.filter_escape_sequences(b"~~", false),
+        (Cow::Borrowed(b"~".as_slice()), true)
+    );
+
+    assert_eq!(
+        ipmitool_escape_sequence.filter_escape_sequences(b"~~~", false),
+        (Cow::Borrowed(b"~~".as_slice()), true)
+    );
+
+    assert_eq!(
+        ipmitool_escape_sequence.filter_escape_sequences(b"~~.", false),
+        (Cow::Borrowed(b"~".as_slice()), false)
+    );
+
+    assert_eq!(
+        ipmitool_escape_sequence.filter_escape_sequences(b"~.", false),
+        (Cow::Borrowed(b"".as_slice()), false)
+    );
+
+    assert_eq!(
+        ipmitool_escape_sequence.filter_escape_sequences(b"~B", false),
+        (Cow::Borrowed(b"".as_slice()), false)
+    );
+
+    assert_eq!(
+        ipmitool_escape_sequence.filter_escape_sequences(&[b'~', 0x1a], false),
+        (Cow::Borrowed(b"".as_slice()), false)
+    );
+
+    assert_eq!(
+        ipmitool_escape_sequence.filter_escape_sequences(&[b'~', 0x18], false),
         (Cow::Borrowed(b"".as_slice()), false)
     );
 }
