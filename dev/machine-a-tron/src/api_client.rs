@@ -328,6 +328,7 @@ impl ApiClient {
             instance_type_id: None,
             config: Some(instance_config),
             metadata: None,
+            allow_unhealthy_machine: false,
         };
 
         self.0

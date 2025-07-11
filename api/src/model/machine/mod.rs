@@ -176,7 +176,8 @@ impl ManagedHostStateSnapshot {
     /// - the Machine has not yet been target of an instance creation request
     /// - no health alerts which classification `PreventAllocations` to be set
     /// - the machine not to be in Maintenance Mode
-    pub fn is_usable_as_instance(&self) -> Result<(), NotAllocatableReason> {
+    pub fn is_usable_as_instance(&self, allow_unhealthy: bool) -> Result<(), NotAllocatableReason> {
+        // TODO: allow other states than Ready when allow_unhealthy=true. Will require changes to state machine (see Matthias).
         if !matches!(self.managed_state, ManagedHostState::Ready) {
             return Err(NotAllocatableReason::InvalidState(Box::new(
                 self.managed_state.clone(),
@@ -196,10 +197,12 @@ impl ManagedHostStateSnapshot {
             return Err(NotAllocatableReason::NoDpuSnapshots);
         }
 
-        if let Some(alert) = self.aggregate_health.find_alert_by_classification(
-            &health_report::HealthAlertClassification::prevent_allocations(),
-        ) {
-            return Err(NotAllocatableReason::HealthAlert(Box::new(alert.clone())));
+        if !allow_unhealthy {
+            if let Some(alert) = self.aggregate_health.find_alert_by_classification(
+                &health_report::HealthAlertClassification::prevent_allocations(),
+            ) {
+                return Err(NotAllocatableReason::HealthAlert(Box::new(alert.clone())));
+            }
         }
 
         Ok(())

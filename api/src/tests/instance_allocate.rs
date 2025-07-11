@@ -231,6 +231,7 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
             }),
             instance_id: None,
             metadata: None,
+            allow_unhealthy_machine: false,
         }),
     )
     .await
@@ -315,6 +316,7 @@ async fn test_zero_dpu_instance_allocation_no_network_config(
             }),
             instance_id: None,
             metadata: None,
+            allow_unhealthy_machine: false,
         }),
     )
     .await
@@ -403,6 +405,7 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
             }),
             instance_id: None,
             metadata: None,
+            allow_unhealthy_machine: false,
         }),
     )
     .await
@@ -528,6 +531,7 @@ async fn test_reject_single_dpu_instance_allocation_no_network_config(
             }),
             instance_id: None,
             metadata: None,
+            allow_unhealthy_machine: false,
         }),
     )
     .await;
@@ -589,6 +593,7 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
             }),
             instance_id: None,
             metadata: None,
+            allow_unhealthy_machine: false,
         }),
     )
     .await;
@@ -722,6 +727,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
             }),
             instance_id: None,
             metadata: None,
+            allow_unhealthy_machine: false,
         }),
     )
     .await;
@@ -786,6 +792,7 @@ async fn test_single_dpu_instance_allocation(
             }),
             instance_id: None,
             metadata: None,
+            allow_unhealthy_machine: false,
         }),
     )
     .await
