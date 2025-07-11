@@ -182,7 +182,7 @@ impl InstanceAddress {
     /// Counts the amount of addresses that have been allocated for a given segment
     pub async fn count_by_segment_id(
         txn: &mut PgConnection,
-        segment_id: NetworkSegmentId,
+        segment_id: &NetworkSegmentId,
     ) -> Result<usize, DatabaseError> {
         let query = "
 SELECT count(*)
@@ -665,6 +665,8 @@ mod tests {
                     interface_prefixes: HashMap::default(),
                     network_segment_gateways: HashMap::default(),
                     host_inband_mac_address: None,
+                    device_locator: None,
+                    internal_uuid: uuid::Uuid::new_v4(),
                 }
             })
             .collect();

@@ -31,8 +31,7 @@ use crate::{
                     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY,
                     FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
                     FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2,
-                    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
-                    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2,
+                    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS,
                     FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
                     create_host_inband_network_segment, create_network_segment,
                     create_tenant_network_segment, create_underlay_network_segment,
@@ -81,13 +80,13 @@ async fn create_test_env_for_instance_allocation(
         )
         .unwrap(),
         IpNetwork::new(
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY.network(),
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY.prefix(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[0].network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[0].prefix(),
         )
         .unwrap(),
         IpNetwork::new(
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2.network(),
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2.prefix(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[1].network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[1].prefix(),
         )
         .unwrap(),
     ];
@@ -139,7 +138,7 @@ async fn create_test_env_for_instance_allocation(
     create_tenant_network_segment(
         &env.api,
         vpc_1.id.clone(),
-        *FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
+        FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[0],
         "TENANT",
         true,
     )
@@ -148,7 +147,7 @@ async fn create_test_env_for_instance_allocation(
     create_tenant_network_segment(
         &env.api,
         vpc_2.id.clone(),
-        *FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2,
+        FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[1],
         "TENANT_2",
         true,
     )
@@ -166,7 +165,7 @@ async fn create_test_env_for_instance_allocation(
         ),
         &FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2
             .ip()
-            .to_string(), // 192.0.5.1
+            .to_string(),
         forge::NetworkSegmentType::HostInband,
         // One test asserts that allocation should fail if each segment is in a different VPC
         if options.host_inband_segments_in_different_vpcs {
@@ -224,6 +223,8 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
                         function_type: forge::InterfaceFunctionType::Physical as i32,
                         network_segment_id: Some(host_inband_segment.id.0.into()),
                         network_details: None,
+                        device: None,
+                        device_instance: 0u32,
                     }],
                 }),
                 infiniband: None,
@@ -581,6 +582,8 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
                         function_type: forge::InterfaceFunctionType::Physical as i32,
                         network_segment_id: Some(host_inband_segment.id.into()),
                         network_details: None,
+                        device: None,
+                        device_instance: 0u32,
                     }],
                 }),
                 network_security_group_id: None,
@@ -777,6 +780,8 @@ async fn test_single_dpu_instance_allocation(
                         function_type: forge::InterfaceFunctionType::Physical as i32,
                         network_segment_id: Some(tenant_segment.id.into()),
                         network_details: None,
+                        device: None,
+                        device_instance: 0,
                     }],
                 }),
 

@@ -762,7 +762,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,
@@ -854,7 +854,7 @@ async fn test_keyset_in_instance(pool: sqlx::PgPool) {
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,

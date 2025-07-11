@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
+
 use config_version::{ConfigVersion, Versioned};
 
 use crate::model::{
@@ -17,8 +19,9 @@ use crate::model::{
         config::InstanceConfig,
         status::{InstanceStatus, InstanceStatusObservations},
     },
-    machine::infiniband::MachineInfinibandStatusObservation,
-    machine::{ManagedHostState, ReprovisionRequest},
+    machine::{
+        ManagedHostState, ReprovisionRequest, infiniband::MachineInfinibandStatusObservation,
+    },
     metadata::Metadata,
 };
 use ::rpc::errors::RpcDataConversionError;
@@ -84,11 +87,13 @@ impl InstanceSnapshot {
     /// snapshot information about the instance
     pub fn derive_status(
         &self,
+        dpu_id_to_device_map: HashMap<String, Vec<MachineId>>,
         managed_host_state: ManagedHostState,
         reprovision_request: Option<ReprovisionRequest>,
         ib_status: Option<&MachineInfinibandStatusObservation>,
     ) -> Result<InstanceStatus, RpcDataConversionError> {
         InstanceStatus::from_config_and_observation(
+            dpu_id_to_device_map,
             Versioned::new(&self.config, self.config_version),
             Versioned::new(&self.config.network, self.network_config_version),
             Versioned::new(&self.config.infiniband, self.ib_config_version),

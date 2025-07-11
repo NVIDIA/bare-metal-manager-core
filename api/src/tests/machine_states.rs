@@ -561,7 +561,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
     // We use forge_dpu_agent's health reporting as a signal that
     // DPU has rebooted.
-    network_configured(&env, &dpu_machine_id).await;
+    network_configured(&env, &vec![dpu_machine_id]).await;
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
@@ -1328,7 +1328,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     // We use forge_dpu_agent's health reporting as a signal that
     // DPU has rebooted.
-    network_configured(env, dpu_machine_id).await;
+    network_configured(env, &vec![*dpu_machine_id]).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(

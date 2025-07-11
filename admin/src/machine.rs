@@ -21,6 +21,7 @@ use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
 };
 use prettytable::{Table, row};
+use rpc::Machine;
 use std::fmt::Write;
 use std::fs;
 use std::str::FromStr;
@@ -638,14 +639,31 @@ pub async fn autoupdate(cfg: MachineAutoupdate, api_client: &ApiClient) -> Carbi
 pub async fn get_next_free_machine(
     api_client: &ApiClient,
     machine_ids: &mut VecDeque<String>,
-) -> Option<String> {
+    min_interface_count: usize,
+) -> Option<Machine> {
     while let Some(id) = machine_ids.pop_front() {
-        let api_state = api_client
-            .get_machine(id.clone())
-            .await
-            .map_or("<ERROR>".to_owned(), |machine| machine.state);
-        if api_state == "Ready" {
-            return Some(id.to_string());
+        if let Ok(machine) = api_client.get_machine(id.clone()).await {
+            if machine.state != "Ready" {
+                continue;
+            }
+            if let Some(discovery_info) = &machine.discovery_info {
+                let dpu_interfaces = discovery_info
+                    .network_interfaces
+                    .iter()
+                    .filter(|i| {
+                        i.pci_properties.as_ref().is_some_and(|pci_properties| {
+                            pci_properties
+                                .vendor
+                                .to_ascii_lowercase()
+                                .contains("mellanox")
+                        })
+                    })
+                    .count();
+
+                if dpu_interfaces >= min_interface_count && machine.state == "Ready" {
+                    return Some(machine);
+                }
+            }
         }
     }
     None

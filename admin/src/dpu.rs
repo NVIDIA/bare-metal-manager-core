@@ -570,7 +570,6 @@ pub async fn show_dpu_network_config(
             let mut table = Table::new();
             table.set_format(*format::consts::FORMAT_NO_LINESEP);
             table.add_row(row!["Primary DPU", config.is_primary_dpu]);
-            table.add_row(row!["MultiDPU Enabled", config.multidpu_enabled]);
             table.add_row(row!["ASN", config.asn]);
             table.add_row(row!["VNI Device", config.vni_device]);
             table.add_row(row![

@@ -521,9 +521,19 @@ async fn main() -> color_eyre::Result<()> {
                     .map(|id| id.to_string())
                     .collect();
 
+                let min_interface_count = if !allocate_request.vpc_prefix_id.is_empty() {
+                    allocate_request.vpc_prefix_id.len()
+                } else {
+                    allocate_request.subnet.len()
+                };
+
                 for i in 0..allocate_request.number.unwrap_or(1) {
-                    let Some(hid_for_instance) =
-                        machine::get_next_free_machine(&api_client.clone(), &mut machine_ids).await
+                    let Some(machine) = machine::get_next_free_machine(
+                        &api_client,
+                        &mut machine_ids,
+                        min_interface_count,
+                    )
+                    .await
                     else {
                         tracing::error!("No available machines.");
                         break;
@@ -531,7 +541,7 @@ async fn main() -> color_eyre::Result<()> {
 
                     match api_client
                         .allocate_instance(
-                            &hid_for_instance,
+                            machine,
                             &allocate_request,
                             &format!("{}_{}", allocate_request.prefix_name.clone(), i),
                             config.cloud_unsafe_op.clone(),

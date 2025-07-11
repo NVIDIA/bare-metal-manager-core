@@ -316,56 +316,44 @@ pub(crate) async fn get_propagation_status(
         // This does seem like it might have the upside of accounting for
         // a future case where a machine has multiple DPUs within separate
         // VPCs.
-        "SELECT
-            v.id::text,
-
-            /*
-            * Get the number of interfaces associated with the instance
-            * that do not have NSGs on the interface.
-            */
-            count(*)::int as interfaces_expected,
-
-            /*
-            * Get the count of interfaces where the source is VPC
-            * and the NSG ID and version matches those of the VPC.
-            */
-            coalesce(sum(
-                    (ifco.value #> '{network_security_group}'->>'source' = 'VPC'
-                    AND
-                    ifco.value #> '{network_security_group}'->>'id' = v.network_security_group_id
-                    AND
-                    ifco.value #> '{network_security_group}'->>'version' = nsg.version)::int
-            ), 0)::int as interfaces_applied,
-            /* Provide a list of instance related to the object */
-            COALESCE(json_agg(distinct i.id) FILTER (WHERE i.id IS NOT  NULL), '[]') as related_instance_ids,
-            
-            /*
-            * Provide a list of instances related to the object that don't have the
-            * correct NSG details.
-            */
-            COALESCE(json_agg(distinct i.id) FILTER (WHERE i.id IS NOT NULL AND (
-                      ifco.value #> '{network_security_group}' IS NULL
-                      OR
-                      ifco.value #> '{network_security_group}'->>'source' != 'VPC'
-                      OR
-                      ifco.value #> '{network_security_group}'->>'id' != v.network_security_group_id
-                      OR
-                      ifco.value #> '{network_security_group}'->>'version' != nsg.version
-                    )
-            ), '[]') as unpropagated_instance_ids
-
-        FROM
-            instances i
-        JOIN jsonb_array_elements(i.network_config #>'{interfaces}') with ordinality ifc on ifc.value->>'network_security_group_id' IS NULL
-        JOIN machine_interfaces mi ON mi.machine_id = i.machine_id
-        JOIN machines m ON m.id = mi.attached_dpu_machine_id and mi.primary_interface=true
-        /* network_status_observation is stored in dpu now. */
-        LEFT OUTER JOIN jsonb_array_elements(m.network_status_observation #>'{instance_network_observation,interfaces}') with ordinality ifco on ifco.ordinality = ifc.ordinality
-        JOIN network_segments ns on ns.id=(ifc.value->>'network_segment_id')::uuid
-        JOIN vpcs v on v.id=ns.vpc_id
-        JOIN network_security_groups nsg on nsg.id=v.network_security_group_id
-        WHERE i.network_security_group_id IS NULL
-        AND i.deleted IS NULL"          
+        "
+        SELECT
+        vpc_id::text as id,
+        sum(interfaces_expected)::INT4 as interfaces_expected,
+        sum(interfaces_applied)::INT4 as interfaces_applied,
+        COALESCE(json_agg(distinct instance_id) FILTER (WHERE interfaces_expected != interfaces_applied), '[]') as unpropagated_instance_ids,
+        COALESCE(json_agg(distinct instance_id) FILTER (WHERE instance_id IS NOT  NULL), '[]') as related_instance_ids
+        FROM (
+            SELECT
+                v.id as vpc_id, i.id as instance_id,
+                /*
+                * Get the number of interfaces associated with the instance
+                * that do not have NSGs on the interface.
+                */
+                count(distinct(ifc->'internal_uuid'))::int as interfaces_expected,
+                /*
+                * Get the count of interfaces where the source is VPC
+                * and the NSG ID and version matches those of the VPC.
+                */
+                coalesce(sum(
+                        (ifco #> '{network_security_group}'->>'source' = 'VPC'
+                        AND
+                        ifco #> '{network_security_group}'->>'id' = v.network_security_group_id
+                        AND
+                        ifco #> '{network_security_group}'->>'version' = nsg.version)::int
+                ), 0)::int as interfaces_applied
+            FROM
+                instances i
+            JOIN jsonb_array_elements(i.network_config #>'{interfaces}') ifc on ifc->>'network_security_group_id' IS NULL
+            JOIN machine_interfaces mi ON mi.machine_id = i.machine_id
+            JOIN machines dpu ON dpu.id = mi.attached_dpu_machine_id
+            /* network_status_observation is stored in dpu now. */
+            LEFT OUTER JOIN jsonb_array_elements(dpu.network_status_observation #>'{instance_network_observation,interfaces}') ifco on ifco->>'internal_uuid' = ifc->>'internal_uuid'
+            JOIN network_segments ns on ns.id=(ifc->>'network_segment_id')::uuid
+            JOIN vpcs v on v.id=ns.vpc_id
+            JOIN network_security_groups nsg on nsg.id=v.network_security_group_id
+            WHERE i.network_security_group_id IS NULL
+            AND i.deleted IS NULL"
     );
 
     if network_security_group_ids.is_some() {
@@ -385,59 +373,50 @@ pub(crate) async fn get_propagation_status(
         vpc_query_builder.push_bind(tenant_organization_id.map(|t| t.to_string()));
     }
 
-    vpc_query_builder.push(" GROUP BY v.id ");
+    vpc_query_builder.push(" GROUP BY v.id, i.id) as prop_stats GROUP BY vpc_id");
 
-    let mut instance_query_builder = sqlx::QueryBuilder::new(
-        "
+    let mut instance_query_builder = sqlx::QueryBuilder::new("
         SELECT
-            i.id::text,
+        instance_id::text as id,
+        interfaces_expected,
+        interfaces_applied,
 
-            /*
-            * Get the number of interfaces associated with the instance
-            * that do not have NSGs on the interface.
-            */
-            count(*)::int as interfaces_expected,
+        /* Provide a list of instances related to the object that don't have the correct NSG details. */    
+        COALESCE(json_agg(distinct instance_id) FILTER (WHERE interfaces_expected != interfaces_applied), '[]') as unpropagated_instance_ids,
 
-            /*
-            * Get the count of interfaces where the source is instance
-            * and the NSG ID and version matches those of the instance.
-            */
-            coalesce(sum(
-                    (ifco.value #> '{network_security_group}'->>'source' = 'INSTANCE'
-                    AND
-                    ifco.value #> '{network_security_group}'->>'id' = i.network_security_group_id
-                    AND
-                    ifco.value #> '{network_security_group}'->>'version' = nsg.version)::int
-            ), 0)::int as interfaces_applied,
-
-            /* Provide a list of instance related to the object */
-            COALESCE(json_agg(distinct i.id) FILTER (WHERE i.id IS NOT  NULL), '[]') as related_instance_ids,
-            
-            /*
-            * Provide a list of instances related to the object that don't have the
-            * correct NSG details.
-            */
-            COALESCE(json_agg(distinct i.id) FILTER (WHERE i.id IS NOT NULL AND (
-                      ifco.value #> '{network_security_group}' IS NULL
-                      OR
-                      ifco.value #> '{network_security_group}'->>'source' != 'INSTANCE'
-                      OR
-                      ifco.value #> '{network_security_group}'->>'id' != i.network_security_group_id
-                      OR
-                      ifco.value #> '{network_security_group}'->>'version' != nsg.version
-                    )
-            ), '[]') as unpropagated_instance_ids
-
-        FROM
-            instances i
-        JOIN network_security_groups nsg on nsg.id=i.network_security_group_id
-        JOIN jsonb_array_elements(i.network_config #>'{interfaces}') with ordinality ifc on ifc.value->>'network_security_group_id' IS NULL
-        JOIN machine_interfaces mi ON mi.machine_id = i.machine_id and mi.primary_interface=true
-        JOIN machines m ON m.id = mi.attached_dpu_machine_id
-        /* network_status_observation is stored in dpu now. */
-        LEFT OUTER JOIN jsonb_array_elements(m.network_status_observation #>'{instance_network_observation,interfaces}') with ordinality ifco on ifco.ordinality = ifc.ordinality
-        WHERE i.deleted IS NULL"
-    );
+        /* Provide a list of instance related to the object */
+        COALESCE(json_agg(distinct instance_id) FILTER (WHERE instance_id IS NOT  NULL), '[]') as related_instance_ids
+        FROM (
+            SELECT
+                i.id as instance_id,
+                /*
+                * Get the number of interfaces associated with the instance
+                * that do not have NSGs on the interface.
+                * When we allow per-interface NSGs, the count here would
+                * just need to filter on ifc->network_security_group_id IS NULL,
+                * and that would also need to be applied to the VPC propagation query.
+                */
+                count(distinct(ifc->'internal_uuid'))::int as interfaces_expected,
+                /*
+                * Get the count of interfaces where the source is INSTANCE
+                * and the NSG ID and version matches those of the INSTANCE.
+                */
+                coalesce(sum(
+                        (ifco #> '{network_security_group}'->>'source' = 'INSTANCE'
+                        AND
+                        ifco #> '{network_security_group}'->>'id' = i.network_security_group_id
+                        AND
+                        ifco #> '{network_security_group}'->>'version' = nsg.version)::int
+                ), 0)::int as interfaces_applied
+            FROM
+                instances i
+            JOIN jsonb_array_elements(i.network_config #>'{interfaces}') ifc on ifc->>'network_security_group_id' IS NULL
+            JOIN machine_interfaces mi ON mi.machine_id = i.machine_id
+            JOIN machines dpu ON dpu.id = mi.attached_dpu_machine_id
+            /* network_status_observation is stored in dpu now. */
+            LEFT OUTER JOIN jsonb_array_elements(dpu.network_status_observation #>'{instance_network_observation,interfaces}') ifco on ifco->>'internal_uuid' = ifc->>'internal_uuid'
+            JOIN network_security_groups nsg on nsg.id=i.network_security_group_id
+            WHERE i.deleted IS NULL");
 
     if network_security_group_ids.is_some() {
         instance_query_builder.push(" AND nsg.id = ANY(");
@@ -456,7 +435,9 @@ pub(crate) async fn get_propagation_status(
         instance_query_builder.push_bind(tenant_organization_id.map(|t| t.to_string()));
     }
 
-    instance_query_builder.push(" GROUP BY i.id ");
+    instance_query_builder.push(
+        " GROUP BY i.id) as prop_stats GROUP BY instance_id,interfaces_expected,interfaces_applied",
+    );
 
     let vpcs = vpc_query_builder
         .build_query_as()

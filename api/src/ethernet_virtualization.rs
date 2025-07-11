@@ -255,6 +255,7 @@ pub async fn admin_network(
         vpc_peer_prefixes: vec![],
         vpc_peer_vnis: vec![],
         network_security_group: None,
+        internal_uuid: None,
     };
     Ok((cfg, interface.id))
 }
@@ -485,6 +486,7 @@ pub async fn tenant_network(
                     e
                 ))
             })?,
+        internal_uuid: Some(iface.internal_uuid.into()),
     })
 }
 

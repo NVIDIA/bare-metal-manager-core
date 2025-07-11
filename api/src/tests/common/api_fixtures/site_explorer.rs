@@ -338,7 +338,7 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                20,
+                10 + (10 * self.dpu_machine_ids.len() as u32),
                 &mut txn,
                 ManagedHostState::DPUInit {
                     dpu_states: crate::model::machine::DpuInitStates {
@@ -405,9 +405,11 @@ impl<'a> MockExploredHost<'a> {
 
         txn.commit().await.unwrap();
 
-        for machine_id in self.dpu_machine_ids.values() {
-            network_configured(self.test_env, machine_id).await;
-        }
+        network_configured(
+            self.test_env,
+            &self.dpu_machine_ids.values().cloned().collect(),
+        )
+        .await;
 
         let mut txn = self.test_env.pool.begin().await.unwrap();
         self.test_env
@@ -610,9 +612,11 @@ impl<'a> MockExploredHost<'a> {
 
         // We use forge_dpu_agent's health reporting as a signal that
         // DPU has rebooted.
-        for machine_id in self.dpu_machine_ids.values() {
-            super::network_configured(self.test_env, machine_id).await;
-        }
+        super::network_configured(
+            self.test_env,
+            &self.dpu_machine_ids.values().cloned().collect(),
+        )
+        .await;
 
         if self.test_env.config.bom_validation.enabled
             && !self
@@ -813,9 +817,11 @@ impl<'a> MockExploredHost<'a> {
 
         // We use forge_dpu_agent's health reporting as a signal that
         // DPU has rebooted.
-        for machine_id in self.dpu_machine_ids.values() {
-            super::network_configured(self.test_env, machine_id).await;
-        }
+        super::network_configured(
+            self.test_env,
+            &self.dpu_machine_ids.values().cloned().collect(),
+        )
+        .await;
 
         let mut txn = self.test_env.pool.begin().await.unwrap();
         self.test_env

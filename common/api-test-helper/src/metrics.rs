@@ -52,7 +52,7 @@ pub async fn wait_for_metric_line(
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     }
 
-    eyre::bail!(
+    panic!(
         "Even after {MAX_WAIT:?} time, Metric line {expected_line} was not visible.\n
         Last metrics: {last_metrics}"
     );

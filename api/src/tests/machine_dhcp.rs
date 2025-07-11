@@ -212,17 +212,21 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
                 network_segment_id: Some((segment_id_1).into()),
                 network_details: None,
+                device: None,
+                device_instance: 0u32,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: Some((segment_id_2).into()),
                 network_details: None,
+                device: None,
+                device_instance: 0u32,
             },
         ],
     });
     let (_instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         network,
         None,
@@ -254,7 +258,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
         tenant_data
             .iter()
             .map(|x| x.ip.clone())
-            .contains("192.0.5.3")
+            .contains("192.1.4.3")
     );
 
     assert!(
@@ -267,7 +271,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
         tenant_data
             .iter()
             .map(|x| x.prefix.clone())
-            .contains("192.0.5.0/24")
+            .contains("192.1.4.0/24")
     );
 
     assert!(
@@ -280,7 +284,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
         tenant_data
             .iter()
             .map(|x| x.gateway.clone())
-            .contains("192.0.5.1/24")
+            .contains("192.1.4.1/24")
     );
 
     Ok(())

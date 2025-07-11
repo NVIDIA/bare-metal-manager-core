@@ -351,7 +351,7 @@ async fn test_machine_validation_get_results(
     let host_machine_id = try_parse_machine_id(&host_remote_id).unwrap();
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,
@@ -367,7 +367,7 @@ async fn test_machine_validation_get_results(
         "Discovery".to_owned()
     );
     let discovery_validation_id = runs.runs[0].validation_id.clone();
-    delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
+    delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
 
     // one for cleanup and one for discovery
     let runs = get_machine_validation_runs(&env, host_remote_id.clone(), false).await;

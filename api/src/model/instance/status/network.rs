@@ -10,23 +10,22 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::IpAddr;
+use std::convert::Into;
+use std::{collections::HashMap, net::IpAddr};
 
 use ::rpc::errors::RpcDataConversionError;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
+use forge_uuid::machine::MachineId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    SerializableMacAddress, StatusValidationError,
+    SerializableMacAddress,
     instance::{
-        config::network::{
-            InstanceInterfaceConfig, InstanceNetworkConfig, InterfaceFunctionId,
-            validate_interface_function_ids,
-        },
+        config::network::{InstanceInterfaceConfig, InstanceNetworkConfig, InterfaceFunctionId},
         status::SyncState,
     },
     machine::Machine,
@@ -95,74 +94,212 @@ impl InstanceNetworkStatus {
     /// forwarding the last observed status without taking `Config` into account,
     /// because the observation might have been related to a different config,
     /// and the interfaces therefore won't match.
-    pub fn from_config_and_observation(
+    pub fn from_config_and_observations(
+        dpu_id_to_device_map: HashMap<String, Vec<MachineId>>,
         config: Versioned<&InstanceNetworkConfig>,
-        observations: Option<&InstanceNetworkStatusObservation>,
+        observations: &HashMap<MachineId, InstanceNetworkStatusObservation>,
         is_network_config_request_pending: bool,
     ) -> Self {
-        let observations = match observations {
-            Some(observations) => observations,
-            None => {
-                return if config.is_host_inband() {
-                    Self::synchronized_from_host_interfaces(config.value.interfaces.clone())
-                } else {
-                    Self::unsynchronized_for_config(&config)
-                };
-            }
-        };
-
-        if observations.config_version != config.version {
-            return Self::unsynchronized_for_config(&config);
-        }
-
         if is_network_config_request_pending {
             return Self::unsynchronized_for_config(&config);
         }
 
-        let interfaces = config
-            .interfaces
+        if observations
             .iter()
-            .map(|config| {
-                // TODO: This isn't super efficient. We could do it better if there would be a guarantee
-                // that interfaces in the observation are in the same order as in the config.
-                // But it isn't obvious at the moment whether we can achieve this while
-                // not mixing up order for users.
-                let observation = observations
-                    .interfaces
-                    .iter()
-                    .find(|iface| iface.function_id == config.function_id);
-                match observation {
-                    Some(observation) => InstanceInterfaceStatus {
-                        function_id: config.function_id.clone(),
-                        mac_address: observation.mac_address.map(Into::into),
-                        addresses: observation.addresses.clone(),
-                        prefixes: observation.prefixes.clone(),
-                        gateways: observation.gateways.clone(),
-                    },
-                    None => {
-                        tracing::error!(
-                            function_id = ?config.function_id, ?config, ?observation,
-                            "Could not find matching status for interface",
-                        );
+            .any(|obs| obs.1.config_version != config.version)
+        {
+            return Self::unsynchronized_for_config(&config);
+        }
 
-                        // TODO: Might also be worthwhile to return an error?
-                        // On the other hand the error is also visible via returning no IPs - and at least we don't break
-                        // all other interfaces this way
-                        InstanceInterfaceStatus {
-                            function_id: config.function_id.clone(),
+        // Observations without interfaces are from unused DPUs.  filter them out
+        let observations: HashMap<&MachineId, &InstanceNetworkStatusObservation> = observations
+            .iter()
+            .filter(|obs| !obs.1.interfaces.is_empty())
+            .collect();
+
+        if observations.is_empty() {
+            if config.is_host_inband() {
+                return Self::synchronized_from_host_interfaces(config.value.interfaces.clone());
+            } else {
+                return Self::unsynchronized_for_config(&config);
+            }
+        }
+
+        let mut configs_synced = SyncState::Synced;
+        let mut missing_dpus = Vec::default();
+        let mut interfaces = Vec::default();
+        for config_iface in &config.interfaces {
+            let device_locator = config_iface.device_locator.as_ref();
+
+            let dpu_machine_id = device_locator.and_then(|dl| {
+                let dpu_id = dpu_id_to_device_map
+                    .get(&dl.device)
+                    .and_then(|id_vec| id_vec.get(dl.device_instance));
+                dpu_id
+            });
+            match dpu_machine_id {
+                Some(dpu_machine_id) => match observations.get(dpu_machine_id) {
+                    Some(dpu_obs) => {
+                        let obs_iface = dpu_obs
+                            .interfaces
+                            .iter()
+                            .find(|obs_iface| obs_iface.function_id == config_iface.function_id);
+
+                        match obs_iface {
+                            Some(obs_iface) => {
+                                interfaces.push(InstanceInterfaceStatus {
+                                    function_id: config_iface.function_id.clone(),
+                                    mac_address: obs_iface.mac_address.map(Into::into),
+                                    addresses: obs_iface.addresses.clone(),
+                                    prefixes: obs_iface.prefixes.clone(),
+                                    gateways: obs_iface.gateways.clone(),
+                                    device: config_iface
+                                        .device_locator
+                                        .as_ref()
+                                        .map(|dl| dl.device.clone()),
+                                    device_instance: config_iface
+                                        .device_locator
+                                        .as_ref()
+                                        .map(|dl| dl.device_instance)
+                                        .unwrap_or_default(),
+                                });
+                            }
+                            None => {
+                                tracing::error!(
+                                    dpu_machine_id = ?dpu_machine_id, function_id = ?config_iface.function_id, ?config, ?observations,
+                                    "Could not find matching status for interface",
+                                );
+
+                                // TODO: Might also be worthwhile to return an error?
+                                // On the other hand the error is also visible via returning no IPs - and at least we don't break
+                                // all other interfaces this way
+                                // UPDATE:  added pending status.
+                                interfaces.push(InstanceInterfaceStatus {
+                                    function_id: config_iface.function_id.clone(),
+                                    mac_address: None,
+                                    addresses: Vec::new(),
+                                    prefixes: Vec::new(),
+                                    gateways: Vec::new(),
+                                    device: config_iface
+                                        .device_locator
+                                        .as_ref()
+                                        .map(|dl| dl.device.clone()),
+                                    device_instance: config_iface
+                                        .device_locator
+                                        .as_ref()
+                                        .map(|dl| dl.device_instance)
+                                        .unwrap_or_default(),
+                                });
+                                configs_synced = SyncState::Pending;
+                            }
+                        }
+                    }
+                    None => {
+                        interfaces.push(InstanceInterfaceStatus {
+                            function_id: config_iface.function_id.clone(),
                             mac_address: None,
                             addresses: Vec::new(),
                             prefixes: Vec::new(),
                             gateways: Vec::new(),
+                            device: config_iface
+                                .device_locator
+                                .as_ref()
+                                .map(|dl| dl.device.clone()),
+                            device_instance: config_iface
+                                .device_locator
+                                .as_ref()
+                                .map(|dl| dl.device_instance)
+                                .unwrap_or_default(),
+                        });
+                        missing_dpus.push(dpu_machine_id);
+                        configs_synced = SyncState::Pending;
+                    }
+                },
+                None => {
+                    if config
+                        .interfaces
+                        .iter()
+                        .filter(|iface| iface.function_id == InterfaceFunctionId::Physical {})
+                        .count()
+                        > 1
+                    {
+                        tracing::error!(
+                            "Found multiple physical interfaces when no device specified: {:?}",
+                            config
+                        );
+                        return Self::unsynchronized_for_config(&config);
+                    }
+
+                    if observations.is_empty() {
+                        return Self::unsynchronized_for_config(&config);
+                    }
+
+                    if let Some((_id, dpu_obs)) = observations.iter().next() {
+                        let intf_obs = dpu_obs
+                            .interfaces
+                            .iter()
+                            .find(|iface| iface.function_id == config_iface.function_id);
+                        match intf_obs {
+                            Some(intf_obs) => {
+                                interfaces.push(InstanceInterfaceStatus {
+                                    function_id: config_iface.function_id.clone(),
+                                    mac_address: intf_obs.mac_address.map(Into::into),
+                                    addresses: intf_obs.addresses.clone(),
+                                    prefixes: intf_obs.prefixes.clone(),
+                                    gateways: intf_obs.gateways.clone(),
+                                    device: config_iface
+                                        .device_locator
+                                        .as_ref()
+                                        .map(|dl| dl.device.clone()),
+                                    device_instance: config_iface
+                                        .device_locator
+                                        .as_ref()
+                                        .map(|dl| dl.device_instance)
+                                        .unwrap_or_default(),
+                                });
+                            }
+                            None => {
+                                tracing::error!(
+                                    function_id = ?config_iface.function_id, ?config, ?observations,
+                                    "Could not find matching status for interface for legacy config",
+                                );
+
+                                // TODO: Might also be worthwhile to return an error?
+                                // On the other hand the error is also visible via returning no IPs - and at least we don't break
+                                // all other interfaces this way
+                                interfaces.push(InstanceInterfaceStatus {
+                                    function_id: config_iface.function_id.clone(),
+                                    mac_address: None,
+                                    addresses: Vec::new(),
+                                    prefixes: Vec::new(),
+                                    gateways: Vec::new(),
+                                    device: config_iface
+                                        .device_locator
+                                        .as_ref()
+                                        .map(|dl| dl.device.clone()),
+                                    device_instance: config_iface
+                                        .device_locator
+                                        .as_ref()
+                                        .map(|dl| dl.device_instance)
+                                        .unwrap_or_default(),
+                                });
+                            }
                         }
                     }
                 }
-            })
-            .collect();
+            }
+        }
+
+        if !missing_dpus.is_empty() {
+            tracing::info!(
+                "Missing observations for DPUs: {}",
+                missing_dpus.into_iter().join(",")
+            );
+        }
 
         Self {
             interfaces,
-            configs_synced: SyncState::Synced,
+            configs_synced,
         }
     }
 
@@ -182,6 +319,12 @@ impl InstanceNetworkStatus {
                     addresses: Vec::new(),
                     prefixes: Vec::new(),
                     gateways: Vec::new(),
+                    device: iface.device_locator.as_ref().map(|dl| dl.device.clone()),
+                    device_instance: iface
+                        .device_locator
+                        .as_ref()
+                        .map(|dl| dl.device_instance)
+                        .unwrap_or_default(),
                 })
                 .collect(),
             configs_synced: SyncState::Pending,
@@ -229,6 +372,9 @@ pub struct InstanceInterfaceStatus {
 
     /// The list of gateways, in CIDR notation, one for each address in `addresses`.
     pub gateways: Vec<IpNetwork>,
+
+    pub device: Option<String>,
+    pub device_instance: usize,
 }
 
 impl InstanceInterfaceStatus {
@@ -268,6 +414,8 @@ impl InstanceInterfaceStatus {
             addresses,
             prefixes,
             gateways,
+            device: None,
+            device_instance: 0,
         }
     }
 }
@@ -297,6 +445,8 @@ impl TryFrom<InstanceInterfaceStatus> for rpc::InstanceInterfaceStatus {
                 .into_iter()
                 .map(|ip| ip.to_string())
                 .collect(),
+            device: status.device,
+            device_instance: status.device_instance as u32,
         })
     }
 }
@@ -324,65 +474,28 @@ pub struct InstanceNetworkStatusObservation {
 }
 
 impl InstanceNetworkStatusObservation {
-    /// Validates that a report about an observed network status has a valid
-    /// format
-    pub fn validate(&self) -> Result<(), StatusValidationError> {
-        validate_interface_function_ids(&self.interfaces, |iface| iface.function_id.clone())
-            .map_err(StatusValidationError::InvalidValue)?;
-
-        Ok(())
-    }
-
     pub fn aggregate_instance_observation(
         dpu_snapshots: &[Machine],
-        host_snapshot: &Machine,
-    ) -> Option<InstanceNetworkStatusObservation> {
-        // For now we shall have status observations only from primary DPU.
-        let primary_dpu = host_snapshot
-            .interfaces
-            .iter()
-            .find(|x| x.primary_interface)
-            .and_then(|x| x.attached_dpu_machine_id)?;
+    ) -> HashMap<MachineId, InstanceNetworkStatusObservation> {
+        let mut observation_map = HashMap::default();
 
-        let dpu_snapshot = dpu_snapshots.iter().find(|x| x.id == primary_dpu);
-        dpu_snapshot
-            .and_then(|x| x.network_status_observation.as_ref())
-            .and_then(|x| x.instance_network_observation.as_ref())
-            .map(|m| InstanceNetworkStatusObservation {
-                config_version: m.config_version,
-                instance_config_version: m.instance_config_version,
-                interfaces: m.interfaces.clone(),
-                observed_at: m.observed_at,
-            })
-    }
-}
-
-impl TryFrom<rpc::InstanceNetworkStatusObservation> for InstanceNetworkStatusObservation {
-    type Error = RpcDataConversionError;
-
-    fn try_from(observation: rpc::InstanceNetworkStatusObservation) -> Result<Self, Self::Error> {
-        let mut interfaces = Vec::with_capacity(observation.interfaces.len());
-        for iface in observation.interfaces {
-            interfaces.push(InstanceInterfaceStatusObservation::try_from(iface)?);
+        for dpu_snapshot in dpu_snapshots {
+            if let Some(obs) = dpu_snapshot
+                .network_status_observation
+                .as_ref()
+                .and_then(|x| x.instance_network_observation.as_ref())
+                .map(|m| InstanceNetworkStatusObservation {
+                    config_version: m.config_version,
+                    instance_config_version: m.instance_config_version,
+                    interfaces: m.interfaces.clone(),
+                    observed_at: m.observed_at,
+                })
+            {
+                observation_map.insert(dpu_snapshot.id, obs);
+            }
         }
 
-        let observed_at = match observation.observed_at {
-            Some(timestamp) => {
-                let system_time = std::time::SystemTime::try_from(timestamp)
-                    .map_err(|_| RpcDataConversionError::InvalidTimestamp(timestamp.to_string()))?;
-                DateTime::from(system_time)
-            }
-            None => Utc::now(),
-        };
-
-        Ok(Self {
-            instance_config_version: None, // Reported by rpc::DpuNetworkStatus not rpc::InstanceNetworkStatusObservation
-            config_version: observation.config_version.parse().map_err(|_| {
-                RpcDataConversionError::InvalidConfigVersion(observation.config_version)
-            })?,
-            interfaces,
-            observed_at,
-        })
+        observation_map
     }
 }
 
@@ -422,6 +535,8 @@ pub struct InstanceInterfaceStatusObservation {
     /// The details of the network security that has
     /// actually been applied to the interface.
     pub network_security_group: Option<NetworkSecurityGroupStatusObservation>,
+
+    pub internal_uuid: Option<uuid::Uuid>,
 }
 
 impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatusObservation {
@@ -431,7 +546,7 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
         let function_id = match observation.function_type() {
             rpc::forge::InterfaceFunctionType::Physical => InterfaceFunctionId::Physical {},
             rpc::forge::InterfaceFunctionType::Virtual => {
-                InterfaceFunctionId::try_virtual_from(observation.virtual_function_id() as usize)
+                InterfaceFunctionId::try_virtual_from(observation.virtual_function_id() as u8)
                     .map_err(|_| {
                         RpcDataConversionError::InvalidVirtualFunctionId(
                             observation.virtual_function_id() as usize,
@@ -448,6 +563,14 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
                     .map_err(|_| RpcDataConversionError::InvalidIpAddress(addr.clone()))
             })
             .try_collect()?;
+
+        let internal_uuid = if let Some(internal_uuid) = &observation.internal_uuid {
+            Some(internal_uuid.try_into().map_err(|_| {
+                RpcDataConversionError::InvalidUuid("internal_uuid", internal_uuid.to_string())
+            })?)
+        } else {
+            None
+        };
 
         Ok(Self {
             function_id,
@@ -480,13 +603,14 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
                 .network_security_group
                 .map(|nsgo| nsgo.try_into())
                 .transpose()?,
+            internal_uuid,
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, fmt::Write};
+    use std::{collections::HashMap, fmt::Write, str::FromStr};
 
     use forge_uuid::network::NetworkSegmentId;
 
@@ -539,7 +663,7 @@ mod tests {
         assert_eq!(
             serialized,
             format!(
-                "{{\"config_version\":\"{}\",\"instance_config_version\":\"{}\",\"interfaces\":[],\"observed_at\":\"{}\"}}",
+                r#"{{"config_version":"{}","instance_config_version":"{}","interfaces":[],"observed_at":"{}"}}"#,
                 instance_version.version_string(),
                 version.version_string(),
                 serialized_timestamp
@@ -559,6 +683,7 @@ mod tests {
                 prefixes: Vec::new(),
                 gateways: Vec::new(),
                 network_security_group: None,
+                internal_uuid: None,
             });
         observation
             .interfaces
@@ -575,22 +700,23 @@ mod tests {
                         .unwrap(),
                     version: "V1-T1".parse().unwrap(),
                 }),
+                internal_uuid: None,
             });
         let serialized = serde_json::to_string(&observation).unwrap();
         let mut expected = format!(
-            "{{\"config_version\":\"{}\",\"instance_config_version\":\"{}\",\"interfaces\":[",
+            r#"{{"config_version":"{}","instance_config_version":"{}","interfaces":["#,
             instance_version.version_string(),
             version.version_string()
         );
         write!(
             &mut expected,
-            "{{\"function_id\":{{\"type\":\"physical\"}},\"mac_address\":null,\"addresses\":[],\"prefixes\":[],\"gateways\":[],\"network_security_group\":null}},"
+            r#"{{"function_id":{{"type":"physical"}},"mac_address":null,"addresses":[],"prefixes":[],"gateways":[],"network_security_group":null,"internal_uuid":null}},"#
         )
         .unwrap();
-        write!(&mut expected, "{{\"function_id\":{{\"type\":\"virtual\",\"id\":1}},\"mac_address\":\"01:02:03:04:05:06\",\"addresses\":[\"127.1.2.3\"],\"prefixes\":[\"127.1.2.3/32\"],\"gateways\":[\"127.1.2.1/32\"],\"network_security_group\":{{\"id\":\"c7c056c8-daa5-11ef-b221-c76a97b6c2ec\",\"version\":\"V1-T1\",\"source\":\"INSTANCE\"}}}}").unwrap();
+        write!(&mut expected, r#"{{"function_id":{{"type":"virtual","id":1}},"mac_address":"01:02:03:04:05:06","addresses":["127.1.2.3"],"prefixes":["127.1.2.3/32"],"gateways":["127.1.2.1/32"],"network_security_group":{{"id":"c7c056c8-daa5-11ef-b221-c76a97b6c2ec","version":"V1-T1","source":"INSTANCE"}},"internal_uuid":null}}"#).unwrap();
         write!(
             &mut expected,
-            "],\"observed_at\":\"{}\"}}",
+            r#"],"observed_at":"{}"}}"#,
             serialized_timestamp
         )
         .unwrap();
@@ -623,6 +749,8 @@ mod tests {
                     )]),
                     host_inband_mac_address: None,
                     network_details: None,
+                    device_locator: None,
+                    internal_uuid: uuid::Uuid::new_v4(),
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
@@ -643,6 +771,8 @@ mod tests {
                     )]),
                     host_inband_mac_address: None,
                     network_details: None,
+                    device_locator: None,
+                    internal_uuid: uuid::Uuid::new_v4(),
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
@@ -663,6 +793,8 @@ mod tests {
                     )]),
                     host_inband_mac_address: None,
                     network_details: None,
+                    device_locator: None,
+                    internal_uuid: uuid::Uuid::new_v4(),
                 },
             ],
         }
@@ -673,6 +805,9 @@ mod tests {
             uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let prefix_uuid: NetworkPrefixId =
             uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1400").into();
+        let internal_uuid1 = uuid::Uuid::new_v4();
+        let internal_uuid2 = uuid::Uuid::new_v4();
+        let internal_uuid3 = uuid::Uuid::new_v4();
 
         InstanceNetworkConfig {
             interfaces: vec![
@@ -690,6 +825,8 @@ mod tests {
                     )]),
                     host_inband_mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6])),
                     network_details: None,
+                    device_locator: None,
+                    internal_uuid: internal_uuid1,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
@@ -710,6 +847,8 @@ mod tests {
                     )]),
                     host_inband_mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16])),
                     network_details: None,
+                    device_locator: None,
+                    internal_uuid: internal_uuid2,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
@@ -730,63 +869,61 @@ mod tests {
                     )]),
                     host_inband_mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26])),
                     network_details: None,
+                    device_locator: None,
+                    internal_uuid: internal_uuid3,
                 },
             ],
         }
     }
 
-    fn observation_for_config(config_version: ConfigVersion) -> InstanceNetworkStatusObservation {
-        // Note that the interfaces are reordered to make sure we actually can
-        // look up the matching status
-        InstanceNetworkStatusObservation {
-            instance_config_version: None, // Reported by rpc::DpuNetworkStatus not rpc::InstanceNetworkStatusObservation
-            config_version,
-            observed_at: Utc::now(),
-            interfaces: vec![
-                InstanceInterfaceStatusObservation {
-                    function_id: InterfaceFunctionId::Virtual { id: 2 },
-                    mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26]).into()),
-                    addresses: vec!["127.0.0.3".parse().unwrap()],
-                    prefixes: vec!["127.0.0.3/32".parse().unwrap()],
-                    gateways: vec!["127.0.0.1".parse().unwrap()],
-                    network_security_group: Some(NetworkSecurityGroupStatusObservation {
-                        id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
-                        source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
-                            .try_into()
-                            .unwrap(),
-                        version: "V1-T1".parse().unwrap(),
-                    }),
-                },
-                InstanceInterfaceStatusObservation {
-                    function_id: InterfaceFunctionId::Physical {},
-                    mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6]).into()),
-                    addresses: vec!["127.0.0.1".parse().unwrap()],
-                    prefixes: vec!["127.0.0.1/32".parse().unwrap()],
-                    gateways: vec!["127.0.0.1".parse().unwrap()],
-                    network_security_group: Some(NetworkSecurityGroupStatusObservation {
-                        id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
-                        source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
-                            .try_into()
-                            .unwrap(),
-                        version: "V1-T1".parse().unwrap(),
-                    }),
-                },
-                InstanceInterfaceStatusObservation {
-                    function_id: InterfaceFunctionId::Virtual { id: 1 },
-                    mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16]).into()),
-                    addresses: vec!["127.0.0.2".parse().unwrap()],
-                    prefixes: vec!["127.0.0.2/32".parse().unwrap()],
-                    gateways: vec!["127.0.0.1".parse().unwrap()],
-                    network_security_group: Some(NetworkSecurityGroupStatusObservation {
-                        id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
-                        source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
-                            .try_into()
-                            .unwrap(),
-                        version: "V1-T1".parse().unwrap(),
-                    }),
-                },
-            ],
+    const DPU_ID1: &str = "fm100dsvstfujf6mis0gpsoi81tadmllicv7rqo4s7gc16gi0t2478672vg";
+
+    fn observations_for_config(
+        config: &InstanceNetworkConfig,
+        config_version: ConfigVersion,
+    ) -> HashMap<MachineId, InstanceNetworkStatusObservation> {
+        let mut observations = HashMap::default();
+
+        // put the interfaces in a different order so the status are not sequential
+        let interfaces = vec![
+            &config.interfaces[2],
+            &config.interfaces[0],
+            &config.interfaces[1],
+        ];
+        let mut obs = Vec::default();
+
+        for iface in interfaces {
+            let mac_address = iface.host_inband_mac_address.map(|mac| mac.into());
+            let addresses = iface.ip_addrs.values().cloned().collect();
+            let prefixes = iface.interface_prefixes.values().cloned().collect();
+            let gateways = iface.network_segment_gateways.values().cloned().collect();
+
+            obs.push(InstanceInterfaceStatusObservation {
+                function_id: iface.function_id.clone(),
+                mac_address,
+                addresses,
+                prefixes,
+                gateways,
+                network_security_group: Some(NetworkSecurityGroupStatusObservation {
+                    id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
+                    source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
+                        .try_into()
+                        .unwrap(),
+                    version: "V1-T1".parse().unwrap(),
+                }),
+                internal_uuid: Some(iface.internal_uuid),
+            });
         }
+        observations.insert(
+            MachineId::from_str(DPU_ID1).unwrap(),
+            InstanceNetworkStatusObservation {
+                instance_config_version: None, // Reported by rpc::DpuNetworkStatus not rpc::InstanceNetworkStatusObservation
+                config_version,
+                observed_at: Utc::now(),
+                interfaces: obs,
+            },
+        );
+        observations
     }
 
     fn unsynced_status() -> InstanceNetworkStatus {
@@ -798,6 +935,8 @@ mod tests {
                     addresses: Vec::new(),
                     prefixes: Vec::new(),
                     gateways: Vec::new(),
+                    device: None,
+                    device_instance: 0,
                 },
                 InstanceInterfaceStatus {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
@@ -805,6 +944,8 @@ mod tests {
                     addresses: Vec::new(),
                     prefixes: Vec::new(),
                     gateways: Vec::new(),
+                    device: None,
+                    device_instance: 0,
                 },
                 InstanceInterfaceStatus {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
@@ -812,37 +953,67 @@ mod tests {
                     addresses: Vec::new(),
                     prefixes: Vec::new(),
                     gateways: Vec::new(),
+                    device: None,
+                    device_instance: 0,
                 },
             ],
             configs_synced: SyncState::Pending,
         }
     }
 
-    fn expected_status() -> InstanceNetworkStatus {
+    fn expected_status(config: &InstanceNetworkConfig) -> InstanceNetworkStatus {
+        let mut interface_status = Vec::default();
+
+        let mut iface_iter = config.interfaces.iter();
+        let iface = iface_iter.next().unwrap();
+
+        interface_status.push(InstanceInterfaceStatus {
+            function_id: InterfaceFunctionId::Physical {},
+            mac_address: iface.host_inband_mac_address,
+            addresses: iface.ip_addrs.values().cloned().collect(),
+            prefixes: iface.interface_prefixes.values().cloned().collect(),
+            gateways: iface.network_segment_gateways.values().cloned().collect(),
+            device: iface.device_locator.as_ref().map(|dl| dl.device.clone()),
+            device_instance: iface
+                .device_locator
+                .as_ref()
+                .map(|dl| dl.device_instance)
+                .unwrap_or_default(),
+        });
+        let iface = iface_iter.next().unwrap();
+
+        interface_status.push(InstanceInterfaceStatus {
+            function_id: InterfaceFunctionId::Virtual { id: 1 },
+            mac_address: iface.host_inband_mac_address,
+            addresses: iface.ip_addrs.values().cloned().collect(),
+            prefixes: iface.interface_prefixes.values().cloned().collect(),
+            gateways: iface.network_segment_gateways.values().cloned().collect(),
+            device: iface.device_locator.as_ref().map(|dl| dl.device.clone()),
+            device_instance: iface
+                .device_locator
+                .as_ref()
+                .map(|dl| dl.device_instance)
+                .unwrap_or_default(),
+        });
+
+        let iface = iface_iter.next().unwrap();
+
+        interface_status.push(InstanceInterfaceStatus {
+            function_id: InterfaceFunctionId::Virtual { id: 2 },
+            mac_address: iface.host_inband_mac_address,
+            addresses: iface.ip_addrs.values().cloned().collect(),
+            prefixes: iface.interface_prefixes.values().cloned().collect(),
+            gateways: iface.network_segment_gateways.values().cloned().collect(),
+            device: iface.device_locator.as_ref().map(|dl| dl.device.clone()),
+            device_instance: iface
+                .device_locator
+                .as_ref()
+                .map(|dl| dl.device_instance)
+                .unwrap_or_default(),
+        });
+
         InstanceNetworkStatus {
-            interfaces: vec![
-                InstanceInterfaceStatus {
-                    function_id: InterfaceFunctionId::Physical {},
-                    mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6])),
-                    addresses: vec!["127.0.0.1".parse().unwrap()],
-                    prefixes: vec!["127.0.0.1/32".parse().unwrap()],
-                    gateways: vec!["127.0.0.1".parse().unwrap()],
-                },
-                InstanceInterfaceStatus {
-                    function_id: InterfaceFunctionId::Virtual { id: 1 },
-                    mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16])),
-                    addresses: vec!["127.0.0.2".parse().unwrap()],
-                    prefixes: vec!["127.0.0.2/32".parse().unwrap()],
-                    gateways: vec!["127.0.0.1".parse().unwrap()],
-                },
-                InstanceInterfaceStatus {
-                    function_id: InterfaceFunctionId::Virtual { id: 2 },
-                    mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26])),
-                    addresses: vec!["127.0.0.3".parse().unwrap()],
-                    prefixes: vec!["127.0.0.3/32".parse().unwrap()],
-                    gateways: vec!["127.0.0.1".parse().unwrap()],
-                },
-            ],
+            interfaces: interface_status,
             configs_synced: SyncState::Synced,
         }
     }
@@ -856,6 +1027,8 @@ mod tests {
                     addresses: vec!["127.0.1.2".parse().unwrap()],
                     prefixes: vec!["127.0.1.0/24".parse().unwrap()],
                     gateways: vec!["127.0.1.1/24".parse().unwrap()],
+                    device: None,
+                    device_instance: 0,
                 },
                 InstanceInterfaceStatus {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
@@ -863,6 +1036,8 @@ mod tests {
                     addresses: vec!["127.0.2.2".parse().unwrap()],
                     prefixes: vec!["127.0.2.0/24".parse().unwrap()],
                     gateways: vec!["127.0.2.1/24".parse().unwrap()],
+                    device: None,
+                    device_instance: 0,
                 },
                 InstanceInterfaceStatus {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
@@ -870,6 +1045,8 @@ mod tests {
                     addresses: vec!["127.0.3.2".parse().unwrap()],
                     prefixes: vec!["127.0.3.0/24".parse().unwrap()],
                     gateways: vec!["127.0.3.1/24".parse().unwrap()],
+                    device: None,
+                    device_instance: 0,
                 },
             ],
             configs_synced: SyncState::Synced,
@@ -881,9 +1058,10 @@ mod tests {
         let config = network_config();
         let version = ConfigVersion::initial();
 
-        let status = InstanceNetworkStatus::from_config_and_observation(
+        let status = InstanceNetworkStatus::from_config_and_observations(
+            HashMap::default(),
             Versioned::new(&config, version),
-            None,
+            &HashMap::default(),
             false,
         );
         assert_eq!(status, unsynced_status())
@@ -893,25 +1071,27 @@ mod tests {
     fn network_status_with_correct_version_observation() {
         let config = network_config();
         let version = ConfigVersion::initial();
-        let observation = observation_for_config(version);
+        let observations = observations_for_config(&config, version);
 
-        let status = InstanceNetworkStatus::from_config_and_observation(
+        let status = InstanceNetworkStatus::from_config_and_observations(
+            HashMap::default(),
             Versioned::new(&config, version),
-            Some(&observation),
+            &observations,
             false,
         );
-        assert_eq!(status, expected_status())
+        assert_eq!(status, expected_status(&config))
     }
 
     #[test]
     fn network_status_with_update_going_on() {
         let config = network_config();
         let version = ConfigVersion::initial();
-        let observation = observation_for_config(version);
+        let observations = observations_for_config(&config, version);
 
-        let status = InstanceNetworkStatus::from_config_and_observation(
+        let status = InstanceNetworkStatus::from_config_and_observations(
+            HashMap::default(),
             Versioned::new(&config, version),
-            Some(&observation),
+            &observations,
             true,
         );
         assert_eq!(status, unsynced_status())
@@ -921,11 +1101,12 @@ mod tests {
     fn network_status_with_mismatched_version_observation() {
         let config = network_config();
         let version = ConfigVersion::initial();
-        let observation = observation_for_config(version);
+        let observations = observations_for_config(&config, version);
 
-        let status = InstanceNetworkStatus::from_config_and_observation(
+        let status = InstanceNetworkStatus::from_config_and_observations(
+            HashMap::default(),
             Versioned::new(&config, version.increment()),
-            Some(&observation),
+            &observations,
             false,
         );
         assert_eq!(status, unsynced_status())
@@ -935,10 +1116,11 @@ mod tests {
     fn network_status_host_inband_interface_config() {
         let config = host_inband_network_config();
         let version = ConfigVersion::initial();
-        let status = InstanceNetworkStatus::from_config_and_observation(
+        let status = InstanceNetworkStatus::from_config_and_observations(
+            HashMap::default(),
             Versioned::new(&config, version.increment()),
             // No observations
-            None,
+            &HashMap::default(),
             false,
         );
         assert_eq!(status, expected_host_inband_status())

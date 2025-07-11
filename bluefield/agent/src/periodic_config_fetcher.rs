@@ -252,13 +252,14 @@ pub async fn instance_metadata_from_instance(
                 .find(|interface| interface.virtual_function_id.is_none()) // We only want an IP address of a physical function
                 .and_then(|interface| interface.addresses.first().cloned())
         })
-        .ok_or_else(|| eyre::eyre!("No suitable address found"))?;
+        .unwrap_or_default();
+
     let user_data = instance
         .config
         .as_ref()
         .and_then(|config| config.tenant.as_ref())
         .and_then(|tenant_config| tenant_config.user_data.clone())
-        .ok_or_else(|| eyre::eyre!("user data is not present in tenant config"))?;
+        .unwrap_or_default();
 
     let devices = match extract_instance_ib_config(&instance) {
         Ok(value) => Some(value),

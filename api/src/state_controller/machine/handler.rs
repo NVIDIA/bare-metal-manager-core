@@ -38,7 +38,9 @@ use version_compare::Cmp;
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::update_restart_verification_status;
 use crate::model::instance::InstanceNetworkSyncStatus;
-use crate::model::instance::config::network::InstanceInterfaceConfig;
+use crate::model::instance::config::network::{
+    DeviceLocator, InstanceInterfaceConfig, InterfaceFunctionId,
+};
 use crate::model::instance::snapshot::InstanceSnapshot;
 use crate::model::machine::{
     CreateBossVolumeContext, CreateBossVolumeState, NetworkConfigUpdateState,
@@ -4614,19 +4616,23 @@ impl StateHandler for InstanceStateHandler {
 
                     // Check instance network config has been applied
                     match check_instance_network_synced_and_dpu_healthy(instance, mh_snapshot)? {
-                        InstanceNetworkSyncStatus::InstanceNetworkObservationNotAvailable => {
-                            return Ok(wait!(
-                                "Instance has no network observation yet.".to_string()
-                            ));
+                        InstanceNetworkSyncStatus::InstanceNetworkObservationNotAvailable(
+                            missing_dpus,
+                        ) => {
+                            return Ok(wait!(format!(
+                                "Waiting for DPU agents to apply initial network config for DPUs: {}",
+                                missing_dpus.iter().map(|dpu| dpu.to_string()).join(", ")
+                            )));
                         }
                         InstanceNetworkSyncStatus::InstanceNetworkSynced => {}
                         InstanceNetworkSyncStatus::ZeroDpuNoObservationNeeded => {
                             return Ok(transition!(next_state));
                         }
-                        InstanceNetworkSyncStatus::InstanceNetworkNotSynced => {
-                            return Ok(wait!(
-                                "Waiting for DPU agent to apply updated network config".to_string()
-                            ));
+                        InstanceNetworkSyncStatus::InstanceNetworkNotSynced(outdated_dpus) => {
+                            return Ok(wait!(format!(
+                                "Waiting for DPU agent to apply most recent network config for DPUs: {}",
+                                outdated_dpus.iter().map(|dpu| dpu.to_string()).join(", ")
+                            )));
                         }
                     };
 
@@ -5168,15 +5174,21 @@ async fn handle_instance_network_config_update_request(
 
             Ok(
                 match check_instance_network_synced_and_dpu_healthy(instance, mh_snapshot)? {
-                    InstanceNetworkSyncStatus::InstanceNetworkObservationNotAvailable => {
-                        wait!("Instance has no network observation yet.".to_string())
-                    }
+                    InstanceNetworkSyncStatus::InstanceNetworkObservationNotAvailable(
+                        missing_dpus,
+                    ) => wait!(format!(
+                        "Waiting for DPU agents to apply initial network config for DPUs: {}",
+                        missing_dpus.iter().map(|dpu| dpu.to_string()).join(", ")
+                    )),
                     InstanceNetworkSyncStatus::ZeroDpuNoObservationNeeded
                     | InstanceNetworkSyncStatus::InstanceNetworkSynced => {
                         transition!(next_state)
                     }
-                    InstanceNetworkSyncStatus::InstanceNetworkNotSynced => {
-                        wait!("Waiting for DPU agent to apply updated network config".to_string())
+                    InstanceNetworkSyncStatus::InstanceNetworkNotSynced(outdated_dpus) => {
+                        wait!(format!(
+                            "Waiting for DPU agent to apply most recent network config for DPUs: {}",
+                            outdated_dpus.iter().map(|dpu| dpu.to_string()).join(", ")
+                        ))
                     }
                 },
             )
@@ -5248,28 +5260,144 @@ fn check_instance_network_synced_and_dpu_healthy(
     instance: &InstanceSnapshot,
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<InstanceNetworkSyncStatus, StateHandlerError> {
-    // TODO: This function needs changes for multi DPU handling.
-    let expected = &instance.network_config_version;
-    let actual = match &instance.observations.network {
-        None => {
-            if mh_snapshot
-                .host_snapshot
-                .associated_dpu_machine_ids()
-                .is_empty()
-            {
-                tracing::info!(
-                    machine_id = %mh_snapshot.host_snapshot.id,
-                    "Skipping network config because machine has no DPUs"
-                );
-                return Ok(InstanceNetworkSyncStatus::ZeroDpuNoObservationNeeded);
-            }
-            return Ok(InstanceNetworkSyncStatus::InstanceNetworkObservationNotAvailable);
-        }
-        Some(network_status) => &network_status.config_version,
-    };
-    if expected != actual {
-        return Ok(InstanceNetworkSyncStatus::InstanceNetworkNotSynced);
+    if mh_snapshot
+        .host_snapshot
+        .associated_dpu_machine_ids()
+        .is_empty()
+    {
+        tracing::info!(
+            machine_id = %mh_snapshot.host_snapshot.id,
+            "Skipping network config because machine has no DPUs"
+        );
+        return Ok(InstanceNetworkSyncStatus::ZeroDpuNoObservationNeeded);
     }
+
+    let device_locators: Vec<DeviceLocator> = instance
+        .config
+        .network
+        .interfaces
+        .iter()
+        .filter_map(|i| i.device_locator.clone())
+        .collect();
+
+    let maps = mh_snapshot
+        .host_snapshot
+        .get_dpu_device_and_id_mappings()
+        .unwrap_or_else(|_| (HashMap::default(), HashMap::default()));
+
+    let legacy_physical_interface_count = instance
+        .config
+        .network
+        .interfaces
+        .iter()
+        .filter(|iface| {
+            iface.function_id == InterfaceFunctionId::Physical {} && iface.device_locator.is_none()
+        })
+        .count();
+
+    let use_primary_dpu_only = legacy_physical_interface_count > 0
+        || device_locators.is_empty()
+        || maps.0.is_empty()
+        || maps.1.is_empty();
+
+    let dpu_machine_ids: Vec<MachineId> = if use_primary_dpu_only {
+        if legacy_physical_interface_count != 1 {
+            return Err(StateHandlerError::GenericError(eyre!(
+                "More than one interface configured when only the primary dpu is allowed"
+            )));
+        }
+        // allow primary dpu to be used when using one config with no device_locators
+        match mh_snapshot
+            .host_snapshot
+            .interfaces
+            .iter()
+            .find(|iface| iface.primary_interface)
+            .and_then(|iface| iface.attached_dpu_machine_id)
+        {
+            Some(primary_dpu_id) => vec![primary_dpu_id],
+            None => {
+                return Err(StateHandlerError::GenericError(eyre!(
+                    "Could not find primary dpu id"
+                )));
+            }
+        }
+    } else {
+        if maps.0.is_empty() || maps.1.is_empty() {
+            return Err(StateHandlerError::GenericError(eyre!(
+                "No interface device locators for when using multiple interfaces"
+            )));
+        }
+
+        let id_to_device_map = maps.0;
+        let device_to_id_map = maps.1;
+        // filter out dpus that do not have interfaces configured
+        mh_snapshot
+            .host_snapshot
+            .associated_dpu_machine_ids()
+            .iter()
+            .filter(|dpu_machine_id| {
+                if let Some(device) = id_to_device_map.get(dpu_machine_id) {
+                    tracing::info!("Found device {} for dpu {}", device, dpu_machine_id);
+                    if let Some(id_vec) = device_to_id_map.get(device) {
+                        if let Some(device_instance) =
+                            id_vec.iter().position(|id| id == *dpu_machine_id)
+                        {
+                            tracing::info!(
+                                "Found device_instance {} for dpu {}",
+                                device_instance,
+                                dpu_machine_id
+                            );
+                            let device_locator = DeviceLocator {
+                                device: device.clone(),
+                                device_instance,
+                            };
+                            return instance.config.network.interfaces.iter().any(|i| {
+                                i.device_locator
+                                    .as_ref()
+                                    .is_some_and(|dl| dl == &device_locator)
+                            });
+                        }
+                    }
+                }
+                false
+            })
+            .cloned()
+            .collect()
+    };
+
+    if instance.observations.network.len() != dpu_machine_ids.len() {
+        tracing::info!(
+            "obs: {} dpus: {}",
+            instance.observations.network.len(),
+            dpu_machine_ids.len()
+        );
+
+        let mut missing_dpus = Vec::default();
+        for dpu_id in dpu_machine_ids {
+            tracing::info!("checking dpu: {}", dpu_id);
+            if !instance.observations.network.contains_key(&dpu_id) {
+                tracing::info!("missing");
+                missing_dpus.push(dpu_id);
+            }
+        }
+        return Ok(InstanceNetworkSyncStatus::InstanceNetworkObservationNotAvailable(missing_dpus));
+    }
+    // Check instance network config has been applied
+    let expected = &instance.network_config_version;
+
+    let mut outdated_dpus = Vec::default();
+    for (dpu_machine_id, network_obs) in &instance.observations.network {
+        if &network_obs.config_version != expected {
+            outdated_dpus.push(*dpu_machine_id);
+        }
+    }
+
+    if !outdated_dpus.is_empty() {
+        return Ok(InstanceNetworkSyncStatus::InstanceNetworkNotSynced(
+            outdated_dpus,
+        ));
+    }
+
     check_host_health_for_alerts(mh_snapshot)?;
     Ok(InstanceNetworkSyncStatus::InstanceNetworkSynced)
 }

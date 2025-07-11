@@ -715,7 +715,6 @@ async fn test_host_fw_upgrade_enabledisable_global_disabled(
         .await
         .unwrap()
         .unwrap();
-    tracing::info!("result: {:?}", host.host_reprovision_requested);
 
     assert!(host.host_reprovision_requested.is_some());
     txn.commit().await.unwrap();
@@ -1074,7 +1073,7 @@ async fn test_instance_upgrading_actual(
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,
@@ -1132,9 +1131,10 @@ async fn test_instance_upgrading_actual(
         .unwrap();
     txn.commit().await.unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1161,9 +1161,10 @@ async fn test_instance_upgrading_actual(
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1214,9 +1215,10 @@ async fn test_instance_upgrading_actual(
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1263,9 +1265,10 @@ async fn test_instance_upgrading_actual(
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1303,9 +1306,10 @@ async fn test_instance_upgrading_actual(
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1364,9 +1368,10 @@ async fn test_instance_upgrading_actual(
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1404,9 +1409,10 @@ async fn test_instance_upgrading_actual(
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1448,9 +1454,10 @@ async fn test_instance_upgrading_actual(
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1490,9 +1497,10 @@ async fn test_instance_upgrading_actual(
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1557,9 +1565,10 @@ async fn test_instance_upgrading_actual(
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1596,9 +1605,10 @@ async fn test_instance_upgrading_actual(
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1633,9 +1643,10 @@ async fn test_instance_upgrading_actual(
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1661,9 +1672,10 @@ async fn test_instance_upgrading_actual(
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()

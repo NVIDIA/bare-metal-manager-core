@@ -834,7 +834,7 @@ impl NetworkSegment {
                 "Network Segment can't be deleted with associated MachineInterface".to_string(),
             ));
         }
-        let num_instance_addresses = InstanceAddress::count_by_segment_id(txn, *self.id()).await?;
+        let num_instance_addresses = InstanceAddress::count_by_segment_id(txn, self.id()).await?;
         if num_instance_addresses > 0 {
             return CarbideResult::Err(CarbideError::NetworkSegmentDelete(
                 "Network Segment can't be deleted while addresses on the segment are allocated to instances".to_string(),

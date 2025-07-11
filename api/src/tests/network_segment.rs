@@ -12,7 +12,6 @@
 
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -28,6 +27,7 @@ use crate::model::network_segment::{
 };
 use crate::resource_pool::common::VLANID;
 use crate::resource_pool::{DbResourcePool, ResourcePoolStats, ValueType};
+use crate::tests::common::api_fixtures::network_segment::FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS;
 use crate::{db, db_init};
 use common::network_segment::{
     NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, get_segments,
@@ -936,7 +936,7 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         Some(::rpc::common::Uuid {
             value: vpc_id.to_string(),
         }),
-        ipnetwork::IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 5, 1)), 24).unwrap(),
+        FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[1],
         "TENANT",
         true,
     )
@@ -1027,7 +1027,7 @@ async fn test_update_svi_ip_post_instance_allocation(
         .await
         .expect("Unable to create transaction on database pool");
     assert_eq!(
-        db::instance_address::InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+        db::instance_address::InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -1036,7 +1036,7 @@ async fn test_update_svi_ip_post_instance_allocation(
 
     let (_instance_id, _instance) = common::api_fixtures::instance::create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(common::api_fixtures::instance::single_interface_network_config(segment_id)),
         None,

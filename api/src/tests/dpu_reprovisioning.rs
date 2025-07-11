@@ -303,7 +303,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         response.action,
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
-    let _ = network_configured(&env, &dpu_machine_id).await;
+    network_configured(&env, &vec![dpu_machine_id]).await;
 
     env.run_machine_state_controller_iteration().await;
 
@@ -576,7 +576,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     );
     txn.commit().await.unwrap();
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
-    let _ = network_configured(&env, &dpu_machine_id).await;
+    network_configured(&env, &vec![dpu_machine_id]).await;
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -650,7 +650,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let (instance_id, instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,
@@ -715,9 +715,10 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -766,9 +767,10 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -831,9 +833,10 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -894,9 +897,10 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -943,9 +947,10 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -991,9 +996,10 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1024,7 +1030,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         response.action,
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
-    let _ = network_configured(&env, &dpu_machine_id).await;
+    network_configured(&env, &vec![dpu_machine_id]).await;
 
     env.run_machine_state_controller_iteration().await;
 
@@ -1057,9 +1063,10 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         }
     );
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1101,9 +1108,10 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
             }
         }
     );
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1141,9 +1149,10 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         }
     ));
 
+    let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
-            .derive_status(host.state.clone().value, None, None)
+            .derive_status(device_id_maps.1, host.state.clone().value, None, None)
             .unwrap()
             .tenant
             .unwrap()
@@ -1160,7 +1169,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
 
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,
@@ -1441,7 +1450,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         response.action,
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
-    let _ = network_configured(&env, &dpu_machine_id).await;
+    let _ = network_configured(&env, &vec![dpu_machine_id]).await;
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -2184,7 +2193,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     pool: sqlx::PgPool,
 ) {
     let env = create_test_env(pool).await;
-    let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
+    let (host_machine_id, _) = create_managed_host_multi_dpu(&env, 2).await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
@@ -2401,8 +2410,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         response.action,
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
-    let _ = network_configured(&env, &dpu_machine_id_1).await;
-    let _ = network_configured(&env, &dpu_machine_id_2).await;
+    network_configured(&env, &vec![dpu_machine_id_1, dpu_machine_id_2]).await;
 
     env.run_machine_state_controller_iteration().await;
 
@@ -2478,7 +2486,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
 #[crate::sqlx_test]
 async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
+    let (host_machine_id, _) = create_managed_host_multi_dpu(&env, 2).await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
@@ -2681,8 +2689,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         response.action,
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
-    let _ = network_configured(&env, &dpu_machine_id_1).await;
-    let _ = network_configured(&env, &dpu_machine_id_2).await;
+    network_configured(&env, &vec![dpu_machine_id_1, dpu_machine_id_2]).await;
 
     env.run_machine_state_controller_iteration().await;
 
@@ -2763,7 +2770,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
 
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,
@@ -3288,7 +3295,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         response.action,
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
-    let _ = network_configured(&env, &dpu_machine_id).await;
+    network_configured(&env, &vec![dpu_machine_id]).await;
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();

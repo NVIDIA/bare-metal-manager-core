@@ -297,7 +297,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         panic!("ib configuration is incorrect.");
     }
 
-    delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
+    delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
 
     // Address is freed during delete
     let mut txn = env
@@ -316,7 +316,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         ManagedHostState::Ready
     ));
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0

@@ -10,14 +10,20 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::str::FromStr;
 use std::time::SystemTime;
 
 use config_version::ConfigVersion;
+use forge_uuid::instance::InstanceId;
 use rpc::forge::forge_server::Forge;
 use rpc::health::HealthReport;
 use tonic::Code;
+use uuid::Uuid;
 
 use crate::cfg::file::default_max_network_security_group_size;
+use crate::model::instance::config::network::DeviceLocator;
+use crate::tests::common::api_fixtures::dpu::DpuConfig;
+use crate::tests::common::api_fixtures::instance::interface_network_config_with_devices;
 use crate::tests::common::api_fixtures::{
     create_test_env,
     instance::{default_os_config, default_tenant_config, single_interface_network_config},
@@ -34,6 +40,7 @@ async fn update_network_status_observation(
     security_version: &str,
     dpu_machine_id: &str,
     source: rpc::forge::NetworkSecurityGroupSource,
+    internal_uuid: &rpc::Uuid,
 ) {
     let _ = env
         .api
@@ -54,6 +61,7 @@ async fn update_network_status_observation(
                     source: source.into(),
                     version: security_version.to_string(),
                 }),
+                internal_uuid: Some(internal_uuid.clone()),
             }],
             dpu_machine_id: Some(rpc::MachineId {
                 id: dpu_machine_id.to_string(),
@@ -1016,10 +1024,51 @@ async fn test_network_security_group_delete(
 }
 
 #[crate::sqlx_test]
-async fn test_network_security_group_propagation(
+async fn test_network_security_group_propagation_one_dpu(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    test_network_security_group_propagation_impl(pool, 1, 1).await
+}
+
+#[crate::sqlx_test]
+async fn test_network_security_group_propagation_one_of_two_dpus(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    test_network_security_group_propagation_impl(pool, 2, 1).await
+}
+
+#[crate::sqlx_test]
+async fn test_network_security_group_propagation_two_of_two_dpus(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    test_network_security_group_propagation_impl(pool, 2, 2).await
+}
+
+#[crate::sqlx_test]
+async fn test_network_security_group_propagation_one_of_ten_dpus(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    test_network_security_group_propagation_impl(pool, 10, 1).await
+}
+#[crate::sqlx_test]
+async fn test_network_security_group_propagation_five_of_ten_dpus(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    test_network_security_group_propagation_impl(pool, 10, 5).await
+}
+#[crate::sqlx_test]
+async fn test_network_security_group_propagation_ten_of_ten_dpus(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    test_network_security_group_propagation_impl(pool, 10, 10).await
+}
+
+async fn test_network_security_group_propagation_impl(
+    pool: sqlx::PgPool,
+    dpu_count: usize,
+    mut instance_interface_count: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
 
     populate_network_security_groups(env.api.clone()).await;
 
@@ -1092,25 +1141,59 @@ async fn test_network_security_group_propagation(
 
     // Now create some objects with NSGs attached.
 
-    let segment_id = env
-        .create_vpc_and_tenant_segment_with_vpc_details(rpc::forge::VpcCreationRequest {
-            id: Some(rpc::Uuid {
-                value: vpc_id.to_string(),
-            }),
-            name: "Tenant1".to_string(),
-            tenant_organization_id: default_tenant_org.to_string(),
-            tenant_keyset_id: None,
-            network_virtualization_type: None,
-            metadata: None,
-            network_security_group_id: Some(good_network_security_group_id.to_string()),
-        })
+    let segment_ids = env
+        .create_vpc_and_tenant_segments_with_vpc_details(
+            rpc::forge::VpcCreationRequest {
+                id: Some(rpc::Uuid {
+                    value: vpc_id.to_string(),
+                }),
+                name: "Tenant1".to_string(),
+                tenant_organization_id: default_tenant_org.to_string(),
+                tenant_keyset_id: None,
+                network_virtualization_type: None,
+                metadata: None,
+                network_security_group_id: Some(good_network_security_group_id.to_string()),
+            },
+            dpu_count,
+        )
         .await;
 
+    let mut dpus = Vec::with_capacity(dpu_count);
+    for _ in 0..dpu_count {
+        // default handles making the dpu unique
+        dpus.push(DpuConfig::default());
+    }
+    let managed_host_config = ManagedHostConfig {
+        dpus,
+        ..ManagedHostConfig::default()
+    };
+
     // Create a new managed host in the DB and get the snapshot.
-    let mh = site_explorer::new_host(&env, ManagedHostConfig::default())
+    let mh = site_explorer::new_host(&env, managed_host_config)
         .await
         .unwrap();
 
+    let device_maps = mh.host_snapshot.get_dpu_device_and_id_mappings().unwrap();
+    let mut device_locators = Vec::default();
+    for (device, device_count) in device_maps
+        .1
+        .iter()
+        .map(|(device, id_list)| (device, id_list.len()))
+    {
+        for device_instance in 0..device_count {
+            instance_interface_count -= 1;
+            device_locators.push(DeviceLocator {
+                device: device.clone(),
+                device_instance,
+            });
+            if instance_interface_count == 0 {
+                break;
+            }
+        }
+        if instance_interface_count == 0 {
+            break;
+        }
+    }
     // Create an Instance
     let _ = env
         .api
@@ -1121,7 +1204,10 @@ async fn test_network_security_group_propagation(
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
-                network: Some(single_interface_network_config(segment_id)),
+                network: Some(interface_network_config_with_devices(
+                    &segment_ids,
+                    &device_locators,
+                )),
                 infiniband: None,
                 storage: None,
                 network_security_group_id: Some(good_network_security_group_id.to_string()),
@@ -1167,17 +1253,43 @@ async fn test_network_security_group_propagation(
 
     assert_eq!(prop_status, expected_results);
 
-    // Now make a call to report status.
-    update_network_status_observation(
-        &env,
-        instance_id,
-        good_network_security_group_id,
-        &good_network_security_group.version,
-        &mh.dpu_snapshots[0].id.to_string(),
-        rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance,
+    // peek into the db to get the internal id.  note that the state machine has not processed the instance yet
+    // so getting the network via the api will not work.
+    let mut txn = pool.clone().begin().await.unwrap();
+    let instance = crate::db::instance::Instance::find_by_id(
+        &mut txn,
+        InstanceId(Uuid::from_str(instance_id).unwrap()),
     )
-    .await;
+    .await
+    .unwrap()
+    .unwrap();
+    txn.rollback().await.unwrap();
 
+    let internal_interface_ids: Vec<_> = instance
+        .config
+        .network
+        .interfaces
+        .iter()
+        .map(|i| i.internal_uuid.into())
+        .collect();
+
+    // Now make a call to report status.
+    tracing::info!("updating network obs");
+    for (internal_id, dpu_machine_id) in internal_interface_ids
+        .iter()
+        .zip(mh.dpu_snapshots.iter().map(|s| s.id.to_string()))
+    {
+        update_network_status_observation(
+            &env,
+            instance_id,
+            good_network_security_group_id,
+            &good_network_security_group.version,
+            &dpu_machine_id,
+            rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance,
+            internal_id,
+        )
+        .await;
+    }
     // Now that DPU status has been reported,
     // check propagation status again.
     let prop_status = env
@@ -1218,7 +1330,10 @@ async fn test_network_security_group_propagation(
                 config: Some(rpc::InstanceConfig {
                     tenant: Some(default_tenant_config()),
                     os: Some(default_os_config()),
-                    network: Some(single_interface_network_config(segment_id)),
+                    network: Some(interface_network_config_with_devices(
+                        &segment_ids,
+                        &device_locators,
+                    )),
                     infiniband: None,
                     storage: None,
                     network_security_group_id: None,
@@ -1270,15 +1385,21 @@ async fn test_network_security_group_propagation(
 
     // Now send an observation update to make it look like
     // the DPU updated and has the NSG with the VPC source
-    update_network_status_observation(
-        &env,
-        instance_id,
-        good_network_security_group_id,
-        &good_network_security_group.version,
-        &mh.dpu_snapshots[0].id.to_string(),
-        rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
-    )
-    .await;
+    for (internal_id, dpu_machine_id) in internal_interface_ids
+        .iter()
+        .zip(mh.dpu_snapshots.iter().map(|s| s.id.to_string()))
+    {
+        update_network_status_observation(
+            &env,
+            instance_id,
+            good_network_security_group_id,
+            &good_network_security_group.version,
+            &dpu_machine_id,
+            rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
+            internal_id,
+        )
+        .await;
+    }
 
     // Now check status again, and we should see the VPC with full propagation.
     let prop_status = env
@@ -1324,7 +1445,9 @@ async fn test_network_security_group_propagation(
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
-                network: Some(single_interface_network_config(segment_id)),
+                network: Some(single_interface_network_config(
+                    *segment_ids.first().unwrap(),
+                )),
                 infiniband: None,
                 storage: None,
                 network_security_group_id: None,
@@ -1341,6 +1464,26 @@ async fn test_network_security_group_propagation(
         }))
         .await
         .unwrap();
+
+    // peek into the db to get the internal id.  note that the state machine has not processed the instance yet
+    // so getting the network via the api will not work.
+    let mut txn = pool.clone().begin().await.unwrap();
+    let instance = crate::db::instance::Instance::find_by_id(
+        &mut txn,
+        InstanceId(Uuid::from_str(instance_id2).unwrap()),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    txn.rollback().await.unwrap();
+
+    let internal_interface_ids2: Vec<_> = instance
+        .config
+        .network
+        .interfaces
+        .iter()
+        .map(|i| i.internal_uuid.into())
+        .collect();
 
     // Now check status again and we should see the VPC with partial propagation
     let mut prop_status = env
@@ -1378,15 +1521,22 @@ async fn test_network_security_group_propagation(
     // Now send an observation update to make it look like
     // the DPU of the other instance updated and has the NSG
     // with the VPC source.
-    update_network_status_observation(
-        &env,
-        instance_id2,
-        good_network_security_group_id,
-        &good_network_security_group.version,
-        &mh2.dpu_snapshots[0].id.to_string(),
-        rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
-    )
-    .await;
+    for (internal_id, dpu_machine_id) in internal_interface_ids2
+        .iter()
+        .zip(mh2.dpu_snapshots.iter().map(|s| s.id.to_string()))
+    {
+        update_network_status_observation(
+            &env,
+            instance_id2,
+            good_network_security_group_id,
+            &good_network_security_group.version,
+            &dpu_machine_id,
+            rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
+            internal_id,
+        )
+        .await;
+    }
+
     // Now check status again and we should see the VPC with full propagation again.
     let mut prop_status = env
         .api
@@ -1499,15 +1649,22 @@ async fn test_network_security_group_propagation(
     assert_eq!(prop_status, expected_results);
 
     // Now another observation with the new version.
-    update_network_status_observation(
-        &env,
-        instance_id,
-        good_network_security_group_id,
-        &nsg_version,
-        &mh.dpu_snapshots[0].id.to_string(),
-        rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
-    )
-    .await;
+    for (internal_id, dpu_machine_id) in internal_interface_ids
+        .iter()
+        .zip(mh.dpu_snapshots.iter().map(|s| s.id.to_string()))
+    {
+        update_network_status_observation(
+            &env,
+            instance_id,
+            good_network_security_group_id,
+            &nsg_version,
+            &dpu_machine_id,
+            rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
+            internal_id,
+        )
+        .await;
+    }
+
     // Now check status again and we should see the VPC with partial propagation again.
     let mut prop_status = env
         .api
@@ -1539,15 +1696,21 @@ async fn test_network_security_group_propagation(
     assert_eq!(prop_status, expected_results);
 
     // Now send an observation update for the second instance
-    update_network_status_observation(
-        &env,
-        instance_id2,
-        good_network_security_group_id,
-        &nsg_version,
-        &mh2.dpu_snapshots[0].id.to_string(),
-        rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
-    )
-    .await;
+    for (internal_id, dpu_machine_id) in internal_interface_ids2
+        .iter()
+        .zip(mh2.dpu_snapshots.iter().map(|s| s.id.to_string()))
+    {
+        update_network_status_observation(
+            &env,
+            instance_id2,
+            good_network_security_group_id,
+            &nsg_version,
+            &dpu_machine_id,
+            rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
+            internal_id,
+        )
+        .await;
+    }
 
     // Now check status again and we should see the VPC with full propagation.
     let mut prop_status = env

@@ -186,7 +186,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
     let env = create_test_env(db_pool.clone()).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
     // Create a machine
-    let host_id = create_managed_host_multi_dpu(&env, 2).await;
+    let (host_id, _) = create_managed_host_multi_dpu(&env, 2).await;
     let rpc_host_id: rpc::MachineId = host_id.to_string().into();
 
     // enable maintenance mode

@@ -34,7 +34,9 @@ use crate::{
             config::{
                 InstanceConfig,
                 infiniband::InstanceInfinibandConfig,
-                network::{InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails},
+                network::{
+                    DeviceLocator, InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
+                },
                 storage::InstanceStorageConfig,
             },
             status::{
@@ -51,7 +53,9 @@ use crate::{
         network_security_group::NetworkSecurityGroupStatusObservation,
     },
     network_segment::allocate::Ipv4PrefixAllocator,
-    tests::common::api_fixtures::instance::update_instance_network_status_observation,
+    tests::common::api_fixtures::{
+        create_managed_host_multi_dpu, instance::create_instance_with_unused_dpus,
+    },
 };
 use ::rpc::forge::forge_server::Forge;
 use chrono::Utc;
@@ -61,7 +65,9 @@ use common::api_fixtures::{
     instance::{
         advance_created_instance_into_ready_state, create_instance, create_instance_with_hostname,
         create_instance_with_labels, default_os_config, default_tenant_config, delete_instance,
-        single_interface_network_config, single_interface_network_config_with_vpc_prefix,
+        interface_network_config_with_devices, single_interface_network_config,
+        single_interface_network_config_with_vpc_prefix,
+        update_instance_network_status_observation,
     },
     managed_host::ManagedHostConfig,
     network_configured, network_configured_with_health, persist_machine_validation_result,
@@ -89,38 +95,90 @@ use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 #[crate::sqlx_test]
-async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnectOptions) {
+async fn test_allocate_and_release_instance_one_dpu(
+    pool_options: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    test_allocate_and_release_instance_impl(pool_options, options, 1, 1).await
+}
+#[crate::sqlx_test]
+async fn test_allocate_and_release_instance_one_of_two_dpus(
+    pool_options: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    test_allocate_and_release_instance_impl(pool_options, options, 2, 1).await
+}
+#[crate::sqlx_test]
+async fn test_allocate_and_release_instance_two_of_two_dpus(
+    pool_options: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    test_allocate_and_release_instance_impl(pool_options, options, 2, 2).await
+}
+#[crate::sqlx_test]
+async fn test_allocate_and_release_instance_two_of_three_dpus(
+    pool_options: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    test_allocate_and_release_instance_impl(pool_options, options, 3, 2).await
+}
+
+async fn test_allocate_and_release_instance_impl(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+    dpu_count: usize,
+    instance_interface_count: usize,
+) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
-    let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let segment_ids = env.create_vpc_and_tenant_segments(dpu_count).await;
+    let (host_machine_id, dpu_machine_ids) = create_managed_host_multi_dpu(&env, dpu_count).await;
+
+    let (used_dpu_ids, unused_dpu_ids) = dpu_machine_ids.split_at(instance_interface_count);
 
     let mut txn = env
         .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
-            .await
-            .unwrap(),
-        0
-    );
-    assert!(matches!(
+    for segment_id in &segment_ids {
+        assert_eq!(
+            InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+    let host_machine =
         db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
-            .unwrap()
-            .current_state(),
+            .unwrap();
+
+    let mut device_locators = Vec::default();
+    for dpu_machine_id in used_dpu_ids {
+        device_locators.push(
+            host_machine
+                .get_device_locator_for_dpu_id(dpu_machine_id)
+                .unwrap(),
+        );
+    }
+
+    assert!(matches!(
+        host_machine.current_state(),
         ManagedHostState::Ready
     ));
     txn.commit().await.unwrap();
 
-    let (instance_id, _instance) = create_instance(
+    let (instance_id, _instance) = create_instance_with_unused_dpus(
         &env,
-        &dpu_machine_id,
+        used_dpu_ids,
+        unused_dpu_ids,
         &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
+        Some(interface_network_config_with_devices(
+            &segment_ids,
+            &device_locators,
+        )),
         None,
         None,
         vec![],
@@ -180,13 +238,19 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
 
     let fetched_instance = snapshot.instance.unwrap();
     assert_eq!(fetched_instance.machine_id, host_machine_id);
-    assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
-            .await
-            .unwrap(),
-        1
-    );
-
+    for (segment_index, segment_id) in segment_ids.iter().enumerate() {
+        let expected_count = if segment_index < instance_interface_count {
+            1
+        } else {
+            0
+        };
+        assert_eq!(
+            InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+                .await
+                .unwrap(),
+            expected_count
+        );
+    }
     let network_config = fetched_instance.config.network.clone();
     assert_eq!(fetched_instance.network_config_version.version_nr(), 1);
     let mut network_config_no_addresses = network_config.clone();
@@ -196,13 +260,14 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         iface.ip_addrs.clear();
         iface.interface_prefixes.clear();
         iface.network_segment_gateways.clear();
+        iface.internal_uuid = uuid::Uuid::nil();
     }
     assert_eq!(
         network_config_no_addresses,
-        InstanceNetworkConfig::for_segment_id(segment_id)
+        InstanceNetworkConfig::for_segment_ids(&segment_ids, &device_locators,)
     );
 
-    assert!(fetched_instance.observations.network.is_some());
+    assert!(!fetched_instance.observations.network.is_empty());
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
     let _ = Instance::use_custom_ipxe_on_next_boot(&host_machine_id, false, &mut txn).await;
@@ -224,14 +289,11 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         .await
         .expect("Unable to create transaction on database pool");
 
-    let segment = NetworkSegment::find_by_name(&mut txn, "TENANT")
-        .await
-        .unwrap();
     // TODO: The MAC here doesn't matter. It's not used for lookup
     let record = InstanceAddress::find_by_instance_id_and_segment_id(
         &mut txn,
         &fetched_instance.id,
-        segment.id(),
+        segment_ids.first().unwrap(),
     )
     .await
     .unwrap()
@@ -273,7 +335,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     ));
     txn.commit().await.unwrap();
 
-    delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
+    delete_instance(&env, instance_id, &dpu_machine_ids, &host_machine_id).await;
 
     // Address is freed during delete
     let mut txn = env
@@ -290,12 +352,14 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
             .current_state(),
         ManagedHostState::Ready
     ));
-    assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
-            .await
-            .unwrap(),
-        0
-    );
+    for segment_id in &segment_ids {
+        assert_eq!(
+            InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+                .await
+                .unwrap(),
+            0
+        );
+    }
     txn.commit().await.unwrap();
 }
 
@@ -332,26 +396,34 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .expect("Unable to create transaction on database pool");
     //let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
     );
-    assert!(matches!(
+
+    let host_machine =
         db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
-            .unwrap()
-            .current_state(),
+            .unwrap();
+    assert!(matches!(
+        host_machine.current_state(),
         ManagedHostState::Ready
     ));
     txn.commit().await.unwrap();
 
+    let device_locator = host_machine
+        .get_device_locator_for_dpu_id(&dpu_machine_id)
+        .unwrap();
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
+        Some(interface_network_config_with_devices(
+            &[segment_id],
+            &[device_locator.clone()],
+        )),
         None,
         None,
         vec![],
@@ -412,7 +484,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let fetched_instance = snapshot.instance.unwrap();
     assert_eq!(fetched_instance.machine_id, host_machine_id);
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         1
@@ -427,13 +499,14 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         iface.ip_addrs.clear();
         iface.interface_prefixes.clear();
         iface.network_segment_gateways.clear();
+        iface.internal_uuid = uuid::Uuid::nil();
     }
     assert_eq!(
         network_config_no_addresses,
-        InstanceNetworkConfig::for_segment_id(segment_id)
+        InstanceNetworkConfig::for_segment_ids(&[segment_id], &[device_locator],)
     );
 
-    assert!(fetched_instance.observations.network.is_some());
+    assert!(!fetched_instance.observations.network.is_empty());
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
     let _ = Instance::use_custom_ipxe_on_next_boot(&host_machine_id, false, &mut txn).await;
@@ -581,7 +654,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     txn.commit().await.unwrap();
 
     // Apply switching back to admin network
-    network_configured(&env, &dpu_machine_id).await;
+    network_configured(&env, &vec![dpu_machine_id]).await;
 
     // now we should be in waiting for measurument state
     let mut txn = env.pool.begin().await.unwrap();
@@ -797,7 +870,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         ManagedHostState::Ready
     ));
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -1061,11 +1134,15 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
                 network_segment_id: Some((segment_id_1).into()),
                 network_details: None,
+                device: None,
+                device_instance: 0u32,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: Some((segment_id_2).into()),
                 network_details: None,
+                device: None,
+                device_instance: 0u32,
             },
         ],
     });
@@ -1137,7 +1214,7 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
 
     let (_instance_id, _instance) = create_instance_with_config(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         instance_config,
         None,
@@ -1411,7 +1488,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
     // still show up as terminating
     let instance = advance_created_instance_into_ready_state(
         &env,
-        &dpu_machine_id,
+        &vec![dpu_machine_id],
         &host_machine_id,
         instance_id,
     )
@@ -1429,7 +1506,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
     );
 
     // Now go through regular deletion
-    delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
+    delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
 }
 
 #[crate::sqlx_test]
@@ -1441,7 +1518,7 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
 
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,
@@ -1477,7 +1554,7 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
     }
 
     // And finally delete the instance
-    delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
+    delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
 
     // Release instance on non-existing instance should lead to a Not Found error
     let err = env
@@ -1593,7 +1670,7 @@ async fn test_instance_cloud_init_metadata(
 
     let (instance_id, instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,
@@ -1615,7 +1692,7 @@ async fn test_instance_cloud_init_metadata(
     assert_eq!(metadata.instance_id, instance_id.to_string());
 
     txn.commit().await.unwrap();
-    delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
+    delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
 
     Ok(())
 }
@@ -1632,7 +1709,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     // anything new anymmore.
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,
@@ -1693,6 +1770,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
                     .unwrap(),
                 version: "V1-T1".parse().unwrap(),
             }),
+            internal_uuid: None,
         }],
         observed_at: Utc::now(),
     };
@@ -1712,7 +1790,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     let snapshot = snapshot.instance.unwrap();
 
     assert_eq!(
-        snapshot.observations.network.as_ref(),
+        snapshot.observations.network.values().next(),
         Some(&updated_network_status)
     );
     txn.commit().await.unwrap();
@@ -1744,6 +1822,8 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             addresses: vec![pf_addr.to_string()],
             prefixes: vec![pf_instance_prefix.to_string()],
             gateways: vec![pf_gw.clone()],
+            device: None,
+            device_instance: 0u32,
         }]
     );
 
@@ -1765,7 +1845,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     let snapshot = snapshot.instance.unwrap();
 
     assert_eq!(
-        snapshot.observations.network.as_ref(),
+        snapshot.observations.network.values().next(),
         Some(&updated_network_status)
     );
     txn.commit().await.unwrap();
@@ -1797,6 +1877,8 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             addresses: vec![pf_addr.to_string()],
             prefixes: vec![pf_instance_prefix.to_string()],
             gateways: vec![pf_gw.clone()],
+            device: None,
+            device_instance: 0u32,
         }]
     );
 
@@ -1823,7 +1905,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     let snapshot = snapshot.instance.unwrap();
 
     assert_eq!(
-        snapshot.observations.network.as_ref(),
+        snapshot.observations.network.values().next(),
         Some(&updated_network_status)
     );
     txn.commit().await.unwrap();
@@ -1856,6 +1938,8 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             addresses: vec![],
             prefixes: vec![],
             gateways: vec![],
+            device: None,
+            device_instance: 0u32,
         }]
     );
 
@@ -1878,6 +1962,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
                     .unwrap(),
                 version: "V1-T1".parse().unwrap(),
             }),
+            internal_uuid: None,
         });
 
     update_instance_network_status_observation(&dpu_machine_id, &updated_network_status, &mut txn)
@@ -1893,7 +1978,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
 
     let snapshot = snapshot.instance.unwrap();
     assert_eq!(
-        snapshot.observations.network.as_ref(),
+        snapshot.observations.network.values().next(),
         Some(&updated_network_status)
     );
     txn.commit().await.unwrap();
@@ -1925,6 +2010,8 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             addresses: vec![pf_addr.to_string()],
             prefixes: vec![pf_instance_prefix.to_string()],
             gateways: vec![pf_gw.clone()],
+            device: None,
+            device_instance: 0u32,
         }]
     );
 
@@ -1964,10 +2051,12 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             // prefixes and gateways should have been turned into empty arrays.
             prefixes: vec![],
             gateways: vec![],
+            device: None,
+            device_instance: 0u32,
         }]
     );
 
-    delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
+    delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
 }
 
 #[crate::sqlx_test]
@@ -1977,15 +2066,15 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id = dpu::create_dpu_machine(&env, &host_sim.config).await;
-
+    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
     let request = InstanceAllocationRequest {
         instance_id: InstanceId::from(uuid::Uuid::new_v4()),
-        machine_id: try_parse_machine_id(&dpu_machine_id).unwrap(),
+        machine_id: dpu_machine_id,
         instance_type_id: None,
         config: InstanceConfig {
             os: default_os_config().try_into().unwrap(),
             tenant: default_tenant_config().try_into().unwrap(),
-            network: InstanceNetworkConfig::for_segment_id(segment_id),
+            network: InstanceNetworkConfig::for_segment_ids(&[segment_id], &Vec::default()),
             infiniband: InstanceInfinibandConfig::default(),
             storage: InstanceStorageConfig::default(),
             network_security_group_id: None,
@@ -2024,13 +2113,13 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         .expect("Unable to create transaction on database pool");
 
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id_1)
+        InstanceAddress::count_by_segment_id(&mut txn, &segment_id_1)
             .await
             .unwrap(),
         0
     );
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id_2)
+        InstanceAddress::count_by_segment_id(&mut txn, &segment_id_2)
             .await
             .unwrap(),
         0
@@ -2043,18 +2132,22 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
                 network_segment_id: Some((segment_id_1).into()),
                 network_details: None,
+                device: None,
+                device_instance: 0u32,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: Some((segment_id_2).into()),
                 network_details: None,
+                device: None,
+                device_instance: 0u32,
             },
         ],
     });
 
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         network,
         None,
@@ -2070,13 +2163,13 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         .expect("Unable to create transaction on database pool");
 
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id_1)
+        InstanceAddress::count_by_segment_id(&mut txn, &segment_id_1)
             .await
             .unwrap(),
         1
     );
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id_2)
+        InstanceAddress::count_by_segment_id(&mut txn, &segment_id_2)
             .await
             .unwrap(),
         1
@@ -2105,8 +2198,8 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     let used_prefixes = allocated_ip_resolver.used_prefixes(&mut txn).await.unwrap();
     assert_eq!(1, used_ips.len());
     assert_eq!(1, used_prefixes.len());
-    assert_eq!("192.0.5.3", used_ips[0].to_string());
-    assert_eq!("192.0.5.3/32", used_prefixes[0].to_string());
+    assert_eq!("192.1.4.3", used_ips[0].to_string());
+    assert_eq!("192.1.4.3/32", used_prefixes[0].to_string());
 
     // And make sure find_by_prefix works -- just leverage
     // the last used_prefixes prefix and make sure it matches
@@ -2136,11 +2229,11 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     assert!(!network_config.use_admin_network);
     assert_eq!(network_config.tenant_interfaces.len(), 2);
     assert_eq!(network_config.tenant_interfaces[0].ip, "192.0.4.3");
-    assert_eq!(network_config.tenant_interfaces[1].ip, "192.0.5.3");
+    assert_eq!(network_config.tenant_interfaces[1].ip, "192.1.4.3");
     assert_eq!(network_config.dpu_network_pinger_type, None);
     // Ensure the VPC prefixes (which in this case are the two network segment
     // IDs referenced above) are both associated with both interfaces.
-    let expected_vpc_prefixes = vec!["192.0.4.0/24".to_string(), "192.0.5.0/24".to_string()];
+    let expected_vpc_prefixes = vec!["192.0.4.0/24".to_string(), "192.1.4.0/24".to_string()];
     assert_eq!(
         network_config.tenant_interfaces[0].vpc_prefixes,
         expected_vpc_prefixes
@@ -2241,7 +2334,7 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
 
     let (instance_id, _instance) = create_instance_with_config(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         instance_config,
         None,
@@ -2287,7 +2380,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
 
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,
@@ -2355,7 +2448,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
 
     common::api_fixtures::instance::handle_delete_post_bootingwithdiscoveryimage(
         &env,
-        &dpu_machine_id,
+        &vec![dpu_machine_id],
         &host_machine_id,
     )
     .await;
@@ -2515,7 +2608,12 @@ async fn test_allocate_instance_with_old_network_segemnt(
         labels: vec![],
     };
 
-    let mut nw_config = single_interface_network_config(segment_id);
+    let device_locator = DeviceLocator {
+        device: "DPU1".to_string(),
+        device_instance: 0,
+    };
+    let mut nw_config =
+        interface_network_config_with_devices(&[segment_id], &[device_locator.clone()]);
     for interface in &mut nw_config.interfaces {
         interface.network_details = None;
     }
@@ -2576,11 +2674,12 @@ async fn test_allocate_instance_with_old_network_segemnt(
         iface.ip_addrs.clear();
         iface.interface_prefixes.clear();
         iface.network_segment_gateways.clear();
+        iface.internal_uuid = uuid::Uuid::nil();
     }
 
     assert_eq!(
         network_config_no_addresses,
-        InstanceNetworkConfig::for_segment_id(segment_id)
+        InstanceNetworkConfig::for_segment_ids(&[segment_id], &[device_locator],)
     );
 }
 
@@ -2607,6 +2706,8 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
                     vpc_prefix_id.into(),
                 ),
             ),
+            device: None,
+            device_instance: 0u32,
         }],
     };
 
@@ -2696,7 +2797,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .await
         .expect("Unable to create transaction on database pool");
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -2739,7 +2840,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config_with_vpc_prefix(rpc::Uuid {
             value: vpc_prefix_id.to_string(),
@@ -2822,7 +2923,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     assert_eq!(
         InstanceAddress::count_by_segment_id(
             &mut txn,
-            fetched_instance.config.network.interfaces[0]
+            &fetched_instance.config.network.interfaces[0]
                 .network_segment_id
                 .unwrap()
         )
@@ -2857,13 +2958,14 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         iface.interface_prefixes.clear();
         iface.network_segment_gateways.clear();
         iface.network_segment_id = None;
+        iface.internal_uuid = uuid::Uuid::nil();
     }
     assert_eq!(
         network_config_no_addresses,
-        InstanceNetworkConfig::for_vpc_prefix_id(vpc_prefix_id.into())
+        InstanceNetworkConfig::for_vpc_prefix_id(vpc_prefix_id.into(), Some(dpu_machine_id))
     );
 
-    assert!(fetched_instance.observations.network.is_some());
+    assert!(!fetched_instance.observations.network.is_empty());
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
     let _ = Instance::use_custom_ipxe_on_next_boot(&host_machine_id, false, &mut txn).await;
@@ -2947,7 +3049,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     ));
     txn.commit().await.unwrap();
 
-    delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
+    delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
 
     let segment_ids = fetched_instance
         .config
@@ -2988,7 +3090,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     assert_eq!(
         InstanceAddress::count_by_segment_id(
             &mut txn,
-            fetched_instance.config.network.interfaces[0]
+            &fetched_instance.config.network.interfaces[0]
                 .network_segment_id
                 .unwrap()
         )
@@ -3591,6 +3693,8 @@ async fn test_network_details_migration(
                         function_type: rpc::InterfaceFunctionType::Physical as i32,
                         network_segment_id: Some(segment_id.into()),
                         network_details: None,
+                        device: None,
+                        device_instance: 0,
                     }],
                 }),
                 infiniband: None,
@@ -3676,6 +3780,8 @@ async fn test_network_details_migration(
                                 segment_id.into(),
                             ),
                         ),
+                        device: None,
+                        device_instance: 0,
                     }],
                 }),
                 infiniband: None,
@@ -3708,7 +3814,7 @@ async fn test_network_details_migration(
     );
 
     // Create an instance with vpc-prefix
-    let ip_prefix = "192.0.5.0/24";
+    let ip_prefix = "192.1.4.0/24";
     let vpc_id = get_vpc_fixture_id(&env).await;
     let vpc_prefix = env
         .api
@@ -3742,6 +3848,8 @@ async fn test_network_details_migration(
                                 vpc_prefix_id.clone(),
                             ),
                         ),
+                        device: None,
+                        device_instance: 0,
                     }],
                 }),
                 infiniband: None,
@@ -3851,7 +3959,7 @@ async fn test_allocate_and_update_network_config_instance(
         .expect("Unable to create transaction on database pool");
 
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -3868,7 +3976,7 @@ async fn test_allocate_and_update_network_config_instance(
 
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,
@@ -3914,6 +4022,8 @@ async fn test_allocate_and_update_network_config_instance(
                     segment_id2.into(),
                 ),
             ),
+            device: None,
+            device_instance: 0,
         }],
     };
 
@@ -4005,7 +4115,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
         .expect("Unable to create transaction on database pool");
 
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -4022,7 +4132,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
 
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,
@@ -4097,6 +4207,8 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                         segment_id.into(),
                     ),
                 ),
+                device: None,
+                device_instance: 0,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -4106,6 +4218,8 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                         segment_id2.into(),
                     ),
                 ),
+                device: None,
+                device_instance: 0,
             },
         ],
     };
@@ -4217,7 +4331,7 @@ async fn test_allocate_and_update_network_config_instance_delete_vf(
         .expect("Unable to create transaction on database pool");
 
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -4242,6 +4356,8 @@ async fn test_allocate_and_update_network_config_instance_delete_vf(
                         segment_id.into(),
                     ),
                 ),
+                device: None,
+                device_instance: 0,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -4251,13 +4367,15 @@ async fn test_allocate_and_update_network_config_instance_delete_vf(
                         segment_id2.into(),
                     ),
                 ),
+                device: None,
+                device_instance: 0,
             },
         ],
     };
 
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(network_config),
         None,
@@ -4329,6 +4447,8 @@ async fn test_allocate_and_update_network_config_instance_delete_vf(
             network_details: Some(
                 rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id.into()),
             ),
+            device: None,
+            device_instance: 0,
         }],
     };
 
@@ -4434,7 +4554,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
         .expect("Unable to create transaction on database pool");
 
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, segment_id)
+        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -4451,7 +4571,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
 
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,
@@ -4497,6 +4617,8 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
                     segment_id2.into(),
                 ),
             ),
+            device: None,
+            device_instance: 0,
         }],
     };
 
@@ -4554,7 +4676,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
     txn.rollback().await.unwrap();
 
     // - forge-dpu-agent gets an instance network to configure, reports it configured
-    network_configured(&env, &dpu_machine_id).await;
+    network_configured(&env, &vec![dpu_machine_id]).await;
     // Move to ReleaseOldResources state.
     env.run_machine_state_controller_iteration().await;
     let mut txn = env
@@ -4615,7 +4737,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
             },
         )),
     };
-    let ip_prefix = "192.0.5.0/25";
+    let ip_prefix = "192.1.4.0/25";
     let vpc_id = common::api_fixtures::get_vpc_fixture_id(&env).await;
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
@@ -4639,6 +4761,8 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                 .id
                 .clone()
                 .map(::rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+            device: None,
+            device_instance: 0,
         }],
     };
 
@@ -4659,7 +4783,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
 
     let (instance_id, _instance) = create_instance_with_config(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         initial_config.clone(),
         Some(initial_metadata.clone()),
@@ -4696,6 +4820,8 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                     .id
                     .clone()
                     .map(::rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                device: None,
+                device_instance: 0,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -4704,6 +4830,8 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                     .id
                     .clone()
                     .map(::rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                device: None,
+                device_instance: 0,
             },
         ],
     };
@@ -4793,7 +4921,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     txn.rollback().await.unwrap();
 
     // - forge-dpu-agent gets an instance network to configure, reports it configured
-    network_configured(&env, &dpu_machine_id).await;
+    network_configured(&env, &vec![dpu_machine_id]).await;
     // Move to ReleaseOldResources state.
     env.run_machine_state_controller_iteration().await;
     let mut txn = env
@@ -4831,4 +4959,134 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         }
     ));
     txn.rollback().await.unwrap();
+}
+
+#[crate::sqlx_test]
+async fn test_allocate_network_multi_dpu_vpc_prefix_id(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc = Vpc::find_by_name(&mut env.pool.begin().await.unwrap(), "test vpc 1")
+        .await
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+
+    let vpc_prefix_id = create_tenant_overlay_prefix(&env, vpc.id).await;
+
+    let network_config = rpc::InstanceNetworkConfig {
+        interfaces: vec![
+            rpc::InstanceInterfaceConfig {
+                function_type: 0,
+                network_segment_id: None,
+                network_details: Some(
+                    rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(
+                        vpc_prefix_id.into(),
+                    ),
+                ),
+                device: Some("BlueField SoC".to_string()),
+                device_instance: 0,
+            },
+            rpc::InstanceInterfaceConfig {
+                function_type: 0,
+                network_segment_id: None,
+                network_details: Some(
+                    rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(
+                        vpc_prefix_id.into(),
+                    ),
+                ),
+                device: Some("BlueField SoC".to_string()),
+                device_instance: 1,
+            },
+        ],
+    };
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(rpc::TenantConfig {
+            tenant_organization_id: "abc".to_string(),
+            user_data: None,
+            custom_ipxe: "exit".to_string(),
+            always_boot_with_custom_ipxe: false,
+            phone_home_enabled: false,
+            hostname: Some("xyz".to_string()),
+            tenant_keyset_ids: vec![],
+        }),
+        os: Some(OperatingSystem {
+            phone_home_enabled: false,
+            run_provisioning_instructions_on_every_boot: false,
+            user_data: Some("".to_string()),
+            variant: Some(rpc::forge::operating_system::Variant::OsImageId(
+                rpc::Uuid {
+                    value: uuid::Uuid::new_v4().to_string(),
+                },
+            )),
+        }),
+        network: Some(network_config),
+        infiniband: None,
+        storage: None,
+        network_security_group_id: None,
+    };
+
+    let mut config: InstanceConfig = config.try_into().unwrap();
+
+    assert!(
+        config
+            .network
+            .interfaces
+            .iter()
+            .all(|i| i.network_segment_id.is_none())
+    );
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    allocate_network(&mut config.network, &mut txn)
+        .await
+        .unwrap();
+
+    txn.commit().await.unwrap();
+    assert!(
+        config
+            .network
+            .interfaces
+            .iter()
+            .all(|i| i.network_segment_id.is_some())
+    );
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let expected_ips = [
+        Ipv4Addr::from_str("10.217.5.224").unwrap(),
+        Ipv4Addr::from_str("10.217.5.226").unwrap(),
+    ];
+    let mut expected_ips_iter = expected_ips.iter();
+
+    for iface in config.network.interfaces {
+        let network_segment = NetworkSegment::find_by(
+            &mut txn,
+            ObjectColumnFilter::One(IdColumn, &iface.network_segment_id.unwrap()),
+            NetworkSegmentSearchConfig::default(),
+        )
+        .await
+        .unwrap();
+
+        let np = network_segment[0].prefixes[0].prefix;
+        match np {
+            IpNetwork::V4(ipv4_network) => {
+                assert_eq!(expected_ips_iter.next().unwrap(), &ipv4_network.network())
+            }
+            IpNetwork::V6(_) => panic!("Can not be ipv6."),
+        }
+    }
 }

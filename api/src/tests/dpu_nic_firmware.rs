@@ -67,7 +67,7 @@ async fn test_start_updates_with_multidpu(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
+    let (host_machine_id, _) = create_managed_host_multi_dpu(&env, 2).await;
 
     let rpc_host_id: rpc::MachineId = host_machine_id.to_string().into();
     let host = env

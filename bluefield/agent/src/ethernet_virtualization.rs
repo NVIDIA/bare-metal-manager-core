@@ -643,27 +643,18 @@ async fn get_interface_state(hbn_device_names: &HBNDeviceNames) -> eyre::Result<
     InterfaceState::from_str(&output)
 }
 
-fn needed_interface_state(
-    is_primary_dpu: bool,
-    use_admin_network: bool,
-    multidpu_enabled: bool,
-) -> InterfaceState {
+fn needed_interface_state(is_primary_dpu: bool, use_admin_network: bool) -> InterfaceState {
     // Interface is always UP on primary DPU.
     if is_primary_dpu {
         return InterfaceState::Up;
     }
 
-    // In case feature is not enabled, always disable the interface.
-    if !multidpu_enabled {
-        return InterfaceState::Down;
-    }
-
-    // If secondary DPU, feature is enabled and on tenant network, enable the interface.
+    // If secondary DPU and on tenant network, enable the interface.
     if !use_admin_network {
         return InterfaceState::Up;
     }
 
-    // If secondary DPU, feature is enabled and on admin network, disable the interface.
+    // If secondary DPU and on admin network, disable the interface.
     InterfaceState::Down
 }
 
@@ -677,8 +668,7 @@ pub async fn update_interface_state(
         return Ok(current_state.clone());
     }
 
-    let needed_state =
-        needed_interface_state(nc.is_primary_dpu, nc.use_admin_network, nc.multidpu_enabled);
+    let needed_state = needed_interface_state(nc.is_primary_dpu, nc.use_admin_network);
 
     InterfaceState::update_state(&needed_state, hbn_device_names, current_state).await
 }
@@ -752,6 +742,7 @@ pub async fn interfaces(
             prefixes: vec![iface.interface_prefix.clone()],
             gateways: vec![iface.gateway.clone()],
             network_security_group: None,
+            internal_uuid: iface.internal_uuid.clone(),
         });
     } else {
         // Only load virtual interface details if there are any
@@ -815,6 +806,7 @@ pub async fn interfaces(
                 prefixes: vec![iface.interface_prefix.clone()],
                 gateways: vec![iface.gateway.clone()],
                 network_security_group,
+                internal_uuid: iface.internal_uuid.clone(),
             });
         }
     }
@@ -1908,6 +1900,7 @@ mod tests {
             tenant_vrf_loopback_ip: Some("10.217.5.124".to_string()),
             is_l2_segment: true,
             network_security_group: None,
+            internal_uuid: None,
         };
         assert_eq!(admin_interface.svi_ip, None);
 
@@ -1957,6 +1950,7 @@ mod tests {
                 tenant_vrf_loopback_ip: Some("10.217.5.124".to_string()),
                 is_l2_segment: true,
                 network_security_group: None,
+                internal_uuid: None,
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -2099,6 +2093,7 @@ mod tests {
                     }],
                 })
                 },
+                internal_uuid: None,
             },
         ];
 
@@ -2162,7 +2157,6 @@ mod tests {
             host_interface_id: Some("60cef902-9779-4666-8362-c9bb4b37185f".to_string()),
             is_primary_dpu: true,
             min_dpu_functioning_links: None,
-            multidpu_enabled: false,
             internet_l3_vni: Some(1337),
             stateful_acls_enabled: true,
             instance: None,
@@ -2417,6 +2411,7 @@ mod tests {
             tenant_vrf_loopback_ip: Some("10.213.2.1".to_string()),
             is_l2_segment: true,
             network_security_group: None,
+            internal_uuid: None,
         };
         assert_eq!(admin_interface.svi_ip, None);
 
@@ -2446,6 +2441,7 @@ mod tests {
                 tenant_vrf_loopback_ip: Some("10.213.2.1".to_string()),
                 is_l2_segment: true,
                 network_security_group: None,
+                internal_uuid: None,
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -2468,6 +2464,7 @@ mod tests {
                 tenant_vrf_loopback_ip: Some("10.213.2.1".to_string()),
                 is_l2_segment: true,
                 network_security_group: None,
+                internal_uuid: None,
             },
         ];
 
@@ -2534,7 +2531,6 @@ mod tests {
             host_interface_id: Some("60cef902-9779-4666-8362-c9bb4b37185f".to_string()),
             min_dpu_functioning_links: None,
             is_primary_dpu: true,
-            multidpu_enabled: false,
             internet_l3_vni: Some(1337),
             stateful_acls_enabled: true,
             instance: None,
@@ -2654,49 +2650,19 @@ mod tests {
 
     #[test]
     fn test_cmd_return_val() {
-        // Primary dpu admin network multidpu enabled
-        assert_eq!(needed_interface_state(true, true, true), InterfaceState::Up);
+        // Primary dpu admin network
+        assert_eq!(needed_interface_state(true, true), InterfaceState::Up);
 
-        // Primary dpu tenant network multidpu enabled
-        assert_eq!(
-            needed_interface_state(true, false, true),
-            InterfaceState::Up
-        );
+        // Primary dpu tenant network
+        assert_eq!(needed_interface_state(true, false), InterfaceState::Up);
 
-        // Primary dpu admin network multidpu disabled
-        assert_eq!(
-            needed_interface_state(true, true, false),
-            InterfaceState::Up
-        );
+        // Primary dpu admin network
+        assert_eq!(needed_interface_state(true, true), InterfaceState::Up);
 
-        // Primary dpu tenant network multidpu disabled
-        assert_eq!(
-            needed_interface_state(true, false, false),
-            InterfaceState::Up
-        );
+        // Secondary dpu admin network
+        assert_eq!(needed_interface_state(false, true), InterfaceState::Down);
 
-        // Secondary dpu admin network multidpu enabled
-        assert_eq!(
-            needed_interface_state(false, true, true),
-            InterfaceState::Down
-        );
-
-        // Secondary dpu tenant network multidpu enabled
-        assert_eq!(
-            needed_interface_state(false, false, true),
-            InterfaceState::Up
-        );
-
-        // Secondary dpu admin network multidpu disabled
-        assert_eq!(
-            needed_interface_state(false, true, false),
-            InterfaceState::Down
-        );
-
-        // Secondary dpu tenant network multidpu disabled
-        assert_eq!(
-            needed_interface_state(false, false, false),
-            InterfaceState::Down
-        );
+        // Secondary dpu tenant network
+        assert_eq!(needed_interface_state(false, false), InterfaceState::Up);
     }
 }

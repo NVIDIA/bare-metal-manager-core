@@ -472,7 +472,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     let _ = advance_created_instance_into_ready_state(
         &env,
-        &dpu_machine_id,
+        &vec![dpu_machine_id],
         &tmp_machine_id,
         instance_id,
     )
@@ -490,7 +490,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .unwrap_err();
 
     // Now delete the instance and try all that again.
-    delete_instance(&env, instance_id, &dpu_machine_id, &tmp_machine_id).await;
+    delete_instance(&env, instance_id, &vec![dpu_machine_id], &tmp_machine_id).await;
 
     // Try to delete the instance type again.  This should pass
     // because there's no instance associated with the machine associated
@@ -673,7 +673,7 @@ async fn test_instance_type_associate(
 
     let instance = advance_created_instance_into_ready_state(
         &env,
-        &dpu_machine_id,
+        &vec![dpu_machine_id],
         &tmp_machine_id,
         instance_id,
     )
@@ -708,7 +708,7 @@ async fn test_instance_type_associate(
         .unwrap_err();
 
     // Now delete the instance and try all that again.
-    delete_instance(&env, instance_id, &dpu_machine_id, &tmp_machine_id).await;
+    delete_instance(&env, instance_id, &vec![dpu_machine_id], &tmp_machine_id).await;
 
     // Try to associate the machine with an instance type again.
     // All we care about is that this passes.

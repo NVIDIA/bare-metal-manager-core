@@ -38,13 +38,18 @@ lazy_static! {
 }
 
 lazy_static! {
-    pub static ref FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY: IpNetwork =
-        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 4, 1)), 24).unwrap();
-}
-
-lazy_static! {
-    pub static ref FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2: IpNetwork =
-        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 5, 1)), 24).unwrap();
+    pub static ref FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS: [IpNetwork; 10] = [
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 4, 1)), 24).unwrap(),
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 1, 4, 1)), 24).unwrap(),
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 2, 4, 1)), 24).unwrap(),
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 3, 4, 1)), 24).unwrap(),
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 4, 4, 1)), 24).unwrap(),
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 5, 4, 1)), 24).unwrap(),
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 6, 4, 1)), 24).unwrap(),
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 7, 4, 1)), 24).unwrap(),
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 8, 4, 1)), 24).unwrap(),
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 9, 4, 1)), 24).unwrap(),
+    ];
 }
 
 lazy_static! {
@@ -133,8 +138,8 @@ pub async fn create_tenant_network_segment(
     create_network_segment(
         api,
         name,
-        &prefix,  // 192.0.4.0/24
-        &gateway, // 192.0.4.1
+        &prefix,
+        &gateway,
         rpc::forge::NetworkSegmentType::Tenant,
         vpc_id,
         include_subdomain,

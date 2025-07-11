@@ -280,11 +280,13 @@ async fn create_vpc_peering(
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some((segment_id).into()),
             network_details: None,
+            device: None,
+            device_instance: 0,
         }],
     });
     let (_instance_id, _instance) = instance::create_instance(
         env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         instance_network,
         None,
