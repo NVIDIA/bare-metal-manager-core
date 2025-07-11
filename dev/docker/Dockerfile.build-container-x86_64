@@ -41,6 +41,7 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt update && \
 	curl \
 	fdisk dosfstools \
 	gcc-aarch64-linux-gnu \
+	ipmitool \
 	iproute2 \
 	iputils-ping \
 	jq \
@@ -57,6 +58,7 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt update && \
 	libaio-dev \
 	libtss2-dev \
 	lld \
+	openipmi \
 	pkg-config \
 	protobuf-compiler-grpc \
 	postgresql-15 \

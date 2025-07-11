@@ -18,6 +18,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 mod backend;
+mod backend_pool;
 mod frontend;
 mod server;
 

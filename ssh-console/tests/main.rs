@@ -16,7 +16,7 @@ use temp_dir::TempDir;
 
 mod util;
 
-use crate::util::{BaselineTestAssertion, run_baseline_test_environment};
+use crate::util::{BaselineTestAssertion, MockBmcType, run_baseline_test_environment};
 use api_test_helper::utils::REPO_ROOT;
 use util::legacy;
 use util::new_ssh_console;
@@ -33,7 +33,7 @@ lazy_static! {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_legacy() -> eyre::Result<()> {
+async fn test_legacy_ssh() -> eyre::Result<()> {
     if !std::env::var("RUN_SSH_CONSOLE_LEGACY_TESTS").is_ok_and(|s| s == "1") {
         tracing::info!(
             "Skipping running legacy integration tests, as RUN_SSH_CONSOLE_LEGACY_TESTS is not set"
@@ -43,7 +43,40 @@ async fn test_legacy() -> eyre::Result<()> {
 
     legacy::setup().await?;
     // Only run one test machine, as legacy ssh-console cannot use different SSH ports for each BMC
-    let Some(env) = run_baseline_test_environment(1).await? else {
+    let Some(env) = run_baseline_test_environment(vec![MockBmcType::Ssh]).await? else {
+        return Ok(());
+    };
+
+    // Run legacy ssh-console
+    let temp = TempDir::new()?;
+    let handle = legacy::run(&env, &temp).await?;
+
+    // Give it some time to start
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    env.run_baseline_assertions(
+        handle.addr,
+        "legacy ssh-console",
+        &[
+            BaselineTestAssertion::ConnectAsInstanceId,
+            // BaselineTestAssertion::ConnectAsMachineId, // Not supported by legacy ssh-console today
+        ],
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_legacy_ipmi() -> eyre::Result<()> {
+    if !std::env::var("RUN_SSH_CONSOLE_LEGACY_TESTS").is_ok_and(|s| s == "1") {
+        tracing::info!(
+            "Skipping running legacy integration tests, as RUN_SSH_CONSOLE_LEGACY_TESTS is not set"
+        );
+        return Ok(());
+    }
+
+    legacy::setup().await?;
+    // Only run one test machine, as legacy ssh-console cannot use different SSH ports for each BMC
+    let Some(env) = run_baseline_test_environment(vec![MockBmcType::Ipmi]).await? else {
         return Ok(());
     };
 
@@ -71,7 +104,9 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
         tracing::info!("Skipping running ssh-console integration tests, as REPO_ROOT is not set");
         return Ok(());
     }
-    let Some(env) = run_baseline_test_environment(2).await? else {
+    let Some(env) =
+        run_baseline_test_environment(vec![MockBmcType::Ipmi, MockBmcType::Ssh]).await?
+    else {
         return Ok(());
     };
 

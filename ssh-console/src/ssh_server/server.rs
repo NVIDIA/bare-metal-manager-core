@@ -11,6 +11,7 @@
  */
 
 use crate::config::Config;
+use crate::ssh_server::backend_pool::BackendPool;
 use forge_tls::client_config::ClientCert;
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
@@ -25,12 +26,14 @@ pub fn new(config: Arc<Config>) -> Server {
     Server {
         forge_api_client: config.make_forge_api_client(),
         config,
+        backend_pool: Arc::new(BackendPool::default()),
     }
 }
 
 pub struct Server {
     config: Arc<Config>,
     forge_api_client: ForgeApiClient,
+    backend_pool: Arc<BackendPool>,
 }
 
 impl Server {
@@ -93,7 +96,11 @@ impl russh::server::Server for Server {
     type Handler = super::frontend::Handler;
 
     fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self::Handler {
-        Self::Handler::new(self.config.clone(), self.forge_api_client.clone())
+        Self::Handler::new(
+            self.backend_pool.clone(),
+            self.config.clone(),
+            self.forge_api_client.clone(),
+        )
     }
 }
 

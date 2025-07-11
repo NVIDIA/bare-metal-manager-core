@@ -11,15 +11,16 @@
  */
 
 use crate::config::Config;
-use crate::ssh_server::backend;
+use crate::proxy_channel_message;
 use crate::ssh_server::backend::BackendHandle;
+use crate::ssh_server::backend_pool::BackendPool;
 use eyre::Context;
 use rpc::forge::ValidateTenantPublicKeyRequest;
 use rpc::forge_api_client::ForgeApiClient;
 use russh::keys::ssh_key::AuthorizedKeys;
 use russh::keys::{Certificate, PublicKey, PublicKeyBase64};
 use russh::server::{Auth, Msg, Session};
-use russh::{Channel, ChannelId, MethodKind, MethodSet, Pty, Sig};
+use russh::{Channel, ChannelId, ChannelMsg, MethodKind, MethodSet, Pty, Sig};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -32,15 +33,21 @@ pub struct Handler {
     pub config: Arc<Config>,
     pub forge_api_client: ForgeApiClient,
 
+    backend_pool: Arc<BackendPool>,
     authenticated_user: RwLock<Option<Arc<String>>>,
-    backends: RwLock<HashMap<ChannelId, BackendHandle>>,
+    backends: RwLock<HashMap<ChannelId, Arc<BackendHandle>>>,
 }
 
 impl Handler {
-    pub fn new(config: Arc<Config>, forge_api_client: ForgeApiClient) -> Self {
+    pub fn new(
+        backend_pool: Arc<BackendPool>,
+        config: Arc<Config>,
+        forge_api_client: ForgeApiClient,
+    ) -> Self {
         Self {
             config,
             forge_api_client,
+            backend_pool,
             authenticated_user: Default::default(),
             backends: Default::default(),
         }
@@ -63,14 +70,26 @@ impl russh::server::Handler for Handler {
 
         // spawn the backend connection
         let channel_id = channel.id();
-        let backend = backend::spawn(
-            &user,
-            channel,
-            self.config.clone(),
-            self.forge_api_client.clone(),
-        )
-        .await
-        .with_context(|| format!("backend connection error for user {user}"))?;
+        let backend = self
+            .backend_pool
+            .ensure_connected(&user, &self.config, &self.forge_api_client)
+            .await
+            .with_context(|| format!("backend connection error for user {user}"))?;
+
+        let mut to_frontend_rx = backend.subscribe();
+
+        tokio::spawn(async move {
+            while let Ok(msg) = to_frontend_rx.recv().await {
+                match proxy_channel_message(msg.as_ref(), &channel).await {
+                    Ok(()) => {}
+                    Err(e) => {
+                        tracing::error!("error sending message to frontend: {e:?}");
+                        break;
+                    }
+                }
+            }
+            Ok::<(), eyre::Error>(())
+        });
 
         // Save the backend writer in self.backends so the Handler methods can find it
         self.backends.write().await.insert(channel_id, backend);
@@ -195,18 +214,13 @@ impl russh::server::Handler for Handler {
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
         if let Some(backend) = self.backends.write().await.get_mut(&channel) {
-            let (data, new_pending_escape_byte) = backend
-                .bmc_vendor
-                .filter_escape_sequences(data, backend.pending_escape_byte);
-            if data.len() > 0 {
-                backend
-                    .channel_writer
-                    .data(data.as_ref())
-                    .await
-                    .context("error writing data to channel")?;
-            };
-
-            backend.pending_escape_byte = new_pending_escape_byte;
+            backend
+                .to_backend_msg_tx
+                .send(ChannelMsg::Data {
+                    data: data.to_vec().into(),
+                })
+                .await
+                .context("error writing data to channel")?;
         }
         Ok(())
     }
@@ -221,18 +235,14 @@ impl russh::server::Handler for Handler {
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
         if let Some(backend) = self.backends.write().await.get_mut(&channel) {
-            let (data, new_pending_escape_byte) = backend
-                .bmc_vendor
-                .filter_escape_sequences(data, backend.pending_escape_byte);
-            if data.len() > 0 {
-                backend
-                    .channel_writer
-                    .extended_data(code, data.as_ref())
-                    .await
-                    .context("error writing extended_data to channel")?;
-            };
-
-            backend.pending_escape_byte = new_pending_escape_byte;
+            backend
+                .to_backend_msg_tx
+                .send(ChannelMsg::ExtendedData {
+                    data: data.to_vec().into(),
+                    ext: code,
+                })
+                .await
+                .context("error writing extended_data to channel")?;
         }
         Ok(())
     }
@@ -244,7 +254,7 @@ impl russh::server::Handler for Handler {
     ) -> Result<(), Self::Error> {
         if let Some(backend) = self.backends.read().await.get(&channel) {
             // Ignore errors here
-            backend.channel_writer.close().await.ok();
+            backend.to_backend_msg_tx.send(ChannelMsg::Close).await.ok();
         }
         Ok(())
     }
@@ -256,8 +266,8 @@ impl russh::server::Handler for Handler {
     ) -> Result<(), Self::Error> {
         if let Some(backend) = self.backends.read().await.get(&channel) {
             backend
-                .channel_writer
-                .eof()
+                .to_backend_msg_tx
+                .send(ChannelMsg::Eof)
                 .await
                 .context("error sending eof to backend")?;
         }
@@ -277,10 +287,16 @@ impl russh::server::Handler for Handler {
     ) -> Result<(), Self::Error> {
         if let Some(backend) = self.backends.read().await.get(&channel) {
             backend
-                .channel_writer
-                .request_pty(
-                    false, term, col_width, row_height, pix_width, pix_height, modes,
-                )
+                .to_backend_msg_tx
+                .send(ChannelMsg::RequestPty {
+                    want_reply: false,
+                    term: term.to_string(),
+                    col_width,
+                    row_height,
+                    pix_width,
+                    pix_height,
+                    terminal_modes: modes.to_vec(),
+                })
                 .await
                 .context("error sending pty request to backend")?;
         }
@@ -294,8 +310,8 @@ impl russh::server::Handler for Handler {
     ) -> Result<(), Self::Error> {
         if let Some(backend) = self.backends.read().await.get(&channel) {
             backend
-                .channel_writer
-                .request_shell(false)
+                .to_backend_msg_tx
+                .send(ChannelMsg::RequestShell { want_reply: false })
                 .await
                 .context("error sending shell request to backend")?;
         }
@@ -313,8 +329,13 @@ impl russh::server::Handler for Handler {
     ) -> Result<(), Self::Error> {
         if let Some(backend) = self.backends.read().await.get(&channel) {
             backend
-                .channel_writer
-                .window_change(col_width, row_height, pix_width, pix_height)
+                .to_backend_msg_tx
+                .send(ChannelMsg::WindowChange {
+                    col_width,
+                    row_height,
+                    pix_width,
+                    pix_height,
+                })
                 .await
                 .context("error sending window change request to backend")?;
         }
@@ -329,8 +350,8 @@ impl russh::server::Handler for Handler {
     ) -> Result<(), Self::Error> {
         if let Some(backend) = self.backends.read().await.get(&channel) {
             backend
-                .channel_writer
-                .signal(signal)
+                .to_backend_msg_tx
+                .send(ChannelMsg::Signal { signal })
                 .await
                 .context("error sending signal to backend")?;
         }
