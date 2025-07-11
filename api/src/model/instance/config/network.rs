@@ -707,7 +707,8 @@ pub struct InstanceInterfaceConfig {
 
     /// The DPU device this interface corresponds to.  The device/instance pair will be mapped to a specific DPU
     pub device_locator: Option<DeviceLocator>,
-    // TODO: Security group
+
+    /// An internal ID used to associate an interface status with the interface config
     pub internal_uuid: uuid::Uuid,
 }
 

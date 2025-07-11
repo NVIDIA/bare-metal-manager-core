@@ -12,8 +12,7 @@ fuzz_target!(|data: &[u8]| {
             .contains(&SINGLE_SEQUENCE)
     );
 
-    for result in vec![
-        // Pair, no pending
+    for result in [
         EscapeSequence::Pair(PAIR_SEQUENCE).filter_escape_sequences(data, false),
         // Pair, with pending byte from last chunk
         EscapeSequence::Pair(PAIR_SEQUENCE).filter_escape_sequences(data, true),
