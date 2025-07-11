@@ -536,6 +536,8 @@ pub struct InstanceInterfaceStatusObservation {
     /// actually been applied to the interface.
     pub network_security_group: Option<NetworkSecurityGroupStatusObservation>,
 
+    /// An ID used to associated the interface status with the interface config.
+    #[serde(default)]
     pub internal_uuid: Option<uuid::Uuid>,
 }
 
