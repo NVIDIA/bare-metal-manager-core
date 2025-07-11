@@ -93,6 +93,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
             description: "tests/maintenance".to_string(),
             labels: Vec::new(),
         }),
+        allow_unhealthy_machine: false,
     };
     match env.api.allocate_instance(tonic::Request::new(req)).await {
         Ok(_) => {
@@ -175,6 +176,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
             description: "tests/maintenance".to_string(),
             labels: Vec::new(),
         }),
+        allow_unhealthy_machine: false,
     };
     env.api.allocate_instance(tonic::Request::new(req)).await?;
 
@@ -220,6 +222,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
             description: "tests/maintenance".to_string(),
             labels: Vec::new(),
         }),
+        allow_unhealthy_machine: false,
     };
     match env.api.allocate_instance(tonic::Request::new(req)).await {
         Ok(_) => {
@@ -291,6 +294,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
             description: "tests/maintenance".to_string(),
             labels: Vec::new(),
         }),
+        allow_unhealthy_machine: false,
     };
     env.api.allocate_instance(tonic::Request::new(req)).await?;
 

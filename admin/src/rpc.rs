@@ -1328,6 +1328,7 @@ impl ApiClient {
                 description: "instance created from admin-cli".to_string(),
                 labels,
             }),
+            allow_unhealthy_machine: false,
         };
 
         self.0

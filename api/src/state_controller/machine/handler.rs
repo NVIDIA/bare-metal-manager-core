@@ -375,7 +375,7 @@ impl MachineStateHandler {
             }
         }
 
-        ctx.metrics.is_usable_as_instance = state.is_usable_as_instance().is_ok();
+        ctx.metrics.is_usable_as_instance = state.is_usable_as_instance(false).is_ok();
         ctx.metrics.num_gpus = state
             .host_snapshot
             .hardware_info

@@ -1333,6 +1333,9 @@ message InstanceAllocationRequest {
 
   reserved 11; // Was ssh_keys - replaced by tenantKeysetId in InstanceConfig.TenantConfig instead.
   Metadata metadata = 12;
+
+  // Allow allocation on unhealthy machines
+  bool allow_unhealthy_machine = 13;
 }
 
 // Tenant related configuration that is set once the instance is allocated

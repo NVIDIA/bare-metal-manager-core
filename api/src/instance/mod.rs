@@ -66,6 +66,9 @@ pub struct InstanceAllocationRequest {
     pub config: InstanceConfig,
 
     pub metadata: Metadata,
+
+    /// Allow allocation on unhealthy machines
+    pub allow_unhealthy_machine: bool,
 }
 
 impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
@@ -104,12 +107,15 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
             None => Metadata::default(),
         };
 
+        let allow_unhealthy_machine = request.allow_unhealthy_machine;
+
         Ok(InstanceAllocationRequest {
             instance_id,
             instance_type_id,
             machine_id,
             config,
             metadata,
+            allow_unhealthy_machine,
         })
     }
 }
@@ -411,7 +417,7 @@ pub async fn allocate_instance(
         id: machine_id.to_string(),
     })?;
 
-    if let Err(e) = mh_snapshot.is_usable_as_instance() {
+    if let Err(e) = mh_snapshot.is_usable_as_instance(request.allow_unhealthy_machine) {
         tracing::error!(%machine_id, "Host can not be used as instance due to reason: {}", e);
         return Err(match e {
             NotAllocatableReason::InvalidState(s) => CarbideError::InvalidArgument(format!(

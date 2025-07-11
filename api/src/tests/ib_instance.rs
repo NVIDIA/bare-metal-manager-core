@@ -695,6 +695,7 @@ pub async fn try_allocate_instance(
                 description: "tests/ib_instance".to_string(),
                 labels: Vec::new(),
             }),
+            allow_unhealthy_machine: false,
         }))
         .await?;
 

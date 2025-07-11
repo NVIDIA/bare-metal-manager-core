@@ -916,6 +916,7 @@ async fn test_network_security_group_delete(
                 description: "desc".to_string(),
                 labels: vec![],
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .unwrap()
@@ -1221,6 +1222,7 @@ async fn test_network_security_group_propagation_impl(
                 description: "desc".to_string(),
                 labels: vec![],
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .unwrap();
@@ -1461,6 +1463,7 @@ async fn test_network_security_group_propagation_impl(
                 description: "desc2".to_string(),
                 labels: vec![],
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .unwrap();
@@ -1831,6 +1834,7 @@ async fn test_network_security_group_get_attachments(
                 description: "desc".to_string(),
                 labels: vec![],
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .unwrap();

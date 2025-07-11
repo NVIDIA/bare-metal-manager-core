@@ -1029,6 +1029,7 @@ async fn test_allocate_instance_with_invalid_metadata(_: PgPoolOptions, options:
                 instance_type_id: None,
                 config: Some(config),
                 metadata: Some(invalid_metadata.clone()),
+                allow_unhealthy_machine: false,
             }))
             .await;
 
@@ -1389,6 +1390,7 @@ async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConn
                 description: "tests/instance".to_string(),
                 labels: Vec::new(),
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .expect("Create instance failed.")
@@ -1438,6 +1440,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
                 description: "tests/instance".to_string(),
                 labels: Vec::new(),
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .expect("Create instance failed.")
@@ -1608,6 +1611,7 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
                 description: "tests/instance".to_string(),
                 labels: Vec::new(),
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .expect("Create instance failed.")
@@ -1628,6 +1632,7 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
                 description: "tests/instance".to_string(),
                 labels: Vec::new(),
             }),
+            allow_unhealthy_machine: false,
         }))
         .await;
 
@@ -2084,6 +2089,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
             description: "tests/instance".to_string(),
             labels: HashMap::new(),
         },
+        allow_unhealthy_machine: false,
     };
 
     // Note: This also requests a background task in the DB for creating managed
@@ -2299,6 +2305,7 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
                 description: "tests/instance".to_string(),
                 labels: Vec::new(),
             }),
+            allow_unhealthy_machine: false,
         }))
         .await;
     let Err(err) = result else {
@@ -2312,6 +2319,80 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
         "Host is not available for allocation due to health probe alert"
     );
     Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_create_instance_with_allow_unhealthy_machine_true(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    // Report an unhealthy DPU
+    network_configured_with_health(
+        &env,
+        &dpu_machine_id,
+        Some(rpc::health::HealthReport {
+            source: "forge-dpu-agent".to_string(),
+            observed_at: None,
+            successes: vec![],
+            alerts: vec![rpc::health::HealthProbeAlert {
+                id: "everything".to_string(),
+                target: None,
+                in_alert_since: None,
+                message: "test_cannot_create_instance_on_unhealthy_dpu".to_string(),
+                tenant_message: None,
+                classifications: vec![
+                    health_report::HealthAlertClassification::prevent_allocations().to_string(),
+                    health_report::HealthAlertClassification::prevent_host_state_changes()
+                        .to_string(),
+                ],
+            }],
+        }),
+    )
+    .await;
+
+    let instance_id = uuid::Uuid::new_v4();
+    let rpc_instance_id: rpc::Uuid = instance_id.into();
+
+    let instance = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: Some(rpc_instance_id.clone()),
+            machine_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            instance_type_id: None,
+            config: Some(rpc::InstanceConfig {
+                os: Some(default_os_config()),
+                tenant: Some(default_tenant_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                storage: None,
+                network_security_group_id: None,
+            }),
+            metadata: Some(rpc::Metadata {
+                name: "test_instance".to_string(),
+                description: "tests/instance".to_string(),
+                labels: Vec::new(),
+            }),
+            allow_unhealthy_machine: true,
+        }))
+        .await
+        .expect("Create instance failed.")
+        .into_inner();
+
+    assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
+
+    let instance = env
+        .find_instances(Some(rpc_instance_id.clone()))
+        .await
+        .instances
+        .remove(0);
+    assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
 }
 
 #[crate::sqlx_test]
@@ -2513,6 +2594,7 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
                 description: "tests/instance".to_string(),
                 labels: Vec::new(),
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .expect_err("Duplicate TenantKeyset IDs should not be accepted");
@@ -2574,6 +2656,7 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
                 description: "tests/instance".to_string(),
                 labels: Vec::new(),
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .expect_err("More than 10 TenantKeyset IDs should not be accepted");
@@ -3391,6 +3474,7 @@ async fn test_allocate_with_instance_type_id(
                 description: "desc".to_string(),
                 labels: vec![],
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .unwrap_err();
@@ -3418,6 +3502,7 @@ async fn test_allocate_with_instance_type_id(
                 description: "desc".to_string(),
                 labels: vec![],
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .unwrap()
@@ -3464,6 +3549,7 @@ async fn test_allocate_with_instance_type_id(
                 description: "desc".to_string(),
                 labels: vec![],
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .unwrap()
@@ -3520,6 +3606,7 @@ async fn test_allocate_and_update_with_network_security_group(
                 description: "desc".to_string(),
                 labels: vec![],
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .unwrap_err();
@@ -3547,6 +3634,7 @@ async fn test_allocate_and_update_with_network_security_group(
                 description: "desc".to_string(),
                 labels: vec![],
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .unwrap()
@@ -3708,6 +3796,7 @@ async fn test_network_details_migration(
                 description: "desc".to_string(),
                 labels: vec![],
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .unwrap()
@@ -3795,6 +3884,7 @@ async fn test_network_details_migration(
                 description: "desc".to_string(),
                 labels: vec![],
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .unwrap()
@@ -3863,6 +3953,7 @@ async fn test_network_details_migration(
                 description: "desc".to_string(),
                 labels: vec![],
             }),
+            allow_unhealthy_machine: false,
         }))
         .await
         .unwrap()
