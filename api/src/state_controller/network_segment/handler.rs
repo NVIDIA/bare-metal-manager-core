@@ -132,9 +132,9 @@ impl StateHandler for NetworkSegmentStateHandler {
                         // If ones are still allocated, we can not delete and have to
                         // update the `delete_at` timestamp.
                         let num_machine_interfaces =
-                            db::machine_interface::count_by_segment_id(txn, &state.id).await?;
+                            db::machine_interface::count_by_segment_id(txn, state.id()).await?;
                         let num_instance_addresses =
-                            InstanceAddress::count_by_segment_id(txn, state.id).await?;
+                            InstanceAddress::count_by_segment_id(txn, state.id()).await?;
                         if num_machine_interfaces + num_instance_addresses > 0 {
                             let delete_at = chrono::Utc::now()
                                 .checked_add_signed(self.drain_period)

@@ -381,6 +381,7 @@ async fn test_machine_a_tron_multidpu(
                         .as_str(),
                 )
                 .await?;
+
                 let serde_json::Value::Object(interface) =
                     &instance_json["instances"][0]["status"]["network"]["interfaces"][0]
                 else {

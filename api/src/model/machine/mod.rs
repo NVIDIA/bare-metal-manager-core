@@ -17,7 +17,9 @@ use super::{
     StateSla, bmc_info::BmcInfo, controller_outcome::PersistentStateHandlerOutcome,
     hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot, metadata::Metadata,
 };
+use crate::CarbideResult;
 use crate::db::power_manager::PowerOptions;
+use crate::model::instance::config::network::DeviceLocator;
 use crate::{
     CarbideError,
     cfg::file::{FirmwareComponentType, HardwareHealthReportsConfig},
@@ -57,6 +59,8 @@ use health_report::HealthReport;
 use rpc::forge::HealthOverrideOrigin;
 use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use strum_macros::EnumIter;
+
+type DpuDeviceMappings = (HashMap<MachineId, String>, HashMap<String, Vec<MachineId>>);
 
 pub fn get_display_ids(machines: &[Machine]) -> String {
     machines
@@ -111,10 +115,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
         // Instance network observation is fetched from dpu_snapshots.
         if let Some(instance) = &mut instance {
             instance.observations.network =
-                InstanceNetworkStatusObservation::aggregate_instance_observation(
-                    &dpu_snapshots,
-                    &host_snapshot,
-                );
+                InstanceNetworkStatusObservation::aggregate_instance_observation(&dpu_snapshots);
         }
 
         // TODO: consider dropping this field from ManagedHostStateSnapshot
@@ -414,14 +415,23 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
 
         // TODO: If multiple DPUs have reprovisioning requested, we might not get
         // the expected response
-        let mut reprovision_request = snapshot.host_snapshot.reprovision_requested;
+        let mut reprovision_request = snapshot.host_snapshot.reprovision_requested.clone();
         for dpu in &snapshot.dpu_snapshots {
             if let Some(reprovision_requested) = dpu.reprovision_requested.as_ref() {
                 reprovision_request = Some(reprovision_requested.clone());
             }
         }
-
+        let (_, dpu_id_to_device_map) = snapshot
+            .host_snapshot
+            .get_dpu_device_and_id_mappings()
+            .map_err(|e| {
+                RpcDataConversionError::InvalidValue(
+                    "dpu_id_to_device_map".to_string(),
+                    e.to_string(),
+                )
+            })?;
         let status = instance.derive_status(
+            dpu_id_to_device_map,
             snapshot.managed_state.clone(),
             reprovision_request,
             snapshot
@@ -753,6 +763,67 @@ impl Machine {
                 self.interfaces.clone(),
             )
         })
+    }
+
+    pub fn get_device_locator_for_dpu_id(
+        &self,
+        dpu_machine_id: &MachineId,
+    ) -> CarbideResult<DeviceLocator> {
+        let (id_to_device_map, device_to_id_map) = self.get_dpu_device_and_id_mappings()?;
+
+        if let Some(device) = id_to_device_map.get(dpu_machine_id) {
+            if let Some(id_vec) = device_to_id_map.get(device) {
+                if let Some(instance) = id_vec.iter().position(|id| id == dpu_machine_id) {
+                    return Ok(DeviceLocator {
+                        device: device.clone(),
+                        device_instance: instance,
+                    });
+                }
+            }
+        }
+        Err(CarbideError::DpuMappingError(format!(
+            "No device instance found for dpu {} in machine {}",
+            dpu_machine_id, self.id
+        )))
+    }
+
+    pub fn get_dpu_device_and_id_mappings(&self) -> CarbideResult<DpuDeviceMappings> {
+        if self.is_dpu() {
+            return Err(CarbideError::DpuMappingError(
+                "get_device_instance_and_dpu_id_mapping called on dpu".to_string(),
+            ));
+        }
+
+        let hardware_info = self
+            .hardware_info
+            .as_ref()
+            .ok_or(CarbideError::DpuMappingError(format!(
+                "Missing hardware information for machine {}",
+                self.id
+            )))?;
+
+        let mut id_to_device_map: HashMap<MachineId, String> = HashMap::default();
+        let mut device_to_id_map: HashMap<String, Vec<MachineId>> = HashMap::default();
+        // in order to ensure that the primary dpu is assigned a network config, it is configured first.
+        // hardware_interfaces has the primary dpu as the first interface, self.interfaces may not.
+        // iterate over hardware_interfaces and match it to self.interfaces using the mac address
+        for hardware_iface in &hardware_info.network_interfaces {
+            if let Some(pci) = &hardware_iface.pci_properties {
+                if let Some(iface) = self
+                    .interfaces
+                    .iter()
+                    .find(|i| i.mac_address == hardware_iface.mac_address)
+                {
+                    if let Some(dpu_machine_id) = iface.attached_dpu_machine_id {
+                        id_to_device_map.insert(dpu_machine_id, pci.device.clone());
+                        let id_vec = device_to_id_map.entry(pci.device.clone()).or_default();
+                        id_vec.push(dpu_machine_id);
+                    }
+                }
+            }
+        }
+
+        Ok((id_to_device_map, device_to_id_map))
     }
 }
 

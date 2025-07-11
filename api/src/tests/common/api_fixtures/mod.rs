@@ -17,9 +17,9 @@ use crate::logging::log_limiter::LogLimiter;
 use crate::model::machine::MachineValidatingState;
 use crate::model::machine::ValidationState;
 use crate::tests::common::api_fixtures::network_segment::{
-    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
-    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2, FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
-    create_admin_network_segment, create_tenant_network_segment, create_underlay_network_segment,
+    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS,
+    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
+    create_tenant_network_segment, create_underlay_network_segment,
 };
 use crate::tests::common::{
     api_fixtures::{
@@ -35,8 +35,8 @@ use crate::{
         CarbideConfig, DpuConfig as InitialDpuConfig, Firmware, FirmwareComponent,
         FirmwareComponentType, FirmwareEntry, FirmwareGlobal, HostHealthConfig, IBFabricConfig,
         IbFabricDefinition, IbPartitionStateControllerConfig, MachineStateControllerConfig,
-        MeasuredBootMetricsCollectorConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
-        SpxConfig, StateControllerConfig, default_max_find_by_ids,
+        MeasuredBootMetricsCollectorConfig, NetworkSegmentStateControllerConfig, SpxConfig,
+        StateControllerConfig, default_max_find_by_ids,
     },
     db::{
         instance_type::create as create_instance_type,
@@ -151,13 +151,53 @@ lazy_static! {
         )
         .unwrap(),
         IpNetwork::new(
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY.network(),
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY.prefix(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[0].network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[0].prefix(),
         )
         .unwrap(),
         IpNetwork::new(
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2.network(),
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2.prefix(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[1].network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[1].prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[2].network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[2].prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[3].network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[3].prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[4].network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[4].prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[5].network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[5].prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[6].network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[6].prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[7].network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[7].prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[8].network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[8].prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[9].network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[9].prefix(),
         )
         .unwrap(),
     ];
@@ -476,7 +516,7 @@ impl TestEnv {
         let tenant_network_id = create_tenant_network_segment(
             &self.api,
             vpc.id,
-            *FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[0],
             "TENANT",
             true,
         )
@@ -487,6 +527,38 @@ impl TestEnv {
         self.run_network_segment_controller_iteration().await;
 
         tenant_network_id
+    }
+
+    pub async fn create_vpc_and_tenant_segments_with_vpc_details(
+        &self,
+        vpc_details: rpc::forge::VpcCreationRequest,
+        segment_count: usize,
+    ) -> Vec<NetworkSegmentId> {
+        let vpc = self
+            .api
+            .create_vpc(tonic::Request::new(vpc_details))
+            .await
+            .unwrap()
+            .into_inner();
+
+        let mut segment_ids = Vec::default();
+        for segment_index in 0..segment_count {
+            segment_ids.push(
+                create_tenant_network_segment(
+                    &self.api,
+                    vpc.id.clone(),
+                    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[segment_index],
+                    "TENANT",
+                    true,
+                )
+                .await,
+            );
+
+            // Get the tenant segment into ready state
+            self.run_network_segment_controller_iteration().await;
+            self.run_network_segment_controller_iteration().await;
+        }
+        segment_ids
     }
 
     pub async fn create_vpc_and_peer_vpc_with_tenant_segments(
@@ -521,7 +593,7 @@ impl TestEnv {
         let tenant_network_id = create_tenant_network_segment(
             &self.api,
             vpc.id.clone(),
-            *FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[0],
             "TENANT1",
             true,
         )
@@ -551,7 +623,7 @@ impl TestEnv {
         let peer_tenant_network_id = create_tenant_network_segment(
             &self.api,
             peer_vpc.id.clone(),
-            *FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2,
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[1],
             "TENANT2",
             true,
         )
@@ -584,6 +656,25 @@ impl TestEnv {
         .await
     }
 
+    pub async fn create_vpc_and_tenant_segments(
+        &self,
+        segment_count: usize,
+    ) -> Vec<NetworkSegmentId> {
+        self.create_vpc_and_tenant_segments_with_vpc_details(
+            rpc::forge::VpcCreationRequest {
+                id: None,
+                network_security_group_id: None,
+                name: "test vpc 1".to_string(),
+                tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                tenant_keyset_id: None,
+                network_virtualization_type: None,
+                metadata: None,
+            },
+            segment_count,
+        )
+        .await
+    }
+
     pub async fn create_vpc_and_dual_tenant_segment(&self) -> (NetworkSegmentId, NetworkSegmentId) {
         let vpc = self
             .api
@@ -603,7 +694,7 @@ impl TestEnv {
         let tenant_network_id_1 = create_tenant_network_segment(
             &self.api,
             vpc.id.clone(),
-            *FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY,
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[0],
             "TENANT",
             true,
         )
@@ -614,7 +705,7 @@ impl TestEnv {
         let tenant_network_id_2 = create_tenant_network_segment(
             &self.api,
             vpc.id,
-            *FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAY_2,
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[1],
             "TENANT2",
             false,
         )
@@ -807,7 +898,6 @@ pub fn get_config() -> CarbideConfig {
         max_find_by_ids: default_max_find_by_ids(),
         network_security_group: NetworkSecurityGroupConfig::default(),
         min_dpu_functioning_links: None,
-        multi_dpu: MultiDpuConfig::default(),
         dpu_network_monitor_pinger_type: None,
         host_health: HostHealthConfig::default(),
         internet_l3_vni: 1337,
@@ -1453,9 +1543,10 @@ pub async fn discovery_completed(env: &TestEnv, machine_id: rpc::common::Machine
 }
 
 /// Fake an iteration of forge-dpu-agent requesting network config, applying it, and reporting back
-/// Returns tuple of latest (machine_config_version, instance_network_config_version)
-pub async fn network_configured(env: &TestEnv, dpu_machine_id: &MachineId) {
-    network_configured_with_health(env, dpu_machine_id, None).await
+pub async fn network_configured(env: &TestEnv, dpu_machine_ids: &Vec<MachineId>) {
+    for dpu_machine_id in dpu_machine_ids {
+        network_configured_with_health(env, dpu_machine_id, None).await
+    }
 }
 
 /// Fake an iteration of forge-dpu-agent requesting network config, applying it, and reporting back.
@@ -1518,6 +1609,7 @@ pub async fn network_configured_with_health(
             prefixes: vec![iface.interface_prefix.clone()],
             gateways: vec![iface.gateway.clone()],
             network_security_group: None,
+            internal_uuid: iface.internal_uuid.clone(),
         }]
     } else {
         let mut interfaces = vec![];
@@ -1530,6 +1622,7 @@ pub async fn network_configured_with_health(
                 prefixes: vec![iface.interface_prefix.clone()],
                 gateways: vec![iface.gateway.clone()],
                 network_security_group: None,
+                internal_uuid: iface.internal_uuid.clone(),
             });
         }
         interfaces
@@ -1664,13 +1757,19 @@ pub async fn create_managed_host_with_ek(
 }
 
 /// Create a managed host with `dpu_count` DPUs (default config)
-pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> MachineId {
+pub async fn create_managed_host_multi_dpu(
+    env: &TestEnv,
+    dpu_count: usize,
+) -> (MachineId, Vec<MachineId>) {
     assert!(dpu_count >= 1, "need to specify at least 1 dpu");
     let config =
         ManagedHostConfig::with_dpus((0..dpu_count).map(|_| DpuConfig::default()).collect());
     let mh = site_explorer::new_host(env, config).await.unwrap();
 
-    mh.host_snapshot.id
+    (
+        mh.host_snapshot.id,
+        mh.dpu_snapshots.iter().map(|dpu| dpu.id).collect(),
+    )
 }
 
 /// Create a managed host with full config control

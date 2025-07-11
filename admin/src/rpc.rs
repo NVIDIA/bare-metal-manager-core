@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::Machine;
 use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
     self as rpc, BmcCredentialStatusResponse, BmcEndpointRequest,
@@ -23,6 +24,8 @@ use ::rpc::forge::{
     VpcPeeringDeletionResult, VpcSearchQuery, VpcVirtualizationType,
 };
 use ::rpc::{NetworkSegment, Uuid};
+
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::path::Path;
 use std::str::FromStr;
@@ -1127,63 +1130,131 @@ impl ApiClient {
 
     pub async fn allocate_instance(
         &self,
-        host_machine_id: &str,
+        machine: Machine,
         allocate_instance: &AllocateInstance,
         instance_name: &str,
         modified_by: Option<String>,
     ) -> CarbideCliResult<rpc::Instance> {
-        let (interface_config, tenant_org) = if let Some(network_segment_name) =
-            &allocate_instance.subnet
-        {
-            let segment_request = rpc::NetworkSegmentSearchFilter {
-                name: Some(network_segment_name.clone()),
-                tenant_org_id: None,
-            };
+        let (interface_configs, tenant_org) = if !allocate_instance.subnet.is_empty() {
+            // find all the segment ids for the specified subnets.
+            let mut network_segment_ids = Vec::default();
+            for network_segment_name in &allocate_instance.subnet {
+                let segment_request = rpc::NetworkSegmentSearchFilter {
+                    name: Some(network_segment_name.clone()),
+                    tenant_org_id: None,
+                };
 
-            let network_segment_ids = match self.0.find_network_segment_ids(segment_request).await {
-                Ok(response) => response,
+                match self.0.find_network_segment_ids(segment_request).await {
+                    Ok(response) => {
+                        network_segment_ids.extend_from_slice(&response.network_segments_ids);
+                    }
 
-                Err(e) => {
-                    return Err(CarbideCliError::GenericError(format!(
-                        "network segment: {} retrieval error {}",
-                        network_segment_name, e
-                    )));
+                    Err(e) => {
+                        return Err(CarbideCliError::GenericError(format!(
+                            "network segment: {} retrieval error {}",
+                            network_segment_name, e
+                        )));
+                    }
                 }
+            }
+            if network_segment_ids.is_empty() {
+                return Err(CarbideCliError::GenericError(
+                    "no network segments found.".to_string(),
+                ));
+            }
+            let mut next_device_instance = HashMap::new();
+
+            let Some(interfaces) = machine.discovery_info.map(|di| di.network_interfaces) else {
+                return Err(CarbideCliError::GenericError(format!(
+                    "no inteface information for machine: {}",
+                    machine.id.unwrap_or_default()
+                )));
             };
 
-            if network_segment_ids.network_segments_ids.is_empty() {
-                return Err(CarbideCliError::GenericError(format!(
-                    "network segment: {} not found.",
-                    network_segment_name
-                )));
-            } else if network_segment_ids.network_segments_ids.len() >= 2 {
-                tracing::warn!(
-                    "More than one {} network segments exist.",
-                    network_segment_name
-                );
+            let mut interface_iter = interfaces.iter().filter(|iface| {
+                iface
+                    .pci_properties
+                    .as_ref()
+                    .map(|pci| &pci.vendor)
+                    .is_some_and(|v| v.to_ascii_lowercase().contains("mellanox"))
+            });
+            let mut interface_config = Vec::default();
+            for network_segment_id in network_segment_ids {
+                let device = interface_iter
+                    .next()
+                    .ok_or(CarbideCliError::GenericError(
+                        "Insufficient interfaces for selected machine".to_string(),
+                    ))?
+                    .pci_properties
+                    .as_ref()
+                    .map(|pci| pci.device.clone())
+                    .clone();
+
+                if device.is_none() {
+                    continue;
+                }
+
+                let device_instance = *next_device_instance
+                    .entry(device.clone())
+                    .and_modify(|i| *i += 1)
+                    .or_insert(0) as u32;
+
+                interface_config.push(rpc::InstanceInterfaceConfig {
+                    function_type: rpc::InterfaceFunctionType::Physical as i32,
+                    network_segment_id: Some(network_segment_id.clone()), // to support legacy.
+                    network_details: Some(NetworkDetails::SegmentId(network_segment_id)),
+                    device,
+                    device_instance,
+                })
             }
-            let network_segment_id = network_segment_ids.network_segments_ids.first();
 
             (
-                rpc::InstanceInterfaceConfig {
-                    function_type: rpc::InterfaceFunctionType::Physical as i32,
-                    network_segment_id: network_segment_id.cloned(), // to support legacy.
-                    network_details: network_segment_id.cloned().map(NetworkDetails::SegmentId),
-                },
+                interface_config,
                 allocate_instance
                     .tenant_org
                     .clone()
                     .unwrap_or("Forge-simulation-tenant".to_string()),
             )
-        } else if let Some(vpc_prefix_id) = &allocate_instance.vpc_prefix_id {
+        } else if !allocate_instance.vpc_prefix_id.is_empty() {
+            let Some(discovery_info) = &machine.discovery_info else {
+                return Err(CarbideCliError::GenericError(
+                    "Machine discovery info is required for VPC prefix allocation.".to_string(),
+                ));
+            };
+            // Create a vector of interface configs for each VPC prefix.  only Mellanox devices are supported.
+            let mut interface_index_map = HashMap::new();
+            let mut interface_configs = Vec::new();
+            for (map_index, i) in discovery_info.network_interfaces.iter().enumerate() {
+                if let Some(pci_properties) = &i.pci_properties {
+                    if pci_properties
+                        .vendor
+                        .to_ascii_lowercase()
+                        .contains("mellanox")
+                    {
+                        let Some(vpc_prefix_id) = allocate_instance.vpc_prefix_id.get(map_index)
+                        else {
+                            break;
+                        };
+
+                        let device_instance = *interface_index_map
+                            .entry(pci_properties.device.clone())
+                            .and_modify(|c| *c += 1)
+                            .or_insert(0u32);
+                        interface_configs.push(rpc::InstanceInterfaceConfig {
+                            function_type: rpc::InterfaceFunctionType::Physical as i32,
+                            network_segment_id: None,
+                            network_details: Some(NetworkDetails::VpcPrefixId(::rpc::Uuid {
+                                value: vpc_prefix_id.clone(),
+                            })),
+                            device: Some(pci_properties.device.clone()),
+                            device_instance,
+                        });
+                    }
+                }
+            }
+
             (
-                rpc::InstanceInterfaceConfig {
-                    function_type: rpc::InterfaceFunctionType::Physical as i32,
-                    network_segment_id: None,
-                    network_details: Some(NetworkDetails::VpcPrefixId(::rpc::Uuid {
-                        value: vpc_prefix_id.clone(),
-                    })),
-                },
+                interface_configs,
                 allocate_instance.tenant_org.clone().ok_or_else(|| {
                     CarbideCliError::GenericError(
                         "Tenant org is mandatory in case of vpc_prefix.".to_string(),
@@ -1196,6 +1267,11 @@ impl ApiClient {
             ));
         };
 
+        if interface_configs.len() != allocate_instance.subnet.len() {
+            return Err(CarbideCliError::GenericError(
+                "Interfaces could not be determinted.".to_string(),
+            ));
+        }
         let tenant_config = rpc::TenantConfig {
             user_data: None,
             custom_ipxe: "Non-existing-ipxe".to_string(),
@@ -1210,7 +1286,7 @@ impl ApiClient {
             tenant: Some(tenant_config),
             os: allocate_instance.os.clone(),
             network: Some(rpc::InstanceNetworkConfig {
-                interfaces: vec![interface_config],
+                interfaces: interface_configs,
             }),
             network_security_group_id: allocate_instance.network_security_group_id.clone(),
             infiniband: None,
@@ -1242,7 +1318,7 @@ impl ApiClient {
         let instance_request = rpc::InstanceAllocationRequest {
             instance_id: None,
             machine_id: Some(::rpc::common::MachineId {
-                id: host_machine_id.to_owned(),
+                id: machine.id.unwrap_or_default().id,
             }),
 
             instance_type_id: allocate_instance.instance_type_id.clone(),

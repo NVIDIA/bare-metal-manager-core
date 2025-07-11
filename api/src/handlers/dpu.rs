@@ -88,11 +88,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             )));
         }
     };
-    let use_admin_network = if is_primary_dpu {
-        dpu_snapshot.use_admin_network()
-    } else {
-        true
-    };
+    let mut use_admin_network = dpu_snapshot.use_admin_network();
 
     let mut network_virtualization_type = if api.runtime_config.nvue_enabled {
         VpcVirtualizationType::EthernetVirtualizerWithNvue
@@ -101,14 +97,13 @@ pub(crate) async fn get_managed_host_network_config_inner(
     };
 
     let mut use_fnn_over_admin_nw = false;
-    if use_admin_network {
-        // If FNN config is enabled, we should use it in admin network.
-        if let Some(fnn) = &api.runtime_config.fnn {
-            if let Some(admin) = &fnn.admin_vpc {
-                if admin.enabled {
-                    use_fnn_over_admin_nw = true;
-                    network_virtualization_type = VpcVirtualizationType::Fnn;
-                }
+
+    // If FNN config is enabled, we should use it in admin network.
+    if let Some(fnn) = &api.runtime_config.fnn {
+        if let Some(admin) = &fnn.admin_vpc {
+            if admin.enabled {
+                use_fnn_over_admin_nw = true;
+                network_virtualization_type = VpcVirtualizationType::Fnn;
             }
         }
     }
@@ -129,7 +124,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         // We don't support secondary DPU yet.
         // If admin network is to be used for this managedhost, why to send old tenant data, which
         // is just to be deleted.
-        Some(_instance) if !is_primary_dpu || use_admin_network => {
+        Some(_instance) if use_admin_network => {
             vec![]
         }
         Some(_instance)
@@ -323,7 +318,14 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 None
             };
 
-            for iface in interfaces {
+            // its ok if there is no locator here.  if there isn't one, then only the primary dpu is allowed to be configred (checked below)
+            let device_locator = snapshot.host_snapshot.get_device_locator_for_dpu_id(&dpu_machine_id).ok();
+
+            // if there is no device then this is a legacy config and only the primary dpu is allowed.
+            // all other DPUs don't get interfaces
+            for iface in interfaces.iter().filter(|i|
+                (i.device_locator.is_none() && is_primary_dpu) || (i.device_locator.as_ref().is_some_and(|dl| device_locator.as_ref().is_some_and(|dl2| dl2 == dl)))
+            ) {
                 // This can not happen as validated during instance creation.
                 let Some(iface_segment) = iface.network_segment_id else {
                     return Err(Status::internal(format!(
@@ -339,7 +341,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     )));
                 };
 
-                tenant_interfaces.push(
+                let tenant_interface =
                     ethernet_virtualization::tenant_network(
                         txn,
                         instance.id,
@@ -356,13 +358,22 @@ pub(crate) async fn get_managed_host_network_config_inner(
                             None => api.runtime_config.vpc_peering_policy,
                             Some(vpc_peering_policy) => Some(vpc_peering_policy)
                         }
-                    )
-                    .await?,
-                );
+                )
+                .await?;
+
+                tenant_interfaces.push(tenant_interface);
             }
+
             tenant_interfaces
         }
     };
+
+    if tenant_interfaces.is_empty() && !use_admin_network {
+        if is_primary_dpu {
+            tracing::warn!("Primary DPU is not configured with network interfaces");
+        }
+        use_admin_network = true;
+    }
 
     // If admin network is in use, use admin network's vpc_vni.
     if use_admin_network {
@@ -476,7 +487,6 @@ pub(crate) async fn get_managed_host_network_config_inner(
         enable_dhcp: true,
         host_interface_id: Some(host_interface_id.to_string()),
         is_primary_dpu,
-        multidpu_enabled: api.runtime_config.multi_dpu.enabled,
         min_dpu_functioning_links: api.runtime_config.min_dpu_functioning_links,
         dpu_network_pinger_type: api.runtime_config.dpu_network_monitor_pinger_type.clone(),
         internet_l3_vni: Some(api.runtime_config.internet_l3_vni),

@@ -704,6 +704,7 @@ impl MachineStateMachine {
                 prefixes: vec![iface.interface_prefix.clone()],
                 gateways: vec![iface.gateway.clone()],
                 network_security_group: None,
+                internal_uuid: None,
             }]
         } else {
             instance_network_config_version =
@@ -724,6 +725,7 @@ impl MachineStateMachine {
                             version: s.version.clone(),
                         }
                     }),
+                    internal_uuid: None,
                 });
             }
         };

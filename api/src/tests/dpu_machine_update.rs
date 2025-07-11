@@ -222,7 +222,7 @@ async fn test_find_available_outdated_dpus_multidpu(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
+    let (host_machine_id, _) = create_managed_host_multi_dpu(&env, 2).await;
     let mut txn = env.pool.begin().await?;
     let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
@@ -259,7 +259,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
+    let (host_machine_id, _) = create_managed_host_multi_dpu(&env, 2).await;
 
     let mut txn = env.pool.begin().await?;
     let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
@@ -319,7 +319,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
+    let (host_machine_id, _) = create_managed_host_multi_dpu(&env, 2).await;
 
     let mut txn = env.pool.begin().await?;
     let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)

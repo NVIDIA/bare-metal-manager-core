@@ -115,7 +115,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
 
     let (instance_id, _instance) = create_instance_with_config(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         initial_config.clone(),
         Some(initial_metadata.clone()),
@@ -244,7 +244,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     );
 
     // Update the network
-    network_configured(&env, &dpu_machine_id).await;
+    network_configured(&env, &vec![dpu_machine_id]).await;
 
     // Find our instance details again, which should now
     // be updated.
@@ -404,7 +404,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
 
     let (instance_id, _instance) = create_instance_with_config(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         valid_config.clone(),
         Some(initial_metadata.clone()),
@@ -487,6 +487,8 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
             function_type: rpc::forge::InterfaceFunctionType::Virtual as _,
             network_segment_id: Some(NetworkSegmentId::from(uuid::Uuid::new_v4()).into()),
             network_details: None,
+            device: None,
+            device_instance: 0u32,
         });
     let err = env
         .api
@@ -501,7 +503,10 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .await
         .expect_err("New network configuration should not be accepted");
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    assert_eq!(err.message(), "Invalid value: Missing Physical Function");
+    assert!(
+        err.message()
+            .starts_with("Invalid value: Missing Physical Function")
+    );
 
     // The infiniband configuration of an instance can not be updated
     let mut config_with_updated_ib = valid_config.clone();
@@ -641,7 +646,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
             },
         )),
     };
-    let ip_prefix = "192.0.5.0/25";
+    let ip_prefix = "192.1.4.0/25";
     let vpc_id = get_vpc_fixture_id(&env).await;
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
@@ -679,7 +684,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
 
     let (instance_id, _instance) = create_instance_with_config(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         initial_config.clone(),
         Some(initial_metadata.clone()),
@@ -786,7 +791,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             },
         )),
     };
-    let ip_prefix = "192.0.5.0/25";
+    let ip_prefix = "192.1.4.0/25";
     let vpc_id = get_vpc_fixture_id(&env).await;
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
@@ -807,6 +812,8 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
             network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+            device: None,
+            device_instance: 0,
         }],
     };
 
@@ -827,7 +834,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
 
     let (instance_id, _instance) = create_instance_with_config(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         initial_config.clone(),
         Some(initial_metadata.clone()),
@@ -866,11 +873,15 @@ async fn test_update_instance_config_vpc_prefix_network_update(
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
                 network_segment_id: None,
                 network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+                device: None,
+                device_instance: 0,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
                 network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+                device: None,
+                device_instance: 0,
             },
         ],
     };
@@ -931,6 +942,8 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
             network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+            device: None,
+            device_instance: 0,
         }],
     };
     let mut updated_config_1 = initial_config.clone();
@@ -980,7 +993,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
             },
         )),
     };
-    let ip_prefix = "192.0.5.0/25";
+    let ip_prefix = "192.1.4.0/25";
     let vpc_id = get_vpc_fixture_id(&env).await;
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
@@ -1001,6 +1014,8 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
             network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+            device: None,
+            device_instance: 0,
         }],
     };
 
@@ -1021,7 +1036,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
 
     let (instance_id, _instance) = create_instance_with_config(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         initial_config.clone(),
         Some(initial_metadata.clone()),
@@ -1065,11 +1080,15 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
                 network_segment_id: None,
                 network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+                device: None,
+                device_instance: 0,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
                 network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+                device: None,
+                device_instance: 0,
             },
         ],
     };

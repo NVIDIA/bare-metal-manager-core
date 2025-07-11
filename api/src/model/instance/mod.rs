@@ -10,13 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
+use forge_uuid::machine::MachineId;
+
 pub mod config;
 pub mod snapshot;
 pub mod status;
 
 pub enum InstanceNetworkSyncStatus {
-    InstanceNetworkObservationNotAvailable,
+    InstanceNetworkObservationNotAvailable(Vec<MachineId>),
     ZeroDpuNoObservationNeeded,
     InstanceNetworkSynced,
-    InstanceNetworkNotSynced,
+    InstanceNetworkNotSynced(Vec<MachineId>),
 }

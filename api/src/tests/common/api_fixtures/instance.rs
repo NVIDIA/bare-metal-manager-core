@@ -17,6 +17,7 @@ use super::{
     TestEnv, forge_agent_control, inject_machine_measurements, persist_machine_validation_result,
 };
 use crate::db;
+use crate::model::instance::config::network::DeviceLocator;
 use crate::model::instance::status::network::InstanceNetworkStatusObservation;
 use crate::model::machine::{
     CleanupState, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
@@ -29,7 +30,7 @@ use rpc::{
 
 pub async fn create_instance(
     env: &TestEnv,
-    dpu_machine_id: &MachineId,
+    dpu_machine_ids: &[MachineId],
     host_machine_id: &MachineId,
     network: Option<rpc::InstanceNetworkConfig>,
     infiniband: Option<rpc::InstanceInfinibandConfig>,
@@ -48,7 +49,41 @@ pub async fn create_instance(
         network_security_group_id: None,
     };
 
-    create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await
+    create_instance_with_config(env, dpu_machine_ids, host_machine_id, config, None).await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn create_instance_with_unused_dpus(
+    env: &TestEnv,
+    dpu_machine_ids: &[MachineId],
+    unused_dpu_machine_ids: &[MachineId],
+    host_machine_id: &MachineId,
+    network: Option<rpc::InstanceNetworkConfig>,
+    infiniband: Option<rpc::InstanceInfinibandConfig>,
+    storage: Option<rpc::forge::InstanceStorageConfig>,
+    keyset_ids: Vec<String>,
+) -> (InstanceId, rpc::Instance) {
+    let mut tenant_config = default_tenant_config();
+    tenant_config.tenant_keyset_ids = keyset_ids;
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(tenant_config),
+        os: Some(default_os_config()),
+        network,
+        infiniband,
+        storage,
+        network_security_group_id: None,
+    };
+
+    create_instance_with_config_and_unused_dpus(
+        env,
+        dpu_machine_ids,
+        unused_dpu_machine_ids,
+        host_machine_id,
+        config,
+        None,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -75,7 +110,7 @@ pub async fn create_instance_with_labels(
     };
     create_instance_with_config(
         env,
-        dpu_machine_id,
+        &[*dpu_machine_id],
         host_machine_id,
         config,
         Some(instance_metadata),
@@ -108,7 +143,7 @@ pub async fn create_instance_with_hostname(
         storage,
         network_security_group_id: None,
     };
-    create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await
+    create_instance_with_config(env, &[*dpu_machine_id], host_machine_id, config, None).await
 }
 pub async fn create_instance_with_ib_config(
     env: &TestEnv,
@@ -119,7 +154,7 @@ pub async fn create_instance_with_ib_config(
 ) -> (InstanceId, rpc::forge::Instance) {
     let config = config_for_ib_config(ib_config, network_segment_id);
 
-    create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await
+    create_instance_with_config(env, &[*dpu_machine_id], host_machine_id, config, None).await
 }
 
 pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::InstanceNetworkConfig {
@@ -128,8 +163,28 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some(segment_id.into()),
             network_details: Some(NetworkDetails::SegmentId(segment_id.into())),
+            device: None,
+            device_instance: 0,
         }],
     }
+}
+
+pub fn interface_network_config_with_devices(
+    segment_ids: &[NetworkSegmentId],
+    device_locators: &[DeviceLocator],
+) -> rpc::InstanceNetworkConfig {
+    let interfaces = device_locators
+        .iter()
+        .zip(segment_ids)
+        .map(|(dl, segment_id)| rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some((*segment_id).into()),
+            network_details: Some(NetworkDetails::SegmentId((*segment_id).into())),
+            device: Some(dl.device.clone()),
+            device_instance: dl.device_instance as u32,
+        })
+        .collect();
+    rpc::InstanceNetworkConfig { interfaces }
 }
 
 pub fn single_interface_network_config_with_vpc_prefix(
@@ -140,6 +195,8 @@ pub fn single_interface_network_config_with_vpc_prefix(
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
             network_details: Some(NetworkDetails::VpcPrefixId(prefix_id)),
+            device: None,
+            device_instance: 0u32,
         }],
     }
 }
@@ -186,7 +243,26 @@ pub fn config_for_ib_config(
 
 pub async fn create_instance_with_config(
     env: &TestEnv,
-    dpu_machine_id: &MachineId,
+    dpu_machine_ids: &[MachineId],
+    host_machine_id: &MachineId,
+    config: rpc::InstanceConfig,
+    instance_metadata: Option<rpc::Metadata>,
+) -> (InstanceId, rpc::Instance) {
+    create_instance_with_config_and_unused_dpus(
+        env,
+        dpu_machine_ids,
+        &Vec::default(),
+        host_machine_id,
+        config,
+        instance_metadata,
+    )
+    .await
+}
+
+pub async fn create_instance_with_config_and_unused_dpus(
+    env: &TestEnv,
+    dpu_machine_ids: &[MachineId],
+    unused_dpu_machine_ids: &[MachineId],
     host_machine_id: &MachineId,
     config: rpc::InstanceConfig,
     instance_metadata: Option<rpc::Metadata>,
@@ -212,7 +288,11 @@ pub async fn create_instance_with_config(
 
     let instance = advance_created_instance_into_ready_state(
         env,
-        dpu_machine_id,
+        &dpu_machine_ids
+            .iter()
+            .chain(unused_dpu_machine_ids)
+            .cloned()
+            .collect(),
         host_machine_id,
         instance_id,
     )
@@ -222,7 +302,7 @@ pub async fn create_instance_with_config(
 
 pub async fn advance_created_instance_into_ready_state(
     env: &TestEnv,
-    dpu_machine_id: &MachineId,
+    dpu_machine_ids: &Vec<MachineId>,
     host_machine_id: &MachineId,
     instance_id: InstanceId,
 ) -> rpc::Instance {
@@ -236,7 +316,7 @@ pub async fn advance_created_instance_into_ready_state(
     // - second run: state controller sets use_admin_network to false
     env.run_machine_state_controller_iteration().await;
     // - forge-dpu-agent gets an instance network to configure, reports it configured
-    super::network_configured(env, dpu_machine_id).await;
+    super::network_configured(env, dpu_machine_ids).await;
     // - simulate that the host's hardware is reported healthy
     super::simulate_hardware_health_report(
         env,
@@ -249,7 +329,7 @@ pub async fn advance_created_instance_into_ready_state(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
-        3,
+        10,
         &mut txn,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::Ready,
@@ -275,7 +355,7 @@ pub async fn advance_created_instance_into_ready_state(
 pub async fn delete_instance(
     env: &TestEnv,
     instance_id: InstanceId,
-    dpu_machine_id: &MachineId,
+    dpu_machine_ids: &Vec<MachineId>,
     host_machine_id: &MachineId,
 ) {
     env.api
@@ -316,7 +396,7 @@ pub async fn delete_instance(
     )
     .await;
     txn.commit().await.unwrap();
-    handle_delete_post_bootingwithdiscoveryimage(env, dpu_machine_id, host_machine_id).await;
+    handle_delete_post_bootingwithdiscoveryimage(env, dpu_machine_ids, host_machine_id).await;
 
     assert!(
         env.find_instances(Some(instance_id.into()))
@@ -334,7 +414,7 @@ pub async fn delete_instance(
 
 pub async fn handle_delete_post_bootingwithdiscoveryimage(
     env: &TestEnv,
-    dpu_machine_id: &MachineId,
+    dpu_machine_ids: &Vec<MachineId>,
     host_machine_id: &MachineId,
 ) {
     let mut txn = env.pool.begin().await.unwrap();
@@ -370,7 +450,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     txn.commit().await.unwrap();
 
     // Apply switching back to admin network
-    super::network_configured(env, dpu_machine_id).await;
+    super::network_configured(env, dpu_machine_ids).await;
 
     if env.attestation_enabled {
         inject_machine_measurements(env, (*host_machine_id).into()).await;

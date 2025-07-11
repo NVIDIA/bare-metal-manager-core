@@ -190,5 +190,5 @@ pub async fn create_instance(
         network_security_group_id: None,
     };
 
-    create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await
+    create_instance_with_config(env, &[*dpu_machine_id], host_machine_id, config, None).await
 }

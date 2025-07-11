@@ -194,7 +194,7 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
                 }
             })?,
             observations: InstanceStatusObservations {
-                network: None,
+                network: HashMap::default(),
                 storage: value.storage_status_observation,
                 phone_home_last_contact: value.phone_home_last_contact,
             },
@@ -711,8 +711,6 @@ impl NewInstance<'_> {
     ///
     /// * `txn` - A reference to an active DB transaction
     pub async fn persist(&self, txn: &mut PgConnection) -> CarbideResult<InstanceSnapshot> {
-        // None means we haven't observed any network status from forge-dpu-agent yet
-        // The first report from the agent will set the field
         let mut os_ipxe_script = String::new();
         let os_user_data = self.config.os.user_data.clone();
         let mut os_image_id = None;

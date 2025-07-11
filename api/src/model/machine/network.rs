@@ -115,6 +115,7 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
                     let v = iface.try_into()?;
                     interfaces.push(v);
                 }
+
                 Some(InstanceNetworkStatusObservation {
                     config_version: version,
                     instance_config_version,

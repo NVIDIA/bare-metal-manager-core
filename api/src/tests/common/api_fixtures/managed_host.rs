@@ -16,7 +16,7 @@ use std::{
 };
 
 use crate::model::{
-    hardware_info::{HardwareInfo, NetworkInterface, TpmEkCertificate},
+    hardware_info::{HardwareInfo, NetworkInterface, PciDeviceProperties, TpmEkCertificate},
     machine::ManagedHostState,
     site_explorer::{
         Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
@@ -119,7 +119,14 @@ impl From<&ManagedHostConfig> for HardwareInfo {
             .iter()
             .map(|d| NetworkInterface {
                 mac_address: d.host_mac_address,
-                pci_properties: None,
+                pci_properties: Some(PciDeviceProperties {
+                    vendor: "mellanox".to_string(),
+                    device: "DPU1".to_string(),
+                    path: "/x/y/z".to_string(),
+                    numa_node: 1,
+                    description: None,
+                    slot: None,
+                }),
             })
             .chain(value.non_dpu_macs.iter().map(|m| NetworkInterface {
                 mac_address: *m,

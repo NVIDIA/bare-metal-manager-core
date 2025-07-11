@@ -619,7 +619,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_admin_force_delete_managed_host_multi_dpu(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_id = create_managed_host_multi_dpu(&env, 2).await;
+    let (host_id, _) = create_managed_host_multi_dpu(&env, 2).await;
     let host_machine = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
@@ -668,19 +668,13 @@ async fn test_admin_force_delete_managed_host_multi_dpu(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_id = create_managed_host_multi_dpu(&env, 2).await;
-    let host_machine = env
-        .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![host_id.to_string().into()],
-            ..Default::default()
-        }))
-        .await
-        .unwrap()
-        .into_inner()
-        .machines
-        .remove(0);
-    let dpu_ids = host_machine.associated_dpu_machine_ids;
+    let (host_id, dpu_ids) = create_managed_host_multi_dpu(&env, 2).await;
+    let dpu_0_id = dpu_ids.first().unwrap();
+    let rpc_dpu_ids = dpu_ids
+        .clone()
+        .into_iter()
+        .map(|id| id.into())
+        .collect::<Vec<rpc::MachineId>>();
     assert_eq!(
         dpu_ids.len(),
         2,
@@ -690,7 +684,7 @@ async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgP
     assert!(
         env.api
             .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-                machine_ids: dpu_ids.clone(),
+                machine_ids: rpc_dpu_ids.clone(),
                 ..Default::default()
             }))
             .await
@@ -699,17 +693,11 @@ async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgP
     );
 
     // Delete one of the *dpu* machines, which should cascade and delete the host and other DPU machines
-    let dpu_0_id = MachineId::from_str(dpu_ids.first().unwrap().id.as_str()).unwrap();
-    let response = force_delete(&env, &dpu_0_id).await;
+    let response = force_delete(&env, dpu_0_id).await;
 
-    validate_delete_response_multi_dpu(&response, Some(&host_id), dpu_ids.as_slice());
+    validate_delete_response_multi_dpu(&response, Some(&host_id), &rpc_dpu_ids);
 
-    let dpu_db_ids = dpu_ids
-        .into_iter()
-        .map(|i| MachineId::from_str(&i.id).unwrap())
-        .collect::<Vec<_>>();
-
-    for id in [&[host_id], dpu_db_ids.as_slice()].concat().iter() {
+    for id in dpu_ids.iter().chain([&host_id]) {
         validate_machine_deletion(&env, id, None).await;
     }
 }
@@ -724,7 +712,7 @@ async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
 
     let (instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,

@@ -71,7 +71,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     };
 
     let (instance_id, _instance) =
-        create_instance_with_config(&env, &dpu_machine_id, &host_machine_id, config, None).await;
+        create_instance_with_config(&env, &[dpu_machine_id], &host_machine_id, config, None).await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);
@@ -273,7 +273,7 @@ async fn test_instance_creation_with_os_in_tenantconfig(
     };
 
     let (instance_id, _instance) =
-        create_instance_with_config(&env, &dpu_machine_id, &host_machine_id, config, None).await;
+        create_instance_with_config(&env, &[dpu_machine_id], &host_machine_id, config, None).await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);

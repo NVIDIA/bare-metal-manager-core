@@ -56,7 +56,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
 
             let (_instance_id, _instance) = create_instance(
                 &env,
-                &dpu_machine_id,
+                &[dpu_machine_id],
                 &host_machine_id,
                 Some(single_interface_network_config(segment_id)),
                 None,
@@ -314,7 +314,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
         if i % 2 == 0 {
             let (_instance_id, _instance) = create_instance(
                 &env,
-                &dpu_machine_id,
+                &[dpu_machine_id],
                 &host_machine_id,
                 Some(single_interface_network_config(segment_id)),
                 None,

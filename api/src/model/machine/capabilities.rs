@@ -1045,7 +1045,7 @@ mod tests {
                     name: "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
                         .to_string(),
                     count: 2,
-                    vendor: Some("0x15b3".to_string()),
+                    vendor: Some("mellanox".to_string()),
                     device_type: Some(MachineCapabilityDeviceType::Dpu),
                 },
                 MachineCapabilityNetwork {

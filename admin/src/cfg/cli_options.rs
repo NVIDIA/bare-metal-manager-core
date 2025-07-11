@@ -1796,10 +1796,10 @@ pub struct AllocateInstance {
     pub number: Option<u16>,
 
     #[clap(short, long)]
-    pub subnet: Option<String>,
+    pub subnet: Vec<String>,
 
     #[clap(short, long)]
-    pub vpc_prefix_id: Option<String>,
+    pub vpc_prefix_id: Vec<String>,
 
     #[clap(short, long)]
     // This will not be needed after vpc_prefix implementation.

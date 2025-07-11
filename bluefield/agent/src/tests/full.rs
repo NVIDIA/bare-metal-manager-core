@@ -429,6 +429,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         tenant_vrf_loopback_ip: Some("10.1.1.1".to_string()),
         is_l2_segment: false,
         network_security_group: None,
+        internal_uuid: None,
     };
     assert_eq!(admin_interface.svi_ip, None);
 
@@ -565,6 +566,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                 }),
             }],
         }),
+        internal_uuid: None,
     };
 
     let instance = rpc::Instance {
@@ -604,6 +606,8 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                     network_details: Some(rpc::forge::instance_interface_config::NetworkDetails::SegmentId(rpc::Uuid {
                         value: "a7cdeab1-84ec-48a2-ab59-62863d311f26".to_string(),
                     })),
+                    device: None,
+                    device_instance: 0,
                 }],
             }),
             infiniband: None,
@@ -622,6 +626,8 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                     addresses: vec!["10.217.104.146".to_string()],
                     gateways: vec!["10.217.104.145/30".to_string()],
                     prefixes: vec!["10.217.104.146/32".to_string()],
+            device: None,
+            device_instance: 0u32,
                 }],
                 configs_synced: rpc::SyncState::Synced.into(),
             }),
@@ -672,7 +678,6 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         host_interface_id: None,
         min_dpu_functioning_links: None,
         is_primary_dpu: true,
-        multidpu_enabled: false,
         dpu_network_pinger_type: Some("HbnExec".to_string()),
         internet_l3_vni: Some(1337),
         stateful_acls_enabled: true,

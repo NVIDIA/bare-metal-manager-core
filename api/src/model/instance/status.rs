@@ -10,7 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
+
 use config_version::Versioned;
+use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
@@ -18,8 +21,10 @@ use crate::model::{
         InstanceConfig, infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
         storage::InstanceStorageConfig,
     },
-    machine::infiniband::MachineInfinibandStatusObservation,
-    machine::{InstanceState, ManagedHostState, ReprovisionRequest},
+    machine::{
+        InstanceState, ManagedHostState, ReprovisionRequest,
+        infiniband::MachineInfinibandStatusObservation,
+    },
 };
 use ::rpc::errors::RpcDataConversionError;
 
@@ -154,6 +159,7 @@ impl InstanceStatus {
     /// and the interfaces therefore won't match.
     #[allow(clippy::too_many_arguments)]
     pub fn from_config_and_observation(
+        dpu_id_to_device_map: HashMap<String, Vec<MachineId>>,
         instance_config: Versioned<&InstanceConfig>,
         network_config: Versioned<&InstanceNetworkConfig>,
         ib_config: Versioned<&InstanceInfinibandConfig>,
@@ -165,29 +171,31 @@ impl InstanceStatus {
         ib_status: Option<&MachineInfinibandStatusObservation>,
         is_network_config_request_pending: bool,
     ) -> Result<Self, RpcDataConversionError> {
-        let instance_config_synced = match observations.network {
-            Some(ref network_obs) => match network_obs.instance_config_version {
+        let mut instance_config_synced = SyncState::Synced;
+
+        for network_obs in observations.network.values() {
+            match network_obs.instance_config_version {
                 Some(version_obs) => {
-                    if instance_config.version == version_obs {
-                        SyncState::Synced
-                    } else {
-                        SyncState::Pending
+                    if instance_config.version != version_obs {
+                        instance_config_synced = SyncState::Pending;
+                        break;
                     }
                 }
                 // TODO(bcavanagh): Switch to SyncState::Pending or
                 //                  return Err(RpcDataConversionError::InvalidConfigVersion)
                 //                  after all dpu-agents have been updated to support/report the field.
                 // If observations.network.instance_config_version was None, then "ignore"
-                _ => SyncState::Synced,
-            },
-            _ => SyncState::Pending,
-        };
+                _ => {}
+            }
+        }
 
-        let network = network::InstanceNetworkStatus::from_config_and_observation(
+        let network = network::InstanceNetworkStatus::from_config_and_observations(
+            dpu_id_to_device_map,
             network_config,
-            observations.network.as_ref(),
+            &observations.network,
             is_network_config_request_pending,
         );
+
         let infiniband =
             infiniband::InstanceInfinibandStatus::from_config_and_observation(ib_config, ib_status);
         let storage = storage::InstanceStorageStatus::from_config_and_observation(
@@ -265,7 +273,7 @@ impl TryFrom<SyncState> for rpc::SyncState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceStatusObservations {
     /// Observed status of the networking subsystem
-    pub network: Option<network::InstanceNetworkStatusObservation>,
+    pub network: HashMap<MachineId, network::InstanceNetworkStatusObservation>,
 
     pub storage: Option<storage::InstanceStorageStatusObservation>,
 

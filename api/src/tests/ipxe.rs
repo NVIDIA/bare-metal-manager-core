@@ -300,7 +300,7 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
 
     let (_instance_id, _instance) = create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         Some(single_interface_network_config(segment_id)),
         None,

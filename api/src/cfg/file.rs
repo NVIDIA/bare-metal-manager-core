@@ -214,9 +214,6 @@ pub struct CarbideConfig {
     pub min_dpu_functioning_links: Option<u32>,
 
     #[serde(default)]
-    pub multi_dpu: MultiDpuConfig,
-
-    #[serde(default)]
     pub host_health: HostHealthConfig,
 
     // internet_l3_vni is a GNI-provided L3VNI to use for
@@ -1682,12 +1679,6 @@ pub fn default_datacenter_asn() -> u32 {
 
 pub fn default_to_true() -> bool {
     true
-}
-
-#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
-pub struct MultiDpuConfig {
-    #[serde(default)]
-    pub enabled: bool,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]

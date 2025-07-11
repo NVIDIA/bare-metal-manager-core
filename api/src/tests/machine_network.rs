@@ -44,7 +44,7 @@ async fn test_managed_host_network_config(pool: sqlx::PgPool) {
 async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
     // Given: A managed host with 2 DPUs
     let env = api_fixtures::create_test_env(pool).await;
-    let managed_host_id = api_fixtures::create_managed_host_multi_dpu(&env, 2).await;
+    let (managed_host_id, _) = api_fixtures::create_managed_host_multi_dpu(&env, 2).await;
     let host_machine = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
@@ -99,11 +99,13 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some((segment_id).into()),
             network_details: None,
+            device: None,
+            device_instance: 0u32,
         }],
     });
     let (_instance_id, _instance) = instance::create_instance(
         &env,
-        &dpu_machine_id,
+        &[dpu_machine_id],
         &host_machine_id,
         instance_network,
         None,
@@ -214,6 +216,7 @@ async fn test_dpu_health_is_required(pool: sqlx::PgPool) {
                 prefixes: vec![admin_if.interface_prefix.clone()],
                 gateways: vec![admin_if.gateway.clone()],
                 network_security_group: None,
+                internal_uuid: None,
             }],
             network_config_error: None,
             client_certificate_expiry_unix_epoch_secs: None,

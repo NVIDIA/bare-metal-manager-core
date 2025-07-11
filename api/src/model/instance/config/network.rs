@@ -12,6 +12,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Display,
     net::IpAddr,
     str::FromStr,
 };
@@ -23,6 +24,8 @@ use crate::model::machine::Machine;
 use crate::{db::network_prefix::NetworkPrefixId, model::ConfigValidationError};
 use ::rpc::errors::RpcDataConversionError;
 use forge_uuid::instance::InstanceId;
+#[cfg(test)]
+use forge_uuid::machine::MachineId;
 use forge_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
@@ -83,8 +86,6 @@ impl InterfaceFunctionId {
     /// Then the list of `Virtual`s will follow
     #[cfg(test)]
     pub fn iter_all() -> impl Iterator<Item = InterfaceFunctionId> {
-        debug_assert!(INTERFACE_VFID_MAX <= i32::MAX as usize);
-
         (-1..=INTERFACE_VFID_MAX as i32).map(|idx| {
             if idx == -1 {
                 InterfaceFunctionId::Physical {}
@@ -105,12 +106,12 @@ impl InterfaceFunctionId {
     /// Tries to convert a numeric identifier that represents a virtual function
     /// into a `InterfaceFunctionId::Virtual`.
     /// This will return an error if the ID is not in the valid range.
-    pub fn try_virtual_from(id: usize) -> Result<InterfaceFunctionId, InvalidVirtualFunctionId> {
+    pub fn try_virtual_from(id: u8) -> Result<InterfaceFunctionId, InvalidVirtualFunctionId> {
         if !(INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).contains(&id) {
             return Err(InvalidVirtualFunctionId());
         }
 
-        Ok(InterfaceFunctionId::Virtual { id: id as u8 })
+        Ok(InterfaceFunctionId::Virtual { id })
     }
 }
 
@@ -142,23 +143,55 @@ pub struct InstanceNetworkConfigUpdate {
 impl InstanceNetworkConfig {
     /// Returns a network configuration for a single physical interface
     #[cfg(test)]
-    pub fn for_segment_id(network_segment_id: NetworkSegmentId) -> Self {
-        Self {
-            interfaces: vec![InstanceInterfaceConfig {
-                function_id: InterfaceFunctionId::Physical {},
-                network_segment_id: Some(network_segment_id),
-                network_details: Some(NetworkDetails::NetworkSegment(network_segment_id)),
-                ip_addrs: HashMap::default(),
-                interface_prefixes: HashMap::default(),
-                network_segment_gateways: HashMap::default(),
-                host_inband_mac_address: None,
-            }],
+    pub fn for_segment_ids(
+        network_segment_ids: &[NetworkSegmentId],
+        device_locators: &[DeviceLocator],
+    ) -> Self {
+        if device_locators.is_empty() {
+            Self {
+                interfaces: vec![InstanceInterfaceConfig {
+                    function_id: InterfaceFunctionId::Physical {},
+                    network_segment_id: network_segment_ids.first().cloned(),
+                    network_details: Some(NetworkDetails::NetworkSegment(
+                        network_segment_ids.first().cloned().unwrap(),
+                    )),
+                    ip_addrs: HashMap::default(),
+                    interface_prefixes: HashMap::default(),
+                    network_segment_gateways: HashMap::default(),
+                    host_inband_mac_address: None,
+                    device_locator: None,
+                    internal_uuid: uuid::Uuid::nil(),
+                }],
+            }
+        } else {
+            Self {
+                interfaces: device_locators
+                    .iter()
+                    .enumerate()
+                    .map(|(dl_index, dl)| InstanceInterfaceConfig {
+                        function_id: InterfaceFunctionId::Physical {},
+                        network_segment_id: network_segment_ids.get(dl_index).cloned(),
+                        network_details: Some(NetworkDetails::NetworkSegment(
+                            network_segment_ids[dl_index],
+                        )),
+                        ip_addrs: HashMap::default(),
+                        interface_prefixes: HashMap::default(),
+                        network_segment_gateways: HashMap::default(),
+                        host_inband_mac_address: None,
+                        device_locator: Some(dl.clone()),
+                        internal_uuid: uuid::Uuid::nil(),
+                    })
+                    .collect(),
+            }
         }
     }
 
     /// Returns a network configuration for a single physical interface
     #[cfg(test)]
-    pub fn for_vpc_prefix_id(vpc_prefix_id: uuid::Uuid) -> Self {
+    pub fn for_vpc_prefix_id(
+        vpc_prefix_id: uuid::Uuid,
+        _dpu_machine_id: Option<MachineId>,
+    ) -> Self {
         Self {
             interfaces: vec![InstanceInterfaceConfig {
                 function_id: InterfaceFunctionId::Physical {},
@@ -168,14 +201,20 @@ impl InstanceNetworkConfig {
                 interface_prefixes: HashMap::default(),
                 network_segment_gateways: HashMap::default(),
                 host_inband_mac_address: None,
+                device_locator: None,
+                internal_uuid: uuid::Uuid::nil(),
             }],
         }
     }
 
     /// Validates the network configuration
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
-        validate_interface_function_ids(&self.interfaces, |iface| iface.function_id.clone())
-            .map_err(ConfigValidationError::InvalidValue)?;
+        validate_interface_function_ids(
+            &self.interfaces,
+            |iface| &iface.function_id,
+            |iface| iface.device_locator.as_ref(),
+        )
+        .map_err(ConfigValidationError::InvalidValue)?;
 
         // Note: We can't fully validate the network segment IDs here
         // We validate that the ID is not duplicated, but not whether it actually exists
@@ -244,6 +283,7 @@ impl InstanceNetworkConfig {
             iface.interface_prefixes.clear();
             iface.network_segment_gateways.clear();
             iface.host_inband_mac_address = None;
+            iface.internal_uuid = uuid::Uuid::nil();
 
             // It is possible that cloud sends network_segment_id with network_details as well.
             if iface.network_details.is_some() {
@@ -256,7 +296,9 @@ impl InstanceNetworkConfig {
             if iface.network_details.is_some() {
                 iface.network_segment_id = None;
             }
+            iface.internal_uuid = uuid::Uuid::nil();
         }
+
         current != new_config
     }
 
@@ -360,6 +402,8 @@ impl InstanceNetworkConfig {
                     interface_prefixes: Default::default(),
                     network_segment_gateways: Default::default(),
                     host_inband_mac_address: None,
+                    device_locator: None,
+                    internal_uuid: uuid::Uuid::new_v4(),
                 })
             }
         }
@@ -373,7 +417,7 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
 
     fn try_from(config: rpc::InstanceNetworkConfig) -> Result<Self, Self::Error> {
         // try_from for interfaces:
-        let mut assigned_vfs: u8 = 0;
+        let mut assigned_vfs_map: HashMap<(Option<String>, u32), u8> = HashMap::default();
         let mut interfaces = Vec::with_capacity(config.interfaces.len());
         for iface in config.interfaces.into_iter() {
             let rpc_iface_type = rpc::InterfaceFunctionType::try_from(iface.function_type)
@@ -391,8 +435,11 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                     // 256 VFs. However that's ok - the `InstanceNetworkConfig.validate()`
                     // call will declare those configs as invalid later on anyway.
                     // We mainly don't want to crash here.
-                    let id = InterfaceFunctionId::Virtual { id: assigned_vfs };
-                    assigned_vfs = assigned_vfs.saturating_add(1);
+                    let assigned_vfs = assigned_vfs_map
+                        .entry((iface.device.clone(), iface.device_instance))
+                        .or_insert(0);
+                    let id = InterfaceFunctionId::Virtual { id: *assigned_vfs };
+                    *assigned_vfs = assigned_vfs.saturating_add(1);
                     id
                 }
             };
@@ -422,6 +469,11 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                 (Some(NetworkDetails::NetworkSegment(ns_id)), Some(ns_id))
             };
 
+            let device_locator = iface.device.map(|device| DeviceLocator {
+                device,
+                device_instance: iface.device_instance as usize,
+            });
+
             interfaces.push(InstanceInterfaceConfig {
                 function_id,
                 network_segment_id,
@@ -430,6 +482,8 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                 interface_prefixes: HashMap::default(),
                 network_segment_gateways: HashMap::new(),
                 host_inband_mac_address: None,
+                device_locator,
+                internal_uuid: uuid::Uuid::new_v4(),
             });
         }
 
@@ -450,10 +504,17 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
                 iface.network_details.map(|x| x.into());
             let network_segment_id: Option<rpc::Uuid> = iface.network_segment_id.map(|x| x.into());
 
+            let (device, device_instance) = match iface.device_locator {
+                Some(dl) => (Some(dl.device), dl.device_instance as u32),
+                None => (None, 0),
+            };
+
             interfaces.push(rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::from(function_type) as i32,
                 network_segment_id,
                 network_details,
+                device,
+                device_instance,
             });
         }
 
@@ -463,9 +524,14 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
 
 /// Validates that any container which has elements that have InterfaceFunctionIds
 /// assigned assigned is using unique and valid FunctionIds.
-pub fn validate_interface_function_ids<T, F: Fn(&T) -> InterfaceFunctionId>(
+pub fn validate_interface_function_ids<
+    T,
+    F: Fn(&T) -> &InterfaceFunctionId,
+    G: Fn(&T) -> Option<&DeviceLocator>,
+>(
     container: &[T],
     get_function_id: F,
+    get_device_locator: G,
 ) -> Result<(), String> {
     if container.is_empty() {
         // Empty interfaces can be filled via host's host_inband interfaces later. If it's still
@@ -473,50 +539,59 @@ pub fn validate_interface_function_ids<T, F: Fn(&T) -> InterfaceFunctionId>(
         return Ok(());
     }
 
-    // We need 1 physical interface, virtual interfaces must start at VFID 1,
+    // We need 1 physical interface, virtual interfaces must start at VFID 0,
     // and IDs must not be duplicated
-    let mut used_pf = false;
-    let mut used_vfids = [false; 32];
+    let mut used_functions: HashMap<Option<&DeviceLocator>, Vec<i32>> = HashMap::new();
+
     for (idx, iface) in container.iter().enumerate() {
-        match get_function_id(iface) {
-            InterfaceFunctionId::Physical {} => {
-                if used_pf {
-                    return Err(format!(
-                        "Physical function ID for network interface at index {} is already used",
-                        idx
-                    ));
-                }
-                used_pf = true;
-            }
-            InterfaceFunctionId::Virtual { id } => {
-                let id = id as usize;
-                if !(INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).contains(&id) {
-                    return Err(format!(
-                        "Invalid interface virtual function ID {} for network interface at index {}",
-                        id, idx
-                    ));
-                }
-                if used_vfids[id] {
-                    return Err(format!(
-                        "Virtual function ID {} for network interface at index {} is already used",
-                        id, idx
-                    ));
-                }
-                used_vfids[id] = true;
+        let function_id = get_function_id(iface);
+        let device_locator = get_device_locator(iface);
+
+        if let InterfaceFunctionId::Virtual { id } = function_id {
+            if !(INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).contains(id) {
+                return Err(format!(
+                    "Invalid interface virtual function ID {} for network interface at index {}",
+                    id, idx
+                ));
             }
         }
+
+        let func_id = match function_id {
+            InterfaceFunctionId::Physical {} => -1,
+            InterfaceFunctionId::Virtual { id } => (*id) as i32,
+        };
+
+        used_functions
+            .entry(device_locator)
+            .or_default()
+            .push(func_id);
 
         // Note: We can't validate the network segment ID here
     }
 
-    // Check that there IDs are consecutively assigned and the physical
-    // function exists
-    if !used_pf {
-        return Err("Missing Physical Function".to_string());
-    }
-    for (id, is_used) in used_vfids.iter().enumerate().take(container.len() - 1) {
-        if !is_used {
-            return Err(format!("Missing Virtual function with ID {}", id,));
+    for (device_locator, fids) in &mut used_functions {
+        let mut expected_fid: i32 = -1;
+        fids.sort();
+        for actual_fid in fids {
+            match (*actual_fid).cmp(&expected_fid) {
+                std::cmp::Ordering::Less => {
+                    return Err(format!("Duplicate function id found: {}", actual_fid,));
+                }
+                std::cmp::Ordering::Equal => {}
+                std::cmp::Ordering::Greater => {
+                    if expected_fid == -1 {
+                        return Err(format!(
+                            "Missing Physical Function for device {}",
+                            device_locator.cloned().unwrap_or_default(),
+                        ));
+                    }
+                    return Err(format!(
+                        "Gap in function ids found.  Missing VF id {}",
+                        expected_fid,
+                    ));
+                }
+            }
+            expected_fid += 1;
         }
     }
 
@@ -564,6 +639,16 @@ impl TryFrom<rpc::forge::instance_interface_config::NetworkDetails> for NetworkD
     }
 
     type Error = RpcDataConversionError;
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub struct DeviceLocator {
+    pub device: String,
+    pub device_instance: usize,
+}
+impl Display for DeviceLocator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.device, self.device_instance)
+    }
 }
 
 /// The configuration that a customer desires for an instances network interface
@@ -619,7 +704,11 @@ pub struct InstanceInterfaceConfig {
     /// MAC address that the instance will see until we start getting status observations from the
     /// forge agent.
     pub host_inband_mac_address: Option<MacAddress>,
+
+    /// The DPU device this interface corresponds to.  The device/instance pair will be mapped to a specific DPU
+    pub device_locator: Option<DeviceLocator>,
     // TODO: Security group
+    pub internal_uuid: uuid::Uuid,
 }
 
 impl InstanceInterfaceConfig {
@@ -634,9 +723,9 @@ impl InstanceInterfaceConfig {
 }
 
 /// Minimum valid value (inclusive) for a virtual function ID
-pub const INTERFACE_VFID_MIN: usize = 0;
+pub const INTERFACE_VFID_MIN: u8 = 0;
 /// Maximum valid value (inclusive) for a virtual function ID
-pub const INTERFACE_VFID_MAX: usize = 15;
+pub const INTERFACE_VFID_MAX: u8 = 15;
 
 pub fn deserialize_network_prefix_id_ipaddr_map<'de, D>(
     deserializer: D,
@@ -701,14 +790,17 @@ mod tests {
     #[test]
     fn iterate_function_ids() {
         let func_ids: Vec<InterfaceFunctionId> = InterfaceFunctionId::iter_all().collect();
-        assert_eq!(func_ids.len(), 2 + INTERFACE_VFID_MAX - INTERFACE_VFID_MIN);
+        assert_eq!(
+            func_ids.len(),
+            2 + INTERFACE_VFID_MAX as usize - INTERFACE_VFID_MIN as usize
+        );
 
         assert_eq!(func_ids[0], InterfaceFunctionId::Physical {});
         for (i, func_id) in func_ids[1..].iter().enumerate() {
             assert_eq!(
                 *func_id,
                 InterfaceFunctionId::Virtual {
-                    id: (INTERFACE_VFID_MIN + i) as u8
+                    id: (INTERFACE_VFID_MIN + i as u8)
                 }
             );
         }
@@ -744,6 +836,7 @@ mod tests {
         let interface_prefixes =
             HashMap::from([(network_prefix_1, "192.168.1.2/32".parse().unwrap())]);
         let network_segment_gateways = HashMap::default();
+        let internal_uuid = uuid::uuid!("37c3dc65-9aef-4439-b7ca-d532a0a41d7f");
 
         let interface = InstanceInterfaceConfig {
             function_id,
@@ -753,11 +846,13 @@ mod tests {
             network_segment_gateways,
             host_inband_mac_address: None,
             network_details: None,
+            device_locator: None,
+            internal_uuid,
         };
         let serialized = serde_json::to_string(&interface).unwrap();
         assert_eq!(
             serialized,
-            "{\"function_id\":{\"type\":\"physical\"},\"network_details\":null,\"network_segment_id\":\"91609f10-c91d-470d-a260-6293ea0c1200\",\"ip_addrs\":{\"91609f10-c91d-470d-a260-6293ea0c1201\":\"192.168.1.2\"},\"interface_prefixes\":{\"91609f10-c91d-470d-a260-6293ea0c1201\":\"192.168.1.2/32\"},\"network_segment_gateways\":{},\"host_inband_mac_address\":null}"
+            r#"{"function_id":{"type":"physical"},"network_details":null,"network_segment_id":"91609f10-c91d-470d-a260-6293ea0c1200","ip_addrs":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2"},"interface_prefixes":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2/32"},"network_segment_gateways":{},"host_inband_mac_address":null,"device_locator":null,"internal_uuid":"37c3dc65-9aef-4439-b7ca-d532a0a41d7f"}"#
         );
 
         assert_eq!(
@@ -769,7 +864,7 @@ mod tests {
     /// Creates a valid instance network configuration using the maximum
     /// amount of interface
     const BASE_SEGMENT_ID: uuid::Uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c0000");
-    fn offset_segment_id(offset: usize) -> NetworkSegmentId {
+    fn offset_segment_id(offset: u8) -> NetworkSegmentId {
         uuid::Uuid::from_u128(BASE_SEGMENT_ID.as_u128() + offset as u128).into()
     }
 
@@ -777,7 +872,7 @@ mod tests {
         let interfaces: Vec<InstanceInterfaceConfig> = InterfaceFunctionId::iter_all()
             .enumerate()
             .map(|(idx, function_id)| {
-                let network_segment_id = offset_segment_id(idx);
+                let network_segment_id = offset_segment_id(idx as u8);
                 InstanceInterfaceConfig {
                     function_id,
                     network_segment_id: Some(network_segment_id),
@@ -786,6 +881,8 @@ mod tests {
                     network_segment_gateways: HashMap::default(),
                     host_inband_mac_address: None,
                     network_details: None,
+                    device_locator: None,
+                    internal_uuid: uuid::Uuid::new_v4(),
                 }
             })
             .collect();
@@ -800,6 +897,8 @@ mod tests {
                 function_type: rpc::InterfaceFunctionType::Physical as _,
                 network_segment_id: Some(NetworkSegmentId::from(BASE_SEGMENT_ID).into()),
                 network_details: None,
+                device: None,
+                device_instance: 0u32,
             }],
         };
 
@@ -814,6 +913,8 @@ mod tests {
                 network_segment_gateways: HashMap::new(),
                 host_inband_mac_address: None,
                 network_details: Some(NetworkDetails::NetworkSegment(BASE_SEGMENT_ID.into()),),
+                device_locator: None,
+                internal_uuid: netconfig.interfaces.first().unwrap().internal_uuid,
             }]
         );
     }
@@ -824,18 +925,23 @@ mod tests {
             function_type: rpc::InterfaceFunctionType::Physical as _,
             network_segment_id: Some(BASE_SEGMENT_ID.into()),
             network_details: None,
+            device: None,
+            device_instance: 0u32,
         }];
         for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
             interfaces.push(rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as _,
                 network_segment_id: Some(offset_segment_id(vfid + 1).into()),
                 network_details: None,
+                device: None,
+                device_instance: 0u32,
             });
         }
 
         let config = rpc::InstanceNetworkConfig { interfaces };
-
         let netconfig: InstanceNetworkConfig = config.try_into().unwrap();
+        let mut netconf_interfaces_iter = netconfig.interfaces.iter();
+
         let mut expected_interfaces = vec![InstanceInterfaceConfig {
             function_id: InterfaceFunctionId::Physical {},
             network_segment_id: Some(BASE_SEGMENT_ID.into()),
@@ -844,18 +950,22 @@ mod tests {
             network_segment_gateways: HashMap::new(),
             host_inband_mac_address: None,
             network_details: Some(NetworkDetails::NetworkSegment(BASE_SEGMENT_ID.into())),
+            device_locator: None,
+            internal_uuid: netconf_interfaces_iter.next().unwrap().internal_uuid,
         }];
 
         for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
             let segment_id = offset_segment_id(vfid + 1);
             expected_interfaces.push(InstanceInterfaceConfig {
-                function_id: InterfaceFunctionId::Virtual { id: vfid as u8 },
+                function_id: InterfaceFunctionId::Virtual { id: vfid },
                 network_segment_id: Some(segment_id),
                 ip_addrs: HashMap::new(),
                 interface_prefixes: HashMap::new(),
                 network_segment_gateways: HashMap::new(),
                 host_inband_mac_address: None,
                 network_details: Some(NetworkDetails::NetworkSegment(segment_id)),
+                device_locator: None,
+                internal_uuid: netconf_interfaces_iter.next().unwrap().internal_uuid,
             });
         }
         assert_eq!(netconfig.interfaces, &expected_interfaces[..]);
@@ -883,13 +993,15 @@ mod tests {
         // Missing virtual functions (except the last)
         for idx in 1..=INTERFACE_VFID_MAX {
             let mut config = create_valid_network_config();
-            config.interfaces.swap_remove(idx);
+            config.interfaces.swap_remove(idx as usize);
             assert!(config.validate().is_err());
         }
 
         // The last virtual function is ok to be missing
         let mut config = create_valid_network_config();
-        config.interfaces.swap_remove(INTERFACE_VFID_MAX + 1);
+        config
+            .interfaces
+            .swap_remove(INTERFACE_VFID_MAX as usize + 1);
         config.validate().unwrap();
 
         // Duplicate network segment

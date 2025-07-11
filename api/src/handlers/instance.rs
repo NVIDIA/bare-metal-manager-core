@@ -603,7 +603,9 @@ pub(crate) async fn update_instance_config(
     request: tonic::Request<rpc::InstanceConfigUpdateRequest>,
 ) -> Result<tonic::Response<rpc::Instance>, Status> {
     log_request_data(&request);
+
     let request = request.into_inner();
+
     let instance_id = InstanceId::from_grpc(request.instance_id.clone())?;
 
     let mut config: InstanceConfig = match request.config {

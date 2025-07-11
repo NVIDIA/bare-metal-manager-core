@@ -206,6 +206,9 @@ pub enum CarbideError {
         /// The actual BMC MAC address found associated with the endpoint IP
         err: EndpointExplorationError,
     },
+
+    #[error("Failed to map device to dpu: {0}")]
+    DpuMappingError(String),
 }
 
 impl CarbideError {

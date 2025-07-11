@@ -787,8 +787,8 @@
       "mac_address": "08:c0:eb:cb:0e:96",
       "pci_properties": {
         "path": "/devices/pci0000:b0/0000:b0:04.0/0000:b1:00.0/net/enp177s0f0np0",
-        "device": "0xa2d6",
-        "vendor": "0x15b3",
+        "device": "BlueField SoC",
+        "vendor": "mellanox",
         "numa_node": 1,
         "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
       }
@@ -797,8 +797,8 @@
       "mac_address": "08:c0:eb:cb:0e:97",
       "pci_properties": {
         "path": "/devices/pci0000:b0/0000:b0:04.0/0000:b1:00.1/net/enp177s0f1np1",
-        "device": "0xa2d6",
-        "vendor": "0x15b3",
+        "device": "BlueField SoC",
+        "vendor": "mellanox",
         "numa_node": 1,
         "description": "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"
       }
