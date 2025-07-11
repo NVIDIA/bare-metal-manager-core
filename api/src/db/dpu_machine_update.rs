@@ -247,7 +247,6 @@ impl DpuMachineUpdate {
         let updated_machines: Vec<DpuMachineUpdate> = snapshots
             .into_iter()
             .filter_map(|(machine_id, managed_host)| {
-                tracing::info!("Checking {} for update completion", machine_id);
                 // Skip looking at any machines that are not marked for updates
                 if !managed_host
                     .host_snapshot
