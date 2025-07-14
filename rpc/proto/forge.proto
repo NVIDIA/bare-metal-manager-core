@@ -470,6 +470,8 @@ service Forge {
   rpc DisableSecureBoot(BmcEndpointRequest) returns (DisableSecureBootResponse);
   // Start Forge Setup
   rpc ForgeSetup(ForgeSetupRequest) returns (ForgeSetupResponse);
+  // Set DPU as first boot option
+  rpc SetDpuFirstBootOrder(SetDpuFirstBootOrderRequest) returns (SetDpuFirstBootOrderResponse);
 
   // On demand Machine-Validation
   rpc OnDemandMachineValidation(MachineValidationOnDemandRequest) returns (MachineValidationOnDemandResponse);
@@ -2668,9 +2670,19 @@ message ForgeSetupStatusRequest {
 message ForgeSetupRequest {
   optional BmcEndpointRequest bmc_endpoint_request = 1;
   optional string machine_id = 2;
+  optional string boot_interface_mac = 3;
 }
 
 message ForgeSetupResponse {
+}
+
+message SetDpuFirstBootOrderRequest {
+  optional BmcEndpointRequest bmc_endpoint_request = 1;
+  optional string machine_id = 2;
+  optional string boot_interface_mac = 3;
+}
+
+message SetDpuFirstBootOrderResponse {
 }
 
 // Must provide either machine_id or ip/mac pair

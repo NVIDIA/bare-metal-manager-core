@@ -122,6 +122,15 @@ impl EndpointExplorer for MockEndpointExplorer {
         Ok(())
     }
 
+    async fn set_boot_order_dpu_first(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        _boot_interface_mac: &str,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
     async fn set_nic_mode(
         &self,
         _address: SocketAddr,

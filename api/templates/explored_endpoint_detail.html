@@ -112,11 +112,19 @@
 			<div>
 				<em>Current Status</em> - {{ forge_setup_status }}
 			</div>
-			<div>
-				<form id="forge_setup" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/forge-setup">
-					<input type="submit" value="Forge Setup">
-				</form>
-			</div>
+					<div>
+			<form id="forge_setup" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/forge-setup">
+				<div style="display: flex; gap: 8px; align-items: center;">
+					{% if is_dell_endpoint %}
+					<input type="text" id="boot_interface_mac" name="boot_interface_mac" 
+						   placeholder="Boot Interface MAC"
+						   title="Enter a valid MAC address (e.g. 00:11:22:33:44:55)"
+						   required>
+					{% endif %}
+					<input type="submit" value="Forge Setup" class="disabled">
+				</div>
+			</form>
+		</div>
 		</td>
 	</tr>
 	<tr>
@@ -162,6 +170,17 @@
 	<tr>
 		<th>Boot Order</th>
 		<td>
+			<div style="margin-bottom: 12px;">
+				<form method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/set-dpu-first-boot-order">
+					<div style="display: flex; gap: 8px; align-items: center;">
+						<input type="text" name="boot_interface_mac" 
+							   placeholder="Boot Interface MAC"
+							   title="Enter a valid MAC address (e.g. 00:11:22:33:44:55)"
+							   required>
+						<input type="submit" value="Set DPU First">
+					</div>
+				</form>
+			</div>
 			<div style="max-height: 300px; overflow: auto;">
 				<pre><code>{{ system.boot_order|boot_order_fmt }}</code></pre>
 			</div>

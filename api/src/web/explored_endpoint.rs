@@ -368,6 +368,7 @@ struct ExploredEndpointDetail {
     credentials_set: String,
     has_machine: bool,
     secure_boot_status: String,
+    is_dell_endpoint: bool,
 }
 struct ExploredEndpointInfo {
     endpoint: ExploredEndpoint,
@@ -378,6 +379,13 @@ struct ExploredEndpointInfo {
 impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
     fn from(endpoint_info: ExploredEndpointInfo) -> Self {
         let report_ref = endpoint_info.endpoint.report.as_ref();
+
+        // Check if this is a Dell endpoint
+        let is_dell_endpoint = report_ref
+            .and_then(|report| report.vendor.as_ref())
+            .map(|vendor| vendor.to_lowercase() == "dell")
+            .unwrap_or(false);
+
         Self {
             last_exploration_error: report_ref
                 .and_then(|report| report.last_exploration_error.clone())
@@ -394,6 +402,7 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
             endpoint: endpoint_info.endpoint,
             credentials_set: endpoint_info.credentials_set,
             has_machine: endpoint_info.has_machine,
+            is_dell_endpoint,
         }
     }
 }
@@ -677,6 +686,16 @@ pub struct BmcResetEndpointAction {
     use_ipmi: Option<String>,
 }
 
+#[derive(Deserialize, Debug)]
+pub struct ForgeSetupAction {
+    boot_interface_mac: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct DpuFirstBootOrderAction {
+    boot_interface_mac: Option<String>,
+}
+
 pub async fn clear_last_exploration_error(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
@@ -760,8 +779,27 @@ pub async fn disable_secure_boot(
 pub async fn forge_setup(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
+    Form(form): Form<ForgeSetupAction>,
 ) -> Response {
     let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
+
+    let boot_interface_mac = form
+        .boot_interface_mac
+        .as_ref()
+        .filter(|mac| !mac.trim().is_empty())
+        .map(|mac| mac.trim().to_string());
+
+    // Validate MAC address format if provided
+    if let Some(ref mac) = boot_interface_mac {
+        if mac.parse::<mac_address::MacAddress>().is_err() {
+            tracing::error!(endpoint_ip = %endpoint_ip, mac_address = %mac, "Invalid MAC address format");
+            return (
+                StatusCode::BAD_REQUEST,
+                "Invalid MAC address format. Expected format: 00:11:22:33:44:55",
+            )
+                .into_response();
+        }
+    }
 
     if let Err(err) = state
         .forge_setup(tonic::Request::new(rpc::forge::ForgeSetupRequest {
@@ -770,11 +808,58 @@ pub async fn forge_setup(
                 ip_address: endpoint_ip.clone(),
                 mac_address: None,
             }),
+            boot_interface_mac,
         }))
         .await
         .map(|response| response.into_inner())
     {
         tracing::error!(%err, endpoint_ip = %endpoint_ip, "bmc_forge_setup");
+        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+    }
+
+    Redirect::to(&view_url).into_response()
+}
+
+pub async fn set_dpu_first_boot_order(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(endpoint_ip): AxumPath<String>,
+    Form(form): Form<DpuFirstBootOrderAction>,
+) -> Response {
+    let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
+
+    let boot_interface_mac = form
+        .boot_interface_mac
+        .as_ref()
+        .filter(|mac| !mac.trim().is_empty())
+        .map(|mac| mac.trim().to_string());
+
+    // Validate MAC address format if provided
+    if let Some(ref mac) = boot_interface_mac {
+        if mac.parse::<mac_address::MacAddress>().is_err() {
+            tracing::error!(endpoint_ip = %endpoint_ip, mac_address = %mac, "Invalid MAC address format");
+            return (
+                StatusCode::BAD_REQUEST,
+                "Invalid MAC address format. Expected format - 00:11:22:33:44:55",
+            )
+                .into_response();
+        }
+    }
+
+    if let Err(err) = state
+        .set_dpu_first_boot_order(tonic::Request::new(
+            rpc::forge::SetDpuFirstBootOrderRequest {
+                machine_id: None,
+                bmc_endpoint_request: Some(BmcEndpointRequest {
+                    ip_address: endpoint_ip.clone(),
+                    mac_address: None,
+                }),
+                boot_interface_mac,
+            },
+        ))
+        .await
+        .map(|response| response.into_inner())
+    {
+        tracing::error!(%err, endpoint_ip = %endpoint_ip, "set_dpu_first_boot_order");
         return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
     }
 
