@@ -608,6 +608,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                     })),
                     device: None,
                     device_instance: 0,
+                    virtual_function_id: None
                 }],
             }),
             infiniband: None,

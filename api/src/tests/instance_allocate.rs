@@ -225,6 +225,7 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
                         network_details: None,
                         device: None,
                         device_instance: 0u32,
+                        virtual_function_id: None,
                     }],
                 }),
                 infiniband: None,
@@ -588,6 +589,7 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
                         network_details: None,
                         device: None,
                         device_instance: 0u32,
+                        virtual_function_id: None,
                     }],
                 }),
                 network_security_group_id: None,
@@ -788,6 +790,7 @@ async fn test_single_dpu_instance_allocation(
                         network_details: None,
                         device: None,
                         device_instance: 0,
+                        virtual_function_id: Some(0),
                     }],
                 }),
 

@@ -165,6 +165,7 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
             network_details: Some(NetworkDetails::SegmentId(segment_id.into())),
             device: None,
             device_instance: 0,
+            virtual_function_id: None,
         }],
     }
 }
@@ -182,6 +183,7 @@ pub fn interface_network_config_with_devices(
             network_details: Some(NetworkDetails::SegmentId((*segment_id).into())),
             device: Some(dl.device.clone()),
             device_instance: dl.device_instance as u32,
+            virtual_function_id: None,
         })
         .collect();
     rpc::InstanceNetworkConfig { interfaces }
@@ -197,6 +199,7 @@ pub fn single_interface_network_config_with_vpc_prefix(
             network_details: Some(NetworkDetails::VpcPrefixId(prefix_id)),
             device: None,
             device_instance: 0u32,
+            virtual_function_id: None,
         }],
     }
 }

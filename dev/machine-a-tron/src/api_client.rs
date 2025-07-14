@@ -297,6 +297,7 @@ impl ApiClient {
                 .map(rpc::forge::instance_interface_config::NetworkDetails::SegmentId),
             device: None,
             device_instance: 0,
+            virtual_function_id: None,
         };
 
         let tenant_config = rpc::TenantConfig {

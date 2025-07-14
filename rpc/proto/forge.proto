@@ -1698,6 +1698,12 @@ message InstanceInterfaceConfig {
   // Forge will the above strategy to achieve deterministic device selection
   // via `device_instance`.
   uint32 device_instance = 8;
+  
+  // If the interface is defined as a virtual function (associated
+  // `InstanceInterfaceConfig.function_type == InterfaceFunctionType::VIRTUAL_FUNCTION`,
+  // then this value is set and specifies the virtual function ID that is configured
+  // for this network interface.
+  optional uint32 virtual_function_id = 9;
 }
 
 // The configuration that a customer desires for an instances IB interface

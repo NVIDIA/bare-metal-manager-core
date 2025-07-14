@@ -101,6 +101,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
             network_details: None,
             device: None,
             device_instance: 0u32,
+            virtual_function_id: None,
         }],
     });
     let (_instance_id, _instance) = instance::create_instance(
