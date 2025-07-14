@@ -3173,7 +3173,7 @@ impl Forge for Api {
         let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
-            req.machine_id,
+            req.machine_id.clone(),
         )
         .await?;
 
@@ -3190,12 +3190,76 @@ impl Forge for Api {
 
         tracing::info!("Starting Forge Setup for BMC: {}", endpoint_address);
 
-        crate::handlers::bmc_endpoint_explorer::forge_setup(self, bmc_endpoint_request.clone())
-            .await?;
+        crate::handlers::bmc_endpoint_explorer::forge_setup(
+            self,
+            rpc::ForgeSetupRequest {
+                bmc_endpoint_request: Some(bmc_endpoint_request.clone()),
+                machine_id: req.machine_id,
+                boot_interface_mac: req.boot_interface_mac,
+            },
+        )
+        .await?;
 
         tracing::info!("Forge Setup request succeeded to {}", endpoint_address);
 
         Ok(Response::new(rpc::ForgeSetupResponse {}))
+    }
+
+    async fn set_dpu_first_boot_order(
+        &self,
+        request: tonic::Request<rpc::SetDpuFirstBootOrderRequest>,
+    ) -> Result<Response<::rpc::forge::SetDpuFirstBootOrderResponse>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin set_dpu_first_boot_order",
+                e,
+            ))
+        })?;
+
+        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
+            &mut txn,
+            req.bmc_endpoint_request,
+            req.machine_id.clone(),
+        )
+        .await?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit set_dpu_first_boot_order",
+                e,
+            ))
+        })?;
+
+        let endpoint_address = bmc_endpoint_request.ip_address.clone();
+
+        tracing::info!(
+            "Setting DPU first in boot order for BMC: {}",
+            endpoint_address
+        );
+
+        crate::handlers::bmc_endpoint_explorer::set_dpu_first_boot_order(
+            self,
+            rpc::SetDpuFirstBootOrderRequest {
+                bmc_endpoint_request: Some(bmc_endpoint_request.clone()),
+                machine_id: req.machine_id,
+                boot_interface_mac: req.boot_interface_mac,
+            },
+        )
+        .await?;
+
+        tracing::info!(
+            "Set DPU first in boot order request succeeded to {}",
+            endpoint_address
+        );
+
+        Ok(Response::new(rpc::SetDpuFirstBootOrderResponse {}))
     }
 
     /// Should this DPU upgrade it's forge-dpu-agent?

@@ -271,6 +271,21 @@ impl BmcEndpointExplorer {
             .await
     }
 
+    pub async fn set_boot_order_dpu_first(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+        boot_interface_mac: &str,
+    ) -> Result<(), EndpointExplorationError> {
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        self.redfish_client
+            .set_boot_order_dpu_first(bmc_ip_address, username, password, boot_interface_mac)
+            .await
+    }
+
     pub async fn set_nic_mode(
         &self,
         bmc_ip_address: SocketAddr,
@@ -662,6 +677,30 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 tracing::info!(
                     %bmc_ip_address,
                     "BMC endpoint explorer does not support starting forge_setup for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    bmc_mac_address,
+                );
+                Err(e)
+            }
+        }
+    }
+
+    async fn set_boot_order_dpu_first(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        boot_interface_mac: &str,
+    ) -> Result<(), EndpointExplorationError> {
+        let bmc_mac_address = interface.mac_address;
+
+        match self.get_bmc_root_credentials(bmc_mac_address).await {
+            Ok(credentials) => {
+                self.set_boot_order_dpu_first(bmc_ip_address, credentials, boot_interface_mac)
+                    .await
+            }
+            Err(e) => {
+                tracing::info!(
+                    %bmc_ip_address,
+                    "BMC endpoint explorer does not support configuring the boot order on host BMCs that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
                     bmc_mac_address,
                 );
                 Err(e)

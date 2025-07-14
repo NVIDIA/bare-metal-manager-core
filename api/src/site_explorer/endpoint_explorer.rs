@@ -81,6 +81,13 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         boot_interface_mac: Option<&str>,
     ) -> Result<(), EndpointExplorationError>;
 
+    async fn set_boot_order_dpu_first(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        boot_interface_mac: &str,
+    ) -> Result<(), EndpointExplorationError>;
+
     async fn set_nic_mode(
         &self,
         address: SocketAddr,

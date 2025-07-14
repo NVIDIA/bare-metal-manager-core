@@ -262,6 +262,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 post(explored_endpoint::forge_setup),
             )
             .route(
+                "/explored-endpoint/:endpoint_ip/set-dpu-first-boot-order",
+                post(explored_endpoint::set_dpu_first_boot_order),
+            )
+            .route(
                 "/explored-endpoint/:endpoint_ip/clear-credentials",
                 post(explored_endpoint::clear_bmc_credentials),
             )

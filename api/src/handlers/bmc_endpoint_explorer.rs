@@ -133,13 +133,45 @@ pub(crate) async fn disable_secure_boot(
 
 pub(crate) async fn forge_setup(
     api: &Api,
-    request: ::rpc::forge::BmcEndpointRequest,
+    request: ::rpc::forge::ForgeSetupRequest,
 ) -> Result<Response<()>, tonic::Status> {
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
+    let bmc_endpoint_request = request
+        .bmc_endpoint_request
+        .ok_or_else(|| tonic::Status::invalid_argument("bmc_endpoint_request is required"))?;
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
     api.endpoint_explorer
-        .forge_setup(bmc_addr, &machine_interface, None)
+        .forge_setup(
+            bmc_addr,
+            &machine_interface,
+            request.boot_interface_mac.as_deref(),
+        )
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    Ok(Response::new(()))
+}
+
+pub(crate) async fn set_dpu_first_boot_order(
+    api: &Api,
+    request: ::rpc::forge::SetDpuFirstBootOrderRequest,
+) -> Result<Response<()>, tonic::Status> {
+    let bmc_endpoint_request = request
+        .bmc_endpoint_request
+        .ok_or_else(|| tonic::Status::invalid_argument("bmc_endpoint_request is required"))?;
+
+    let boot_interface_mac = request
+        .boot_interface_mac
+        .as_ref()
+        .filter(|mac| !mac.trim().is_empty())
+        .ok_or_else(|| tonic::Status::invalid_argument("boot_interface_mac is required"))?;
+
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    api.endpoint_explorer
+        .set_boot_order_dpu_first(bmc_addr, &machine_interface, boot_interface_mac)
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 

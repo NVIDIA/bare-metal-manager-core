@@ -345,6 +345,26 @@ impl RedfishClient {
         Ok(())
     }
 
+    pub async fn set_boot_order_dpu_first(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+        boot_interface_mac: &str,
+    ) -> Result<(), EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client
+            .set_boot_order_dpu_first(boot_interface_mac)
+            .await
+            .map_err(map_redfish_error)?;
+
+        Ok(())
+    }
+
     pub async fn set_nic_mode(
         &self,
         bmc_ip_address: SocketAddr,

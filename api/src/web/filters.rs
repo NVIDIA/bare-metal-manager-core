@@ -196,6 +196,7 @@ pub fn boot_order_fmt(
 
     Ok(json_result
         .trim_matches(|c| c == '{' || c == '}')
+        .trim()
         .to_string())
 }
 
