@@ -80,7 +80,7 @@ use itertools::Itertools;
 use mac_address::MacAddress;
 
 use rpc::{
-    InstanceReleaseRequest, Timestamp,
+    InstanceReleaseRequest, InterfaceFunctionType, Timestamp,
     forge::{NetworkSegmentSearchFilter, OperatingSystem, TpmCaCert, TpmCaCertId},
 };
 use tonic::Request;
@@ -1136,6 +1136,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
                 network_details: None,
                 device: None,
                 device_instance: 0u32,
+                virtual_function_id: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -1143,6 +1144,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
                 network_details: None,
                 device: None,
                 device_instance: 0u32,
+                virtual_function_id: None,
             },
         ],
     });
@@ -2134,6 +2136,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
                 network_details: None,
                 device: None,
                 device_instance: 0u32,
+                virtual_function_id: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -2141,6 +2144,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
                 network_details: None,
                 device: None,
                 device_instance: 0u32,
+                virtual_function_id: None,
             },
         ],
     });
@@ -2708,6 +2712,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
             ),
             device: None,
             device_instance: 0u32,
+            virtual_function_id: None,
         }],
     };
 
@@ -3695,6 +3700,7 @@ async fn test_network_details_migration(
                         network_details: None,
                         device: None,
                         device_instance: 0,
+                        virtual_function_id: None,
                     }],
                 }),
                 infiniband: None,
@@ -3782,6 +3788,7 @@ async fn test_network_details_migration(
                         ),
                         device: None,
                         device_instance: 0,
+                        virtual_function_id: None,
                     }],
                 }),
                 infiniband: None,
@@ -3850,6 +3857,7 @@ async fn test_network_details_migration(
                         ),
                         device: None,
                         device_instance: 0,
+                        virtual_function_id: None,
                     }],
                 }),
                 infiniband: None,
@@ -4024,6 +4032,7 @@ async fn test_allocate_and_update_network_config_instance(
             ),
             device: None,
             device_instance: 0,
+            virtual_function_id: None,
         }],
     };
 
@@ -4209,6 +4218,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                 ),
                 device: None,
                 device_instance: 0,
+                virtual_function_id: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -4220,6 +4230,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                 ),
                 device: None,
                 device_instance: 0,
+                virtual_function_id: None,
             },
         ],
     };
@@ -4314,79 +4325,144 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
     assert_eq!(current_ip, updated_config_ip);
 }
 
+// IP should not be changed.
+// deleted vf id must not be present.
 #[crate::sqlx_test]
-async fn test_allocate_and_update_network_config_instance_delete_vf(
+async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
     _: PgPoolOptions,
     options: PgConnectOptions,
 ) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
-    let (segment_id, segment_id2) = env.create_vpc_and_dual_tenant_segment().await;
+    let _segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let mut txn = env
-        .pool
-        .begin()
+    let initial_os = rpc::forge::OperatingSystem {
+        phone_home_enabled: false,
+        run_provisioning_instructions_on_every_boot: false,
+        user_data: Some("SomeRandomData1".to_string()),
+        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+            rpc::forge::IpxeOperatingSystem {
+                ipxe_script: "SomeRandomiPxe1".to_string(),
+                user_data: Some("SomeRandomData1".to_string()),
+            },
+        )),
+    };
+    let ip_prefix = "192.0.5.0/25";
+    let vpc_id = get_vpc_fixture_id(&env).await;
+    let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
+        id: None,
+        prefix: ip_prefix.into(),
+        name: "Test VPC prefix".into(),
+        vpc_id: Some(vpc_id.into()),
+    };
+    let request = Request::new(new_vpc_prefix);
+    let response = env
+        .api
+        .create_vpc_prefix(request)
         .await
-        .expect("Unable to create transaction on database pool");
+        .unwrap()
+        .into_inner();
 
-    assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
-            .await
-            .unwrap(),
-        0
-    );
-    assert!(matches!(
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
-        ManagedHostState::Ready
-    ));
-    txn.commit().await.unwrap();
-
-    let network_config = rpc::InstanceNetworkConfig {
+    let network = rpc::InstanceNetworkConfig {
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
                 network_segment_id: None,
-                network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                        segment_id.into(),
-                    ),
-                ),
+                network_details: response
+                    .id
+                    .clone()
+                    .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
+                virtual_function_id: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
-                network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                        segment_id2.into(),
-                    ),
-                ),
+                network_details: response
+                    .id
+                    .clone()
+                    .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
+                virtual_function_id: Some(0),
+            },
+            rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+                network_segment_id: None,
+                network_details: response
+                    .id
+                    .clone()
+                    .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                device: None,
+                device_instance: 0,
+                virtual_function_id: Some(1),
+            },
+            rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+                network_segment_id: None,
+                network_details: response
+                    .id
+                    .clone()
+                    .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                device: None,
+                device_instance: 0,
+                virtual_function_id: Some(2),
             },
         ],
     };
 
-    let (instance_id, _instance) = create_instance(
+    let initial_config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(initial_os.clone()),
+        network: Some(network.clone()),
+        infiniband: None,
+        storage: None,
+        network_security_group_id: None,
+    };
+
+    let initial_metadata = rpc::Metadata {
+        name: "Name1".to_string(),
+        description: "Desc1".to_string(),
+        labels: vec![],
+    };
+
+    let (instance_id, _instance) = create_instance_with_config(
         &env,
         &[dpu_machine_id],
         &host_machine_id,
-        Some(network_config),
-        None,
-        None,
-        vec![],
+        initial_config.clone(),
+        Some(initial_metadata.clone()),
     )
     .await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);
     let instance = instances.remove(0);
+
+    assert_eq!(
+        instance.status.as_ref().unwrap().configs_synced(),
+        rpc::forge::SyncState::Synced
+    );
+
+    let interfaces_status = instance.clone().status.unwrap().network.unwrap().interfaces;
+    let old_addresses = interfaces_status
+        .iter()
+        .filter_map(|x| {
+            if let Some(vf_id) = x.virtual_function_id {
+                if vf_id != 1 {
+                    Some(x.addresses.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .flatten()
+        .sorted()
+        .collect_vec();
 
     assert_eq!(
         instance
@@ -4400,83 +4476,75 @@ async fn test_allocate_and_update_network_config_instance_delete_vf(
         rpc::forge::TenantState::Ready
     );
 
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .network
-            .as_ref()
-            .unwrap()
-            .configs_synced,
-        SyncState::Synced as i32
-    );
-
-    let instance_id_rpc = instance.id.clone();
-
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-    let instance = crate::db::instance::Instance::find_by_id(
-        &mut txn,
-        uuid::Uuid::from_str(&instance.id.clone().unwrap().value)
-            .unwrap()
-            .into(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-
-    let current_ip = instance.config.network.interfaces[0]
-        .ip_addrs
-        .values()
-        .collect_vec()
-        .first()
-        .cloned()
-        .cloned()
-        .unwrap();
-
-    txn.rollback().await.unwrap();
-
-    let new_network_config = rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: None,
-            network_details: Some(
-                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id.into()),
-            ),
-            device: None,
-            device_instance: 0,
+    let network = rpc::InstanceNetworkConfig {
+        interfaces: vec![
+            rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                network_segment_id: None,
+                network_details: response
+                    .id
+                    .clone()
+                    .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                device: None,
+                device_instance: 0,
+                virtual_function_id: None,
+            },
+            rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+                network_segment_id: None,
+                network_details: response
+                    .id
+                    .clone()
+                    .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                device: None,
+                device_instance: 0,
+                virtual_function_id: Some(0),
+            },
+            // VF 1 is deleted.
+            rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+                network_segment_id: None,
+                network_details: response
+                    .id
+                    .clone()
+                    .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                device: None,
+                device_instance: 0,
+                virtual_function_id: Some(2),
+            },
+        ],
+    };
+    let mut updated_config_1 = initial_config.clone();
+    updated_config_1.network = Some(network);
+    let updated_metadata_1 = rpc::Metadata {
+        name: "Name2".to_string(),
+        description: "Desc2".to_string(),
+        labels: vec![rpc::forge::Label {
+            key: "Key1".to_string(),
+            value: None,
         }],
     };
 
-    // Now update to change network config.
-    let _ = env
+    let instance = env
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: Some(instance_id.into()),
                 if_version_match: None,
-                config: Some(rpc::InstanceConfig {
-                    tenant: Some(default_tenant_config()),
-                    os: Some(default_os_config()),
-                    network: Some(new_network_config),
-                    infiniband: None,
-                    storage: None,
-                    network_security_group_id: None,
-                }),
-                instance_id: instance_id_rpc,
-                metadata: Some(rpc::forge::Metadata {
-                    name: "newinstance".to_string(),
-                    description: "desc".to_string(),
-                    labels: vec![],
-                }),
+                config: Some(updated_config_1.clone()),
+                metadata: Some(updated_metadata_1.clone()),
             },
         ))
         .await
-        .unwrap();
+        .unwrap()
+        .into_inner();
 
+    assert_eq!(
+        instance.status.as_ref().unwrap().configs_synced(),
+        rpc::forge::SyncState::Pending
+    );
+
+    // SyncState::Synced means network config update is not applicable.
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);
     let instance = instances.remove(0);
@@ -4489,52 +4557,66 @@ async fn test_allocate_and_update_network_config_instance_delete_vf(
             .network
             .as_ref()
             .unwrap()
-            .configs_synced,
-        SyncState::Pending as i32
+            .configs_synced(),
+        rpc::forge::SyncState::Pending
     );
 
+    env.run_machine_state_controller_iteration().await;
+    // Run network state machine handler here.
+    env.run_network_segment_controller_iteration().await;
+
+    env.run_machine_state_controller_iteration().await;
+    network_configured(&env, &vec![dpu_machine_id]).await;
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
     let mut txn = env
         .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let instance = crate::db::instance::Instance::find_by_id(
-        &mut txn,
-        uuid::Uuid::from_str(&instance.id.clone().unwrap().value)
+    let state =
+        crate::db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+            .await
             .unwrap()
-            .into(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+            .unwrap();
+    let state = state.current_state();
+    println!("{state:?}");
+    assert!(matches!(
+        state,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready
+        }
+    ));
 
-    txn.rollback().await.unwrap();
+    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
+    assert_eq!(instances.len(), 1);
+    let instance = instances.remove(0);
 
-    assert!(instance.update_network_config_request.is_some());
-    let update_req = instance.update_network_config_request.unwrap();
+    let interfaces = instance.config.unwrap().network.unwrap().interfaces;
+    let mut vf_ids = interfaces
+        .iter()
+        .filter_map(|x| {
+            if x.function_type == InterfaceFunctionType::Virtual as i32 {
+                x.virtual_function_id
+            } else {
+                None
+            }
+        })
+        .collect_vec();
 
-    assert_eq!(
-        NetworkDetails::NetworkSegment(segment_id),
-        update_req.new_config.interfaces[0]
-            .network_details
-            .clone()
-            .unwrap(),
-    );
+    let interfaces_status = instance.status.unwrap().network.unwrap().interfaces;
+    let addresses = interfaces_status
+        .iter()
+        .filter_map(|x| x.virtual_function_id.map(|_vf_id| x.addresses.clone()))
+        .flatten()
+        .sorted()
+        .collect_vec();
 
-    // VF is deleted.
-    assert_eq!(update_req.new_config.interfaces.len(), 1);
+    vf_ids.sort();
+    let expected = vec![0, 2];
 
-    // The first physical interface IP must not be changed.
-    let updated_config_ip = instance.config.network.interfaces[0]
-        .ip_addrs
-        .values()
-        .collect_vec()
-        .first()
-        .cloned()
-        .cloned()
-        .unwrap();
-
-    assert_eq!(current_ip, updated_config_ip);
+    assert_eq!(expected, vf_ids);
+    assert_eq!(old_addresses, addresses);
 }
 
 #[crate::sqlx_test]
@@ -4619,6 +4701,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
             ),
             device: None,
             device_instance: 0,
+            virtual_function_id: None,
         }],
     };
 
@@ -4763,6 +4846,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                 .map(::rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
             device: None,
             device_instance: 0,
+            virtual_function_id: None,
         }],
     };
 
@@ -4822,6 +4906,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                     .map(::rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
+                virtual_function_id: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -4832,6 +4917,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                     .map(::rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
+                virtual_function_id: None,
             },
         ],
     };
@@ -4990,6 +5076,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
                 ),
                 device: Some("BlueField SoC".to_string()),
                 device_instance: 0,
+                virtual_function_id: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: 0,
@@ -5001,6 +5088,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
                 ),
                 device: Some("BlueField SoC".to_string()),
                 device_instance: 1,
+                virtual_function_id: None,
             },
         ],
     };

@@ -282,6 +282,7 @@ async fn create_vpc_peering(
             network_details: None,
             device: None,
             device_instance: 0,
+            virtual_function_id: None,
         }],
     });
     let (_instance_id, _instance) = instance::create_instance(

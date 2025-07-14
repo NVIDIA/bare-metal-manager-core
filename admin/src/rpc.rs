@@ -1205,6 +1205,7 @@ impl ApiClient {
                     network_details: Some(NetworkDetails::SegmentId(network_segment_id)),
                     device,
                     device_instance,
+                    virtual_function_id: None,
                 })
             }
 
@@ -1248,6 +1249,7 @@ impl ApiClient {
                             })),
                             device: Some(pci_properties.device.clone()),
                             device_instance,
+                            virtual_function_id: None,
                         });
                     }
                 }

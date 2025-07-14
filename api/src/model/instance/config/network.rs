@@ -28,6 +28,7 @@ use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
 use forge_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
+use itertools::Itertools;
 use mac_address::MacAddress;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeMap};
 use sqlx::PgConnection;
@@ -313,10 +314,10 @@ impl InstanceNetworkConfig {
     ) -> Vec<&'a InstanceInterfaceConfig> {
         let mut common_function_ids = Vec::new();
 
-        // This does not handle the deletion case. Suppose we have interfaces [PF, VF1, VF2, VF3, VF4,
-        // VF5]. If a user deletes VF3, but all have IPs from the same `vpc_prefix`, it is not possible
-        // to know if VF3 is deleted or VF5. The VF index is calculated based on the sequence of
-        // VFs, not by some hard-coded VF index provided by the cloud.
+        // Virtual function id does not change during the instance life cycle.
+        // If a VF is deleted, cloud won't send that id to carbide.
+        // e.g. VF configured 0,1,2,3; tenant deletes vf id 2. In this case cloud will forward new
+        // config only with vf id as 0,1,3.
         for interface in &mut self.interfaces {
             let existing_interface = current_config.interfaces.iter().find(|x| {
                 let is_network_same = if interface.network_details.is_some() {
@@ -412,6 +413,89 @@ impl InstanceNetworkConfig {
     }
 }
 
+#[derive(PartialEq)]
+enum VFAllocationType {
+    // Only physical interface is defined. No virtual function is defined.
+    None,
+    // Cloud is sending valid virtual function id.
+    Cloud,
+    // Cloud is sending None for virtual function id. This bis possible in older versions.
+    Carbide,
+}
+
+type DeviceVFIdsMap =
+    HashMap<(Option<String>, u32), Vec<(rpc::InterfaceFunctionType, Option<u32>)>>;
+
+fn validate_virtual_function_ids_and_get_allocation_method(
+    interfaces: &[rpc::InstanceInterfaceConfig],
+) -> Result<VFAllocationType, RpcDataConversionError> {
+    let mut device_vf_ids: DeviceVFIdsMap = HashMap::new();
+
+    // Create grouping based on device and device_instance.
+    interfaces.iter().for_each(|x| {
+        device_vf_ids
+            .entry((x.device.clone(), x.device_instance))
+            .or_default()
+            .push((x.function_type(), x.virtual_function_id))
+    });
+
+    let all_vf_ids = device_vf_ids
+        .values()
+        .flatten()
+        .filter(|x| x.0 == rpc::InterfaceFunctionType::Virtual)
+        .collect_vec();
+
+    if all_vf_ids.is_empty() {
+        // Only Physical interfaces are mentioned.
+        return Ok(VFAllocationType::None);
+    }
+
+    if all_vf_ids.iter().all(|x| x.1.is_none()) {
+        // Virtual function ids are not yet implemented at cloud.
+        return Ok(VFAllocationType::Carbide);
+    }
+
+    if all_vf_ids.iter().any(|x| x.1.is_none()) {
+        // At least one None and one valid virtual_function_id is given. Mix of both is not allowed.
+        return Err(RpcDataConversionError::InvalidValue(
+            "Mix of VF".to_string(),
+            "Mix of valid virtual_function_id and None is found.".to_string(),
+        ));
+    }
+
+    for vf_info in device_vf_ids.values() {
+        let vf_ids = vf_info
+            .iter()
+            .filter_map(|(ft, vf_id)| {
+                if let rpc::InterfaceFunctionType::Virtual = ft {
+                    Some(*vf_id)
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .collect_vec();
+
+        if vf_ids.is_empty() {
+            // Only physical interfaces are provided.
+            // Nothing to validate for this device and device_instance.
+            continue;
+        }
+
+        // Check for duplicate VF ids.
+        let vf_ids_set = vf_ids.iter().collect::<HashSet<&u32>>();
+        if vf_ids.len() != vf_ids_set.len() {
+            return Err(RpcDataConversionError::InvalidValue(
+                "Duplicate VFs".to_string(),
+                "Duplicate VF IDs detected.".to_string(),
+            ));
+        }
+    }
+
+    // All device and device_instance's VF IDs are validated.
+    Ok(VFAllocationType::Cloud)
+}
+
 impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
     type Error = RpcDataConversionError;
 
@@ -419,6 +503,11 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
         // try_from for interfaces:
         let mut assigned_vfs_map: HashMap<(Option<String>, u32), u8> = HashMap::default();
         let mut interfaces = Vec::with_capacity(config.interfaces.len());
+        // Either all virtual ids for VF are None, or all should have some valid values.
+        // virtual_function_id can not be repeated.
+
+        let allocation_type =
+            validate_virtual_function_ids_and_get_allocation_method(&config.interfaces)?;
         for iface in config.interfaces.into_iter() {
             let rpc_iface_type = rpc::InterfaceFunctionType::try_from(iface.function_type)
                 .map_err(|_| {
@@ -435,12 +524,19 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                     // 256 VFs. However that's ok - the `InstanceNetworkConfig.validate()`
                     // call will declare those configs as invalid later on anyway.
                     // We mainly don't want to crash here.
-                    let assigned_vfs = assigned_vfs_map
-                        .entry((iface.device.clone(), iface.device_instance))
-                        .or_insert(0);
-                    let id = InterfaceFunctionId::Virtual { id: *assigned_vfs };
-                    *assigned_vfs = assigned_vfs.saturating_add(1);
-                    id
+                    InterfaceFunctionId::Virtual {
+                        id: if allocation_type == VFAllocationType::Carbide {
+                            let assigned_vfs = assigned_vfs_map
+                                .entry((iface.device.clone(), iface.device_instance))
+                                .or_insert(0);
+                            let id = *assigned_vfs;
+                            *assigned_vfs = assigned_vfs.saturating_add(1);
+                            id
+                        } else {
+                            // Already validated.
+                            iface.virtual_function_id.unwrap_or_default() as u8
+                        },
+                    }
                 }
             };
 
@@ -509,12 +605,18 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
                 None => (None, 0),
             };
 
+            let virtual_function_id = match iface.function_id {
+                InterfaceFunctionId::Physical {} => None,
+                InterfaceFunctionId::Virtual { id } => Some(id as u32),
+            };
+
             interfaces.push(rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::from(function_type) as i32,
                 network_segment_id,
                 network_details,
                 device,
                 device_instance,
+                virtual_function_id,
             });
         }
 
@@ -569,29 +671,32 @@ pub fn validate_interface_function_ids<
         // Note: We can't validate the network segment ID here
     }
 
+    // Now there can be a gap in virtual id. We can only validate that if physical id is given or
+    // not.
     for (device_locator, fids) in &mut used_functions {
-        let mut expected_fid: i32 = -1;
         fids.sort();
-        for actual_fid in fids {
-            match (*actual_fid).cmp(&expected_fid) {
-                std::cmp::Ordering::Less => {
-                    return Err(format!("Duplicate function id found: {}", actual_fid,));
-                }
-                std::cmp::Ordering::Equal => {}
-                std::cmp::Ordering::Greater => {
-                    if expected_fid == -1 {
-                        return Err(format!(
-                            "Missing Physical Function for device {}",
-                            device_locator.cloned().unwrap_or_default(),
-                        ));
-                    }
-                    return Err(format!(
-                        "Gap in function ids found.  Missing VF id {}",
-                        expected_fid,
-                    ));
-                }
+        if let Some(pf) = fids.first() {
+            if *pf != -1 {
+                return Err(format!(
+                    "Missing Physical Function for device {}",
+                    device_locator.cloned().unwrap_or_default(),
+                ));
             }
-            expected_fid += 1;
+        } else {
+            return Err(format!(
+                "No Function is given for device {}",
+                device_locator.cloned().unwrap_or_default(),
+            ));
+        };
+
+        let fids_hash: HashSet<i32> = HashSet::from_iter(fids.iter().cloned());
+        if fids.len() != fids_hash.len() {
+            // Duplicate function ids are present.
+            return Err(format!(
+                "Duplicate fucntion ids are present for device {}: {:?}",
+                device_locator.cloned().unwrap_or_default(),
+                fids
+            ));
         }
     }
 
@@ -900,6 +1005,7 @@ mod tests {
                 network_details: None,
                 device: None,
                 device_instance: 0u32,
+                virtual_function_id: None,
             }],
         };
 
@@ -928,6 +1034,7 @@ mod tests {
             network_details: None,
             device: None,
             device_instance: 0u32,
+            virtual_function_id: None,
         }];
         for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
             interfaces.push(rpc::InstanceInterfaceConfig {
@@ -936,6 +1043,7 @@ mod tests {
                 network_details: None,
                 device: None,
                 device_instance: 0u32,
+                virtual_function_id: None,
             });
         }
 
@@ -991,13 +1099,7 @@ mod tests {
         config.interfaces.swap_remove(0);
         assert!(config.validate().is_err());
 
-        // Missing virtual functions (except the last)
-        for idx in 1..=INTERFACE_VFID_MAX {
-            let mut config = create_valid_network_config();
-            config.interfaces.swap_remove(idx as usize);
-            assert!(config.validate().is_err());
-        }
-
+        // Missing virtual function id in between is now a valid scenario.
         // The last virtual function is ok to be missing
         let mut config = create_valid_network_config();
         config
@@ -1012,5 +1114,150 @@ mod tests {
         config.interfaces[0].network_segment_id = Some(DUPLICATE_SEGMENT_ID.into());
         config.interfaces[1].network_segment_id = Some(DUPLICATE_SEGMENT_ID.into());
         assert!(config.validate().is_err());
+    }
+
+    fn get_rpc_instance_network_config() -> Vec<rpc::InstanceInterfaceConfig> {
+        vec![
+            rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                network_segment_id: None,
+                virtual_function_id: None,
+                network_details: Some(
+                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(rpc::Uuid {
+                        value: offset_segment_id(0).to_string(),
+                    }),
+                ),
+                device: None,
+                device_instance: 0u32,
+            },
+            rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+                network_segment_id: None,
+                virtual_function_id: Some(0),
+                network_details: Some(
+                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(rpc::Uuid {
+                        value: offset_segment_id(1).to_string(),
+                    }),
+                ),
+                device: None,
+                device_instance: 0u32,
+            },
+            rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+                network_segment_id: None,
+                virtual_function_id: Some(1),
+                network_details: Some(
+                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(rpc::Uuid {
+                        value: offset_segment_id(2).to_string(),
+                    }),
+                ),
+                device: None,
+                device_instance: 0u32,
+            },
+            rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+                network_segment_id: None,
+                virtual_function_id: Some(2),
+                network_details: Some(
+                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(rpc::Uuid {
+                        value: offset_segment_id(3).to_string(),
+                    }),
+                ),
+                device: None,
+                device_instance: 0u32,
+            },
+        ]
+    }
+
+    #[test]
+    fn test_validate_virtual_function_ids() {
+        let interfaces = get_rpc_instance_network_config();
+
+        let network_config = rpc::InstanceNetworkConfig { interfaces };
+        let network_config: InstanceNetworkConfig = network_config.try_into().unwrap();
+
+        let vf_ids = network_config.interfaces.iter().filter_map(|x| {
+            if let InterfaceFunctionId::Virtual { id } = x.function_id {
+                Some(id)
+            } else {
+                None
+            }
+        });
+
+        let vf_ids = vf_ids.sorted().collect_vec();
+
+        // All VF ids should be present after converting.
+        let expected = vec![0, 1, 2];
+        assert_eq!(expected, vf_ids);
+    }
+
+    #[test]
+    fn test_validate_virtual_function_ids_missing_1() {
+        let mut interfaces = get_rpc_instance_network_config();
+        interfaces.remove(2);
+
+        let network_config = rpc::InstanceNetworkConfig { interfaces };
+        let network_config: InstanceNetworkConfig = network_config.try_into().unwrap();
+
+        let vf_ids = network_config.interfaces.iter().filter_map(|x| {
+            if let InterfaceFunctionId::Virtual { id } = x.function_id {
+                Some(id)
+            } else {
+                None
+            }
+        });
+
+        let vf_ids = vf_ids.sorted().collect_vec();
+
+        // Since vf_id: 1 is removed, it should not be present in the parsed config.
+        let expected = vec![0, 2];
+        assert_eq!(expected, vf_ids);
+    }
+
+    #[test]
+    fn test_validate_virtual_function_ids_only_physical() {
+        let mut interfaces = get_rpc_instance_network_config();
+        interfaces = vec![interfaces[0].clone()];
+
+        let network_config = rpc::InstanceNetworkConfig { interfaces };
+        let network_config: InstanceNetworkConfig = network_config.try_into().unwrap();
+
+        let vf_ids = network_config
+            .interfaces
+            .iter()
+            .filter_map(|x| {
+                if let InterfaceFunctionId::Virtual { id } = x.function_id {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .collect_vec();
+
+        assert!(vf_ids.is_empty());
+    }
+
+    #[test]
+    fn test_validate_virtual_function_ids_duplicate() {
+        let mut interfaces = get_rpc_instance_network_config();
+        interfaces[2].virtual_function_id = Some(0);
+
+        let network_config = rpc::InstanceNetworkConfig { interfaces };
+        let network_config: Result<InstanceNetworkConfig, RpcDataConversionError> =
+            network_config.try_into();
+
+        assert!(network_config.is_err());
+    }
+
+    #[test]
+    fn test_validate_virtual_function_ids_mix() {
+        let mut interfaces = get_rpc_instance_network_config();
+        interfaces[2].virtual_function_id = None;
+
+        let network_config = rpc::InstanceNetworkConfig { interfaces };
+        let network_config: Result<InstanceNetworkConfig, RpcDataConversionError> =
+            network_config.try_into();
+
+        assert!(network_config.is_err());
     }
 }

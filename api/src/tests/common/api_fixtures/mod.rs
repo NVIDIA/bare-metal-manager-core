@@ -200,6 +200,11 @@ lazy_static! {
             FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[9].prefix(),
         )
         .unwrap(),
+        IpNetwork::new(
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[10].network(),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[10].prefix(),
+        )
+        .unwrap(),
     ];
 }
 

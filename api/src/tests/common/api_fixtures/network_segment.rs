@@ -38,7 +38,7 @@ lazy_static! {
 }
 
 lazy_static! {
-    pub static ref FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS: [IpNetwork; 10] = [
+    pub static ref FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS: [IpNetwork; 11] = [
         IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 4, 1)), 24).unwrap(),
         IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 1, 4, 1)), 24).unwrap(),
         IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 2, 4, 1)), 24).unwrap(),
@@ -49,6 +49,7 @@ lazy_static! {
         IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 7, 4, 1)), 24).unwrap(),
         IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 8, 4, 1)), 24).unwrap(),
         IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 9, 4, 1)), 24).unwrap(),
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 5, 1)), 24).unwrap(),
     ];
 }
 

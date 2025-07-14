@@ -489,6 +489,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
             network_details: None,
             device: None,
             device_instance: 0u32,
+            virtual_function_id: None,
         });
     let err = env
         .api
@@ -814,6 +815,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
             device: None,
             device_instance: 0,
+            virtual_function_id: None,
         }],
     };
 
@@ -875,6 +877,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
                 network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
+                virtual_function_id: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -882,6 +885,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
                 network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
+                virtual_function_id: None,
             },
         ],
     };
@@ -944,6 +948,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
             device: None,
             device_instance: 0,
+            virtual_function_id: None,
         }],
     };
     let mut updated_config_1 = initial_config.clone();
@@ -968,7 +973,6 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             },
         ))
         .await;
-    println!("Res:        ----------------------- {:?}", res);
     assert!(res.is_err());
 }
 
@@ -1016,6 +1020,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
             network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
             device: None,
             device_instance: 0,
+            virtual_function_id: None,
         }],
     };
 
@@ -1082,6 +1087,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
                 network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
+                virtual_function_id: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -1089,6 +1095,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
                 network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
+                virtual_function_id: None,
             },
         ],
     };
