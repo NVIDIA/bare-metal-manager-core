@@ -35,6 +35,7 @@
 - [DHCP Service]()
 - [DNS Service]()
 - [BMC Proxy]()
+- [Desired Firmware Version](desired_firmware.md)
 
 # Development
 
