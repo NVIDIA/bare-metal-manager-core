@@ -1,6 +1,7 @@
 import requests
 import sys
 import time
+import json
 from datetime import datetime
 from typing import Literal
 
@@ -29,11 +30,21 @@ class DellFactoryResetMethods:
                 print(detail_message)
                 sys.exit(1)
 
+    def get_server_status(self):
+        for _ in range(10):
+            try:
+                response = requests.get(
+                    'https://%s/redfish/v1/Systems/System.Embedded.1' % self.host_bmc_ip,
+                    verify=False, auth=(self.host_bmc_username, self.host_bmc_password))
+                data = response.json()
+                break
+            except json.decoder.JSONDecodeError:
+                print("Error: Failed to decode JSON response from Redfish API. Retrying in 5 seconds...")
+                time.sleep(5)
+        return data
+
     def reboot_server(self):
-        response = requests.get(
-            'https://%s/redfish/v1/Systems/System.Embedded.1' % self.host_bmc_ip,
-            verify=False, auth=(self.host_bmc_username, self.host_bmc_password))
-        data = response.json()
+        data = self.get_server_status()
         print("\n- INFO, Current server power state is: %s" % data['PowerState'])
         if data['PowerState'] == "On":
             url = 'https://%s/redfish/v1/Systems/System.Embedded.1/Actions/ComputerSystem.Reset' % self.host_bmc_ip
