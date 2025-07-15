@@ -472,29 +472,46 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let mut disks: Vec<rpc_discovery::BlockDevice> = Vec::new();
 
     for device in devices {
-        tracing::debug!("Block device syspath: {:?}", device.syspath());
+        // tracing::info!("Block device syspath: {:?}", device.syspath());
         // for p in device.properties() {
-        //     tracing::info!("{:?} - {:?}", p.name(), p.value());
+        //     tracing::info!("prop:{:?} - {:?}", p.name(), p.value());
+        // }
+        // for p in device.attributes() {
+        //     tracing::info!("attr:{:?} - {:?}", p.name(), p.value());
         // }
 
-        if device
-            .property_value(PCI_DEV_PATH)
-            .map(|v| v.to_str())
-            .ok_or_else(|| {
-                HardwareEnumerationError::GenericError("Could not decode DEVPATH".to_string())
-            })?
-            .filter(|v| !v.contains("virtual"))
-            .is_some()
-        {
-            disks.push(rpc_discovery::BlockDevice {
-                model: convert_property_to_string("ID_MODEL", "NO_MODEL", &device)?.to_string(),
-                revision: convert_property_to_string("ID_REVISION", "NO_REVISION", &device)?
-                    .to_string(),
-                serial: convert_property_to_string("ID_SERIAL_SHORT", "NO_SERIAL", &device)?
-                    .to_string(),
-                device_type: convert_property_to_string("DEVTYPE", "NO_TYPE", &device)?.to_string(),
-            });
+        // skip the device if its removable
+        if convert_sysattr_to_string("removable", &device).is_ok_and(|v| v != "0") {
+            tracing::info!(
+                "Ignoring removable device {}",
+                device
+                    .syspath()
+                    .and_then(|v| v.to_str())
+                    .unwrap_or_default()
+            );
+            continue;
         }
+
+        if convert_property_to_string(PCI_DEV_PATH, "", &device)
+            .is_ok_and(|v| v.contains("virtual"))
+        {
+            tracing::info!(
+                "Ignoring virtual device {}",
+                device
+                    .syspath()
+                    .and_then(|v| v.to_str())
+                    .unwrap_or_default()
+            );
+            continue;
+        }
+        disks.push(rpc_discovery::BlockDevice {
+            model: convert_property_to_string("ID_MODEL", "NO_MODEL", &device)?.to_string(),
+            revision: convert_property_to_string("ID_REVISION", "NO_REVISION", &device)?
+                .to_string(),
+            serial: convert_property_to_string("ID_SERIAL_SHORT", "NO_SERIAL", &device)?
+                .to_string(),
+            device_type: convert_property_to_string("DEVTYPE", "NO_TYPE", &device)?.to_string(),
+        });
     }
 
     // Nvme
@@ -505,9 +522,12 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let mut nvmes: Vec<rpc_discovery::NvmeDevice> = Vec::new();
 
     for device in devices {
-        tracing::debug!("NVME device syspath: {:?}", device.syspath());
+        // tracing::info!("NVME device syspath: {:?}", device.syspath());
+        // for p in device.properties() {
+        //     tracing::info!("prop:{:?} - {:?}", p.name(), p.value());
+        // }
         // for p in device.attributes() {
-        //     tracing::info!("{:?} - {:?}", p.name(), p.value());
+        //     tracing::info!("attr:{:?} - {:?}", p.name(), p.value());
         // }
 
         if device
