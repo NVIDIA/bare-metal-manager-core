@@ -20,6 +20,7 @@ use rpc::forge;
 use rpc::forge_api_client::ForgeApiClient;
 use russh::ChannelMsg;
 use std::borrow::Cow;
+use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -31,6 +32,8 @@ use uuid::Uuid;
 pub struct BackendHandle {
     /// Writer to send messages (including data) to backend
     pub to_backend_msg_tx: mpsc::Sender<ChannelMsg>,
+    /// For informational purposes: the actuall address of the backend
+    pub addr: SocketAddr,
     // Hold a copy of the tx for broadcasting to frontends, so that we can subscribe to it multiple
     // times.
     broadcast_to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
@@ -67,6 +70,7 @@ pub async fn spawn(
     Ok(Arc::new(BackendHandle {
         to_backend_msg_tx,
         broadcast_to_frontend_tx,
+        addr: connection_details.addr(),
     }))
 }
 
@@ -228,7 +232,7 @@ impl ConnectionDetails {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SshConnectionDetails {
     addr: SocketAddr,
     user: String,
@@ -237,9 +241,31 @@ pub struct SshConnectionDetails {
     bmc_vendor: SshBmcVendor,
 }
 
-#[derive(Debug, Clone)]
+impl Debug for SshConnectionDetails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Skip writing the password
+        f.debug_struct("SshConnectionDetails")
+            .field("addr", &self.addr)
+            .field("user", &self.user)
+            .field("ssh_key_path", &self.ssh_key_path)
+            .field("bmc_vendor", &self.bmc_vendor)
+            .finish()
+    }
+}
+
+#[derive(Clone)]
 pub struct IpmiConnectionDetails {
     addr: SocketAddr,
     user: String,
     password: String,
+}
+
+impl Debug for IpmiConnectionDetails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Skip writing the password
+        f.debug_struct("IpmiConnectionDetails")
+            .field("addr", &self.addr)
+            .field("user", &self.user)
+            .finish()
+    }
 }

@@ -1302,7 +1302,7 @@ dependencies = [
  "dashmap",
  "data-encoding",
  "domain",
- "duration-str",
+ "duration-str 0.12.0",
  "eyre",
  "figment",
  "forge-network",
@@ -1576,9 +1576,9 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.40"
+version = "0.4.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a7964611d71df112cb1730f2ee67324fcf4d0fc6606acbbe9bfe06df124637c"
+checksum = "c469d952047f47f91b68d1cba3f10d63c11d73e4636f24f08daf0278abf01c4d"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
@@ -2561,6 +2561,20 @@ dependencies = [
  "thiserror 2.0.12",
  "time",
  "winnow 0.6.26",
+]
+
+[[package]]
+name = "duration-str"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9add086174f60bcbcfde7175e71dcfd99da24dfd12f611d0faf74f4f26e15a06"
+dependencies = [
+ "chrono",
+ "rust_decimal",
+ "serde",
+ "thiserror 2.0.12",
+ "time",
+ "winnow 0.7.11",
 ]
 
 [[package]]
@@ -4470,7 +4484,7 @@ dependencies = [
  "clap",
  "crossterm",
  "dhcproto",
- "duration-str",
+ "duration-str 0.12.0",
  "eyre",
  "figment",
  "forge-tls",
@@ -7601,9 +7615,11 @@ version = "0.1.0"
 dependencies = [
  "api-test-helper",
  "bmc-mock",
+ "chrono",
  "clap",
  "color-eyre",
  "ctor 0.4.2",
+ "duration-str 0.17.0",
  "eyre",
  "forge-tls",
  "forge-uuid",
@@ -7620,6 +7636,7 @@ dependencies = [
  "russh",
  "serde",
  "ssh_console_mock_api_server",
+ "strip-ansi-escapes",
  "temp-dir",
  "thiserror 2.0.12",
  "tokio",
@@ -7695,6 +7712,15 @@ dependencies = [
  "unicode-bidi",
  "unicode-normalization",
  "unicode-properties",
+]
+
+[[package]]
+name = "strip-ansi-escapes"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a8f8038e7e7969abb3f1b7c2a811225e9296da208539e0f79c5251d6cac0025"
+dependencies = [
+ "vte",
 ]
 
 [[package]]
@@ -8953,6 +8979,15 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vte"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "231fdcd7ef3037e8330d8e17e61011a2c244126acc0a982f4040ac3f9f0bc077"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "walkdir"

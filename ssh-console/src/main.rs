@@ -12,8 +12,8 @@
 
 use clap::Parser;
 use eyre::Context;
-use ssh_console::config;
 use ssh_console::config::Config;
+use ssh_console::{ShutdownHandle, config};
 use std::path::PathBuf;
 use tracing::metadata::LevelFilter;
 
@@ -25,10 +25,14 @@ pub async fn main() -> eyre::Result<()> {
 
     match cli.command {
         Command::Run(run_command) => {
-            ssh_console::spawn(run_command.try_into()?)
-                .await?
-                .wait_forever()
-                .await?;
+            let spawn_handle = ssh_console::spawn(run_command.try_into()?).await?;
+            // Let the service run forever by awaiting the join handle, while holding onto the
+            // shutdown handle.
+            let (_shutdown_tx, join_handle) = spawn_handle.into_parts();
+            join_handle
+                .await
+                .expect("ssh-console task panicked")
+                .context("error in ssh-console service")?;
         }
         Command::DefaultRunConfig => {
             print!("{}", ssh_console::config::default_config_file())

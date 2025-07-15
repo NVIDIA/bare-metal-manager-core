@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use eyre::Context;
 use lazy_static::lazy_static;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -18,6 +19,7 @@ mod util;
 
 use crate::util::{BaselineTestAssertion, MockBmcType, run_baseline_test_environment};
 use api_test_helper::utils::REPO_ROOT;
+use ssh_console::ShutdownHandle;
 use util::legacy;
 use util::new_ssh_console;
 
@@ -113,6 +115,7 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
     // Run new ssh-console
     let handle = new_ssh_console::spawn(env.mock_api_server.addr.port()).await?;
 
+    // Run the same assertions we do with legacy ssh-console
     env.run_baseline_assertions(
         handle.addr,
         "new-ssh-console",
@@ -121,7 +124,77 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
             BaselineTestAssertion::ConnectAsMachineId,
         ],
     )
-    .await
+    .await?;
+
+    // Now test things specific to the new ssh-console
+
+    // Shut down ssh-console now so we can assert on final log lines (and make sure it shuts down
+    // properly.)
+    handle
+        .spawn_handle
+        .shutdown_and_wait()
+        .await
+        .context("new ssh-console service error")?;
+
+    let logs_path = handle.logs_dir.path();
+
+    assert!(
+        logs_path.exists(),
+        "logs were not created for new ssh-console"
+    );
+
+    for mock_host in env.mock_hosts.iter() {
+        let log_path = logs_path.join(format!("{}_{}.log", mock_host.machine_id, mock_host.bmc_ip));
+        assert!(
+            log_path.exists(),
+            "did not see any logs at {}",
+            log_path.display()
+        );
+
+        let logs = std::fs::read_to_string(&log_path)
+            .with_context(|| format!("error reading log file at {}", log_path.display()))?;
+
+        // Find "ssh-console connected" lines
+        let (connection_lines, other_lines) = logs
+            .lines()
+            .partition::<Vec<_>, _>(|l| l.starts_with("--- ssh-console connected at "));
+
+        // Find the "ssh-console shutting down" line
+        let (shutdown_lines, other_lines) = other_lines
+            .into_iter()
+            .partition::<Vec<_>, _>(|l| l.starts_with("--- ssh-console shutting down at "));
+
+        assert!(
+            !connection_lines.is_empty(),
+            "{} does not contain at least one line saying `--- ssh-console connected at`:\n{}",
+            log_path.display(),
+            logs
+        );
+
+        assert!(
+            !other_lines.is_empty(),
+            "{} does not contain any lines except connection status lines:\n{}",
+            log_path.display(),
+            logs
+        );
+
+        assert_eq!(
+            shutdown_lines.len(),
+            1,
+            "{} does not contain expected shutdown line:\n{}",
+            log_path.display(),
+            logs
+        );
+
+        assert!(
+            logs.lines().last().is_some_and(|l| l == shutdown_lines[0]),
+            "{} did not have the shutdown line as its last line:\n{}",
+            log_path.display(),
+            logs
+        );
+    }
+
+    Ok(())
 }
 
 #[ctor::ctor]

@@ -249,7 +249,6 @@ async fn trigger_and_await_sol_console(
 ) -> eyre::Result<()> {
     // BMC activation sequence:
     // - Send PTY and shell requests to establish terminal
-    // - Send newlines until we see the BMC prompt
     // - Send vendor-specific activation command
     // - Wait for command echo to confirm activation
     // - Only then allow client to use the console
@@ -278,18 +277,11 @@ async fn trigger_and_await_sol_console(
     // be in the console.)
     let skip_data_read_len = bmc_prompt.len() + activate_command.len();
 
-    // Send newlines every 500ms until we see a prompt
-    let mut newline_interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
     let mut activation_step = SerialConsoleActivationStep::WaitingForBmcPrompt;
     loop {
         tokio::select! {
             _ = tokio::time::sleep_until(timeout) => {
                 return Err(eyre::format_err!("Unable to activate serial console after timeout"))
-            }
-            _ = newline_interval.tick() => {
-                if matches!(activation_step, SerialConsoleActivationStep::WaitingForBmcPrompt) {
-                    backend_channel.data(b"\r\n".as_slice()).await.context("error sending newline to backend")?;
-                }
             }
             res = backend_channel.wait() => {
                 let Some(msg) = res else {
