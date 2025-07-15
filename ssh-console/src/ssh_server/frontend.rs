@@ -76,19 +76,28 @@ impl russh::server::Handler for Handler {
             .await
             .with_context(|| format!("backend connection error for user {user}"))?;
 
-        let mut to_frontend_rx = backend.subscribe();
+        let Some(mut to_frontend_rx) = backend.subscribe() else {
+            tracing::error!("backend disconnected before we could subscribe to messages");
+            session
+                .channel_failure(channel_id)
+                .context("error replying with failure to channel_open_session")?;
+            return Ok(false);
+        };
 
         tokio::spawn(async move {
             while let Ok(msg) = to_frontend_rx.recv().await {
                 match proxy_channel_message(msg.as_ref(), &channel).await {
                     Ok(()) => {}
-                    Err(e) => {
-                        tracing::error!("error sending message to frontend: {e:?}");
+                    Err(error) => {
+                        tracing::debug!(
+                            %error,
+                            "error sending message to frontend, likely disconnected"
+                        );
                         break;
                     }
                 }
             }
-            Ok::<(), eyre::Error>(())
+            channel.close().await.ok();
         });
 
         // Save the backend writer in self.backends so the Handler methods can find it
@@ -96,7 +105,7 @@ impl russh::server::Handler for Handler {
 
         session
             .channel_success(channel_id)
-            .context("error replying to channel_open_session")?;
+            .context("error replying with success to channel_open_session")?;
         Ok(true)
     }
 

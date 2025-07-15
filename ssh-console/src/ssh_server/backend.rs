@@ -35,13 +35,15 @@ pub struct BackendHandle {
     /// For informational purposes: the actuall address of the backend
     pub addr: SocketAddr,
     // Hold a copy of the tx for broadcasting to frontends, so that we can subscribe to it multiple
-    // times.
-    broadcast_to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
+    // times. This must be a WeakSender so it can be properly dropped when the backend dies
+    broadcast_to_frontend_weak_tx: broadcast::WeakSender<Arc<ChannelMsg>>,
 }
 
 impl BackendHandle {
-    pub fn subscribe(&self) -> broadcast::Receiver<Arc<ChannelMsg>> {
-        self.broadcast_to_frontend_tx.subscribe()
+    pub fn subscribe(&self) -> Option<broadcast::Receiver<Arc<ChannelMsg>>> {
+        self.broadcast_to_frontend_weak_tx
+            .upgrade()
+            .map(|tx| tx.subscribe())
     }
 }
 
@@ -52,24 +54,26 @@ pub async fn spawn(
     let (broadcast_to_frontend_tx, _broadcast_to_frontend_rx) =
         broadcast::channel::<Arc<ChannelMsg>>(16);
 
+    // Frontends will call .subscribe on this: It must be a WeakSender so that the channel can close
+    // properly when the backend dies.
+    let broadcast_to_frontend_weak_tx = broadcast_to_frontend_tx.downgrade();
+
     let to_backend_msg_tx = match connection_details {
         ConnectionDetails::Ssh(ssh_connection_details) => {
-            ssh::spawn(ssh_connection_details, broadcast_to_frontend_tx.clone())
+            ssh::spawn(ssh_connection_details, broadcast_to_frontend_tx)
                 .await
                 .context("error spawning SSH backend connection")?
         }
-        ConnectionDetails::Ipmi(ipmi_connection_details) => ipmi::spawn(
-            ipmi_connection_details,
-            broadcast_to_frontend_tx.clone(),
-            config,
-        )
-        .await
-        .context("error spawning IPMI backend connection")?,
+        ConnectionDetails::Ipmi(ipmi_connection_details) => {
+            ipmi::spawn(ipmi_connection_details, broadcast_to_frontend_tx, config)
+                .await
+                .context("error spawning IPMI backend connection")?
+        }
     };
 
     Ok(Arc::new(BackendHandle {
         to_backend_msg_tx,
-        broadcast_to_frontend_tx,
+        broadcast_to_frontend_weak_tx,
         addr: connection_details.addr(),
     }))
 }

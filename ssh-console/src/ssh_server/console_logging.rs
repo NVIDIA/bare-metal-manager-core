@@ -248,7 +248,10 @@ impl ConsoleLoggerPool {
                         }
                     };
 
-                    let mut msg_rx = backend_handle.subscribe();
+                    let Some(mut msg_rx) = backend_handle.subscribe() else {
+                        tracing::error!(%machine_id, "backend disconnected before we could poll for logs, will retry in {}s", retry_time.as_secs());
+                        continue 'retry;
+                    };
 
                     // Write to the file when we start so that we know when logs may have been missing
                     if let Err(error) = log_file
