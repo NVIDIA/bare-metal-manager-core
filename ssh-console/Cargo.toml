@@ -36,6 +36,9 @@ nix = { version = "0.30.1", features = ["process", "term", "fs"] }
 libc = "0.2.174"
 futures = "0.3.31"
 futures-util = "0.3.31"
+duration-str = "0.17.0"
+chrono = "0.4.41"
+strip-ansi-escapes = "0.2.1"
 
 [dev-dependencies]
 bmc-mock = { path = "../dev/bmc-mock" }

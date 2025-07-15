@@ -11,12 +11,14 @@
  */
 
 use crate::bmc_vendor::BmcVendor;
+use duration_str::deserialize_duration;
 use eyre::Context;
 use russh::keys::ssh_key::Fingerprint;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::Duration;
 
 #[derive(Debug)]
 /// Configuration for ssh-console. Fields are documented as comments in the output of [`default_config_file`].
@@ -36,6 +38,9 @@ pub struct Config {
     pub client_key_path: PathBuf,
     pub openssh_certificate_ca_fingerprints: Vec<Fingerprint>,
     pub admin_certificate_role: String,
+    pub api_poll_interval: Duration,
+    pub console_logging_enabled: bool,
+    pub console_logs_path: PathBuf,
 }
 
 impl Default for Config {
@@ -71,8 +76,11 @@ pub fn default_config_file() -> String {
         client_key_path,
         openssh_certificate_ca_fingerprints,
         admin_certificate_role,
+        api_poll_interval,
+        console_logs_path,
+        console_logging_enabled,
     } = File::default();
-    let host_key = host_key.display();
+    let api_poll_interval = format!("{}s", api_poll_interval.as_secs());
 
     format!(
         r#"
@@ -111,13 +119,13 @@ insecure = {insecure}
 bmc_ssh_port = {bmc_ssh_port}
 ipmi_port = {ipmi_port}
 
-# Signing CA fingerprints for openssh certificates. Defaults to one that's valid for production
-# nvinit certs
+## Signing CA fingerprints for openssh certificates. Defaults to one that's valid for production
+## nvinit certs
 openssh_certificate_ca_fingerprints = {openssh_certificate_ca_fingerprints:?}
 
-# Roles which determine admin access (logins with an openssh certificate, signed by the above
-# fingerprints, containing this role in its Key ID, are considered admins and can log into machines
-# directly.)
+## Roles which determine admin access (logins with an openssh certificate, signed by the above
+## fingerprints, containing this role in its Key ID, are considered admins and can log into machines
+## directly.)
 admin_certificate_role = {admin_certificate_role:?}
 
 ## If true, use insecure ciphers when connecting to IPMI, like SHA1. Useful for ipmi_sim.
@@ -126,6 +134,15 @@ insecure_ipmi_ciphers = {insecure_ipmi_ciphers}
 ## Optional: For development mode, gives keys that are authorized to connect to ssh-console. Meant
 ## for integration tests. For interactive use, consider using openssh certificates instead.
 # authorized_keys_path = <path>
+
+## How often to poll the carbide API server for what machines are available
+api_poll_interval = {api_poll_interval:?}
+
+## Whether to output the console data for each machine to a log file
+console_logging_enabled = {console_logging_enabled:?}
+
+## Where to write console logs for each machine, if enabled
+console_logs_path = {console_logs_path:?}
 
 ## Optional: For development mode, you can hardcode a list of BMC's to talk to.
 # [[bmcs]]
@@ -184,6 +201,9 @@ impl TryFrom<File> for Config {
             client_key_path: file.client_key_path,
             openssh_certificate_ca_fingerprints,
             admin_certificate_role: file.admin_certificate_role,
+            api_poll_interval: file.api_poll_interval,
+            console_logs_path: file.console_logs_path,
+            console_logging_enabled: file.console_logging_enabled,
         })
     }
 }
@@ -220,6 +240,16 @@ struct File {
     openssh_certificate_ca_fingerprints: Vec<String>,
     #[serde(default = "Defaults::admin_certificate_role")]
     admin_certificate_role: String,
+    #[serde(
+        default = "Defaults::api_poll_interval",
+        serialize_with = "serialize_duration",
+        deserialize_with = "deserialize_duration"
+    )]
+    api_poll_interval: Duration,
+    #[serde(default = "Defaults::console_logs_path")]
+    console_logs_path: PathBuf,
+    #[serde(default = "Defaults::console_logging_enabled")]
+    console_logging_enabled: bool,
 }
 
 #[derive(Deserialize, Serialize, PartialEq, Debug, Clone)]
@@ -253,6 +283,9 @@ impl Default for File {
             client_key_path: Defaults::client_key_path(),
             admin_certificate_role: Defaults::admin_certificate_role(),
             openssh_certificate_ca_fingerprints: Defaults::openssh_certificate_ca_fingerprints(),
+            api_poll_interval: Defaults::api_poll_interval(),
+            console_logs_path: Defaults::console_logs_path(),
+            console_logging_enabled: Defaults::console_logging_enabled(),
             authorized_keys_path: None,
             bmcs: None,
             dpus: false,
@@ -305,6 +338,25 @@ impl Defaults {
     pub fn admin_certificate_role() -> String {
         "swngc-forge-admins".to_string()
     }
+
+    pub fn api_poll_interval() -> Duration {
+        Duration::from_secs(180)
+    }
+
+    pub fn console_logs_path() -> PathBuf {
+        "/var/log/ssh-console".into()
+    }
+
+    pub fn console_logging_enabled() -> bool {
+        true
+    }
+}
+
+fn serialize_duration<S>(d: &std::time::Duration, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&format!("{}s", d.as_secs()))
 }
 
 #[cfg(test)]

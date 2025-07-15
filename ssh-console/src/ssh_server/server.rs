@@ -10,8 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::ShutdownHandle;
 use crate::config::Config;
 use crate::ssh_server::backend_pool::BackendPool;
+use crate::ssh_server::console_logging;
+use crate::ssh_server::console_logging::ConsoleLoggerPoolHandle;
 use forge_tls::client_config::ClientCert;
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
@@ -23,10 +26,22 @@ use tokio::sync::oneshot;
 
 /// Construct a new [`Server`]
 pub fn new(config: Arc<Config>) -> Server {
+    let forge_api_client = config.make_forge_api_client();
+    let backend_pool = Arc::new(BackendPool::default());
+    let console_logger_pool_handle = if config.console_logging_enabled {
+        Some(console_logging::spawn(
+            config.clone(),
+            forge_api_client.clone(),
+            backend_pool.clone(),
+        ))
+    } else {
+        None
+    };
     Server {
-        forge_api_client: config.make_forge_api_client(),
         config,
-        backend_pool: Arc::new(BackendPool::default()),
+        forge_api_client,
+        backend_pool,
+        console_logger_pool_handle,
     }
 }
 
@@ -34,6 +49,7 @@ pub struct Server {
     config: Arc<Config>,
     forge_api_client: ForgeApiClient,
     backend_pool: Arc<BackendPool>,
+    console_logger_pool_handle: Option<ConsoleLoggerPoolHandle>,
 }
 
 impl Server {
@@ -86,6 +102,10 @@ impl Server {
 
                 _ = &mut shutdown => break,
             }
+        }
+
+        if let Some(console_logger_pool_handle) = self.console_logger_pool_handle.take() {
+            console_logger_pool_handle.shutdown_and_wait().await;
         }
 
         Ok(())

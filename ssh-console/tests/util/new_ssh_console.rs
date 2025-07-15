@@ -1,7 +1,10 @@
 use crate::util::fixtures::{
     API_CA_CERT, API_CLIENT_CERT, API_CLIENT_KEY, AUTHORIZED_KEYS_PATH, SSH_HOST_KEY,
 };
+use eyre::Context;
 use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
+use std::time::Duration;
+use temp_dir::TempDir;
 
 pub async fn spawn(carbide_port: u16) -> eyre::Result<NewSshConsoleHandle> {
     let addr = {
@@ -12,6 +15,8 @@ pub async fn spawn(carbide_port: u16) -> eyre::Result<NewSshConsoleHandle> {
             .next()
             .expect("No socket available")
     };
+
+    let logs_dir = TempDir::new().context("error creating temp dir for console logs")?;
 
     let config = ssh_console::config::Config {
         listen_address: addr,
@@ -31,17 +36,23 @@ pub async fn spawn(carbide_port: u16) -> eyre::Result<NewSshConsoleHandle> {
         client_key_path: API_CLIENT_KEY.clone(),
         openssh_certificate_ca_fingerprints: vec![],
         admin_certificate_role: "swngc-forge-admins".to_string(),
+        api_poll_interval: Duration::from_secs(1),
+        console_logging_enabled: true,
+        console_logs_path: logs_dir.path().to_path_buf(),
     };
 
     let spawn_handle = ssh_console::spawn(config).await?;
 
     Ok(NewSshConsoleHandle {
         addr,
-        _spawn_handle: spawn_handle,
+        // Make sure the logs dir doesn't drop.
+        logs_dir,
+        spawn_handle,
     })
 }
 
 pub struct NewSshConsoleHandle {
     pub addr: SocketAddr,
-    _spawn_handle: ssh_console::SpawnHandle,
+    pub logs_dir: TempDir,
+    pub spawn_handle: ssh_console::SpawnHandle,
 }

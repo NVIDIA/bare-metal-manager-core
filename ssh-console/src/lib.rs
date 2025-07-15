@@ -34,6 +34,7 @@ pub mod config;
 use eyre::Context;
 use russh::ChannelMsg;
 pub use ssh_server::{SpawnHandle, spawn};
+use tokio::sync::oneshot;
 
 /// Take a russh::ChannelMsg being sent in either direction from the frontend or backend, and call
 /// the appropriate method on the underlying channel.
@@ -119,4 +120,27 @@ where
     }
 
     Ok(())
+}
+
+/// Convenience trait for a task with a shutdown handle (in the form of a [`oneshot::Sender<()>`])
+///
+/// The shutdown handle must be treated such that dropping it means "shut down now", (because any
+/// call which is awaiting the channel will immediately return.) By convention, dropping the
+/// channel and sending the shutdown message mean the same thing.
+pub trait ShutdownHandle<R> {
+    fn into_parts(self) -> (oneshot::Sender<()>, tokio::task::JoinHandle<R>);
+
+    fn shutdown_and_wait(self) -> impl std::future::Future<Output = R> + Send
+    where
+        Self: Send + Sized,
+        R: Send,
+    {
+        async move {
+            let (shutdown_tx, join_handle) = self.into_parts();
+            // Let the shutdown handle drop, which causes any reads to finish (semantically the same as
+            // sending an empty tuple over the channel, both mean "shut down now").
+            std::mem::drop(shutdown_tx);
+            join_handle.await.expect("task panicked")
+        }
+    }
 }

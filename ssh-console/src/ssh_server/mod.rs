@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::ShutdownHandle;
 use crate::config::Config;
 use eyre::Context;
 use std::sync::Arc;
@@ -19,6 +20,7 @@ use tokio::task::JoinHandle;
 
 mod backend;
 mod backend_pool;
+mod console_logging;
 mod frontend;
 mod server;
 
@@ -42,31 +44,29 @@ pub async fn spawn(config: Config) -> eyre::Result<SpawnHandle> {
 
     let server = server::new(config);
 
-    let (tx, rx) = tokio::sync::oneshot::channel();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
     let join_handle = tokio::spawn(server.run(
         Arc::new(russh::server::Config {
             keys: vec![host_key],
             ..Default::default()
         }),
         listener,
-        rx,
+        shutdown_rx,
     ));
 
     Ok(SpawnHandle {
-        _stop_tx: tx,
+        shutdown_tx,
         join_handle,
     })
 }
 
 pub struct SpawnHandle {
-    _stop_tx: oneshot::Sender<()>,
+    shutdown_tx: oneshot::Sender<()>,
     join_handle: JoinHandle<eyre::Result<()>>,
 }
 
-impl SpawnHandle {
-    /// Wait indefinitely for the service to finish. This will only return if there is a bug which
-    /// causes the server's event loop to return an error.
-    pub async fn wait_forever(self) -> eyre::Result<()> {
-        self.join_handle.await.expect("service task panicked")
+impl ShutdownHandle<eyre::Result<()>> for SpawnHandle {
+    fn into_parts(self) -> (oneshot::Sender<()>, JoinHandle<eyre::Result<()>>) {
+        (self.shutdown_tx, self.join_handle)
     }
 }
