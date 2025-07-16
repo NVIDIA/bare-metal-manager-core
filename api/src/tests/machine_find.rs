@@ -132,7 +132,8 @@ async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
 
     // We shouldn't find a machine that doesn't exist
     let mut mac2 = mac.bytes();
-    mac2[5] = 0xFF;
+    // Previously just set to 0xFF, but that could be the actual value
+    mac2[5] ^= 0xFF;
     let mac2 = MacAddress::from(mac2);
     assert!(
         db::machine::find_by_query(&mut txn, &mac2.to_string())
