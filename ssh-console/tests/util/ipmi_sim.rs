@@ -87,7 +87,7 @@ user 3 true  "root" "password" admin    10       none md2 md5 straight none
 # simulate power control commands.
 chassis_control "./ipmi_sim_chassiscontrol.sh 0x20"
 serial 15 0.0.0.0 {ipmi_sim_serial_port} codec VM ipmb 0x20
-sol "telnet:localhost:{mock_serial_console_port}" 115200
+sol "telnet:127.0.0.1:{mock_serial_console_port}" 115200
     "#
         ),
     )?;
