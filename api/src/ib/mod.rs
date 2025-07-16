@@ -47,8 +47,16 @@ pub struct IBFabricManagerImpl {
     config: IBFabricManagerConfig,
     credential_provider: Arc<dyn CredentialProvider>,
     #[cfg(test)]
-    mock_fabric: Arc<dyn IBFabric>,
+    mock_fabric: Arc<mock::MockIBFabric>,
     disable_fabric: Arc<dyn IBFabric>,
+}
+
+impl IBFabricManagerImpl {
+    /// Gets the mocked fabric manager that is used within tests
+    #[cfg(test)]
+    pub fn get_mock_manager(&self) -> Arc<mock::MockIBFabric> {
+        self.mock_fabric.clone()
+    }
 }
 
 #[derive(Clone)]
@@ -63,8 +71,6 @@ pub struct IBFabricManagerConfig {
     pub allow_insecure_fabric_configuration: bool,
     /// The interval at which ib fabric monitor runs
     pub fabric_manager_run_interval: std::time::Duration,
-    #[cfg(test)]
-    pub ports: Option<std::collections::HashMap<String, self::types::IBPort>>,
 }
 
 impl Default for IBFabricManagerConfig {
@@ -79,8 +85,6 @@ impl Default for IBFabricManagerConfig {
             service_level: IBServiceLevel::default(),
             fabric_manager_run_interval:
                 cfg::file::IBFabricConfig::default_fabric_monitor_run_interval(),
-            #[cfg(test)]
-            ports: None,
         }
     }
 }
@@ -107,12 +111,7 @@ pub fn create_ib_fabric_manager(
     }
 
     #[cfg(test)]
-    let mock_fabric = Arc::new(mock::MockIBFabric {
-        ibsubnets: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-        ibports: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-        ibdesc: mock::mock_ibfabric_desc(config.ports.clone()),
-    });
-
+    let mock_fabric = Arc::new(mock::MockIBFabric::new());
     let disable_fabric = Arc::new(disable::DisableIBFabric {});
 
     Ok(IBFabricManagerImpl {

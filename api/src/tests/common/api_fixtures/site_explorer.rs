@@ -1100,6 +1100,12 @@ pub async fn new_mock_host(
     env: &TestEnv,
     config: ManagedHostConfig,
 ) -> eyre::Result<MockExploredHost> {
+    // Make the IB ports visible in Mock-UFM
+    let mock_ib_fabric = env.ib_fabric_manager.get_mock_manager();
+    for ib_guid in config.ib_guids.iter() {
+        mock_ib_fabric.register_port(ib_guid.clone());
+    }
+
     // Set BMC credentials in vault
     for bmc_mac_address in vec![config.bmc_mac_address]
         .into_iter()

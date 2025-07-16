@@ -17,7 +17,7 @@ use crate::{
         self, explored_endpoints::DbExploredEndpoint, machine::MachineSearchConfig,
         machine_topology::MachineTopology,
     },
-    ib::{self, DEFAULT_IB_FABRIC_NAME},
+    ib::{self, DEFAULT_IB_FABRIC_NAME, IBFabricManager},
     model::{
         hardware_info::TpmEkCertificate,
         machine::{InstanceState, ManagedHostState, machine_id::try_parse_machine_id},

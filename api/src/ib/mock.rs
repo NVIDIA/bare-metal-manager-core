@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -20,9 +20,18 @@ use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
 
 pub struct MockIBFabric {
-    pub ibsubnets: Arc<Mutex<HashMap<String, IBNetwork>>>,
-    pub ibports: Arc<Mutex<HashMap<String, IBPort>>>,
-    pub ibdesc: HashMap<String, IBPort>,
+    state: Arc<Mutex<State>>,
+}
+
+struct State {
+    /// Maps from pkey to subnet state
+    subnets: HashMap<String, IBNetwork>,
+    /// Maps from GUID to port state
+    ports: HashMap<String, IBPort>,
+    /// Map from pkey to associated ports/GUIDs
+    subnets_to_ports: HashMap<String, HashSet<String>>,
+    /// The next LID that will be used
+    next_lid: i32,
 }
 
 #[async_trait]
@@ -34,13 +43,13 @@ impl IBFabric for MockIBFabric {
 
     /// Get all IB Networks
     async fn get_ib_networks(&self) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
-        let ibsubnets = self
-            .ibsubnets
+        let state = self
+            .state
             .lock()
-            .map_err(|_| CarbideError::IBFabricError("get_ib_network mutex lock".to_string()))?;
+            .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
 
         let mut results = HashMap::new();
-        for (pkey, subnet) in &*ibsubnets {
+        for (pkey, subnet) in &state.subnets {
             let pkey: u16 = pkey
                 .parse()
                 .map_err(|_| CarbideError::IBFabricError("pkey is not a u16".to_string()))?;
@@ -52,12 +61,12 @@ impl IBFabric for MockIBFabric {
 
     /// Get IBNetwork by ID
     async fn get_ib_network(&self, id: &str) -> Result<IBNetwork, CarbideError> {
-        let ibsubnets = self
-            .ibsubnets
+        let state = self
+            .state
             .lock()
-            .map_err(|_| CarbideError::IBFabricError("get_ib_network mutex lock".to_string()))?;
+            .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
 
-        match ibsubnets.get(id) {
+        match state.subnets.get(id) {
             None => Err(CarbideError::NotFoundError {
                 kind: "",
                 id: id.to_string(),
@@ -67,34 +76,27 @@ impl IBFabric for MockIBFabric {
     }
 
     async fn bind_ib_ports(&self, ib: IBNetwork, ports: Vec<String>) -> Result<(), CarbideError> {
-        {
-            let mut ibports = self.ibports.lock().map_err(|_| {
-                CarbideError::IBFabricError("create_ib_port mutex lock".to_string())
-            })?;
-            for port in ports {
-                if !ibports.contains_key(&port) {
-                    ibports.insert(
-                        port.clone(),
-                        IBPort {
-                            name: port.clone(),
-                            guid: port.clone(),
-                            lid: 1,
-                            state: Some(IBPortState::Active),
-                        },
-                    );
-                }
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
+
+        for port in &ports {
+            if !state.ports.contains_key(port) {
+                return Err(CarbideError::IBFabricError(format!(
+                    "Port with GUID {port} is not found"
+                )));
             }
         }
-        {
-            let mut ibsubnets = self
-                .ibsubnets
-                .lock()
-                .map_err(|_| CarbideError::IBFabricError("bind_ib_ports mutex lock".to_string()))?;
 
-            let pkey = ib.clone().pkey.clone().to_string();
-            if !ibsubnets.contains_key(&pkey) {
-                ibsubnets.insert(pkey.clone(), ib);
-            }
+        let pkey = ib.clone().pkey.clone().to_string();
+        // Create partition on demand. This matches what UFM does
+        if !state.subnets.contains_key(&pkey) {
+            state.subnets.insert(pkey.clone(), ib);
+        }
+        let associated_ports = state.subnets_to_ports.entry(pkey).or_default();
+        for port in ports {
+            associated_ports.insert(port);
         }
 
         Ok(())
@@ -102,12 +104,12 @@ impl IBFabric for MockIBFabric {
 
     /// Update IBNetwork, e.g. QoS
     async fn update_ib_network(&self, ibnetwork: &IBNetwork) -> Result<(), CarbideError> {
-        let mut ibsubnets = self
-            .ibsubnets
+        let mut state = self
+            .state
             .lock()
-            .map_err(|_| CarbideError::IBFabricError("update_ib_network mutex lock".to_string()))?;
+            .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
 
-        match ibsubnets.get_mut(&ibnetwork.pkey.to_string()) {
+        match state.subnets.get_mut(&ibnetwork.pkey.to_string()) {
             Some(ib) => {
                 // Update QoS accordingly
                 ib.mtu = ibnetwork.mtu.clone();
@@ -123,29 +125,22 @@ impl IBFabric for MockIBFabric {
 
     /// Find IBPort
     async fn find_ib_port(&self, filter: Option<Filter>) -> Result<Vec<IBPort>, CarbideError> {
-        let ibports_pkey = self
-            .ibports
+        let state = self
+            .state
             .lock()
-            .map_err(|_| CarbideError::IBFabricError("find_ib_port mutex lock".to_string()))?;
+            .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
 
-        let mut ports = vec![];
-        for ib in self.ibdesc.values() {
-            ports.push(ib.clone());
-        }
+        let ports = state.ports.values().cloned().collect();
 
         let f = filter.unwrap_or_default();
         let pkey_guids = match &f.pkey {
             Some(pkey) => {
-                let ibsubnets = self.ibsubnets.lock().map_err(|_| {
-                    CarbideError::IBFabricError("find_ib_port mutex lock".to_string())
-                })?;
-                let mut pkey_guids = HashSet::new();
-                if ibsubnets.contains_key(&pkey.to_string()) {
-                    for ib in ibports_pkey.values() {
-                        pkey_guids.insert(ib.guid.clone());
-                    }
-                }
-                Some(pkey_guids)
+                let associated_guids = state
+                    .subnets_to_ports
+                    .get(&pkey.to_string())
+                    .cloned()
+                    .unwrap_or_default();
+                Some(associated_guids)
             }
             None => None,
         };
@@ -154,21 +149,36 @@ impl IBFabric for MockIBFabric {
     }
 
     /// Delete IBPort
-    async fn unbind_ib_ports(&self, _pkey: u16, ids: Vec<String>) -> Result<(), CarbideError> {
-        let mut ibports = self
-            .ibports
+    async fn unbind_ib_ports(&self, pkey: u16, ids: Vec<String>) -> Result<(), CarbideError> {
+        let mut state = self
+            .state
             .lock()
-            .map_err(|_| CarbideError::IBFabricError("delete_ib_port mutex lock".to_string()))?;
+            .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
+        let pkey = pkey.to_string();
 
         for id in &ids {
-            if !ibports.contains_key(id) {
-                return Err(CarbideError::NotFoundError {
-                    kind: "",
-                    id: id.to_string(),
-                });
+            if !state.ports.contains_key(id) {
+                return Err(CarbideError::IBFabricError(format!(
+                    "Port with GUID {id} is not found"
+                )));
             }
+        }
 
-            ibports.remove(id);
+        match state.subnets_to_ports.get_mut(&pkey) {
+            Some(associated_ports) => {
+                for id in &ids {
+                    associated_ports.remove(id);
+                }
+
+                // If the partition is empty, then remove knowledge about it
+                if associated_ports.is_empty() {
+                    state.subnets.remove(&pkey);
+                }
+            }
+            None => {
+                // Nothing to do.
+                // TODO: Would UFM return an error here?
+            }
         }
 
         Ok(())
@@ -188,41 +198,53 @@ impl IBFabric for MockIBFabric {
     }
 }
 
-pub fn mock_ibfabric_desc(ibports: Option<HashMap<String, IBPort>>) -> HashMap<String, IBPort> {
-    match ibports {
-        Some(ibports) => {
-            assert!(!ibports.is_empty());
-            ibports
+impl MockIBFabric {
+    pub fn new() -> Self {
+        Self {
+            state: Arc::new(std::sync::Mutex::new(State {
+                subnets: HashMap::new(),
+                ports: HashMap::new(),
+                subnets_to_ports: HashMap::new(),
+                next_lid: 1,
+            })),
         }
-        None => {
-            let path = concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/src/model/hardware_info/test_data/x86_info.json"
-            )
-            .to_string();
+    }
 
-            let data = std::fs::read(path).unwrap();
-            let hw_info =
-                serde_json::from_slice::<crate::model::hardware_info::HardwareInfo>(&data).unwrap();
-            assert!(!hw_info.infiniband_interfaces.is_empty());
-
-            let mut ibports: HashMap<String, IBPort> = HashMap::new();
-            for ib in hw_info.infiniband_interfaces {
-                if !ibports.contains_key(&ib.guid) {
-                    ibports.insert(
-                        ib.guid.clone(),
-                        IBPort {
-                            name: ib.guid.clone(),
-                            guid: ib.guid.clone(),
-                            lid: (ibports.len() + 1) as i32,
-                            state: Some(IBPortState::Active),
-                        },
-                    );
-                }
-            }
-            assert!(!ibports.is_empty());
-            ibports
+    /// Registers a port with a given GUID at the mocked IB Fabric
+    pub fn register_port(&self, guid: String) {
+        let mut state = self.state.lock().unwrap();
+        if state.ports.contains_key(&guid) {
+            panic!("IB port with GUID {guid} is already registered");
         }
+
+        let lid = state.next_lid;
+        state.next_lid += 1;
+
+        state.ports.insert(
+            guid.clone(),
+            IBPort {
+                name: guid.clone(),
+                guid,
+                lid,
+                state: Some(IBPortState::Active),
+            },
+        );
+    }
+
+    /// Configures whether a port shows up as active or inactive
+    pub fn set_port_state(&self, guid: &str, is_active: bool) {
+        let mut state = self.state.lock().unwrap();
+
+        let port = match state.ports.get_mut(guid) {
+            Some(port) => port,
+            None => panic!("IB port with GUID {guid} is not known to Mock"),
+        };
+
+        port.state = Some(if is_active {
+            IBPortState::Active
+        } else {
+            IBPortState::Down
+        });
     }
 }
 

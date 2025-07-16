@@ -247,8 +247,6 @@ pub async fn start_api(
             rate_limit: ib_config.rate_limit,
             service_level: ib_config.service_level,
             fabric_manager_run_interval: ib_config.fabric_monitor_run_interval,
-            #[cfg(test)]
-            ports: None,
         },
     )?;
 
