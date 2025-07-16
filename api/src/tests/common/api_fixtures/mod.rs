@@ -43,7 +43,7 @@ use crate::{
         network_security_group::create as create_network_security_group,
     },
     ethernet_virtualization::{EthVirtData, SiteFabricPrefixList},
-    ib::{self, IBFabricManager, IBFabricManagerType},
+    ib::{self, IBFabricManagerImpl, IBFabricManagerType},
     ipmitool::IPMIToolTestImpl,
     logging::level_filter::ActiveLevel,
     model::{
@@ -213,7 +213,6 @@ pub struct TestEnvOverrides {
     pub allow_zero_dpu_hosts: Option<bool>,
     pub site_prefixes: Option<Vec<IpNetwork>>,
     pub config: Option<CarbideConfig>,
-    pub ibports: Option<HashMap<String, crate::ib::types::IBPort>>,
     pub create_network_segments: Option<bool>,
     pub dpu_agent_version_staleness_threshold: Option<chrono::Duration>,
     pub prevent_allocations_on_stale_dpu_agent_version: Option<bool>,
@@ -242,7 +241,7 @@ pub struct TestEnv {
     pub pool: PgPool,
     pub redfish_sim: Arc<RedfishSim>,
     pub nvmesh_sim: Arc<dyn NvmeshClientPool>,
-    pub ib_fabric_manager: Arc<dyn IBFabricManager>,
+    pub ib_fabric_manager: Arc<IBFabricManagerImpl>,
     pub ipmi_tool: Arc<IPMIToolTestImpl>,
     machine_state_controller: Arc<Mutex<StateController<MachineStateControllerIO>>>,
     pub machine_state_handler: SwapHandler<MachineStateHandler>,
@@ -1008,12 +1007,11 @@ pub async fn create_test_env_with_overrides(
             mtu: ib_config.mtu,
             rate_limit: ib_config.rate_limit,
             service_level: ib_config.service_level,
-            ports: overrides.ibports,
         },
     )
     .unwrap();
 
-    let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
+    let ib_fabric_manager = Arc::new(ib_fabric_manager_impl);
 
     let site_fabric_networks = overrides
         .site_prefixes

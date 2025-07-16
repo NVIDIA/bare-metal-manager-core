@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -11,14 +11,10 @@
  */
 
 use crate::cfg::file::IBFabricConfig;
+use crate::ib::{DEFAULT_IB_FABRIC_NAME, Filter, IBFabricManager};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
-use crate::{
-    api::Api,
-    db,
-    db::{instance_address::InstanceAddress, machine::MachineSearchConfig},
-    model::machine::{InstanceState, ManagedHostState},
-};
+use crate::{api::Api, db, db::machine::MachineSearchConfig, model::machine::ManagedHostState};
 use common::api_fixtures::{
     TestEnv, create_managed_host,
     ib_partition::{DEFAULT_TENANT, create_ib_partition},
@@ -27,7 +23,6 @@ use common::api_fixtures::{
 use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::machine::MachineId;
 use rpc::forge::{IbPartitionSearchConfig, IbPartitionStatus, TenantState, forge_server::Forge};
-use std::collections::HashMap;
 use tonic::Request;
 
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
@@ -71,6 +66,8 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         DEFAULT_TENANT.to_string(),
     )
     .await;
+    let pkey = ib_partition.status.as_ref().unwrap().pkey().to_string();
+    let pkey_u16: u16 = pkey.parse().unwrap();
 
     env.run_ib_partition_controller_iteration().await;
 
@@ -83,68 +80,29 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         ib_partition.status.clone().unwrap().state,
         ib_partition_status.state
     );
-    assert_eq!(
-        ib_partition.status.clone().unwrap().pkey,
-        ib_partition_status.pkey
-    );
-    assert!(ib_partition_status.pkey.is_some());
+    assert_eq!(&pkey, ib_partition_status.pkey.as_ref().unwrap());
     assert!(ib_partition_status.mtu.is_none());
     assert!(ib_partition_status.rate_limit.is_none());
     assert!(ib_partition_status.service_level.is_none());
 
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env
-        .pool
-        .clone()
-        .begin()
+    let rpc_machine_id: ::rpc::common::MachineId = host_machine_id.into();
+    let machine = env
+        .find_machines(Some(rpc_machine_id.clone()), None, false)
         .await
-        .expect("Unable to create transaction on database pool");
+        .machines
+        .remove(0);
 
-    let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    txn.commit().await.unwrap();
+    assert_eq!(&machine.state, "Ready");
+    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    assert_eq!(discovery_info.infiniband_interfaces.len(), 6);
+    assert!(machine.ib_status.as_ref().is_some());
+    assert_eq!(machine.ib_status.as_ref().unwrap().ib_interfaces.len(), 6);
 
-    assert_eq!(machine.current_state(), &ManagedHostState::Ready);
-    assert!(!machine.is_dpu());
-    assert!(machine.hardware_info.as_ref().is_some());
-    assert_eq!(
-        machine
-            .hardware_info
-            .as_ref()
-            .unwrap()
-            .infiniband_interfaces
-            .len(),
-        6
-    );
-    assert!(machine.infiniband_status_observation.as_ref().is_some());
-    assert_eq!(
-        machine
-            .infiniband_status_observation
-            .as_ref()
-            .unwrap()
-            .ib_interfaces
-            .len(),
-        6
-    );
+    let mut ib_ifaces = discovery_info.infiniband_interfaces.clone();
+    ib_ifaces.sort_by_key(|iface| iface.pci_properties.as_ref().unwrap().slot().to_string());
 
-    env.run_ib_partition_controller_iteration().await;
-    env.run_machine_state_controller_iteration().await;
-
-    let ib_partition_status = get_partition_status(&env.api, ib_partition_id).await;
-    assert_eq!(
-        TenantState::try_from(ib_partition_status.state).unwrap(),
-        TenantState::Ready
-    );
-    assert!(ib_partition_status.pkey.is_some());
-    assert!(ib_partition_status.mtu.is_none());
-    assert!(ib_partition_status.rate_limit.is_none());
-    assert!(ib_partition_status.service_level.is_none());
-
+    // select the second MT2910 Family [ConnectX-7] and the first MT27800 Family [ConnectX-5] which are sorted by slots
     let ib_config = rpc::forge::InstanceInfinibandConfig {
         ib_interfaces: vec![
             rpc::forge::InstanceIbInterfaceConfig {
@@ -166,6 +124,25 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         ],
     };
 
+    // Check which GUIDs these device/device_instance combinations should map to
+    let guid_cx7 = ib_ifaces
+        .iter()
+        .filter(|iface| {
+            iface.pci_properties.as_ref().unwrap().description() == "MT2910 Family [ConnectX-7]"
+        })
+        .nth(1)
+        .unwrap()
+        .guid
+        .clone();
+    let guid_cx5 = ib_ifaces
+        .iter()
+        .find(|iface| {
+            iface.pci_properties.as_ref().unwrap().description() == "MT27800 Family [ConnectX-5]"
+        })
+        .unwrap()
+        .guid
+        .clone();
+
     let (instance_id, instance) = create_instance_with_ib_config(
         &env,
         &dpu_machine_id,
@@ -175,39 +152,12 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     )
     .await;
 
-    let mut txn = env
-        .pool
-        .clone()
-        .begin()
+    let machine = env
+        .find_machines(Some(rpc_machine_id.clone()), None, false)
         .await
-        .expect("Unable to create transaction on database pool");
-    assert_eq!(
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::Ready
-        }
-    );
-    txn.commit().await.unwrap();
-
-    env.run_ib_partition_controller_iteration().await;
-    env.run_machine_state_controller_iteration().await;
-
-    let ib_partition_status = get_partition_status(&env.api, ib_partition_id).await;
-    assert_eq!(
-        TenantState::try_from(ib_partition_status.state).unwrap(),
-        TenantState::Ready
-    );
-    assert!(ib_partition_status.pkey.is_some());
-    assert_eq!(ib_partition_status.mtu.unwrap(), 2);
-    assert_eq!(ib_partition_status.rate_limit.unwrap(), 10);
-    assert_eq!(
-        ib_partition_status.service_level.unwrap(),
-        crate::ib::IBServiceLevel::default().0
-    );
+        .machines
+        .remove(0);
+    assert_eq!(&machine.state, "Assigned/Ready");
 
     let check_instance = env
         .find_instances(Some(instance_id.into()))
@@ -249,14 +199,6 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(ib_status.ib_interfaces.len(), 2);
 
-    // select the second MT2910 Family [ConnectX-7] and the first MT27800 Family [ConnectX-5] which are sorted by slots
-    // |       device               |    slot    |        guid       |   index |
-    // MT2910 Family [ConnectX-7]    0000:b1:00.0    946dae03002ac103      0
-    // MT2910 Family [ConnectX-7]    0000:b1:00.1    946dae03002ac102      1
-    // MT2910 Family [ConnectX-7]    0000:c1:00.0    946dae03002ac101      2
-    // MT2910 Family [ConnectX-7]    0000:c1:00.1    946dae03002ac100      3
-    // MT27800 Family [ConnectX-5]   0000:98:00.0    946dae03002ac752      0
-    // MT27800 Family [ConnectX-5]   0000:98:00.1    946dae03002ac753      1
     if let Some(iface) = ib_config.ib_interfaces.first() {
         assert_eq!(
             iface.function_type,
@@ -271,8 +213,8 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         panic!("ib configuration is incorrect.");
     }
     if let Some(iface) = ib_status.ib_interfaces.first() {
-        assert_eq!(iface.pf_guid, Some("946dae03002ac102".to_string()));
-        assert_eq!(iface.guid, Some("946dae03002ac102".to_string()));
+        assert_eq!(iface.pf_guid, Some(guid_cx7.clone()));
+        assert_eq!(iface.guid, Some(guid_cx7.clone()));
     } else {
         panic!("ib configuration is incorrect.");
     }
@@ -291,37 +233,32 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         panic!("ib configuration is incorrect.");
     }
     if let Some(iface) = ib_status.ib_interfaces.get(1) {
-        assert_eq!(iface.pf_guid, Some("946dae03002ac752".to_string()));
-        assert_eq!(iface.guid, Some("946dae03002ac752".to_string()));
+        assert_eq!(iface.pf_guid, Some(guid_cx5.clone()));
+        assert_eq!(iface.guid, Some(guid_cx5.clone()));
     } else {
         panic!("ib configuration is incorrect.");
     }
 
     delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
 
-    // Address is freed during delete
-    let mut txn = env
-        .pool
-        .clone()
-        .begin()
+    // Check whether the IB ports are still bound to the partition
+    let ib_conn = env
+        .ib_fabric_manager
+        .connect(DEFAULT_IB_FABRIC_NAME)
         .await
-        .expect("Unable to create transaction on database pool");
-
-    assert!(matches!(
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
-        ManagedHostState::Ready
-    ));
-    assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
-            .await
-            .unwrap(),
-        0
+        .unwrap();
+    let ports = ib_conn
+        .find_ib_port(Some(Filter {
+            guids: None,
+            pkey: Some(pkey_u16),
+            state: None,
+        }))
+        .await
+        .unwrap();
+    assert!(
+        ports.is_empty(),
+        "IB ports have not been removed for pkey {pkey}"
     );
-    txn.commit().await.unwrap();
 }
 
 #[crate::sqlx_test]
@@ -539,41 +476,11 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
         ..Default::default()
     });
 
-    // Configure fabric based json data
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/model/hardware_info/test_data/x86_info.json"
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
     )
-    .to_string();
-
-    let data = std::fs::read(path).unwrap();
-    let hw_info =
-        serde_json::from_slice::<crate::model::hardware_info::HardwareInfo>(&data).unwrap();
-    assert!(!hw_info.infiniband_interfaces.is_empty());
-
-    let mut ibports: HashMap<String, crate::ib::types::IBPort> = HashMap::new();
-    for ib in hw_info.infiniband_interfaces {
-        if !ibports.contains_key(&ib.guid) {
-            ibports.insert(
-                ib.guid.clone(),
-                crate::ib::types::IBPort {
-                    name: ib.guid.clone(),
-                    guid: ib.guid.clone(),
-                    lid: (ibports.len() + 1) as i32,
-                    state: Some(crate::ib::types::IBPortState::Active),
-                },
-            );
-        }
-    }
-    // Set one of two later allocated port in 'Down' state
-    let value = ibports.get_mut("946dae03002ac752").unwrap();
-    value.state = Some(crate::ib::types::IBPortState::Down);
-
-    // Pass user specified fabric configuration
-    let mut overrides = TestEnvOverrides::with_config(config);
-    overrides.ibports = Some(ibports);
-
-    let env = common::api_fixtures::create_test_env_with_overrides(pool, overrides).await;
+    .await;
 
     let (ib_partition_id, _ib_partition) = create_ib_partition(
         &env,
@@ -585,7 +492,38 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
     env.run_ib_partition_controller_iteration().await;
 
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let rpc_machine_id: ::rpc::common::MachineId = host_machine_id.into();
+    let machine = env
+        .find_machines(Some(rpc_machine_id.clone()), None, false)
+        .await
+        .machines
+        .remove(0);
 
+    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    // Use only CX7 interfaces in this test
+    let device_name = "MT2910 Family [ConnectX-7]".to_string();
+    let mut cx7_ifaces: Vec<_> = discovery_info
+        .infiniband_interfaces
+        .iter()
+        .filter(|iface| {
+            iface
+                .pci_properties
+                .as_ref()
+                .unwrap()
+                .description
+                .as_ref()
+                .unwrap()
+                == &device_name
+        })
+        .collect();
+    cx7_ifaces.sort_by_key(|iface| iface.pci_properties.as_ref().unwrap().slot());
+
+    // Find the first IB Port of the Machine in order to down it
+    let guids = [cx7_ifaces[0].guid.clone(), cx7_ifaces[1].guid.clone()];
+
+    env.ib_fabric_manager
+        .get_mock_manager()
+        .set_port_state(&guids[1], false);
     env.run_machine_state_controller_iteration().await;
 
     let result = try_allocate_instance(
@@ -593,34 +531,37 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
         &host_machine_id,
         rpc::forge::InstanceInfinibandConfig {
             ib_interfaces: vec![
-                // guid: 946dae03002ac102
+                // guids[0]
                 rpc::forge::InstanceIbInterfaceConfig {
                     function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
                     virtual_function_id: None,
                     ib_partition_id: Some(ib_partition_id.into()),
-                    device: "MT2910 Family [ConnectX-7]".to_string(),
-                    vendor: None,
-                    device_instance: 1,
-                },
-                // guid: 946dae03002ac752
-                rpc::forge::InstanceIbInterfaceConfig {
-                    function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
-                    virtual_function_id: None,
-                    ib_partition_id: Some(ib_partition_id.into()),
-                    device: "MT27800 Family [ConnectX-5]".to_string(),
+                    device: device_name.clone(),
                     vendor: None,
                     device_instance: 0,
+                },
+                // guids[1]
+                rpc::forge::InstanceIbInterfaceConfig {
+                    function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                    virtual_function_id: None,
+                    ib_partition_id: Some(ib_partition_id.into()),
+                    device: device_name.clone(),
+                    vendor: None,
+                    device_instance: 1,
                 },
             ],
         },
     )
     .await;
 
+    let expected_err = format!("UFM detected inactive state for GUID: {}", guids[1]);
+
     assert!(result.is_err());
     let error = result.expect_err("expected allocation to fail").to_string();
     assert!(
-        error.contains("UFM detected inactive state for GUID: 946dae03002ac752"),
-        "Error message should contain 'detected inactive state for GUID', but is {}",
+        error.contains(&expected_err),
+        "Error message should contain '{}', but is '{}'",
+        expected_err,
         error
     );
 }

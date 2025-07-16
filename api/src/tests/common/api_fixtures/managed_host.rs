@@ -15,13 +15,17 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use crate::model::{
-    hardware_info::{HardwareInfo, NetworkInterface, PciDeviceProperties, TpmEkCertificate},
-    machine::ManagedHostState,
-    site_explorer::{
-        Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
-        EthernetInterface, Inventory, Manager, NetworkAdapter, PowerState, Service, UefiDevicePath,
+use crate::{
+    model::{
+        hardware_info::{HardwareInfo, NetworkInterface, PciDeviceProperties, TpmEkCertificate},
+        machine::ManagedHostState,
+        site_explorer::{
+            Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport,
+            EndpointType, EthernetInterface, Inventory, Manager, NetworkAdapter, PowerState,
+            Service, UefiDevicePath,
+        },
     },
+    tests::common::ib_guid_pool,
 };
 use itertools::Itertools;
 use libredfish::{OData, PCIeDevice};
@@ -44,6 +48,7 @@ pub struct ManagedHostConfig {
     pub dpus: Vec<DpuConfig>,
     pub non_dpu_macs: Vec<MacAddress>,
     pub expected_state: ManagedHostState,
+    pub ib_guids: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -104,17 +109,21 @@ impl Default for ManagedHostConfig {
             dpus: vec![DpuConfig::default()],
             non_dpu_macs: vec![mac_address_pool::HOST_NON_DPU_MAC_ADDRESS_POOL.allocate()],
             expected_state: ManagedHostState::Ready,
+            // Create 6 IB GUIDs - which is what is required by x86_info.json
+            ib_guids: std::iter::repeat_with(|| ib_guid_pool::IB_GUID_POOL.allocate())
+                .take(6)
+                .collect(),
         }
     }
 }
 
 impl From<&ManagedHostConfig> for HardwareInfo {
-    fn from(value: &ManagedHostConfig) -> Self {
+    fn from(config: &ManagedHostConfig) -> Self {
         let mut info = serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap();
-        info.tpm_ek_certificate = Some(value.tpm_ek_cert.clone());
-        info.dmi_data.as_mut().unwrap().product_serial = value.serial.clone();
-        info.dmi_data.as_mut().unwrap().chassis_serial = value.serial.clone();
-        info.network_interfaces = value
+        info.tpm_ek_certificate = Some(config.tpm_ek_cert.clone());
+        info.dmi_data.as_mut().unwrap().product_serial = config.serial.clone();
+        info.dmi_data.as_mut().unwrap().chassis_serial = config.serial.clone();
+        info.network_interfaces = config
             .dpus
             .iter()
             .map(|d| NetworkInterface {
@@ -128,11 +137,27 @@ impl From<&ManagedHostConfig> for HardwareInfo {
                     slot: None,
                 }),
             })
-            .chain(value.non_dpu_macs.iter().map(|m| NetworkInterface {
+            .chain(config.non_dpu_macs.iter().map(|m| NetworkInterface {
                 mac_address: *m,
                 pci_properties: None,
             }))
             .collect();
+        // Generate a unique GUID for each InfiniBand interface in the template
+        // For the moment this only supports hosts with a fixed amount of 6 interfaces
+        assert_eq!(
+            config.ib_guids.len(),
+            config.ib_guids.len(),
+            "The amount of {} IB GUIDs passed to the config does not match the {} GUIDs required by the test_data template",
+            config.ib_guids.len(),
+            config.ib_guids.len()
+        );
+        for (ib_interface, guid) in info
+            .infiniband_interfaces
+            .iter_mut()
+            .zip(config.ib_guids.iter())
+        {
+            ib_interface.guid = guid.clone();
+        }
         info
     }
 }

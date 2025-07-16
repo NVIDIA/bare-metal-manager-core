@@ -17,6 +17,7 @@ mod host_bmc_firmware_test;
 mod ib_fabric_find;
 mod ib_fabric_monitor;
 mod ib_instance;
+mod ib_machine;
 mod ib_partition_find;
 mod ib_partition_lifecycle;
 mod instance;
