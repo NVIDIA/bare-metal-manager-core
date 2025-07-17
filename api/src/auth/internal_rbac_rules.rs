@@ -32,12 +32,14 @@ enum RulePrincipal {
     Dns,
     Dhcp,
     Ssh,
+    SshRs,
     Health,
     Pxe,
     Anonymous, // Permitted for everything
 }
 use self::RulePrincipal::{
     Agent, Anonymous, Dhcp, Dns, ForgeAdminCLI, Health, Machineatron, Pxe, Scout, SiteAgent, Ssh,
+    SshRs,
 };
 
 impl InternalRBACRules {
@@ -95,7 +97,7 @@ impl InternalRBACRules {
         x.perm("UpdateInstanceConfig", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindInstanceIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindInstancesByIds", vec![ForgeAdminCLI, SiteAgent]);
-        x.perm("FindInstances", vec![ForgeAdminCLI, SiteAgent, Ssh]);
+        x.perm("FindInstances", vec![ForgeAdminCLI, SiteAgent, Ssh, SshRs]);
         x.perm(
             "FindInstanceByMachineID",
             vec![ForgeAdminCLI, Agent, SiteAgent],
@@ -107,7 +109,7 @@ impl InternalRBACRules {
         );
         x.perm("RecordDpuNetworkStatus", vec![Agent, Machineatron]);
         x.perm("RecordHardwareHealthReport", vec![Health]);
-        x.perm("RecordLogParserHealthReport", vec![Health, Ssh]);
+        x.perm("RecordLogParserHealthReport", vec![Health, Ssh, SshRs]);
         x.perm("GetHardwareHealthReport", vec![]);
         x.perm("ListHealthReportOverrides", vec![ForgeAdminCLI]);
         x.perm("InsertHealthReportOverride", vec![ForgeAdminCLI]);
@@ -126,18 +128,18 @@ impl InternalRBACRules {
         x.perm("GetMachine", vec![ForgeAdminCLI, Agent, Machineatron]);
         x.perm(
             "FindMachines",
-            vec![ForgeAdminCLI, Machineatron, SiteAgent, Ssh],
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Ssh, SshRs],
         );
         x.perm("FindInterfaces", vec![ForgeAdminCLI]);
         x.perm("DeleteInterface", vec![ForgeAdminCLI]);
         x.perm("FindIpAddress", vec![ForgeAdminCLI]);
         x.perm(
             "FindMachineIds",
-            vec![ForgeAdminCLI, Machineatron, Health, SiteAgent, Ssh],
+            vec![ForgeAdminCLI, Machineatron, Health, SiteAgent, Ssh, SshRs],
         );
         x.perm(
             "FindMachinesByIds",
-            vec![ForgeAdminCLI, Machineatron, Health, SiteAgent, Ssh],
+            vec![ForgeAdminCLI, Machineatron, Health, SiteAgent, Ssh, SshRs],
         );
         x.perm("FindConnectedDevicesByDpuMachineIds", vec![ForgeAdminCLI]);
         x.perm("FindMachineIdsByBmcIps", vec![ForgeAdminCLI]);
@@ -146,7 +148,7 @@ impl InternalRBACRules {
         x.perm("IdentifyUuid", vec![ForgeAdminCLI]);
         x.perm("IdentifyMac", vec![ForgeAdminCLI]);
         x.perm("IdentifySerial", vec![ForgeAdminCLI, Machineatron]);
-        x.perm("GetBMCMetaData", vec![Health, Ssh]);
+        x.perm("GetBMCMetaData", vec![Health, Ssh, SshRs]);
         x.perm("UpdateBMCMetaData", vec![Machineatron]);
         x.perm("UpdateMachineCredentials", vec![]);
         x.perm("GetPxeInstructions", vec![Pxe, Machineatron]);
@@ -161,7 +163,7 @@ impl InternalRBACRules {
         x.perm("FindTenantKeyset", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateTenantKeyset", vec![SiteAgent]);
         x.perm("DeleteTenantKeyset", vec![SiteAgent]);
-        x.perm("ValidateTenantPublicKey", vec![SiteAgent, Ssh]);
+        x.perm("ValidateTenantPublicKey", vec![SiteAgent, Ssh, SshRs]);
         x.perm("GetDpuSSHCredential", vec![ForgeAdminCLI]);
         x.perm("GetAllManagedHostNetworkStatus", vec![ForgeAdminCLI]);
         x.perm(
@@ -495,6 +497,9 @@ impl RuleInfo {
                     RulePrincipal::Ssh => {
                         Principal::SpiffeServiceIdentifier("carbide-ssh-console".to_string())
                     }
+                    RulePrincipal::SshRs => {
+                        Principal::SpiffeServiceIdentifier("carbide-ssh-console-rs".to_string())
+                    }
                     RulePrincipal::Pxe => {
                         Principal::SpiffeServiceIdentifier("carbide-pxe".to_string())
                     }
@@ -517,6 +522,46 @@ mod rbac_rule_tests {
 
     use super::*;
     use crate::auth::Principal;
+
+    fn ensure_identical_permissions(princ_a: &Principal, princ_b: &Principal) {
+        for (rule_name, rule) in &INTERNAL_RBAC_RULES.perms {
+            if rule.principals.contains(princ_a) {
+                assert!(
+                    rule.principals.contains(princ_b),
+                    "{} RBAC rule allows {} but not {}",
+                    rule_name,
+                    princ_a.as_identifier(),
+                    princ_b.as_identifier(),
+                );
+            } else {
+                assert!(
+                    !rule.principals.contains(princ_b),
+                    "{} RBAC rule rejects {} but allows {}",
+                    rule_name,
+                    princ_a.as_identifier(),
+                    princ_b.as_identifier(),
+                );
+            }
+
+            if rule.principals.contains(princ_b) {
+                assert!(
+                    rule.principals.contains(princ_a),
+                    "{} RBAC rule allows {} but not {}",
+                    rule_name,
+                    princ_b.as_identifier(),
+                    princ_a.as_identifier(),
+                );
+            } else {
+                assert!(
+                    !rule.principals.contains(princ_a),
+                    "{} RBAC rule rejects {} but allows {}",
+                    rule_name,
+                    princ_b.as_identifier(),
+                    princ_a.as_identifier(),
+                );
+            }
+        }
+    }
 
     #[test]
     fn rbac_rule_tests() -> Result<(), eyre::Report> {
@@ -600,8 +645,18 @@ mod rbac_rule_tests {
             &[]
         ));
 
+        // Ensure Ssh and SshRs both have identical permissions. (ssh-console-rs is a rust rewrite
+        // of ssh-console, and to keep things straightforward, it has its own set of DNS names,
+        // SPIFFE identifiers, etc. We don't want to play any tricks by reusing principals here, so
+        // we gotta list both, until we've fully migrated to ssh-console-rs.)
+        ensure_identical_permissions(
+            &Principal::SpiffeServiceIdentifier("carbide-ssh-console".to_string()),
+            &Principal::SpiffeServiceIdentifier("carbide-ssh-console-rs".to_string()),
+        );
+
         Ok(())
     }
+
     #[test]
     fn all_requests_listed() -> Result<(), eyre::Report> {
         let mut messages = vec![];
