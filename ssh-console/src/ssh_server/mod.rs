@@ -13,7 +13,9 @@
 use crate::ShutdownHandle;
 use crate::config::Config;
 use eyre::Context;
+use russh::{MethodKind, MethodSet};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -21,7 +23,7 @@ use tokio::task::JoinHandle;
 mod backend;
 mod backend_pool;
 mod console_logging;
-mod frontend;
+pub(crate) mod frontend;
 mod server;
 
 /// Run a ssh-console server in the background, returning a [`SpawnHandle`]. When the handle is
@@ -48,6 +50,10 @@ pub async fn spawn(config: Config) -> eyre::Result<SpawnHandle> {
     let join_handle = tokio::spawn(server.run(
         Arc::new(russh::server::Config {
             keys: vec![host_key],
+            // We only accept PublicKey auth (certificates are a kind of PublicKey auth)
+            methods: MethodSet::from([MethodKind::PublicKey].as_slice()),
+            nodelay: true,
+            auth_rejection_time: Duration::from_millis(30),
             ..Default::default()
         }),
         listener,

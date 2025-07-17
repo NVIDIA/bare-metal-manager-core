@@ -9,17 +9,18 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use crate::ShutdownHandle;
 use crate::config::Config;
 use crate::ssh_server::backend_pool::BackendPool;
 use crate::ssh_server::console_logging;
 use crate::ssh_server::console_logging::ConsoleLoggerPoolHandle;
+use crate::ssh_server::frontend::RusshOrEyreError;
 use forge_tls::client_config::ClientCert;
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use russh::server::Server as _;
 use russh::server::run_stream;
+use std::io;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -76,16 +77,46 @@ impl Server {
                                     }
                                 }
 
+                                // Failures here are all from russh, but the error type is
+                                // Handler::Error, which is *our* error type. So we have go to
+                                // through this RusshOrEyreError hoops to track down what the actual
+                                // error was.
                                 let session = match run_stream(config, socket, handler).await {
                                     Ok(s) => s,
-                                    Err(error) => {
+                                    Err(RusshOrEyreError::Russh(russh::Error::Disconnect)) => {
+                                        // If it was a simple disconnect, don't log a scary looking
+                                        // error.
+                                        tracing::debug!("client disconnected");
+                                        return;
+                                    }
+                                    Err(RusshOrEyreError::Russh(russh::Error::ConnectionTimeout)) => {
+                                        // ditto connection timeout
+                                        tracing::debug!("client connection timeout");
+                                        return;
+                                    }
+                                    Err(RusshOrEyreError::Eyre(error)) => {
+                                        // I think this is impossible, none of our code is run yet.
                                         tracing::warn!(?error, "Connection setup failed");
-                                        return
+                                        return;
+                                    }
+                                    Err(RusshOrEyreError::Russh(error)) => {
+                                        tracing::warn!(?error, "Connection setup failed with internal russh error");
+                                        return;
                                     }
                                 };
 
                                 match session.await {
                                     Ok(_) => tracing::debug!("Connection closed"),
+                                    Err(RusshOrEyreError::Russh(russh::Error::IO(io_error))) => {
+                                        match io_error.kind() {
+                                            io::ErrorKind::UnexpectedEof => {
+                                                tracing::debug!("eof from client");
+                                            }
+                                            error => {
+                                                tracing::warn!(?error, "Connection closed with error");
+                                            }
+                                        }
+                                    }
                                     Err(error) => {
                                         tracing::warn!(?error, "Connection closed with error");
                                     }
