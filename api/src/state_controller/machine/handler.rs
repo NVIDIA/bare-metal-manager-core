@@ -2021,17 +2021,13 @@ async fn handle_bfb_install_state(
                     Ok(transition!(next_state))
                 }
                 Some(TaskState::Running) | Some(TaskState::New) | Some(TaskState::Starting) => {
-                    let next_state = next_state_resolver.next_bfb_install_state(
-                        &state.managed_state,
-                        &InstallDpuOsState::WaitForInstallComplete {
-                            task_id,
-                            progress: task
-                                .percent_complete
-                                .map_or("unknown".to_string(), |p| p.to_string()),
-                        },
-                        dpu_machine_id,
-                    )?;
-                    Ok(transition!(next_state))
+                    let percent_complete = task
+                        .percent_complete
+                        .map_or("0".to_string(), |p| p.to_string());
+                    Ok(wait!(format!(
+                        "Waiting for BFB install to complete: {}%",
+                        percent_complete
+                    )))
                 }
                 _ => {
                     let msg = format!(
