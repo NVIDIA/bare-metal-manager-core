@@ -22,6 +22,7 @@ use russh::keys::{Certificate, PublicKey, PublicKeyBase64};
 use russh::server::{Auth, Msg, Session};
 use russh::{Channel, ChannelId, ChannelMsg, MethodKind, MethodSet, Pty, Sig};
 use std::collections::HashMap;
+use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -55,7 +56,7 @@ impl Handler {
 }
 
 impl russh::server::Handler for Handler {
-    type Error = eyre::Error;
+    type Error = RusshOrEyreError;
 
     async fn channel_open_session(
         &mut self,
@@ -65,7 +66,8 @@ impl russh::server::Handler for Handler {
         let Some(user) = self.authenticated_user.read().await.clone() else {
             return Err(eyre::format_err!(
                 "BUG: channel_open_session called but we don't have an authenticated user"
-            ));
+            )
+            .into());
         };
 
         // spawn the backend connection
@@ -385,6 +387,43 @@ impl russh::server::Handler for Handler {
             .ok();
         session.close(channel).ok();
         Ok(())
+    }
+}
+
+/// The error type used by Handler, so that we can distinguish between Russh errors and our errors.
+#[derive(Debug)]
+pub enum RusshOrEyreError {
+    Russh(russh::Error),
+    Eyre(eyre::Error),
+}
+
+impl fmt::Display for RusshOrEyreError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RusshOrEyreError::Russh(e) => fmt::Display::fmt(e, f),
+            RusshOrEyreError::Eyre(e) => fmt::Display::fmt(e, f),
+        }
+    }
+}
+
+impl std::error::Error for RusshOrEyreError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            RusshOrEyreError::Russh(e) => e.source(),
+            RusshOrEyreError::Eyre(e) => e.source(),
+        }
+    }
+}
+
+impl From<eyre::Error> for RusshOrEyreError {
+    fn from(value: eyre::Error) -> Self {
+        RusshOrEyreError::Eyre(value)
+    }
+}
+
+impl From<russh::Error> for RusshOrEyreError {
+    fn from(value: russh::Error) -> Self {
+        RusshOrEyreError::Russh(value)
     }
 }
 
