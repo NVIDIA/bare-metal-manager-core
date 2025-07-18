@@ -150,10 +150,10 @@ impl TryInto<Config> for RunCommand {
             config.insecure_ipmi_ciphers = true;
         }
         if let Some(ipmi_port) = self.ipmi_port {
-            config.ipmi_port = ipmi_port;
+            config.override_ipmi_port = Some(ipmi_port);
         }
         if let Some(bmc_ssh_port) = self.bmc_ssh_port {
-            config.bmc_ssh_port = bmc_ssh_port;
+            config.override_bmc_ssh_port = Some(bmc_ssh_port);
         }
         if let Some(authorized_keys) = self.authorized_keys {
             config.authorized_keys_path = Some(authorized_keys);

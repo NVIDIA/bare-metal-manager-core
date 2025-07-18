@@ -29,7 +29,7 @@ serde = { version = "1.0.219", features = ["derive"] }
 clap = { version = "4.5.40", features = ["color", "derive", "env"] }
 russh = "0.52.1"
 http = { version = "1.3.1" }
-color-eyre = "0.6.5"
+color-eyre = { version = "0.6.5" }
 tonic = { workspace = true, features = ["default"] }
 ringbuf = "0.4.8"
 nix = { version = "0.30.1", features = ["process", "term", "fs"] }
@@ -39,6 +39,7 @@ futures-util = "0.3.31"
 duration-str = "0.17.0"
 chrono = "0.4.41"
 strip-ansi-escapes = "0.2.1"
+rand = "0.9.1"
 
 [dev-dependencies]
 bmc-mock = { path = "../dev/bmc-mock" }
@@ -49,4 +50,3 @@ futures = "0.3.31"
 api-test-helper = { path = "../common/api-test-helper" }
 ssh_console_mock_api_server = { path = "mock_api_server" }
 forge-uuid = { path = "../common/uuid" }
-rand = "0.9.1"

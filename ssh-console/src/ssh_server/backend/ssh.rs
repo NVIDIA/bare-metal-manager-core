@@ -5,10 +5,11 @@ use eyre::Context;
 use ringbuf::LocalRb;
 use ringbuf::storage::Array;
 use ringbuf::traits::RingBuffer;
-use russh::client::{AuthResult, KeyboardInteractiveAuthResponse};
+use russh::client::{AuthResult, GexParams, KeyboardInteractiveAuthResponse};
 use russh::keys::{HashAlg, PrivateKeyWithHashAlg, PublicKey};
 use russh::{Channel, ChannelMsg, MethodKind};
-use std::sync::Arc;
+use std::io::Read;
+use std::sync::{Arc, LazyLock};
 use tokio::sync::{broadcast, mpsc};
 
 struct Handler;
@@ -24,6 +25,9 @@ impl russh::client::Handler for Handler {
         Ok(true)
     }
 }
+
+static RUSSH_CLIENT_CONFIG: LazyLock<Arc<russh::client::Config>> =
+    LazyLock::new(russh_client_config);
 
 /// Connect to the backend for an instance or machine, returning a [`BackendHandle`]
 pub async fn spawn(
@@ -43,7 +47,7 @@ pub async fn spawn(
         .await
         .context("error activating serial console")?;
 
-    let mut backend_ringbuf: LocalRb<Array<u8, 32>> = ringbuf::LocalRb::default();
+    let mut backend_ringbuf: LocalRb<Array<u8, 1024>> = ringbuf::LocalRb::default();
     let bmc_prompt = bmc_vendor.bmc_prompt();
     let (to_backend_msg_tx, mut to_backend_msg_rx) = mpsc::channel::<ChannelMsg>(1);
     tokio::spawn({
@@ -56,9 +60,13 @@ pub async fn spawn(
                         Some(msg) => {
                             if let ChannelMsg::Data { data, .. } = &msg {
                                 backend_ringbuf.push_iter_overwrite(data.iter().copied());
-                                if ringbuf_contains(&backend_ringbuf, bmc_prompt) {
-                                    tracing::warn!("backend dropped to BMC, exiting");
-                                    break;
+                                if let Some(bmc_prompt) = bmc_prompt {
+                                    if ringbuf_contains(&backend_ringbuf, bmc_prompt) {
+                                        let mut ringbuf_str = String::new();
+                                        backend_ringbuf.read_to_string(&mut ringbuf_str).ok();
+                                        tracing::warn!("backend dropped to BMC, exiting. output: {ringbuf_str:?}");
+                                        break;
+                                    }
                                 }
                             }
                             to_frontend_tx.send(Arc::new(msg)).context("error sending message from ssh backend to frontend")?;
@@ -113,8 +121,7 @@ async fn make_authenticated_client(
         ..
     }: &SshConnectionDetails,
 ) -> eyre::Result<russh::client::Handle<Handler>> {
-    let russh_config = Arc::new(russh::client::Config::default());
-    let mut client = russh::client::connect(russh_config, addr, Handler)
+    let mut client = russh::client::connect(RUSSH_CLIENT_CONFIG.clone(), addr, Handler)
         .await
         .with_context(|| format!("Error connecting to {addr}"))?;
 
@@ -247,6 +254,16 @@ async fn trigger_and_await_sol_console(
     backend_channel: &mut Channel<russh::client::Msg>,
     bmc_vendor: SshBmcVendor,
 ) -> eyre::Result<()> {
+    let Some(bmc_prompt) = bmc_vendor.bmc_prompt() else {
+        // This vendor lets us get a console directly by SSH'ing in (e.g. a DPU.)
+        return Ok(());
+    };
+    let Some(activate_command) = bmc_vendor.serial_activate_command() else {
+        // All vendors in bmc_vendor.rs must either return Some for both bmc_prompt() and
+        // serial_activate_command(), or None for both of them.
+        panic!("BUG: vendor has a BMC prompt but not a serial_activate_command")
+    };
+
     // BMC activation sequence:
     // - Send PTY and shell requests to establish terminal
     // - Send vendor-specific activation command
@@ -265,9 +282,6 @@ async fn trigger_and_await_sol_console(
         .data(b"\n".as_slice())
         .await
         .context("error sending newline to backend")?;
-
-    let bmc_prompt = bmc_vendor.bmc_prompt();
-    let activate_command = bmc_vendor.serial_activate_command();
 
     let mut prompt_buf: Vec<u8> = Vec::with_capacity(1024);
     let timeout = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -298,14 +312,14 @@ async fn trigger_and_await_sol_console(
                                 // We saw the prompt, send the serial activate command (`connect com1`,
                                 // etc) one byte at a time: This seems to work better with some
                                 // consoles.
-                                for byte in bmc_vendor.serial_activate_command() {
+                                for byte in activate_command {
                                     backend_channel
                                         .data([*byte].as_slice())
                                         .await
                                         .with_context(|| {
                                             format!(
                                                 "error sending serial activate command ({}) to backend",
-                                                String::from_utf8_lossy(bmc_vendor.serial_activate_command())
+                                                String::from_utf8_lossy(activate_command)
                                             )
                                         })?;
                                 }
@@ -337,6 +351,17 @@ async fn trigger_and_await_sol_console(
     }
 
     Ok(())
+}
+
+/// Configuration for russh's SSH client connections
+fn russh_client_config() -> Arc<russh::client::Config> {
+    let russh_config = russh::client::Config {
+        // Some BMC's use a Diffie-Hellman group size of 2048, which is not allowed by default.
+        gex: GexParams::new(2048, 8192, 8192)
+            .expect("BUG: static DH group parameters must be valid"),
+        ..Default::default()
+    };
+    Arc::new(russh_config)
 }
 
 enum SerialConsoleActivationStep {
