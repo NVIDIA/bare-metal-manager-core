@@ -30,6 +30,11 @@ use tokio::sync::{RwLock, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 
+/// Retry interval the first time we see a failure
+static RETRY_BASE_DURATION: Duration = Duration::from_secs(10);
+/// Max retry interval after subsequent failures
+static RETRY_MAX_DURATION: Duration = Duration::from_secs(600);
+
 /// Spawn a ConsoleLoggerPool, returning a [`ConsoleLoggerPoolHandle`] handle. All loggers in the
 /// pool will shut down when the handle is dropped.
 ///
@@ -214,11 +219,13 @@ impl ConsoleLoggerPool {
 
             async move {
                 // First try should not sleep
-                let mut retry_time = Duration::new(0, 0);
+                let mut retry_time = Duration::ZERO;
 
                 'retry: loop {
                     tokio::time::sleep(retry_time).await;
-                    retry_time = Duration::from_secs(30); // Subsequent retries should sleep 30s
+                    // Subsequent retries should sleep for RETRY_BASE_DURATION and double from there
+                    // until we successfully connect.
+                    retry_time = Self::next_retry_backoff(retry_time);
                     let backend_handle = match backend_pool
                         .ensure_connected(&machine_id.to_string(), &config, &forge_api_client)
                         .await
@@ -267,6 +274,8 @@ impl ConsoleLoggerPool {
                         tracing::error!(?error, path = %log_path.display(), %machine_id, "error writing to log file, will retry in {}s", retry_time.as_secs());
                         continue 'retry;
                     }
+
+                    retry_time = Duration::ZERO; // reset the retry interval, since we successfully connected.
 
                     let mut buffer: Vec<u8> = Vec::new();
 
@@ -334,6 +343,20 @@ impl ConsoleLoggerPool {
             shutdown_tx,
             join_handle,
         }
+    }
+
+    // Exponential backoff for retrying to connect to a console
+    fn next_retry_backoff(prev: Duration) -> Duration {
+        static BASE_F64: f64 = RETRY_BASE_DURATION.as_secs_f64();
+        static MAX_F64: f64 = RETRY_MAX_DURATION.as_secs_f64();
+
+        if prev == Duration::ZERO {
+            return RETRY_BASE_DURATION;
+        }
+
+        // Sleep a random interval between prev and prev * 3
+        let upper = (prev.as_secs_f64() * 3.0).min(MAX_F64);
+        Duration::from_secs_f64(rand::random_range(BASE_F64..upper))
     }
 
     fn log_path(config: &Config, machine_id: &MachineId, ip_addr: &IpAddr) -> PathBuf {

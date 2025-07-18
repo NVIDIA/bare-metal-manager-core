@@ -15,7 +15,7 @@ mod ssh;
 use crate::bmc_vendor::{BmcVendor, SshBmcVendor};
 use crate::config::Config;
 use eyre::{Context, ContextCompat};
-use forge_uuid::machine::MachineId;
+use forge_uuid::machine::{MachineId, MachineType};
 use rpc::forge;
 use rpc::forge_api_client::ForgeApiClient;
 use russh::ChannelMsg;
@@ -123,7 +123,9 @@ pub async fn lookup_connection_details(
         return Ok(connection_details);
     }
 
-    let machine_id = if MachineId::from_str(machine_or_instance_id).is_ok() {
+    let maybe_machine_id = MachineId::from_str(machine_or_instance_id).ok();
+
+    let machine_id_str = if maybe_machine_id.is_some() {
         Cow::Borrowed(machine_or_instance_id)
     } else if let Ok(uuid) = Uuid::from_str(machine_or_instance_id) {
         Cow::Owned(
@@ -151,22 +153,18 @@ pub async fn lookup_connection_details(
     };
 
     let machine = forge_api_client
-        .get_machine(&*machine_id)
+        .get_machine(&*machine_id_str)
         .await
-        .with_context(|| format!("Error getting machine {machine_id}"))?;
-    let Some(sys_vendor) = machine
-        .discovery_info
-        .and_then(|d| d.dmi_data)
-        .map(|d| d.sys_vendor)
-    else {
-        return Err(eyre::format_err!(
-            "Machine {machine_id} has no known sys_vendor, cannot connect to BMC"
-        ));
-    };
+        .with_context(|| format!("Error getting machine {machine_id_str}"))?;
+    let is_dpu =
+        maybe_machine_id.is_some_and(|machine_id| machine_id.machine_type() == MachineType::Dpu);
 
-    let bmc_vendor = BmcVendor::from_sys_vendor_string(&sys_vendor).with_context(|| {
-        format!("Unknown or unsupported sys_vendor string for machine: {sys_vendor}")
-    })?;
+    let bmc_vendor = if is_dpu {
+        BmcVendor::Ssh(SshBmcVendor::Dpu)
+    } else {
+        BmcVendor::detect_from_api_machine(&machine)
+            .with_context(|| format!("Cannot detect BMC vendor for machine: {machine_id_str}"))?
+    };
 
     let forge::BmcMetaDataGetResponse {
         ip,
@@ -179,7 +177,7 @@ pub async fn lookup_connection_details(
     } = forge_api_client
         .get_bmc_meta_data(forge::BmcMetaDataGetRequest {
             machine_id: Some(rpc::MachineId {
-                id: machine_id.into_owned(),
+                id: machine_id_str.into_owned(),
             }),
             role: 0,
             request_type: forge::BmcRequestType::Ipmi.into(),
@@ -193,16 +191,21 @@ pub async fn lookup_connection_details(
         .with_context(|| format!("Error parsing IP address from forge.GetBmcMetaData: {}", ip))?;
 
     let port = match &bmc_vendor {
-        BmcVendor::Ssh(_) => ssh_port
+        BmcVendor::Ssh(ssh_bmc_vendor) => ssh_port
             .map(u16::try_from)
             .transpose()
             .context("invalid ssh port from forge.GetBmcMetaData")?
-            .unwrap_or(config.bmc_ssh_port),
+            .or(config.override_bmc_ssh_port)
+            .unwrap_or(match ssh_bmc_vendor {
+                SshBmcVendor::Dpu => 2200,
+                _ => 22,
+            }),
         BmcVendor::Ipmi(_) => ipmi_port
             .map(u16::try_from)
             .transpose()
             .context("invalid IPMI port from forge.GetBmcMetaData")?
-            .unwrap_or(config.ipmi_port),
+            .or(config.override_ipmi_port)
+            .unwrap_or(623),
     };
 
     let addr = if let Some(override_ssh_addr) = config

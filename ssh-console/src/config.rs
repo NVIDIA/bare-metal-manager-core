@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::bmc_vendor::BmcVendor;
+use crate::bmc_vendor::{BmcVendor, SshBmcVendor};
 use duration_str::deserialize_duration;
 use eyre::{Context, ContextCompat};
 use russh::keys::ssh_key::Fingerprint;
@@ -30,8 +30,8 @@ pub struct Config {
     pub override_bmcs: Option<Vec<BmcConfig>>,
     pub dpus: bool,
     pub insecure: bool,
-    pub bmc_ssh_port: u16,
-    pub ipmi_port: u16,
+    pub override_bmc_ssh_port: Option<u16>,
+    pub override_ipmi_port: Option<u16>,
     pub insecure_ipmi_ciphers: bool,
     pub forge_root_ca_path: PathBuf,
     pub client_cert_path: PathBuf,
@@ -87,8 +87,8 @@ pub fn default_config_file() -> String {
         dpus,
         insecure,
         carbide_url,
-        bmc_ssh_port,
-        ipmi_port,
+        override_bmc_ssh_port: _,
+        override_ipmi_port: _,
         insecure_ipmi_ciphers,
         forge_root_ca_path,
         client_cert_path,
@@ -135,9 +135,9 @@ dpus = {dpus}
 ## client connections to succeed.
 insecure = {insecure}
 
-## Ports to use when connecting to BMC's
-bmc_ssh_port = {bmc_ssh_port}
-ipmi_port = {ipmi_port}
+## Override ports to use when connecting to BMC's (useful for integration testing)
+# override_bmc_ssh_port = <port>
+# override_ipmi_port = <port>
 
 ## Signing CA fingerprints for openssh certificates. Defaults to one that's valid for production
 ## nvinit certs
@@ -179,7 +179,7 @@ console_logs_path = {console_logs_path:?}
 # user = "user"                     # User to authenticate as when ssh-console connects to BMC
 # password = "password"             # Password to use when ssh-console connects to BMC
 # ssh_key_path = "/path/to/ssh_key" # Path to an SSH key to use when ssh-console connects to BMC (optional, overrides password.)
-# bmc_vendor = "dell"               # Vendor for this BMC, determines connection behavior (currently supported: "dell", "lenovo", "hpe", "supermicro")
+# bmc_vendor = "dell"               # Vendor for this BMC, determines connection behavior (currently supported: "dell", "lenovo", "hpe", "supermicro", "dpu", "nvidia_viking")
 #
 # # [[bmcs]]
 # # ... more bmcs sections can define more than one
@@ -217,8 +217,8 @@ impl TryFrom<File> for Config {
             dpus: file.dpus,
 
             insecure: file.insecure,
-            bmc_ssh_port: file.bmc_ssh_port,
-            ipmi_port: file.ipmi_port,
+            override_bmc_ssh_port: file.override_bmc_ssh_port,
+            override_ipmi_port: file.override_ipmi_port,
             insecure_ipmi_ciphers: file.insecure_ipmi_ciphers,
             forge_root_ca_path: file.forge_root_ca_path,
             client_cert_path: file.client_cert_path,
@@ -245,14 +245,14 @@ struct File {
     bmcs: Option<Vec<BmcConfig>>,
     #[serde(default = "Defaults::host_key_path")]
     host_key: PathBuf,
-    #[serde(default)]
+    #[serde(default = "Defaults::dpus")]
     dpus: bool,
     #[serde(default)]
     insecure: bool,
-    #[serde(default = "Defaults::bmc_ssh_port")]
-    bmc_ssh_port: u16,
-    #[serde(default = "Defaults::ipmi_port")]
-    ipmi_port: u16,
+    #[serde(default)]
+    override_bmc_ssh_port: Option<u16>,
+    #[serde(default)]
+    override_ipmi_port: Option<u16>,
     #[serde(default)]
     insecure_ipmi_ciphers: bool,
     #[serde(default = "Defaults::root_ca_path")]
@@ -293,7 +293,16 @@ pub struct BmcConfig {
 
 impl BmcConfig {
     pub fn addr(&self) -> SocketAddr {
-        SocketAddr::new(self.ip, self.port.unwrap_or(22))
+        let port = if let Some(port) = self.port {
+            port
+        } else {
+            match self.bmc_vendor {
+                // DPUs use port 2200 for a console-only SSH session
+                BmcVendor::Ssh(SshBmcVendor::Dpu) => 2200,
+                _ => 22,
+            }
+        };
+        SocketAddr::new(self.ip, port)
     }
 }
 
@@ -303,8 +312,6 @@ impl Default for File {
             listen_address: Defaults::listen_address(),
             host_key: Defaults::host_key_path(),
             carbide_url: Defaults::carbide_address(),
-            bmc_ssh_port: Defaults::bmc_ssh_port(),
-            ipmi_port: Defaults::ipmi_port(),
             forge_root_ca_path: Defaults::root_ca_path(),
             client_cert_path: Defaults::client_key_path(),
             client_key_path: Defaults::client_key_path(),
@@ -313,9 +320,11 @@ impl Default for File {
             api_poll_interval: Defaults::api_poll_interval(),
             console_logs_path: Defaults::console_logs_path(),
             console_logging_enabled: Defaults::console_logging_enabled(),
+            dpus: Defaults::dpus(),
+            override_bmc_ssh_port: None,
+            override_ipmi_port: None,
             authorized_keys_path: None,
             bmcs: None,
-            dpus: false,
             insecure: false,
             insecure_ipmi_ciphers: false,
             override_bmc_ssh_host: None,
@@ -334,16 +343,12 @@ impl Defaults {
         "/etc/ssh/ssh_host_ed25519_key".into()
     }
 
+    pub fn dpus() -> bool {
+        true
+    }
+
     pub fn carbide_address() -> String {
         "carbide-api.forge-system.svc.cluster.local:1079".to_string()
-    }
-
-    pub fn bmc_ssh_port() -> u16 {
-        22
-    }
-
-    pub fn ipmi_port() -> u16 {
-        623
     }
 
     pub fn root_ca_path() -> PathBuf {

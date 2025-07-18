@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use rpc::forge;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::borrow::Cow;
 
@@ -26,12 +27,14 @@ pub enum BmcVendor {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum IpmiBmcVendor {
     Supermicro,
+    NvidiaViking,
 }
 
 impl IpmiBmcVendor {
     pub fn config_string(&self) -> &'static str {
         match self {
             IpmiBmcVendor::Supermicro => "supermicro",
+            IpmiBmcVendor::NvidiaViking => "nvidia_viking",
         }
     }
 }
@@ -48,22 +51,44 @@ pub enum SshBmcVendor {
     Lenovo,
     /// HPE iLO - uses "vsp" command and ESC ( escape sequence
     Hpe,
+    /// DPU, no commands needed, we just connect to port 2200 and get a console immediately.
+    Dpu,
 }
 
 impl BmcVendor {
-    pub fn from_sys_vendor_string(s: &str) -> Option<Self> {
+    pub fn detect_from_api_machine(machine: &forge::Machine) -> eyre::Result<Self> {
+        let Some(dmi_data) = machine
+            .discovery_info
+            .as_ref()
+            .and_then(|d| d.dmi_data.as_ref())
+        else {
+            return Err(eyre::format_err!("Machine has no dmi data"));
+        };
+
+        let sys_vendor = &dmi_data.sys_vendor;
+
         // Vendor string data here ultimately comes from DMI data, via the `sys_vendor` field.
-        if s.contains("Dell") {
-            Some(BmcVendor::Ssh(SshBmcVendor::Dell))
-        } else if s.contains("Lenovo") {
-            Some(BmcVendor::Ssh(SshBmcVendor::Lenovo))
-        } else if s.contains("HPE") || s.contains("Hewlett") {
-            Some(BmcVendor::Ssh(SshBmcVendor::Hpe))
-        } else if s.contains("Supermicro") {
-            Some(BmcVendor::Ipmi(IpmiBmcVendor::Supermicro))
+        let vendor = if sys_vendor.contains("Dell") {
+            BmcVendor::Ssh(SshBmcVendor::Dell)
+        } else if sys_vendor.contains("Lenovo") {
+            BmcVendor::Ssh(SshBmcVendor::Lenovo)
+        } else if sys_vendor.contains("HPE") || sys_vendor.contains("Hewlett") {
+            BmcVendor::Ssh(SshBmcVendor::Hpe)
+        } else if sys_vendor.contains("Supermicro") {
+            BmcVendor::Ipmi(IpmiBmcVendor::Supermicro)
+        } else if sys_vendor.contains("NVIDIA") {
+            if dmi_data.product_name.contains("DGX") {
+                BmcVendor::Ipmi(IpmiBmcVendor::NvidiaViking)
+            } else {
+                BmcVendor::Ssh(SshBmcVendor::Dpu)
+            }
         } else {
-            None
-        }
+            return Err(eyre::format_err!(
+                "Unknown or unsupported sys_vendor string: {sys_vendor}"
+            ));
+        };
+
+        Ok(vendor)
     }
 
     pub fn from_config_string(s: &str) -> Option<Self> {
@@ -73,6 +98,8 @@ impl BmcVendor {
             Some(BmcVendor::Ssh(SshBmcVendor::Lenovo))
         } else if s == SshBmcVendor::Hpe.config_string() {
             Some(BmcVendor::Ssh(SshBmcVendor::Hpe))
+        } else if s == SshBmcVendor::Dpu.config_string() {
+            Some(BmcVendor::Ssh(SshBmcVendor::Dpu))
         } else if s == IpmiBmcVendor::Supermicro.config_string() {
             Some(BmcVendor::Ipmi(IpmiBmcVendor::Supermicro))
         } else {
@@ -129,19 +156,21 @@ impl<'de> Deserialize<'de> for BmcVendor {
 }
 
 impl SshBmcVendor {
-    pub fn serial_activate_command(&self) -> &'static [u8] {
+    pub fn serial_activate_command(&self) -> Option<&'static [u8]> {
         match self {
-            SshBmcVendor::Dell => b"connect com2",
-            SshBmcVendor::Lenovo => b"console kill 1\nconsole 1",
-            SshBmcVendor::Hpe => b"vsp",
+            SshBmcVendor::Dell => Some(b"connect com2"),
+            SshBmcVendor::Lenovo => Some(b"console kill 1\nconsole 1"),
+            SshBmcVendor::Hpe => Some(b"vsp"),
+            SshBmcVendor::Dpu => None,
         }
     }
 
-    pub fn bmc_prompt(&self) -> &'static [u8] {
+    pub fn bmc_prompt(&self) -> Option<&'static [u8]> {
         match self {
-            SshBmcVendor::Dell => b"\nracadm>>",
-            SshBmcVendor::Lenovo => b"\nsystem>",
-            SshBmcVendor::Hpe => b"\nhpiLO->",
+            SshBmcVendor::Dell => Some(b"\nracadm>>"),
+            SshBmcVendor::Lenovo => Some(b"\nsystem>"),
+            SshBmcVendor::Hpe => Some(b"\n</>hpiLO->"),
+            SshBmcVendor::Dpu => None,
         }
     }
 
@@ -151,14 +180,16 @@ impl SshBmcVendor {
         prev_pending: bool,
     ) -> (Cow<'a, [u8]>, bool) {
         self.escape_sequence()
-            .filter_escape_sequences(input, prev_pending)
+            .map(|seq| seq.filter_escape_sequences(input, prev_pending))
+            .unwrap_or((Cow::Borrowed(input), false))
     }
 
-    fn escape_sequence(&self) -> EscapeSequence {
+    fn escape_sequence(&self) -> Option<EscapeSequence> {
         match self {
-            SshBmcVendor::Dell => EscapeSequence::Single(0x1c), // ctrl+\
-            SshBmcVendor::Lenovo => EscapeSequence::Pair((0x1b, &[0x28])), // ESC (
-            SshBmcVendor::Hpe => EscapeSequence::Pair((0x1b, &[0x28])), // ESC (
+            SshBmcVendor::Dell => Some(EscapeSequence::Single(0x1c)), // ctrl+\
+            SshBmcVendor::Lenovo => Some(EscapeSequence::Pair((0x1b, &[0x28]))), // ESC (
+            SshBmcVendor::Hpe => Some(EscapeSequence::Pair((0x1b, &[0x28]))), // ESC (
+            SshBmcVendor::Dpu => None,
         }
     }
 
@@ -167,6 +198,7 @@ impl SshBmcVendor {
             SshBmcVendor::Dell => "dell",
             SshBmcVendor::Lenovo => "lenovo",
             SshBmcVendor::Hpe => "hpe",
+            SshBmcVendor::Dpu => "dpu",
         }
     }
 }
