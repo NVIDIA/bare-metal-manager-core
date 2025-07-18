@@ -6,6 +6,10 @@ fi
 
 set -Eeux
 
+NV_PACKAGES="cuda-drivers-575 nvidia-driver-575-open datacenter-gpu-manager-4-cuda12 nvidia-fabricmanager-575 nvidia-imex-575"
+export DEBIAN_FRONTEND=noninteractive
+apt-get -y install ${NV_PACKAGES}
+
 dpkg -i /build-output/forge-scout.deb
 systemctl enable forge-scout
 
