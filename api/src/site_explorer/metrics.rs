@@ -433,22 +433,10 @@ impl SiteExplorerInstruments {
         }
     }
 
-    /// Emit the value of gauges whose values had been captured in [SiteExplorationMetrics]
-    ///
-    /// This method will be called as a callback whenever OpenTelemetry requires
-    /// the latest version of metrics. The `metrics` that are passed
-    /// are cached values that had been collected on the last explorer iteration.
-    ///
-    /// The `attributes` parameters lists additional attributes/labels that should
-    /// be added to each emitted gauge.
     /// Emits the latency metrics that are captured during a single site explorer
     /// iteration. Those are emitted immediately as histograms, whereas the
     /// amount of objects in states is emitted as gauges.
-    pub fn emit_latency_metrics(
-        &self,
-        metrics: &SiteExplorationMetrics,
-        attributes: &[opentelemetry::KeyValue],
-    ) {
+    pub fn emit_latency_metrics(&self, metrics: &SiteExplorationMetrics) {
         self.site_explorer_iteration_latency.record(
             1000.0 * metrics.recording_started_at.elapsed().as_secs_f64(),
             &[],
@@ -461,7 +449,7 @@ impl SiteExplorerInstruments {
 
         for duration in metrics.endpoint_exploration_duration.iter() {
             self.endpoint_exploration_duration
-                .record(duration.as_secs_f64() * 1000.0, attributes);
+                .record(duration.as_secs_f64() * 1000.0, &[]);
         }
     }
 }
@@ -513,7 +501,7 @@ impl MetricHolder {
     /// Updates the most recent metrics
     pub fn update_metrics(&self, mut metrics: SiteExplorationMetrics) {
         // Emit the last recent latency metrics
-        self.instruments.emit_latency_metrics(&metrics, &[]);
+        self.instruments.emit_latency_metrics(&metrics);
         // We don't need to store the latency metrics anymore
         metrics.endpoint_exploration_duration.clear();
         // And store the remaining metrics

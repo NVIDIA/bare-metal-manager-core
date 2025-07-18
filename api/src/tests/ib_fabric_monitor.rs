@@ -59,6 +59,12 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
             .unwrap(),
         r#"{fabric="default"} 0"#
     );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_iteration_latency_milliseconds_count")
+            .unwrap(),
+        r#"1"#
+    );
 
     Ok(())
 }
