@@ -110,6 +110,12 @@ struct RunCommand {
         help = "Use insecure ciphers when connecting to IPMI (useful for ipmi_sim)"
     )]
     insecure_ipmi_ciphers: bool,
+    #[clap(
+        long,
+        env = "OVERRIDE_BMC_SSH_HOST",
+        help = "Override hostname for SSH to BMCs (useful for machine-a-tron mocks)"
+    )]
+    override_bmc_ssh_host: Option<String>,
 }
 
 impl TryInto<Config> for RunCommand {
@@ -160,6 +166,9 @@ impl TryInto<Config> for RunCommand {
         }
         if let Some(client_key_path) = self.client_key_path {
             config.client_key_path = client_key_path;
+        }
+        if let Some(override_bmc_ssh_host) = self.override_bmc_ssh_host {
+            config.override_bmc_ssh_host = Some(override_bmc_ssh_host);
         }
 
         Ok(config)

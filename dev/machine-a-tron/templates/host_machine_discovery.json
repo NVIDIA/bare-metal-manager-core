@@ -115,7 +115,7 @@
       "board_serial": "HostBoard123",
       "chassis_serial": "HostChassis123",
       "product_name": "HostProductName234",
-      "sys_vendor": "HostSysVendor234"
+      "sys_vendor": "Dell"
     },
     "network_interfaces": [
       {

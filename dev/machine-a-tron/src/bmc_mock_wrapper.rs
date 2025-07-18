@@ -82,17 +82,32 @@ impl BmcMockWrapper {
         }
 
         let ssh_handle = if self.app_context.app_config.mock_bmc_ssh_server {
-            // We have to use a nonstandard port here even if we're using an ip alias, since most
-            // hosts listen to SSH on port 22 already on *all* interfaces, including any aliases we
-            // create for the test.
-            let port = add_ip_alias.then_some(2222);
+            // Port: Use the configured port, and if none is configured, use (1) a random port, if
+            // we're launching a single BMC mock for all machines (needed for integration tests
+            // where we can't rely on available ports), or (2) a fixed port if we're creating a new
+            // IP address for every machine
+            let port = self
+                .app_context
+                .app_config
+                .mock_bmc_ssh_port
+                .or(if add_ip_alias {
+                    // We have to use a nonstandard port here even if we're using an ip alias, since most
+                    // hosts listen to SSH on port 22 already on *all* interfaces, including any aliases we
+                    // create for the test.
+                    Some(2222)
+                } else {
+                    None
+                });
+
             Some(
                 mock_ssh_server::spawn(
                     address.ip(),
                     port,
                     self.hostname.clone(),
-                    "root".to_string(),
-                    "password".to_string(),
+                    Some(mock_ssh_server::Credentials {
+                        user: "root".to_string(),
+                        password: "password".to_string(),
+                    }),
                 )
                 .await
                 .map_err(|error| {

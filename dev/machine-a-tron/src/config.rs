@@ -173,6 +173,13 @@ pub struct MachineATronConfig {
     #[serde(default = "default_false")]
     pub mock_bmc_ssh_server: bool,
 
+    /// Set this to configure the port to use when mocking a BMC SSH server. If unset and
+    /// use_single_bmc_mock is true, it will pick a random port. If unset and use_single_bmc_mock
+    /// is false, it will use port 2222 for each IP alias. (Port 22 is problematic because it
+    /// collides with any system SSH server.)
+    #[serde(default)]
+    pub mock_bmc_ssh_port: Option<u16>,
+
     /// Set this to true if all BMC-mocks should be behind a single address (using HTTP headers to
     /// proxy to the real mock). This is the case for machine-a-tron running inside kubernetes
     /// clusters where there is a single k8s Service and we can't dynamically assign IP's.
@@ -335,6 +342,7 @@ impl From<PersistedDpuMachine> for DpuMachineInfo {
 fn default_bmc_mock_port() -> u16 {
     2000
 }
+
 fn default_bmc_mock_host_tar() -> PathBuf {
     PathBuf::from("dev/bmc-mock/dell_poweredge_r750.tar.gz")
 }

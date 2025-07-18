@@ -12,7 +12,7 @@
 
 use crate::bmc_vendor::BmcVendor;
 use duration_str::deserialize_duration;
-use eyre::Context;
+use eyre::{Context, ContextCompat};
 use russh::keys::ssh_key::Fingerprint;
 use serde::{Deserialize, Serialize, Serializer};
 use std::net::{IpAddr, SocketAddr};
@@ -41,6 +41,7 @@ pub struct Config {
     pub api_poll_interval: Duration,
     pub console_logging_enabled: bool,
     pub console_logs_path: PathBuf,
+    pub override_bmc_ssh_host: Option<String>,
 }
 
 impl Default for Config {
@@ -56,6 +57,24 @@ impl Config {
         toml::from_str::<File>(&cfg)
             .with_context(|| format!("TOML error reading config file at {}", path.display()))?
             .try_into()
+    }
+
+    pub async fn override_bmc_ssh_addr(&self, port: u16) -> eyre::Result<Option<SocketAddr>> {
+        if let Some(override_bmc_ssh_host) = &self.override_bmc_ssh_host {
+            let addr =
+                tokio::net::lookup_host(format!("{override_bmc_ssh_host}:{port}"))
+                    .await
+                    .with_context(|| {
+                        format!("error looking up override_bmc_ssh_host: {override_bmc_ssh_host}")
+                    })?
+                    .next()
+                    .with_context(|| {
+                        format!("override_bmc_ssh_host did not resolve to any addresses: {override_bmc_ssh_host}")
+                    })?;
+            Ok(Some(addr))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -79,6 +98,7 @@ pub fn default_config_file() -> String {
         api_poll_interval,
         console_logs_path,
         console_logging_enabled,
+        override_bmc_ssh_host: _,
     } = File::default();
     let api_poll_interval = format!("{}s", api_poll_interval.as_secs());
 
@@ -144,6 +164,10 @@ console_logging_enabled = {console_logging_enabled:?}
 ## Where to write console logs for each machine, if enabled
 console_logs_path = {console_logs_path:?}
 
+## If set, use this host to override all BMC backends. Useful for machine-a-tron mocks where we use
+## a single SSH server to mock all BMC SSH connections.
+# override_bmc_ssh_host = <hostname>
+
 ## Optional: For development mode, you can hardcode a list of BMC's to talk to.
 # [[bmcs]]
 # # machine_id: the machine ID this BMC overrides
@@ -204,6 +228,7 @@ impl TryFrom<File> for Config {
             api_poll_interval: file.api_poll_interval,
             console_logs_path: file.console_logs_path,
             console_logging_enabled: file.console_logging_enabled,
+            override_bmc_ssh_host: file.override_bmc_ssh_host,
         })
     }
 }
@@ -250,6 +275,8 @@ struct File {
     console_logs_path: PathBuf,
     #[serde(default = "Defaults::console_logging_enabled")]
     console_logging_enabled: bool,
+    #[serde(default)]
+    override_bmc_ssh_host: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, PartialEq, Debug, Clone)]
@@ -291,6 +318,7 @@ impl Default for File {
             dpus: false,
             insecure: false,
             insecure_ipmi_ciphers: false,
+            override_bmc_ssh_host: None,
         }
     }
 }
@@ -344,7 +372,7 @@ impl Defaults {
     }
 
     pub fn console_logs_path() -> PathBuf {
-        "/var/log/ssh-console".into()
+        "/var/log/consoles".into()
     }
 
     pub fn console_logging_enabled() -> bool {

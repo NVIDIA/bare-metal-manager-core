@@ -17,20 +17,24 @@ pub struct MockSshServerHandle {
     _shutdown_handle: Option<oneshot::Sender<()>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct Credentials {
+    pub user: String,
+    pub password: String,
+}
+
 pub async fn spawn(
     ip: IpAddr,
     port: Option<u16>,
     prompt_hostname: Arc<dyn HostnameQuerying>,
-    accept_user: String,
-    accept_password: String,
+    require_credentials: Option<Credentials>,
 ) -> eyre::Result<MockSshServerHandle> {
     let mut rng = OsRng;
     let host_key = russh::keys::PrivateKey::random(&mut rng, russh::keys::Algorithm::Ed25519)?;
     let host_pubkey = host_key.public_key_base64();
     let server = Server {
         prompt_hostname,
-        accept_user,
-        accept_password,
+        require_credentials,
     };
     let listener = if let Some(port) = port {
         let socket_addr = SocketAddr::new(ip, port);
@@ -65,8 +69,7 @@ pub async fn spawn(
 #[derive(Clone)]
 struct Server {
     prompt_hostname: Arc<dyn HostnameQuerying>,
-    accept_user: String,
-    accept_password: String,
+    require_credentials: Option<Credentials>,
 }
 
 impl Server {
@@ -128,8 +131,7 @@ impl server::Server for Server {
     fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self::Handler {
         MockSshHandler::new(
             self.prompt_hostname.clone(),
-            self.accept_user.clone(),
-            self.accept_password.clone(),
+            self.require_credentials.clone(),
         )
     }
 }
@@ -139,22 +141,19 @@ struct MockSshHandler {
     prompt_hostname: Arc<dyn HostnameQuerying>,
     console_state: ConsoleState,
     buffer: Vec<u8>,
-    accept_user: String,
-    accept_password: String,
+    require_credentials: Option<Credentials>,
 }
 
 impl MockSshHandler {
     fn new(
         prompt_hostname: Arc<dyn HostnameQuerying>,
-        accept_user: String,
-        accept_password: String,
+        require_credentials: Option<Credentials>,
     ) -> Self {
         Self {
             prompt_hostname,
             console_state: ConsoleState::default(),
             buffer: Vec::default(),
-            accept_user,
-            accept_password,
+            require_credentials,
         }
     }
 
@@ -221,32 +220,32 @@ impl server::Handler for MockSshHandler {
         Ok(())
     }
 
-    async fn auth_none(&mut self, user: &str) -> StdResult<Auth, Self::Error> {
-        if user == self.accept_user {
-            Ok(server::Auth::Reject {
-                proceed_with_methods: Some(MethodSet::from([MethodKind::Password].as_slice())),
-                partial_success: false,
-            })
-        } else {
-            Ok(server::Auth::Reject {
-                proceed_with_methods: None,
-                partial_success: false,
-            })
-        }
+    async fn auth_none(&mut self, _user: &str) -> StdResult<Auth, Self::Error> {
+        Ok(server::Auth::Reject {
+            proceed_with_methods: Some(MethodSet::from([MethodKind::Password].as_slice())),
+            partial_success: false,
+        })
     }
 
     async fn auth_password(&mut self, user: &str, password: &str) -> StdResult<Auth, Self::Error> {
-        if user == self.accept_user && password == self.accept_password {
-            tracing::info!("got correct auth_password, accepting");
-            Ok(server::Auth::Accept)
+        if let Some(require_credentials) = &self.require_credentials {
+            if user == require_credentials.user && password == require_credentials.password {
+                tracing::info!("got correct auth_password, accepting");
+                Ok(server::Auth::Accept)
+            } else {
+                tracing::info!(
+                    "got incorrect auth_password, rejecting. user={user}, password={password}"
+                );
+                Ok(server::Auth::Reject {
+                    proceed_with_methods: None,
+                    partial_success: false,
+                })
+            }
         } else {
             tracing::info!(
-                "got incorrect auth_password, rejecting. user={user}, password={password}"
+                "configured to accept any credentials, accepting user={user}, password={password}"
             );
-            Ok(server::Auth::Reject {
-                proceed_with_methods: None,
-                partial_success: false,
-            })
+            Ok(server::Auth::Accept)
         }
     }
 

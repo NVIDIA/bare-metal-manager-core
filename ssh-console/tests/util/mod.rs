@@ -124,8 +124,10 @@ pub async fn run_baseline_test_environment(
                             IpAddr::from_str("127.0.0.1").unwrap(),
                             None,
                             Arc::new(KnownHostname(machine_id.to_string())),
-                            "root".to_string(),
-                            "password".to_string(),
+                            Some(machine_a_tron::MockSshCredentials {
+                                user: "root".to_string(),
+                                password: "password".to_string(),
+                            }),
                         )
                         .await?,
                     )),
