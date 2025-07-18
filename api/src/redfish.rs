@@ -474,11 +474,16 @@ pub async fn host_power_control(
             if (action == SystemPowerControl::GracefulRestart)
                 || (action == SystemPowerControl::ForceRestart) =>
         {
+            // Vikings prepend the users OS to the boot order once it is installed and this cleans up the mess
+            redfish_client
+                .boot_once(libredfish::Boot::UefiHttp)
+                .await
+                .map_err(CarbideError::RedfishError)?;
+
             // vikings reboot their DPU's if redfish reset is used. \
             // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
             //
-            // TODO(ajf) none of this IPMI code should be in the redfish module, we've already constructed
-            // a redfish client and aren't going to use it, and constructing an IPMI requires duplicate
+            // TODO(ajf) none of this IPMI code should be in the redfish module, and constructing an IPMI requires duplicate
             // work that we did in the calling function.
             //
             let machine_id = &machine.id;
