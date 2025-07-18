@@ -815,7 +815,13 @@ impl Forge for Api {
             .await?
         };
 
-        MachineTopology::create_or_update(&mut txn, &stable_machine_id, &hardware_info).await?;
+        MachineTopology::create_or_update_with_bom_validation(
+            &mut txn,
+            &stable_machine_id,
+            &hardware_info,
+            self.runtime_config.bom_validation.enabled,
+        )
+        .await?;
 
         if hardware_info.is_dpu() {
             // Create Host proactively.

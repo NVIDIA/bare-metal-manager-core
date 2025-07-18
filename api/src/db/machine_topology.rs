@@ -13,6 +13,7 @@
 use std::{collections::HashMap, net::IpAddr};
 
 use chrono::prelude::*;
+use chrono::{TimeDelta, Utc};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
@@ -30,6 +31,8 @@ pub struct MachineTopology {
     /// Topology data that is stored in json format in the database column
     topology: TopologyData,
     created: DateTime<Utc>,
+    /// The updated field is used when bom_validation is enabled
+    /// It stores the last time an inventory update was accepted from scout.
     updated: DateTime<Utc>,
     topology_update_needed: bool,
 }
@@ -90,7 +93,7 @@ impl MachineTopology {
             %machine_id,
             "Discovery data for machine already exists. Updating now.",
         );
-        let query = "UPDATE machine_topologies SET topology=jsonb_set(topology, '{discovery_data}', $2::jsonb), topology_update_needed=false WHERE machine_id=$1 RETURNING *";
+        let query = "UPDATE machine_topologies SET topology=jsonb_set(topology, '{discovery_data}', $2::jsonb), topology_update_needed=false, updated=NOW() WHERE machine_id=$1 RETURNING *";
         let res = sqlx::query_as(query)
             .bind(machine_id.to_string())
             .bind(sqlx::types::Json(&discovery_data))
@@ -143,6 +146,31 @@ impl MachineTopology {
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         Ok(res)
+    }
+
+    //  Wrapper for create_or_update to set topology_update_needed to true if bom_validation is enabled and
+    //  the last update was older than 1 day.
+    pub async fn create_or_update_with_bom_validation(
+        txn: &mut PgConnection,
+        machine_id: &MachineId,
+        hardware_info: &HardwareInfo,
+        bom_validation_enabled: bool,
+    ) -> CarbideResult<Self> {
+        let topology_data = Self::find_latest_by_machine_ids(txn, &[*machine_id]).await?;
+        let topology_data = topology_data.get(machine_id);
+
+        if let Some(topology) = topology_data {
+            let age = Utc::now() - topology.updated;
+            if bom_validation_enabled && age > TimeDelta::days(1) {
+                tracing::debug!(
+                    "Received inventory update from {}, bom_validation is enabled, existing data is old, updating",
+                    machine_id
+                );
+                Self::set_topology_update_needed(txn, machine_id, true).await?;
+            }
+        }
+
+        return Self::create_or_update(txn, machine_id, hardware_info).await;
     }
 
     // update_firmware_version_by_bmc_address updates the stored firmware version info, using the BMC IP under the assumption that this came from site explorer reading from that address.
