@@ -39,6 +39,7 @@ pub async fn spawn(carbide_port: u16) -> eyre::Result<NewSshConsoleHandle> {
         api_poll_interval: Duration::from_secs(1),
         console_logging_enabled: true,
         console_logs_path: logs_dir.path().to_path_buf(),
+        override_bmc_ssh_host: None,
     };
 
     let spawn_handle = ssh_console::spawn(config).await?;

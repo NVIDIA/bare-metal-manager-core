@@ -551,6 +551,7 @@ where
         cleanup_on_quit: false,
         api_refresh_interval: Duration::from_millis(500),
         mock_bmc_ssh_server: false,
+        mock_bmc_ssh_port: None,
     };
 
     let (machine_handles, _mat_handle) = api_test_helper::machine_a_tron::run_local(

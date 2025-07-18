@@ -1,16 +1,20 @@
-use bmc_mock::{BmcMockHandle, ListenerOrAddress, TarGzOption};
+use bmc_mock::{BmcMockHandle, HostnameQuerying, ListenerOrAddress, TarGzOption};
 use clap::Parser;
 use figment::Figment;
 use figment::providers::{Format, Toml};
 use forge_tls::client_config::{
     get_client_cert_info, get_config_from_file, get_forge_root_ca_path, get_proxy_info,
 };
-use machine_a_tron::{AppEvent, BmcMockRegistry, BmcRegistrationMode, MachineATron};
+use machine_a_tron::{
+    AppEvent, BmcMockRegistry, BmcRegistrationMode, MachineATron, MockSshServerHandle,
+    spawn_mock_ssh_server,
+};
 use machine_a_tron::{
     MachineATronArgs, MachineATronConfig, MachineATronContext, Tui, TuiHostLogs, api_throttler,
 };
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::protos::forge_api_client::ForgeApiClient;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -145,25 +149,49 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut mat = MachineATron::new(app_context.clone());
 
     // If we're using a combined BMC mock that routes to each mock machine using headers, launch it now
-    let maybe_bmc_mock_handle: Option<BmcMockHandle> = match &app_context.bmc_registration_mode {
-        BmcRegistrationMode::BackingInstance(bmc_mock_registry) => {
-            let certs_dir = PathBuf::from(forge_root_ca_path.clone())
-                .parent()
-                .map(Path::to_path_buf);
+    let maybe_bmc_mock_handles: Option<(BmcMockHandle, Option<MockSshServerHandle>)> =
+        match &app_context.bmc_registration_mode {
+            BmcRegistrationMode::BackingInstance(bmc_mock_registry) => {
+                let certs_dir = PathBuf::from(forge_root_ca_path.clone())
+                    .parent()
+                    .map(Path::to_path_buf);
 
-            Some(bmc_mock::run_combined_mock(
-                bmc_mock_registry.clone(),
-                certs_dir,
-                Some(ListenerOrAddress::Address(
-                    format!("0.0.0.0:{}", bmc_mock_port).parse().unwrap(),
-                )),
-            )?)
-        }
-        BmcRegistrationMode::None(_) => {
-            // Otherwise each mock machine runs its own listener
-            None
-        }
-    };
+                let bmc_https_mock = bmc_mock::run_combined_mock(
+                    bmc_mock_registry.clone(),
+                    certs_dir,
+                    Some(ListenerOrAddress::Address(
+                        format!("0.0.0.0:{}", bmc_mock_port).parse().unwrap(),
+                    )),
+                )?;
+
+                let bmc_ssh_mock = if app_context.app_config.mock_bmc_ssh_server {
+                    // Spawn a single mock SSH server too. ssh-console can be configured to talk to
+                    // this instead of the carbide-assigned BMC IP for each host, so that
+                    // machine-a-tron-based dev environments can have a "working" ssh-console too.
+                    Some(
+                        spawn_mock_ssh_server(
+                            "0.0.0.0".parse().unwrap(),
+                            app_context.app_config.mock_bmc_ssh_port,
+                            Arc::new(KnownHostname("shared-bmc-mock".to_string())),
+                            // Accept any credentials. We don't support mocking changing BMC
+                            // credentials, so we can't properly emulate BMC SSH credentials in dev
+                            // environments today. (Only ssh-console integration tests use
+                            // credentials here as of today.)
+                            None,
+                        )
+                        .await?,
+                    )
+                } else {
+                    None
+                };
+
+                Some((bmc_https_mock, bmc_ssh_mock))
+            }
+            BmcRegistrationMode::None(_) => {
+                // Otherwise each mock machine runs its own listener
+                None
+            }
+        };
 
     let machine_handles = mat.make_machines(true).await?;
 
@@ -225,8 +253,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .ok();
     }
 
-    if let Some(mut bmc_mock_handle) = maybe_bmc_mock_handle {
+    if let Some((mut bmc_mock_handle, _mock_ssh_server_handle)) = maybe_bmc_mock_handles {
         bmc_mock_handle.stop().await?;
     }
     Ok(())
+}
+
+#[derive(Debug)]
+struct KnownHostname(String);
+
+impl HostnameQuerying for KnownHostname {
+    fn get_hostname(&self) -> Cow<str> {
+        Cow::Borrowed(self.0.as_str())
+    }
 }

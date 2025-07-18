@@ -101,7 +101,11 @@ pub async fn lookup_connection_details(
     }) {
         let connection_details = match override_bmc.bmc_vendor {
             BmcVendor::Ssh(ssh_bmc_vendor) => ConnectionDetails::Ssh(SshConnectionDetails {
-                addr: override_bmc.addr(),
+                addr: config
+                    .override_bmc_ssh_addr(override_bmc.addr().port())
+                    .await
+                    .context("error looking up override_bmc_ssh_addr")?
+                    .unwrap_or(override_bmc.addr()),
                 user: override_bmc.user,
                 password: override_bmc.password,
                 ssh_key_path: override_bmc.ssh_key_path,
@@ -201,7 +205,18 @@ pub async fn lookup_connection_details(
             .unwrap_or(config.ipmi_port),
     };
 
-    let addr = SocketAddr::new(ip, port);
+    let addr = if let Some(override_ssh_addr) = config
+        .override_bmc_ssh_addr(port)
+        .await
+        .context("error looking up override_bmc_ssh_ip")?
+    {
+        tracing::info!(
+            "Overriding bmc connection to {ip} with {override_ssh_addr} per configuration"
+        );
+        override_ssh_addr
+    } else {
+        SocketAddr::new(ip, port)
+    };
 
     let connection_details = match bmc_vendor {
         BmcVendor::Ssh(ssh_bmc_vendor) => ConnectionDetails::Ssh(SshConnectionDetails {
