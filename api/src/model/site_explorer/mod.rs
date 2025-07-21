@@ -817,12 +817,16 @@ impl EndpointExplorationReport {
             .and_then(|value| value.version.clone())
     }
 
-    pub fn parse_versions(&mut self, fw_info: &Firmware) {
+    pub fn parse_versions(&mut self, fw_info: &Firmware) -> Vec<FirmwareComponentType> {
+        let mut not_found = Vec::new();
         for fwtype in fw_info.components.keys() {
             if let Some(current) = fw_info.find_version(self, *fwtype) {
                 self.versions.insert(*fwtype, current);
+            } else {
+                not_found.push(*fwtype)
             }
         }
+        not_found
     }
 }
 
