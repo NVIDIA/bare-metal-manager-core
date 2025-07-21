@@ -783,7 +783,7 @@ known_firmware = [
     let cfg = cfg.get_firmware_config();
 
     let model = cfg
-        .find(bmc_vendor::BMCVendor::Dell, "PowerEdge R750".to_string())
+        .find(bmc_vendor::BMCVendor::Dell, "PowerEdge R750")
         .unwrap();
 
     drop(tmpdir);

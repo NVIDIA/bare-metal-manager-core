@@ -2613,7 +2613,7 @@ async fn check_bmc_fw_component_version(
         let model = identify_dpu(dpu_snapshot);
 
         let expected_version = hardware_models
-            .find(bmc_vendor::BMCVendor::Nvidia, model.to_string())
+            .find(bmc_vendor::BMCVendor::Nvidia, &model.to_string())
             .and_then(|fw| fw.components.get(&component).cloned())
             .and_then(|fw_component| {
                 fw_component

@@ -1314,15 +1314,19 @@ impl SiteExplorer {
                         if let Err(error) = report.generate_machine_id(false) {
                             tracing::error!(%error, "Can not generate MachineId for explored endpoint");
                         }
+                        report.model = report.model();
                         if let Some(fw_info) = firmware_config.find_fw_info_for_host_report(report)
                         {
-                            report.parse_versions(&fw_info);
-                            } else {
+                            let components_without_version = report.parse_versions(&fw_info);
+                            if !components_without_version.is_empty() {
+                                tracing::debug!("Can not find firmware version for component(s): {:?}", components_without_version);
+                            }
+                        } else {
                             // It's possible that we knew about this host type before but do not now, so make sure we
                             // do not keep stale data.
                             report.versions = HashMap::default();
+                            tracing::debug!("Can not find fimware info for: vendor: {:?}; model: {:?}", report.vendor, report.model());
                         }
-                        report.model = report.model();
                     }
 
                     (endpoint, result, start.elapsed())

@@ -354,7 +354,7 @@ impl PreingestionManagerStatic {
             }
         };
         let model = endpoint.report.model()?;
-        self.host_info.find(vendor, model)
+        self.host_info.find(vendor, &model)
     }
 
     /// check_firmware_versions_below_preingestion will check if we actually need to do firmware upgrades before

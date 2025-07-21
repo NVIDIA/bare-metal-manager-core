@@ -301,14 +301,14 @@ impl CarbideConfig {
     pub fn get_firmware_config(&self) -> FirmwareConfig {
         let mut base_map: HashMap<String, Firmware> = Default::default();
         for (_, host) in self.host_models.iter() {
-            base_map.insert(
-                vendor_model_to_key(host.vendor, host.model.to_owned()),
-                host.clone(),
-            );
+            base_map.insert(vendor_model_to_key(host.vendor, &host.model), host.clone());
         }
         for (_, dpu) in self.dpu_config.dpu_models.iter() {
             base_map.insert(
-                vendor_model_to_key(dpu.vendor, DpuModel::from(dpu.model.to_owned()).to_string()),
+                vendor_model_to_key(
+                    dpu.vendor,
+                    &DpuModel::from(dpu.model.to_owned()).to_string(),
+                ),
                 dpu.clone(),
             );
         }
@@ -354,7 +354,7 @@ impl MaxConcurrentUpdates {
     }
 }
 
-fn vendor_model_to_key(vendor: bmc_vendor::BMCVendor, model: String) -> String {
+fn vendor_model_to_key(vendor: bmc_vendor::BMCVendor, model: &str) -> String {
     format!("{vendor}:{}", model.to_lowercase())
 }
 
@@ -1496,10 +1496,10 @@ pub struct FirmwareConfig {
 }
 
 impl FirmwareConfig {
-    pub fn find(&self, vendor: bmc_vendor::BMCVendor, model: String) -> Option<Firmware> {
-        let dpu_model = DpuModel::from(model.clone());
+    pub fn find(&self, vendor: bmc_vendor::BMCVendor, model: &str) -> Option<Firmware> {
+        let dpu_model = DpuModel::from(model);
         let key = if dpu_model != DpuModel::Unknown {
-            vendor_model_to_key(vendor, dpu_model.to_string())
+            vendor_model_to_key(vendor, &dpu_model.to_string())
         } else {
             vendor_model_to_key(vendor, model)
         };
@@ -1518,14 +1518,15 @@ impl FirmwareConfig {
         &self,
         report: &EndpointExplorationReport,
     ) -> Option<Firmware> {
-        let vendor = report.vendor?;
-        let model = report
-            .systems
-            .iter()
-            .find(|&x| x.model.is_some())?
-            .model
-            .to_owned()?;
-        self.find(vendor, model)
+        report.vendor.and_then(|vendor| {
+            // Use report.model if it is already filled or use model()
+            // function to extract model from the report.
+            report
+                .model
+                .as_ref()
+                .and_then(|model| self.find(vendor, model))
+                .or_else(|| report.model().and_then(|model| self.find(vendor, &model)))
+        })
     }
 
     pub fn map(&self) -> HashMap<String, Firmware> {
@@ -1600,7 +1601,7 @@ impl FirmwareConfig {
         config_str: String,
     ) -> eyre::Result<()> {
         let cfg: Firmware = toml::from_str(config_str.as_str())?;
-        let key = vendor_model_to_key(cfg.vendor, cfg.model.clone());
+        let key = vendor_model_to_key(cfg.vendor, &cfg.model);
 
         let Some(cur_model) = map.get_mut(&key) else {
             // We haven't seen this model before, so use this as given.
