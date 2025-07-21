@@ -52,7 +52,7 @@ pub async fn spawn(
     config: &Config,
 ) -> eyre::Result<Arc<BackendHandle>> {
     let (broadcast_to_frontend_tx, _broadcast_to_frontend_rx) =
-        broadcast::channel::<Arc<ChannelMsg>>(16);
+        broadcast::channel::<Arc<ChannelMsg>>(4096);
 
     // Frontends will call .subscribe on this: It must be a WeakSender so that the channel can close
     // properly when the backend dies.
@@ -99,8 +99,15 @@ pub async fn lookup_connection_details(
             })
             .cloned()
     }) {
+        let machine_id = MachineId::from_str(&override_bmc.machine_id).with_context(|| {
+            format!(
+                "Invalid machine_id in BMC override config: {}",
+                &override_bmc.machine_id
+            )
+        })?;
         let connection_details = match override_bmc.bmc_vendor {
             BmcVendor::Ssh(ssh_bmc_vendor) => ConnectionDetails::Ssh(SshConnectionDetails {
+                machine_id,
                 addr: config
                     .override_bmc_ssh_addr(override_bmc.addr().port())
                     .await
@@ -112,6 +119,7 @@ pub async fn lookup_connection_details(
                 bmc_vendor: ssh_bmc_vendor,
             }),
             BmcVendor::Ipmi(_) => ConnectionDetails::Ipmi(IpmiConnectionDetails {
+                machine_id,
                 addr: override_bmc.addr(),
                 user: override_bmc.user,
                 password: override_bmc.password,
@@ -158,6 +166,24 @@ pub async fn lookup_connection_details(
         .with_context(|| format!("Error getting machine {machine_id_str}"))?;
     let is_dpu =
         maybe_machine_id.is_some_and(|machine_id| machine_id.machine_type() == MachineType::Dpu);
+
+    let machine_id: MachineId = machine
+        .id
+        .as_ref()
+        .with_context(|| {
+            format!(
+                "API machine has no id? (looked up via machine_id={:?})",
+                machine_id_str
+            )
+        })?
+        .id
+        .parse()
+        .with_context(|| {
+            format!(
+                "Invalid machine ID returned by GetMachines: {}",
+                machine_id_str
+            )
+        })?;
 
     let bmc_vendor = if is_dpu {
         BmcVendor::Ssh(SshBmcVendor::Dpu)
@@ -223,6 +249,7 @@ pub async fn lookup_connection_details(
 
     let connection_details = match bmc_vendor {
         BmcVendor::Ssh(ssh_bmc_vendor) => ConnectionDetails::Ssh(SshConnectionDetails {
+            machine_id,
             addr,
             user,
             password,
@@ -230,6 +257,7 @@ pub async fn lookup_connection_details(
             bmc_vendor: ssh_bmc_vendor,
         }),
         BmcVendor::Ipmi(_) => ConnectionDetails::Ipmi(IpmiConnectionDetails {
+            machine_id,
             addr,
             user,
             password,
@@ -252,10 +280,18 @@ impl ConnectionDetails {
             ConnectionDetails::Ipmi(i) => i.addr,
         }
     }
+
+    pub fn machine_id(&self) -> MachineId {
+        match self {
+            ConnectionDetails::Ssh(s) => s.machine_id,
+            ConnectionDetails::Ipmi(i) => i.machine_id,
+        }
+    }
 }
 
 #[derive(Clone)]
 pub struct SshConnectionDetails {
+    machine_id: MachineId,
     addr: SocketAddr,
     user: String,
     password: String,
@@ -271,12 +307,14 @@ impl Debug for SshConnectionDetails {
             .field("user", &self.user)
             .field("ssh_key_path", &self.ssh_key_path)
             .field("bmc_vendor", &self.bmc_vendor)
+            .field("machine_id", &self.machine_id.to_string())
             .finish()
     }
 }
 
 #[derive(Clone)]
 pub struct IpmiConnectionDetails {
+    machine_id: MachineId,
     addr: SocketAddr,
     user: String,
     password: String,
@@ -288,6 +326,7 @@ impl Debug for IpmiConnectionDetails {
         f.debug_struct("IpmiConnectionDetails")
             .field("addr", &self.addr)
             .field("user", &self.user)
+            .field("machine_id", &self.machine_id.to_string())
             .finish()
     }
 }

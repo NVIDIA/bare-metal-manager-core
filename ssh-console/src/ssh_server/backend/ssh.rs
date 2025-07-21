@@ -2,6 +2,7 @@ use crate::bmc_vendor::SshBmcVendor;
 use crate::proxy_channel_message;
 use crate::ssh_server::backend::SshConnectionDetails;
 use eyre::Context;
+use forge_uuid::machine::MachineId;
 use ringbuf::LocalRb;
 use ringbuf::storage::Array;
 use ringbuf::traits::RingBuffer;
@@ -34,6 +35,7 @@ pub async fn spawn(
     connection_details: &SshConnectionDetails,
     to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
 ) -> eyre::Result<mpsc::Sender<ChannelMsg>> {
+    let machine_id = connection_details.machine_id;
     let bmc_vendor = connection_details.bmc_vendor;
     let client = make_authenticated_client(connection_details).await?;
 
@@ -43,7 +45,7 @@ pub async fn spawn(
         .await
         .context("Error opening session to backend")?;
 
-    trigger_and_await_sol_console(&mut backend_channel, bmc_vendor)
+    trigger_and_await_sol_console(machine_id, &mut backend_channel, bmc_vendor)
         .await
         .context("error activating serial console")?;
 
@@ -64,7 +66,7 @@ pub async fn spawn(
                                     if ringbuf_contains(&backend_ringbuf, bmc_prompt) {
                                         let mut ringbuf_str = String::new();
                                         backend_ringbuf.read_to_string(&mut ringbuf_str).ok();
-                                        tracing::warn!("backend dropped to BMC, exiting. output: {ringbuf_str:?}");
+                                        tracing::warn!(%machine_id, "backend dropped to BMC, exiting. output: {ringbuf_str:?}");
                                         break;
                                     }
                                 }
@@ -72,7 +74,7 @@ pub async fn spawn(
                             to_frontend_tx.send(Arc::new(msg)).context("error sending message from ssh backend to frontend")?;
                         }
                         None => {
-                            tracing::debug!("backend channel closed, closing connection");
+                            tracing::debug!(%machine_id, "backend channel closed, closing connection");
                             break;
                         }
                     },
@@ -96,7 +98,7 @@ pub async fn spawn(
                                 .context("error sending message to backend")?;
                         }
                         None => {
-                            tracing::debug!("frontend channel closed, closing connection");
+                            tracing::debug!(%machine_id, "frontend channel closed, closing connection");
                             break;
                         }
                     },
@@ -118,6 +120,7 @@ async fn make_authenticated_client(
         user,
         password,
         ssh_key_path,
+        machine_id,
         ..
     }: &SshConnectionDetails,
 ) -> eyre::Result<russh::client::Handle<Handler>> {
@@ -132,7 +135,7 @@ async fn make_authenticated_client(
         .context("error beginning authentication to {addr}")?
     {
         AuthResult::Success => {
-            tracing::warn!(%addr, %user, "auth_none succeeded, it shouldn't have!");
+            tracing::warn!(%machine_id, %addr, %user, "auth_none succeeded, it shouldn't have!");
             return Ok(client);
         }
         AuthResult::Failure {
@@ -146,6 +149,7 @@ async fn make_authenticated_client(
             MethodKind::PublicKey => {
                 let Some(ssh_key_path) = &ssh_key_path else {
                     tracing::debug!(
+                        %machine_id,
                         "skipping PublicKey authentication as we do not have a configured public key to use"
                     );
                     continue;
@@ -170,13 +174,13 @@ async fn make_authenticated_client(
                     })? {
                     AuthResult::Success => {
                         tracing::debug!(
-                            %user, %addr,
+                            %machine_id, %user, %addr,
                             "PublicKey authentication succeeded"
                         );
                         return Ok(client);
                     }
                     AuthResult::Failure { .. } => {
-                        tracing::warn!(%user, %addr, "PublicKey authentication failed")
+                        tracing::warn!(%machine_id, %user, %addr, "PublicKey authentication failed")
                     }
                 }
             }
@@ -202,14 +206,14 @@ async fn make_authenticated_client(
                         }
                         KeyboardInteractiveAuthResponse::Success => {
                             tracing::debug!(
-                                %user, %addr,
+                                %machine_id, %user, %addr,
                                 "KeyboardInteractive authentication succeeded"
                             );
                             return Ok(client);
                         }
                         KeyboardInteractiveAuthResponse::Failure { .. } => {
                             tracing::warn!(
-                                %user, %addr,
+                                %machine_id, %user, %addr,
                                 "KeyboardInteractive authentication failed"
                             );
                             break;
@@ -226,18 +230,18 @@ async fn make_authenticated_client(
                     })? {
                     AuthResult::Success => {
                         tracing::debug!(
-                            %user, %addr,
+                            %machine_id, %user, %addr,
                             "Password authentication succeeded"
                         );
                         return Ok(client);
                     }
                     AuthResult::Failure { .. } => {
-                        tracing::warn!(%user, %addr, "Password authentication failed");
+                        tracing::warn!(%machine_id, %user, %addr, "Password authentication failed");
                     }
                 }
             }
             other => {
-                tracing::debug!("Ignoring unsupported auth method {other:?}")
+                tracing::debug!(%machine_id, "Ignoring unsupported auth method {other:?}")
             }
         }
     }
@@ -251,6 +255,7 @@ async fn make_authenticated_client(
 // activation command (`connect com1`, etc) and ensuring we're in the serial console before
 // continuing.
 async fn trigger_and_await_sol_console(
+    machine_id: MachineId,
     backend_channel: &mut Channel<russh::client::Msg>,
     bmc_vendor: SshBmcVendor,
 ) -> eyre::Result<()> {
@@ -284,7 +289,7 @@ async fn trigger_and_await_sol_console(
         .context("error sending newline to backend")?;
 
     let mut prompt_buf: Vec<u8> = Vec::with_capacity(1024);
-    let timeout = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    let timeout = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     // After sending the activate command, wait for this much data to be read back (the command
     // itself echoing back, plus the prompt length) before continuing. (If we let the client use the
     // console before this, we get false positives about seeing a bmc prompt while we're supposed to
@@ -299,7 +304,7 @@ async fn trigger_and_await_sol_console(
             }
             res = backend_channel.wait() => {
                 let Some(msg) = res else {
-                    tracing::error!("backend ssh connection closed before entering serial-on-lan console");
+                    tracing::error!(%machine_id, "backend ssh connection closed before entering serial-on-lan console");
                     break
                 };
                 match msg {
@@ -336,12 +341,13 @@ async fn trigger_and_await_sol_console(
                         // in the console.)
                         if matches!(activation_step, SerialConsoleActivationStep::ActivateSent)
                             && prompt_buf.len() > skip_data_read_len {
-                            tracing::debug!("confirmed serial activate command sent, letting client use console");
+                            tracing::debug!(%machine_id, "confirmed serial activate command sent, letting client use console");
                             break;
                         }
                     }
                     msg => {
                         tracing::debug!(
+                            %machine_id,
                             "message from BMC while activating serial prompt: {msg:?}"
                         )
                     }

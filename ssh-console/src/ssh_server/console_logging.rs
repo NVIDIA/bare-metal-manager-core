@@ -23,10 +23,10 @@ use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::{RwLock, oneshot};
+use tokio::sync::{RwLock, broadcast, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 
@@ -145,7 +145,7 @@ impl ConsoleLoggerPool {
                             .inspect_err(|error| {
                                 tracing::error!(
                                     ?error,
-                                    machine_id = b.machine_id,
+                                    machine_id = %b.machine_id,
                                     "invalid machine ID in config, will not do console logging on this machine"
                                 )
                             }).ok()
@@ -234,6 +234,7 @@ impl ConsoleLoggerPool {
                         Err(error) => {
                             tracing::error!(
                                 ?error,
+                                %machine_id,
                                 "error connecting to backend for console logging, will retry in {}s",
                                 retry_time.as_secs()
                             );
@@ -275,8 +276,7 @@ impl ConsoleLoggerPool {
                         continue 'retry;
                     }
 
-                    retry_time = Duration::ZERO; // reset the retry interval, since we successfully connected.
-
+                    let last_connected = Instant::now();
                     let mut buffer: Vec<u8> = Vec::new();
 
                     loop {
@@ -298,7 +298,12 @@ impl ConsoleLoggerPool {
 
                             // incoming SSH data
                             res = msg_rx.recv() => match res {
+
                                 Ok(msg) => if let ChannelMsg::Data { data } = msg.as_ref() {
+                                    if last_connected.elapsed() > Duration::from_secs(10) {
+                                        // If we've stayed connected more than 10s, reset the retry interval
+                                        retry_time = Duration::ZERO;
+                                    }
                                     // append new bytes to our buffer
                                     buffer.extend_from_slice(data.as_ref());
 
@@ -323,14 +328,18 @@ impl ConsoleLoggerPool {
                                         }
                                     }
                                 }
-                                Err(error) => {
+                                Err(broadcast::error::RecvError::Closed) => {
                                     tracing::error!(
-                                        ?error,
                                         %machine_id,
                                         "backend disconnected, will retry in {}s",
                                         retry_time.as_secs()
                                     );
                                     continue 'retry;
+                                }
+                                Err(broadcast::error::RecvError::Lagged(count)) => {
+                                    let msg = format!("console logger is lagged by {count} messages (typically bytes). Data may be missing from log");
+                                    tracing::warn!(%machine_id,"{msg}");
+                                    log_file.write_all(format!("--- {msg} ---").as_bytes()).await.ok();
                                 }
                             },
                         }

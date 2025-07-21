@@ -49,6 +49,7 @@ impl BackendPool {
                 .context("error looking up connection details")?,
         );
         let addr = connection_details.addr();
+        let machine_id = connection_details.machine_id();
 
         let backend_handle_future = self
             .get_or_create_connection(&connection_details, config)
@@ -57,7 +58,10 @@ impl BackendPool {
         let result = match backend_handle_future.await {
             Ok(backend) => {
                 if backend.to_backend_msg_tx.is_closed() {
-                    tracing::info!("backend channel closed, reconnecting");
+                    tracing::info!(
+                        %machine_id,
+                        "backend channel closed, reconnecting"
+                    );
                     self.members.lock().await.remove(&addr);
                     self.get_or_create_connection(&connection_details, config)
                         .await
@@ -67,7 +71,7 @@ impl BackendPool {
                 }
             }
             Err(e) => {
-                tracing::info!("connection error, will reconnect on next try: {e:?}");
+                tracing::info!(%machine_id, "connection error, will reconnect on next try: {e:?}");
                 // Allow reconnecting on the next try
                 self.members.lock().await.remove(&addr);
                 Err(e)

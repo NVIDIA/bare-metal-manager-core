@@ -299,7 +299,8 @@ impl BmcConfig {
             match self.bmc_vendor {
                 // DPUs use port 2200 for a console-only SSH session
                 BmcVendor::Ssh(SshBmcVendor::Dpu) => 2200,
-                _ => 22,
+                BmcVendor::Ssh(_) => 22,
+                BmcVendor::Ipmi(_) => 623,
             }
         };
         SocketAddr::new(self.ip, port)

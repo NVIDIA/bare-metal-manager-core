@@ -3,6 +3,7 @@ use crate::config::Config;
 use crate::io_util::{self, set_controlling_terminal_on_exec, write_data_to_async_fd};
 use crate::ssh_server::backend::IpmiConnectionDetails;
 use eyre::Context;
+use forge_uuid::machine::MachineId;
 use nix::errno::Errno;
 use nix::pty::OpenptyResult;
 use nix::unistd;
@@ -27,6 +28,7 @@ pub async fn spawn(
     to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
     config: &Config,
 ) -> eyre::Result<mpsc::Sender<ChannelMsg>> {
+    let machine_id = connection_details.machine_id;
     // Open a PTY to control ipmitool
     let OpenptyResult {
         master: pty_master,
@@ -68,9 +70,6 @@ pub async fn spawn(
 
     if config.insecure_ipmi_ciphers {
         command.arg("-C").arg("3"); // use SHA1 ciphers, useful for ipmi_sim
-    } else {
-        // TODO: Retry with different ciphers if needed?
-        command.arg("-C").arg("8");
     }
     command.arg("sol").arg("activate");
 
@@ -84,20 +83,21 @@ pub async fn spawn(
     // Send messages to/from ipmitool in the background. We have to print our own errors here,
     // because nothing is polling the exit status.
     tokio::spawn(async move {
-        match ipmitool_process_loop(pty_master, from_frontend_rx, &to_frontend_tx).await {
-            Ok(()) => tracing::debug!("ipmitool task finished successfully"),
-            Err(e) => tracing::error!("ipmitool task error: {e:?}"),
+        match ipmitool_process_loop(machine_id, pty_master, from_frontend_rx, &to_frontend_tx).await
+        {
+            Ok(()) => tracing::debug!(%machine_id, "ipmitool task finished successfully"),
+            Err(e) => tracing::error!(%machine_id, "ipmitool task error: {e:?}"),
         }
         match process.try_wait() {
             Ok(Some(exit_status)) if exit_status.success() => {}
             Ok(Some(exit_failure_status)) => {
-                tracing::warn!("ipmitool exit status: {exit_failure_status:?}");
+                tracing::warn!(%machine_id, "ipmitool exit status: {exit_failure_status:?}");
             }
             Ok(None) => {
                 process.kill().await.ok();
             }
             Err(e) => {
-                tracing::error!("error checking ipmitool exit status: {e:?}");
+                tracing::error!(%machine_id, "error checking ipmitool exit status: {e:?}");
                 process.kill().await.ok();
             }
         }
@@ -113,6 +113,7 @@ pub async fn spawn(
 /// O_NONBLOCK), but we want to poll them in a tokio::select loop.  So we have to do the typical
 /// UNIX pattern of reading/writing data until we get EWOULDBLOCK, returning to the main loop, etc.
 async fn ipmitool_process_loop(
+    machine_id: MachineId,
     pty_master: AsyncFd<OwnedFd>,
     mut from_frontend_rx: mpsc::Receiver<ChannelMsg>,
     to_frontend_tx: &broadcast::Sender<Arc<ChannelMsg>>,
@@ -130,7 +131,7 @@ async fn ipmitool_process_loop(
                 match unistd::read(guard.get_inner(), &mut stdout_buf) {
                     Ok(n) => {
                         if n == 0 {
-                            tracing::debug!("eof from pty fd");
+                            tracing::debug!(%machine_id, "eof from pty fd");
                             break;
                         }
                         to_frontend_tx.send(Arc::new(ChannelMsg::Data { data: stdout_buf[0..n].to_vec().into() }))
@@ -153,12 +154,12 @@ async fn ipmitool_process_loop(
             // Poll for any messages from the SSH frontend
             res = from_frontend_rx.recv() => match res {
                 Some(msg) => {
-                    escape_was_pending = send_frontend_message_to_ipmi_console(msg, &pty_master, escape_was_pending).await.context(
+                    escape_was_pending = send_frontend_message_to_ipmi_console(machine_id, msg, &pty_master, escape_was_pending).await.context(
                         "error sending frontend message to ipmi console"
                     )?;
                 }
                 None => {
-                    tracing::info!("ssh connection closed, stopping ipmitool");
+                    tracing::info!(%machine_id, "ssh connection closed, stopping ipmitool");
                     break;
                 }
             },
@@ -169,6 +170,7 @@ async fn ipmitool_process_loop(
 }
 
 async fn send_frontend_message_to_ipmi_console(
+    machine_id: MachineId,
     msg: ChannelMsg,
     ipmitool_pty: &AsyncFd<OwnedFd>,
     escape_was_pending: bool,
@@ -218,7 +220,7 @@ async fn send_frontend_message_to_ipmi_console(
             }
         }
         other => {
-            tracing::debug!("Not handling unknown SSH frontend message in ipmitool: {other:?}");
+            tracing::debug!(%machine_id, "Not handling unknown SSH frontend message in ipmitool: {other:?}");
         }
     };
     Ok(escape_pending)
