@@ -102,6 +102,8 @@ impl BmcVendor {
             Some(BmcVendor::Ssh(SshBmcVendor::Dpu))
         } else if s == IpmiBmcVendor::Supermicro.config_string() {
             Some(BmcVendor::Ipmi(IpmiBmcVendor::Supermicro))
+        } else if s == IpmiBmcVendor::NvidiaViking.config_string() {
+            Some(BmcVendor::Ipmi(IpmiBmcVendor::NvidiaViking))
         } else {
             None
         }
