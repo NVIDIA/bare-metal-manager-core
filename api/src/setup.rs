@@ -588,6 +588,7 @@ pub async fn initialize_and_start_controllers(
             .expect("Unable to build IBPartitionStateController");
 
     let ib_fabric_monitor = IbFabricMonitor::new(
+        db_pool.clone(),
         if ib_config.enabled {
             carbide_config.ib_fabrics.clone()
         } else {
@@ -595,6 +596,7 @@ pub async fn initialize_and_start_controllers(
         },
         meter.clone(),
         ib_fabric_manager.clone(),
+        carbide_config.clone(),
     );
     let _ib_fabric_monitor_handle = ib_fabric_monitor.start()?;
 
