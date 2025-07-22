@@ -14,49 +14,75 @@ use crate::bmc_vendor::{BmcVendor, SshBmcVendor};
 use duration_str::deserialize_duration;
 use eyre::{Context, ContextCompat};
 use russh::keys::ssh_key::Fingerprint;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::ser::SerializeSeq;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
-#[derive(Debug)]
-/// Configuration for ssh-console. Fields are documented as comments in the output of [`default_config_file`].
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+/// Configuration for ssh-console. Fields are documented as comments in the output of [`Config::into_annotated_config_file`].
 pub struct Config {
+    #[serde(default = "Defaults::listen_address")]
     pub listen_address: SocketAddr,
+    #[serde(
+        rename = "carbide_url",
+        default = "Defaults::carbide_uri",
+        serialize_with = "serialize_uri",
+        deserialize_with = "deserialize_uri"
+    )]
     pub carbide_uri: http::Uri,
+    #[serde(default)]
     pub authorized_keys_path: Option<PathBuf>,
-    pub host_key_path: PathBuf,
+    #[serde(default, rename = "bmcs")]
     pub override_bmcs: Option<Vec<BmcConfig>>,
+    #[serde(rename = "host_key")]
+    pub host_key_path: PathBuf,
+    #[serde(default = "Defaults::dpus")]
     pub dpus: bool,
+    #[serde(default)]
     pub insecure: bool,
+    #[serde(default)]
     pub override_bmc_ssh_port: Option<u16>,
+    #[serde(default)]
     pub override_ipmi_port: Option<u16>,
+    #[serde(default)]
     pub insecure_ipmi_ciphers: bool,
+    #[serde(default = "Defaults::root_ca_path")]
     pub forge_root_ca_path: PathBuf,
+    #[serde(default = "Defaults::client_cert_path")]
     pub client_cert_path: PathBuf,
+    #[serde(default = "Defaults::client_key_path")]
     pub client_key_path: PathBuf,
+    #[serde(
+        default = "Defaults::openssh_certificate_ca_fingerprints",
+        serialize_with = "serialize_openssh_certificate_ca_fingerprints",
+        deserialize_with = "deserialize_openssh_certificate_ca_fingerprints"
+    )]
     pub openssh_certificate_ca_fingerprints: Vec<Fingerprint>,
+    #[serde(default = "Defaults::admin_certificate_role")]
     pub admin_certificate_role: String,
+    #[serde(
+        default = "Defaults::api_poll_interval",
+        serialize_with = "serialize_duration",
+        deserialize_with = "deserialize_duration"
+    )]
     pub api_poll_interval: Duration,
-    pub console_logging_enabled: bool,
+    #[serde(default = "Defaults::console_logs_path")]
     pub console_logs_path: PathBuf,
+    #[serde(default = "Defaults::console_logging_enabled")]
+    pub console_logging_enabled: bool,
+    #[serde(default)]
     pub override_bmc_ssh_host: Option<String>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self::try_from(File::default()).expect("BUG: default config file can't be parsed?")
-    }
 }
 
 impl Config {
     pub fn load(path: &Path) -> eyre::Result<Self> {
         let cfg = std::fs::read_to_string(path)
             .with_context(|| format!("Could not read config file at {}", path.display()))?;
-        toml::from_str::<File>(&cfg)
-            .with_context(|| format!("TOML error reading config file at {}", path.display()))?
-            .try_into()
+        toml::from_str::<Self>(&cfg)
+            .with_context(|| format!("TOML error reading config file at {}", path.display()))
     }
 
     pub async fn override_bmc_ssh_addr(&self, port: u16) -> eyre::Result<Option<SocketAddr>> {
@@ -76,34 +102,39 @@ impl Config {
             Ok(None)
         }
     }
-}
 
-pub fn default_config_file() -> String {
-    let File {
-        listen_address,
-        authorized_keys_path: _,
-        bmcs: _,
-        host_key,
-        dpus,
-        insecure,
-        carbide_url,
-        override_bmc_ssh_port: _,
-        override_ipmi_port: _,
-        insecure_ipmi_ciphers,
-        forge_root_ca_path,
-        client_cert_path,
-        client_key_path,
-        openssh_certificate_ca_fingerprints,
-        admin_certificate_role,
-        api_poll_interval,
-        console_logs_path,
-        console_logging_enabled,
-        override_bmc_ssh_host: _,
-    } = File::default();
-    let api_poll_interval = format!("{}s", api_poll_interval.as_secs());
+    pub fn into_annotated_config_file(self) -> String {
+        let Self {
+            listen_address,
+            authorized_keys_path: _,
+            override_bmcs: _,
+            host_key_path,
+            dpus,
+            insecure,
+            carbide_uri,
+            override_bmc_ssh_port: _,
+            override_ipmi_port: _,
+            insecure_ipmi_ciphers,
+            forge_root_ca_path,
+            client_cert_path,
+            client_key_path,
+            openssh_certificate_ca_fingerprints,
+            admin_certificate_role,
+            api_poll_interval,
+            console_logs_path,
+            console_logging_enabled,
+            override_bmc_ssh_host: _,
+        } = self;
+        let api_poll_interval = format!("{}s", api_poll_interval.as_secs());
+        let openssh_certificate_ca_fingerprints = openssh_certificate_ca_fingerprints
+            .into_iter()
+            .map(|f| f.to_string())
+            .collect::<Vec<_>>();
+        let carbide_uri = carbide_uri.to_string();
+        let listen_address = listen_address.to_string();
 
-    format!(
-        r#"
+        format!(
+            r#"
 #####
 ## This is a default config file for ssh-console. Everything in this file is optional: Any
 ## non-comment line in this file simply represents default values. Commented lines with a single `#`
@@ -114,7 +145,7 @@ pub fn default_config_file() -> String {
 listen_address = {listen_address:?}
 
 ## Address for carbide-api
-carbide_url = {carbide_url:?}
+carbide_url = {carbide_uri:?}
 
 ## Path to root CA cert for carbide-api
 forge_root_ca_path = {forge_root_ca_path:?}
@@ -126,7 +157,7 @@ client_cert_path = {client_cert_path:?}
 client_key_path = {client_key_path:?}
 
 ## Path to the SSH host key path.
-host_key = {host_key:?}
+host_key = {host_key_path:?}
 
 ## Allow SSH'ing to DPU consoles
 dpus = {dpus}
@@ -184,99 +215,8 @@ console_logs_path = {console_logs_path:?}
 # # [[bmcs]]
 # # ... more bmcs sections can define more than one
 "#
-    )
-}
-
-impl TryFrom<File> for Config {
-    type Error = eyre::Error;
-
-    fn try_from(file: File) -> eyre::Result<Self> {
-        let openssh_certificate_ca_fingerprints = file
-            .openssh_certificate_ca_fingerprints
-            .into_iter()
-            .map(|f| {
-                Fingerprint::from_str(&f).with_context(|| {
-                    format!("Invalid openssh CA fingerprint: {f:?}, expected <hash_alg>:<base64>")
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(Self {
-            listen_address: file
-                .listen_address
-                .parse::<SocketAddr>()
-                .context("Invalid listen_address")?,
-            carbide_uri: file
-                .carbide_url
-                .as_str()
-                .parse::<http::Uri>()
-                .context("Invalid carbide_uri")?,
-            authorized_keys_path: file.authorized_keys_path,
-            host_key_path: file.host_key,
-            override_bmcs: file.bmcs,
-            dpus: file.dpus,
-
-            insecure: file.insecure,
-            override_bmc_ssh_port: file.override_bmc_ssh_port,
-            override_ipmi_port: file.override_ipmi_port,
-            insecure_ipmi_ciphers: file.insecure_ipmi_ciphers,
-            forge_root_ca_path: file.forge_root_ca_path,
-            client_cert_path: file.client_cert_path,
-            client_key_path: file.client_key_path,
-            openssh_certificate_ca_fingerprints,
-            admin_certificate_role: file.admin_certificate_role,
-            api_poll_interval: file.api_poll_interval,
-            console_logs_path: file.console_logs_path,
-            console_logging_enabled: file.console_logging_enabled,
-            override_bmc_ssh_host: file.override_bmc_ssh_host,
-        })
+        )
     }
-}
-
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
-struct File {
-    #[serde(default = "Defaults::listen_address")]
-    listen_address: String,
-    #[serde(default = "Defaults::carbide_address")]
-    carbide_url: String,
-    #[serde(default)]
-    authorized_keys_path: Option<PathBuf>,
-    #[serde(default)]
-    bmcs: Option<Vec<BmcConfig>>,
-    #[serde(default = "Defaults::host_key_path")]
-    host_key: PathBuf,
-    #[serde(default = "Defaults::dpus")]
-    dpus: bool,
-    #[serde(default)]
-    insecure: bool,
-    #[serde(default)]
-    override_bmc_ssh_port: Option<u16>,
-    #[serde(default)]
-    override_ipmi_port: Option<u16>,
-    #[serde(default)]
-    insecure_ipmi_ciphers: bool,
-    #[serde(default = "Defaults::root_ca_path")]
-    forge_root_ca_path: PathBuf,
-    #[serde(default = "Defaults::client_cert_path")]
-    client_cert_path: PathBuf,
-    #[serde(default = "Defaults::client_key_path")]
-    client_key_path: PathBuf,
-    #[serde(default = "Defaults::openssh_certificate_ca_fingerprints")]
-    openssh_certificate_ca_fingerprints: Vec<String>,
-    #[serde(default = "Defaults::admin_certificate_role")]
-    admin_certificate_role: String,
-    #[serde(
-        default = "Defaults::api_poll_interval",
-        serialize_with = "serialize_duration",
-        deserialize_with = "deserialize_duration"
-    )]
-    api_poll_interval: Duration,
-    #[serde(default = "Defaults::console_logs_path")]
-    console_logs_path: PathBuf,
-    #[serde(default = "Defaults::console_logging_enabled")]
-    console_logging_enabled: bool,
-    #[serde(default)]
-    override_bmc_ssh_host: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, PartialEq, Debug, Clone)]
@@ -307,12 +247,12 @@ impl BmcConfig {
     }
 }
 
-impl Default for File {
+impl Default for Config {
     fn default() -> Self {
         Self {
             listen_address: Defaults::listen_address(),
-            host_key: Defaults::host_key_path(),
-            carbide_url: Defaults::carbide_address(),
+            host_key_path: Defaults::host_key_path(),
+            carbide_uri: Defaults::carbide_uri(),
             forge_root_ca_path: Defaults::root_ca_path(),
             client_cert_path: Defaults::client_key_path(),
             client_key_path: Defaults::client_key_path(),
@@ -325,7 +265,7 @@ impl Default for File {
             override_bmc_ssh_port: None,
             override_ipmi_port: None,
             authorized_keys_path: None,
-            bmcs: None,
+            override_bmcs: None,
             insecure: false,
             insecure_ipmi_ciphers: false,
             override_bmc_ssh_host: None,
@@ -336,8 +276,10 @@ impl Default for File {
 pub struct Defaults;
 
 impl Defaults {
-    pub fn listen_address() -> String {
-        "[::]:22".to_string()
+    pub fn listen_address() -> SocketAddr {
+        "[::]:22"
+            .parse()
+            .expect("BUG: default listen_address is invalid")
     }
 
     pub fn host_key_path() -> PathBuf {
@@ -348,8 +290,10 @@ impl Defaults {
         true
     }
 
-    pub fn carbide_address() -> String {
-        "carbide-api.forge-system.svc.cluster.local:1079".to_string()
+    pub fn carbide_uri() -> http::Uri {
+        "https://carbide-api.forge-system.svc.cluster.local:1079"
+            .try_into()
+            .expect("BUG: default carbide URI is invalid")
     }
 
     pub fn root_ca_path() -> PathBuf {
@@ -364,9 +308,12 @@ impl Defaults {
         "/var/run/secrets/spiffe.io/tls.key".into()
     }
 
-    pub fn openssh_certificate_ca_fingerprints() -> Vec<String> {
+    pub fn openssh_certificate_ca_fingerprints() -> Vec<Fingerprint> {
         // Taken from working nvinit cert as of 2025-06-26. No idea how often this changes.
-        vec!["SHA256:sPKzOUJwvkR3aCFf2oCyHnc+JoMtFcow2UxcEz+cXo4".to_string()]
+        vec![
+            Fingerprint::from_str("SHA256:sPKzOUJwvkR3aCFf2oCyHnc+JoMtFcow2UxcEz+cXo4")
+                .expect("BUG: default OpenSSH certificate CA fingerprint is invalid"),
+        ]
     }
 
     pub fn admin_certificate_role() -> String {
@@ -393,21 +340,66 @@ where
     serializer.serialize_str(&format!("{}s", d.as_secs()))
 }
 
+fn serialize_openssh_certificate_ca_fingerprints<S>(
+    d: &Vec<Fingerprint>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut seq = serializer.serialize_seq(Some(d.len()))?;
+    for fingerprint in d {
+        seq.serialize_element(&fingerprint.to_string())?;
+    }
+    seq.end()
+}
+
+fn deserialize_openssh_certificate_ca_fingerprints<'de, D>(
+    deserializer: D,
+) -> Result<Vec<Fingerprint>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Vec::<String>::deserialize(deserializer)?
+        .into_iter()
+        .map(|s| Fingerprint::from_str(&s))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(serde::de::Error::custom)
+}
+
+fn serialize_uri<S>(u: &http::Uri, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&format!("{}", u))
+}
+
+fn deserialize_uri<'de, D>(deserializer: D) -> Result<http::Uri, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    http::Uri::from_str(&s).map_err(serde::de::Error::custom)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_default_file_is_actually_default() {
-        let default_toml: File =
-            toml::from_str(&default_config_file()).expect("default toml didn't parse");
-        let default_file = File::default();
+        let default_toml: Config = toml::from_str(&Config::default().into_annotated_config_file())
+            .expect("default toml didn't parse");
+        let default_file = Config::default();
         assert_eq!(default_toml, default_file);
     }
 
     #[test]
     fn test_default_file_parses() {
-        let default_file = File::default();
-        Config::try_from(default_file).expect("default config file is invalid");
+        let default = Config::default();
+        let default_toml = toml::to_string(&default).expect("default toml didn't serialize");
+        let roundtripped =
+            toml::from_str::<Config>(&default_toml).expect("default toml didn't parse");
+        assert_eq!(default, roundtripped);
     }
 }

@@ -35,7 +35,10 @@ pub async fn main() -> eyre::Result<()> {
                 .context("error in ssh-console service")?;
         }
         Command::DefaultRunConfig => {
-            print!("{}", ssh_console::config::default_config_file())
+            print!(
+                "{}",
+                ssh_console::config::Config::default().into_annotated_config_file()
+            )
         }
     }
 
