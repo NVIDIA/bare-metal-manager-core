@@ -1,5 +1,12 @@
 #!/bin/bash -p
 
+$HOSTNAME=$(hostname)
+
+if [[ "$HOSTNAME" == "localhost" ]]; then
+    echo "hostname cannot be 'localhost'"
+    exit 1
+fi
+
 CERT_PATH=/etc/ssl/certs/forge-dpu-otel-agent.pem
 KEY_PATH=/etc/ssl/private/forge-dpu-otel-agent.key
 MAX_INTERVAL=30
