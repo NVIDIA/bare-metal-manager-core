@@ -274,12 +274,6 @@ processors:
       - key: component
         value: dpu-auth-filelog
         action: upsert
-      - key: nspect.id
-        value: NSPECT-K66V-JJ0K
-        action: upsert
-      - key: mgmt.owner
-        value: swngc-forge-admins
-        action: upsert
   resource/log-stats:
     attributes:
       - key: component
