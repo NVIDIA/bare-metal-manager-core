@@ -1,6 +1,6 @@
 [Unit]
 Description=Forge DPU OpenTelemetry mTLS certificate renewal agent service
-After=networking.service network-online.target time-sync.target containerd@mgmt.service cloud-final.service
+After=networking.service network-online.target time-sync.target containerd@mgmt.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
