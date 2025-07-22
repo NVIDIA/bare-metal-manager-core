@@ -4,8 +4,8 @@ use ssh_console::bmc_vendor::{EscapeSequence, IPMITOOL_ESCAPE_SEQUENCE};
 
 fuzz_target!(|data: &[u8]| {
     static SINGLE_SEQUENCE: u8 = 0x1b;
-    static PAIR_SEQUENCE: (u8, &'static [u8]) = (0x1b, &[0x28]);
-    static IPMITOOL_SEQUENCE_TRAILS: &'static [u8] = &[b'.', b'B', b'?', 0x1a, 0x18];
+    static PAIR_SEQUENCE: (u8, &[u8]) = (0x1b, &[0x28]);
+    static IPMITOOL_SEQUENCE_TRAILS: &[u8] = &[b'.', b'B', b'?', 0x1a, 0x18];
     assert!(
         !EscapeSequence::Single(SINGLE_SEQUENCE)
             .filter_escape_sequences(data, false)
