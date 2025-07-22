@@ -3223,7 +3223,8 @@ impl DpuMachineStateHandler {
         // Use the host snapshot instead of the DPU snapshot because
         // the state.host_snapshot.current.version might be a bit more correct:
         // the state machine is driven by the host state
-        let time_since_state_change = state.host_snapshot.state.version.since_state_change();
+        let time_since_state_change: chrono::TimeDelta =
+            state.host_snapshot.state.version.since_state_change();
 
         let wait_for_dpu_to_come_up = if time_since_state_change.num_minutes() > 5 {
             false
@@ -6626,6 +6627,71 @@ fn get_next_state_bios_job_failure(
     Ok((next_state, expected_power_state))
 }
 
+fn handle_boss_controller_job_error(
+    boss_controller_id: String,
+    iterations: u32,
+    secure_erase_boss_controller: bool,
+    err: StateHandlerError,
+    time_since_state_change: chrono::TimeDelta,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    // Wait for 5 minutes before declaring a true failure and transition to the error handling state.
+    // As we use this function to handle two different kinds of errors (and maybe others in the future),
+    // the defensive nature of this check will be broadly helpful to differentiate between transient errors
+    // and true failures. Here is one particular edge case:
+    // It takes a little time between creating and scheduling the secure erase job.
+    // If the state machine queries the BMC for the job's state prior to the job being scheduled,
+    // the BMC's job service will return a 404. Wait here for five minutes to ensure
+    // that the job is scheduled prior to declaring an error.
+    if time_since_state_change.num_minutes() < 5 {
+        return Err(err);
+    }
+
+    // we have retried this operation too many times, lets wait for manual intervention
+    if iterations > 3 {
+        let action = match secure_erase_boss_controller {
+            true => "secure erase",
+            false => "create the R1 volume on",
+        };
+
+        return Err(StateHandlerError::GenericError(eyre::eyre!(
+            "We have gone through {} iterations of trying to {action} the BOSS controller; Waiting for manual intervention: {err}",
+            iterations
+        )));
+    }
+
+    // failure path
+    let cleanup_state = match secure_erase_boss_controller {
+        // the job to decomission the boss controller failed--lets retry
+        true => CleanupState::SecureEraseBoss {
+            secure_erase_boss_context: SecureEraseBossContext {
+                boss_controller_id,
+                secure_erase_jid: None,
+                secure_erase_boss_state: SecureEraseBossState::HandleJobFailure {
+                    failure: err.to_string(),
+                    power_state: libredfish::PowerState::Off,
+                },
+                iteration: Some(iterations),
+            },
+        },
+        // the job to crate the R1 Volume on top of the BOSS controller failed--lets retry
+        false => CleanupState::CreateBossVolume {
+            create_boss_volume_context: CreateBossVolumeContext {
+                boss_controller_id,
+                create_boss_volume_jid: None,
+                create_boss_volume_state: CreateBossVolumeState::HandleJobFailure {
+                    failure: err.to_string(),
+                    power_state: libredfish::PowerState::Off,
+                },
+                iteration: Some(iterations),
+            },
+        },
+    };
+
+    let next_state: ManagedHostState = ManagedHostState::WaitingForCleanup { cleanup_state };
+
+    Ok(transition!(next_state))
+}
+
 async fn wait_for_boss_controller_job_to_complete(
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
@@ -6690,101 +6756,60 @@ async fn wait_for_boss_controller_job_to_complete(
     let job_state = match redfish_client.get_job_state(&job_id).await {
         Ok(state) => state,
         Err(e) => {
-            // It takes a little time between creating and scheduling the secure erase job.
-            // If the state machine queries the BMC for the job's state prior to the job being scheduled,
-            // the BMC's job service will return a 404. Wait here for five minutes to ensure
-            // that the job is scheduled prior to declaring an error.
-            if secure_erase_boss_controller
-                && mh_snapshot
-                    .host_snapshot
-                    .state
-                    .version
-                    .since_state_change()
-                    .num_minutes()
-                    < 5
-            {
-                return Err(StateHandlerError::RedfishError {
+            return handle_boss_controller_job_error(
+                boss_controller_id,
+                iterations,
+                secure_erase_boss_controller,
+                StateHandlerError::RedfishError {
                     operation: "get_job_state",
                     error: e,
-                });
-            }
-
-            // we have retried this operation too many times, lets wait for manual intervention
-            if iterations > 3 {
-                let action = match secure_erase_boss_controller {
-                    true => "secure erase",
-                    false => "create the R1 volume on",
-                };
-
-                return Err(StateHandlerError::GenericError(eyre::eyre!(
-                    "We have gone through {} iterations of trying to {action} the BOSS controller; Waiting for manual intervention after failing to query job {job_id}: {e}",
-                    iterations
-                )));
-            }
-
-            // failure path
-            let cleanup_state = match secure_erase_boss_controller {
-                // the job to decomission the boss controller failed--lets retry
-                true => CleanupState::SecureEraseBoss {
-                    secure_erase_boss_context: SecureEraseBossContext {
-                        boss_controller_id,
-                        secure_erase_jid: None,
-                        secure_erase_boss_state: SecureEraseBossState::HandleJobFailure {
-                            failure: e.to_string(),
-                            power_state: libredfish::PowerState::Off,
-                        },
-                        iteration: Some(iterations),
-                    },
                 },
-                // the job to crate the R1 Volume on top of the BOSS controller failed--lets retry
+                mh_snapshot.host_snapshot.state.version.since_state_change(),
+            );
+        }
+    };
+
+    match job_state {
+        // The job has completed; transition to next step in host cleanup
+        libredfish::JobState::Completed => {
+            // healthy path
+            let cleanup_state = match secure_erase_boss_controller {
+                // now that we have finished doing a secure erase of the BOSS controller
+                // we can do a standard secure erase of the remaining drives through the /usr/sbin/nvme tool
+                true => CleanupState::HostCleanup {
+                    boss_controller_id: Some(boss_controller_id),
+                },
+                // now that we have recreated the R1 volume on top of the BOSS controller, we can lock the host back down again.
                 false => CleanupState::CreateBossVolume {
                     create_boss_volume_context: CreateBossVolumeContext {
                         boss_controller_id,
                         create_boss_volume_jid: None,
-                        create_boss_volume_state: CreateBossVolumeState::HandleJobFailure {
-                            failure: e.to_string(),
-                            power_state: libredfish::PowerState::Off,
-                        },
+                        create_boss_volume_state: CreateBossVolumeState::LockHost,
                         iteration: Some(iterations),
                     },
                 },
             };
 
-            let next_state: ManagedHostState =
-                ManagedHostState::WaitingForCleanup { cleanup_state };
-
-            return Ok(transition!(next_state));
+            let next_state = ManagedHostState::WaitingForCleanup { cleanup_state };
+            Ok(transition!(next_state))
         }
-    };
-
-    if !matches!(job_state, libredfish::JobState::Completed) {
-        return Ok(wait!(format!(
-            "waiting for job {:#?} to complete; current state: {job_state:#?}",
-            job_id
-        )));
-    }
-
-    // healthy path
-    let cleanup_state = match secure_erase_boss_controller {
-        // now that we have finished doing a secure erase of the BOSS controller
-        // we can do a standard secure erase of the remaining drives through the /usr/sbin/nvme tool
-        true => CleanupState::HostCleanup {
-            boss_controller_id: Some(boss_controller_id),
-        },
-        // now that we have recreated the R1 volume on top of the BOSS controller, we can lock the host back down again.
-        false => CleanupState::CreateBossVolume {
-            create_boss_volume_context: CreateBossVolumeContext {
+        // The job has failed; handle error
+        libredfish::JobState::ScheduledWithErrors | libredfish::JobState::CompletedWithErrors => {
+            handle_boss_controller_job_error(
                 boss_controller_id,
-                create_boss_volume_jid: None,
-                create_boss_volume_state: CreateBossVolumeState::LockHost,
-                iteration: Some(iterations),
-            },
-        },
-    };
-
-    let next_state = ManagedHostState::WaitingForCleanup { cleanup_state };
-
-    Ok(transition!(next_state))
+                iterations,
+                secure_erase_boss_controller,
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "job {job_id} will not complete because it is in a failure state: {job_state:#?}",
+                )),
+                mh_snapshot.host_snapshot.state.version.since_state_change(),
+            )
+        }
+        // The job is still running (hopefully...); wait for the job to complete
+        _ => Ok(wait!(format!(
+            "waiting for job {job_id} to complete; current state: {job_state:#?}"
+        ))),
+    }
 }
 
 async fn handle_bios_job_failure(
