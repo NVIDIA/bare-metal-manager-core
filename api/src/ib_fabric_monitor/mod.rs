@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,13 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
+use sqlx::PgPool;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::oneshot;
 use tracing::Instrument;
 
 use crate::{
     CarbideError, CarbideResult,
-    cfg::file::IbFabricDefinition,
+    cfg::file::{CarbideConfig, IbFabricDefinition},
     ib::{IBFabricManager, IBFabricManagerType},
 };
 
@@ -27,6 +28,8 @@ use self::metrics::FabricMetrics;
 
 /// `IbFabricMonitor` monitors the health of all connected InfiniBand fabrics in periodic intervals
 pub struct IbFabricMonitor {
+    database_connection: PgPool,
+
     fabrics: HashMap<String, IbFabricDefinition>,
     metric_holder: Arc<metrics::MetricHolder>,
     /// API for interaction with Forge IBFabricManager
@@ -34,11 +37,16 @@ pub struct IbFabricMonitor {
 }
 
 impl IbFabricMonitor {
+    const DB_LOCK_NAME: &'static str = "ib_fabric_monitor_lock";
+    const DB_LOCK_QUERY: &'static str = "SELECT pg_try_advisory_xact_lock((SELECT 'ib_fabric_monitor_lock'::regclass::oid)::integer)";
+
     /// Create a IbFabricMonitor
     pub fn new(
+        database_connection: PgPool,
         fabrics: HashMap<String, IbFabricDefinition>,
         meter: opentelemetry::metrics::Meter,
         fabric_manager: Arc<dyn IBFabricManager>,
+        config: Arc<CarbideConfig>,
     ) -> Self {
         // We want to hold metrics for longer than the iteration interval, so there is continuity
         // in emitting metrics. However we want to avoid reporting outdated metrics in case
@@ -50,7 +58,10 @@ impl IbFabricMonitor {
 
         let metric_holder = Arc::new(metrics::MetricHolder::new(meter, hold_period));
 
+        let _ = config; // Will be used later
+
         IbFabricMonitor {
+            database_connection,
             fabrics,
             metric_holder,
             fabric_manager,
@@ -91,47 +102,69 @@ impl IbFabricMonitor {
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = IbFabricMonitorMetrics::new();
 
-        let span_id: String = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::internal(format!("Failed to create transaction: {e}"))
+            })?;
 
-        let check_ib_fabrics_span = tracing::span!(
-            parent: None,
-            tracing::Level::INFO,
-            "check_ib_fabrics",
-            span_id,
-            otel.status_code = tracing::field::Empty,
-            otel.status_message = tracing::field::Empty,
-            num_fabrics = 0,
-            fabric_metrics = tracing::field::Empty,
-        );
+        if sqlx::query_scalar(Self::DB_LOCK_QUERY)
+            .fetch_one(&mut *txn)
+            .await
+            .unwrap_or(false)
+        {
+            tracing::trace!(
+                lock = Self::DB_LOCK_NAME,
+                "IbFabricMonitor acquired the lock",
+            );
 
-        let res = self
-            .check_ib_fabrics(&mut metrics)
-            .instrument(check_ib_fabrics_span.clone())
-            .await;
-        check_ib_fabrics_span.record("num_fabrics", metrics.num_fabrics);
-        check_ib_fabrics_span.record(
-            "fabric_metrics",
-            serde_json::to_string(&metrics.fabrics).unwrap_or_default(),
-        );
+            let span_id: String = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
 
-        match &res {
-            Ok(()) => {
-                check_ib_fabrics_span.record("otel.status_code", "ok");
+            let check_ib_fabrics_span = tracing::span!(
+                parent: None,
+                tracing::Level::INFO,
+                "check_ib_fabrics",
+                span_id,
+                otel.status_code = tracing::field::Empty,
+                otel.status_message = tracing::field::Empty,
+                num_fabrics = 0,
+                fabric_metrics = tracing::field::Empty,
+            );
+
+            let res = self
+                .check_ib_fabrics(&mut metrics)
+                .instrument(check_ib_fabrics_span.clone())
+                .await;
+            check_ib_fabrics_span.record("num_fabrics", metrics.num_fabrics);
+            check_ib_fabrics_span.record(
+                "fabric_metrics",
+                serde_json::to_string(&metrics.fabrics).unwrap_or_default(),
+            );
+
+            match &res {
+                Ok(()) => {
+                    check_ib_fabrics_span.record("otel.status_code", "ok");
+                }
+                Err(e) => {
+                    tracing::error!("IbFabricMonitor run failed due to: {:?}", e);
+                    check_ib_fabrics_span.record("otel.status_code", "error");
+                    // Writing this field will set the span status to error
+                    // Therefore we only write it on errors
+                    check_ib_fabrics_span.record("otel.status_message", format!("{:?}", e));
+                }
             }
-            Err(e) => {
-                tracing::error!("IbFabricMonitor run failed due to: {:?}", e);
-                check_ib_fabrics_span.record("otel.status_code", "error");
-                // Writing this field will set the span status to error
-                // Therefore we only write it on errors
-                check_ib_fabrics_span.record("otel.status_message", format!("{:?}", e));
-            }
+
+            // Cache all other metrics that have been captured in this iteration.
+            // Those will be queried by OTEL on demand
+            self.metric_holder.update_metrics(metrics);
+
+            res?;
+
+            txn.commit().await.map_err(|e| {
+                CarbideError::internal(format!("Failed to commit transaction: {e}"))
+            })?;
         }
 
-        // Cache all other metrics that have been captured in this iteration.
-        // Those will be queried by OTEL on demand
-        self.metric_holder.update_metrics(metrics);
-
-        res
+        Ok(())
     }
 
     async fn check_ib_fabrics(&self, metrics: &mut IbFabricMonitorMetrics) -> CarbideResult<()> {

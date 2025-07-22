@@ -24,15 +24,17 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     });
 
     let env = common::api_fixtures::create_test_env_with_overrides(
-        pool,
+        pool.clone(),
         TestEnvOverrides::with_config(config),
     )
     .await;
 
     let monitor = IbFabricMonitor::new(
+        env.pool.clone(),
         env.config.ib_fabrics.clone(),
         env.test_meter.meter(),
         env.ib_fabric_manager.clone(),
+        env.config.clone(),
     );
 
     monitor.run_single_iteration().await.unwrap();
