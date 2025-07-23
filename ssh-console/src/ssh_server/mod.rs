@@ -10,19 +10,21 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::ShutdownHandle;
 use crate::config::Config;
+use crate::{ReadyHandle, ShutdownHandle};
 use eyre::Context;
 use russh::{MethodKind, MethodSet};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::net::TcpListener;
 use tokio::sync::oneshot;
+use tokio::sync::oneshot::Receiver;
 use tokio::task::JoinHandle;
 
-mod backend;
+mod backend_connection;
 mod backend_pool;
-mod console_logging;
+mod backend_session;
+mod connection_state;
+mod console_logger;
 pub(crate) mod frontend;
 mod server;
 
@@ -38,15 +40,10 @@ pub async fn spawn(config: Config) -> eyre::Result<SpawnHandle> {
             )
         })?;
 
-    let listener = TcpListener::bind(config.listen_address)
-        .await
-        .with_context(|| format!("Error listening on {}", config.listen_address))?;
-
-    tracing::info!("listening on {}", config.listen_address);
-
     let server = server::new(config);
 
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let (ready_tx, ready_rx) = oneshot::channel();
     let join_handle = tokio::spawn(server.run(
         Arc::new(russh::server::Config {
             keys: vec![host_key],
@@ -56,23 +53,31 @@ pub async fn spawn(config: Config) -> eyre::Result<SpawnHandle> {
             auth_rejection_time: Duration::from_millis(30),
             ..Default::default()
         }),
-        listener,
+        ready_tx,
         shutdown_rx,
     ));
 
     Ok(SpawnHandle {
         shutdown_tx,
         join_handle,
+        ready_rx: Some(ready_rx),
     })
 }
 
 pub struct SpawnHandle {
     shutdown_tx: oneshot::Sender<()>,
     join_handle: JoinHandle<eyre::Result<()>>,
+    ready_rx: Option<oneshot::Receiver<()>>,
 }
 
 impl ShutdownHandle<eyre::Result<()>> for SpawnHandle {
     fn into_parts(self) -> (oneshot::Sender<()>, JoinHandle<eyre::Result<()>>) {
         (self.shutdown_tx, self.join_handle)
+    }
+}
+
+impl ReadyHandle for SpawnHandle {
+    fn take_ready_rx(&mut self) -> Option<Receiver<()>> {
+        self.ready_rx.take()
     }
 }

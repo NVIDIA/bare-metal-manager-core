@@ -9,12 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::ShutdownHandle;
 use crate::config::Config;
-use crate::ssh_server::backend_pool::BackendPool;
-use crate::ssh_server::console_logging;
-use crate::ssh_server::console_logging::ConsoleLoggerPoolHandle;
+use crate::ssh_server::backend_pool;
+use crate::ssh_server::backend_pool::BackendPoolHandle;
 use crate::ssh_server::frontend::RusshOrEyreError;
+use crate::{ReadyHandle, ShutdownHandle};
+use eyre::Context;
 use forge_tls::client_config::ClientCert;
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
@@ -28,29 +28,18 @@ use tokio::sync::oneshot;
 /// Construct a new [`Server`]
 pub fn new(config: Arc<Config>) -> Server {
     let forge_api_client = config.make_forge_api_client();
-    let backend_pool = Arc::new(BackendPool::default());
-    let console_logger_pool_handle = if config.console_logging_enabled {
-        Some(console_logging::spawn(
-            config.clone(),
-            forge_api_client.clone(),
-            backend_pool.clone(),
-        ))
-    } else {
-        None
-    };
+    let backend_pool = backend_pool::spawn(config.clone(), forge_api_client.clone());
     Server {
         config,
         forge_api_client,
         backend_pool,
-        console_logger_pool_handle,
     }
 }
 
 pub struct Server {
     config: Arc<Config>,
     forge_api_client: ForgeApiClient,
-    backend_pool: Arc<BackendPool>,
-    console_logger_pool_handle: Option<ConsoleLoggerPoolHandle>,
+    backend_pool: BackendPoolHandle,
 }
 
 impl Server {
@@ -58,20 +47,31 @@ impl Server {
     /// received (or if the sending end of `shutdown` is dropped.)
     pub async fn run(
         mut self,
-        config: Arc<russh::server::Config>,
-        socket: TcpListener,
+        russh_config: Arc<russh::server::Config>,
+        ready_tx: oneshot::Sender<()>,
         mut shutdown: oneshot::Receiver<()>,
     ) -> eyre::Result<()> {
+        // Don't actually start listening until the backend pool is ready, this ensures we our k8s
+        // service doesn't become ready while actual incoming connections could fail.
+        self.backend_pool.wait_until_ready().await.ok();
+
+        let socket = TcpListener::bind(self.config.listen_address)
+            .await
+            .with_context(|| format!("Error listening on {}", self.config.listen_address))?;
+
+        tracing::info!("listening on {}", self.config.listen_address);
+        ready_tx.send(()).ok();
+
         loop {
             tokio::select! {
                 accept_result = socket.accept() => {
                     match accept_result {
                         Ok((socket, _)) => {
-                            let config = config.clone();
+                            let russh_config = russh_config.clone();
                             let handler = self.new_client(socket.peer_addr().ok());
 
                             tokio::spawn(async move {
-                                if config.nodelay {
+                                if russh_config.nodelay {
                                     if let Err(e) = socket.set_nodelay(true) {
                                         tracing::warn!("set_nodelay() failed: {e:?}");
                                     }
@@ -81,7 +81,7 @@ impl Server {
                                 // Handler::Error, which is *our* error type. So we have go to
                                 // through this RusshOrEyreError hoops to track down what the actual
                                 // error was.
-                                let session = match run_stream(config, socket, handler).await {
+                                let session = match run_stream(russh_config, socket, handler).await {
                                     Ok(s) => s,
                                     Err(RusshOrEyreError::Russh(russh::Error::Disconnect)) => {
                                         // If it was a simple disconnect, don't log a scary looking
@@ -135,9 +135,7 @@ impl Server {
             }
         }
 
-        if let Some(console_logger_pool_handle) = self.console_logger_pool_handle.take() {
-            console_logger_pool_handle.shutdown_and_wait().await;
-        }
+        self.backend_pool.shutdown_and_wait().await;
 
         Ok(())
     }
@@ -148,7 +146,7 @@ impl russh::server::Server for Server {
 
     fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self::Handler {
         Self::Handler::new(
-            self.backend_pool.clone(),
+            self.backend_pool.get_connection_store(),
             self.config.clone(),
             self.forge_api_client.clone(),
         )

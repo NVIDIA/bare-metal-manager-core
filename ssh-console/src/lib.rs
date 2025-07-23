@@ -20,7 +20,9 @@
 //!
 //! - [`ssh_server::server`]: Responsible for running the service itself
 //! - [`ssh_server::frontend`]: Handles SSH client connections and authentication
-//! - [`ssh_server::backend`]: Manages connections to BMC devices and serial console activation
+//! - [`ssh_server::backend_connection`]: Manages individual connections to BMC devices and serial console activation
+//! - [`ssh_server::backend_pool`]: Queries carbide-api for what BMC's are available and spawns sessions for each one, making them available for frontends
+//! - [`ssh_server::backend_session`]: Maintains a connection to a given backend, reconnecting if it fails
 //! - [`config`]: Configuration management with TOML file support
 //! - [`bmc_vendor`]: Vendor-specific BMC interaction logic
 
@@ -32,8 +34,10 @@ mod ssh_server;
 pub mod config;
 
 use eyre::Context;
+use futures_util::FutureExt;
 use russh::ChannelMsg;
 pub use ssh_server::{SpawnHandle, spawn};
+use std::future;
 use tokio::sync::oneshot;
 
 /// Take a russh::ChannelMsg being sent in either direction from the frontend or backend, and call
@@ -141,6 +145,20 @@ pub trait ShutdownHandle<R> {
             // sending an empty tuple over the channel, both mean "shut down now").
             std::mem::drop(shutdown_tx);
             join_handle.await.expect("task panicked")
+        }
+    }
+}
+
+pub trait ReadyHandle {
+    fn take_ready_rx(&mut self) -> Option<oneshot::Receiver<()>>;
+
+    fn wait_until_ready(
+        &mut self,
+    ) -> impl std::future::Future<Output = Result<(), oneshot::error::RecvError>> + Send {
+        if let Some(ready_rx) = self.take_ready_rx() {
+            ready_rx.boxed()
+        } else {
+            future::ready(Ok(())).boxed()
         }
     }
 }

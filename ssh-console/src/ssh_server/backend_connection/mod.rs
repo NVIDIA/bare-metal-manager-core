@@ -9,11 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-pub(crate) mod ipmi;
-mod ssh;
 
 use crate::bmc_vendor::{BmcVendor, SshBmcVendor};
 use crate::config::Config;
+use crate::{ReadyHandle, ShutdownHandle};
 use eyre::{Context, ContextCompat};
 use forge_uuid::machine::{MachineId, MachineType};
 use rpc::forge;
@@ -25,57 +24,96 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::oneshot::Receiver;
+use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-#[derive(Debug)]
-pub struct BackendHandle {
-    /// Writer to send messages (including data) to backend
+pub mod ipmi;
+pub mod ssh;
+
+/// A handle to a backend connection, which will shut down when dropped.
+pub struct BackendConnectionHandle {
     pub to_backend_msg_tx: mpsc::Sender<ChannelMsg>,
-    /// For informational purposes: the actuall address of the backend
-    pub addr: SocketAddr,
-    // Hold a copy of the tx for broadcasting to frontends, so that we can subscribe to it multiple
-    // times. This must be a WeakSender so it can be properly dropped when the backend dies
-    broadcast_to_frontend_weak_tx: broadcast::WeakSender<Arc<ChannelMsg>>,
+    pub shutdown_tx: oneshot::Sender<()>,
+    pub join_handle: JoinHandle<eyre::Result<()>>,
+    pub ready_rx: Option<oneshot::Receiver<()>>,
 }
 
-impl BackendHandle {
-    pub fn subscribe(&self) -> Option<broadcast::Receiver<Arc<ChannelMsg>>> {
-        self.broadcast_to_frontend_weak_tx
-            .upgrade()
-            .map(|tx| tx.subscribe())
+impl ShutdownHandle<eyre::Result<()>> for BackendConnectionHandle {
+    fn into_parts(self) -> (oneshot::Sender<()>, JoinHandle<eyre::Result<()>>) {
+        (self.shutdown_tx, self.join_handle)
     }
 }
 
-pub async fn spawn(
-    connection_details: &ConnectionDetails,
-    config: &Config,
-) -> eyre::Result<Arc<BackendHandle>> {
-    let (broadcast_to_frontend_tx, _broadcast_to_frontend_rx) =
-        broadcast::channel::<Arc<ChannelMsg>>(4096);
+impl ReadyHandle for BackendConnectionHandle {
+    fn take_ready_rx(&mut self) -> Option<Receiver<()>> {
+        self.ready_rx.take()
+    }
+}
 
-    // Frontends will call .subscribe on this: It must be a WeakSender so that the channel can close
-    // properly when the backend dies.
-    let broadcast_to_frontend_weak_tx = broadcast_to_frontend_tx.downgrade();
+#[derive(Debug, Clone)]
+pub enum ConnectionDetails {
+    Ssh(Arc<SshConnectionDetails>),
+    Ipmi(Arc<IpmiConnectionDetails>),
+}
 
-    let to_backend_msg_tx = match connection_details {
-        ConnectionDetails::Ssh(ssh_connection_details) => {
-            ssh::spawn(ssh_connection_details, broadcast_to_frontend_tx)
-                .await
-                .context("error spawning SSH backend connection")?
+impl ConnectionDetails {
+    pub fn addr(&self) -> SocketAddr {
+        match self {
+            ConnectionDetails::Ssh(s) => s.addr,
+            ConnectionDetails::Ipmi(i) => i.addr,
         }
-        ConnectionDetails::Ipmi(ipmi_connection_details) => {
-            ipmi::spawn(ipmi_connection_details, broadcast_to_frontend_tx, config)
-                .await
-                .context("error spawning IPMI backend connection")?
-        }
-    };
+    }
 
-    Ok(Arc::new(BackendHandle {
-        to_backend_msg_tx,
-        broadcast_to_frontend_weak_tx,
-        addr: connection_details.addr(),
-    }))
+    pub fn machine_id(&self) -> MachineId {
+        match self {
+            ConnectionDetails::Ssh(s) => s.machine_id,
+            ConnectionDetails::Ipmi(i) => i.machine_id,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct SshConnectionDetails {
+    pub machine_id: MachineId,
+    pub addr: SocketAddr,
+    pub user: String,
+    pub password: String,
+    pub ssh_key_path: Option<PathBuf>,
+    pub bmc_vendor: SshBmcVendor,
+}
+
+impl Debug for SshConnectionDetails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Skip writing the password
+        f.debug_struct("SshConnectionDetails")
+            .field("addr", &self.addr)
+            .field("user", &self.user)
+            .field("ssh_key_path", &self.ssh_key_path)
+            .field("bmc_vendor", &self.bmc_vendor)
+            .field("machine_id", &self.machine_id.to_string())
+            .finish()
+    }
+}
+
+#[derive(Clone)]
+pub struct IpmiConnectionDetails {
+    pub machine_id: MachineId,
+    pub addr: SocketAddr,
+    pub user: String,
+    pub password: String,
+}
+
+impl Debug for IpmiConnectionDetails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Skip writing the password
+        f.debug_struct("IpmiConnectionDetails")
+            .field("addr", &self.addr)
+            .field("user", &self.user)
+            .field("machine_id", &self.machine_id.to_string())
+            .finish()
+    }
 }
 
 /// Get the address and auth details to use for a connection to a given machine or instance ID.
@@ -106,24 +144,26 @@ pub async fn lookup_connection_details(
             )
         })?;
         let connection_details = match override_bmc.bmc_vendor {
-            BmcVendor::Ssh(ssh_bmc_vendor) => ConnectionDetails::Ssh(SshConnectionDetails {
-                machine_id,
-                addr: config
-                    .override_bmc_ssh_addr(override_bmc.addr().port())
-                    .await
-                    .context("error looking up override_bmc_ssh_addr")?
-                    .unwrap_or(override_bmc.addr()),
-                user: override_bmc.user,
-                password: override_bmc.password,
-                ssh_key_path: override_bmc.ssh_key_path,
-                bmc_vendor: ssh_bmc_vendor,
-            }),
-            BmcVendor::Ipmi(_) => ConnectionDetails::Ipmi(IpmiConnectionDetails {
+            BmcVendor::Ssh(ssh_bmc_vendor) => {
+                ConnectionDetails::Ssh(Arc::new(SshConnectionDetails {
+                    machine_id,
+                    addr: config
+                        .override_bmc_ssh_addr(override_bmc.addr().port())
+                        .await
+                        .context("error looking up override_bmc_ssh_addr")?
+                        .unwrap_or(override_bmc.addr()),
+                    user: override_bmc.user,
+                    password: override_bmc.password,
+                    ssh_key_path: override_bmc.ssh_key_path,
+                    bmc_vendor: ssh_bmc_vendor,
+                }))
+            }
+            BmcVendor::Ipmi(_) => ConnectionDetails::Ipmi(Arc::new(IpmiConnectionDetails {
                 machine_id,
                 addr: override_bmc.addr(),
                 user: override_bmc.user,
                 password: override_bmc.password,
-            }),
+            })),
         };
         tracing::info!(
             "Overriding bmc connection to {machine_or_instance_id} with {connection_details:?}"
@@ -248,85 +288,21 @@ pub async fn lookup_connection_details(
     };
 
     let connection_details = match bmc_vendor {
-        BmcVendor::Ssh(ssh_bmc_vendor) => ConnectionDetails::Ssh(SshConnectionDetails {
+        BmcVendor::Ssh(ssh_bmc_vendor) => ConnectionDetails::Ssh(Arc::new(SshConnectionDetails {
             machine_id,
             addr,
             user,
             password,
             ssh_key_path: None,
             bmc_vendor: ssh_bmc_vendor,
-        }),
-        BmcVendor::Ipmi(_) => ConnectionDetails::Ipmi(IpmiConnectionDetails {
+        })),
+        BmcVendor::Ipmi(_) => ConnectionDetails::Ipmi(Arc::new(IpmiConnectionDetails {
             machine_id,
             addr,
             user,
             password,
-        }),
+        })),
     };
 
     Ok(connection_details)
-}
-
-#[derive(Debug, Clone)]
-pub enum ConnectionDetails {
-    Ssh(SshConnectionDetails),
-    Ipmi(IpmiConnectionDetails),
-}
-
-impl ConnectionDetails {
-    pub fn addr(&self) -> SocketAddr {
-        match self {
-            ConnectionDetails::Ssh(s) => s.addr,
-            ConnectionDetails::Ipmi(i) => i.addr,
-        }
-    }
-
-    pub fn machine_id(&self) -> MachineId {
-        match self {
-            ConnectionDetails::Ssh(s) => s.machine_id,
-            ConnectionDetails::Ipmi(i) => i.machine_id,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct SshConnectionDetails {
-    machine_id: MachineId,
-    addr: SocketAddr,
-    user: String,
-    password: String,
-    ssh_key_path: Option<PathBuf>,
-    bmc_vendor: SshBmcVendor,
-}
-
-impl Debug for SshConnectionDetails {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Skip writing the password
-        f.debug_struct("SshConnectionDetails")
-            .field("addr", &self.addr)
-            .field("user", &self.user)
-            .field("ssh_key_path", &self.ssh_key_path)
-            .field("bmc_vendor", &self.bmc_vendor)
-            .field("machine_id", &self.machine_id.to_string())
-            .finish()
-    }
-}
-
-#[derive(Clone)]
-pub struct IpmiConnectionDetails {
-    machine_id: MachineId,
-    addr: SocketAddr,
-    user: String,
-    password: String,
-}
-
-impl Debug for IpmiConnectionDetails {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Skip writing the password
-        f.debug_struct("IpmiConnectionDetails")
-            .field("addr", &self.addr)
-            .field("user", &self.user)
-            .field("machine_id", &self.machine_id.to_string())
-            .finish()
-    }
 }

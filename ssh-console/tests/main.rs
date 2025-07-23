@@ -159,10 +159,10 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
             .lines()
             .partition::<Vec<_>, _>(|l| l.starts_with("--- ssh-console connected at "));
 
-        // Find the "ssh-console shutting down" line
-        let (shutdown_lines, other_lines) = other_lines
+        // Find the "ssh-console disconnected at" line
+        let (disconnection_lines, other_lines) = other_lines
             .into_iter()
-            .partition::<Vec<_>, _>(|l| l.starts_with("--- ssh-console shutting down at "));
+            .partition::<Vec<_>, _>(|l| l.starts_with("--- ssh-console disconnected at "));
 
         assert!(
             !connection_lines.is_empty(),
@@ -179,15 +179,17 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
         );
 
         assert_eq!(
-            shutdown_lines.len(),
+            disconnection_lines.len(),
             1,
-            "{} does not contain expected shutdown line:\n{}",
+            "{} does not contain expected disconnected line:\n{}",
             log_path.display(),
             logs
         );
 
         assert!(
-            logs.lines().last().is_some_and(|l| l == shutdown_lines[0]),
+            logs.lines()
+                .last()
+                .is_some_and(|l| l == disconnection_lines[0]),
             "{} did not have the shutdown line as its last line:\n{}",
             log_path.display(),
             logs

@@ -6,12 +6,10 @@ focusing on simplicity, security, and re-using existing carbide libraries whenev
 It is part of the carbide repo so that we can take advantage of the `rpc` crate and get an instance of `ForgeApiClient`
 without needing to publish a crate anywhere.
 
-Currently (2025-06-30) this is not deployed anywhere yet, it's still undergoing integration testing.
-
 ## TODO (roughly in order)
 
-- Deploy in dev environments as a separate endpoint from the old ssh-console
-- Support IMPI-based connections (currently only works with SSH'able BMC's)
+- ~Deploy in dev environments as a separate endpoint from the old ssh-console~
+- ~Support IMPI-based connections (currently only works with SSH'able BMC's)~
 - Implement metrics similarly to legacy SSH console
 - Better architecture docs/diagram in this README file
 - (Forge UI) Deploy to production environments, offer up the new ssh-console URL to users as a beta URL to use
@@ -49,8 +47,7 @@ client_key_path = "/tmp/localdev-certs/tls.key"
 host_key = "ssh-console/tests/fixtures/ssh_host_ed25519_key"
 
 ## Ports to use when connecting to BMC's
-bmc_ssh_port = 2222
-ipmi_port = 623
+override_bmc_ssh_port = 2222
 ```
 
 And running with:
@@ -80,9 +77,9 @@ instance_id = "d40ad750-b925-4b34-b25a-d7f94458cc9e"
 ip = "127.0.0.1"
 port = 8022
 
-# Valid: "Dell", "Hp", "Lenovo". Affects how BMC escape characters are interpreted, and
+# Valid: "dell", "hpe", "lenovo", "dpu", "nvidia_viking". Affects how BMC escape characters are interpreted, and
 # how the serial console is activated.
-bmc_vendor = "Dell"
+bmc_vendor = "dell"
 
 user = "root"
 password = "get_me_from_vault"
@@ -96,7 +93,8 @@ Integration tests are in the `tests` directory, and need the `REPO_ROOT` env var
 REPO_ROOT="$(pwd)" cargo test -p ssh-console --test main
 ```
 
-The tests can be configured to assert the same behavior on both the legacy and new versions of ssh-console. You can test the legacy version with `RUN_SSH_CONSOLE_LEGACY_TESTS=1`:
+The tests can be configured to assert the same behavior on both the legacy and new versions of ssh-console. You can test
+the legacy version with `RUN_SSH_CONSOLE_LEGACY_TESTS=1`:
 
 ```
 REPO_ROOT="$(pwd)" RUN_SSH_CONSOLE_LEGACY_TESTS=1 cargo test -p ssh-console --test main

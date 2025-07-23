@@ -12,8 +12,8 @@
 
 use crate::config::Config;
 use crate::proxy_channel_message;
-use crate::ssh_server::backend::BackendHandle;
-use crate::ssh_server::backend_pool::BackendPool;
+use crate::ssh_server::backend_pool::BackendConnectionStore;
+use crate::ssh_server::backend_session::BackendSessionConnectionHandle;
 use eyre::Context;
 use rpc::forge::ValidateTenantPublicKeyRequest;
 use rpc::forge_api_client::ForgeApiClient;
@@ -29,26 +29,25 @@ use tokio::sync::RwLock;
 use tonic::Code;
 use uuid::Uuid;
 
-#[derive(Debug)]
 pub struct Handler {
     pub config: Arc<Config>,
     pub forge_api_client: ForgeApiClient,
 
-    backend_pool: Arc<BackendPool>,
-    authenticated_user: RwLock<Option<Arc<String>>>,
-    backends: RwLock<HashMap<ChannelId, Arc<BackendHandle>>>,
+    backend_connections: BackendConnectionStore,
+    authenticated_user: RwLock<Option<String>>,
+    backends: RwLock<HashMap<ChannelId, Arc<BackendSessionConnectionHandle>>>,
 }
 
 impl Handler {
     pub fn new(
-        backend_pool: Arc<BackendPool>,
+        backend_connections: BackendConnectionStore,
         config: Arc<Config>,
         forge_api_client: ForgeApiClient,
     ) -> Self {
         Self {
             config,
             forge_api_client,
-            backend_pool,
+            backend_connections,
             authenticated_user: Default::default(),
             backends: Default::default(),
         }
@@ -70,21 +69,15 @@ impl russh::server::Handler for Handler {
             .into());
         };
 
-        // spawn the backend connection
+        // fetch the backend connection
         let channel_id = channel.id();
         let backend = self
-            .backend_pool
-            .ensure_connected(&user, &self.config, &self.forge_api_client)
+            .backend_connections
+            .get_connection(&user, &self.config, &self.forge_api_client)
             .await
-            .with_context(|| format!("backend connection error for user {user}"))?;
+            .with_context(|| format!("could not get backend connection for {user}"))?;
 
-        let Some(mut to_frontend_rx) = backend.subscribe() else {
-            tracing::error!("backend disconnected before we could subscribe to messages");
-            session
-                .channel_failure(channel_id)
-                .context("error replying with failure to channel_open_session")?;
-            return Ok(false);
-        };
+        let mut to_frontend_rx = backend.subscribe();
 
         tokio::spawn(async move {
             while let Ok(msg) = to_frontend_rx.recv().await {
@@ -165,7 +158,7 @@ impl russh::server::Handler for Handler {
         self.authenticated_user
             .write()
             .await
-            .replace(Arc::new(user.to_owned()));
+            .replace(user.to_owned());
         Ok(Auth::Accept)
     }
 
@@ -206,7 +199,7 @@ impl russh::server::Handler for Handler {
             self.authenticated_user
                 .write()
                 .await
-                .replace(Arc::new(user.to_owned()));
+                .replace(user.to_owned());
             Ok(Auth::Accept)
         } else {
             Ok(Auth::Reject {
