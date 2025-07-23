@@ -87,6 +87,8 @@
   - [Troubleshooting noDpuLogsWarning alerts](playbooks/troubleshooting_noDpuLogsWarning_alerts.md)
 - [InfiniBand setup](playbooks/ib_runbook.md)
 - [Updating Expected Machines Manifest](playbooks/em_update.md)
+- [Hardware]()
+  - [Lenovo SR670 V2](playbooks/hardware/sr670v2.md)
 
 # NVMesh
 
