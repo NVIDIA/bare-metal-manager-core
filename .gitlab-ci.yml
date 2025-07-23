@@ -1362,7 +1362,7 @@ scheduled-test:machine-lifecycle-test:
         curl -s --request PUT --header "PRIVATE-TOKEN: ${GITLAB_API_TOKEN}" --header 'Content-Type: application/json' \
           --data "{\"files\": [{ \"action\":\"update\", \"file_path\":\"test_results\", \"content\":\"$new_list\" }]}" \
           "${SNIPPET_URL}"
-      else 
+      elif [[ ${CI_JOB_STATUS} == 'failed' ]]; then
         echo "Test failed for build ${CARBIDE_VERSION} on ${SHORT_SITE_NAME}."
         if [[ -n "${PIPELINE_SCHEDULE_ID:-}" ]]; then
           # NOTE: $PIPELINE_SCHEDULE_ID is not provided by Gitlab :( it must be manually added to the pipeline schedule
