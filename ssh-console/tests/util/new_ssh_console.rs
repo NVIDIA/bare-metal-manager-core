@@ -2,6 +2,7 @@ use crate::util::fixtures::{
     API_CA_CERT, API_CLIENT_CERT, API_CLIENT_KEY, AUTHORIZED_KEYS_PATH, SSH_HOST_KEY,
 };
 use eyre::Context;
+use ssh_console::ReadyHandle;
 use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
 use std::time::Duration;
 use temp_dir::TempDir;
@@ -40,9 +41,13 @@ pub async fn spawn(carbide_port: u16) -> eyre::Result<NewSshConsoleHandle> {
         console_logging_enabled: true,
         console_logs_path: logs_dir.path().to_path_buf(),
         override_bmc_ssh_host: None,
+        // Eagerly retry if the connection was only open a short while (needed for tests to avoid
+        // long backoff intervals.)
+        successful_connection_minimum_duration: Duration::ZERO,
     };
 
-    let spawn_handle = ssh_console::spawn(config).await?;
+    let mut spawn_handle = ssh_console::spawn(config).await?;
+    spawn_handle.wait_until_ready().await.ok();
 
     Ok(NewSshConsoleHandle {
         addr,

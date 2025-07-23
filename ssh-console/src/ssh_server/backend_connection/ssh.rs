@@ -1,6 +1,18 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
 use crate::bmc_vendor::SshBmcVendor;
 use crate::proxy_channel_message;
-use crate::ssh_server::backend::SshConnectionDetails;
+use crate::ssh_server::backend_connection::{BackendConnectionHandle, SshConnectionDetails};
 use eyre::Context;
 use forge_uuid::machine::MachineId;
 use ringbuf::LocalRb;
@@ -11,7 +23,8 @@ use russh::keys::{HashAlg, PrivateKeyWithHashAlg, PublicKey};
 use russh::{Channel, ChannelMsg, MethodKind};
 use std::io::Read;
 use std::sync::{Arc, LazyLock};
-use tokio::sync::{broadcast, mpsc};
+use std::time::Duration;
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 struct Handler;
 
@@ -30,86 +43,101 @@ impl russh::client::Handler for Handler {
 static RUSSH_CLIENT_CONFIG: LazyLock<Arc<russh::client::Config>> =
     LazyLock::new(russh_client_config);
 
-/// Connect to the backend for an instance or machine, returning a [`BackendHandle`]
-pub async fn spawn(
-    connection_details: &SshConnectionDetails,
+/// Connect to the backend for an instance or machine one time, returning a [`SshBackendHandle`].
+/// Will not retry on connection errors.
+pub fn spawn(
+    connection_details: Arc<SshConnectionDetails>,
     to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
-) -> eyre::Result<mpsc::Sender<ChannelMsg>> {
+) -> eyre::Result<BackendConnectionHandle> {
+    let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
+    let (ready_tx, ready_rx) = oneshot::channel::<()>();
+    let mut ready_tx = Some(ready_tx); // only send it once
+    let (to_backend_msg_tx, mut to_backend_msg_rx) = mpsc::channel::<ChannelMsg>(1);
+
     let machine_id = connection_details.machine_id;
     let bmc_vendor = connection_details.bmc_vendor;
-    let client = make_authenticated_client(connection_details).await?;
 
-    // Channel to send data to/from the backend (BMC)
-    let mut backend_channel = client
-        .channel_open_session()
-        .await
-        .context("Error opening session to backend")?;
+    let join_handle = tokio::spawn(async move {
+        let client = make_authenticated_client(&connection_details).await?;
 
-    trigger_and_await_sol_console(machine_id, &mut backend_channel, bmc_vendor)
-        .await
-        .context("error activating serial console")?;
+        // Channel to send data to/from the backend (BMC)
+        let mut backend_channel = client
+            .channel_open_session()
+            .await
+            .context("Error opening session to backend")?;
 
-    let mut backend_ringbuf: LocalRb<Array<u8, 1024>> = ringbuf::LocalRb::default();
-    let bmc_prompt = bmc_vendor.bmc_prompt();
-    let (to_backend_msg_tx, mut to_backend_msg_rx) = mpsc::channel::<ChannelMsg>(1);
-    tokio::spawn({
-        async move {
-            let mut prior_escape_pending = false;
-            loop {
-                tokio::select! {
-                    res = backend_channel.wait() => match res {
-                        // Data coming from the BMC to the frontend
-                        Some(msg) => {
-                            if let ChannelMsg::Data { data, .. } = &msg {
-                                backend_ringbuf.push_iter_overwrite(data.iter().copied());
-                                if let Some(bmc_prompt) = bmc_prompt {
-                                    if ringbuf_contains(&backend_ringbuf, bmc_prompt) {
-                                        let mut ringbuf_str = String::new();
-                                        backend_ringbuf.read_to_string(&mut ringbuf_str).ok();
-                                        tracing::warn!(%machine_id, "backend dropped to BMC, exiting. output: {ringbuf_str:?}");
-                                        break;
-                                    }
+        trigger_and_await_sol_console(machine_id, &mut backend_channel, bmc_vendor)
+            .await
+            .context("error activating serial console")?;
+
+        let mut backend_ringbuf: LocalRb<Array<u8, 1024>> = ringbuf::LocalRb::default();
+        let bmc_prompt = bmc_vendor.bmc_prompt();
+        let mut prior_escape_pending = false;
+        ready_tx.take().map(|ch| ch.send(()));
+
+        loop {
+            tokio::select! {
+                _ = &mut shutdown_rx => {
+                    tracing::info!(%machine_id, "backend connection shutting down");
+                    break;
+                }
+                res = backend_channel.wait() => match res {
+                    // Data coming from the BMC to the frontend
+                    Some(msg) => {
+                        if let ChannelMsg::Data { data, .. } = &msg {
+                            backend_ringbuf.push_iter_overwrite(data.iter().copied());
+                            if let Some(bmc_prompt) = bmc_prompt {
+                                if ringbuf_contains(&backend_ringbuf, bmc_prompt) {
+                                    let mut ringbuf_str = String::new();
+                                    backend_ringbuf.read_to_string(&mut ringbuf_str).ok();
+                                    tracing::warn!(%machine_id, "backend dropped to BMC, exiting. output: {ringbuf_str:?}");
+                                    break;
                                 }
                             }
-                            to_frontend_tx.send(Arc::new(msg)).context("error sending message from ssh backend to frontend")?;
                         }
-                        None => {
-                            tracing::debug!(%machine_id, "backend channel closed, closing connection");
-                            break;
-                        }
-                    },
-                    res = to_backend_msg_rx.recv() => match res {
-                        Some(msg) => {
-                            let msg = match msg {
-                                ChannelMsg::Data { data } => {
-                                    let (data, escape_pending) = bmc_vendor.filter_escape_sequences(data.as_ref(), prior_escape_pending);
-                                    prior_escape_pending = escape_pending;
-                                    ChannelMsg::Data { data: data.as_ref().into() }
-                                }
-                                ChannelMsg::ExtendedData { data, ext } => {
-                                    let (data, escape_pending) = bmc_vendor.filter_escape_sequences(data.as_ref(), prior_escape_pending);
-                                    prior_escape_pending = escape_pending;
-                                    ChannelMsg::ExtendedData { data: data.as_ref().into(), ext }
-                                }
-                                msg => msg,
-                            };
-                            proxy_channel_message(&msg, &backend_channel)
-                                .await
-                                .context("error sending message to backend")?;
-                        }
-                        None => {
-                            tracing::debug!(%machine_id, "frontend channel closed, closing connection");
-                            break;
-                        }
-                    },
-                }
-            }
+                        to_frontend_tx.send(Arc::new(msg)).context("error sending message from ssh backend to frontend")?;
+                    }
+                    None => {
+                        tracing::debug!(%machine_id, "backend channel closed, closing connection");
+                        break;
+                    }
+                },
 
-            Ok::<(), eyre::Error>(())
+                res = to_backend_msg_rx.recv() => match res {
+                    Some(msg) => {
+                        let msg = match msg {
+                            ChannelMsg::Data { data } => {
+                                let (data, escape_pending) = bmc_vendor.filter_escape_sequences(data.as_ref(), prior_escape_pending);
+                                prior_escape_pending = escape_pending;
+                                ChannelMsg::Data { data: data.as_ref().into() }
+                            }
+                            ChannelMsg::ExtendedData { data, ext } => {
+                                let (data, escape_pending) = bmc_vendor.filter_escape_sequences(data.as_ref(), prior_escape_pending);
+                                prior_escape_pending = escape_pending;
+                                ChannelMsg::ExtendedData { data: data.as_ref().into(), ext }
+                            }
+                            msg => msg,
+                        };
+                        proxy_channel_message(&msg, &backend_channel)
+                            .await
+                            .context("error sending message to backend")?;
+                    }
+                    None => {
+                        tracing::debug!(%machine_id, "frontend channel closed, closing connection");
+                        break;
+                    }
+                },
+            }
         }
+        Ok(())
     });
 
-    Ok(to_backend_msg_tx)
+    Ok(BackendConnectionHandle {
+        to_backend_msg_tx,
+        shutdown_tx,
+        join_handle,
+        ready_rx: Some(ready_rx),
+    })
 }
 
 /// Builds and authenticates an SSH client to a machine, using credentials from carbide-api or
@@ -365,6 +393,8 @@ fn russh_client_config() -> Arc<russh::client::Config> {
         // Some BMC's use a Diffie-Hellman group size of 2048, which is not allowed by default.
         gex: GexParams::new(2048, 8192, 8192)
             .expect("BUG: static DH group parameters must be valid"),
+        keepalive_interval: Some(Duration::from_secs(60)),
+        keepalive_max: 2,
         ..Default::default()
     };
     Arc::new(russh_config)

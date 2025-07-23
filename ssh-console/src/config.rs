@@ -75,6 +75,12 @@ pub struct Config {
     pub console_logging_enabled: bool,
     #[serde(default)]
     pub override_bmc_ssh_host: Option<String>,
+    #[serde(
+        default = "Defaults::successful_connection_minimum_duration",
+        serialize_with = "serialize_duration",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub successful_connection_minimum_duration: Duration,
 }
 
 impl Config {
@@ -124,8 +130,11 @@ impl Config {
             console_logs_path,
             console_logging_enabled,
             override_bmc_ssh_host: _,
+            successful_connection_minimum_duration,
         } = self;
         let api_poll_interval = format!("{}s", api_poll_interval.as_secs());
+        let successful_connection_minimum_duration =
+            format!("{}s", successful_connection_minimum_duration.as_secs());
         let openssh_certificate_ca_fingerprints = openssh_certificate_ca_fingerprints
             .into_iter()
             .map(|f| f.to_string())
@@ -199,6 +208,11 @@ console_logs_path = {console_logs_path:?}
 ## a single SSH server to mock all BMC SSH connections.
 # override_bmc_ssh_host = <hostname>
 
+## How long should a connection to a backend be up before it's considered a successful connection,
+## and the exponential backoff timer is reset to zero. (This can be set to zero for integration
+## tests where we intentionally test failure scenarios and want to quickly retry.)
+successful_connection_minimum_duration = {successful_connection_minimum_duration:?}
+
 ## Optional: For development mode, you can hardcode a list of BMC's to talk to.
 # [[bmcs]]
 # # machine_id: the machine ID this BMC overrides
@@ -261,6 +275,8 @@ impl Default for Config {
             api_poll_interval: Defaults::api_poll_interval(),
             console_logs_path: Defaults::console_logs_path(),
             console_logging_enabled: Defaults::console_logging_enabled(),
+            successful_connection_minimum_duration:
+                Defaults::successful_connection_minimum_duration(),
             dpus: Defaults::dpus(),
             override_bmc_ssh_port: None,
             override_ipmi_port: None,
@@ -330,6 +346,10 @@ impl Defaults {
 
     pub fn console_logging_enabled() -> bool {
         true
+    }
+
+    pub fn successful_connection_minimum_duration() -> Duration {
+        Duration::from_secs(60)
     }
 }
 

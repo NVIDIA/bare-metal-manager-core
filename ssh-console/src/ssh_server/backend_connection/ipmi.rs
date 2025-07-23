@@ -1,7 +1,19 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
 use crate::bmc_vendor::IPMITOOL_ESCAPE_SEQUENCE;
 use crate::config::Config;
 use crate::io_util::{self, set_controlling_terminal_on_exec, write_data_to_async_fd};
-use crate::ssh_server::backend::IpmiConnectionDetails;
+use crate::ssh_server::backend_connection::{BackendConnectionHandle, IpmiConnectionDetails};
 use eyre::Context;
 use forge_uuid::machine::MachineId;
 use nix::errno::Errno;
@@ -11,7 +23,7 @@ use russh::ChannelMsg;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::Arc;
 use tokio::io::unix::AsyncFd;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 /// Spawn ipmitool in the background to connect to the given BMC specified by `connection_details`,
 /// and proxy data between it and the SSH frontend.
@@ -23,11 +35,15 @@ use tokio::sync::{broadcast, mpsc};
 /// `to_frontend_tx` is a [`russh::Channel`] to send data from ipmitool to the SSH frontend.
 ///
 /// Returns a [`mpsc::Sender<ChannelMsg>`] that the frontend can use to send data to ipmitool.
-pub async fn spawn(
+pub fn spawn(
     connection_details: &IpmiConnectionDetails,
     to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
     config: &Config,
-) -> eyre::Result<mpsc::Sender<ChannelMsg>> {
+) -> eyre::Result<BackendConnectionHandle> {
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let (ready_tx, ready_rx) = oneshot::channel::<()>();
+    let ready_tx = Some(ready_tx); // only send it once
+
     let machine_id = connection_details.machine_id;
     // Open a PTY to control ipmitool
     let OpenptyResult {
@@ -82,11 +98,19 @@ pub async fn spawn(
 
     // Send messages to/from ipmitool in the background. We have to print our own errors here,
     // because nothing is polling the exit status.
-    tokio::spawn(async move {
-        match ipmitool_process_loop(machine_id, pty_master, from_frontend_rx, &to_frontend_tx).await
-        {
-            Ok(()) => tracing::debug!(%machine_id, "ipmitool task finished successfully"),
-            Err(e) => tracing::error!(%machine_id, "ipmitool task error: {e:?}"),
+    let join_handle = tokio::spawn(async move {
+        let mut result = Ok(());
+        tokio::select! {
+            _ = shutdown_rx => {
+                tracing::debug!(%machine_id, "ipmitool backend shutting down");
+                process.start_kill().context("error killing ipmitool")?;
+            }
+            res = ipmitool_process_loop(machine_id, pty_master, from_frontend_rx, to_frontend_tx, ready_tx) => match res {
+                Ok(()) => tracing::debug!(%machine_id, "ipmitool task finished successfully"),
+                Err(error) => {
+                    result = Err(error);
+                }
+            }
         }
         match process.try_wait() {
             Ok(Some(exit_status)) if exit_status.success() => {}
@@ -96,14 +120,20 @@ pub async fn spawn(
             Ok(None) => {
                 process.kill().await.ok();
             }
-            Err(e) => {
-                tracing::error!(%machine_id, "error checking ipmitool exit status: {e:?}");
+            Err(error) => {
+                tracing::warn!(%machine_id, ?error, "error checking ipmitool exit status");
                 process.kill().await.ok();
             }
         }
+        result
     });
 
-    Ok(from_frontend_tx)
+    Ok(BackendConnectionHandle {
+        to_backend_msg_tx: from_frontend_tx,
+        shutdown_tx,
+        join_handle,
+        ready_rx: Some(ready_rx),
+    })
 }
 
 /// Poll from the SSH frontend and the ipmitool PTY in the foreground, pumping messages between
@@ -116,7 +146,8 @@ async fn ipmitool_process_loop(
     machine_id: MachineId,
     pty_master: AsyncFd<OwnedFd>,
     mut from_frontend_rx: mpsc::Receiver<ChannelMsg>,
-    to_frontend_tx: &broadcast::Sender<Arc<ChannelMsg>>,
+    to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
+    mut ready_tx: Option<oneshot::Sender<()>>,
 ) -> eyre::Result<()> {
     // Keep track of whether the last byte sent from the client was the first byte of an escape sequence.
     let mut escape_was_pending = false;
@@ -134,6 +165,8 @@ async fn ipmitool_process_loop(
                             tracing::debug!(%machine_id, "eof from pty fd");
                             break;
                         }
+                        // We've gotten at least one byte, we're now ready (ipmitool always outputs a message when connected.)
+                        ready_tx.take().map(|ch| ch.send(()));
                         to_frontend_tx.send(Arc::new(ChannelMsg::Data { data: stdout_buf[0..n].to_vec().into() }))
                             .context("error writing data from ipmitool to frontend channel")?;
                         // Note, we're not clearing the ready state, so the fd will stay readable.

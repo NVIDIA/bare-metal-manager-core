@@ -157,9 +157,6 @@ pub async fn assert_connection_works(
                         assertion_timeout = Instant::now().add(Duration::from_secs(3));
                     }
                     ConnectionTestState::TryingBackdoorEscape => {
-                        // legacy ssh-console will reconnect automatically, so we'll timeout here.
-                        // (as opposed to the new ssh-console which disconnects immediately when the
-                        // bmc-prompt is found.)
                         tracing::info!("Test finished without seeing a bmc_prompt while using backdoor escape, success");
                         break;
                     }
