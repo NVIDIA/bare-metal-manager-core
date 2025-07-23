@@ -1349,17 +1349,27 @@ scheduled-test:machine-lifecycle-test:
     - export GITLAB_API_TOKEN="$(vault kv get -field scheduled_pipeline_bot_token secrets/forge/tokens)"
     - source env.sh
     - |
-      SNIPPET_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/snippets/7706"
-      curl -s --request GET --header "PRIVATE-TOKEN: ${GITLAB_API_TOKEN}" --output orig_list.txt \
-        "${SNIPPET_URL}/raw"
-
       if [[ ${CI_JOB_STATUS} == 'success' ]]; then
-        echo "Test passed for build ${CARBIDE_VERSION} with ${DPU_COUNT} DPU(s). Adding result to snippet list..."
+        echo "Test passed for build ${CARBIDE_VERSION} on ${SHORT_SITE_NAME}. Adding result to snippet list..."
+        SNIPPET_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/snippets/7706"
+        # Get initial snippet list
+        curl -s --request GET --header "PRIVATE-TOKEN: ${GITLAB_API_TOKEN}" --output orig_list.txt \
+        "${SNIPPET_URL}/raw"
+        # Add new entry to list
         new_list=$(echo "${CARBIDE_VERSION} ${SHORT_SITE_NAME} (pipeline ${CI_PIPELINE_ID}) DPU_COUNT=${DPU_COUNT} FACTORY_RESET=${FACTORY_RESET} FW_DOWNGRADE=${FW_DOWNGRADE} FW_DOWNGRADE_VERSION=${FW_DOWNGRADE_VERSION} SKIP_POSTINGESTION_CHECKS=${SKIP_POSTINGESTION_CHECKS} - PASS" \
           | cat - orig_list.txt | sed ':a;N;$!ba;s/\n/\\n/g')
+        # Upload the updated snippet
         curl -s --request PUT --header "PRIVATE-TOKEN: ${GITLAB_API_TOKEN}" --header 'Content-Type: application/json' \
           --data "{\"files\": [{ \"action\":\"update\", \"file_path\":\"test_results\", \"content\":\"$new_list\" }]}" \
           "${SNIPPET_URL}"
+      else 
+        echo "Test failed for build ${CARBIDE_VERSION} on ${SHORT_SITE_NAME}."
+        if [[ -n "${PIPELINE_SCHEDULE_ID:-}" ]]; then
+          # NOTE: $PIPELINE_SCHEDULE_ID is not provided by Gitlab :( it must be manually added to the pipeline schedule
+          echo "Disabling scheduled pipeline..."
+          curl -s --request PUT --header "PRIVATE-TOKEN: ${GITLAB_API_TOKEN}" --form active=false \
+          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/pipeline_schedules/${PIPELINE_SCHEDULE_ID}"
+        fi
       fi
   artifacts:
     when: always
