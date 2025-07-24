@@ -16,7 +16,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 
-pub use self::iface::{Filter, IBFabric, IBFabricConfig, IBFabricManager, IBFabricVersions};
+#[cfg(test)]
+pub use self::iface::Filter;
+pub use self::iface::{IBFabric, IBFabricConfig, IBFabricManager, IBFabricVersions};
 pub use self::types::{IBMtu, IBRateLimit, IBServiceLevel};
 
 use crate::CarbideError;

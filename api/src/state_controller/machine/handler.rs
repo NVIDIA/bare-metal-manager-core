@@ -57,7 +57,6 @@ use crate::{
         machine_topology::MachineTopology, network_segment::NetworkSegment, vpc::VpcDpuLoopback,
     },
     firmware_downloader::FirmwareDownloader,
-    ib::IBFabricManagerType,
     model::{
         instance::config::network::NetworkDetails,
         machine::{
@@ -420,41 +419,6 @@ impl MachineStateHandler {
         .await?;
 
         Ok(())
-    }
-
-    async fn record_infiniband_status(
-        &self,
-        mh_snapshot: &mut ManagedHostStateSnapshot,
-        txn: &mut PgConnection,
-        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-    ) {
-        if ctx.services.ib_fabric_manager.get_config().manager_type == IBFabricManagerType::Disable
-        {
-            // Skip status update in case IB Manager is disabled
-            return;
-        }
-
-        if mh_snapshot.host_snapshot.hardware_info.is_some() {
-            match mh_snapshot.managed_state {
-                ManagedHostState::HostInit {
-                    machine_state: MachineState::Discovered { .. },
-                }
-                | ManagedHostState::BomValidating { .. }
-                | ManagedHostState::Ready { .. }
-                | ManagedHostState::Assigned { .. } => {
-                    if let Err(e) = ib::record_machine_infiniband_status_observation(
-                        ctx.services,
-                        txn,
-                        mh_snapshot,
-                    )
-                    .await
-                    {
-                        tracing::error!("Failure on updating machine infiniband status: {e}");
-                    }
-                }
-                _ => {}
-            };
-        };
     }
 
     async fn attempt_state_transition(
@@ -1828,7 +1792,6 @@ impl StateHandler for MachineStateHandler {
         }
         self.record_metrics(mh_snapshot, ctx);
         self.record_health_history(mh_snapshot, txn).await?;
-        self.record_infiniband_status(mh_snapshot, txn, ctx).await;
         self.attempt_state_transition(host_machine_id, mh_snapshot, txn, ctx)
             .await
     }

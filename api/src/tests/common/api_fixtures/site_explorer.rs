@@ -579,6 +579,7 @@ impl<'a> MockExploredHost<'a> {
         txn.commit().await.unwrap();
 
         discovery_completed(self.test_env, host_machine_id.into()).await;
+        self.test_env.run_ib_fabric_monitor_iteration().await;
         host_uefi_setup(self.test_env, &host_machine_id, host_machine_id.into()).await;
 
         let mut txn = self.test_env.pool.begin().await.unwrap();
@@ -795,6 +796,7 @@ impl<'a> MockExploredHost<'a> {
         txn.commit().await.unwrap();
 
         discovery_completed(self.test_env, host_machine_id.into()).await;
+        self.test_env.run_ib_fabric_monitor_iteration().await;
         host_uefi_setup(self.test_env, &host_machine_id, host_machine_id.into()).await;
 
         let mut txn = self.test_env.pool.begin().await.unwrap();

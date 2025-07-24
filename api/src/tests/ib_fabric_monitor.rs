@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::ib_fabric_monitor::IbFabricMonitor;
 
 use crate::cfg::file::IBFabricConfig;
 use crate::tests::common;
@@ -29,20 +28,18 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     )
     .await;
 
-    let monitor = IbFabricMonitor::new(
-        env.pool.clone(),
-        env.config.ib_fabrics.clone(),
-        env.test_meter.meter(),
-        env.ib_fabric_manager.clone(),
-        env.config.clone(),
-    );
-
-    monitor.run_single_iteration().await.unwrap();
+    env.run_ib_fabric_monitor_iteration().await;
     assert_eq!(
         env.test_meter
             .formatted_metric("forge_ib_monitor_fabrics_count")
             .unwrap(),
         "1"
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machine_ib_status_updates_count")
+            .unwrap(),
+        "0"
     );
     assert_eq!(
         env.test_meter

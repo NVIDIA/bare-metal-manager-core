@@ -10,15 +10,25 @@
  * its affiliates is strictly prohibited.
  */
 
-use sqlx::PgPool;
+use chrono::Utc;
+use forge_uuid::machine::MachineId;
+use sqlx::{PgConnection, PgPool};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::oneshot;
 use tracing::Instrument;
 
 use crate::{
     CarbideError, CarbideResult,
-    cfg::file::{CarbideConfig, IbFabricDefinition},
-    ib::{IBFabricManager, IBFabricManagerType},
+    cfg::file::{CarbideConfig, HostHealthConfig, IbFabricDefinition},
+    db::{self, DatabaseError, machine::MachineSearchConfig, managed_host::LoadSnapshotOptions},
+    ib::{
+        IBFabricManager, IBFabricManagerType,
+        types::{IBPort, IBPortState},
+    },
+    model::machine::{
+        ManagedHostStateSnapshot,
+        infiniband::{MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation},
+    },
 };
 
 mod metrics;
@@ -28,12 +38,14 @@ use self::metrics::FabricMetrics;
 
 /// `IbFabricMonitor` monitors the health of all connected InfiniBand fabrics in periodic intervals
 pub struct IbFabricMonitor {
-    database_connection: PgPool,
+    db_pool: PgPool,
 
     fabrics: HashMap<String, IbFabricDefinition>,
     metric_holder: Arc<metrics::MetricHolder>,
     /// API for interaction with Forge IBFabricManager
     fabric_manager: Arc<dyn IBFabricManager>,
+
+    host_health: HostHealthConfig,
 }
 
 impl IbFabricMonitor {
@@ -42,7 +54,7 @@ impl IbFabricMonitor {
 
     /// Create a IbFabricMonitor
     pub fn new(
-        database_connection: PgPool,
+        db_pool: PgPool,
         fabrics: HashMap<String, IbFabricDefinition>,
         meter: opentelemetry::metrics::Meter,
         fabric_manager: Arc<dyn IBFabricManager>,
@@ -58,13 +70,12 @@ impl IbFabricMonitor {
 
         let metric_holder = Arc::new(metrics::MetricHolder::new(meter, hold_period));
 
-        let _ = config; // Will be used later
-
         IbFabricMonitor {
-            database_connection,
+            db_pool,
             fabrics,
             metric_holder,
             fabric_manager,
+            host_health: config.host_health,
         }
     }
 
@@ -103,7 +114,7 @@ impl IbFabricMonitor {
         let mut metrics = IbFabricMonitorMetrics::new();
 
         let mut txn =
-            self.database_connection.begin().await.map_err(|e| {
+            self.db_pool.begin().await.map_err(|e| {
                 CarbideError::internal(format!("Failed to create transaction: {e}"))
             })?;
 
@@ -172,7 +183,32 @@ impl IbFabricMonitor {
             return Ok(());
         }
 
+        let mut conn = self.db_pool.acquire().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "acquire connection",
+                e,
+            ))
+        })?;
+        let snapshots = match self.get_all_snapshots(&mut conn).await {
+            Ok(snapshots) => snapshots,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to load ManagedHost snapshots in IbFabricMonitor");
+                // Record the same error for all fabrics, so that the problem is at least visible on dashboards
+                for (fabric, _fabric_definition) in self.fabrics.iter() {
+                    metrics.num_fabrics += 1;
+                    let fabric_metrics = metrics.fabrics.entry(fabric.to_string()).or_default();
+                    fabric_metrics.fabric_error = "ManagedHostSnapshotLoadingError".to_string();
+                }
+                return Err(e);
+            }
+        };
+
+        let mut fabric_data: HashMap<String, FabricData> = HashMap::new();
         for (fabric, fabric_definition) in self.fabrics.iter() {
+            let fabric_data = fabric_data.entry(fabric.to_string()).or_default();
+
             metrics.num_fabrics += 1;
             let fabric_metrics = metrics.fabrics.entry(fabric.to_string()).or_default();
             if let Err(e) = check_ib_fabric(
@@ -188,10 +224,69 @@ impl IbFabricMonitor {
                 // We need to have better defined errors from the UFM APIs, so we can convert
                 // those into a smaller set of labels
                 fabric_metrics.fabric_error = e.to_string();
+                // There's no point in loading other information case the fabric is down
+                continue;
+            }
+
+            match get_ports_information(self.fabric_manager.as_ref(), fabric, fabric_metrics).await
+            {
+                Ok(ports) => {
+                    fabric_data.ports_by_guid = Some(ports);
+                }
+                Err(e) => {
+                    tracing::error!(fabric, endpoints = fabric_definition.endpoints.join(","), error = %e, "Loading port information failed");
+                    // TODO: This isn't efficient because we will get a lot of different dimensions
+                    // We need to have better defined errors from the UFM APIs, so we can convert
+                    // those into a smaller set of labels
+                    fabric_metrics.fabric_error = e.to_string();
+                    // There's no point in loading other information case the fabric is down
+                    continue;
+                }
+            }
+        }
+
+        for (machine, mut snapshot) in snapshots {
+            match record_machine_infiniband_status_observation(
+                &self.db_pool,
+                &mut snapshot,
+                &fabric_data,
+                metrics,
+            )
+            .await
+            {
+                Ok(()) => {}
+                Err(e) => {
+                    tracing::error!(error = %e, machine_id = %machine, "Failed to update IB Status observation");
+                }
             }
         }
 
         Ok(())
+    }
+
+    async fn get_all_snapshots(
+        &self,
+        txn: &mut PgConnection,
+    ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
+        let machine_ids = crate::db::machine::find_machine_ids(
+            txn,
+            MachineSearchConfig {
+                include_predicted_host: true,
+                ..Default::default()
+            },
+        )
+        .await?;
+        crate::db::managed_host::load_by_machine_ids(
+            txn,
+            &machine_ids,
+            LoadSnapshotOptions {
+                include_history: false,
+                include_instance_data: true,
+                host_health_config: self.host_health,
+            },
+        )
+        .await
+        .map_err(CarbideError::from)
     }
 }
 
@@ -208,7 +303,6 @@ async fn check_ib_fabric(
         .allow_insecure_fabric_configuration;
 
     let conn = fabric_manager.connect(fabric).await?;
-
     let version = conn.versions().await?;
     metrics.ufm_version = version.ufm_version;
 
@@ -222,17 +316,6 @@ async fn check_ib_fabric(
     let networks = conn.get_ib_networks().await?;
     metrics.num_partitions = Some(networks.len());
 
-    let ports = conn.find_ib_port(None).await?;
-    let mut ports_by_state = HashMap::new();
-    for port in ports.iter() {
-        let state = match port.state.as_ref() {
-            Some(state) => format!("{:?}", state),
-            None => "unknown".to_string(),
-        };
-        *ports_by_state.entry(state).or_default() += 1;
-    }
-    metrics.ports_by_state = Some(ports_by_state);
-
     // Check if any of the expected security settings is not configured
     // TODO: We are not checking whether the default partition is in restricted mode
     metrics.insecure_fabric_configuration = false;
@@ -242,6 +325,134 @@ async fn check_ib_fabric(
         || !metrics.m_key_per_port
     {
         metrics.insecure_fabric_configuration = true;
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Default)]
+struct FabricData {
+    ports_by_guid: Option<HashMap<String, IBPort>>,
+}
+
+/// Return port information within a single IB fabric
+async fn get_ports_information(
+    fabric_manager: &dyn IBFabricManager,
+    fabric: &str,
+    metrics: &mut FabricMetrics,
+) -> Result<HashMap<String, IBPort>, CarbideError> {
+    let conn = fabric_manager.connect(fabric).await?;
+
+    let ports = conn.find_ib_port(None).await?;
+    let mut ports_by_state = HashMap::new();
+    let mut ports_by_guid = HashMap::new();
+    for port in ports.into_iter() {
+        let state = match port.state.as_ref() {
+            Some(state) => format!("{:?}", state),
+            None => "unknown".to_string(),
+        };
+        *ports_by_state.entry(state).or_default() += 1;
+        ports_by_guid.insert(port.guid.clone(), port);
+    }
+    metrics.ports_by_state = Some(ports_by_state);
+
+    Ok(ports_by_guid)
+}
+
+async fn record_machine_infiniband_status_observation(
+    db_pool: &PgPool,
+    mh_snapshot: &mut ManagedHostStateSnapshot,
+    data_by_fabric: &HashMap<String, FabricData>,
+    metrics: &mut IbFabricMonitorMetrics,
+) -> Result<(), CarbideError> {
+    if mh_snapshot.host_snapshot.hardware_info.is_none() {
+        // Skip status update while hardware info is not available
+        return Ok(());
+    }
+
+    let machine_id = &mh_snapshot.host_snapshot.id;
+    let ib_hw_info = &mh_snapshot
+        .host_snapshot
+        .hardware_info
+        .as_ref()
+        .unwrap()
+        .infiniband_interfaces;
+
+    // Form list of requested guids
+    let mut guids: Vec<String> = Vec::new();
+    for ib_interface in ib_hw_info.iter() {
+        guids.push(ib_interface.guid.clone());
+    }
+
+    let mut prev = mh_snapshot
+        .host_snapshot
+        .infiniband_status_observation
+        .clone()
+        .unwrap_or_default();
+
+    let mut ib_interfaces_status: Vec<MachineIbInterfaceStatusObservation> =
+        Vec::with_capacity(guids.len());
+
+    for guid in guids.iter() {
+        // Search for the GUID in all fabrics. Record the fabric where we found it, plus the actual data
+        // Note: This only works since GUIDs are globally unique
+        let mut found_port_data = None;
+        for (fabric, fabric_data) in data_by_fabric.iter() {
+            if let Some(port_data) = fabric_data
+                .ports_by_guid
+                .as_ref()
+                .and_then(|ports_by_guid| ports_by_guid.get(guid))
+            {
+                found_port_data = Some((fabric, port_data));
+                break;
+            }
+        }
+
+        let lid = match found_port_data {
+            Some((_fabric, port_data)) => {
+                if port_data.state == Some(IBPortState::Active) {
+                    port_data.lid as u16
+                } else {
+                    0xffff_u16
+                }
+            }
+            None => {
+                // TODO: We should differentiate between "Can not communicate with fabric"
+                // and "UFM definitely did not know about this GUID".
+                0xffff_u16
+            }
+        };
+
+        ib_interfaces_status.push(MachineIbInterfaceStatusObservation {
+            guid: guid.clone(),
+            lid,
+        })
+    }
+
+    let cur = MachineInfinibandStatusObservation {
+        observed_at: Utc::now(),
+        ib_interfaces: ib_interfaces_status,
+    };
+
+    // This allows to update a record ony in case of any changes.
+    prev.observed_at = cur.observed_at;
+
+    // Update Machine infiniband status in case any changes only
+    // Vector of statuses is based on guids vector that is formed
+    // from hardware_info.infiniband_interfaces[]
+    // So it guarantees stable order between function calls
+    if prev != cur {
+        let mut conn = db_pool.acquire().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "acquire connection",
+                e,
+            ))
+        })?;
+        db::machine::update_infiniband_status_observation(&mut conn, machine_id, &cur).await?;
+        metrics.num_machine_ib_status_updates += 1;
+        mh_snapshot.host_snapshot.infiniband_status_observation = Some(cur);
     }
 
     Ok(())
