@@ -106,7 +106,7 @@ async fn initial_setup(config: &Options) -> Result<String, eyre::Report> {
     .custom_backoff(|_attempt, error: &CarbideClientError| {
         // we only want to retry if attestation has failed. In all other cases
         // just preserve the old behaviour by breaking from the retry loop
-        tracing::info!("Failed to register machine with error {}", error);
+        tracing::error!("Failed to register machine with error {}", error);
         if !error.to_string().contains("Attestation failed") {
             tracing::info!("Not retrying registration as it is not an attestation error");
             RetryPolicy::Break
