@@ -17,6 +17,7 @@ use forge_ssh::ssh::{
     DEFAULT_SSH_SESSION_TIMEOUT, DEFAULT_TCP_CONNECTION_TIMEOUT, DEFAULT_TCP_READ_TIMEOUT,
     DEFAULT_TCP_WRITE_TIMEOUT, SshConfig,
 };
+use libredfish::RoleId;
 use mac_address::MacAddress;
 use rpc::forge::BmcCredentialStatusResponse;
 use tokio::net::lookup_host;
@@ -257,6 +258,46 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
 
     api.endpoint_explorer
         .copy_bfb_to_dpu_rshim(bmc_addr, &machine_interface, ssh_timeout_config)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    Ok(Response::new(()))
+}
+
+pub(crate) async fn create_bmc_user(
+    api: &Api,
+    request: &::rpc::forge::BmcEndpointRequest,
+    create_username: &str,
+    create_password: &str,
+    create_role_id: RoleId,
+) -> Result<Response<()>, tonic::Status> {
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    api.endpoint_explorer
+        .create_bmc_user(
+            bmc_addr,
+            &machine_interface,
+            create_username,
+            create_password,
+            create_role_id,
+        )
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    Ok(Response::new(()))
+}
+
+pub(crate) async fn delete_bmc_user(
+    api: &Api,
+    request: &::rpc::forge::BmcEndpointRequest,
+    delete_user: &str,
+) -> Result<Response<()>, tonic::Status> {
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    api.endpoint_explorer
+        .delete_bmc_user(bmc_addr, &machine_interface, delete_user)
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 

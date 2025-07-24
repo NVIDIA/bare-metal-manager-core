@@ -3,6 +3,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_build::configure()
         .build_server(true)
         .build_client(false) // we're using ForgeApiClient from rpc crate
+        .protoc_arg("--experimental_allow_proto3_optional")
         .out_dir("src/generated")
         .compile_protos(
             &[

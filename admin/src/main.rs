@@ -919,6 +919,28 @@ async fn main() -> color_eyre::Result<()> {
                     .admin_power_control(None, Some(args.machine), args.action.into())
                     .await?;
             }
+            BmcAction::CreateBmcUser(args) => {
+                api_client
+                    .create_bmc_user(
+                        args.ip_address,
+                        args.mac_address,
+                        args.machine,
+                        args.username,
+                        args.password,
+                        args.role_id,
+                    )
+                    .await?;
+            }
+            BmcAction::DeleteBmcUser(args) => {
+                api_client
+                    .delete_bmc_user(
+                        args.ip_address,
+                        args.mac_address,
+                        args.machine,
+                        args.username,
+                    )
+                    .await?;
+            }
         },
         CliCommand::Inventory(action) => {
             inventory::print_inventory(&api_client, action, config.internal_page_size).await?

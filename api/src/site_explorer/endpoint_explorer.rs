@@ -13,6 +13,7 @@
 use forge_ssh::ssh::SshConfig;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 
+use super::metrics::SiteExplorationMetrics;
 use crate::{
     db::expected_machine::ExpectedMachine,
     model::{
@@ -20,9 +21,8 @@ use crate::{
         site_explorer::{EndpointExplorationError, EndpointExplorationReport},
     },
 };
+use libredfish::RoleId;
 use std::net::SocketAddr;
-
-use super::metrics::SiteExplorationMetrics;
 
 /// This trait defines how the `SiteExplorer` will query information about endpoints
 #[async_trait::async_trait]
@@ -112,5 +112,21 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
         ssh_config: Option<SshConfig>,
+    ) -> Result<(), EndpointExplorationError>;
+
+    async fn create_bmc_user(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        username: &str,
+        password: &str,
+        role_id: RoleId,
+    ) -> Result<(), EndpointExplorationError>;
+
+    async fn delete_bmc_user(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        username: &str,
     ) -> Result<(), EndpointExplorationError>;
 }

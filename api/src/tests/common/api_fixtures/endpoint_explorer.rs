@@ -14,6 +14,7 @@ use crate::{
 };
 
 use forge_ssh::ssh::SshConfig;
+use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 
 /// EndpointExplorer which returns predefined data
@@ -161,6 +162,26 @@ impl EndpointExplorer for MockEndpointExplorer {
         _bmc_ip_address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
         _ssh_config: Option<SshConfig>,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn create_bmc_user(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        _username: &str,
+        _password: &str,
+        _role_id: RoleId,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn delete_bmc_user(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        _username: &str,
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
     }

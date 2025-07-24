@@ -2087,4 +2087,62 @@ impl ApiClient {
 
         Ok(power_options)
     }
+
+    pub async fn create_bmc_user(
+        &self,
+        ip_address: Option<String>,
+        mac_address: Option<MacAddress>,
+        machine_id: Option<String>,
+        create_username: String,
+        create_password: String,
+        create_role_id: Option<String>,
+    ) -> CarbideCliResult<rpc::CreateBmcUserResponse> {
+        let bmc_endpoint_request = if ip_address.is_some() || mac_address.is_some() {
+            Some(rpc::BmcEndpointRequest {
+                ip_address: ip_address.unwrap_or_default().to_string(),
+                mac_address: mac_address.map(|mac| mac.to_string()),
+            })
+        } else {
+            None
+        };
+
+        let request = rpc::CreateBmcUserRequest {
+            bmc_endpoint_request,
+            machine_id,
+            create_username,
+            create_password,
+            create_role_id,
+        };
+        self.0
+            .create_bmc_user(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn delete_bmc_user(
+        &self,
+        ip_address: Option<String>,
+        mac_address: Option<MacAddress>,
+        machine_id: Option<String>,
+        delete_username: String,
+    ) -> CarbideCliResult<rpc::DeleteBmcUserResponse> {
+        let bmc_endpoint_request = if ip_address.is_some() || mac_address.is_some() {
+            Some(rpc::BmcEndpointRequest {
+                ip_address: ip_address.unwrap_or_default().to_string(),
+                mac_address: mac_address.map(|mac| mac.to_string()),
+            })
+        } else {
+            None
+        };
+
+        let request = rpc::DeleteBmcUserRequest {
+            bmc_endpoint_request,
+            machine_id,
+            delete_username,
+        };
+        self.0
+            .delete_bmc_user(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 }

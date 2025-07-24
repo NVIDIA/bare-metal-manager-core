@@ -472,6 +472,10 @@ service Forge {
   rpc ForgeSetup(ForgeSetupRequest) returns (ForgeSetupResponse);
   // Set DPU as first boot option
   rpc SetDpuFirstBootOrder(SetDpuFirstBootOrderRequest) returns (SetDpuFirstBootOrderResponse);
+  // Create BMC User
+  rpc CreateBmcUser(CreateBmcUserRequest) returns (CreateBmcUserResponse);
+  // Delete BMC User
+  rpc DeleteBmcUser(DeleteBmcUserRequest) returns (DeleteBmcUserResponse);
 
   // On demand Machine-Validation
   rpc OnDemandMachineValidation(MachineValidationOnDemandRequest) returns (MachineValidationOnDemandResponse);
@@ -4693,4 +4697,26 @@ message PowerOptions {
 
 message PowerOptionResponse {
   repeated PowerOptions response = 1;
+}
+
+// Must provide either machine_id or ip/mac pair
+message CreateBmcUserRequest {
+  optional BmcEndpointRequest bmc_endpoint_request = 1;
+  optional string machine_id = 2;
+  string create_username = 3;
+  string create_password = 4;
+  optional string create_role_id = 5;
+}
+
+message CreateBmcUserResponse {
+}
+
+
+message DeleteBmcUserRequest {
+  optional BmcEndpointRequest bmc_endpoint_request = 1;
+  optional string machine_id = 2;
+  string delete_username = 3;
+}
+
+message DeleteBmcUserResponse {
 }
