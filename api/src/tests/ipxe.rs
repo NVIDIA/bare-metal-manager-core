@@ -19,7 +19,7 @@ use std::collections::HashMap;
 
 async fn move_machine_to_needed_state(
     machine_id: MachineId,
-    state: ManagedHostState,
+    state: &ManagedHostState,
     pool: &sqlx::PgPool,
 ) {
     let mut txn = pool
@@ -60,7 +60,7 @@ async fn get_pxe_instructions(
 async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (_host_id, dpu_id) = common::api_fixtures::create_managed_host(&env).await;
-    move_machine_to_needed_state(dpu_id, ManagedHostState::Ready, &env.pool).await;
+    move_machine_to_needed_state(dpu_id, &ManagedHostState::Ready, &env.pool).await;
 
     let mut txn = env
         .pool
@@ -228,7 +228,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
     move_machine_to_needed_state(
         host_id,
-        ManagedHostState::HostInit {
+        &ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForDiscovery,
         },
         &env.pool,
@@ -245,7 +245,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
 
     move_machine_to_needed_state(
         host_id,
-        ManagedHostState::HostInit {
+        &ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
                 skip_reboot_wait: false,
             },
@@ -264,7 +264,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
 
     move_machine_to_needed_state(
         host_id,
-        ManagedHostState::WaitingForCleanup {
+        &ManagedHostState::WaitingForCleanup {
             cleanup_state: crate::model::machine::CleanupState::Init,
         },
         &env.pool,
@@ -368,7 +368,7 @@ async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
     let (_host_id, dpu_id) = common::api_fixtures::create_managed_host(&env).await;
     move_machine_to_needed_state(
         dpu_id,
-        ManagedHostState::DPUInit {
+        &ManagedHostState::DPUInit {
             dpu_states: crate::model::machine::DpuInitStates {
                 states: HashMap::from([(dpu_id, DpuInitState::Init)]),
             },

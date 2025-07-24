@@ -344,7 +344,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                                     &mut txn,
                                     &object_id,
                                     controller_state.version,
-                                    next.clone(),
+                                    next,
                                 )
                                 .await?;
                             }

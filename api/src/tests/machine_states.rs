@@ -794,7 +794,7 @@ async fn test_state_sla(pool: sqlx::PgPool) {
     db::machine::update_state(
         &mut txn,
         &host_machine_id,
-        ManagedHostState::Failed {
+        &ManagedHostState::Failed {
             details: FailureDetails {
                 cause: FailureCause::NoError,
                 failed_at: chrono::Utc::now(),

@@ -414,14 +414,14 @@ pub async fn find_existing_machine(
 pub async fn advance(
     machine: &Machine,
     txn: &mut PgConnection,
-    state: ManagedHostState,
+    state: &ManagedHostState,
     version: Option<ConfigVersion>,
 ) -> Result<bool, DatabaseError> {
     // Get current version
     let version = version.unwrap_or_else(|| machine.state.version.increment());
 
     // Store history of machine state changes.
-    db::machine_state_history::persist(txn, &machine.id, state.clone(), version).await?;
+    db::machine_state_history::persist(txn, &machine.id, state, version).await?;
 
     let _id: (String,) = sqlx::query_as(
             "UPDATE machines SET controller_state_version=$1, controller_state=$2 WHERE id=$3 RETURNING id",
@@ -1434,7 +1434,7 @@ pub async fn create(
             kind: "machine",
             id: stable_machine_id.to_string(),
         })?;
-    advance(&machine, txn, state, None).await?;
+    advance(&machine, txn, &state, None).await?;
 
     // Create a entry in power_options table as well.
     if !machine.is_dpu() {
@@ -1785,7 +1785,7 @@ pub async fn find_machine_ids(
 pub async fn update_state(
     txn: &mut PgConnection,
     host_id: &MachineId,
-    new_state: ManagedHostState,
+    new_state: &ManagedHostState,
 ) -> Result<(), DatabaseError> {
     let host = find_one(
         txn,
@@ -1807,13 +1807,13 @@ pub async fn update_state(
 
     let version = host.current_version().increment();
     tracing::info!(machine_id = %host.id, ?new_state, "Updating host state");
-    advance(&host, txn, new_state.clone(), Some(version)).await?;
+    advance(&host, txn, new_state, Some(version)).await?;
 
     // Keep both host and dpu's states in sync.
     let dpus = find_dpus_by_host_machine_id(txn, host_id).await?;
 
     for dpu in dpus {
-        advance(&dpu, txn, new_state.clone(), Some(version)).await?;
+        advance(&dpu, txn, new_state, Some(version)).await?;
     }
     Ok(())
 }

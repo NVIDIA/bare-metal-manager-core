@@ -567,7 +567,7 @@ impl MachineStateHandler {
                     }))
                 } else {
                     let mut state_handler_outcome = do_nothing!();
-                    for dpu_snapshot in &mh_snapshot.dpu_snapshots.clone() {
+                    for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                         state_handler_outcome = self
                             .dpu_handler
                             .handle_dpu_discovering_state(
@@ -2783,7 +2783,7 @@ impl DpuMachineStateHandler {
 impl DpuMachineStateHandler {
     async fn handle_dpu_discovering_state(
         &self,
-        state: &mut ManagedHostStateSnapshot,
+        state: &ManagedHostStateSnapshot,
         dpu_snapshot: &Machine,
         _controller_state: &ManagedHostState,
         txn: &mut PgConnection,
@@ -2933,7 +2933,7 @@ impl DpuMachineStateHandler {
 
     async fn handle_dpuinit_state(
         &self,
-        state: &mut ManagedHostStateSnapshot,
+        state: &ManagedHostStateSnapshot,
         dpu_snapshot: &Machine,
         txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
@@ -3211,7 +3211,7 @@ impl DpuMachineStateHandler {
     async fn set_secure_boot(
         &self,
         count: u32,
-        state: &mut ManagedHostStateSnapshot,
+        state: &ManagedHostStateSnapshot,
         set_secure_boot_state: SetSecureBootState,
         enable_secure_boot: bool,
         dpu_snapshot: &Machine,
@@ -3468,7 +3468,7 @@ impl StateHandler for DpuMachineStateHandler {
             };
             Ok(transition!(next_state))
         } else {
-            for dpu_snapshot in &state.dpu_snapshots.clone() {
+            for dpu_snapshot in &state.dpu_snapshots {
                 state_handler_outcome = self
                     .handle_dpuinit_state(state, dpu_snapshot, txn, ctx)
                     .await?;

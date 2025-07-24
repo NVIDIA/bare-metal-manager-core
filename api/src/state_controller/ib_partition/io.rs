@@ -102,10 +102,10 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         old_version: ConfigVersion,
-        new_state: Self::ControllerState,
+        new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
         let _updated =
-            IBPartition::try_update_controller_state(txn, *object_id, old_version, &new_state)
+            IBPartition::try_update_controller_state(txn, *object_id, old_version, new_state)
                 .await?;
         Ok(())
     }
