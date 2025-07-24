@@ -509,6 +509,45 @@ impl BmcEndpointExplorer {
             ),
         })
     }
+
+    async fn create_bmc_user(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+        new_username: &str,
+        new_password: &str,
+        role_id: libredfish::RoleId,
+    ) -> Result<(), EndpointExplorationError> {
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        self.redfish_client
+            .create_bmc_user(
+                bmc_ip_address,
+                username,
+                password,
+                new_username,
+                new_password,
+                role_id,
+            )
+            .await
+    }
+
+    async fn delete_bmc_user(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+        delete_username: &str,
+    ) -> Result<(), EndpointExplorationError> {
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        self.redfish_client
+            .delete_bmc_user(bmc_ip_address, username, password, delete_username)
+            .await
+    }
 }
 
 #[async_trait::async_trait]
@@ -780,6 +819,56 @@ impl EndpointExplorer for BmcEndpointExplorer {
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
                 self.copy_bfb_to_dpu_rshim(bmc_ip_address, credentials, ssh_config)
+                    .await
+            }
+            Err(e) => {
+                tracing::info!(
+                    %bmc_ip_address,
+                    "BMC endpoint explorer does not support set_nic_mode for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    bmc_mac_address,
+                );
+                Err(e)
+            }
+        }
+    }
+
+    async fn create_bmc_user(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        username: &str,
+        password: &str,
+        role_id: libredfish::RoleId,
+    ) -> Result<(), EndpointExplorationError> {
+        let bmc_mac_address = interface.mac_address;
+
+        match self.get_bmc_root_credentials(bmc_mac_address).await {
+            Ok(credentials) => {
+                self.create_bmc_user(bmc_ip_address, credentials, username, password, role_id)
+                    .await
+            }
+            Err(e) => {
+                tracing::info!(
+                    %bmc_ip_address,
+                    "BMC endpoint explorer does not support set_nic_mode for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    bmc_mac_address,
+                );
+                Err(e)
+            }
+        }
+    }
+
+    async fn delete_bmc_user(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        username: &str,
+    ) -> Result<(), EndpointExplorationError> {
+        let bmc_mac_address = interface.mac_address;
+
+        match self.get_bmc_root_credentials(bmc_mac_address).await {
+            Ok(credentials) => {
+                self.delete_bmc_user(bmc_ip_address, credentials, username)
                     .await
             }
             Err(e) => {

@@ -1221,6 +1221,10 @@ pub mod test_support {
             Ok(())
         }
 
+        async fn delete_user(&self, _username: &str) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
         async fn get_service_root(
             &self,
         ) -> Result<libredfish::model::service_root::ServiceRoot, RedfishError> {

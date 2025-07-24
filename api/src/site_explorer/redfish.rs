@@ -417,6 +417,46 @@ impl RedfishClient {
         client.clear_nvram().await.map_err(map_redfish_error)?;
         Ok(())
     }
+
+    pub async fn create_bmc_user(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+        new_username: &str,
+        new_password: &str,
+        new_user_role_id: libredfish::RoleId,
+    ) -> Result<(), EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client
+            .create_user(new_username, new_password, new_user_role_id)
+            .await
+            .map_err(map_redfish_error)?;
+        Ok(())
+    }
+
+    pub async fn delete_bmc_user(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+        delete_user: &str,
+    ) -> Result<(), EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client
+            .delete_user(delete_user)
+            .await
+            .map_err(map_redfish_error)?;
+        Ok(())
+    }
 }
 
 async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {

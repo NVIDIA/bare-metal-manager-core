@@ -327,6 +327,9 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 .create_user(&bmc_user.user, &bmc_user.new_password, role)
                 .await?;
         }
+        DeleteBmcUser(bmc_username) => {
+            redfish.delete_user(&bmc_username.user).await?;
+        }
         ChangeBmcUsername(bmc_username) => {
             redfish
                 .change_username(&bmc_username.old_user, &bmc_username.new_user)

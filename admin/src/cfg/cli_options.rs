@@ -858,6 +858,8 @@ pub enum RedfishCommand {
     ClearPending,
     /// Create new BMC user
     CreateBmcUser(BmcUser),
+    /// Create new BMC user
+    DeleteBmcUser(DeleteBmcUser),
     /// Setup host for Forge use
     ForgeSetup(ForgeSetupArgs),
     /// Is everything ForgeSetup does already done? What's missing?
@@ -1071,6 +1073,12 @@ pub struct BmcUser {
         help = "BMC role (administrator, operator, readonly, noaccess). Default to administrator"
     )]
     pub role_id: Option<String>,
+}
+
+#[derive(Parser, Debug, PartialEq, Clone)]
+pub struct DeleteBmcUser {
+    #[clap(long, help = "BMC user")]
+    pub user: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
@@ -1945,6 +1953,8 @@ pub enum BmcAction {
     BmcReset(BmcResetArgs),
     #[clap(about = "Redfish Power Control")]
     AdminPowerControl(AdminPowerControlArgs),
+    CreateBmcUser(CreateBmcUserArgs),
+    DeleteBmcUser(DeleteBmcUserArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -2146,13 +2156,6 @@ pub enum SiteExplorer {
     CopyBfbToDpuRshim(CopyBfbToDpuRshimArgs),
 }
 
-#[derive(Parser, Debug)]
-pub enum BmcEndpointExplorer {
-    #[clap(about = "Reset the BMC for an endpoint.")]
-    ResetBMC(ExploreOptions),
-    RedfishForceRestartBmc(ExploreOptions),
-}
-
 #[derive(Parser, Debug, PartialEq)]
 pub enum GetReportMode {
     #[clap(about = "Get everything in Json")]
@@ -2220,6 +2223,53 @@ pub struct CopyBfbToDpuRshimArgs {
     #[clap(flatten)]
     pub timeout_config: Option<TimeoutConfig>,
 }
+
+#[derive(Parser, Debug)]
+pub struct CreateBmcUserArgs {
+    #[clap(long, short, help = "IP of the BMC where we want to create a new user")]
+    pub ip_address: Option<String>,
+    #[clap(
+        long,
+        short,
+        help = "MAC of the BMC where we want to create a new user"
+    )]
+    pub mac_address: Option<MacAddress>,
+    #[clap(
+        long,
+        short,
+        help = "ID of the machine where we want to create a new BMC user"
+    )]
+    pub machine: Option<String>,
+
+    #[clap(long, short, help = "Username of new BMC account")]
+    pub username: String,
+    #[clap(long, short, help = "Password of new BMC account")]
+    pub password: String,
+    #[clap(long, short, help = "Role of new BMC account")]
+    pub role_id: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct DeleteBmcUserArgs {
+    #[clap(long, short, help = "IP of the BMC where we want to create a new user")]
+    pub ip_address: Option<String>,
+    #[clap(
+        long,
+        short,
+        help = "MAC of the BMC where we want to create a new user"
+    )]
+    pub mac_address: Option<MacAddress>,
+    #[clap(
+        long,
+        short,
+        help = "ID of the machine where we want to create a new BMC user"
+    )]
+    pub machine: Option<String>,
+
+    #[clap(long, short, help = "Username of BMC account to delete")]
+    pub username: String,
+}
+
 #[derive(Parser, Debug)]
 pub struct ReExploreOptions {
     #[clap(help = "BMC IP address")]

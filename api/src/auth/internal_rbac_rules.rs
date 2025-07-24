@@ -429,6 +429,8 @@ impl InternalRBACRules {
         x.perm("CopyBfbToDpuRshim", vec![ForgeAdminCLI]);
         x.perm("GetPowerOptions", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdatePowerOption", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("CreateBmcUser", vec![ForgeAdminCLI]);
+        x.perm("DeleteBmcUser", vec![ForgeAdminCLI]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

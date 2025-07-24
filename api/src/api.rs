@@ -34,7 +34,7 @@ use ::rpc::protos::measured_boot as measured_boot_pb;
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
 use itertools::Itertools;
-use libredfish::SystemPowerControl;
+use libredfish::{RoleId, SystemPowerControl};
 use mac_address::MacAddress;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
@@ -5263,6 +5263,131 @@ impl Forge for Api {
         .await?;
 
         Ok(Response::new(()))
+    }
+
+    async fn create_bmc_user(
+        &self,
+        request: tonic::Request<rpc::CreateBmcUserRequest>,
+    ) -> Result<tonic::Response<rpc::CreateBmcUserResponse>, tonic::Status> {
+        log_request_data(&request);
+
+        let req = request.into_inner();
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin create_bmc_user",
+                e,
+            ))
+        })?;
+
+        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
+            &mut txn,
+            req.bmc_endpoint_request,
+            req.machine_id,
+        )
+        .await?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit create_bmc_user",
+                e,
+            ))
+        })?;
+
+        let endpoint_address = bmc_endpoint_request.ip_address.clone();
+
+        let role: RoleId = match req
+            .create_role_id
+            .unwrap_or("Administrator".to_string())
+            .to_lowercase()
+            .as_str()
+        {
+            "administrator" => RoleId::Administrator,
+            "operator" => RoleId::Operator,
+            "readonly" => RoleId::ReadOnly,
+            "noaccess" => RoleId::NoAccess,
+            _ => RoleId::Administrator,
+        };
+
+        tracing::info!(
+            "Creating BMC User {} ({role}) on {endpoint_address}",
+            req.create_username,
+        );
+
+        crate::handlers::bmc_endpoint_explorer::create_bmc_user(
+            self,
+            &bmc_endpoint_request,
+            &req.create_username,
+            &req.create_password,
+            role,
+        )
+        .await?;
+
+        tracing::info!(
+            "Successfully created BMC User {} ({role}) on {endpoint_address}",
+            req.create_username
+        );
+
+        Ok(Response::new(rpc::CreateBmcUserResponse {}))
+    }
+
+    async fn delete_bmc_user(
+        &self,
+        request: tonic::Request<rpc::DeleteBmcUserRequest>,
+    ) -> Result<tonic::Response<rpc::DeleteBmcUserResponse>, tonic::Status> {
+        log_request_data(&request);
+
+        let req = request.into_inner();
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin delete_bmc_user",
+                e,
+            ))
+        })?;
+
+        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
+            &mut txn,
+            req.bmc_endpoint_request,
+            req.machine_id,
+        )
+        .await?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit delete_bmc_user",
+                e,
+            ))
+        })?;
+
+        let endpoint_address = bmc_endpoint_request.ip_address.clone();
+
+        tracing::info!(
+            "Deleting BMC User {} on {endpoint_address}",
+            req.delete_username,
+        );
+
+        crate::handlers::bmc_endpoint_explorer::delete_bmc_user(
+            self,
+            &bmc_endpoint_request,
+            &req.delete_username,
+        )
+        .await?;
+
+        tracing::info!(
+            "Successfully deleted BMC User {} on {endpoint_address}",
+            req.delete_username
+        );
+
+        Ok(Response::new(rpc::DeleteBmcUserResponse {}))
     }
 }
 
