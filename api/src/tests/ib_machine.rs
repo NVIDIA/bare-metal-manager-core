@@ -94,7 +94,13 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
         .get_mock_manager()
         .set_port_state(&guid3, false);
 
-    env.run_machine_state_controller_iteration().await;
+    env.ib_fabric_monitor.run_single_iteration().await.unwrap();
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machine_ib_status_updates_count")
+            .unwrap(),
+        "1"
+    );
 
     active_lids.clear();
     for host_machine_id in host_machines.iter().cloned() {

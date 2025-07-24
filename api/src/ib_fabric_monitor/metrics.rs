@@ -27,6 +27,8 @@ pub struct IbFabricMonitorMetrics {
     pub num_fabrics: usize,
     /// Per fabric metrics
     pub fabrics: HashMap<String, FabricMetrics>,
+    /// The amount of Machines where the IB status observation got updated
+    pub num_machine_ib_status_updates: usize,
 }
 
 /// Metrics collected for a single fabric
@@ -64,6 +66,7 @@ impl IbFabricMonitorMetrics {
             recording_started_at: std::time::Instant::now(),
             num_fabrics: 0,
             fabrics: HashMap::new(),
+            num_machine_ib_status_updates: 0,
         }
     }
 }
@@ -89,6 +92,21 @@ impl IbFabricMonitorInstruments {
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
                         o.observe(metrics.num_fabrics as u64, attrs);
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_ib_monitor_machine_ib_status_updates_count")
+                .with_description(
+                    "The amount of Machines where the infiniband_status_observation got updated",
+                )
+                .with_callback(move |o| {
+                    metrics.if_available(|metrics, attrs| {
+                        o.observe(metrics.num_machine_ib_status_updates as u64, attrs);
                     })
                 })
                 .build();

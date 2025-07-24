@@ -13,6 +13,7 @@
 //! Contains fixtures that use the Carbide API for setting up
 
 use crate::cfg::file::{ListenMode, MachineUpdater, VpcPeeringPolicy};
+use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::logging::log_limiter::LogLimiter;
 use crate::model::machine::MachineValidatingState;
 use crate::model::machine::ValidationState;
@@ -241,6 +242,7 @@ pub struct TestEnv {
     pub pool: PgPool,
     pub redfish_sim: Arc<RedfishSim>,
     pub nvmesh_sim: Arc<dyn NvmeshClientPool>,
+    pub ib_fabric_monitor: Arc<IbFabricMonitor>,
     pub ib_fabric_manager: Arc<IBFabricManagerImpl>,
     pub ipmi_tool: Arc<IPMIToolTestImpl>,
     machine_state_controller: Arc<Mutex<StateController<MachineStateControllerIO>>>,
@@ -466,6 +468,10 @@ impl TestEnv {
 
     pub async fn run_site_explorer_iteration(&self) {
         self.site_explorer.run_single_iteration().await.unwrap()
+    }
+
+    pub async fn run_ib_fabric_monitor_iteration(&self) {
+        self.ib_fabric_monitor.run_single_iteration().await.unwrap()
     }
 
     pub async fn override_machine_state_controller_handler(&self, handler: MachineStateHandler) {
@@ -1012,6 +1018,13 @@ pub async fn create_test_env_with_overrides(
     .unwrap();
 
     let ib_fabric_manager = Arc::new(ib_fabric_manager_impl);
+    let ib_fabric_monitor = IbFabricMonitor::new(
+        db_pool.clone(),
+        config.ib_fabrics.clone(),
+        test_meter.meter(),
+        ib_fabric_manager.clone(),
+        config.clone(),
+    );
 
     let site_fabric_networks = overrides
         .site_prefixes
@@ -1268,6 +1281,7 @@ pub async fn create_test_env_with_overrides(
         ipmi_tool,
         machine_state_controller: Arc::new(Mutex::new(machine_controller)),
         machine_state_handler: machine_swap,
+        ib_fabric_monitor: Arc::new(ib_fabric_monitor),
         ib_partition_controller: Arc::new(Mutex::new(ib_controller)),
         network_segment_controller: Arc::new(Mutex::new(network_controller)),
         reachability_params,

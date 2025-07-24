@@ -524,7 +524,7 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
     env.ib_fabric_manager
         .get_mock_manager()
         .set_port_state(&guids[1], false);
-    env.run_machine_state_controller_iteration().await;
+    env.run_ib_fabric_monitor_iteration().await;
 
     let result = try_allocate_instance(
         &env,
