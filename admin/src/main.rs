@@ -221,6 +221,7 @@ async fn main() -> color_eyre::Result<()> {
                     config.format,
                     &api_client,
                     config.internal_page_size,
+                    &config.sort_by,
                 )
                 .await?
             }
@@ -445,6 +446,7 @@ async fn main() -> color_eyre::Result<()> {
                     config.format,
                     &api_client,
                     config.internal_page_size,
+                    &config.sort_by,
                 )
                 .await?
             }
@@ -610,6 +612,7 @@ async fn main() -> color_eyre::Result<()> {
                     config.format,
                     &api_client,
                     config.internal_page_size,
+                    config.sort_by,
                 )
                 .await?
             }
@@ -1335,6 +1338,7 @@ async fn main() -> color_eyre::Result<()> {
                     config.format,
                     &api_client,
                     config.internal_page_size,
+                    &config.sort_by,
                 )
                 .await?;
 
@@ -1382,6 +1386,7 @@ async fn main() -> color_eyre::Result<()> {
                                 config_format,
                                 &api_client,
                                 config.internal_page_size,
+                                &config.sort_by,
                             )
                             .await?
                         }
@@ -1401,6 +1406,7 @@ async fn main() -> color_eyre::Result<()> {
                                 config_format,
                                 &api_client,
                                 config.internal_page_size,
+                                &config.sort_by,
                             )
                             .await?;
                         }
@@ -1479,6 +1485,7 @@ async fn main() -> color_eyre::Result<()> {
                                 config.format,
                                 &api_client,
                                 config.internal_page_size,
+                                &config.sort_by,
                             )
                             .await?
                         }
@@ -1581,6 +1588,7 @@ async fn main() -> color_eyre::Result<()> {
                     config.format,
                     &api_client,
                     config.internal_page_size,
+                    &config.sort_by,
                 )
                 .await?;
 

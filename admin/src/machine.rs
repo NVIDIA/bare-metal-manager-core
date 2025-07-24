@@ -13,7 +13,9 @@ use std::collections::VecDeque;
 
 use super::cfg::cli_options::{HealthOverrideTemplates, MachineHardwareInfoGpus, ShowMachine};
 use super::default_uuid;
-use crate::cfg::cli_options::{ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand};
+use crate::cfg::cli_options::{
+    ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand, SortField,
+};
 use crate::rpc::ApiClient;
 use ::rpc::forge as forgerpc;
 use chrono::Utc;
@@ -318,10 +320,17 @@ async fn show_all_machines(
     api_client: &ApiClient,
     search_config: rpc::forge::MachineSearchConfig,
     page_size: usize,
+    sort_by: &SortField,
 ) -> CarbideCliResult<()> {
-    let machines = api_client
+    let mut machines = api_client
         .get_all_machines(search_config, page_size)
         .await?;
+
+    match sort_by {
+        SortField::PrimaryId => machines.machines.sort_by(|m1, m2| m1.id.cmp(&m2.id)),
+        SortField::State => machines.machines.sort_by(|m1, m2| m1.state.cmp(&m2.state)),
+    };
+
     if json {
         println!("{}", serde_json::to_string_pretty(&machines)?);
     } else {
@@ -353,6 +362,7 @@ pub async fn handle_show(
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
+    sort_by: &SortField,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if !args.machine.is_empty() {
@@ -367,7 +377,7 @@ pub async fn handle_show(
             include_predicted_host: args.hosts || show_all_types,
             ..Default::default()
         };
-        show_all_machines(is_json, api_client, search_config, page_size).await?;
+        show_all_machines(is_json, api_client, search_config, page_size, sort_by).await?;
         // TODO(chet): Remove this ~March 2024.
         // Use tracing::warn for this so its both a little more
         // noticeable, and a little more annoying/naggy. If people

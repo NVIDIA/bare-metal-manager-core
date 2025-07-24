@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::cfg::cli_options::{ShowManagedHost, ShowPowerOptions, UpdatePowerOptions};
+use crate::cfg::cli_options::{ShowManagedHost, ShowPowerOptions, SortField, UpdatePowerOptions};
 use crate::rpc::ApiClient;
 use ::rpc::{Machine, MachineId};
 use prettytable::{Cell, Row, Table};
@@ -193,8 +193,13 @@ async fn show_managed_hosts(
     output: &mut dyn std::io::Write,
     output_format: OutputFormat,
     output_options: ManagedHostOutputOptions,
+    sort_by: SortField,
 ) -> CarbideCliResult<()> {
-    let managed_hosts = utils::get_managed_host_output(managed_host_data);
+    let mut managed_hosts = utils::get_managed_host_output(managed_host_data);
+    match sort_by {
+        SortField::PrimaryId => managed_hosts.sort_by(|m1, m2| m1.machine_id.cmp(&m2.machine_id)),
+        SortField::State => managed_hosts.sort_by(|m1, m2| m1.state.cmp(&m2.state)),
+    };
     match output_format {
         OutputFormat::Json => {
             if output_options.single_host_detail_view {
@@ -443,6 +448,7 @@ pub async fn handle_show(
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
+    sort_by: SortField,
 ) -> CarbideCliResult<()> {
     let site_explorer_managed_hosts = api_client.get_all_explored_managed_hosts(page_size).await?;
 
@@ -556,6 +562,7 @@ pub async fn handle_show(
         output,
         output_format,
         output_options,
+        sort_by,
     )
     .await
 }
