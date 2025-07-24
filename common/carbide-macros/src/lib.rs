@@ -27,10 +27,14 @@ type AttributeArgs = syn::punctuated::Punctuated<syn::Meta, syn::Token![,]>;
 /// This ends up blowing up the test executable size tremendously, and causes link times to be very
 /// long, even on incremental builds.
 ///
-/// Using our own test wrapper macro fixes this by declaring migrations and fixtures in one static
-/// place, and referencing them on every invocation instead. This is not possible for sqlx to do
+/// Using our own test wrapper macro fixes this by declaring fixtures in one static place, and referencing
+/// them on every invocation instead. This is not possible for sqlx to do
 /// natively, since every sqlx::test macro has to stand on its own and not assume any constants
 /// are defined anywhere.
+///
+/// Also, this wrapper uses sqlx_testing library that creates database for all tests from the template
+/// database (initialized using migrations) which is much more faster than migrate database on each
+/// unit test start.
 ///
 /// # Specifying fixtures
 ///
@@ -151,8 +155,6 @@ fn expand(args: TokenStream, input: syn::ItemFn) -> eyre::Result<TokenStream> {
 
             let mut args = ::sqlx::testing::TestArgs::new(concat!(module_path!(), "::", stringify!(#name)));
 
-            args.migrator(&crate::tests::MIGRATOR);
-
             // Note: we use Box::leak because args.fixtures expects a &'static slice, which is
             // normally only possible if you define the fixtures inline. Since each TestFixture is a
             // struct with two `&'static str`s inside it, this should only leak 16 bytes per unit
@@ -162,7 +164,7 @@ fn expand(args: TokenStream, input: syn::ItemFn) -> eyre::Result<TokenStream> {
             // We need to give a coercion site or else we get "unimplemented trait" errors.
             let f: fn(#(#fn_arg_types),*) -> _ = #name;
 
-            ::sqlx::testing::TestFn::run_test(f, args)
+            sqlx_testing::TestFn::run_test(f, args)
         }
     };
     Ok(pm2_token_stream.into())
