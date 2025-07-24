@@ -60,13 +60,13 @@ impl IBFabric for MockIBFabric {
     }
 
     /// Get IBNetwork by ID
-    async fn get_ib_network(&self, id: &str) -> Result<IBNetwork, CarbideError> {
+    async fn get_ib_network(&self, id: u16) -> Result<IBNetwork, CarbideError> {
         let state = self
             .state
             .lock()
             .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
 
-        match state.subnets.get(id) {
+        match state.subnets.get(&id.to_string()) {
             None => Err(CarbideError::NotFoundError {
                 kind: "",
                 id: id.to_string(),

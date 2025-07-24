@@ -73,7 +73,7 @@ pub struct PortConfig {
     pub membership: PortMembership,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct PartitionKey(u16);
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -85,7 +85,9 @@ pub struct Partition {
     /// Default false
     pub ipoib: bool,
     /// The QoS of Partition.
-    pub qos: PartitionQoS,
+    pub qos: Option<PartitionQoS>,
+    /// GUIDS attached to the Partition. Only available if explictly queried for
+    pub guids: HashSet<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
@@ -108,22 +110,28 @@ pub struct Filter {
     pub logical_state: Option<String>,
 }
 
-const HEX_PRE: &str = "0x";
-
-impl From<Vec<PortConfig>> for Filter {
-    fn from(guids: Vec<PortConfig>) -> Self {
-        let mut v = HashSet::with_capacity(guids.len());
-        for i in &guids {
-            v.insert(i.guid.to_string());
-        }
-
-        Self {
-            guids: Some(v),
-            pkey: None,
-            logical_state: None,
-        }
-    }
+#[allow(dead_code)]
+#[derive(Default, Debug, Copy, Clone)]
+pub struct GetPartitionOptions {
+    /// Whether to include `guids` associated with each partition in the response
+    pub include_guids_data: bool,
+    /// Whether the response should contain the `qos_conf` and `ip_over_ib` parameters
+    pub include_qos_conf: bool,
 }
+
+/// Partition data with extra options as presented by UFM
+#[derive(Serialize, Deserialize, Debug)]
+struct PartitionData {
+    partition: String,
+    ip_over_ib: bool,
+    /// Quality of Service related data. Only available if `qos_conf==true`
+    qos_conf: Option<PartitionQoS>,
+    /// Ports attached to a partition. Only available if `guids_data==true`
+    #[serde(default)]
+    guids: Vec<PortConfig>,
+}
+
+const HEX_PRE: &str = "0x";
 
 impl TryFrom<u16> for PartitionKey {
     type Error = UFMError;
@@ -187,6 +195,8 @@ pub struct Ufm {
 
 #[derive(Error, Debug)]
 pub enum UFMError {
+    #[error("Invalid argument: {0}")]
+    InvalidArgument(String),
     #[error("Invalid pkey '{0}'")]
     InvalidPKey(String),
     #[error("Invalid configuration: '{0}'")]
@@ -305,7 +315,11 @@ impl Ufm {
         Ok(sm_config)
     }
 
-    pub async fn update_partition_qos(&self, p: Partition) -> Result<(), UFMError> {
+    pub async fn update_partition_qos(
+        &self,
+        pkey: PartitionKey,
+        qos: PartitionQoS,
+    ) -> Result<(), UFMError> {
         let path = String::from("/resources/pkeys/qos_conf");
 
         #[derive(Serialize, Deserialize, Debug)]
@@ -317,10 +331,10 @@ impl Ufm {
         }
 
         let data = serde_json::to_string(&PkeyQoS {
-            pkey: p.pkey.to_string(),
-            mtu_limit: p.qos.mtu_limit,
-            rate_limit: p.qos.rate_limit,
-            service_level: p.qos.service_level,
+            pkey: pkey.to_string(),
+            mtu_limit: qos.mtu_limit,
+            rate_limit: qos.rate_limit,
+            service_level: qos.service_level,
         })
         .map_err(|_| UFMError::InvalidConfig("invalid partition qos".to_string()))?;
 
@@ -393,15 +407,23 @@ impl Ufm {
         Ok(())
     }
 
-    pub async fn list_partitions(&self) -> Result<HashMap<PartitionKey, Partition>, UFMError> {
-        let path = "/resources/pkeys?qos_conf=true";
+    pub async fn list_partitions(
+        &self,
+        options: GetPartitionOptions,
+    ) -> Result<HashMap<PartitionKey, Partition>, UFMError> {
+        let path = match (options.include_guids_data, options.include_qos_conf) {
+            (true, true) => {
+                // This API is not supported in current UFM version: https://nvbugspro.nvidia.com/bug/5409095
+                // Instead of returning unexpected results, don't even try to talk to UFM
+                // and make developers aware of the issue.
+                // That at least allows the application developer to implement a workaround
+                return Err(UFMError::InvalidArgument("Returning qos_conf and guids_data is not supported: https://nvbugspro.nvidia.com/bug/5409095".to_string()));
+            }
+            (true, false) => "/resources/pkeys?guids_data=true",
+            (false, true) => "/resources/pkeys?qos_conf=true",
+            (false, false) => "/resources/pkeys?qos_conf=true", // Without any query argument, UFM return structure is different
+        };
 
-        #[derive(Serialize, Deserialize, Debug)]
-        struct PartitionData {
-            partition: String,
-            ip_over_ib: bool,
-            qos_conf: PartitionQoS,
-        }
         let partitions: HashMap<String, PartitionData> = self.client.get(path).await?.0;
 
         let mut results = HashMap::with_capacity(partitions.len());
@@ -409,9 +431,10 @@ impl Ufm {
             let pkey = PartitionKey::try_from(pkey)?;
             let partition = Partition {
                 name: partition.partition,
-                pkey: pkey.clone(),
+                pkey,
                 ipoib: partition.ip_over_ib,
                 qos: partition.qos_conf,
+                guids: partition.guids.into_iter().map(|p| p.guid).collect(),
             };
             results.insert(pkey, partition);
         }
@@ -419,42 +442,32 @@ impl Ufm {
         Ok(results)
     }
 
-    pub async fn get_partition(&self, pkey: &str) -> Result<Partition, UFMError> {
-        let pkey = PartitionKey::try_from(pkey)?;
-
-        let path = format!("/resources/pkeys/{pkey}?qos_conf=true");
-
-        #[derive(Serialize, Deserialize, Debug)]
-        struct Pkey {
-            partition: String,
-            ip_over_ib: bool,
-            qos_conf: PartitionQoS,
+    pub async fn get_partition(
+        &self,
+        pkey: PartitionKey,
+        options: GetPartitionOptions,
+    ) -> Result<Partition, UFMError> {
+        let mut path = format!("/resources/pkeys/{pkey}");
+        let mut has_query_args = false;
+        if options.include_guids_data {
+            path.push(if has_query_args { '&' } else { '?' });
+            has_query_args = true;
+            path += "guids_data=true";
         }
-        let pk: Pkey = self.client.get(&path).await?.0;
+        if options.include_qos_conf {
+            path.push(if has_query_args { '&' } else { '?' });
+            path += "qos_conf=true";
+        }
+
+        let partition: PartitionData = self.client.get(&path).await?.0;
 
         Ok(Partition {
-            name: pk.partition,
+            name: partition.partition,
             pkey,
-            ipoib: pk.ip_over_ib,
-            qos: pk.qos_conf,
+            ipoib: partition.ip_over_ib,
+            qos: partition.qos_conf,
+            guids: partition.guids.into_iter().map(|p| p.guid).collect(),
         })
-    }
-
-    async fn list_partition_ports(&self, pkey: &PartitionKey) -> Result<HashSet<String>, UFMError> {
-        // get GUIDs from pkey
-        #[derive(Serialize, Deserialize, Debug)]
-        struct PkeyWithGUIDs {
-            pub partition: String,
-            pub ip_over_ib: bool,
-            pub guids: Vec<PortConfig>,
-        }
-
-        let path = format!("resources/pkeys/{pkey}?guids_data=true");
-        let pkeywithguids: PkeyWithGUIDs = self.client.get(&path).await?.0;
-
-        let filter = Filter::from(pkeywithguids.guids);
-
-        Ok(filter.guids.unwrap_or(HashSet::new()))
     }
 
     pub async fn list_port(&self, filter: Option<Filter>) -> Result<Vec<Port>, UFMError> {
@@ -462,8 +475,18 @@ impl Ufm {
         let ports: Vec<Port> = self.client.list(&path).await?.0;
 
         let f = filter.unwrap_or_default();
-        let pkey_guids = match &f.pkey {
-            Some(pkey) => Some(self.list_partition_ports(pkey).await?),
+        let pkey_guids = match f.pkey {
+            Some(pkey) => Some(
+                self.get_partition(
+                    pkey,
+                    GetPartitionOptions {
+                        include_guids_data: true,
+                        include_qos_conf: false,
+                    },
+                )
+                .await?
+                .guids,
+            ),
             None => None,
         };
 
@@ -650,5 +673,141 @@ mod test {
     fn test_partition_key() {
         assert_eq!("0x67", PartitionKey(103).to_string());
         assert_eq!("0x67", PartitionKey::try_from("103").unwrap().to_string());
+    }
+
+    #[test]
+    fn test_deserialize_partition_data() {
+        let single_part_data = r#"
+            {
+                "ip_over_ib": true,
+                "partition": "api_pkey_0x31a"
+            }"#;
+
+        let partition: PartitionData = serde_json::from_str(single_part_data).unwrap();
+        assert_eq!(partition.partition, "api_pkey_0x31a");
+        assert!(partition.qos_conf.is_none());
+        assert!(partition.guids.is_empty());
+
+        let single_part_data_with_guids_and_qos = r#"
+            {
+                "guids": [
+                    {
+                        "guid": "946dae03005985c8",
+                        "index0": true,
+                        "membership": "full"
+                    },
+                    {
+                        "guid": "946dae03005985d0",
+                        "index0": true,
+                        "membership": "full"
+                    },
+                    {
+                        "guid": "946dae03005985cc",
+                        "index0": true,
+                        "membership": "full"
+                    },
+                    {
+                        "guid": "946dae03005985c4",
+                        "index0": true,
+                        "membership": "full"
+                    }
+                ],
+                "ip_over_ib": true,
+                "partition": "api_pkey_0x31a",
+                "qos_conf": {
+                    "mtu_limit": 4,
+                    "rate_limit": 200,
+                    "service_level": 0
+                }
+            }"#;
+
+        let partition: PartitionData =
+            serde_json::from_str(single_part_data_with_guids_and_qos).unwrap();
+        assert_eq!(partition.partition, "api_pkey_0x31a");
+        assert_eq!(
+            partition.qos_conf,
+            Some(PartitionQoS {
+                mtu_limit: 4,
+                rate_limit: 200.0,
+                service_level: 0,
+            })
+        );
+        assert_eq!(partition.guids.len(), 4);
+
+        let data_with_qos = r#"
+            {
+                "0x2fb": {
+                    "ip_over_ib": true,
+                    "partition": "api_pkey_0x2fb",
+                    "qos_conf": {
+                        "mtu_limit": 4,
+                        "rate_limit": 200,
+                        "service_level": 0
+                    }
+                },
+                "0x7fff": {
+                    "ip_over_ib": true,
+                    "partition": "management",
+                    "qos_conf": {
+                        "mtu_limit": 2,
+                        "rate_limit": 2.5,
+                        "service_level": 0
+                    }
+                }
+            }"#;
+
+        let parts: HashMap<String, PartitionData> = serde_json::from_str(data_with_qos).unwrap();
+        let p1 = parts.get("0x2fb").unwrap();
+        assert_eq!(
+            p1.qos_conf,
+            Some(PartitionQoS {
+                mtu_limit: 4,
+                rate_limit: 200.0,
+                service_level: 0,
+            })
+        );
+        assert_eq!(p1.partition, "api_pkey_0x2fb");
+
+        let data_with_guids = r#"
+            {
+                "0x2fb": {
+                    "guids": [
+                        {
+                            "guid": "946dae03005975c8",
+                            "index0": true,
+                            "membership": "full"
+                        },
+                        {
+                            "guid": "946dae03005975d0",
+                            "index0": true,
+                            "membership": "full"
+                        },
+                        {
+                            "guid": "946dae03005975cc",
+                            "index0": true,
+                            "membership": "full"
+                        },
+                        {
+                            "guid": "946dae03005975c4",
+                            "index0": true,
+                            "membership": "full"
+                        }
+                    ],
+                    "ip_over_ib": true,
+                    "partition": "api_pkey_0x2fb"
+                },
+                "0x7fff": {
+                    "guids": [],
+                    "index0": false,
+                    "ip_over_ib": true,
+                    "membership": "limited",
+                    "partition": "management"
+                }
+            }"#;
+
+        let parts: HashMap<String, PartitionData> = serde_json::from_str(data_with_guids).unwrap();
+        let p1 = parts.get("0x2fb").unwrap();
+        assert!(p1.qos_conf.is_none());
+        assert_eq!(p1.partition, "api_pkey_0x2fb");
     }
 }

@@ -18,8 +18,8 @@ use async_trait::async_trait;
 use super::iface::{Filter, IBFabricRawResponse};
 use super::types::{IBMtu, IBNetwork, IBPort, IBPortState, IBRateLimit, IBServiceLevel};
 use super::ufmclient::{
-    self, Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, SmConfig,
-    UFMCert, UFMConfig, UFMError, Ufm,
+    self, GetPartitionOptions, Partition, PartitionKey, PartitionQoS, Port, PortConfig,
+    PortMembership, SmConfig, UFMCert, UFMConfig, UFMError, Ufm,
 };
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
@@ -85,7 +85,10 @@ impl IBFabric for RestIBFabric {
     async fn get_ib_networks(&self) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
         let partitions = self
             .ufm
-            .list_partitions()
+            .list_partitions(GetPartitionOptions {
+                include_guids_data: false,
+                include_qos_conf: true,
+            })
             .await
             .map_err(CarbideError::from)?;
 
@@ -100,10 +103,18 @@ impl IBFabric for RestIBFabric {
     }
 
     /// Get IBNetwork by ID
-    async fn get_ib_network(&self, pkey: &str) -> Result<IBNetwork, CarbideError> {
+    async fn get_ib_network(&self, pkey: u16) -> Result<IBNetwork, CarbideError> {
+        let pkey = PartitionKey::try_from(pkey).map_err(CarbideError::from)?;
+
         let partition = self
             .ufm
-            .get_partition(pkey)
+            .get_partition(
+                pkey,
+                GetPartitionOptions {
+                    include_guids_data: false,
+                    include_qos_conf: true,
+                },
+            )
             .await
             .map_err(CarbideError::from)?;
 
@@ -129,8 +140,13 @@ impl IBFabric for RestIBFabric {
     async fn update_ib_network(&self, ibnetwork: &IBNetwork) -> Result<(), CarbideError> {
         let partition = Partition::try_from(ibnetwork)?;
 
+        let pkey = partition.pkey;
+        let qos = partition.qos.ok_or_else(|| {
+            CarbideError::internal(format!("QoS data for partition {} is not present", pkey))
+        })?;
+
         self.ufm
-            .update_partition_qos(partition)
+            .update_partition_qos(pkey, qos)
             .await
             .map_err(CarbideError::from)
     }
@@ -214,23 +230,30 @@ impl TryFrom<Partition> for IBNetwork {
 impl TryFrom<&Partition> for IBNetwork {
     type Error = CarbideError;
     fn try_from(p: &Partition) -> Result<Self, Self::Error> {
-        let rate_limit_value = if p.qos.rate_limit == (p.qos.rate_limit as i32) as f32 {
-            p.qos.rate_limit as i32
-        } else if p.qos.rate_limit == 2.5 {
+        let qos = p.qos.as_ref().ok_or_else(|| {
+            CarbideError::internal(format!(
+                "Can not create IBNetwork object for IB partition {} with missing QoS data",
+                p.pkey
+            ))
+        })?;
+
+        let rate_limit_value = if qos.rate_limit == (qos.rate_limit as i32) as f32 {
+            qos.rate_limit as i32
+        } else if qos.rate_limit == 2.5 {
             // It is special case for SDR as 2.5
             2
         } else {
             return Err(CarbideError::InvalidArgument(format!(
                 "{0} is an invalid rate limit",
-                p.qos.rate_limit
+                qos.rate_limit
             )));
         };
         Ok(IBNetwork {
             name: p.name.clone(),
-            pkey: p.pkey.clone().into(),
-            mtu: IBMtu::try_from(p.qos.mtu_limit as i32)?,
+            pkey: p.pkey.into(),
+            mtu: IBMtu::try_from(qos.mtu_limit as i32)?,
             ipoib: p.ipoib,
-            service_level: IBServiceLevel::try_from(p.qos.service_level as i32)?,
+            service_level: IBServiceLevel::try_from(qos.service_level as i32)?,
             rate_limit: IBRateLimit::try_from(rate_limit_value)?,
             // Not implemented yet
             // enable_sharp: false,
@@ -275,11 +298,12 @@ impl TryFrom<&IBNetwork> for Partition {
             pkey: PartitionKey::try_from(p.pkey)
                 .map_err(|_| CarbideError::IBFabricError("invalid pkey".to_string()))?,
             ipoib: p.ipoib,
-            qos: PartitionQoS {
+            qos: Some(PartitionQoS {
                 mtu_limit: Into::<i32>::into(p.mtu.clone()) as u16,
                 service_level: Into::<i32>::into(p.service_level.clone()) as u8,
                 rate_limit: rate_limit_value,
-            },
+            }),
+            guids: Default::default(),
         })
     }
 }
@@ -347,13 +371,14 @@ mod tests {
         // Valid Partition
         let value = Partition {
             name: "PartitionTest".to_string(),
-            pkey: pkey.clone(),
+            pkey,
             ipoib: true,
-            qos: PartitionQoS {
+            qos: Some(PartitionQoS {
                 mtu_limit: 2,
                 service_level: 0,
                 rate_limit: 10.0,
-            },
+            }),
+            guids: Default::default(),
         };
         let result = IBNetwork::try_from(value);
         assert!(result.is_ok());
@@ -361,13 +386,14 @@ mod tests {
         // Invalid Partition (mtu)
         let value = Partition {
             name: "PartitionTest".to_string(),
-            pkey: pkey.clone(),
+            pkey,
             ipoib: true,
-            qos: PartitionQoS {
+            qos: Some(PartitionQoS {
                 mtu_limit: 8,
                 service_level: 0,
                 rate_limit: 10.0,
-            },
+            }),
+            guids: Default::default(),
         };
         let result = IBNetwork::try_from(value);
         assert!(result.is_err());
@@ -376,13 +402,14 @@ mod tests {
         // Invalid Partition (service level)
         let value = Partition {
             name: "PartitionTest".to_string(),
-            pkey: pkey.clone(),
+            pkey,
             ipoib: true,
-            qos: PartitionQoS {
+            qos: Some(PartitionQoS {
                 mtu_limit: 2,
                 service_level: 20,
                 rate_limit: 10.0,
-            },
+            }),
+            guids: Default::default(),
         };
         let result = IBNetwork::try_from(value);
         assert!(result.is_err());
@@ -391,13 +418,14 @@ mod tests {
         // Invalid Partition (rate limit)
         let value = Partition {
             name: "PartitionTest".to_string(),
-            pkey: pkey.clone(),
+            pkey,
             ipoib: true,
-            qos: PartitionQoS {
+            qos: Some(PartitionQoS {
                 mtu_limit: 2,
                 service_level: 0,
                 rate_limit: 15.0,
-            },
+            }),
+            guids: Default::default(),
         };
         let result = IBNetwork::try_from(value);
         assert!(result.is_err());
@@ -406,13 +434,14 @@ mod tests {
         // Check special (rate limit as 2(2.5))
         let expected_partition = Partition {
             name: "PartitionTest".to_string(),
-            pkey: pkey.clone(),
+            pkey,
             ipoib: true,
-            qos: PartitionQoS {
+            qos: Some(PartitionQoS {
                 mtu_limit: 2,
                 service_level: 0,
                 rate_limit: 2.5,
-            },
+            }),
+            guids: Default::default(),
         };
         let value = IBNetwork::try_from(expected_partition.clone());
         assert!(value.is_ok(), "IBNetwork::try_from() failure");
@@ -421,19 +450,20 @@ mod tests {
         let result = Partition::try_from(v);
         assert!(result.is_ok(), "Partition::try_from() failure");
         let v = result.unwrap();
-        assert_eq!(v.qos.rate_limit, 2.5_f32);
+        assert_eq!(v.qos.as_ref().unwrap().rate_limit, 2.5_f32);
         assert_eq!(expected_partition.clone(), v);
 
         // Partition <-> IBNetwork
         let expected_partition = Partition {
             name: "PartitionTest".to_string(),
-            pkey: pkey.clone(),
+            pkey,
             ipoib: true,
-            qos: PartitionQoS {
+            qos: Some(PartitionQoS {
                 mtu_limit: 2,
                 service_level: 5,
                 rate_limit: 10.0,
-            },
+            }),
+            guids: Default::default(),
         };
         let value = IBNetwork::try_from(expected_partition.clone());
         assert!(value.is_ok(), "IBNetwork::try_from() failure");

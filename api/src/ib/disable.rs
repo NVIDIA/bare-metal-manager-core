@@ -31,7 +31,7 @@ impl IBFabric for DisableIBFabric {
     }
 
     /// Get IBNetwork by ID
-    async fn get_ib_network(&self, _: &str) -> Result<IBNetwork, CarbideError> {
+    async fn get_ib_network(&self, _: u16) -> Result<IBNetwork, CarbideError> {
         Err(CarbideError::IBFabricError(
             "ib fabric is disabled".to_string(),
         ))

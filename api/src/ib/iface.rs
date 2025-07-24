@@ -93,7 +93,7 @@ pub trait IBFabric: Send + Sync {
     async fn get_ib_networks(&self) -> Result<HashMap<u16, IBNetwork>, CarbideError>;
 
     /// Get IBNetwork by ID
-    async fn get_ib_network(&self, id: &str) -> Result<IBNetwork, CarbideError>;
+    async fn get_ib_network(&self, id: u16) -> Result<IBNetwork, CarbideError>;
 
     /// Create IBPort
     async fn bind_ib_ports(

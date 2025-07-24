@@ -77,7 +77,7 @@ impl StateHandler for IBPartitionStateHandler {
                         // When ib_partition is deleting, it should wait until all instances are
                         // released. As releasing instance will also remove ib_port from ib_network,
                         // and the ib_network will be removed when no ports are in it.
-                        let res = ib_fabric.get_ib_network(pkey.to_string().as_ref()).await;
+                        let res = ib_fabric.get_ib_network(pkey).await;
                         if let Err(e) = res {
                             match e {
                                 // The IBPartition maybe deleted during controller cycle.
@@ -125,8 +125,7 @@ impl StateHandler for IBPartitionStateHandler {
                     if state.is_marked_as_deleted() {
                         Ok(transition!(IBPartitionControllerState::Deleting))
                     } else {
-                        let pkey = pkey.to_string();
-                        let res = ib_fabric.get_ib_network(&pkey).await;
+                        let res = ib_fabric.get_ib_network(pkey).await;
 
                         match res {
                             Ok(ibnetwork) => {
