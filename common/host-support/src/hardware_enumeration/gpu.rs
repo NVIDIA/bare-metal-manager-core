@@ -7,8 +7,8 @@ use super::HardwareEnumerationResult;
 ///
 /// It is assumed that the machine should have the nvidia kernel module loaded, or this call will fail.
 pub fn get_nvidia_smi_data() -> HardwareEnumerationResult<Vec<RpcGpu>> {
-    let cmd = Cmd::new("nvidia-smi")
-        .args(vec!["--format=csv,noheader", "--query-gpu=name,serial,driver_version,vbios_version,inforom.image,memory.total,clocks.applications.gr,pci.bus_id"])
+    let cmd = Cmd::new("timeout")
+        .args(vec!["--kill-after=120s", "60s", "nvidia-smi", "--format=csv,noheader", "--query-gpu=name,serial,driver_version,vbios_version,inforom.image,memory.total,clocks.applications.gr,pci.bus_id"])
         .output()?;
 
     let mut csv_reader = csv::ReaderBuilder::new()
