@@ -270,7 +270,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute(
             "common.UUID",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
+            "#[derive(Eq, Ord, PartialOrd, serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute(
             "forge.MachineDiscoveryInfo.discovery_data",
@@ -550,8 +550,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "common.Uint32List",
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
-
-
+        .type_attribute(
+            "common.MachineId",
+            "#[derive(Eq, Ord, PartialOrd)]",
+        )
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

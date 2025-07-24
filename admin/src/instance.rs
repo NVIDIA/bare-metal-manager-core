@@ -16,7 +16,7 @@ use prettytable::{Table, row};
 
 use super::cfg::cli_options::ShowInstance;
 use super::{default_uuid, invalid_machine_id};
-use crate::cfg::cli_options::RebootInstance;
+use crate::cfg::cli_options::{RebootInstance, SortField};
 use crate::rpc::ApiClient;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
@@ -415,10 +415,11 @@ pub async fn handle_show(
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
+    sort_by: &SortField,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.id.is_empty() {
-        let all_instances = api_client
+        let mut all_instances = api_client
             .get_all_instances(
                 args.tenant_org_id,
                 args.vpc_id,
@@ -429,6 +430,26 @@ pub async fn handle_show(
             )
             .await?;
 
+        match sort_by {
+            SortField::PrimaryId => all_instances.instances.sort_by(|i1, i2| i1.id.cmp(&i2.id)),
+            SortField::State => all_instances.instances.sort_by(|i1, i2| {
+                let tenant_status1 = i1
+                    .status
+                    .as_ref()
+                    .and_then(|status| status.tenant.as_ref())
+                    .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
+                    .map(|state| format!("{:?}", state))
+                    .unwrap_or_default();
+                let tenant_status2 = i2
+                    .status
+                    .as_ref()
+                    .and_then(|status| status.tenant.as_ref())
+                    .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
+                    .map(|state| format!("{:?}", state))
+                    .unwrap_or_default();
+                tenant_status1.cmp(&tenant_status2)
+            }),
+        }
         if is_json {
             println!("{}", serde_json::to_string_pretty(&all_instances)?);
         } else {

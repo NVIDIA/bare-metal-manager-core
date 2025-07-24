@@ -104,6 +104,24 @@ pub struct CliOptions {
     #[clap(short = 'p', long, default_value_t = 100)]
     #[clap(help = "For commands that internally retrieve data with paging, use this page size.")]
     pub internal_page_size: usize,
+
+    #[clap(
+        long,
+        value_enum,
+        global = true,
+        help = "Sort output by specified field",
+        default_value = "primary-id"
+    )]
+    pub sort_by: SortField,
+}
+
+#[derive(PartialEq, Eq, ValueEnum, Clone, Debug)]
+#[clap(rename_all = "kebab_case")]
+pub enum SortField {
+    #[clap(help = "Sort by the primary id")]
+    PrimaryId,
+    #[clap(help = "Sort by state")]
+    State,
 }
 
 #[derive(Parser, Debug)]
