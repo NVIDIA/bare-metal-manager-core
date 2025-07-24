@@ -1813,10 +1813,10 @@ pub struct AllocateInstance {
     #[clap(short, long)]
     pub number: Option<u16>,
 
-    #[clap(short, long)]
+    #[clap(short, long, help = "The subnet to assign to a PF")]
     pub subnet: Vec<String>,
 
-    #[clap(short, long)]
+    #[clap(short, long, help = "The VPC prefix to assign to a PF")]
     pub vpc_prefix_id: Vec<String>,
 
     #[clap(short, long)]
@@ -1847,6 +1847,12 @@ pub struct AllocateInstance {
 
     #[clap(long, help = "OS definition in JSON format", value_name = "OS_JSON")]
     pub os: Option<OperatingSystem>,
+
+    #[clap(long, help = "The subnet to assign to a VF")]
+    pub vf_subnet: Vec<String>,
+
+    #[clap(long, help = "The VPC prefix to assign to a VF")]
+    pub vf_vpc_prefix_id: Vec<String>,
 }
 
 #[derive(Parser, Debug)]

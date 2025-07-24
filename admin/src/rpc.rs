@@ -1128,6 +1128,32 @@ impl ApiClient {
             .map_err(CarbideCliError::ApiInvocationError)
     }
 
+    async fn get_subnet_ids_for_names(&self, subnets: &Vec<String>) -> CarbideCliResult<Vec<Uuid>> {
+        // find all the segment ids for the specified subnets.
+        let mut network_segment_ids = Vec::default();
+        for network_segment_name in subnets {
+            let segment_request = rpc::NetworkSegmentSearchFilter {
+                name: Some(network_segment_name.clone()),
+                tenant_org_id: None,
+            };
+
+            match self.0.find_network_segment_ids(segment_request).await {
+                Ok(response) => {
+                    network_segment_ids.extend_from_slice(&response.network_segments_ids);
+                }
+
+                Err(e) => {
+                    return Err(CarbideCliError::GenericError(format!(
+                        "network segment: {} retrieval error {}",
+                        network_segment_name, e
+                    )));
+                }
+            }
+        }
+
+        Ok(network_segment_ids)
+    }
+
     pub async fn allocate_instance(
         &self,
         machine: Machine,
@@ -1136,32 +1162,24 @@ impl ApiClient {
         modified_by: Option<String>,
     ) -> CarbideCliResult<rpc::Instance> {
         let (interface_configs, tenant_org) = if !allocate_instance.subnet.is_empty() {
-            // find all the segment ids for the specified subnets.
-            let mut network_segment_ids = Vec::default();
-            for network_segment_name in &allocate_instance.subnet {
-                let segment_request = rpc::NetworkSegmentSearchFilter {
-                    name: Some(network_segment_name.clone()),
-                    tenant_org_id: None,
-                };
-
-                match self.0.find_network_segment_ids(segment_request).await {
-                    Ok(response) => {
-                        network_segment_ids.extend_from_slice(&response.network_segments_ids);
-                    }
-
-                    Err(e) => {
-                        return Err(CarbideCliError::GenericError(format!(
-                            "network segment: {} retrieval error {}",
-                            network_segment_name, e
-                        )));
-                    }
-                }
+            if !allocate_instance.vf_vpc_prefix_id.is_empty() {
+                return Err(CarbideCliError::GenericError(
+                    "Cannot use vf_vpc_prefix_id with subnet".to_string(),
+                ));
             }
-            if network_segment_ids.is_empty() {
+            let pf_network_segment_ids = self
+                .get_subnet_ids_for_names(&allocate_instance.subnet)
+                .await?;
+            if pf_network_segment_ids.is_empty() {
                 return Err(CarbideCliError::GenericError(
                     "no network segments found.".to_string(),
                 ));
             }
+            let vf_network_segment_ids = self
+                .get_subnet_ids_for_names(&allocate_instance.vf_subnet)
+                .await?;
+            let vfs_per_pf = vf_network_segment_ids.len() / pf_network_segment_ids.len();
+
             let mut next_device_instance = HashMap::new();
 
             let Some(interfaces) = machine.discovery_info.map(|di| di.network_interfaces) else {
@@ -1179,7 +1197,14 @@ impl ApiClient {
                     .is_some_and(|v| v.to_ascii_lowercase().contains("mellanox"))
             });
             let mut interface_config = Vec::default();
-            for network_segment_id in network_segment_ids {
+            let mut vf_function_id = 1;
+            let mut vf_chunk_iter = if vfs_per_pf == 0 {
+                vf_network_segment_ids.chunks(vf_network_segment_ids.len())
+            } else {
+                vf_network_segment_ids.chunks(vfs_per_pf)
+            };
+
+            for network_segment_id in pf_network_segment_ids {
                 let device = interface_iter
                     .next()
                     .ok_or(CarbideCliError::GenericError(
@@ -1203,10 +1228,26 @@ impl ApiClient {
                     function_type: rpc::InterfaceFunctionType::Physical as i32,
                     network_segment_id: Some(network_segment_id.clone()), // to support legacy.
                     network_details: Some(NetworkDetails::SegmentId(network_segment_id)),
-                    device,
+                    device: device.clone(),
                     device_instance,
                     virtual_function_id: None,
-                })
+                });
+
+                if let Some(vf_network_segment_chunks) = vf_chunk_iter.next() {
+                    for vf_network_segment_id in vf_network_segment_chunks {
+                        interface_config.push(rpc::InstanceInterfaceConfig {
+                            function_type: rpc::InterfaceFunctionType::Virtual as i32,
+                            network_segment_id: Some(vf_network_segment_id.clone()), // to support legacy.
+                            network_details: Some(NetworkDetails::SegmentId(
+                                vf_network_segment_id.clone(),
+                            )),
+                            device: device.clone(),
+                            device_instance,
+                            virtual_function_id: Some(vf_function_id),
+                        });
+                        vf_function_id += 1;
+                    }
+                }
             }
 
             (
@@ -1225,33 +1266,42 @@ impl ApiClient {
             // Create a vector of interface configs for each VPC prefix.  only Mellanox devices are supported.
             let mut interface_index_map = HashMap::new();
             let mut interface_configs = Vec::new();
-            for (map_index, i) in discovery_info.network_interfaces.iter().enumerate() {
+            for (map_index, i) in discovery_info
+                .network_interfaces
+                .iter()
+                .filter(|i| {
+                    i.pci_properties
+                        .as_ref()
+                        .is_some_and(|pci| pci.vendor.to_ascii_lowercase().contains("mellanox"))
+                })
+                .enumerate()
+            {
                 if let Some(pci_properties) = &i.pci_properties {
-                    if pci_properties
-                        .vendor
-                        .to_ascii_lowercase()
-                        .contains("mellanox")
-                    {
-                        let Some(vpc_prefix_id) = allocate_instance.vpc_prefix_id.get(map_index)
-                        else {
-                            break;
-                        };
+                    let Some(vpc_prefix_id) = allocate_instance.vpc_prefix_id.get(map_index) else {
+                        tracing::debug!("No more vpc prefix ids; done");
+                        break;
+                    };
 
-                        let device_instance = *interface_index_map
-                            .entry(pci_properties.device.clone())
-                            .and_modify(|c| *c += 1)
-                            .or_insert(0u32);
-                        interface_configs.push(rpc::InstanceInterfaceConfig {
-                            function_type: rpc::InterfaceFunctionType::Physical as i32,
-                            network_segment_id: None,
-                            network_details: Some(NetworkDetails::VpcPrefixId(::rpc::Uuid {
-                                value: vpc_prefix_id.clone(),
-                            })),
-                            device: Some(pci_properties.device.clone()),
-                            device_instance,
-                            virtual_function_id: None,
-                        });
-                    }
+                    let device_instance = *interface_index_map
+                        .entry(pci_properties.device.clone())
+                        .and_modify(|c| *c += 1)
+                        .or_insert(0u32);
+
+                    let new_interface = rpc::InstanceInterfaceConfig {
+                        function_type: rpc::InterfaceFunctionType::Physical as i32,
+                        network_segment_id: None,
+                        network_details: Some(NetworkDetails::VpcPrefixId(::rpc::Uuid {
+                            value: vpc_prefix_id.clone(),
+                        })),
+                        device: Some(pci_properties.device.clone()),
+                        device_instance,
+                        virtual_function_id: None,
+                    };
+                    tracing::debug!("Adding interface: {:?}", new_interface);
+
+                    interface_configs.push(new_interface);
+                } else {
+                    tracing::debug!("No pci device info for interface: {i:?}");
                 }
             }
 
@@ -1269,9 +1319,15 @@ impl ApiClient {
             ));
         };
 
-        if interface_configs.len() != allocate_instance.subnet.len() {
+        if interface_configs.len()
+            != (allocate_instance.subnet.len()
+                + allocate_instance.vf_subnet.len()
+                + allocate_instance.vpc_prefix_id.len()
+                + allocate_instance.vf_vpc_prefix_id.len())
+        {
             return Err(CarbideCliError::GenericError(
-                "Interfaces could not be determinted.".to_string(),
+                "Could not create the correct number of interface configs to satisfy request."
+                    .to_string(),
             ));
         }
         let tenant_config = rpc::TenantConfig {
@@ -1333,6 +1389,7 @@ impl ApiClient {
             allow_unhealthy_machine: false,
         };
 
+        tracing::trace!("{}", serde_json::to_string(&instance_request).unwrap());
         self.0
             .allocate_instance(instance_request)
             .await

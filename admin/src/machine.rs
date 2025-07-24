@@ -652,8 +652,10 @@ pub async fn get_next_free_machine(
     min_interface_count: usize,
 ) -> Option<Machine> {
     while let Some(id) = machine_ids.pop_front() {
+        tracing::debug!("Checking {}", id);
         if let Ok(machine) = api_client.get_machine(id.clone()).await {
             if machine.state != "Ready" {
+                tracing::debug!("Machine is not ready");
                 continue;
             }
             if let Some(discovery_info) = &machine.discovery_info {
