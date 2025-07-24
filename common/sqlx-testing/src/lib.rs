@@ -181,6 +181,11 @@ async fn test_context(args: &TestArgs) -> Result<TestContext<Postgres>, sqlx::Er
 
     pool.acquire()
         .await?
+        .execute(&format!("drop database if exists {new_db_name:?};")[..])
+        .await?;
+
+    pool.acquire()
+        .await?
         .execute(&format!("create database {new_db_name:?} template {TEMPLATE_DB}")[..])
         .await?;
 
