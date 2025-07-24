@@ -17,6 +17,7 @@ members = [
     "common/measured-boot",
     "common/metrics-endpoint",
     "common/secrets",
+    "common/sqlx-testing",
     "common/ssh",
     "common/tls",
     "common/tonic-client-wrapper",
@@ -63,6 +64,7 @@ hyper-util = { version = "^0.1" }
 rustls = { version = "0.23.16" }
 rustls-pki-types = "1.10.0"
 sqlx = { version = "0.8.3" }
+sqlx-core = { version = "0.8.3" }
 
 opentelemetry = { version = "0.28.0", features = ["logs"] }
 opentelemetry_sdk = { version = "0.28.0", features = ["logs", "rt-tokio"] }
