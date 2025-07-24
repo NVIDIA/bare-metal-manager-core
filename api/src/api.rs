@@ -854,7 +854,7 @@ impl Forge for Api {
                 db::machine::update_state(
                     &mut txn,
                     &predicted_machine_id,
-                    ManagedHostState::DPUInit {
+                    &ManagedHostState::DPUInit {
                         dpu_states: DpuInitStates {
                             states: HashMap::from([(machine_id, DpuInitState::Init)]),
                         },
@@ -2114,16 +2114,21 @@ impl Forge for Api {
             db::machine::advance(
                 host_machine,
                 &mut txn,
-                ManagedHostState::ForceDeletion,
+                &ManagedHostState::ForceDeletion,
                 None,
             )
             .await
             .map_err(CarbideError::from)?;
         }
         for dpu_machine in dpu_machines.iter() {
-            db::machine::advance(dpu_machine, &mut txn, ManagedHostState::ForceDeletion, None)
-                .await
-                .map_err(CarbideError::from)?;
+            db::machine::advance(
+                dpu_machine,
+                &mut txn,
+                &ManagedHostState::ForceDeletion,
+                None,
+            )
+            .await
+            .map_err(CarbideError::from)?;
         }
 
         txn.commit().await.map_err(|e| {

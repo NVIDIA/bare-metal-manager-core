@@ -189,7 +189,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .unwrap();
 
     for _ in 1..300 {
-        db::machine::advance(&machine, &mut txn, ManagedHostState::Ready, None)
+        db::machine::advance(&machine, &mut txn, &ManagedHostState::Ready, None)
             .await
             .unwrap();
     }

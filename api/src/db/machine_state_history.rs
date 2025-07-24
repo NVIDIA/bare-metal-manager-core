@@ -99,7 +99,7 @@ pub async fn for_machine(
 pub async fn persist(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-    state: ManagedHostState,
+    state: &ManagedHostState,
     state_version: ConfigVersion,
 ) -> Result<MachineStateHistory, DatabaseError> {
     let query = "INSERT INTO machine_state_history (machine_id, state, state_version)

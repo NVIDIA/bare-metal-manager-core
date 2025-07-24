@@ -647,7 +647,7 @@ impl SiteExplorer {
         db::machine::update_state(
             &mut txn,
             &host_machine_id,
-            ManagedHostState::DpuDiscoveringState {
+            &ManagedHostState::DpuDiscoveringState {
                 dpu_states: DpuDiscoveringStates {
                     states: dpu_ids
                         .into_iter()

@@ -103,11 +103,9 @@ impl StateControllerIO for MachineStateControllerIO {
         txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         _old_version: ConfigVersion,
-        new_state: Self::ControllerState,
+        new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::machine::update_state(txn, object_id, new_state).await?;
-
-        Ok(())
+        db::machine::update_state(txn, object_id, new_state).await
     }
 
     async fn persist_outcome(

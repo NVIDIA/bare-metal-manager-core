@@ -741,7 +741,7 @@ async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
     db::machine::advance(
         &host_machine,
         &mut txn,
-        ManagedHostState::ForceDeletion,
+        &ManagedHostState::ForceDeletion,
         None,
     )
     .await
