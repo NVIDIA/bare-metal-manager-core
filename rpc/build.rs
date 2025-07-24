@@ -554,6 +554,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "common.MachineId",
             "#[derive(Eq, Ord, PartialOrd)]",
         )
+        .type_attribute(
+            "forge.InstanceAllocationRequest",
+            "#[derive(serde::Serialize)]",
+        )
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")
