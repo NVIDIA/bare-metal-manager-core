@@ -4,3 +4,5 @@
 # But not these files...
 !.gitignore
 !hostname
+!modprobe.d
+!modprobe.d/blacklist.conf
