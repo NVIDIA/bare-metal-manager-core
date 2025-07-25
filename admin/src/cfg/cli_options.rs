@@ -1861,6 +1861,12 @@ pub struct AllocateInstance {
 
     #[clap(long, help = "The VPC prefix to assign to a VF")]
     pub vf_vpc_prefix_id: Vec<String>,
+
+    #[clap(
+        long,
+        help = "The machine ids for the machines to use (instead of searching)"
+    )]
+    pub machine_id: Vec<MachineId>,
 }
 
 #[derive(Parser, Debug)]

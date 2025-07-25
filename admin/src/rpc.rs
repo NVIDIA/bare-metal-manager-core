@@ -1161,6 +1161,7 @@ impl ApiClient {
         instance_name: &str,
         modified_by: Option<String>,
     ) -> CarbideCliResult<rpc::Instance> {
+        let mut vf_function_id = 0;
         let (interface_configs, tenant_org) = if !allocate_instance.subnet.is_empty() {
             if !allocate_instance.vf_vpc_prefix_id.is_empty() {
                 return Err(CarbideCliError::GenericError(
@@ -1178,7 +1179,12 @@ impl ApiClient {
             let vf_network_segment_ids = self
                 .get_subnet_ids_for_names(&allocate_instance.vf_subnet)
                 .await?;
-            let vfs_per_pf = vf_network_segment_ids.len() / pf_network_segment_ids.len();
+            let vfs_per_pf = if vf_network_segment_ids.len() < pf_network_segment_ids.len() {
+                1
+            } else {
+                vf_network_segment_ids.len() / pf_network_segment_ids.len()
+            };
+            tracing::debug!("VFs per PF: {vfs_per_pf}");
 
             let mut next_device_instance = HashMap::new();
 
@@ -1197,12 +1203,7 @@ impl ApiClient {
                     .is_some_and(|v| v.to_ascii_lowercase().contains("mellanox"))
             });
             let mut interface_config = Vec::default();
-            let mut vf_function_id = 1;
-            let mut vf_chunk_iter = if vfs_per_pf == 0 {
-                vf_network_segment_ids.chunks(vf_network_segment_ids.len())
-            } else {
-                vf_network_segment_ids.chunks(vfs_per_pf)
-            };
+            let mut vf_chunk_iter = vf_network_segment_ids.chunks(vfs_per_pf);
 
             for network_segment_id in pf_network_segment_ids {
                 let device = interface_iter
@@ -1266,6 +1267,17 @@ impl ApiClient {
             // Create a vector of interface configs for each VPC prefix.  only Mellanox devices are supported.
             let mut interface_index_map = HashMap::new();
             let mut interface_configs = Vec::new();
+            let pf_vpc_prefix_ids = &allocate_instance.vpc_prefix_id;
+            let vf_vpc_prefix_ids = &allocate_instance.vf_vpc_prefix_id;
+
+            let vfs_per_pf = if vf_vpc_prefix_ids.len() < pf_vpc_prefix_ids.len() {
+                1
+            } else {
+                // pf_vpc_prefix_ids is checked for empty above (len() cannot be 0)
+                vf_vpc_prefix_ids.len() / pf_vpc_prefix_ids.len()
+            };
+            tracing::debug!("VFs per PF: {vfs_per_pf}");
+            let mut vf_chunk_iter = vf_vpc_prefix_ids.chunks(vfs_per_pf);
             for (map_index, i) in discovery_info
                 .network_interfaces
                 .iter()
@@ -1300,6 +1312,24 @@ impl ApiClient {
                     tracing::debug!("Adding interface: {:?}", new_interface);
 
                     interface_configs.push(new_interface);
+
+                    if let Some(vf_prefix_chunks) = vf_chunk_iter.next() {
+                        for vf_vpc_prefix_id in vf_prefix_chunks {
+                            let new_interface = rpc::InstanceInterfaceConfig {
+                                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+                                network_segment_id: None,
+                                network_details: Some(NetworkDetails::VpcPrefixId(::rpc::Uuid {
+                                    value: vf_vpc_prefix_id.clone(),
+                                })),
+                                device: Some(pci_properties.device.clone()),
+                                device_instance,
+                                virtual_function_id: Some(vf_function_id),
+                            };
+                            vf_function_id += 1;
+                            tracing::debug!("Adding interface: {:?}", new_interface);
+                            interface_configs.push(new_interface);
+                        }
+                    }
                 } else {
                     tracing::debug!("No pci device info for interface: {i:?}");
                 }
