@@ -576,13 +576,10 @@ impl Ufm {
         Ok(v.ufm_release_version)
     }
 
-    pub async fn raw_get(
-        &self,
-        path: &str,
-    ) -> Result<(serde_json::Value, ResponseDetails), UFMError> {
-        let (v, details): (serde_json::Value, _) = self.client.get(path).await?;
+    pub async fn raw_get(&self, path: &str) -> Result<(String, ResponseDetails), UFMError> {
+        let (body, details) = self.client.get_raw(path).await?;
 
-        Ok((v, details))
+        Ok((body, details))
     }
 }
 

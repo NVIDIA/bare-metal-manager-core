@@ -182,8 +182,8 @@ impl IBFabric for RestIBFabric {
     /// and return the response body.
     async fn raw_get(&self, path: &str) -> Result<IBFabricRawResponse, CarbideError> {
         let response = match self.ufm.raw_get(path).await {
-            Ok((value, details)) => IBFabricRawResponse {
-                body: serde_json::to_string(&value).unwrap_or_default(),
+            Ok((body, details)) => IBFabricRawResponse {
+                body,
                 code: details.status_code,
                 headers: details.headers,
             },
