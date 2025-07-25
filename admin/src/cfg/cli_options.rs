@@ -1334,6 +1334,7 @@ pub enum AdminPowerControlAction {
     ForceOff,
     GracefulRestart,
     ForceRestart,
+    ACPowercycle,
 }
 
 impl From<AdminPowerControlAction> for rpc::forge::admin_power_control_request::SystemPowerControl {
@@ -1353,6 +1354,9 @@ impl From<AdminPowerControlAction> for rpc::forge::admin_power_control_request::
             }
             AdminPowerControlAction::ForceRestart => {
                 rpc::forge::admin_power_control_request::SystemPowerControl::ForceRestart
+            }
+            AdminPowerControlAction::ACPowercycle => {
+                rpc::forge::admin_power_control_request::SystemPowerControl::AcPowercycle
             }
         }
     }

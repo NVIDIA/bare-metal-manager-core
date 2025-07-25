@@ -4770,6 +4770,9 @@ impl Forge for Api {
             ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceRestart => {
                 libredfish::SystemPowerControl::ForceRestart
             }
+            ::rpc::forge::admin_power_control_request::SystemPowerControl::AcPowercycle => {
+                libredfish::SystemPowerControl::ACPowercycle
+            }
         };
 
         crate::handlers::bmc_endpoint_explorer::redfish_power_control(

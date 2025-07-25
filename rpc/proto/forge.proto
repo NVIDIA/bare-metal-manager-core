@@ -3955,6 +3955,8 @@ message AdminPowerControlRequest {
     GracefulRestart =3;
     // Force restart. This is equivalent to pressing the reset button on the front panel.
     ForceRestart = 4;
+    // AC powercycle. This is equivalent to unplugging and reconnecting power cables. Not supported on Vikings.
+    ACPowercycle = 5;
   }
   optional BmcEndpointRequest bmc_endpoint_request = 1;
   optional string machine_id = 2;
