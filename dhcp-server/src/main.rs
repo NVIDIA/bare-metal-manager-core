@@ -19,7 +19,7 @@ mod rpc;
 mod util;
 mod vendor_class;
 
-use std::{error::Error, net::SocketAddr, sync::Arc, time::Duration};
+use std::{error::Error, net::SocketAddr, sync::Arc};
 
 use ::rpc::{
     MachineId, Uuid,
@@ -40,6 +40,8 @@ use tonic::async_trait;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{EnvFilter, prelude::*};
 use utils::models::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
+
+use crate::util::get_socket;
 
 pub struct Server {
     socket: Arc<UdpSocket>,
@@ -104,33 +106,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let handler: Arc<Box<dyn DhcpMode>> = Arc::new(get_mode(&args_mode));
             let listen_address = SocketAddr::new(std::net::IpAddr::from([0, 0, 0, 0]), 67);
 
-            // Create a socket2.socket. std and tokio sockets do not support advance options like
-            // reuseaddr to be set.
-            let socket = socket2::Socket::new(
-                socket2::Domain::IPV4,
-                socket2::Type::DGRAM,
-                Some(socket2::Protocol::UDP),
-            )
-            .unwrap();
-            socket.set_reuse_address(true).unwrap();
-            socket.set_nonblocking(true).unwrap();
-            socket.bind(&listen_address.into()).unwrap();
-            let mut retries_left = 10;
-            while retries_left > 0 && socket.bind_device(Some(interface.as_bytes())).is_err() {
-                retries_left -= 1;
-                tracing::info!(
-                    "Interface {interface} not ready, retrying {retries_left} more times"
-                );
-                tokio::time::sleep(Duration::from_secs(2)).await;
-            }
-            if retries_left == 0 {
-                panic!("Cannot bind interface {interface}.");
-            }
-            socket.set_broadcast(true).unwrap(); // Not for listening, but allowed for sending.
-
-            // Now create tokio UDPSocket from socket2, which has all needed advanced options set.
-            let socket = UdpSocket::from_std(socket.into()).unwrap();
-
+            let socket = get_socket(listen_address, interface.clone()).await;
             tracing::info!(
                 "Listening on {:?} on interface: {}, mode: {:?}",
                 listen_address,
@@ -138,7 +114,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 handler
             );
 
-            let server: Server = Server {
+            let mut server = Server {
                 socket: Arc::new(socket),
             };
 
@@ -151,7 +127,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // Listen on each interface and process it.
             loop {
                 let mut buf = [0; 1500];
-                let (len, addr) = server.socket.recv_from(&mut buf).await.unwrap();
+                let (len, addr) = match server.socket.recv_from(&mut buf).await {
+                    Ok((len, addr)) => (len, addr),
+                    Err(err) => {
+                        // We don't know after this read is failed, will we be able to read again
+                        // from this socket? Mostly no. In this case, recreate the socket.
+                        // We observed this fluctuation during admin to tenant network switch.
+                        tracing::error!("Socket recv failed with error: {err}");
+                        // Try to close the existing socket.
+                        drop(server.socket);
+                        tracing::info!("Recreating the socket on {listen_address}, {interface}");
+                        server.socket =
+                            Arc::new(get_socket(listen_address, interface.clone()).await);
+                        continue;
+                    }
+                };
 
                 // We never close this semaphore, so if an error is returned it should be
                 // TryAcquireError::NoPermits; Not checking explicitly.
