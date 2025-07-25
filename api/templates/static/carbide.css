@@ -603,6 +603,23 @@ input[type="submit"]:hover {
   border-color: var(--accent-green-hover);
 }
 
+/* Notification banner for restart reminders */
+.notification-banner {
+  display: none;
+  min-height: 30px;
+  padding: 8px 12px;
+  text-align: center;
+  line-height: 1.4;
+  margin-right: 10px;
+  background-color: var(--accent-green-light);
+  color: var(--accent-green-hover);
+  border-radius: 8px;
+  transition: opacity 1s ease;
+  white-space: nowrap;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
 /* Search button icon */
 .search-container input[type="submit"] {
   width: 40px;

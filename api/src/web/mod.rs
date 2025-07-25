@@ -303,6 +303,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 post(machine::maintenance),
             )
             .route("/machine/:machine_id/quarantine", post(machine::quarantine))
+            .route(
+                "/machine/:machine_id/set-dpu-first-boot-order",
+                post(machine::set_dpu_first_boot_order),
+            )
             .route("/machine/:machine_id/health", get(health::health))
             .route(
                 "/machine/:machine_id/health-history",

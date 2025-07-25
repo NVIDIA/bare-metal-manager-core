@@ -146,9 +146,9 @@
 			<div>
 				<em>Current Status</em> - {{ secure_boot_status }}
 			</div>
-			{% include "restart_reminder.html" %}
-			<div>
-				<form id="disable_secure_boot" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/disable-secure-boot" onclick="reminder(event)">
+				<div style="display: flex; align-items: center; gap: 8px;">
+				<form id="disable_secure_boot" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/disable-secure-boot" onsubmit="reminder(event)">
+					{% include "restart_reminder.html" %}
 					<input type="submit" value="Disable Secure Boot">
 				</form>
 			</div>
@@ -171,13 +171,15 @@
 		<th>Boot Order</th>
 		<td>
 			<div style="margin-bottom: 12px;">
-				<form method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/set-dpu-first-boot-order">
+				<form id="set_first_boot_order" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/set-dpu-first-boot-order" onsubmit="reminder(event)">
 					<div style="display: flex; gap: 8px; align-items: center;">
 						<input type="text" name="boot_interface_mac" 
 							   placeholder="Boot Interface MAC"
 							   title="Enter a valid MAC address (e.g. 00:11:22:33:44:55)"
+							   style="width: 200px;"
 							   required>
-						<input type="submit" value="Set DPU First">
+						<input type="submit" value="Set First">
+						{% include "restart_reminder.html" %}
 					</div>
 				</form>
 			</div>

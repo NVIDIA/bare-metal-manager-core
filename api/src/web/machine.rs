@@ -930,3 +930,36 @@ pub async fn quarantine(
 
     Redirect::to(&view_url)
 }
+
+#[derive(Deserialize, Debug)]
+pub struct SetDpuFirstBootOrderAction {
+    bmc_ip: String,
+    boot_interface_mac: String,
+}
+
+pub async fn set_dpu_first_boot_order(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(machine_id): AxumPath<String>,
+    Form(form): Form<SetDpuFirstBootOrderAction>,
+) -> Response {
+    let view_url = format!("/admin/machine/{machine_id}");
+
+    if let Err(err) = state
+        .set_dpu_first_boot_order(tonic::Request::new(
+            rpc::forge::SetDpuFirstBootOrderRequest {
+                machine_id: None,
+                bmc_endpoint_request: Some(rpc::forge::BmcEndpointRequest {
+                    ip_address: form.bmc_ip,
+                    mac_address: None,
+                }),
+                boot_interface_mac: Some(form.boot_interface_mac),
+            },
+        ))
+        .await
+    {
+        tracing::error!(%err, "set_dpu_first_boot_order failed");
+        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+    }
+
+    Redirect::to(&view_url).into_response()
+}

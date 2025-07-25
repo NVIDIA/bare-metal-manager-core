@@ -219,6 +219,26 @@
 			</div>
 		</td>
 	</tr>
+	{% if is_host %}
+	<tr>
+		<th>Boot Order</th>
+		<td class="action-cell">
+			<div></div>
+			<div style="display: flex; align-items: center; gap: 8px;">
+				<form id="set_dpu_first_boot_order" method="POST" action="/admin/machine/{{ id }}/set-dpu-first-boot-order" onsubmit="reminder(event)">
+					<input type="hidden" name="bmc_ip" value="{{ bmc_info.ip|option_fmt }}">
+					{% for interface in interfaces %}
+						{% if interface.primary == "true" %}
+							<input type="hidden" name="boot_interface_mac" value="{{ interface.mac_address }}">
+						{% endif %}
+					{% endfor %}
+					<input type="submit" value="Set DPU first">
+				</form>
+				{% include "restart_reminder.html" %}
+			</div>
+		</td>
+	</tr>
+	{% endif %}
 </table>
 {% else %}
 Missing BMC Data
