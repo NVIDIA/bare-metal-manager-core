@@ -313,6 +313,15 @@ impl RestClient {
         Ok((data, resp.details))
     }
 
+    /// Performs a HTTP GET request anad returns the response directly without trying to deserialize it
+    pub async fn get_raw<'a>(
+        &'a self,
+        path: &'a str,
+    ) -> Result<(String, ResponseDetails), RestError> {
+        let resp = self.execute_request(Method::GET, path, None).await?;
+        Ok((resp.body, resp.details))
+    }
+
     pub async fn list<'a, T: serde::de::DeserializeOwned>(
         &'a self,
         path: &'a str,
