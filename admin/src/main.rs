@@ -511,17 +511,26 @@ async fn main() -> color_eyre::Result<()> {
                     )
                     .into());
                 }
-                let mut machine_ids: VecDeque<_> = api_client
-                    .0
-                    .find_machine_ids(::rpc::forge::MachineSearchConfig {
-                        include_predicted_host: true,
-                        ..Default::default()
-                    })
-                    .await?
-                    .machine_ids
-                    .into_iter()
-                    .map(|id| id.to_string())
-                    .collect();
+
+                let mut machine_ids: VecDeque<_> = if !allocate_request.machine_id.is_empty() {
+                    allocate_request
+                        .machine_id
+                        .iter()
+                        .map(std::string::ToString::to_string)
+                        .collect()
+                } else {
+                    api_client
+                        .0
+                        .find_machine_ids(::rpc::forge::MachineSearchConfig {
+                            include_predicted_host: true,
+                            ..Default::default()
+                        })
+                        .await?
+                        .machine_ids
+                        .into_iter()
+                        .map(|id| id.to_string())
+                        .collect()
+                };
 
                 let min_interface_count = if !allocate_request.vpc_prefix_id.is_empty() {
                     allocate_request.vpc_prefix_id.len()
