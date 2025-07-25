@@ -397,36 +397,38 @@ async fn record_machine_infiniband_status_observation(
         // Search for the GUID in all fabrics. Record the fabric where we found it, plus the actual data
         // Note: This only works since GUIDs are globally unique
         let mut found_port_data = None;
-        for (fabric, fabric_data) in data_by_fabric.iter() {
+        for (fabric_id, fabric_data) in data_by_fabric.iter() {
             if let Some(port_data) = fabric_data
                 .ports_by_guid
                 .as_ref()
                 .and_then(|ports_by_guid| ports_by_guid.get(guid))
             {
-                found_port_data = Some((fabric, port_data));
+                found_port_data = Some((fabric_id, port_data));
                 break;
             }
         }
 
-        let lid = match found_port_data {
-            Some((_fabric, port_data)) => {
+        let (fabric_id, lid) = match found_port_data {
+            Some((fabric_id, port_data)) => (
+                fabric_id,
                 if port_data.state == Some(IBPortState::Active) {
                     port_data.lid as u16
                 } else {
                     0xffff_u16
-                }
-            }
+                },
+            ),
             None => {
                 // TODO: We should differentiate between "Can not communicate with fabric"
                 // and "UFM definitely did not know about this GUID".
-                0xffff_u16
+                (&String::new(), 0xffff_u16)
             }
         };
 
         ib_interfaces_status.push(MachineIbInterfaceStatusObservation {
             guid: guid.clone(),
             lid,
-        })
+            fabric_id: fabric_id.to_string(),
+        });
     }
 
     let cur = MachineInfinibandStatusObservation {

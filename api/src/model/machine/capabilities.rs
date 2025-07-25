@@ -700,10 +700,13 @@ impl MachineCapabilitiesSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{
-        MacAddress, NetworkSegmentId,
-        hardware_info::*,
-        machine::{MachineInterfaceId, infiniband::MachineIbInterfaceStatusObservation},
+    use crate::{
+        ib::DEFAULT_IB_FABRIC_NAME,
+        model::{
+            MacAddress, NetworkSegmentId,
+            hardware_info::*,
+            machine::{MachineInterfaceId, infiniband::MachineIbInterfaceStatusObservation},
+        },
     };
     use ::rpc::forge as rpc;
     use std::str::FromStr;
@@ -1166,26 +1169,32 @@ mod tests {
                 MachineIbInterfaceStatusObservation {
                     guid: "946dae03002ac100".to_string(),
                     lid: 1,
+                    fabric_id: DEFAULT_IB_FABRIC_NAME.to_string(),
                 },
                 MachineIbInterfaceStatusObservation {
                     guid: "946dae03002ac101".to_string(),
                     lid: 2,
+                    fabric_id: DEFAULT_IB_FABRIC_NAME.to_string(),
                 },
                 MachineIbInterfaceStatusObservation {
                     guid: "946dae03002ac102".to_string(),
                     lid: 3,
+                    fabric_id: DEFAULT_IB_FABRIC_NAME.to_string(),
                 },
                 MachineIbInterfaceStatusObservation {
                     guid: "946dae03002ac103".to_string(),
                     lid: 4,
+                    fabric_id: DEFAULT_IB_FABRIC_NAME.to_string(),
                 },
                 MachineIbInterfaceStatusObservation {
                     guid: "946dae03002ac752".to_string(),
                     lid: 5,
+                    fabric_id: DEFAULT_IB_FABRIC_NAME.to_string(),
                 },
                 MachineIbInterfaceStatusObservation {
                     guid: "946dae03002ac753".to_string(),
                     lid: 6,
+                    fabric_id: DEFAULT_IB_FABRIC_NAME.to_string(),
                 },
             ],
             observed_at: chrono::Utc::now(),
@@ -1240,22 +1249,27 @@ mod tests {
                 MachineIbInterfaceStatusObservation {
                     guid: "946dae03002ac752".to_string(),
                     lid: 0xffff_u16,
+                    fabric_id: DEFAULT_IB_FABRIC_NAME.to_string(),
                 },
                 MachineIbInterfaceStatusObservation {
                     guid: "946dae03002ac753".to_string(),
                     lid: 1,
+                    fabric_id: DEFAULT_IB_FABRIC_NAME.to_string(),
                 },
                 MachineIbInterfaceStatusObservation {
                     guid: "946dae03002ac103".to_string(),
                     lid: 2,
+                    fabric_id: DEFAULT_IB_FABRIC_NAME.to_string(),
                 },
                 MachineIbInterfaceStatusObservation {
                     guid: "946dae03002ac101".to_string(),
                     lid: 4,
+                    fabric_id: DEFAULT_IB_FABRIC_NAME.to_string(),
                 },
                 MachineIbInterfaceStatusObservation {
                     guid: "946dae03002ac100".to_string(),
                     lid: 0xffff_u16,
+                    fabric_id: DEFAULT_IB_FABRIC_NAME.to_string(),
                 },
             ],
             observed_at: chrono::Utc::now(),

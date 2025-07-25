@@ -272,8 +272,8 @@ Missing BMC Data
 			<th>Vendor</th>
 			<th>GUID</th>
 			<th>Slot</th>
+			<th>Visible on IB Fabric</th>
 			<th>LID</th>
-			<th>Visible from UFM</th>
 			<th>Last changed at</th>
 		</tr>
 	</thead>
@@ -284,16 +284,12 @@ Missing BMC Data
 			<td>{{ interface.vendor }}</td>
 			<td>{{ interface.guid }}</td>
 			<td>{{ interface.slot }}</td>
-			<td>{{ interface.lid }}</td>
-			{% if interface.ufm_visible == "false" %}
-			<td class="cell-error">
-			{% else if interface.ufm_visible == "unknown" %}
-			<td class="cell-warning">
+			{% if interface.fabric_id == "" %}
+			<td class="cell-error">none</td>
 			{% else %}
-			<td>
+			<td>{{ interface.fabric_id }}</td>
 			{% endif %}
-				{{ interface.ufm_visible }}
-			</td>
+			<td>{{ interface.lid }}</td>
 			<td>{{ interface.observed_at }}</td>
 		</tr>
 	{% endfor %}

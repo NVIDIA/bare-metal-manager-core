@@ -463,7 +463,7 @@ struct MachineIbInterfaceDisplay {
     vendor: String,
     slot: String,
     lid: String,
-    ufm_visible: String,
+    fabric_id: String,
     observed_at: String,
 }
 
@@ -548,7 +548,6 @@ impl From<forgerpc::Machine> for MachineDetail {
             for iface in di.infiniband_interfaces.into_iter() {
                 let mut iface_display = MachineIbInterfaceDisplay {
                     guid: iface.guid,
-                    ufm_visible: "unknown".to_string(),
                     ..Default::default()
                 };
                 if let Some(props) = iface.pci_properties {
@@ -567,15 +566,10 @@ impl From<forgerpc::Machine> for MachineDetail {
 
                     for iter_status in ib_status.ib_interfaces.iter() {
                         if Some(&iface_display.guid) == iter_status.guid.as_ref() {
+                            iface_display.fabric_id =
+                                iter_status.fabric_id.clone().unwrap_or_default();
                             iface_display.lid =
                                 format!("0x{:x}", iter_status.lid.unwrap_or_default());
-                            if let Some(lid) = iter_status.lid {
-                                if lid == 0xFFFF {
-                                    iface_display.ufm_visible = "false".to_string();
-                                } else {
-                                    iface_display.ufm_visible = "true".to_string();
-                                }
-                            }
                             break;
                         }
                     }
