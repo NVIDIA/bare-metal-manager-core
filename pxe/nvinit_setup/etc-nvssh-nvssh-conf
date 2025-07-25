@@ -1,6 +1,6 @@
 nvssh_default_shell="/bin/bash"
-nvssh_allowed_roles="nsv-egx-dev,egx-admins,ngc-nsv-mission-control-nvssh-access,forge-dev-ssh-access"
-nvssh_allowed_sudo_roles="nsv-egx-dev,egx-admins,ngc-nsv-mission-control-nvssh-access,forge-dev-ssh-access"
+nvssh_allowed_roles="access-forge-dgxc-prod-admin,access-forge-dgxc-prod-operator,access-forge-dgxc-prod-viewer"
+nvssh_allowed_sudo_roles="access-forge-dgxc-prod-admin,access-forge-dgxc-prod-operator"
 nvssh_allowed_sudo_nopasswd_roles="fc-automation"
 nvssh_vault_addr="https://prod.vault.nvidia.com"
 nvssh_vault_ssh_mount_point="ssh-otp"
