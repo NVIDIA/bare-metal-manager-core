@@ -40,4 +40,5 @@ mkdir -p /opt/shorelineagent/onprem
 mkdir -p /opt/shorelineagent/secrets
 touch /opt/shorelineagent/scraper.yml
 
+rmmod mlx5_ib || true
 modprobe mlx5_ib || true
