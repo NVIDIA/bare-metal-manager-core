@@ -2161,13 +2161,14 @@ message MachineInterface {
 
 // Infiniband interface status description
 message InfinibandStatusObservation {
-  // The GUID of the hardware device that this interface is attached to
+  // The actual/observed state of all InfiniBand interfaces in Machine
   repeated MachineIbInterface ib_interfaces = 1;
   // When the IB status was last observed
   optional google.protobuf.Timestamp observed_at = 2;
 }
 
-// Infiniband interface description on a machine
+// Observed state of a single IB interface
+// This is the information that Carbide collects from UFM
 message MachineIbInterface {
   // The GUID of the hardware device that this interface is attached to
   optional string pf_guid = 1;
@@ -2183,6 +2184,10 @@ message MachineIbInterface {
   // The local id of this IB interface; if interface configuration has not been completed, the value is 0.
   // This value is 0xffff for devices in non active state.
   optional uint32 lid = 11;
+
+  // The ID of the fabric on which the GUID has been observed
+  // This is empty if the GUID hasn't been observed on any fabric
+  optional string fabric_id = 3;
 }
 
 message DhcpDiscovery {

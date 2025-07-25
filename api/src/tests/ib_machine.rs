@@ -70,6 +70,7 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
                 .iter()
                 .find(|iface| iface.guid() == ib_iface.guid)
                 .expect("IB interface with matching GUID was not found");
+            assert_eq!(iface_status.fabric_id(), "default");
             assert!(iface_status.lid.is_some());
             assert_ne!(iface_status.lid(), 0xffff_u32);
             assert!(
@@ -148,6 +149,7 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
                 .iter()
                 .find(|iface| iface.guid() == ib_iface.guid)
                 .expect("IB interface with matching GUID was not found");
+            assert_eq!(iface_status.fabric_id(), "default");
             assert!(iface_status.lid.is_some());
             if ib_iface.guid == guid1 || ib_iface.guid == guid3 {
                 assert_eq!(iface_status.lid(), 0xffff_u32);
