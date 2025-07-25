@@ -46,6 +46,17 @@ pub enum RestError {
         body: String,
         headers: http::HeaderMap,
     },
+    /// This error type is just needed because UFM in some cases does not return a 404 status
+    /// code but a 200 status code with a body containing {}
+    #[error(
+        "Resource at path {path} was not found. UFM returned: '{body}'. Status code: {status_code}"
+    )]
+    NotFound {
+        path: String,
+        status_code: u16,
+        body: String,
+        headers: http::HeaderMap,
+    },
 }
 
 impl From<hyper::Error> for RestError {
@@ -98,6 +109,7 @@ pub struct RestClient {
 }
 
 impl RestClient {
+    #[allow(clippy::result_large_err)]
     pub fn new(conf: &RestClientConfig) -> Result<RestClient, RestError> {
         let mut auth_info = conf.auth_info.clone().trim().to_string();
         let mut auto_cert: Option<UFMCert> = None;
@@ -277,6 +289,16 @@ impl RestClient {
         path: &'a str,
     ) -> Result<(T, ResponseDetails), RestError> {
         let resp = self.execute_request(Method::GET, path, None).await?;
+        // UFM uses {} with a 200 status code to indicate "Not Found"
+        if resp.body == "{}" {
+            return Err(RestError::NotFound {
+                path: path.to_string(),
+                status_code: resp.details.status_code,
+                body: resp.body,
+                headers: resp.details.headers,
+            });
+        }
+
         let data = match serde_json::from_str(&resp.body) {
             Ok(data) => data,
             Err(_) => {

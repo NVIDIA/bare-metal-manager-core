@@ -215,6 +215,17 @@ pub enum UFMError {
         body: String,
         headers: http::HeaderMap,
     },
+    /// This error type is just needed because UFM in some cases does not return a 404 status
+    /// code but a 200 status code with a body containing {}
+    #[error(
+        "Resource at path {path} was not found. UFM returned: '{body}'. Status code: {status_code}"
+    )]
+    NotFound {
+        path: String,
+        status_code: u16,
+        body: String,
+        headers: http::HeaderMap,
+    },
 }
 
 impl From<RestError> for UFMError {
@@ -240,6 +251,17 @@ impl From<RestError> for UFMError {
                 body,
                 headers,
             },
+            RestError::NotFound {
+                path,
+                status_code,
+                body,
+                headers,
+            } => UFMError::NotFound {
+                path,
+                status_code,
+                body,
+                headers,
+            },
         }
     }
 }
@@ -259,6 +281,7 @@ pub struct UFMConfig {
     pub cert: Option<UFMCert>,
 }
 
+#[allow(clippy::result_large_err)]
 pub fn connect(conf: UFMConfig) -> Result<Ufm, UFMError> {
     let addr = Url::parse(&conf.address)
         .map_err(|_| UFMError::InvalidConfig(format!("invalid UFM url: {}", conf.address)))?;
