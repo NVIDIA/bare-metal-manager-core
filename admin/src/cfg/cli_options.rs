@@ -2228,16 +2228,12 @@ pub struct CopyBfbToDpuRshimArgs {
 pub struct CreateBmcUserArgs {
     #[clap(long, short, help = "IP of the BMC where we want to create a new user")]
     pub ip_address: Option<String>,
-    #[clap(
-        long,
-        short,
-        help = "MAC of the BMC where we want to create a new user"
-    )]
+    #[clap(long, help = "MAC of the BMC where we want to create a new user")]
     pub mac_address: Option<MacAddress>,
     #[clap(
         long,
         short,
-        help = "ID of the machine where we want to create a new BMC user"
+        help = "ID of the machine where we want to create a new user"
     )]
     pub machine: Option<String>,
 
@@ -2245,25 +2241,21 @@ pub struct CreateBmcUserArgs {
     pub username: String,
     #[clap(long, short, help = "Password of new BMC account")]
     pub password: String,
-    #[clap(long, short, help = "Role of new BMC account")]
+    #[clap(
+        long,
+        short,
+        help = "Role of new BMC account ('administrator', 'operator', 'readonly', 'noaccess')"
+    )]
     pub role_id: Option<String>,
 }
 
 #[derive(Parser, Debug)]
 pub struct DeleteBmcUserArgs {
-    #[clap(long, short, help = "IP of the BMC where we want to create a new user")]
+    #[clap(long, short, help = "IP of the BMC where we want to delete a user")]
     pub ip_address: Option<String>,
-    #[clap(
-        long,
-        short,
-        help = "MAC of the BMC where we want to create a new user"
-    )]
+    #[clap(long, help = "MAC of the BMC where we want to delete a user")]
     pub mac_address: Option<MacAddress>,
-    #[clap(
-        long,
-        short,
-        help = "ID of the machine where we want to create a new BMC user"
-    )]
+    #[clap(long, short, help = "ID of the machine where we want to delete a user")]
     pub machine: Option<String>,
 
     #[clap(long, short, help = "Username of BMC account to delete")]
