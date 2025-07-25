@@ -204,7 +204,19 @@ impl IBFabric for RestIBFabric {
 
 impl From<UFMError> for CarbideError {
     fn from(e: UFMError) -> Self {
-        CarbideError::IBFabricError(e.to_string())
+        match e {
+            // This is required to let the IB partition handler move on into the final deletion state
+            UFMError::NotFound {
+                path,
+                status_code: _,
+                body: _,
+                headers: _,
+            } => CarbideError::NotFoundError {
+                kind: "ufm_path",
+                id: path,
+            },
+            _ => CarbideError::IBFabricError(e.to_string()),
+        }
     }
 }
 
