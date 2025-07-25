@@ -29,6 +29,10 @@ pub struct IbFabricMonitorMetrics {
     pub fabrics: HashMap<String, FabricMetrics>,
     /// The amount of Machines where the IB status observation got updated
     pub num_machine_ib_status_updates: usize,
+    /// The amount of Machines with a certain port state
+    /// Key: Tuple of total and active amount of IB ports on the Machines
+    /// Value: Amount of Machines with that amount of total and active ports
+    pub num_machines_by_port_states: HashMap<(usize, usize), usize>,
 }
 
 /// Metrics collected for a single fabric
@@ -67,6 +71,7 @@ impl IbFabricMonitorMetrics {
             num_fabrics: 0,
             fabrics: HashMap::new(),
             num_machine_ib_status_updates: 0,
+            num_machines_by_port_states: HashMap::new(),
         }
     }
 }
@@ -107,6 +112,33 @@ impl IbFabricMonitorInstruments {
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
                         o.observe(metrics.num_machine_ib_status_updates as u64, attrs);
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_ib_monitor_machines_by_port_state_count")
+                .with_description(
+                    "The amount of Machines where the amount of total and active ports matches the values in attributes",
+                )
+                .with_callback(move |o| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (&(total_ports, active_ports), &num_machines) in metrics.num_machines_by_port_states.iter() {
+                            o.observe(
+                                num_machines as u64,
+                                &[
+                                    attrs,
+                                    &[
+                                        KeyValue::new("total_ports", total_ports as i64),
+                                        KeyValue::new("active_ports", active_ports as i64),
+                                    ],
+                                ]
+                                .concat(),
+                            );
+                        }
                     })
                 })
                 .build();

@@ -367,6 +367,10 @@ async fn record_machine_infiniband_status_observation(
 ) -> Result<(), CarbideError> {
     if mh_snapshot.host_snapshot.hardware_info.is_none() {
         // Skip status update while hardware info is not available
+        *metrics
+            .num_machines_by_port_states
+            .entry((0, 0))
+            .or_default() += 1;
         return Ok(());
     }
 
@@ -393,6 +397,7 @@ async fn record_machine_infiniband_status_observation(
     let mut ib_interfaces_status: Vec<MachineIbInterfaceStatusObservation> =
         Vec::with_capacity(guids.len());
 
+    let mut active_ports = 0;
     for guid in guids.iter() {
         // Search for the GUID in all fabrics. Record the fabric where we found it, plus the actual data
         // Note: This only works since GUIDs are globally unique
@@ -411,6 +416,7 @@ async fn record_machine_infiniband_status_observation(
         let lid = match found_port_data {
             Some((_fabric, port_data)) => {
                 if port_data.state == Some(IBPortState::Active) {
+                    active_ports += 1;
                     port_data.lid as u16
                 } else {
                     0xffff_u16
@@ -428,6 +434,11 @@ async fn record_machine_infiniband_status_observation(
             lid,
         })
     }
+
+    *metrics
+        .num_machines_by_port_states
+        .entry((guids.len(), active_ports))
+        .or_default() += 1;
 
     let cur = MachineInfinibandStatusObservation {
         observed_at: Utc::now(),

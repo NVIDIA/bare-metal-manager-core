@@ -82,6 +82,14 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
 
         assert_ne!(ib_status.ib_interfaces.len(), 0);
     }
+    assert_eq!(
+        env.test_meter
+            .parsed_metrics("forge_ib_monitor_machines_by_port_state_count"),
+        vec![(
+            "{active_ports=\"6\",total_ports=\"6\"}".to_string(),
+            "2".to_string()
+        )]
+    );
 
     // Down the first and third interface of host_machine_1 and check
     // whether this gets reflected in the observed status
@@ -100,6 +108,20 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
             .formatted_metric("forge_ib_monitor_machine_ib_status_updates_count")
             .unwrap(),
         "1"
+    );
+    assert_eq!(
+        env.test_meter
+            .parsed_metrics("forge_ib_monitor_machines_by_port_state_count"),
+        vec![
+            (
+                "{active_ports=\"5\",total_ports=\"6\"}".to_string(),
+                "1".to_string()
+            ),
+            (
+                "{active_ports=\"6\",total_ports=\"6\"}".to_string(),
+                "1".to_string()
+            )
+        ]
     );
 
     active_lids.clear();
