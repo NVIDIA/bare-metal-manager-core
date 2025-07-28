@@ -297,18 +297,27 @@ pub struct PowerManagerOptions {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct RouteTargetConfig {
+    #[serde(default)]
+    pub asn: u32,
+    #[serde(default)]
+    pub vni: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct FnnConfig {
     #[serde(default)]
     pub admin_vpc: Option<AdminFnnConfig>,
 
-    /// GNI will import a common route-target for internal
-    /// tenant routes, reducing the coordination needed
-    /// between forge and GNI.  We'll double-tag our
-    /// internal tenant routes with this tag.
+    /// We'll double-tag our internal tenant routes with this tag.
+    /// Original consumer is GNI, who will import a common
+    /// route-target for internal tenant routes, reducing
+    /// the coordination needed between forge and GNI,
+    /// but who knows what the future holds.
     #[serde(default)]
-    pub common_internal_route_asn: Option<u32>,
+    pub common_internal_route_target: Option<RouteTargetConfig>,
     #[serde(default)]
-    pub common_internal_route_vni: Option<u32>,
+    pub additional_route_target_imports: Vec<RouteTargetConfig>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]

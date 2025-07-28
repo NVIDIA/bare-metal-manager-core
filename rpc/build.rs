@@ -551,6 +551,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .type_attribute(
+            "common.RouteTarget",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
             "common.MachineId",
             "#[derive(Eq, Ord, PartialOrd)]",
         )

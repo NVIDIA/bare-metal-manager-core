@@ -335,6 +335,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     )
                 };
 
+                let additional_route_target_imports = opts
+                    .additional_fnn_route_target_import
+                    .into_iter()
+                    .map(|r| serde_json::from_str::<nvue::RouteTargetConfig>(&r))
+                    .collect::<Result<Vec<nvue::RouteTargetConfig>, _>>()?;
+
                 let access_vlans = opts
                     .vlan
                     .into_iter()
@@ -358,8 +364,11 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     loopback_ip: opts.loopback_ip.to_string(),
                     asn: opts.asn,
                     datacenter_asn: opts.datacenter_asn,
-                    common_internal_route_asn: opts.common_internal_route_asn,
-                    common_internal_route_vni: opts.common_internal_route_vni,
+                    common_internal_route_target: opts
+                        .common_internal_route_target
+                        .map(|r| serde_json::from_str::<nvue::RouteTargetConfig>(&r))
+                        .transpose()?,
+                    additional_route_target_imports,
                     dpu_hostname: opts.dpu_hostname,
                     dpu_search_domain: "".to_string(),
                     uplinks: opts.uplinks,

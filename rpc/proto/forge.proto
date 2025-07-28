@@ -2425,8 +2425,12 @@ message ManagedHostNetworkConfigResponse {
   // tenant routes, reducing the coordination needed
   // between forge and GNI.  We'll double-tag our
   // internal tenant routes with this tag.
-  optional uint32 common_internal_route_asn = 109;
-  optional uint32 common_internal_route_vni = 110;
+  optional common.RouteTarget common_internal_route_target = 109;
+
+  // Additionl RTs that we can import if needed for additional services,
+  // or to make it easier to handle GNI changes, such as a swap
+  // in the default-route RT.
+  repeated common.RouteTarget additional_route_target_imports = 110;
 }
 
 message ManagedHostQuarantineState {

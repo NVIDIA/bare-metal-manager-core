@@ -33,7 +33,7 @@ use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
 use crate::model::machine::{InstanceState, ManagedHostState};
 use crate::{CarbideError, ethernet_virtualization};
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
+use ::rpc::{common as rpc_common, forge as rpc};
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_uuid::{machine::MachineId, machine::MachineInterfaceId};
 use itertools::Itertools;
@@ -490,16 +490,28 @@ pub(crate) async fn get_managed_host_network_config_inner(
         min_dpu_functioning_links: api.runtime_config.min_dpu_functioning_links,
         dpu_network_pinger_type: api.runtime_config.dpu_network_monitor_pinger_type.clone(),
         internet_l3_vni: Some(api.runtime_config.internet_l3_vni),
-        common_internal_route_asn: api
+        common_internal_route_target: api.runtime_config.fnn.as_ref().and_then(|c| {
+            c.common_internal_route_target
+                .as_ref()
+                .map(|rt| rpc_common::RouteTarget {
+                    asn: rt.asn,
+                    vni: rt.vni,
+                })
+        }),
+        additional_route_target_imports: api
             .runtime_config
             .fnn
             .as_ref()
-            .and_then(|c| c.common_internal_route_asn),
-        common_internal_route_vni: api
-            .runtime_config
-            .fnn
-            .as_ref()
-            .and_then(|c| c.common_internal_route_vni),
+            .map(|c| {
+                c.additional_route_target_imports
+                    .iter()
+                    .map(|i| rpc_common::RouteTarget {
+                        asn: i.asn,
+                        vni: i.vni,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
         instance: maybe_instance,
     };
 
