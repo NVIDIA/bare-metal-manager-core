@@ -266,6 +266,34 @@ pub struct CarbideConfig {
     ///  eventually, export
     #[serde(default = "default_datacenter_asn")]
     pub datacenter_asn: u32,
+
+    #[serde(default = "default_power_options")]
+    pub power_manager_options: PowerManagerOptions,
+}
+
+/// Parameters used by the Power config.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct PowerManagerOptions {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(
+        default = "default_next_duration_success",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub next_try_duration_on_success: chrono::TimeDelta,
+    #[serde(
+        default = "default_next_duration_failure",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub next_try_duration_on_failure: chrono::TimeDelta,
+    #[serde(
+        default = "default_wait_duration_next_reboot",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub wait_duration_until_host_reboot: chrono::TimeDelta,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -1678,6 +1706,27 @@ pub fn default_datacenter_asn() -> u32 {
     11414
 }
 
+pub fn default_next_duration_success() -> Duration {
+    Duration::minutes(5)
+}
+
+pub fn default_next_duration_failure() -> Duration {
+    Duration::minutes(2)
+}
+
+pub fn default_wait_duration_next_reboot() -> Duration {
+    Duration::minutes(15)
+}
+
+pub fn default_power_options() -> PowerManagerOptions {
+    PowerManagerOptions {
+        enabled: false,
+        next_try_duration_on_success: default_next_duration_success(),
+        next_try_duration_on_failure: default_next_duration_failure(),
+        wait_duration_until_host_reboot: default_wait_duration_next_reboot(),
+    }
+}
+
 pub fn default_to_true() -> bool {
     true
 }
@@ -3009,6 +3058,54 @@ mqtt_endpoint = "mqtt.forge"
                 enabled: true,
                 mqtt_endpoint: "mqtt.forge".to_string(),
             }
+        );
+    }
+
+    #[test]
+    fn test_power_manager_default() {
+        let toml = r#"
+enabled = true
+next_try_duration_on_success = "3m"
+"#;
+
+        let power_config: PowerManagerOptions =
+            Figment::new().merge(Toml::string(toml)).extract().unwrap();
+
+        println!("{:?}", power_config);
+        assert!(power_config.enabled);
+        assert_eq!(
+            Duration::minutes(3),
+            power_config.next_try_duration_on_success
+        );
+        assert_eq!(
+            Duration::minutes(2),
+            power_config.next_try_duration_on_failure
+        );
+        assert_eq!(
+            Duration::minutes(15),
+            power_config.wait_duration_until_host_reboot
+        );
+    }
+
+    #[test]
+    fn test_power_manager_default_1() {
+        let toml = r#""#;
+
+        let power_config: PowerManagerOptions =
+            Figment::new().merge(Toml::string(toml)).extract().unwrap();
+
+        assert!(!power_config.enabled);
+        assert_eq!(
+            Duration::minutes(5),
+            power_config.next_try_duration_on_success
+        );
+        assert_eq!(
+            Duration::minutes(2),
+            power_config.next_try_duration_on_failure
+        );
+        assert_eq!(
+            Duration::minutes(15),
+            power_config.wait_duration_until_host_reboot
         );
     }
 }

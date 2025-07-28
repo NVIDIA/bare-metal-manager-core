@@ -4686,6 +4686,7 @@ message PowerOptionRequest {
 enum PowerState {
   On = 0;
   Off = 1;
+  PowerManagerDisabled = 2;
 }
 
 message PowerOptionUpdateRequest {
@@ -4700,6 +4701,11 @@ message PowerOptions {
   google.protobuf.Timestamp actual_state_updated_at = 4;
   common.MachineId host_id = 5;
   string desired_power_state_version = 6;
+  google.protobuf.Timestamp next_power_state_fetch_at = 7;
+  int32 off_counter = 8;
+  optional google.protobuf.Timestamp tried_triggering_on_at = 9;
+  int32 tried_triggering_on_counter = 10;
+  google.protobuf.Timestamp wait_until_time_before_performing_next_power_action = 11;
 }
 
 message PowerOptionResponse {

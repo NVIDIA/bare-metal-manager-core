@@ -47,6 +47,7 @@ use crate::model::machine::{
     SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
 };
 use crate::model::machine::{DpuInitNextStateResolver, InstallDpuOsState};
+use crate::model::power_manager::PowerHandlingOutcome;
 use crate::{
     cfg::file::{
         BomValidationConfig, CarbideConfig, DpuModel, Firmware, FirmwareComponentType,
@@ -88,6 +89,7 @@ use crate::{
 
 mod ib;
 mod machine_validation;
+mod power;
 mod sku;
 mod storage;
 
@@ -111,6 +113,15 @@ pub struct HostHandlerParams {
     pub bom_validation: BomValidationConfig,
 }
 
+/// Parameters used by the Power config.
+#[derive(Clone, Debug)]
+pub struct PowerOptionConfig {
+    pub enabled: bool,
+    pub next_try_duration_on_success: chrono::TimeDelta,
+    pub next_try_duration_on_failure: chrono::TimeDelta,
+    pub wait_duration_until_host_reboot: chrono::TimeDelta,
+}
+
 /// The actual Machine State handler
 #[derive(Debug, Clone)]
 pub struct MachineStateHandler {
@@ -121,6 +132,7 @@ pub struct MachineStateHandler {
     /// Reachability params to check if DPU is up or not
     reachability_params: ReachabilityParams,
     host_upgrade: Arc<HostUpgradeState>,
+    power_options_config: PowerOptionConfig,
 }
 
 pub struct MachineStateHandlerBuilder {
@@ -138,6 +150,7 @@ pub struct MachineStateHandlerBuilder {
     common_pools: Option<Arc<CommonPools>>,
     bom_validation: BomValidationConfig,
     instance_autoreboot_period: Option<TimePeriod>,
+    power_options_config: PowerOptionConfig,
 }
 
 impl MachineStateHandlerBuilder {
@@ -163,6 +176,12 @@ impl MachineStateHandlerBuilder {
             common_pools: None,
             bom_validation: BomValidationConfig::default(),
             instance_autoreboot_period: None,
+            power_options_config: PowerOptionConfig {
+                enabled: true,
+                next_try_duration_on_success: chrono::Duration::minutes(0),
+                next_try_duration_on_failure: chrono::Duration::minutes(0),
+                wait_duration_until_host_reboot: chrono::Duration::minutes(0),
+            },
         }
     }
 
@@ -261,6 +280,11 @@ impl MachineStateHandlerBuilder {
         self
     }
 
+    pub fn power_options_config(mut self, config: PowerOptionConfig) -> Self {
+        self.power_options_config = config;
+        self
+    }
+
     pub fn build(self) -> MachineStateHandler {
         MachineStateHandler::new(self)
     }
@@ -299,6 +323,7 @@ impl MachineStateHandler {
             ),
             reachability_params: builder.reachability_params,
             host_upgrade,
+            power_options_config: builder.power_options_config,
         }
     }
 
@@ -1792,8 +1817,40 @@ impl StateHandler for MachineStateHandler {
         }
         self.record_metrics(mh_snapshot, ctx);
         self.record_health_history(mh_snapshot, txn).await?;
-        self.attempt_state_transition(host_machine_id, mh_snapshot, txn, ctx)
-            .await
+
+        // Handles power options based on the host's state and configuration settings.
+        let PowerHandlingOutcome {
+            power_options,
+            continue_state_machine,
+            msg,
+        } = match mh_snapshot.host_snapshot.state.value {
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::Ready,
+            } => {
+                // We can't touch a machine which is in Assigned/Ready state. A tenant owns it.
+                PowerHandlingOutcome::new(None, true, None)
+            }
+            _ => {
+                if self.power_options_config.enabled {
+                    power::handle_power(mh_snapshot, txn, ctx, &self.power_options_config).await?
+                } else {
+                    PowerHandlingOutcome::new(None, true, None)
+                }
+            }
+        };
+
+        ctx.power_options = power_options;
+        let outcome = if continue_state_machine {
+            self.attempt_state_transition(host_machine_id, mh_snapshot, txn, ctx)
+                .await?
+        } else {
+            wait!(format!(
+                "State machine can't proceed due to power manager. {}",
+                msg.unwrap_or_default()
+            ))
+        };
+
+        Ok(outcome)
     }
 }
 
@@ -6434,7 +6491,7 @@ async fn handler_restart_dpu(
     //handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn).await
 }
 
-async fn host_power_state(
+pub async fn host_power_state(
     redfish_client: &dyn Redfish,
 ) -> Result<libredfish::PowerState, StateHandlerError> {
     redfish_client

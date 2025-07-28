@@ -12,7 +12,7 @@
 
 //! Contains fixtures that use the Carbide API for setting up
 
-use crate::cfg::file::{ListenMode, MachineUpdater, VpcPeeringPolicy};
+use crate::cfg::file::{ListenMode, MachineUpdater, PowerManagerOptions, VpcPeeringPolicy};
 use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::logging::log_limiter::LogLimiter;
 use crate::model::machine::MachineValidatingState;
@@ -927,6 +927,10 @@ pub fn get_config() -> CarbideConfig {
         listen_mode: ListenMode::Tls,
         listen_only: false,
         spx_config: Some(SpxConfig::default()),
+        power_manager_options: PowerManagerOptions {
+            enabled: true,
+            ..PowerManagerOptions::default()
+        },
     }
 }
 

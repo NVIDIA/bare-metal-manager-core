@@ -321,6 +321,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                             let mut ctx = StateHandlerContext {
                                 services: &services,
                                 metrics: &mut metrics.specific,
+                                power_options: None
                             };
 
                             let handler_outcome = handler
@@ -378,6 +379,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                                     let db_outcome = handler_outcome.as_ref().into();
                                     io.persist_outcome(&mut txn, &object_id, db_outcome).await?;
                                 }
+
                                 txn.commit()
                                     .await
                                     .map_err(StateHandlerError::TransactionError)?;
@@ -387,6 +389,14 @@ impl<IO: StateControllerIO> StateController<IO> {
                                 let mut txn = services.pool.begin().await?;
                                 let db_outcome = handler_outcome.as_ref().into();
                                 io.persist_outcome(&mut txn, &object_id, db_outcome).await?;
+                                txn.commit()
+                                    .await
+                                    .map_err(StateHandlerError::TransactionError)?;
+                            }
+
+                            if let Some(power_options) = ctx.power_options {
+                                let mut txn = services.pool.begin().await?;
+                                crate::model::power_manager::PowerOptions::persist(&power_options, &mut txn).await?;
                                 txn.commit()
                                     .await
                                     .map_err(StateHandlerError::TransactionError)?;

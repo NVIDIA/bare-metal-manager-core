@@ -12,57 +12,12 @@
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use forge_uuid::machine::MachineId;
-use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
 
-use crate::db::DatabaseError;
-
-/// Representing DPU state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
-#[sqlx(rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-#[sqlx(type_name = "host_power_state_t")]
-pub enum PowerState {
-    On,
-    Off,
-}
-
-/// Represents the power management options for a specific host, including
-/// details about the last fetched power information, the desired power state,
-/// and the status of triggering power-on operations.
-/// Carbide will poll for the actual power state of the machine, once in a 5 mins.
-/// `next_try_at` will be now()+5 mins if power state is On. If machine is Off, next_try will be
-/// now()+2 mins, if desired state is On. If machine remains off for 2 cycles (2+2 mins), carbide
-/// would take the next decision.
-/// If power manager tried to power on the host, wait until DPUs are up or wait_expiry_time is
-/// expired (which is around 15 mins). If DPUs come up by this time, reboot the host, else ignore
-/// the handling and move to the state handler.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PowerOptions {
-    pub host_id: MachineId,
-    last_fetched_updated_at: DateTime<Utc>,
-    last_fetched_next_try_at: DateTime<Utc>,
-    last_fetched_power_state: PowerState,
-    /// Once counter is incremented >= 2, the machine will be assumed off.
-    /// This is needed to avoid power off done by state machine for the recovery mechanism.
-    last_fetched_off_counter: i32,
-    pub desired_power_state_version: ConfigVersion,
-    /// Tenant/SRE can set the desired power option.
-    /// If there is some operation is being performed on any host, make the desired state
-    /// off. Carbide won't try to turn on the machine and process any event in state machine.
-    /// If desired state is On and machines state is Off, carbide will try to turn-on the machine.
-    pub desired_power_state: PowerState,
-    /// In the case if state machine decides to power on the host, state machine must wait until
-    /// the DPUs come up and again reboot the host to force it to boot via pxe.
-    wait_until_time_before_performing_next_power_action: DateTime<Utc>,
-    // If tried_triggering_on_at is some and last_fetched.power_state is not On and
-    // tried_triggering_on_at < last_fetched.updated_at, try powering on again.
-    // Reset it when host's power state is detected as On.
-    tried_triggering_on_at: Option<DateTime<Utc>>,
-    // Increment it every time you try to power-on the host.
-    // Reset it when host's power state is detected as On.
-    tried_triggering_on_counter: i32,
-}
+use crate::{
+    db::DatabaseError,
+    model::power_manager::{PowerOptions, PowerState},
+};
 
 impl<'r> FromRow<'r, PgRow> for PowerOptions {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
@@ -98,39 +53,6 @@ impl<'r> FromRow<'r, PgRow> for PowerOptions {
             tried_triggering_on_at,
             tried_triggering_on_counter,
         })
-    }
-}
-
-impl From<::rpc::forge::PowerState> for PowerState {
-    fn from(value: ::rpc::forge::PowerState) -> Self {
-        match value {
-            rpc::forge::PowerState::On => PowerState::On,
-            rpc::forge::PowerState::Off => PowerState::Off,
-        }
-    }
-}
-
-impl From<PowerState> for ::rpc::forge::PowerState {
-    fn from(value: PowerState) -> Self {
-        match value {
-            PowerState::Off => ::rpc::forge::PowerState::Off,
-            PowerState::On => ::rpc::forge::PowerState::On,
-        }
-    }
-}
-
-impl From<PowerOptions> for ::rpc::forge::PowerOptions {
-    fn from(value: PowerOptions) -> Self {
-        Self {
-            desired_state: rpc::forge::PowerState::from(value.desired_power_state) as i32,
-            desired_state_updated_at: Some(value.desired_power_state_version.timestamp().into()),
-            actual_state: rpc::forge::PowerState::from(value.last_fetched_power_state) as i32,
-            actual_state_updated_at: Some(value.last_fetched_updated_at.into()),
-            host_id: Some(rpc::common::MachineId {
-                id: value.host_id.to_string(),
-            }),
-            desired_power_state_version: value.desired_power_state_version.to_string(),
-        }
     }
 }
 
@@ -196,5 +118,32 @@ impl PowerOptions {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(all_options)
+    }
+
+    pub async fn persist(
+        options: &PowerOptions,
+        txn: &mut PgConnection,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE power_options SET 
+                                    last_fetched_updated_at=$1, last_fetched_next_try_at=$2,
+                                    last_fetched_power_state=$3, last_fetched_off_counter=$4,
+                                    wait_until_time_before_performing_next_power_action=$5,
+                                    tried_triggering_on_at=$6, tried_triggering_on_counter=$7
+                                WHERE host_id=$8";
+
+        sqlx::query(query)
+            .bind(options.last_fetched_updated_at)
+            .bind(options.last_fetched_next_try_at)
+            .bind(options.last_fetched_power_state)
+            .bind(options.last_fetched_off_counter)
+            .bind(options.wait_until_time_before_performing_next_power_action)
+            .bind(options.tried_triggering_on_at)
+            .bind(options.tried_triggering_on_counter)
+            .bind(options.host_id)
+            .execute(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
     }
 }

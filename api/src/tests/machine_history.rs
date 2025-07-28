@@ -1,4 +1,3 @@
-use crate::db::power_manager::PowerOptions;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -13,6 +12,7 @@ use crate::db::power_manager::PowerOptions;
 use crate::db::{self};
 use crate::model::machine::MachineStateHistory;
 use crate::model::machine::{ManagedHostState, machine_id::try_parse_machine_id};
+use crate::model::power_manager::PowerOptions;
 use common::api_fixtures::create_managed_host;
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
