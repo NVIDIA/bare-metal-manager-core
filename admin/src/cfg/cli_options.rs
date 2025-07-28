@@ -1297,6 +1297,7 @@ pub struct UpdatePowerOptions {
 pub enum DesiredPowerState {
     On,
     Off,
+    PowerManagerDisabled,
 }
 
 #[derive(Parser, Debug)]

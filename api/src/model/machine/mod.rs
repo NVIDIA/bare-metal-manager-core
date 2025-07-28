@@ -18,8 +18,8 @@ use super::{
     hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot, metadata::Metadata,
 };
 use crate::CarbideResult;
-use crate::db::power_manager::PowerOptions;
 use crate::model::instance::config::network::DeviceLocator;
+use crate::model::power_manager::PowerOptions;
 use crate::{
     CarbideError,
     cfg::file::{FirmwareComponentType, HardwareHealthReportsConfig},

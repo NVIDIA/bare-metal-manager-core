@@ -13,6 +13,7 @@
 use std::sync::Arc;
 
 use crate::cfg::file::CarbideConfig;
+use crate::model::power_manager::PowerOptions;
 use crate::resource_pool::common::IbPools;
 use crate::storage::StorageError;
 use crate::{
@@ -69,6 +70,8 @@ pub struct StateHandlerContext<'a, T: StateHandlerContextObjects> {
     pub services: &'a Arc<StateHandlerServices>,
     /// Metrics that are produced as a result of acting on an object
     pub metrics: &'a mut T::ObjectMetrics,
+    /// Power Options.
+    pub power_options: Option<PowerOptions>,
 }
 
 /// Defines a function that will be called to determine the next step in

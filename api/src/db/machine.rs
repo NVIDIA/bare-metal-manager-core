@@ -38,7 +38,6 @@ use uuid::Uuid;
 use super::{DatabaseError, ObjectFilter, queries};
 use crate::db;
 use crate::db::machine_topology::MachineTopology;
-use crate::db::power_manager::PowerOptions;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::MachineInventory;
@@ -54,6 +53,7 @@ use crate::model::machine::{
     ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use crate::model::metadata::Metadata;
+use crate::model::power_manager::PowerOptions;
 use crate::model::sku::SkuStatus;
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;

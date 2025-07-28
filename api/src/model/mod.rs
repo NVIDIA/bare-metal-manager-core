@@ -39,11 +39,13 @@ pub mod network_devices;
 pub mod network_security_group;
 pub mod network_segment;
 pub mod os;
+pub mod power_manager;
 pub mod resource_pool;
 pub mod site_explorer;
 pub mod sku;
 pub mod storage;
 pub mod tenant;
+
 /// Converts a `Vec<T>` of any type `T` that is convertible to a type `R`
 /// into a `Vec<R>`.
 pub fn try_convert_vec<T, R, E>(source: Vec<T>) -> Result<Vec<R>, E>

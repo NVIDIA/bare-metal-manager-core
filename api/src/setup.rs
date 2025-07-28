@@ -25,12 +25,12 @@ use tokio::sync::{
     oneshot::{Receiver, Sender},
 };
 
-use crate::ib::DEFAULT_IB_FABRIC_NAME;
 use crate::storage::{NvmeshClientPool, NvmeshClientPoolImpl};
 use crate::{db, db::machine::update_dpu_asns, resource_pool::DefineResourcePoolError};
 use crate::{
     db::expected_machine::ExpectedMachine, handlers::machine_validation::apply_config_on_startup,
 };
+use crate::{ib::DEFAULT_IB_FABRIC_NAME, state_controller::machine::handler::PowerOptionConfig};
 
 use crate::cfg::file::{HostHealthConfig, ListenMode};
 use crate::dynamic_settings::DynamicSettings;
@@ -529,6 +529,19 @@ pub async fn initialize_and_start_controllers(
                         .instance_autoreboot_period
                         .clone(),
                 )
+                .power_options_config(PowerOptionConfig {
+                    // Should these parameters be configurable?
+                    enabled: carbide_config.power_manager_options.enabled,
+                    next_try_duration_on_success: carbide_config
+                        .power_manager_options
+                        .next_try_duration_on_success,
+                    next_try_duration_on_failure: carbide_config
+                        .power_manager_options
+                        .next_try_duration_on_failure,
+                    wait_duration_until_host_reboot: carbide_config
+                        .power_manager_options
+                        .wait_duration_until_host_reboot,
+                })
                 .build(),
         ))
         .io(Arc::new(MachineStateControllerIO {

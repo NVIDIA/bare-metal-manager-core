@@ -18,10 +18,10 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use crate::db::attestation as db_attest;
-use crate::db::power_manager::PowerOptions;
 use crate::handlers::instance;
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::model::metadata::Metadata;
+use crate::model::power_manager::PowerOptions;
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::{BmcEndpointRequest, SkuIdList};
 use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
@@ -2769,7 +2769,7 @@ impl Forge for Api {
             )));
         }
 
-        let updated_value = db::power_manager::PowerOptions::update_desired_state(
+        let updated_value = crate::model::power_manager::PowerOptions::update_desired_state(
             &machine_id,
             desired_power_state,
             &current_power_options.desired_power_state_version,

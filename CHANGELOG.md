@@ -5,6 +5,16 @@
 
 ### Added
 
+- [FORGE-6230](https://jirasw.nvidia.com/browse/FORGE-6230): Indicate the desired power state of a machine in forge and prevent alerts.
+  Power manager is *disabled* by default. This can be enabled in carbide api config with following section.
+
+  ```toml
+  [power_manager_options]
+  enabled = true
+  ```
+
+  Note that `Off` functionality is not yet disabled.
+
 ### Changed
 
 ### Fixed
@@ -636,8 +646,10 @@
     ID:              PowerEdge R760 2025-03-07 19:14:11.228991270 UTC
     ...
     ```
+
 - [FORGE-5471](https://jirasw.nvidia.com/browse/FORGE-5471) Machines are marked as unhealthy if DPU-agent is not updated within 1 day of the site controller software deployment.
 - forge-admin-cli can now use templates to easily apply pre-defined health overrides.
+
   ```
   ❯ admin-cli demo2 machine health-override add --help
     Insert a health report override
@@ -656,10 +668,12 @@
           --extended                       Extended result output.
       -h, --help                           Print help
   ```
+
 - [FORGE-5585](https://jirasw.nvidia.com/browse/FORGE-5585) The Machine Validation Test Control feature provides flexible configuration options to manage test execution through TOML configuration files (carbide-api-site-config.toml). This enhancement allows administrators to globally control test execution states while maintaining the ability to override specific tests.
   - The feature introduces two new configuration fields under machine_validation_config.
     - test_selection_mode
     - tests
+
     ```
     [machine_validation_config]
     enabled = true
@@ -672,6 +686,7 @@
         { id = "forge_FioSSD", enable = true }
     ]
     ```
+
 - BMC and CEC FW are now updated during bfb installation, using the interegrated bfb firmware package.
 - Added support for Dell XE9680 in machine validation.
 - Host health status is recorded over time in health history. Whenever the health status (added/removed/changed alert or success) of a host changes, a new host health history record is created. Host health history can be retrieved via the `FindMachineHealthHistories` gRPC API.
@@ -749,6 +764,7 @@
 - Added the ability to require AC powercycles for certain UEFI upgrades.
 - The Machine Capabilities set that is transfered in the `capabilities` field of the `Machine` gRPC object now includes information which of the InfiniBand devices available on the Host are active (connected to a powered on Switch) and which are inactive (disconnected). The information is transferred via a `inactive_devices` property that is part of the `MachineCapabilityAttributesInfiniband` type. The `inactive_devices` list will inform Forge users which interfaces of an IB enabled Forge Instance are not required to be configured, since they are unplugged. This change is a part of the effort to improve the usability of Forge InfiniBand support on Hosts where only a subset of ports are connected.  
   **Example:** A host with 2 IB NICs where each of the NICs has the first port connected will be signaled with the following capability:
+
   ```
   {
     vendor: "Mellanox Technologies",
@@ -757,12 +773,14 @@
     inactive_devices: [0, 2]
   }
   ```
+
 - Added forge_ForgeRunBook machine-validation test disabled by default.
 - New forge-admin-cli command, "machine hardware-info update". This command allows users to update a machine's hardware info in the site DB, in case data is missing like in [https://nvbugspro.nvidia.com/bug/4908711]. Currently, the command can only update GPUs, but other hardware info types will be added.
 - The security settings of InfiniBand fabrics are now monitored by the "IB Fabric Monitor" task. If certain security related properties of an InfiniBand fabric (e.g. m_key) are not configured as expected, the metric `forge_ib_monitor_insecure_fabric_configuration_count` will be emitted with value `1`. The security settings that are monitored should be in place in order to provide strong isolation between various Forge Tenants using InfiniBand, as well as to protect the InfiniBand infrastructure from tenants. Once the metric is rolled out, alarming on insecure infrastructure configurations can be added. In order to suppress the alarm during site builds when insecure configuration is expected for a certain amount of time, a new configuration file parameter `[ib_config.allow_insecure` is added that is `false` by default. If fabrics are defined as insecure, then an additional metric `forge_ib_monitor_allow_insecure_fabric_configuration_count` will be emitted that can be used to suppress the security alert.
 - Added forge_ForgeRunBook machine-validation test disabled by default.
 - New forge-admin-cli command, "machine hardware-info update". This command allows users to update a machine's hardware info in the site DB, in case data is missing like in [https://nvbugspro.nvidia.com/bug/4908711]. Currently, the command can only update GPUs, but other hardware info types will be added. The next `discover_machine` call from scout will overwrite whatever you added to the table.
   **Usage** `forge-admin-cli machine hardware-info update gpus --machine fm100ht9482lgtmqok7csri5c8dm0oetjam6sqltv6p6a43jgq77v0hkhe0 --gpu-json-file gpus.json` The json file should be an array of objects of the following structure:
+
   ```
   {
     "name": "string",
@@ -775,6 +793,7 @@
     "pci_bus_id": "string"
     }
   ```
+
   Pass an empty json array to remove all GPU entries.
 - Upgrade of host firmware can now be requested of assigned instances in a similar manner to DPU upgrades.  We flag machines we want to be updated with "forge-admin-cli host reprovision sed --id MACHINEID".  The tenant can the request the host to be rebooted which will trigger the actual update.  If DPU updates were requested as well, they will be performed first.
 - If host firmware updates have waited more than 20 minutes after a reset without seeing the version number update, they will now try resetting it again.
@@ -788,6 +807,7 @@
 - Update opentelemetry to 0.28.
 - Automated and manual DPU updates no longer place the Host into `Maintenance` mode. Instead of that, the Host that is undergoing updates is marked with a new health alert with ID `HostUpdateInProgress`.  
   The health alert uses a `target` property which describes the component that is updated. The motivation for this change is to be better able to distinguish updating Hosts from hosts that are undergoing other kinds of Maintenance - as well as to prevent race conditions that happened due to various workflows using the same `Maintenance` marker. Example of a health override that is placed by the updating Framework:
+
   ```
   {
     "source": "host-update",
@@ -807,6 +827,7 @@
     ]
   }
   ```
+
   Operators can use a new `Host Update` template on the Machine Health page of the Forge Admin Web UI in order to place a simlar health override before manual DPU updates are started.  
   [Forge-4270](https://jirasw.nvidia.com/browse/FORGE-4270)
 - The carbide-web `/admin/managed-host/:machine_id` page had been removed. Links to the page have been replaced with links to `/admin/machine/:machine_id`. The reason for the removal is that the `/admin/machine` page contained a superset of the information available on the `/admin/managed-host` page.
@@ -818,6 +839,7 @@
 - [FORGE-4270](https://jirasw.nvidia.com/browse/FORGE-4270) Remove application of Maintenance Mode during DPU updates.  The manual and automated DPU updates no longer use Maintenance modes but a custom health alert in order to mark Machines that have updates enqueued.
   - Manual updates (via forge-admin-cli) can be started at any time the Machine has a health alert with probe ID `HostUpdateInProgress` and a classification `PreventAllocations`. A new template for adding such an alert has been added to the carbide-web.
   - Example of a health override being placed:
+
   ```
   {
         "source": "host-update",
@@ -837,6 +859,7 @@
         ]
     }
     ```
+
 - Machine validation tests can now be marked as verified or unverified forge-admin-cli.
   - Set forge_RaytracingVk as unverfied.
 - Fix updating supported platforms from dmidecode value.
@@ -922,10 +945,12 @@
 - Set the DPU's boot order prior to restarting it.
 - Retain full IB fabric error in IbFabricMonitor logs.  IbFabricMonitor generates a log entry for each fabric on every iteration.  The log entry should show logs messages for errors while interacting with the fabric manager.  Since the errors have been truncated to 32 characters, the information was however not useful.
   - Example:
+
     ```
     2025-02-13 15:44:50.442
     level=SPAN span_id=0x4b56af00fb34e826 span_name=check_ib_fabrics fabric_metrics="{\"default\":{\"endpoints\":[\"https://10.91.66.240:443\"],\"fabric_error\":\"Failed to call IBFabricManager: \"}" num_fabrics=1
     ```
+
 - Fix deny prefixes YAML nesting in FNN template and update test.
 - [FORGE-5182](https://jirasw.nvidia.com/browse/FORGE-5182) Add `opensm` config data into `FabricMetrics` metrics.
 - Do not retrieve host pf0 interface from DPUs in NIC mode.
@@ -959,6 +984,7 @@
 - [FORGE-5404](https://jirasw.nvidia.com/browse/FORGE-5404) Adjust ipxe timeout
 - Always configure the DPU to PXE boot before rebooting the ARM. We have observed that when we upgrade both the BMC (BF-24.07-14) and CEC fw (00.02.0182.0000_n02) on BF3s in reprovisioning, the boot order on the DPU is set to boot off the locally installed image. Then, the DPU gets stuck in FirmwareUpgrade because it never tries PXE booting after the BMC & CEC upgrades
   - Example (DPU with BMC IP 10.91.54.28 in AZ51):
+
   ```
   curl -k -D - --user root:'PASSWORD' -H 'Content-Type: application/json' -X GET https://10.91.54.28:443/redfish/v1/Systems/Bluefield
   {
@@ -977,6 +1003,7 @@
   ...
   }
   ```
+
 - Report the FW update type during preingestion.
 
 ## [v2025.01.31-rc3-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.31-rc2-0...v2025.01.31-rc3-0)
@@ -985,6 +1012,7 @@
 
 - Always configure the DPU to PXE boot before rebooting the ARM. We have observed that when we upgrade both the BMC (BF-24.07-14) and CEC fw (00.02.0182.0000_n02) on BF3s in reprovisioning, the boot order on the DPU is set to boot off the locally installed image. Then, the DPU gets stuck in FirmwareUpgrade because it never tries PXE booting after the BMC & CEC upgrades
   - Example (DPU with BMC IP 10.91.54.28 in AZ51):
+
   ```
   curl -k -D - --user root:'PASSWORD' -H 'Content-Type: application/json' -X GET https://10.91.54.28:443/redfish/v1/Systems/Bluefield
   {
@@ -1010,9 +1038,11 @@
 
 - A new forge-admin-cli subcommands allows to copy machine metadata from Expected-Machines
   to Machines: Usage:
+
   ```
   forge-admin-cli machine metadata from-expected-machine [OPTIONS] <MACHINE>
   ```
+
   The optional `--replace-all` flag allows to specify whether existing Metadata on the Machine
   will be retained (default), or whether existing Metadata should be dropped in favor of
   the data on expected machines. Thereby specifying the flag will set a Machines metadata
@@ -1025,12 +1055,14 @@
 - A new extensible log parser for serial console logs and bmc sel logs.
 - [FORGE-5325](https://jirasw.nvidia.com/browse/FORGE-5325) Support for admin VPC for FNN.
   Can be enabled in the site config file:
+
   ```
   [fnn]
   [fnn.admin_vpc]
   enabled = true
   vpc_vni = 60100
   ```
+
 - Updated parameters to support FNN over admin network in managedhostnetworkconfigresponse message.
 - [Machine-Validation] add support for Lenovo 655v3, 665 and 675
 - Added support of RHEL OS to qcow imager, as well as ability to specify boot and efi fs uuid.
@@ -1086,6 +1118,7 @@
 - Combined MachineSnapshot's reprovision_requested and reprovisioning_requested
 - Always configure the DPU to PXE boot before rebooting the ARM. We have observed that when we upgrade both the BMC (BF-24.07-14) and CEC fw (00.02.0182.0000_n02) on BF3s in reprovisioning, the boot order on the DPU is set to boot off the locally installed image. Then, the DPU gets stuck in FirmwareUpgrade because it never tries PXE booting after the BMC & CEC upgrades
   - Example (DPU with BMC IP 10.91.54.28 in AZ51):
+
   ```
   curl -k -D - --user root:'PASSWORD' -H 'Content-Type: application/json' -X GET https://10.91.54.28:443/redfish/v1/Systems/Bluefield
   {
@@ -1104,11 +1137,13 @@
   ...
   }
   ```
+
 - [FORGE-5387](https://jirasw.nvidia.com/browse/FORGE-5387) Fix logic for infiniband/ethernet device detection.
-  -  Mellanox network device consists of two ports.
+  - Mellanox network device consists of two ports.
      port is presented as a separate network interface inside system.
      Port can be configured as IB or ETH. Single Mellanox device can have configuration when one port has IB type the other ETH type.
      Type detection is based on udev report.
+
      ```
      SUBSYSTEM=[net|infiniband]
      ID_PCI_CLASS_FROM_DATABASE='Network controller'
@@ -1116,6 +1151,7 @@
      ID_PCI_SUBCLASS_FROM_DATABASE='Infiniband controller' or 'Ethernet controller'
       - because ports for VPI device can be configured in IB(1) or ETH(2) types
      ```
+
 - Fix content-length header to work with 24.07 release, allowing the update of UEFI FW from 24.07 to 24.10.
 - Report the FW update type during preingestion.
 
@@ -1136,6 +1172,7 @@
 - [FORGE-5404](https://jirasw.nvidia.com/browse/FORGE-5404) Adjust ipxe timeout
 - Always configure the DPU to PXE boot before rebooting the ARM. We have observed that when we upgrade both the BMC (BF-24.07-14) and CEC fw (00.02.0182.0000_n02) on BF3s in reprovisioning, the boot order on the DPU is set to boot off the locally installed image. Then, the DPU gets stuck in FirmwareUpgrade because it never tries PXE booting after the BMC & CEC upgrades
   - Example (DPU with BMC IP 10.91.54.28 in AZ51):
+
   ```
   curl -k -D - --user root:'PASSWORD' -H 'Content-Type: application/json' -X GET https://10.91.54.28:443/redfish/v1/Systems/Bluefield
   {
@@ -1154,6 +1191,7 @@
   ...
   }
   ```
+
 - Report the FW update type during preingestion.
 
 ## [v2025.01.17-rc5-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc4-0...v2025.01.17-rc5-0)
@@ -1161,7 +1199,6 @@
 ### Added
 
 - Site explorer will only update the BMC Admin account password and keep the factory username.
-
 
 ## [v2025.01.17-rc4-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.01.17-rc3-0...v2025.01.17-rc4-0)
 
@@ -1198,21 +1235,29 @@
   The API supports the same version-based mechanism to prevent unexpected concurrent edits of Metadata as other Forge APIs.
 - forge-admin-cli supports new sub-commands to update Machine metadata:
   - Show Machine Metadata
+
     ```
     forge-admin-cli machine metadata show fm100ht3du5nv89bcvmlc3v1jk6ff9d8icrt3afbhl9sc3d0ghnp7prv32g
     ```
+
   - Set the name or description of a Machine:
+
     ```
     forge-admin-cli machine metadata set --name NewMachineName --description NewMachineDescription fm100ht3du5nv89bcvmlc3v1jk6ff9d8icrt3afbhl9sc3d0ghnp7prv32g
     ```
+
   - Add a label for Machine:
+
     ```
     forge-admin-cli machine metadata add-label --key MyLabel NewMachineName --value MyLabelValue fm100ht3du5nv89bcvmlc3v1jk6ff9d8icrt3afbhl9sc3d0ghnp7prv32g
     ```
+
   - Remove labels from a Machine:
+
     ```
     forge-admin-cli machine metadata remove-labels --keys Key --Key2 fm100ht3du5nv89bcvmlc3v1jk6ff9d8icrt3afbhl9sc3d0ghnp7prv32g
     ```
+
 - Forge can be configured to automatically apply Machine metadata (including labels) during Machine Ingestion. The required metadata can be inserted into the `Expected Machines` manifest that informs Forge about hardware that is expected to be found on a site. The `forge-admin-cli expected-machine` commands related to Expected Machines have been updated in order to store Metadata within the expected machines entries. The forge admin web UI will show metadata associated with expected machines within the JSON view available on `/admin/expected-machine-definition.json`.
 
 ### Changed
@@ -1228,8 +1273,8 @@
 - When a DHCP entry for a Machines Admin, OOB or BMC IP gets deleted, the Forge DHCP Server (KEA)
   will now get restarted in order to invalidate its cache and account for the deletion.
   This fixes a problem where the Forge DHCP Server did not serve DHCP requests for
-  MAC addresses which obtained a different IP address after re-discovery by Forge (https://nvbugspro.nvidia.com/bug/4792034).
-- The `UpdateTenantKeyset` and `DeleteTenantKeyset` APIs now return correct error codes instead of an `Internal` service error. Fixes (https://nvbugspro.nvidia.com/bug/4682284).
+  MAC addresses which obtained a different IP address after re-discovery by Forge (<https://nvbugspro.nvidia.com/bug/4792034>).
+- The `UpdateTenantKeyset` and `DeleteTenantKeyset` APIs now return correct error codes instead of an `Internal` service error. Fixes (<https://nvbugspro.nvidia.com/bug/4682284>).
   - The `NotFound` status code is used when keyset is not found during update or deletion
   - The `FailedPrecondition` status code is used when the supplied version number is incorrect during update
 - Explicitly reboot the host the first time we encounter an issue calling forge_setup.
@@ -1253,8 +1298,10 @@
 ## [v2024.12.20-rc6-3](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2024.12.06-rc6-2...v2024.12.20-rc6-3)
 
 ### Fixed
+
 - Always configure the DPU to PXE boot before rebooting the ARM. We have observed that when we upgrade both the BMC (BF-24.07-14) and CEC fw (00.02.0182.0000_n02) on BF3s in reprovisioning, the boot order on the DPU is set to boot off the locally installed image. Then, the DPU gets stuck in FirmwareUpgrade because it never tries PXE booting after the BMC & CEC upgrades
   - Example (DPU with BMC IP 10.91.54.28 in AZ51):
+
   ```
   curl -k -D - --user root:'PASSWORD' -H 'Content-Type: application/json' -X GET https://10.91.54.28:443/redfish/v1/Systems/Bluefield
   {
@@ -1324,8 +1371,8 @@
 
 - The InfiniBand fabric monitor task will now emit 2 additional metrics:
   1. `forge_ib_monitor_ufm_partitions_count`: The amount of partitions/pkeys visible at UFM. The number can be different from the amount of partitions created on Forge:
-    - Parititons created in Forge without associated GUID will not be registered at UFM
-    - Partitions created outside of Forge will be tracked by the number
+  - Parititons created in Forge without associated GUID will not be registered at UFM
+  - Partitions created outside of Forge will be tracked by the number
   2. `forge_ib_monitor_ufm_ports_by_state_count`: The total number of ports reported by UFM, aggregated by port state (e.g. `Active`).
 - Added host direct-attach drive health status to admin-cli.
 - DPU Agent has been updated to support Forge Native Networking.
@@ -1348,16 +1395,20 @@
   to supporting multiple InfiniBand fabric.  
   **It requires the following entry in the
   site-config file:**
+
   ```
   [ib_fabrics.default]
   endpoints = ["https://1.2.3.4"] # The UFM endpoint
   pkeys = [{ start = "256", end = "2303" }] # List of pkeys used by Forge
   ```
+
   **The previously added `[pools.pkey]` sections needs to be removed from the site-config files, since the setting is now controlled within the `ib_fabrics` block. Carbide will reject the old configuration syntax.**
 - The InfiniBand fabric monitor task will now print the endpoint address of the UFM it checks in each iteration. Example results:
+
   ```
   level=SPAN span_id=0x9509d58bfaa0173d span_name=check_ib_fabrics fabric_metrics="{\"default\":{\"endpoints\":[\"https://10.217.161.194:443\"],\"fabric_error\":\"\",\"ufm_version\":\"6.14.1-5\",\"subnet_prefix\":\"\",\"m_key\":\"\",\"sm_key\":\"\",\"sa_key\":\"\",\"m_key_per_port\":false}}" num_fabrics=1 otel_status_code=ok timing_busy_ns=2158292 timing_elapsed_us=33074 timing_end_time=2024-12-13T19:28:50.230282096Z timing_idle_ns=30835294 timing_start_time=2024-12-13T19:28:50.197207484Z
   ```
+
 - Each hosts InfiniBand connection status is now updated every state controller iteration by querying UFM,
   instead of querying the connection status only once at instance creation time. Thereby the most recent connection status can be queried using the `FindMachinesByIds` API and is observable on the Web UI.
 - If a Machines InfiniBand device is not connected and a tenant tries to use the device in the instance creation API, the instance creation will fail. This avoids Instances being stuck in provisioning due to the disconnected IB port.
@@ -1603,10 +1654,10 @@
 ## Changed
 
 - The following set of host health related metrics gained an additional attribute `assigned` which indicates whether the host that the metric references is in an assigned state (used as an instance by a tenant):
-    - `forge_hosts_health_status_count`
-    - `forge_hosts_unhealthy_by_probe_id_count`
-    - `forge_hosts_health_overrides_count`
-    - `forge_hosts_unhealthy_by_classification_count`
+  - `forge_hosts_health_status_count`
+  - `forge_hosts_unhealthy_by_probe_id_count`
+  - `forge_hosts_health_overrides_count`
+  - `forge_hosts_unhealthy_by_classification_count`
 - The HealthOverride mode `Override` is now called `Replace`.
   When the update is applied, all previous replace overrides will be lost.
 - Admin Web UI has been improved:

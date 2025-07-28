@@ -615,7 +615,7 @@ pub async fn handle_power_options_show_one(
 
     writeln!(
         &mut lines,
-        "{:<width$}: {:?}",
+        "{:<width$}: {}",
         "Desired Power State Version",
         power_option.desired_power_state_version.clone(),
     )?;
@@ -654,6 +654,43 @@ pub async fn handle_power_options_show_one(
             .unwrap_or_default()
     )?;
 
+    writeln!(
+        &mut lines,
+        "{:<width$}: {}",
+        "Next Power State Fetch At",
+        power_option
+            .next_power_state_fetch_at
+            .map(|x| x.to_string())
+            .unwrap_or_default()
+    )?;
+
+    writeln!(
+        &mut lines,
+        "{:<width$}: {}",
+        "Current Off Counter", power_option.off_counter
+    )?;
+
+    writeln!(
+        &mut lines,
+        "{:<width$}: {}/{}",
+        "Tried Triggering On At/Counter",
+        power_option
+            .tried_triggering_on_at
+            .map(|x| x.to_string())
+            .unwrap_or_default(),
+        power_option.tried_triggering_on_counter
+    )?;
+
+    writeln!(
+        &mut lines,
+        "{:<width$}: {} (Carbide will wait for DPUs to come up before rebooting host after power on)",
+        "Wait Until Next Reboot",
+        power_option
+            .wait_until_time_before_performing_next_power_action
+            .map(|x| x.to_string())
+            .unwrap_or_default(),
+    )?;
+
     print!("{}", lines);
     Ok(())
 }
@@ -672,8 +709,8 @@ pub async fn handle_power_options_show_all(
     let headers = vec![
         "Host ID",
         "Desired Power State",
-        "Version",
         "Actual Power State",
+        "Off Counter/Next Cycle At",
     ];
 
     table.set_titles(Row::new(
@@ -688,14 +725,14 @@ pub async fn handle_power_options_show_all(
                 .map(|x| x.to_string())
                 .unwrap_or_default(),
             format!(
-                "{:?}\n{}",
+                "{:?} ({})\n{}",
                 power_option.desired_state(),
+                power_option.desired_power_state_version.clone(),
                 power_option
                     .desired_state_updated_at
                     .map(|x| x.to_string())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
             ),
-            power_option.desired_power_state_version.clone(),
             format!(
                 "{:?}\n{}",
                 power_option.actual_state(),
@@ -703,6 +740,14 @@ pub async fn handle_power_options_show_all(
                     .actual_state_updated_at
                     .map(|x| x.to_string())
                     .unwrap_or_default()
+            ),
+            format!(
+                "{}\n{}",
+                power_option.off_counter,
+                power_option
+                    .next_power_state_fetch_at
+                    .map(|x| x.to_string())
+                    .unwrap_or_default(),
             )
         ]);
     }
@@ -718,6 +763,9 @@ pub async fn update_power_option(
     let power_state = match args.desired_power_state {
         crate::cfg::cli_options::DesiredPowerState::On => ::rpc::forge::PowerState::On,
         crate::cfg::cli_options::DesiredPowerState::Off => ::rpc::forge::PowerState::Off,
+        crate::cfg::cli_options::DesiredPowerState::PowerManagerDisabled => {
+            ::rpc::forge::PowerState::PowerManagerDisabled
+        }
     };
     let updated_power_option = api_client
         .update_power_options(args.machine, power_state)
