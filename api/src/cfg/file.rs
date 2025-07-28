@@ -300,6 +300,15 @@ pub struct PowerManagerOptions {
 pub struct FnnConfig {
     #[serde(default)]
     pub admin_vpc: Option<AdminFnnConfig>,
+
+    /// GNI will import a common route-target for internal
+    /// tenant routes, reducing the coordination needed
+    /// between forge and GNI.  We'll double-tag our
+    /// internal tenant routes with this tag.
+    #[serde(default)]
+    pub common_internal_route_asn: Option<u32>,
+    #[serde(default)]
+    pub common_internal_route_vni: Option<u32>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]

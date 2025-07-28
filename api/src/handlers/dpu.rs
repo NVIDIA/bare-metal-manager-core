@@ -490,6 +490,16 @@ pub(crate) async fn get_managed_host_network_config_inner(
         min_dpu_functioning_links: api.runtime_config.min_dpu_functioning_links,
         dpu_network_pinger_type: api.runtime_config.dpu_network_monitor_pinger_type.clone(),
         internet_l3_vni: Some(api.runtime_config.internet_l3_vni),
+        common_internal_route_asn: api
+            .runtime_config
+            .fnn
+            .as_ref()
+            .and_then(|c| c.common_internal_route_asn),
+        common_internal_route_vni: api
+            .runtime_config
+            .fnn
+            .as_ref()
+            .and_then(|c| c.common_internal_route_vni),
         instance: maybe_instance,
     };
 

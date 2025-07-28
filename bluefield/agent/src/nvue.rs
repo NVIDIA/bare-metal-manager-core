@@ -225,6 +225,10 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         LoopbackIP: conf.loopback_ip,
         ASN: conf.asn,
         DatacenterASN: conf.datacenter_asn,
+        UseCommonInternalTenantRouteTarget: conf.common_internal_route_asn.is_some()
+            && conf.common_internal_route_vni.is_some(),
+        CommonInternalRouteASN: conf.common_internal_route_asn.unwrap_or_default(),
+        CommonInternalRouteVNI: conf.common_internal_route_vni.unwrap_or_default(),
         DPUHostname: conf.dpu_hostname,
         SearchDomain: conf.dpu_search_domain,
         Uplinks: conf.uplinks.clone(),
@@ -576,6 +580,9 @@ pub struct NvueConfig {
     pub loopback_ip: String,
     pub asn: u32,
     pub datacenter_asn: u32,
+    pub common_internal_route_asn: Option<u32>,
+    pub common_internal_route_vni: Option<u32>,
+
     pub dpu_hostname: String,
     pub dpu_search_domain: String,
     pub hbn_version: Option<String>,
@@ -663,6 +670,10 @@ struct TmplNvue {
     LoopbackIP: String,
     ASN: u32,
     DatacenterASN: u32,
+    UseCommonInternalTenantRouteTarget: bool,
+    CommonInternalRouteASN: u32,
+    CommonInternalRouteVNI: u32,
+
     DPUHostname: String,  // The first part of the FQDN
     SearchDomain: String, // The rest of the FQDN
     Uplinks: Vec<String>,
