@@ -13,8 +13,10 @@
 use crate::bmc_vendor::SshBmcVendor;
 use crate::proxy_channel_message;
 use crate::ssh_server::backend_connection::{BackendConnectionHandle, SshConnectionDetails};
+use crate::ssh_server::backend_pool::BackendPoolMetrics;
 use eyre::Context;
 use forge_uuid::machine::MachineId;
+use opentelemetry::KeyValue;
 use ringbuf::LocalRb;
 use ringbuf::storage::Array;
 use ringbuf::traits::RingBuffer;
@@ -48,11 +50,16 @@ static RUSSH_CLIENT_CONFIG: LazyLock<Arc<russh::client::Config>> =
 pub fn spawn(
     connection_details: Arc<SshConnectionDetails>,
     to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
+    metrics: Arc<BackendPoolMetrics>,
 ) -> eyre::Result<BackendConnectionHandle> {
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
     let (ready_tx, ready_rx) = oneshot::channel::<()>();
     let mut ready_tx = Some(ready_tx); // only send it once
     let (to_backend_msg_tx, mut to_backend_msg_rx) = mpsc::channel::<ChannelMsg>(1);
+    let metrics_attrs = vec![KeyValue::new(
+        "machine_id",
+        connection_details.machine_id.to_string(),
+    )];
 
     let machine_id = connection_details.machine_id;
     let bmc_vendor = connection_details.bmc_vendor;
@@ -75,16 +82,19 @@ pub fn spawn(
         let mut prior_escape_pending = false;
         ready_tx.take().map(|ch| ch.send(()));
 
+        let (mut backend_channel_rx, backend_channel_tx) = backend_channel.split();
+
         loop {
             tokio::select! {
                 _ = &mut shutdown_rx => {
                     tracing::info!(%machine_id, "backend connection shutting down");
                     break;
                 }
-                res = backend_channel.wait() => match res {
+                res = backend_channel_rx.wait() => match res {
                     // Data coming from the BMC to the frontend
                     Some(msg) => {
                         if let ChannelMsg::Data { data, .. } = &msg {
+                            metrics.bmc_bytes_received_total.add(data.len() as _, metrics_attrs.as_slice());
                             backend_ringbuf.push_iter_overwrite(data.iter().copied());
                             if let Some(bmc_prompt) = bmc_prompt {
                                 if ringbuf_contains(&backend_ringbuf, bmc_prompt) {
@@ -98,6 +108,7 @@ pub fn spawn(
                         to_frontend_tx.send(Arc::new(msg)).context("error sending message from ssh backend to frontend")?;
                     }
                     None => {
+                        metrics.bmc_rx_errors_total.add(1, metrics_attrs.as_slice());
                         tracing::debug!(%machine_id, "backend channel closed, closing connection");
                         break;
                     }
@@ -118,9 +129,11 @@ pub fn spawn(
                             }
                             msg => msg,
                         };
-                        proxy_channel_message(&msg, &backend_channel)
+                        proxy_channel_message(&msg, &backend_channel_tx)
                             .await
-                            .context("error sending message to backend")?;
+                            .context("error sending message to backend").inspect_err(|_| {
+                            metrics.bmc_tx_errors_total.add(1, metrics_attrs.as_slice());
+                        })?;
                     }
                     None => {
                         tracing::debug!(%machine_id, "frontend channel closed, closing connection");

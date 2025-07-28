@@ -37,6 +37,7 @@ forge-tls = { path = "../tls" }
 forge_secrets = { path = "../secrets" }
 utils = { path = "../utils" }
 metrics-endpoint = { path = "../metrics-endpoint" }
+thiserror = "2.0.12"
 
 [build-dependencies]
 forge-version = { path = "../version" }

@@ -11,6 +11,7 @@
  */
 
 use crate::config::Config;
+use crate::metrics::MetricsState;
 use crate::{ReadyHandle, ShutdownHandle};
 use eyre::Context;
 use russh::{MethodKind, MethodSet};
@@ -26,11 +27,12 @@ mod backend_session;
 mod connection_state;
 mod console_logger;
 pub(crate) mod frontend;
+mod metrics_service;
 mod server;
 
 /// Run a ssh-console server in the background, returning a [`SpawnHandle`]. When the handle is
 /// dropped, the server will exit.
-pub async fn spawn(config: Config) -> eyre::Result<SpawnHandle> {
+pub async fn spawn(config: Config, metrics: Arc<MetricsState>) -> eyre::Result<SpawnHandle> {
     let config = Arc::new(config);
     let host_key =
         russh::keys::PrivateKey::read_openssh_file(&config.host_key_path).with_context(|| {
@@ -40,11 +42,12 @@ pub async fn spawn(config: Config) -> eyre::Result<SpawnHandle> {
             )
         })?;
 
-    let server = server::new(config);
+    let server = server::new(config.clone(), &metrics.meter);
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let (ready_tx, ready_rx) = oneshot::channel();
-    let join_handle = tokio::spawn(server.run(
+
+    let server_join_handle = tokio::spawn(server.run(
         Arc::new(russh::server::Config {
             keys: vec![host_key],
             // We only accept PublicKey auth (certificates are a kind of PublicKey auth)
@@ -56,6 +59,17 @@ pub async fn spawn(config: Config) -> eyre::Result<SpawnHandle> {
         ready_tx,
         shutdown_rx,
     ));
+
+    let metrics_join_handle = metrics_service::spawn(config, metrics)
+        .await
+        .context("Error spawning metrics server")?;
+
+    let join_handle = tokio::spawn(async move {
+        // First wait for the server to finish, then shut down metrics.
+        let result = server_join_handle.await.expect("task panicked");
+        metrics_join_handle.shutdown_and_wait().await;
+        result
+    });
 
     Ok(SpawnHandle {
         shutdown_tx,

@@ -14,11 +14,13 @@ use crate::bmc_vendor::IPMITOOL_ESCAPE_SEQUENCE;
 use crate::config::Config;
 use crate::io_util::{self, set_controlling_terminal_on_exec, write_data_to_async_fd};
 use crate::ssh_server::backend_connection::{BackendConnectionHandle, IpmiConnectionDetails};
+use crate::ssh_server::backend_pool::BackendPoolMetrics;
 use eyre::Context;
 use forge_uuid::machine::MachineId;
 use nix::errno::Errno;
 use nix::pty::OpenptyResult;
 use nix::unistd;
+use opentelemetry::KeyValue;
 use russh::ChannelMsg;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::Arc;
@@ -39,6 +41,7 @@ pub fn spawn(
     connection_details: &IpmiConnectionDetails,
     to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
     config: &Config,
+    metrics: Arc<BackendPoolMetrics>,
 ) -> eyre::Result<BackendConnectionHandle> {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let (ready_tx, ready_rx) = oneshot::channel::<()>();
@@ -105,7 +108,7 @@ pub fn spawn(
                 tracing::debug!(%machine_id, "ipmitool backend shutting down");
                 process.start_kill().context("error killing ipmitool")?;
             }
-            res = ipmitool_process_loop(machine_id, pty_master, from_frontend_rx, to_frontend_tx, ready_tx) => match res {
+            res = ipmitool_process_loop(machine_id, pty_master, from_frontend_rx, to_frontend_tx, ready_tx, metrics) => match res {
                 Ok(()) => tracing::debug!(%machine_id, "ipmitool task finished successfully"),
                 Err(error) => {
                     result = Err(error);
@@ -148,7 +151,9 @@ async fn ipmitool_process_loop(
     mut from_frontend_rx: mpsc::Receiver<ChannelMsg>,
     to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
     mut ready_tx: Option<oneshot::Sender<()>>,
+    metrics: Arc<BackendPoolMetrics>,
 ) -> eyre::Result<()> {
+    let metrics_attrs = vec![KeyValue::new("machine_id", machine_id.to_string())];
     // Keep track of whether the last byte sent from the client was the first byte of an escape sequence.
     let mut escape_was_pending = false;
     // Read up to a few kilobytes of stdout from ipmitool at a time
@@ -167,6 +172,7 @@ async fn ipmitool_process_loop(
                         }
                         // We've gotten at least one byte, we're now ready (ipmitool always outputs a message when connected.)
                         ready_tx.take().map(|ch| ch.send(()));
+                        metrics.bmc_bytes_received_total.add(n as _, metrics_attrs.as_slice());
                         to_frontend_tx.send(Arc::new(ChannelMsg::Data { data: stdout_buf[0..n].to_vec().into() }))
                             .context("error writing data from ipmitool to frontend channel")?;
                         // Note, we're not clearing the ready state, so the fd will stay readable.
@@ -179,6 +185,7 @@ async fn ipmitool_process_loop(
                         guard.clear_ready();
                     }
                     Err(e) => {
+                        metrics.bmc_rx_errors_total.add(1, metrics_attrs.as_slice());
                         return Err(eyre::Report::new(std::io::Error::from_raw_os_error(e as _))
                             .wrap_err("error reading from async fd"));
                     }
@@ -189,7 +196,9 @@ async fn ipmitool_process_loop(
                 Some(msg) => {
                     escape_was_pending = send_frontend_message_to_ipmi_console(machine_id, msg, &pty_master, escape_was_pending).await.context(
                         "error sending frontend message to ipmi console"
-                    )?;
+                    ).inspect_err(|_| {
+                        metrics.bmc_tx_errors_total.add(1, metrics_attrs.as_slice());
+                    })?;
                 }
                 None => {
                     tracing::info!(%machine_id, "ssh connection closed, stopping ipmitool");

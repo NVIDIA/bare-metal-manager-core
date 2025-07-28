@@ -13,8 +13,10 @@
 use crate::config::Config;
 use crate::proxy_channel_message;
 use crate::ssh_server::backend_pool::BackendConnectionStore;
-use crate::ssh_server::backend_session::BackendSessionConnectionHandle;
+use crate::ssh_server::backend_session::BackendSubscription;
+use crate::ssh_server::server::ServerMetrics;
 use eyre::Context;
+use lazy_static::lazy_static;
 use rpc::forge::ValidateTenantPublicKeyRequest;
 use rpc::forge_api_client::ForgeApiClient;
 use russh::keys::ssh_key::AuthorizedKeys;
@@ -25,17 +27,28 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::oneshot;
 use tonic::Code;
 use uuid::Uuid;
 
-pub struct Handler {
-    pub config: Arc<Config>,
-    pub forge_api_client: ForgeApiClient,
+lazy_static! {
+    static ref CERT_AUTH_FAILURE_METRIC: [opentelemetry::KeyValue; 1] =
+        [opentelemetry::KeyValue::new(
+            "auth_type",
+            "openssh_certificate",
+        )];
+    static ref PUBKEY_AUTH_FAILURE_METRIC: [opentelemetry::KeyValue; 1] =
+        [opentelemetry::KeyValue::new("auth_type", "public_key",)];
+}
 
+pub struct Handler {
+    config: Arc<Config>,
+    forge_api_client: ForgeApiClient,
     backend_connections: BackendConnectionStore,
-    authenticated_user: RwLock<Option<String>>,
-    backends: RwLock<HashMap<ChannelId, Arc<BackendSessionConnectionHandle>>>,
+    authenticated_user: Option<String>,
+    backends: HashMap<ChannelId, BackendSubscription>,
+    metrics: Arc<ServerMetrics>,
+    last_auth_failure: Option<&'static [opentelemetry::KeyValue]>,
 }
 
 impl Handler {
@@ -43,13 +56,32 @@ impl Handler {
         backend_connections: BackendConnectionStore,
         config: Arc<Config>,
         forge_api_client: ForgeApiClient,
+        metrics: Arc<ServerMetrics>,
     ) -> Self {
+        tracing::debug!("spawning new frontend connection handler");
         Self {
             config,
             forge_api_client,
             backend_connections,
             authenticated_user: Default::default(),
             backends: Default::default(),
+            metrics,
+            last_auth_failure: Default::default(),
+        }
+    }
+}
+
+impl Drop for Handler {
+    fn drop(&mut self) {
+        tracing::debug!("dropping frontend connection handler");
+        // All auth failure paths set self.last_auth_failure, but auth can still succeed (they may
+        // be trying multiple pubkeys, etc.) So if authenticated_user is None but last_auth_failure
+        // is Some, bump the metrics.
+        if let (None, Some(last_auth_failure)) = (&self.authenticated_user, self.last_auth_failure)
+        {
+            self.metrics
+                .client_auth_failures_total
+                .add(1, last_auth_failure);
         }
     }
 }
@@ -62,7 +94,7 @@ impl russh::server::Handler for Handler {
         channel: Channel<Msg>,
         session: &mut Session,
     ) -> Result<bool, Self::Error> {
-        let Some(user) = self.authenticated_user.read().await.clone() else {
+        let Some(user) = &self.authenticated_user else {
             return Err(eyre::format_err!(
                 "BUG: channel_open_session called but we don't have an authenticated user"
             )
@@ -73,34 +105,81 @@ impl russh::server::Handler for Handler {
         let channel_id = channel.id();
         let backend = self
             .backend_connections
-            .get_connection(&user, &self.config, &self.forge_api_client)
+            .get_connection(
+                user,
+                &self.config,
+                &self.forge_api_client,
+                self.metrics.clone(),
+            )
             .await
             .with_context(|| format!("could not get backend connection for {user}"))?;
 
-        let mut to_frontend_rx = backend.subscribe();
+        let machine_id = backend.machine_id;
+        let Some(mut to_frontend_rx) = backend
+            .to_frontend_msg_weak_tx
+            .upgrade()
+            .map(|tx| tx.subscribe())
+        else {
+            return Err(eyre::format_err!(
+                "Backend for {machine_id} dropped before we could subscribe to messages"
+            )
+            .into());
+        };
 
-        tokio::spawn(async move {
-            while let Ok(msg) = to_frontend_rx.recv().await {
-                match proxy_channel_message(msg.as_ref(), &channel).await {
-                    Ok(()) => {}
-                    Err(error) => {
-                        tracing::debug!(
-                            %error,
-                            "error sending message to frontend, likely disconnected"
-                        );
+        // Proxy messages from the backend BMC to the user's connection.
+        // NOTE: We have to go through extra effort to know when to stop proxying messages, because
+        // we don't get reliably told when clients disconnect. So we poll for channel_rx here
+        // (taking ownership of it) and signal a shutdown of the proxy loop, then when that happens,
+        // we finally close the channel. Only then is Self::channel_close() actually sent! (This is
+        // IMO a design flaw in russh.)
+        let (proxy_shutdown_tx, mut proxy_shutdown_rx) = oneshot::channel();
+        let (mut channel_rx, channel_tx) = channel.split();
+        let _proxy_loop = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    res = to_frontend_rx.recv() => match res {
+                        Ok(msg) => {
+                            match proxy_channel_message(msg.as_ref(), &channel_tx).await {
+                                Ok(()) => {}
+                                Err(error) => {
+                                    tracing::debug!(
+                                        %error,
+                                        "error sending message to frontend, likely disconnected"
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            tracing::debug!("client channel closed when writing message from backend");
+                            break;
+                        }
+                    },
+                    _ = &mut proxy_shutdown_rx => {
                         break;
                     }
                 }
             }
-            channel.close().await.ok();
+            channel_tx.close().await.ok();
+        });
+
+        // Wait for the channel to close, then stop the proxy loop.
+        tokio::spawn(async move {
+            loop {
+                if channel_rx.wait().await.is_none() {
+                    break;
+                }
+            }
+            proxy_shutdown_tx.send(()).ok();
         });
 
         // Save the backend writer in self.backends so the Handler methods can find it
-        self.backends.write().await.insert(channel_id, backend);
+        self.backends.insert(channel_id, backend);
 
         session
             .channel_success(channel_id)
             .context("error replying with success to channel_open_session")?;
+
         Ok(true)
     }
 
@@ -134,6 +213,7 @@ impl russh::server::Handler for Handler {
                 user,
                 "openssh certificate CA certificate not trusted, rejecting authentication"
             );
+            self.last_auth_failure = Some(CERT_AUTH_FAILURE_METRIC.as_slice());
             return Ok(Auth::Reject {
                 proceed_with_methods: None,
                 partial_success: false,
@@ -155,10 +235,7 @@ impl russh::server::Handler for Handler {
             "certificate auth succeeded for user {user}, in role {}",
             &self.config.admin_certificate_role
         );
-        self.authenticated_user
-            .write()
-            .await
-            .replace(user.to_owned());
+        self.authenticated_user = Some(user.to_owned());
         Ok(Auth::Accept)
     }
 
@@ -196,12 +273,10 @@ impl russh::server::Handler for Handler {
         };
 
         if success {
-            self.authenticated_user
-                .write()
-                .await
-                .replace(user.to_owned());
+            self.authenticated_user = Some(user.to_owned());
             Ok(Auth::Accept)
         } else {
+            self.last_auth_failure = Some(CERT_AUTH_FAILURE_METRIC.as_slice());
             Ok(Auth::Reject {
                 partial_success: false,
                 proceed_with_methods: None,
@@ -217,7 +292,7 @@ impl russh::server::Handler for Handler {
         data: &[u8],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.write().await.get_mut(&channel) {
+        if let Some(backend) = self.backends.get(&channel) {
             backend
                 .to_backend_msg_tx
                 .send(ChannelMsg::Data {
@@ -238,7 +313,7 @@ impl russh::server::Handler for Handler {
         data: &[u8],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.write().await.get_mut(&channel) {
+        if let Some(backend) = self.backends.get(&channel) {
             backend
                 .to_backend_msg_tx
                 .send(ChannelMsg::ExtendedData {
@@ -256,7 +331,7 @@ impl russh::server::Handler for Handler {
         channel: ChannelId,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.read().await.get(&channel) {
+        if let Some(backend) = self.backends.remove(&channel) {
             // Ignore errors here
             backend.to_backend_msg_tx.send(ChannelMsg::Close).await.ok();
         }
@@ -268,7 +343,7 @@ impl russh::server::Handler for Handler {
         channel: ChannelId,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.read().await.get(&channel) {
+        if let Some(backend) = self.backends.remove(&channel) {
             backend
                 .to_backend_msg_tx
                 .send(ChannelMsg::Eof)
@@ -289,7 +364,7 @@ impl russh::server::Handler for Handler {
         modes: &[(Pty, u32)],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.read().await.get(&channel) {
+        if let Some(backend) = self.backends.get(&channel) {
             backend
                 .to_backend_msg_tx
                 .send(ChannelMsg::RequestPty {
@@ -312,7 +387,7 @@ impl russh::server::Handler for Handler {
         channel: ChannelId,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.read().await.get(&channel) {
+        if let Some(backend) = self.backends.get(&channel) {
             backend
                 .to_backend_msg_tx
                 .send(ChannelMsg::RequestShell { want_reply: false })
@@ -331,7 +406,7 @@ impl russh::server::Handler for Handler {
         pix_height: u32,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.read().await.get(&channel) {
+        if let Some(backend) = self.backends.get(&channel) {
             backend
                 .to_backend_msg_tx
                 .send(ChannelMsg::WindowChange {
@@ -352,7 +427,7 @@ impl russh::server::Handler for Handler {
         signal: Sig,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.read().await.get(&channel) {
+        if let Some(backend) = self.backends.get(&channel) {
             backend
                 .to_backend_msg_tx
                 .send(ChannelMsg::Signal { signal })

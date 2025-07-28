@@ -40,6 +40,13 @@ duration-str = "0.17.0"
 chrono = "0.4.41"
 strip-ansi-escapes = "0.2.1"
 rand = "0.9.1"
+opentelemetry = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+prometheus = "0.13.0"
+opentelemetry-prometheus = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+http-body-util = "0.1.3"
 
 [dev-dependencies]
 bmc-mock = { path = "../dev/bmc-mock" }
