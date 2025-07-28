@@ -85,10 +85,13 @@ pub struct NvueOptions {
     pub datacenter_asn: u32,
 
     #[clap(long)]
-    pub common_internal_route_asn: Option<u32>,
+    pub common_internal_route_target: Option<String>,
 
-    #[clap(long)]
-    pub common_internal_route_vni: Option<u32>,
+    #[clap(
+        long,
+        help = "Full JSON representation of a RouteConfig (see nvue.rs) to be used as additional route targets to import in FNN. Repeats with multiple --additional_fnn_route_target_import."
+    )]
+    pub additional_fnn_route_target_import: Vec<String>,
 
     #[clap(long)]
     pub dpu_hostname: String,

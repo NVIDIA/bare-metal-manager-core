@@ -294,8 +294,20 @@ pub async fn update_nvue(
         loopback_ip,
         asn: nc.asn,
         datacenter_asn: nc.datacenter_asn,
-        common_internal_route_asn: nc.common_internal_route_asn,
-        common_internal_route_vni: nc.common_internal_route_vni,
+        common_internal_route_target: nc.common_internal_route_target.map(|rt| {
+            nvue::RouteTargetConfig {
+                asn: rt.asn,
+                vni: rt.vni,
+            }
+        }),
+        additional_route_target_imports: nc
+            .additional_route_target_imports
+            .iter()
+            .map(|rt| nvue::RouteTargetConfig {
+                asn: rt.asn,
+                vni: rt.vni,
+            })
+            .collect(),
         dpu_hostname: hostname.hostname,
         dpu_search_domain: hostname.search_domain,
         hbn_version: Some(hbn_version),
@@ -1548,7 +1560,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::str::FromStr;
 
-    use ::rpc::forge as rpc;
+    use ::rpc::{common as rpc_common, forge as rpc};
     use eyre::WrapErr;
     use utils::models::dhcp::{DhcpConfig, HostConfig};
 
@@ -2137,8 +2149,15 @@ mod tests {
         rpc::ManagedHostNetworkConfigResponse {
             asn: 4259912557,
             datacenter_asn: 11414,
-            common_internal_route_asn: Some(11415),
-            common_internal_route_vni: Some(200),
+            common_internal_route_target: Some(rpc_common::RouteTarget {
+                asn: 11415,
+                vni: 200,
+            }),
+            additional_route_target_imports: vec![rpc_common::RouteTarget {
+                asn: 11111,
+                vni: 22222,
+            }],
+
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
             vni_device: "vxlan48".to_string(),
@@ -2276,8 +2295,14 @@ mod tests {
             loopback_ip: "10.217.5.39".to_string(),
             asn: 65535,
             datacenter_asn: 11414,
-            common_internal_route_asn: Some(11415),
-            common_internal_route_vni: Some(200),
+            common_internal_route_target: Some(nvue::RouteTargetConfig {
+                asn: 11415,
+                vni: 200,
+            }),
+            additional_route_target_imports: vec![nvue::RouteTargetConfig {
+                asn: 44444,
+                vni: 55555,
+            }],
             dpu_hostname: hostname.hostname,
             dpu_search_domain: hostname.search_domain,
             hbn_version: None,
@@ -2520,8 +2545,14 @@ mod tests {
         let mut network_config = rpc::ManagedHostNetworkConfigResponse {
             asn: 4259912557,
             datacenter_asn: 11414,
-            common_internal_route_asn: Some(11415),
-            common_internal_route_vni: Some(200),
+            common_internal_route_target: Some(rpc_common::RouteTarget {
+                asn: 11415,
+                vni: 200,
+            }),
+            additional_route_target_imports: vec![rpc_common::RouteTarget {
+                asn: 11111,
+                vni: 22222,
+            }],
 
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],

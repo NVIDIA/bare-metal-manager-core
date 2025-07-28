@@ -225,10 +225,21 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         LoopbackIP: conf.loopback_ip,
         ASN: conf.asn,
         DatacenterASN: conf.datacenter_asn,
-        UseCommonInternalTenantRouteTarget: conf.common_internal_route_asn.is_some()
-            && conf.common_internal_route_vni.is_some(),
-        CommonInternalRouteASN: conf.common_internal_route_asn.unwrap_or_default(),
-        CommonInternalRouteVNI: conf.common_internal_route_vni.unwrap_or_default(),
+        UseCommonInternalTenantRouteTarget: conf.common_internal_route_target.is_some(),
+        CommonInternalRouteTarget: conf.common_internal_route_target.map(|rt| {
+            TmplRouteTargetConfig {
+                ASN: rt.asn,
+                VNI: rt.vni,
+            }
+        }),
+        AdditionalRouteTargetImports: conf
+            .additional_route_target_imports
+            .iter()
+            .map(|rt| TmplRouteTargetConfig {
+                ASN: rt.asn,
+                VNI: rt.vni,
+            })
+            .collect(),
         DPUHostname: conf.dpu_hostname,
         SearchDomain: conf.dpu_search_domain,
         Uplinks: conf.uplinks.clone(),
@@ -572,6 +583,12 @@ fn vni_to_svi_mac(vni: u32) -> eyre::Result<MacAddress> {
     sanitized_mac(format!("{:012}", vni))
 }
 
+#[derive(Deserialize, Debug)]
+pub struct RouteTargetConfig {
+    pub asn: u32,
+    pub vni: u32,
+}
+
 // What we need to configure NVUE
 pub struct NvueConfig {
     pub is_fnn: bool,
@@ -580,8 +597,8 @@ pub struct NvueConfig {
     pub loopback_ip: String,
     pub asn: u32,
     pub datacenter_asn: u32,
-    pub common_internal_route_asn: Option<u32>,
-    pub common_internal_route_vni: Option<u32>,
+    pub common_internal_route_target: Option<RouteTargetConfig>,
+    pub additional_route_target_imports: Vec<RouteTargetConfig>,
 
     pub dpu_hostname: String,
     pub dpu_search_domain: String,
@@ -671,8 +688,8 @@ struct TmplNvue {
     ASN: u32,
     DatacenterASN: u32,
     UseCommonInternalTenantRouteTarget: bool,
-    CommonInternalRouteASN: u32,
-    CommonInternalRouteVNI: u32,
+    CommonInternalRouteTarget: Option<TmplRouteTargetConfig>,
+    AdditionalRouteTargetImports: Vec<TmplRouteTargetConfig>,
 
     DPUHostname: String,  // The first part of the FQDN
     SearchDomain: String, // The rest of the FQDN
@@ -729,6 +746,13 @@ struct TmplNvue {
     StorageLoopback: String,  // XXX (Classic, L3)
     DPUstorageprefix: String, // XXX (Classic, L3)
     IncludeBridge: bool,
+}
+
+#[allow(non_snake_case)]
+#[derive(Clone, Gtmpl, Debug)]
+struct TmplRouteTargetConfig {
+    ASN: u32,
+    VNI: u32,
 }
 
 /// Template-ready representation of a network security group rule.

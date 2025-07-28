@@ -34,7 +34,10 @@ use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
 use hyper_util::rt::TokioExecutor;
 use ipnetwork::IpNetwork;
-use rpc::forge::{DpuInfo, FlatInterfaceNetworkSecurityGroupConfig};
+use rpc::{
+    common as rpc_common,
+    forge::{DpuInfo, FlatInterfaceNetworkSecurityGroupConfig},
+};
 use tokio::sync::Mutex;
 
 #[derive(Default, Debug)]
@@ -652,8 +655,14 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     let netconf = rpc::forge::ManagedHostNetworkConfigResponse {
         asn: 65535,
         datacenter_asn: 11414,
-        common_internal_route_asn: Some(11415),
-        common_internal_route_vni: Some(200),
+        common_internal_route_target: Some(rpc_common::RouteTarget {
+            asn: 11415,
+            vni: 200,
+        }),
+        additional_route_target_imports: vec![rpc_common::RouteTarget {
+            asn: 11111,
+            vni: 22222,
+        }],
 
         dhcp_servers: vec!["127.0.0.1".to_string()],
         vni_device: "".to_string(),

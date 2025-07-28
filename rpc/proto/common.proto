@@ -17,3 +17,8 @@ message UUID {
 message Uint32List {
   repeated uint32 items = 1;
 }
+
+message RouteTarget {
+  uint32 asn = 1;
+  uint32 vni = 2;
+}
