@@ -652,6 +652,9 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     let netconf = rpc::forge::ManagedHostNetworkConfigResponse {
         asn: 65535,
         datacenter_asn: 11414,
+        common_internal_route_asn: Some(11415),
+        common_internal_route_vni: Some(200),
+
         dhcp_servers: vec!["127.0.0.1".to_string()],
         vni_device: "".to_string(),
 

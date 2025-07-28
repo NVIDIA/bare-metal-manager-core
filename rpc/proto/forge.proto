@@ -2421,6 +2421,12 @@ message ManagedHostNetworkConfigResponse {
   // The GNI-provided ASN of datacenter.
   uint32 datacenter_asn = 108;
 
+  // GNI will import a common route-target for internal
+  // tenant routes, reducing the coordination needed
+  // between forge and GNI.  We'll double-tag our
+  // internal tenant routes with this tag.
+  optional uint32 common_internal_route_asn = 109;
+  optional uint32 common_internal_route_vni = 110;
 }
 
 message ManagedHostQuarantineState {

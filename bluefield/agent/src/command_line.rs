@@ -85,6 +85,12 @@ pub struct NvueOptions {
     pub datacenter_asn: u32,
 
     #[clap(long)]
+    pub common_internal_route_asn: Option<u32>,
+
+    #[clap(long)]
+    pub common_internal_route_vni: Option<u32>,
+
+    #[clap(long)]
     pub dpu_hostname: String,
 
     #[clap(long, use_value_delimiter = true, help = "Comma separated")]
