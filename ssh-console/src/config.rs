@@ -26,6 +26,8 @@ use std::time::Duration;
 pub struct Config {
     #[serde(default = "Defaults::listen_address")]
     pub listen_address: SocketAddr,
+    #[serde(default = "Defaults::metrics_address")]
+    pub metrics_address: SocketAddr,
     #[serde(
         rename = "carbide_url",
         default = "Defaults::carbide_uri",
@@ -112,6 +114,7 @@ impl Config {
     pub fn into_annotated_config_file(self) -> String {
         let Self {
             listen_address,
+            metrics_address,
             authorized_keys_path: _,
             override_bmcs: _,
             host_key_path,
@@ -141,6 +144,7 @@ impl Config {
             .collect::<Vec<_>>();
         let carbide_uri = carbide_uri.to_string();
         let listen_address = listen_address.to_string();
+        let metrics_address = metrics_address.to_string();
 
         format!(
             r#"
@@ -150,8 +154,11 @@ impl Config {
 ## represent examples for optional configuration which is not part of the default config.
 #####
 
-## What address to listen on.
+## What address to listen on for SSH connections.
 listen_address = {listen_address:?}
+
+## Address to listen on for prometheus metrics requests (HTTP)
+metrics_address = {metrics_address:?}
 
 ## Address for carbide-api
 carbide_url = {carbide_uri:?}
@@ -265,6 +272,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             listen_address: Defaults::listen_address(),
+            metrics_address: Defaults::metrics_address(),
             host_key_path: Defaults::host_key_path(),
             carbide_uri: Defaults::carbide_uri(),
             forge_root_ca_path: Defaults::root_ca_path(),
@@ -294,6 +302,12 @@ pub struct Defaults;
 impl Defaults {
     pub fn listen_address() -> SocketAddr {
         "[::]:22"
+            .parse()
+            .expect("BUG: default listen_address is invalid")
+    }
+
+    pub fn metrics_address() -> SocketAddr {
+        "[::]:8080"
             .parse()
             .expect("BUG: default listen_address is invalid")
     }

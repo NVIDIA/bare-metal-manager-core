@@ -28,6 +28,7 @@
 
 pub mod bmc_vendor;
 pub(crate) mod io_util;
+pub mod metrics;
 mod ssh_server;
 
 // pub mods are only ones used by main.rs and integration tests
@@ -48,7 +49,7 @@ use tokio::sync::oneshot;
 /// public. :(
 pub(crate) async fn proxy_channel_message<S>(
     channel_msg: &russh::ChannelMsg,
-    channel: &russh::Channel<S>,
+    channel: &russh::ChannelWriteHalf<S>,
 ) -> eyre::Result<()>
 where
     S: From<(russh::ChannelId, russh::ChannelMsg)> + Send + Sync + 'static,

@@ -77,7 +77,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
         let metrics = shared_metrics.clone();
         meter
             .u64_observable_gauge("forge_machine_validation_tests")
-            .with_description("The details of machine validation tests.")
+            .with_description("The details of machine validation tests")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
                     for test in metrics.tests.iter() {
@@ -122,8 +122,8 @@ impl MetricHolder {
 mod tests {
     use super::*;
     use crate::machine_validation::metrics::MachineValidationMetrics;
-    use crate::tests::common::prometheus_text_parser::ParsedPrometheusMetrics;
     use crate::tests::common::test_meter::TestMeter;
+    use api_test_helper::prometheus_text_parser::ParsedPrometheusMetrics;
     use chrono::Utc;
     use config_version::ConfigVersion;
     use std::sync::Arc;

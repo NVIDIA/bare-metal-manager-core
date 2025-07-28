@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use eyre::Context;
+use futures_util::FutureExt;
 use lazy_static::lazy_static;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -63,6 +64,7 @@ async fn test_legacy_ssh() -> eyre::Result<()> {
             BaselineTestAssertion::ConnectAsInstanceId,
             // BaselineTestAssertion::ConnectAsMachineId, // Not supported by legacy ssh-console today
         ],
+        || legacy::wait_for_metrics(Duration::from_secs(60)).boxed(),
     )
     .await
 }
@@ -96,6 +98,7 @@ async fn test_legacy_ipmi() -> eyre::Result<()> {
             BaselineTestAssertion::ConnectAsInstanceId,
             // BaselineTestAssertion::ConnectAsMachineId, // Not supported by legacy ssh-console today
         ],
+        || new_ssh_console::get_metrics(handle.metrics_address).boxed(),
     )
     .await
 }
@@ -123,6 +126,7 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
             BaselineTestAssertion::ConnectAsInstanceId,
             BaselineTestAssertion::ConnectAsMachineId,
         ],
+        || new_ssh_console::get_metrics(handle.metrics_address).boxed(),
     )
     .await?;
 

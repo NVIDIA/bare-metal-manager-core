@@ -101,9 +101,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        preingestion_manager::metrics::PreingestionMetrics,
-        tests::common::{prometheus_text_parser::ParsedPrometheusMetrics, test_meter::TestMeter},
+        preingestion_manager::metrics::PreingestionMetrics, tests::common::test_meter::TestMeter,
     };
+    use api_test_helper::prometheus_text_parser::ParsedPrometheusMetrics;
 
     #[test]
     fn test_metrics_collector() {

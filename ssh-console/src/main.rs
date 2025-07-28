@@ -15,6 +15,7 @@ use eyre::Context;
 use ssh_console::config::Config;
 use ssh_console::{ShutdownHandle, config};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::metadata::LevelFilter;
 
 #[tokio::main(flavor = "multi_thread")]
@@ -22,10 +23,11 @@ pub async fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
     setup_logging(&cli);
+    let metrics = Arc::new(ssh_console::metrics::MetricsState::new());
 
     match cli.command {
         Command::Run(run_command) => {
-            let spawn_handle = ssh_console::spawn(run_command.try_into()?).await?;
+            let spawn_handle = ssh_console::spawn(run_command.try_into()?, metrics).await?;
             // Let the service run forever by awaiting the join handle, while holding onto the
             // shutdown handle.
             let (_shutdown_tx, join_handle) = spawn_handle.into_parts();
@@ -70,6 +72,12 @@ struct RunCommand {
         help = "Address to listen on, overriding configuration file"
     )]
     address: Option<String>,
+    #[clap(
+        long,
+        short,
+        help = "Address to listen on for prometheus metrics requests (HTTP), overriding configuration file"
+    )]
+    metrics_address: Option<String>,
     #[clap(long, short = 'u', help = "Address of carbide-api (forge)")]
     forge_url: Option<http::Uri>,
     #[clap(
@@ -136,6 +144,11 @@ impl TryInto<Config> for RunCommand {
             config.listen_address = address
                 .parse()
                 .with_context(|| format!("Invalid listening address {address}"))?;
+        }
+        if let Some(metrics_address) = self.metrics_address {
+            config.metrics_address = metrics_address
+                .parse()
+                .with_context(|| format!("Invalid metrics address {metrics_address}"))?;
         }
         if let Some(carbide_url) = self.forge_url {
             config.carbide_uri = carbide_url

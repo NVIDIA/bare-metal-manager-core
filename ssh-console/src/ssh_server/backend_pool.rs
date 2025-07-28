@@ -13,26 +13,34 @@
 use crate::config::Config;
 use crate::ssh_server::backend_connection::lookup_connection_details;
 use crate::ssh_server::backend_session;
-use crate::ssh_server::backend_session::{BackendSessionConnectionHandle, BackendSessionHandle};
+use crate::ssh_server::backend_session::{BackendSessionHandle, BackendSubscription};
+use crate::ssh_server::connection_state::ConnectionState;
+use crate::ssh_server::server::ServerMetrics;
 use crate::{ReadyHandle, ShutdownHandle};
 use eyre::{Context, ContextCompat};
 use forge_uuid::machine::MachineId;
 use futures_util::future::join_all;
+use opentelemetry::KeyValue;
+use opentelemetry::metrics::{Counter, Gauge, Meter, ObservableGauge};
 use rpc::forge;
 use rpc::forge_api_client::ForgeApiClient;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::Debug;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
+use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
-use tokio::sync::{RwLock, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 use uuid::Uuid;
 
 /// Spawn a background task that connects to all BMC's in the environment, reconnecting if they fail.
-pub fn spawn(config: Arc<Config>, forge_api_client: ForgeApiClient) -> BackendPoolHandle {
+pub fn spawn(
+    config: Arc<Config>,
+    forge_api_client: ForgeApiClient,
+    meter: &Meter,
+) -> BackendPoolHandle {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let (ready_tx, ready_rx) = oneshot::channel();
     let members: Arc<RwLock<HashMap<MachineId, BackendSessionHandle>>> = Default::default();
@@ -42,6 +50,7 @@ pub fn spawn(config: Arc<Config>, forge_api_client: ForgeApiClient) -> BackendPo
             shutdown_rx,
             config,
             forge_api_client,
+            metrics: Arc::new(BackendPoolMetrics::new(meter, members.clone())),
         }
         .run_loop(ready_tx),
     );
@@ -96,13 +105,14 @@ impl BackendConnectionStore {
         machine_or_instance_id: &str,
         config: &Config,
         forge_api_client: &ForgeApiClient,
-    ) -> eyre::Result<Arc<BackendSessionConnectionHandle>> {
+        metrics: Arc<ServerMetrics>,
+    ) -> eyre::Result<BackendSubscription> {
         if let Ok(machine_id) = MachineId::from_str(machine_or_instance_id) {
             self.members
                 .read()
-                .await
+                .expect("lock poisoned")
                 .get(&machine_id)
-                .map(|session_handle| session_handle.connection_handle.clone())
+                .map(|session_handle| session_handle.subscribe(metrics))
                 .with_context(|| format!("unknown machine id {machine_id}"))
         } else if let Ok(instance_id) = Uuid::from_str(machine_or_instance_id) {
             let machine_id_candidate = if let Some(machine_id) =
@@ -150,9 +160,9 @@ impl BackendConnectionStore {
 
             self.members
                 .read()
-                .await
+                .expect("lock poisoned")
                 .get(&machine_id_candidate)
-                .map(|session_handle| session_handle.connection_handle.clone())
+                .map(|session_handle| session_handle.subscribe(metrics))
                 .with_context(|| format!("no machine with instance_id {instance_id}"))
         } else {
             return Err(eyre::format_err!(
@@ -169,6 +179,96 @@ struct BackendPool {
     shutdown_rx: oneshot::Receiver<()>,
     config: Arc<Config>,
     forge_api_client: ForgeApiClient,
+    metrics: Arc<BackendPoolMetrics>,
+}
+
+pub struct BackendPoolMetrics {
+    grpc_total_hosts: Gauge<u64>,
+    total_machines: Gauge<u64>,
+    _failed_machines: ObservableGauge<u64>,
+    _healthy_machines: ObservableGauge<u64>,
+    _bmc_status: ObservableGauge<u64>,
+
+    // per-backend metrics (need to be pub, since code outside this module is setting them
+    pub bmc_bytes_received_total: Counter<u64>,
+    pub bmc_rx_errors_total: Counter<u64>,
+    pub bmc_tx_errors_total: Counter<u64>,
+    pub bmc_recovery_attempts: Gauge<u64>,
+}
+
+impl BackendPoolMetrics {
+    fn new(meter: &Meter, members: Arc<RwLock<HashMap<MachineId, BackendSessionHandle>>>) -> Self {
+        Self {
+            grpc_total_hosts: meter
+                .u64_gauge("ssh_console_grpc_total_machines")
+                .with_description("The total number of hosts reported by the Site Controller to the SSH Console service").build(),
+            total_machines: meter
+                .u64_gauge("ssh_console_total_machines")
+                .with_description("The total number of host BMCs the SSH Console service has attempted connecting to").build(),
+            _failed_machines: meter
+                .u64_observable_gauge("ssh_console_failed_machines")
+                .with_description("The number of host BMCs the SSH Console service has encountered multiple errors with")
+                .with_callback({
+                    let members = members.clone();
+                    move |observer| {
+                        let error_count = members.read().expect("lock poisoned")
+                            .values()
+                            .fold(0, |acc, conn| {
+                                if conn.connection_state.load() == ConnectionState::ConnectionError { acc + 1 } else { acc }
+                            });
+                        observer.observe(error_count, &[]);
+                    }
+                })
+                .build(),
+            _healthy_machines: meter
+                .u64_observable_gauge("ssh_console_healthy_machines")
+                .with_description("The number of host BMCs the SSH Console service has working connections to")
+                .with_callback({
+                    let members = members.clone();
+                    move |observer| {
+                        let error_count = members.read().expect("lock poisoned")
+                            .values()
+                            .fold(0, |acc, conn| {
+                                if conn.connection_state.load() == ConnectionState::Connected { acc + 1 } else { acc }
+                            });
+                        observer.observe(error_count, &[]);
+                    }
+                })
+                .build(),
+            _bmc_status: meter.u64_observable_gauge("ssh_console_bmc_status")
+                .with_description("Current status of the session to the bmc, see value label")
+                .with_callback({
+                    let members = members.clone();
+                    move |observer| {
+                        members.read().expect("lock poisoned").iter().for_each(|(machine_id, handle)| {
+                            let state = handle.connection_state.load();
+                            observer.observe(state as _, &[
+                                KeyValue::new("machine_id", machine_id.to_string()),
+                                KeyValue::new("value", format!("{state:?}")),
+                            ])
+                        })
+                    }
+                })
+                .build(),
+            bmc_bytes_received_total: meter
+                .u64_counter("ssh_console_bmc_bytes_received")
+                .with_description("Total bytes received during this service lifetime from the bmc")
+                .with_unit("bytes")
+                .build(),
+            bmc_rx_errors_total: meter
+                .u64_counter("ssh_console_bmc_rx_errors")
+                .with_description("Total receive errors encountered during this service lifetime connection with the bmc")
+                .build(),
+            bmc_tx_errors_total: meter
+                .u64_counter("ssh_console_bmc_tx_errors")
+                .with_description("Total transmit errors encountered during this service lifetime connection with the bmc")
+                .build(),
+            bmc_recovery_attempts: meter
+                .u64_gauge("ssh_console_bmc_recovery_attempts")
+                .with_description("Recovery attempts made for connection or session errors")
+                .build(),
+        }
+    }
 }
 
 impl BackendPool {
@@ -198,14 +298,14 @@ impl BackendPool {
         }
 
         // Shutdown each backend
-        join_all(
-            self.members
-                .write()
-                .await
-                .drain()
-                .map(|(_machine_id, handle)| handle.shutdown_and_wait()),
-        )
-        .await;
+        let members = self
+            .members
+            .write()
+            .expect("lock poisoned")
+            .drain()
+            .map(|(_machine_id, handle)| handle)
+            .collect::<Vec<_>>();
+        join_all(members.into_iter().map(|handle| handle.shutdown_and_wait())).await;
     }
 
     async fn refresh_backends(&mut self) -> eyre::Result<()> {
@@ -254,26 +354,32 @@ impl BackendPool {
                 }
             };
 
+        self.metrics
+            .grpc_total_hosts
+            .record(machine_ids.len() as _, &[]);
+
         // -- Reconcile our list with the running tasks
-        let mut guard = self.members.write().await;
+        let to_add = {
+            let mut guard = self.members.write().expect("lock poisoned");
 
-        // Remove any machines that are no longer monitored
-        let to_remove = guard
-            .keys()
-            .filter(|&machine_id| !machine_ids.contains(machine_id))
-            .copied()
-            .collect::<Vec<_>>();
-        for machine_id in to_remove {
-            tracing::info!(%machine_id, "removing machine from console logging, no longer found in carbide");
-            guard.remove(&machine_id);
-        }
+            // Remove any machines that are no longer monitored
+            let to_remove = guard
+                .keys()
+                .filter(|&machine_id| !machine_ids.contains(machine_id))
+                .copied()
+                .collect::<Vec<_>>();
+            for machine_id in to_remove {
+                tracing::info!(%machine_id, "removing machine from console logging, no longer found in carbide");
+                guard.remove(&machine_id);
+            }
 
-        // Add any machines that need to be monitored
-        let to_add = machine_ids
-            .iter()
-            .filter(|id| !guard.contains_key(id))
-            .copied()
-            .collect::<Vec<_>>();
+            // Add any machines that need to be monitored
+            machine_ids
+                .iter()
+                .filter(|id| !guard.contains_key(id))
+                .copied()
+                .collect::<Vec<_>>()
+        };
 
         // For each one we want to add, get the connection details. Skip any machines which fail
         // here.
@@ -297,14 +403,23 @@ impl BackendPool {
             }
         })).await.into_iter().flatten().collect::<Vec<_>>();
 
-        for (machine_id, connection_details) in all_connection_details {
-            if guard.contains_key(&machine_id) {
-                continue;
+        {
+            // Now add each of these to the pool
+            let mut guard = self.members.write().expect("lock poisoned");
+            for (machine_id, connection_details) in all_connection_details {
+                if guard.contains_key(&machine_id) {
+                    continue;
+                }
+                tracing::info!(%machine_id, "begin connection to machine");
+                let backend_session_handle = backend_session::spawn(
+                    connection_details,
+                    self.config.clone(),
+                    self.metrics.clone(),
+                );
+                guard.insert(machine_id, backend_session_handle);
             }
-            tracing::info!(%machine_id, "begin connection to machine");
-            let backend_session_handle =
-                backend_session::spawn(connection_details, self.config.clone());
-            guard.insert(machine_id, backend_session_handle);
+
+            self.metrics.total_machines.record(guard.len() as _, &[]);
         }
 
         Ok(())

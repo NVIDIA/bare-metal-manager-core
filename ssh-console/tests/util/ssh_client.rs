@@ -132,7 +132,7 @@ pub async fn assert_connection_works(
     let mut output_buf: Vec<u8> = Vec::new();
     let mut test_state = ConnectionTestState::WaitingForPrompt;
     let prompt_timeout = Instant::now().add(PROMPT_WAIT_TIMEOUT);
-    let mut assertion_timeout = Instant::now().add(Duration::from_secs(3));
+    let mut assertion_timeout = Instant::now().add(Duration::from_secs(1));
     let mut write_interval = tokio::time::interval(Duration::from_millis(100));
 
     // Phase 1: Every second, write a newline to the connection, until we see a prompt, then every
@@ -142,11 +142,11 @@ pub async fn assert_connection_works(
     // Phase 2: send `backdoor_escape_console` to the server, which mock_ssh_server will use to
     // simulate the serial console getting disconnected and dropping back down to the BMC prompt. At
     // this point, we expect to be disconnected.
-    loop {
+    let result = loop {
         tokio::select! {
             _ = tokio::time::sleep_until(prompt_timeout.into()) => {
                 if let ConnectionTestState::WaitingForPrompt = test_state {
-                    return Err(eyre::format_err!("Did not see prompt after {PROMPT_WAIT_TIMEOUT:?}"));
+                    break Err(eyre::format_err!("Did not see prompt after {PROMPT_WAIT_TIMEOUT:?}"));
                 }
             }
             _ = tokio::time::sleep_until(assertion_timeout.into()) => {
@@ -158,7 +158,7 @@ pub async fn assert_connection_works(
                     }
                     ConnectionTestState::TryingBackdoorEscape => {
                         tracing::info!("Test finished without seeing a bmc_prompt while using backdoor escape, success");
-                        break;
+                        break Ok(());
                     }
                     _ => {}
                 }
@@ -196,7 +196,7 @@ pub async fn assert_connection_works(
                                 // We should not generally get any data after sending ctrl-\, since
                                 // it should be trapped by ssh-console and not forwarded to the BMC.
                                 if output_buf.windows(BMC_PROMPT.len()).any(|window| window == BMC_PROMPT) {
-                                    return Err(eyre::format_err!("We escaped to the BMC prompt, this should have been prevented"));
+                                    break Err(eyre::format_err!("We escaped to the BMC prompt, this should have been prevented"));
                                 }
                             }
                         }
@@ -204,33 +204,35 @@ pub async fn assert_connection_works(
                     ChannelMsg::Eof => {
                         if matches!(test_state, ConnectionTestState::TryingBackdoorEscape) {
                             tracing::info!(connection_name, "Server sent EOF, all done");
+                            break Ok(());
                         } else {
-                            return Err(eyre::format_err!("Got disconnected when we weren't expecting it, test_state={test_state:?}"));
+                            break Err(eyre::format_err!("Got disconnected when we weren't expecting it, test_state={test_state:?}"));
                         }
-                        break;
                     }
                     ChannelMsg::WindowAdjusted { .. } => {}
                     _ => {
                         // For now, just error out on unexpected messages, to spot issues sooner. If
                         // this becomes not worth it we can just log and move on.
-                        return Err(eyre::format_err!(format!("Unexpected message from server: {:?}", msg)));
+                        break Err(eyre::format_err!(format!("Unexpected message from server: {:?}", msg)));
                     }
                 }
                 None => {
-                    tracing::error!(connection_name, "Unexpected end of SSH channel");
-                    break;
+                    break Err(eyre::format_err!("Unexpected end of SSH channel"));
                 }
             }
         }
-    }
+    };
 
-    if matches!(test_state, ConnectionTestState::WaitingForPrompt) {
+    channel.eof().await.ok();
+    channel.close().await.ok();
+
+    if result.is_ok() && matches!(test_state, ConnectionTestState::WaitingForPrompt) {
         return Err(eyre::format_err!(format!(
             "Did not detect a prompt after connecting to {connection_name}"
         )));
     }
 
-    Ok(())
+    result
 }
 
 #[derive(Debug)]

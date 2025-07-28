@@ -43,7 +43,7 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_vpc_fixture_id,
 };
-use crate::tests::common::prometheus_text_parser::ParsedPrometheusMetrics;
+use api_test_helper::prometheus_text_parser::ParsedPrometheusMetrics;
 use rpc::forge::NetworkSegmentSearchConfig;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;

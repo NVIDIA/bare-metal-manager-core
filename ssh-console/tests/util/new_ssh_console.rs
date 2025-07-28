@@ -2,13 +2,25 @@ use crate::util::fixtures::{
     API_CA_CERT, API_CLIENT_CERT, API_CLIENT_KEY, AUTHORIZED_KEYS_PATH, SSH_HOST_KEY,
 };
 use eyre::Context;
+use http_body_util::Full;
+use hyper::body::Bytes;
+use hyper_util::rt::TokioExecutor;
 use ssh_console::ReadyHandle;
 use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
+use std::sync::Arc;
 use std::time::Duration;
 use temp_dir::TempDir;
 
 pub async fn spawn(carbide_port: u16) -> eyre::Result<NewSshConsoleHandle> {
-    let addr = {
+    let listen_address = {
+        // Pick an open port
+        let l = TcpListener::bind("127.0.0.1:0")?;
+        l.local_addr()?
+            .to_socket_addrs()?
+            .next()
+            .expect("No socket available")
+    };
+    let metrics_address = {
         // Pick an open port
         let l = TcpListener::bind("127.0.0.1:0")?;
         l.local_addr()?
@@ -20,7 +32,8 @@ pub async fn spawn(carbide_port: u16) -> eyre::Result<NewSshConsoleHandle> {
     let logs_dir = TempDir::new().context("error creating temp dir for console logs")?;
 
     let config = ssh_console::config::Config {
-        listen_address: addr,
+        listen_address,
+        metrics_address,
         carbide_uri: format!("https://localhost:{carbide_port}")
             .try_into()
             .expect("Invalid URI?"),
@@ -46,11 +59,13 @@ pub async fn spawn(carbide_port: u16) -> eyre::Result<NewSshConsoleHandle> {
         successful_connection_minimum_duration: Duration::ZERO,
     };
 
-    let mut spawn_handle = ssh_console::spawn(config).await?;
+    let metrics = Arc::new(ssh_console::metrics::MetricsState::new());
+    let mut spawn_handle = ssh_console::spawn(config, metrics).await?;
     spawn_handle.wait_until_ready().await.ok();
 
     Ok(NewSshConsoleHandle {
-        addr,
+        addr: listen_address,
+        metrics_address,
         // Make sure the logs dir doesn't drop.
         logs_dir,
         spawn_handle,
@@ -59,6 +74,26 @@ pub async fn spawn(carbide_port: u16) -> eyre::Result<NewSshConsoleHandle> {
 
 pub struct NewSshConsoleHandle {
     pub addr: SocketAddr,
+    pub metrics_address: SocketAddr,
     pub logs_dir: TempDir,
     pub spawn_handle: ssh_console::SpawnHandle,
+}
+
+pub async fn get_metrics(addr: SocketAddr) -> eyre::Result<String> {
+    use http_body_util::BodyExt;
+    String::from_utf8_lossy(
+        hyper_util::client::legacy::Builder::new(TokioExecutor::new())
+            .build_http::<Full<Bytes>>()
+            .get(format!("http://{}/metrics", addr).try_into().unwrap())
+            .await
+            .context("Error fetching metrics")?
+            .into_body()
+            .collect()
+            .await
+            .context("Error fetching metrics body")?
+            .to_bytes()
+            .as_ref(),
+    )
+    .parse()
+    .context("Error parsing prometheus metrics")
 }

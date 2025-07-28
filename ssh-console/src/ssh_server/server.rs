@@ -16,6 +16,7 @@ use crate::ssh_server::frontend::RusshOrEyreError;
 use crate::{ReadyHandle, ShutdownHandle};
 use eyre::Context;
 use forge_tls::client_config::ClientCert;
+use opentelemetry::metrics::{Counter, Meter, ObservableGauge, UpDownCounter};
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use russh::server::Server as _;
@@ -26,13 +27,15 @@ use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
 /// Construct a new [`Server`]
-pub fn new(config: Arc<Config>) -> Server {
+pub fn new(config: Arc<Config>, meter: &Meter) -> Server {
     let forge_api_client = config.make_forge_api_client();
-    let backend_pool = backend_pool::spawn(config.clone(), forge_api_client.clone());
+    let backend_pool = backend_pool::spawn(config.clone(), forge_api_client.clone(), meter);
+    let metrics = Arc::new(ServerMetrics::new(meter, &config));
     Server {
         config,
         forge_api_client,
         backend_pool,
+        metrics,
     }
 }
 
@@ -40,6 +43,7 @@ pub struct Server {
     config: Arc<Config>,
     forge_api_client: ForgeApiClient,
     backend_pool: BackendPoolHandle,
+    metrics: Arc<ServerMetrics>,
 }
 
 impl Server {
@@ -141,6 +145,61 @@ impl Server {
     }
 }
 
+pub struct ServerMetrics {
+    pub total_clients: UpDownCounter<i64>,
+    pub client_auth_failures_total: Counter<u64>,
+    _auth_enforced: ObservableGauge<u64>,
+    _include_dpus: ObservableGauge<u64>,
+
+    // per-BMC stats
+    pub bmc_clients: UpDownCounter<i64>,
+}
+
+impl ServerMetrics {
+    fn new(meter: &Meter, config: &Config) -> ServerMetrics {
+        Self {
+            total_clients: meter
+                .i64_up_down_counter("ssh_console_total_clients")
+                .with_description("The number of SSH clients currently connected to the service")
+                .build(),
+            client_auth_failures_total: meter
+                .u64_counter("ssh_console_client_auth_failures")
+                .with_description("The number of SSH clients authentication attempts denied")
+                .build(),
+            _auth_enforced: meter
+                .u64_observable_gauge("ssh_console_auth_enforced")
+                .with_description("Whether authentication for clients is being enforced, 1 = enforced, 0 = disabled")
+                .with_callback({
+                    let auth_enforced = !config.insecure;
+                    move |observer| {
+                        observer.observe(
+                            if auth_enforced { 1 } else { 0 },
+                            &[]
+                        );
+                    }
+                })
+                .build(),
+            _include_dpus: meter
+                .u64_observable_gauge("ssh_console_include_dpus")
+                .with_description("Whether DPU serial consoles are included by the SSH Console service")
+                .with_callback({
+                    let dpus = config.dpus;
+                    move |observer| {
+                        observer.observe(
+                            if dpus { 1 } else { 0 },
+                            &[]
+                        );
+                    }
+                })
+                .build(),
+            bmc_clients: meter
+                .i64_up_down_counter("ssh_console_bmc_clients")
+                .with_description("Number of active client SSH sessions to this host")
+                .build(),
+        }
+    }
+}
+
 impl russh::server::Server for Server {
     type Handler = super::frontend::Handler;
 
@@ -149,6 +208,7 @@ impl russh::server::Server for Server {
             self.backend_pool.get_connection_store(),
             self.config.clone(),
             self.forge_api_client.clone(),
+            self.metrics.clone(),
         )
     }
 }

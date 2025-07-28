@@ -12,12 +12,15 @@
 
 use crate::config::Config;
 use crate::ssh_server::backend_connection::ConnectionDetails;
+use crate::ssh_server::backend_pool::BackendPoolMetrics;
 use crate::ssh_server::connection_state::{AtomicConnectionState, ConnectionState};
+use crate::ssh_server::server::ServerMetrics;
 use crate::ssh_server::{backend_connection, console_logger};
 use crate::{ReadyHandle, ShutdownHandle};
+use forge_uuid::machine::MachineId;
 use futures_util::FutureExt;
+use opentelemetry::KeyValue;
 use russh::ChannelMsg;
-use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{MutexGuard, broadcast, mpsc, oneshot};
@@ -31,7 +34,11 @@ static RETRY_MAX_DURATION: Duration = Duration::from_secs(600);
 /// Spawn a connection to the given backend in the background, returning a handle. Connections will
 /// be retried indefinitely, with exponential backoff, until a shutdown is signaled (ie. by dropping
 /// the BackendSessionHandle.)
-pub fn spawn(connection_details: ConnectionDetails, config: Arc<Config>) -> BackendSessionHandle {
+pub fn spawn(
+    connection_details: ConnectionDetails,
+    config: Arc<Config>,
+    metrics: Arc<BackendPoolMetrics>,
+) -> BackendSessionHandle {
     // Shutdown handle for the retry loop that is retrying this connection
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     // Channel frontends can use to send messages to the backend
@@ -44,6 +51,13 @@ pub fn spawn(connection_details: ConnectionDetails, config: Arc<Config>) -> Back
     dev_null(broadcast_to_frontend_rx);
 
     let connection_state = Arc::new(AtomicConnectionState::default());
+    let machine_id = connection_details.machine_id();
+
+    let metrics_attrs = vec![KeyValue::new("machine_id", machine_id.to_string())];
+    metrics.bmc_recovery_attempts.record(0, &metrics_attrs);
+    metrics.bmc_rx_errors_total.add(0, &metrics_attrs);
+    metrics.bmc_tx_errors_total.add(0, &metrics_attrs);
+    metrics.bmc_bytes_received_total.add(0, &metrics_attrs);
 
     let backend_session = BackendSession {
         connection_details,
@@ -52,15 +66,15 @@ pub fn spawn(connection_details: ConnectionDetails, config: Arc<Config>) -> Back
         broadcast_to_frontend_tx: broadcast_to_frontend_tx.clone(),
         shutdown_rx,
         to_backend_msg_rx,
+        metrics,
     };
 
     let join_handle = tokio::spawn(backend_session.run());
 
     BackendSessionHandle {
-        connection_handle: Arc::new(BackendSessionConnectionHandle {
-            to_backend_msg_tx,
-            broadcast_to_frontend_tx,
-        }),
+        to_backend_msg_tx,
+        broadcast_to_frontend_tx,
+        machine_id,
         shutdown_tx,
         join_handle,
         connection_state,
@@ -74,11 +88,13 @@ struct BackendSession {
     shutdown_rx: oneshot::Receiver<()>,
     broadcast_to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
     to_backend_msg_rx: mpsc::Receiver<ChannelMsg>,
+    metrics: Arc<BackendPoolMetrics>,
 }
 
 impl BackendSession {
     async fn run(mut self) {
         let machine_id = self.connection_details.machine_id();
+        let metrics_attrs = vec![KeyValue::new("machine_id", machine_id.to_string())];
 
         // Spawn a task to write logs for this console, if configured.
         let logger_handle = if self.config.console_logging_enabled {
@@ -104,15 +120,18 @@ impl BackendSession {
 
         // Connect and reconnect, in a loop, until the session is shut down
         let mut retry_time = Duration::ZERO;
-        let mut first_try = true;
+        let mut retries = 0;
         'retry: loop {
-            if first_try {
+            self.metrics
+                .bmc_recovery_attempts
+                .record(retries, metrics_attrs.as_slice());
+            if retries == 0 {
                 self.connection_state.store(ConnectionState::Connecting);
-                first_try = false;
             } else {
                 self.connection_state
                     .store(ConnectionState::ConnectionError);
             }
+            retries += 1;
 
             // Subsequent retries should sleep for RETRY_BASE_DURATION and double from there
             // until we successfully connect.
@@ -124,12 +143,14 @@ impl BackendSession {
                 ConnectionDetails::Ssh(ssh_connection_details) => backend_connection::ssh::spawn(
                     ssh_connection_details.clone(),
                     self.broadcast_to_frontend_tx.clone(),
+                    self.metrics.clone(),
                 ),
                 ConnectionDetails::Ipmi(ipmi_connection_details) => {
                     backend_connection::ipmi::spawn(
                         ipmi_connection_details.as_ref(),
                         self.broadcast_to_frontend_tx.clone(),
                         &self.config,
+                        self.metrics.clone(),
                     )
                 }
             };
@@ -316,21 +337,16 @@ fn next_retry_backoff(prev: Duration) -> Duration {
     Duration::from_secs_f64(rand::random_range(BASE_F64..upper))
 }
 
-#[derive(Debug, Clone)]
-pub struct BackendSessionConnectionHandle {
+pub struct BackendSessionHandle {
+    machine_id: MachineId,
     /// Writer to send messages (including data) to backend
-    pub to_backend_msg_tx: mpsc::Sender<ChannelMsg>,
+    to_backend_msg_tx: mpsc::Sender<ChannelMsg>,
     // Hold a copy of the tx for broadcasting to frontends, so that we can subscribe to it multiple
     // times.
     broadcast_to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
-}
-
-pub struct BackendSessionHandle {
-    pub connection_handle: Arc<BackendSessionConnectionHandle>,
     shutdown_tx: oneshot::Sender<()>,
     join_handle: JoinHandle<()>,
-    #[allow(dead_code)] // TODO: this will be used for metrics
-    connection_state: Arc<AtomicConnectionState>,
+    pub connection_state: Arc<AtomicConnectionState>, // pub for metrics gathering
 }
 
 impl ShutdownHandle<()> for BackendSessionHandle {
@@ -339,8 +355,42 @@ impl ShutdownHandle<()> for BackendSessionHandle {
     }
 }
 
-impl BackendSessionConnectionHandle {
-    pub fn subscribe(&self) -> broadcast::Receiver<Arc<ChannelMsg>> {
-        self.broadcast_to_frontend_tx.subscribe()
+impl BackendSessionHandle {
+    pub fn subscribe(&self, metrics: Arc<ServerMetrics>) -> BackendSubscription {
+        tracing::debug!("new backend subscription");
+        metrics.total_clients.add(1, &[]);
+        metrics.bmc_clients.add(
+            1,
+            &[KeyValue::new("machine_id", self.machine_id.to_string())],
+        );
+
+        BackendSubscription {
+            machine_id: self.machine_id,
+            to_frontend_msg_weak_tx: self.broadcast_to_frontend_tx.downgrade(),
+            to_backend_msg_tx: self.to_backend_msg_tx.clone(),
+            metrics,
+        }
+    }
+}
+
+/// An individual "subscription" to a backend connection, expected to be used by a frontend. Metrics are affected when one is created or dropped.
+pub struct BackendSubscription {
+    pub machine_id: MachineId,
+    pub to_frontend_msg_weak_tx: broadcast::WeakSender<Arc<ChannelMsg>>,
+    pub to_backend_msg_tx: mpsc::Sender<ChannelMsg>,
+    // Not pub, to make sure we go through BackendSessionHandle::subscribe() to build, so we get the
+    // right metrics
+    metrics: Arc<ServerMetrics>,
+}
+
+impl Drop for BackendSubscription {
+    // Decrement metrics when dropping
+    fn drop(&mut self) {
+        tracing::debug!("dropping backend subscription");
+        self.metrics.total_clients.add(-1, &[]);
+        self.metrics.bmc_clients.add(
+            -1,
+            &[KeyValue::new("machine_id", self.machine_id.to_string())],
+        );
     }
 }

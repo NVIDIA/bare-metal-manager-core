@@ -10,12 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 use crate::util::ipmi_sim::IpmiSimHandle;
+use crate::util::metrics::assert_metrics;
 use crate::util::ssh_client::ConnectionConfig;
 use crate::{ADMIN_SSH_KEY_PATH, TENANT_SSH_KEY_PATH, TENANT_SSH_PUBKEY};
 use bmc_mock::HostnameQuerying;
 use eyre::Context;
 use forge_uuid::machine::{MachineIdSource, MachineType};
 use futures::future::join_all;
+use futures_util::future::BoxFuture;
 use machine_a_tron::MockSshServerHandle;
 use ssh_console_mock_api_server::{MockApiServerHandle, MockHost};
 use std::borrow::Cow;
@@ -28,6 +30,7 @@ use uuid::Uuid;
 
 pub mod ipmi_sim;
 pub mod legacy;
+mod metrics;
 pub mod new_ssh_console;
 pub mod ssh_client;
 
@@ -221,12 +224,16 @@ pub struct BaselineTestEnvironment {
 }
 
 impl BaselineTestEnvironment {
-    pub async fn run_baseline_assertions(
+    pub async fn run_baseline_assertions<MetricsFn>(
         &self,
         addr: SocketAddr,
         connection_name: &str,
         assertions: &[BaselineTestAssertion],
-    ) -> eyre::Result<()> {
+        get_metrics: MetricsFn,
+    ) -> eyre::Result<()>
+    where
+        MetricsFn: FnOnce() -> BoxFuture<'static, eyre::Result<String>>,
+    {
         // Test each machine through legacy ssh-console
         for (i, mock_host) in self.mock_hosts.iter().enumerate() {
             let expected_prompt = format!("root@{} # ", mock_host.machine_id).into_bytes();
@@ -284,6 +291,11 @@ impl BaselineTestEnvironment {
                 }
             }
         }
+
+        let metrics = Box::pin(get_metrics())
+            .await
+            .context("Error getting metrics")?;
+        assert_metrics(metrics, self.mock_hosts.as_slice()).await?;
 
         Ok(())
     }

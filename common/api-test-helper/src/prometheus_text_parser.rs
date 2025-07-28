@@ -20,17 +20,13 @@ impl ParsedPrometheusMetrics {
         f: F,
     ) -> Self {
         for metric in self.metrics.values_mut() {
-            if let MetricKind::Gauge(g) = &mut metric.kind {
+            if let MetricKind::Gauge(g) | MetricKind::Counter(g) = &mut metric.kind {
                 for observation in &mut g.observations {
-                    let mut new_attributes = BTreeMap::new();
-                    for (attr_key, attr_value) in &observation.attributes.0 {
+                    for (attr_key, attr_value) in observation.attributes.0.iter_mut() {
                         if let Some(new_val) = f(attr_key, attr_value) {
-                            new_attributes.insert(attr_key.clone(), new_val);
-                        } else {
-                            new_attributes.insert(attr_key.clone(), attr_value.clone());
+                            *attr_value = new_val
                         }
                     }
-                    observation.attributes = Attributes(new_attributes);
                 }
             }
         }
@@ -60,7 +56,6 @@ impl FromStr for ParsedPrometheusMetrics {
         enum ParseState {
             Init,
             MetricHeader(UnknownMetric),
-            MetricDef(Metric),
         }
 
         let mut metrics = BTreeMap::new();
@@ -68,22 +63,18 @@ impl FromStr for ParsedPrometheusMetrics {
 
         for line in s.lines() {
             if line.starts_with(HELP_PREFIX) {
-                if let ParseState::MetricDef(metric) = parse_state {
-                    metrics.insert(metric.name.clone(), metric);
-                }
                 parse_state = ParseState::MetricHeader(UnknownMetric::from_help_line(line)?);
             } else if line.starts_with(TYPE_PREFIX) {
                 let ParseState::MetricHeader(unknown_metric) = parse_state else {
                     return Err(MetricsParsingError::UnexpectedTypeLine(line.to_string()));
                 };
-                parse_state = ParseState::MetricDef(unknown_metric.promote(line)?);
+                let metric = unknown_metric.promote(line)?;
+                metrics.insert(metric.name.clone(), metric);
+                parse_state = ParseState::Init;
             } else if line.starts_with("# ") {
                 continue;
             } else if !line.is_empty() {
-                let ParseState::MetricDef(metric) = &mut parse_state else {
-                    return Err(MetricsParsingError::UnexpectedDefLine(line.to_string()));
-                };
-                metric.parse_line(line)?;
+                parse_metric_line(line, &mut metrics)?;
             }
         }
 
@@ -119,6 +110,10 @@ pub enum MetricsParsingError {
     InvalidValue(String),
     #[error("Invalid attributes string: {0}")]
     InvalidAttributes(String),
+    #[error("Invalid metric line: {0}")]
+    InvalidMetricLine(String),
+    #[error("Metric line is for metric we have not seen a HELP or TYPE for yet: {0}")]
+    UnknownMetricLine(String),
 }
 
 type Result<T> = std::result::Result<T, MetricsParsingError>;
@@ -194,11 +189,51 @@ pub struct Metric {
     pub kind: MetricKind,
 }
 
+fn parse_metric_line(line: &str, metrics: &mut BTreeMap<String, Metric>) -> Result<()> {
+    let metric_name = if line.contains('{') {
+        &line[..line.find('{').unwrap()]
+    } else if let Some(idx) = line.find(' ') {
+        &line[..idx]
+    } else {
+        return Err(MetricsParsingError::InvalidMetricLine(line.to_string()));
+    };
+
+    let metric = if let Some(metric) = metrics.get_mut(metric_name) {
+        metric
+    } else {
+        // Prometheus uses _bucket, _count, and _sum suffexes for histograms, find the actual metric name
+        let without_suffix = if let Some(stripped) = metric_name.strip_suffix("_bucket") {
+            stripped
+        } else if let Some(stripped) = metric_name.strip_suffix("_count") {
+            stripped
+        } else if let Some(stripped) = metric_name.strip_suffix("_sum") {
+            stripped
+        } else {
+            metric_name
+        };
+
+        if let Some(metric) = metrics.get_mut(without_suffix) {
+            metric
+        } else {
+            return Err(MetricsParsingError::UnknownMetricLine(line.to_string()));
+        }
+    };
+    metric.parse_line(line)?;
+    Ok(())
+}
+
 impl Metric {
     fn parse_line(&mut self, line: &str) -> Result<()> {
         self.kind.parse_line(line, &self.name)?;
 
         Ok(())
+    }
+
+    pub fn observations(&self) -> Option<&[Observation<u64>]> {
+        match &self.kind {
+            MetricKind::Histogram(_) => None,
+            MetricKind::Gauge(c) | MetricKind::Counter(c) => Some(c.observations.as_slice()),
+        }
     }
 }
 
