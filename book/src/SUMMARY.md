@@ -91,8 +91,8 @@
   - [Lenovo SR670 V2](playbooks/hardware/sr670v2.md)
   - [Lenovo SR650 V2](playbooks/hardware/sr650v2.md)
   - [Lenovo SR675 V3](playbooks/hardware/sr675v3.md)
-  - [Lenovo SR675 V3](playbooks/hardware/sr665v3.md)
-  - [Lenovo SR675 V3](playbooks/hardware/sr655v3.md)
+  - [Lenovo SR665 V3](playbooks/hardware/sr665v3.md)
+  - [Lenovo SR655 V3](playbooks/hardware/sr655v3.md)
   - [OneCLI](playbooks/hardware/onecli.md)
 
 # NVMesh
