@@ -67,6 +67,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         "JFAKLJF".into(),
         vec![],
         Metadata::default(),
+        None,
     )
     .await;
 
@@ -156,6 +157,7 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
             bmc_password: "PASS".into(),
             chassis_serial_number: "VVG121GI".into(),
             metadata: None,
+            sku_id: None,
             ..Default::default()
         },
         rpc::forge::ExpectedMachine {
@@ -164,6 +166,7 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
             bmc_password: "PASS".into(),
             chassis_serial_number: "VVG121GI".into(),
             metadata: Some(rpc::forge::Metadata::default()),
+            sku_id: Some("sku_id".to_string()),
             ..Default::default()
         },
         rpc::forge::ExpectedMachine {
@@ -185,6 +188,7 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
                     },
                 ],
             }),
+            sku_id: Some("sku_id".to_string()),
             ..Default::default()
         },
     ] {
@@ -592,6 +596,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         chassis_serial_number: "VVG121GI".into(),
         fallback_dpu_serial_numbers: vec!["dpu_serial1".to_string()],
         metadata: Some(rpc::Metadata::default()),
+        sku_id: None,
     };
 
     env.api
@@ -626,6 +631,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
             chassis_serial_number: "VVG121GI".into(),
             fallback_dpu_serial_numbers: vec![],
             metadata: Some(invalid_metadata.clone()),
+            sku_id: None,
         };
 
         let err = env
@@ -654,6 +660,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
         chassis_serial_number: "VVG121GI".into(),
         fallback_dpu_serial_numbers: vec![],
         metadata: None,
+        sku_id: None,
     };
 
     env.api
@@ -669,6 +676,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
             chassis_serial_number: "VVG121GI".into(),
             fallback_dpu_serial_numbers: vec![],
             metadata: Some(invalid_metadata.clone()),
+            sku_id: None,
         };
 
         let err = env
@@ -739,6 +747,7 @@ async fn test_add_expected_machine_duplicate_dpu_serials(pool: sqlx::PgPool) {
         chassis_serial_number: "VVG121GI".into(),
         fallback_dpu_serial_numbers: vec!["dpu_serial1".to_string(), "dpu_serial1".to_string()],
         metadata: None,
+        sku_id: None,
     };
 
     assert!(
@@ -806,4 +815,37 @@ async fn test_update_expected_machine_add_duplicate_dpu_serial(pool: sqlx::PgPoo
             .await
             .is_err()
     );
+}
+
+#[crate::sqlx_test(fixtures("create_expected_machine"))]
+async fn test_update_expected_machine_add_sku(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let mut ee1 = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
+        }))
+        .await
+        .expect("unable to get")
+        .into_inner();
+
+    ee1.sku_id = Some("sku_id".to_string());
+
+    env.api
+        .update_expected_machine(tonic::Request::new(ee1.clone()))
+        .await
+        .expect("unable to update")
+        .into_inner();
+
+    let ee2 = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
+        }))
+        .await
+        .expect("unable to get")
+        .into_inner();
+
+    assert_eq!(ee1, ee2);
 }

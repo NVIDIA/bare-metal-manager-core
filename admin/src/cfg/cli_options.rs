@@ -536,6 +536,13 @@ pub struct ExpectedMachine {
         action = clap::ArgAction::Append
     )]
     pub labels: Option<Vec<String>>,
+
+    #[clap(
+        long = "sku-id",
+        value_name = "SKU_ID",
+        help = "A SKU ID that will be added for the newly created Machine."
+    )]
+    pub sku_id: Option<String>,
 }
 
 impl ExpectedMachine {
@@ -574,6 +581,7 @@ pub struct ExpectedMachineJson {
     pub fallback_dpu_serial_numbers: Option<Vec<String>>,
     #[serde(default)]
     pub metadata: Option<rpc::forge::Metadata>,
+    pub sku_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -597,6 +605,7 @@ impl ExpectedMachine {
 "bmc_password",
 "chassis_serial_number",
 "fallback_dpu_serial_numbers",
+"sku_id",
 ])))]
 pub struct UpdateExpectedMachine {
     #[clap(
@@ -660,6 +669,14 @@ pub struct UpdateExpectedMachine {
         action = clap::ArgAction::Append
     )]
     pub labels: Option<Vec<String>>,
+
+    #[clap(
+        long,
+        value_name = "SKU_ID",
+        group = "group",
+        help = "A SKU ID that will be added for the newly created Machine."
+    )]
+    pub sku_id: Option<String>,
 }
 
 impl UpdateExpectedMachine {
@@ -669,6 +686,7 @@ impl UpdateExpectedMachine {
             && self.bmc_password.is_none()
             && self.chassis_serial_number.is_none()
             && self.fallback_dpu_serial_numbers.is_none()
+            && self.sku_id.is_none()
         {
             return Err("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number".to_string());
         }

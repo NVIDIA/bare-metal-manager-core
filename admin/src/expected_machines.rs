@@ -10,19 +10,25 @@ pub async fn show_expected_machines(
     expected_machine_query: &ShowExpectedMachineQuery,
     api_client: &ApiClient,
     output_format: OutputFormat,
+    output: &mut dyn std::io::Write,
 ) -> CarbideCliResult<()> {
     if let Some(bmc_mac_address) = expected_machine_query.bmc_mac_address {
         let expected_machine = api_client
             .0
             .get_expected_machine(bmc_mac_address.to_string())
             .await?;
-        println!("{:#?}", expected_machine);
+        writeln!(output, "{:#?}", expected_machine)?;
         return Ok(());
     }
 
     let expected_machines = api_client.0.get_all_expected_machines().await?;
     if output_format == OutputFormat::Json {
-        println!("{}", serde_json::to_string_pretty(&expected_machines)?);
+        writeln!(
+            output,
+            "{}",
+            serde_json::to_string_pretty(&expected_machines)?
+        )?;
+        return Ok(());
     }
 
     // TODO: This should be optimised. `find_interfaces` should accept a list of macs also and
@@ -69,12 +75,18 @@ pub async fn show_expected_machines(
             }),
     );
 
-    convert_and_print_into_nice_table(&expected_machines, &expected_bmc_ip_vs_ids, &expected_mi)?;
+    convert_and_print_into_nice_table(
+        output,
+        &expected_machines,
+        &expected_bmc_ip_vs_ids,
+        &expected_mi,
+    )?;
 
     Ok(())
 }
 
 fn convert_and_print_into_nice_table(
+    output: &mut dyn std::io::Write,
     expected_machines: &::rpc::forge::ExpectedMachineList,
     expected_discovered_machine_ids: &HashMap<String, String>,
     expected_discovered_machine_interfaces: &HashMap<String, ::rpc::forge::MachineInterface>,
@@ -89,7 +101,8 @@ fn convert_and_print_into_nice_table(
         "Associated Machine",
         "Name",
         "Description",
-        "Labels"
+        "Labels",
+        "SKU ID",
     ]);
 
     for expected_machine in &expected_machines.expected_machines {
@@ -124,11 +137,16 @@ fn convert_and_print_into_nice_table(
             machine_id.unwrap_or("Unlinked".to_string()),
             metadata.name,
             metadata.description,
-            labels.join(", ")
+            labels.join(", "),
+            expected_machine
+                .sku_id
+                .as_ref()
+                .map(|x| x.to_string())
+                .unwrap_or_default(),
         ]);
     }
 
-    table.printstd();
+    table.print(output)?;
 
     Ok(())
 }

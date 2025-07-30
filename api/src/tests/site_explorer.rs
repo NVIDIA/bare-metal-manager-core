@@ -1957,6 +1957,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         "host1".to_string(),
         vec![],
         Metadata::default(),
+        None,
     )
     .await?;
     txn.commit().await?;
@@ -1997,6 +1998,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             "host1".to_string(),
             vec![HOST1_DPU_SERIAL_NUMBER.to_string()],
             Metadata::default(),
+            None,
         )
         .await?;
     txn.commit().await?;

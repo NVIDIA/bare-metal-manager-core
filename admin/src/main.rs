@@ -1209,10 +1209,22 @@ async fn main() -> color_eyre::Result<()> {
         },
         CliCommand::ExpectedMachine(expected_machine_action) => match expected_machine_action {
             cfg::cli_options::ExpectedMachineAction::Show(expected_machine_query) => {
+                let mut output_file = if let Some(filename) = config.output {
+                    Box::new(
+                        fs::OpenOptions::new()
+                            .write(true)
+                            .create_new(true)
+                            .open(filename)?,
+                    ) as Box<dyn std::io::Write>
+                } else {
+                    Box::new(std::io::stdout()) as Box<dyn std::io::Write>
+                };
+
                 expected_machines::show_expected_machines(
                     &expected_machine_query,
                     &api_client,
                     config.format,
+                    &mut output_file,
                 )
                 .await?;
             }
@@ -1230,6 +1242,7 @@ async fn main() -> color_eyre::Result<()> {
                         expected_machine_data.chassis_serial_number,
                         expected_machine_data.fallback_dpu_serial_numbers,
                         metadata,
+                        expected_machine_data.sku_id,
                     )
                     .await?;
             }
@@ -1253,6 +1266,7 @@ async fn main() -> color_eyre::Result<()> {
                         expected_machine_data.chassis_serial_number,
                         expected_machine_data.fallback_dpu_serial_numbers,
                         metadata,
+                        expected_machine_data.sku_id,
                     )
                     .await?;
             }

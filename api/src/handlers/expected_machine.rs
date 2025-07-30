@@ -100,6 +100,7 @@ pub(crate) async fn add(
         request.chassis_serial_number,
         request.fallback_dpu_serial_numbers,
         metadata,
+        request.sku_id,
     )
     .await?;
 
@@ -178,6 +179,7 @@ pub(crate) async fn update(
         bmc_password: request.bmc_password.clone(),
         fallback_dpu_serial_numbers: request.fallback_dpu_serial_numbers.clone(),
         metadata: metadata.clone(),
+        sku_id: request.sku_id.clone(),
     };
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -197,6 +199,7 @@ pub(crate) async fn update(
             request.chassis_serial_number,
             request.fallback_dpu_serial_numbers,
             metadata,
+            request.sku_id,
         )
         .await?;
 
