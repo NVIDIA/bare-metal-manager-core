@@ -109,9 +109,8 @@ impl DbExploredEndpoint {
             .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "explored_endpoints::find_ips", e))?;
-        // convert to IpAddr
-        let ips: Vec<IpAddr> = ids.iter().map(|id| id.0).collect();
-        Ok(ips)
+        // Convert to Vec<IpAddr> and return.
+        Ok(ids.iter().map(|id| id.0).collect())
     }
 
     pub async fn find_by_ips(
