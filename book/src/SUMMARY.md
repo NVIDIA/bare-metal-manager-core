@@ -94,6 +94,7 @@
   - [Lenovo SR665 V3](playbooks/hardware/sr665v3.md)
   - [Lenovo SR655 V3](playbooks/hardware/sr655v3.md)
   - [OneCLI](playbooks/hardware/onecli.md)
+  - [Getting Support](playbooks/hardware/getsupport.md)
 
 # NVMesh
 
