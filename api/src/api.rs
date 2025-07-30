@@ -1166,13 +1166,11 @@ impl Forge for Api {
             ))
         })?;
 
-        let machine_ids: Result<Vec<MachineId>, CarbideError> = request
+        let machine_ids = request
             .machine_ids
             .iter()
             .map(|id| try_parse_machine_id(id).map_err(CarbideError::from))
-            .collect();
-
-        let machine_ids = machine_ids?;
+            .collect::<Result<Vec<MachineId>, crate::errors::CarbideError>>()?;
 
         let max_find_by_ids = self.runtime_config.max_find_by_ids as usize;
         if machine_ids.len() > max_find_by_ids {
@@ -1220,12 +1218,11 @@ impl Forge for Api {
         log_request_data(&request);
         let request = request.into_inner();
 
-        let machine_ids: Result<Vec<MachineId>, CarbideError> = request
+        let machine_ids = request
             .machine_ids
             .iter()
             .map(|id| try_parse_machine_id(id).map_err(CarbideError::from))
-            .collect();
-        let machine_ids = machine_ids?;
+            .collect::<Result<Vec<MachineId>, crate::errors::CarbideError>>()?;
 
         let max_find_by_ids = self.runtime_config.max_find_by_ids as usize;
         if machine_ids.len() > max_find_by_ids {
@@ -1282,12 +1279,11 @@ impl Forge for Api {
         log_request_data(&request);
         let request = request.into_inner();
 
-        let machine_ids: Result<Vec<MachineId>, CarbideError> = request
+        let machine_ids = request
             .machine_ids
             .iter()
             .map(|id| try_parse_machine_id(id).map_err(CarbideError::from))
-            .collect();
-        let machine_ids = machine_ids?;
+            .collect::<Result<Vec<MachineId>, crate::errors::CarbideError>>()?;
 
         let max_find_by_ids = self.runtime_config.max_find_by_ids as usize;
         if machine_ids.len() > max_find_by_ids {
