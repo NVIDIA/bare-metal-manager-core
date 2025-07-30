@@ -994,9 +994,8 @@ def force_delete_and_await_reingestion(
         print("Checking that carbide reports the managed host Ready")
         admin_cli.check_machine_ready(test_config.machine_under_test)
 
-        if "qa2" not in site_config.site.name:
-            print("Waiting for the Cloud to also report machine Ready")
-            ngc.wait_for_machine_ready(test_config.machine_under_test, site_config.site, timeout=60 * 10)
+        print("Waiting for the Cloud to also report machine Ready")
+        ngc.wait_for_machine_ready(test_config.machine_under_test, site_config.site, timeout=60 * 10)
 
     except Exception as e:
         print(e.args[0], file=sys.stderr)
