@@ -46,6 +46,8 @@ pub struct MachineMetrics {
     pub num_merge_overrides: usize,
     /// Whether an override of type `replace` is configured
     pub replace_override_enabled: bool,
+    /// The SKU that is assigned to the host
+    pub sku: Option<String>,
     /// Whether the Machine is usable as an instance for a tenant
     /// Doing so requires
     /// - the Machine to be in `Ready` state
@@ -86,6 +88,8 @@ pub struct MachineStateControllerIterationMetrics {
     pub unhealthy_hosts_by_classification_id: HashMap<(String, IsInUseByTenant), usize>,
     /// The amount of configured overrides by type (merge vs replace) and assignment status
     pub num_overrides: HashMap<(&'static str, IsInUseByTenant), usize>,
+    /// Mapping from SKU ID to the amount of hosts which have the SKU configured
+    pub hosts_by_sku: HashMap<String, usize>,
     pub hosts_with_bios_password_set: usize,
     pub last_machine_validation_list: HashMap<(String, String), i32>,
 }
@@ -411,6 +415,26 @@ impl MetricsEmitter for MachineMetricsEmitter {
         {
             let metrics = shared_metrics.clone();
             meter
+                .u64_observable_gauge("forge_hosts_by_sku_count")
+                .with_description(
+                    "The amount of hosts which have assigned a particular SKU and Machine Type",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (sku, count) in metrics.hosts_by_sku.iter() {
+                            observer.observe(
+                                *count as u64,
+                                &[attrs, &[KeyValue::new("sku", sku.clone())]].concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
                 .u64_observable_gauge("forge_dpu_agent_version_count")
                 .with_description(
                     "The amount of Forge DPU agents which have reported a certain version.",
@@ -640,6 +664,13 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 .or_default() += 1;
         }
 
+        if let Some(sku) = object_metrics.sku.as_ref() {
+            *iteration_metrics
+                .hosts_by_sku
+                .entry(sku.to_string())
+                .or_default() += 1;
+        }
+
         for (version, count) in object_metrics.agent_versions.iter() {
             *iteration_metrics
                 .agent_versions
@@ -730,6 +761,7 @@ mod tests {
                 is_usable_as_instance: true,
                 is_host_bios_password_set: true,
                 last_machine_validation_list: HashMap::new(),
+                sku: None,
             },
             MachineMetrics {
                 num_gpus: 2,
@@ -781,6 +813,7 @@ mod tests {
                     ("machine a".to_string(), "context".to_string()),
                     1,
                 )]),
+                sku: Some("SkuA".to_string()),
             },
             MachineMetrics {
                 num_gpus: 3,
@@ -808,6 +841,7 @@ mod tests {
                 is_usable_as_instance: false,
                 is_host_bios_password_set: true,
                 last_machine_validation_list: HashMap::new(),
+                sku: Some("SkuA".to_string()),
             },
             MachineMetrics {
                 num_gpus: 1,
@@ -845,6 +879,7 @@ mod tests {
                 is_usable_as_instance: true,
                 is_host_bios_password_set: true,
                 last_machine_validation_list: HashMap::new(),
+                sku: Some("SkuB".to_string()),
             },
             MachineMetrics {
                 num_gpus: 2,
@@ -906,6 +941,7 @@ mod tests {
                 is_usable_as_instance: false,
                 is_host_bios_password_set: true,
                 last_machine_validation_list: HashMap::new(),
+                sku: Some("SkuC".to_string()),
             },
             MachineMetrics {
                 num_gpus: 3,
@@ -954,6 +990,7 @@ mod tests {
                 is_usable_as_instance: false,
                 is_host_bios_password_set: false,
                 last_machine_validation_list: HashMap::new(),
+                sku: Some("SkuC".to_string()),
             },
         ];
 
@@ -1141,6 +1178,15 @@ mod tests {
                     },
                     2
                 )
+            ])
+        );
+
+        assert_eq!(
+            iteration_metrics.hosts_by_sku,
+            HashMap::from_iter([
+                ("SkuA".to_string(), 2),
+                ("SkuB".to_string(), 1),
+                ("SkuC".to_string(), 2),
             ])
         );
 

@@ -723,6 +723,9 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
             inventory_metrics
         );
     }
+
+    let sku_metrics = env.test_meter.formatted_metric("forge_hosts_by_sku_count");
+    assert!(sku_metrics.is_none());
 }
 
 /// Check that controller state reason is correct as we work through the states
