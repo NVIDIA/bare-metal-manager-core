@@ -44,6 +44,7 @@ pub struct ExpectedMachine {
     pub fallback_dpu_serial_numbers: Vec<String>,
     #[serde(default = "default_metadata_for_deserializer")]
     pub metadata: Metadata,
+    pub sku_id: Option<String>,
 }
 
 impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
@@ -62,6 +63,7 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
             bmc_password: row.try_get("bmc_password")?,
             fallback_dpu_serial_numbers: row.try_get("fallback_dpu_serial_numbers")?,
             metadata,
+            sku_id: row.try_get("sku_id")?,
         })
     }
 }
@@ -75,6 +77,7 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
             chassis_serial_number: expected_machine.serial_number,
             fallback_dpu_serial_numbers: expected_machine.fallback_dpu_serial_numbers,
             metadata: Some(expected_machine.metadata.into()),
+            sku_id: expected_machine.sku_id,
         }
     }
 }
@@ -206,6 +209,7 @@ FROM expected_machines em
         Ok(self)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create(
         txn: &mut PgConnection,
         bmc_mac_address: MacAddress,
@@ -214,11 +218,12 @@ FROM expected_machines em
         serial_number: String,
         fallback_dpu_serial_numbers: Vec<String>,
         metadata: Metadata,
+        sku_id: Option<String>,
     ) -> CarbideResult<Self> {
         let query = "INSERT INTO expected_machines
-            (bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels)
+            (bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id)
             VALUES
-            ($1::macaddr, $2::varchar, $3::varchar, $4::varchar, $5::text[], $6, $7, $8::jsonb) RETURNING *";
+            ($1::macaddr, $2::varchar, $3::varchar, $4::varchar, $5::text[], $6, $7, $8::jsonb, $9::varchar) RETURNING *";
 
         sqlx::query_as(query)
             .bind(bmc_mac_address)
@@ -229,6 +234,7 @@ FROM expected_machines em
             .bind(metadata.name)
             .bind(metadata.description)
             .bind(sqlx::types::Json(metadata.labels))
+            .bind(sku_id)
             .fetch_one(txn)
             .await
             .map_err(|err: sqlx::Error| match err {
@@ -268,6 +274,7 @@ FROM expected_machines em
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn update(
         &mut self,
         txn: &mut PgConnection,
@@ -276,8 +283,9 @@ FROM expected_machines em
         serial_number: String,
         fallback_dpu_serial_numbers: Vec<String>,
         metadata: Metadata,
+        sku_id: Option<String>,
     ) -> CarbideResult<&Self> {
-        let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7 WHERE bmc_mac_address=$8 RETURNING bmc_mac_address";
+        let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, sku_id=$8 WHERE bmc_mac_address=$9 RETURNING bmc_mac_address";
 
         let _: () = sqlx::query_as(query)
             .bind(&bmc_username)
@@ -287,6 +295,7 @@ FROM expected_machines em
             .bind(&metadata.name)
             .bind(&metadata.description)
             .bind(sqlx::types::Json(&metadata.labels))
+            .bind(&sku_id)
             .bind(self.bmc_mac_address)
             .fetch_one(txn)
             .await
@@ -303,6 +312,7 @@ FROM expected_machines em
         self.bmc_password = bmc_password;
         self.fallback_dpu_serial_numbers = fallback_dpu_serial_numbers;
         self.metadata = metadata;
+        self.sku_id = sku_id;
         Ok(self)
     }
 
@@ -336,6 +346,7 @@ FROM expected_machines em
                 expected_machine.serial_number,
                 expected_machine.fallback_dpu_serial_numbers,
                 expected_machine.metadata,
+                expected_machine.sku_id,
             )
             .await?;
         }

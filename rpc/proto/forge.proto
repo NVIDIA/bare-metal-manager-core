@@ -3781,6 +3781,7 @@ message ExpectedMachine {
   repeated string fallback_dpu_serial_numbers = 5;
   // Metadata that will automatically get associated with a newly created Machine
   Metadata metadata = 6;
+  optional string sku_id =  7;
 }
 
 message ExpectedMachineRequest {

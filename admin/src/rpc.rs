@@ -719,6 +719,7 @@ impl ApiClient {
             .map_err(CarbideCliError::ApiInvocationError)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn add_expected_machine(
         &self,
         bmc_mac_address: MacAddress,
@@ -727,6 +728,7 @@ impl ApiClient {
         chassis_serial_number: String,
         fallback_dpu_serial_numbers: Option<Vec<String>>,
         metadata: ::rpc::forge::Metadata,
+        sku_id: Option<String>,
     ) -> Result<(), CarbideCliError> {
         let request = rpc::ExpectedMachine {
             bmc_mac_address: bmc_mac_address.to_string(),
@@ -735,6 +737,7 @@ impl ApiClient {
             chassis_serial_number,
             fallback_dpu_serial_numbers: fallback_dpu_serial_numbers.unwrap_or_default(),
             metadata: Some(metadata),
+            sku_id,
         };
 
         self.0
@@ -743,6 +746,7 @@ impl ApiClient {
             .map_err(CarbideCliError::ApiInvocationError)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_expected_machine(
         &self,
         bmc_mac_address: MacAddress,
@@ -751,6 +755,7 @@ impl ApiClient {
         chassis_serial_number: Option<String>,
         fallback_dpu_serial_numbers: Option<Vec<String>>,
         metadata: ::rpc::forge::Metadata,
+        sku_id: Option<String>,
     ) -> Result<(), CarbideCliError> {
         let expected_machine = self
             .0
@@ -765,6 +770,7 @@ impl ApiClient {
             fallback_dpu_serial_numbers: fallback_dpu_serial_numbers
                 .unwrap_or(expected_machine.fallback_dpu_serial_numbers),
             metadata: Some(metadata),
+            sku_id,
         };
 
         self.0
@@ -789,6 +795,7 @@ impl ApiClient {
                         .fallback_dpu_serial_numbers
                         .unwrap_or_default(),
                     metadata: machine.metadata,
+                    sku_id: machine.sku_id,
                 })
                 .collect(),
         };
