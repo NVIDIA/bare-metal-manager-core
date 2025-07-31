@@ -1160,9 +1160,8 @@ impl Firmware {
             .unwrap_or(&FirmwareComponent::default()) // Will trigger the unwrap_or below
             .current_version_reported_as
             .as_ref()
-            .unwrap_or(&Regex::new("^This should never match anything$").unwrap())
-            .captures(redfish_id)
-            .is_some()
+            .map(|regex| regex.captures(redfish_id).is_some())
+            .unwrap_or(false)
     }
     pub fn ordering(&self) -> Vec<FirmwareComponentType> {
         let mut ordering = self.ordering.clone();
