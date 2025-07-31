@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use super::iface::{Filter, IBFabricRawResponse};
+use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
 use super::types::{IBNetwork, IBPort, IBPortState};
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
@@ -42,7 +42,18 @@ impl IBFabric for MockIBFabric {
     }
 
     /// Get all IB Networks
-    async fn get_ib_networks(&self) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
+    async fn get_ib_networks(
+        &self,
+        options: GetPartitionOptions,
+    ) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
+        if options.include_guids_data && options.include_qos_conf {
+            return Err(CarbideError::internal("Returning qos_conf and guids_data is not supported: https://nvbugspro.nvidia.com/bug/5409095".to_string()));
+        };
+        assert!(
+            options.include_qos_conf || options.include_guids_data,
+            "include_qos_conf or include_guids_data must be set in order to match restrictions on the REST API"
+        );
+
         let state = self
             .state
             .lock()
@@ -53,29 +64,69 @@ impl IBFabric for MockIBFabric {
             let pkey: u16 = pkey
                 .parse()
                 .map_err(|_| CarbideError::IBFabricError("pkey is not a u16".to_string()))?;
-            results.insert(pkey, subnet.clone());
+            let mut subnet = subnet.clone();
+            if options.include_guids_data {
+                let guids = state
+                    .subnets_to_ports
+                    .get(&pkey.to_string())
+                    .cloned()
+                    .unwrap_or_default();
+                subnet.associated_guids = Some(guids);
+            } else {
+                subnet.associated_guids = None;
+            }
+            results.insert(pkey, subnet);
         }
 
         Ok(results)
     }
 
     /// Get IBNetwork by ID
-    async fn get_ib_network(&self, id: u16) -> Result<IBNetwork, CarbideError> {
+    async fn get_ib_network(
+        &self,
+        pkey: u16,
+        options: GetPartitionOptions,
+    ) -> Result<IBNetwork, CarbideError> {
+        assert!(
+            options.include_qos_conf,
+            "include_qos_conf must be to set to match the real/rest path"
+        );
+
         let state = self
             .state
             .lock()
             .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
 
-        match state.subnets.get(&id.to_string()) {
-            None => Err(CarbideError::NotFoundError {
-                kind: "",
-                id: id.to_string(),
-            }),
-            Some(ib) => Ok(ib.clone()),
+        let mut ib = match state.subnets.get(&pkey.to_string()) {
+            None => {
+                return Err(CarbideError::NotFoundError {
+                    kind: "",
+                    id: pkey.to_string(),
+                });
+            }
+            Some(ib) => ib.clone(),
+        };
+        if options.include_guids_data {
+            let guids = state
+                .subnets_to_ports
+                .get(&pkey.to_string())
+                .cloned()
+                .unwrap_or_default();
+            ib.associated_guids = Some(guids);
+        } else {
+            ib.associated_guids = None;
         }
+
+        Ok(ib)
     }
 
-    async fn bind_ib_ports(&self, ib: IBNetwork, ports: Vec<String>) -> Result<(), CarbideError> {
+    async fn bind_ib_ports(
+        &self,
+        mut ib: IBNetwork,
+        ports: Vec<String>,
+    ) -> Result<(), CarbideError> {
+        ib.associated_guids = None; // Nothing can be associated by caller
+
         let mut state = self
             .state
             .lock()

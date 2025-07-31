@@ -136,6 +136,7 @@ impl From<&IBPartition> for IBNetwork {
             ipoib: true,
             service_level: ib.config.service_level.clone().unwrap_or_default(),
             rate_limit: ib.config.rate_limit.clone().unwrap_or_default(),
+            associated_guids: None,
             // Not implemented yet
             // enable_sharp: false,
             // membership: IBNETWORK_DEFAULT_MEMBERSHIP,

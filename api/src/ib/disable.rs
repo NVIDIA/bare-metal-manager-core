@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 
-use super::iface::{Filter, IBFabricRawResponse};
+use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
 use super::types::{IBNetwork, IBPort};
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
@@ -31,13 +31,20 @@ impl IBFabric for DisableIBFabric {
     }
 
     /// Get IBNetwork by ID
-    async fn get_ib_network(&self, _: u16) -> Result<IBNetwork, CarbideError> {
+    async fn get_ib_network(
+        &self,
+        _: u16,
+        _options: GetPartitionOptions,
+    ) -> Result<IBNetwork, CarbideError> {
         Err(CarbideError::IBFabricError(
             "ib fabric is disabled".to_string(),
         ))
     }
 
-    async fn get_ib_networks(&self) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
+    async fn get_ib_networks(
+        &self,
+        _options: GetPartitionOptions,
+    ) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
         Err(CarbideError::IBFabricError(
             "ib fabric is disabled".to_string(),
         ))

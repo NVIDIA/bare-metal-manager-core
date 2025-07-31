@@ -87,7 +87,7 @@ pub struct Partition {
     /// The QoS of Partition.
     pub qos: Option<PartitionQoS>,
     /// GUIDS attached to the Partition. Only available if explictly queried for
-    pub guids: HashSet<String>,
+    pub guids: Option<HashSet<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
@@ -110,7 +110,6 @@ pub struct Filter {
     pub logical_state: Option<String>,
 }
 
-#[allow(dead_code)]
 #[derive(Default, Debug, Copy, Clone)]
 pub struct GetPartitionOptions {
     /// Whether to include `guids` associated with each partition in the response
@@ -457,7 +456,10 @@ impl Ufm {
                 pkey,
                 ipoib: partition.ip_over_ib,
                 qos: partition.qos_conf,
-                guids: partition.guids.into_iter().map(|p| p.guid).collect(),
+                guids: match options.include_guids_data {
+                    true => Some(partition.guids.into_iter().map(|p| p.guid).collect()),
+                    false => None,
+                },
             };
             results.insert(pkey, partition);
         }
@@ -489,7 +491,10 @@ impl Ufm {
             pkey,
             ipoib: partition.ip_over_ib,
             qos: partition.qos_conf,
-            guids: partition.guids.into_iter().map(|p| p.guid).collect(),
+            guids: match options.include_guids_data {
+                true => Some(partition.guids.into_iter().map(|p| p.guid).collect()),
+                false => None,
+            },
         })
     }
 
@@ -511,7 +516,8 @@ impl Ufm {
                 .guids,
             ),
             None => None,
-        };
+        }
+        .flatten();
 
         Ok(Self::filter_ports(
             ports,

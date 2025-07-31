@@ -81,6 +81,14 @@ pub trait IBFabricManager: Send + Sync {
     fn get_config(&self) -> IBFabricManagerConfig;
 }
 
+#[derive(Default, Debug, Copy, Clone)]
+pub struct GetPartitionOptions {
+    /// Whether to include `guids` associated with each partition in the response
+    pub include_guids_data: bool,
+    /// Whether the response should contain the `qos_conf` and `ip_over_ib` parameters
+    pub include_qos_conf: bool,
+}
+
 #[async_trait]
 pub trait IBFabric: Send + Sync {
     /// Get fabric configuration
@@ -90,10 +98,17 @@ pub trait IBFabric: Send + Sync {
     async fn update_ib_network(&self, ibnetwork: &IBNetwork) -> Result<(), CarbideError>;
 
     /// Get all IB Networks
-    async fn get_ib_networks(&self) -> Result<HashMap<u16, IBNetwork>, CarbideError>;
+    async fn get_ib_networks(
+        &self,
+        options: GetPartitionOptions,
+    ) -> Result<HashMap<u16, IBNetwork>, CarbideError>;
 
     /// Get IBNetwork by ID
-    async fn get_ib_network(&self, id: u16) -> Result<IBNetwork, CarbideError>;
+    async fn get_ib_network(
+        &self,
+        pkey: u16,
+        options: GetPartitionOptions,
+    ) -> Result<IBNetwork, CarbideError>;
 
     /// Create IBPort
     async fn bind_ib_ports(

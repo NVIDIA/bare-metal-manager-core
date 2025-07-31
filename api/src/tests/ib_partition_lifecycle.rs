@@ -331,6 +331,7 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         ipoib: false,
         service_level: IBServiceLevel::default(),
         rate_limit: IBRateLimit::default(),
+        associated_guids: None,
         // Not implemented yet
         // enable_sharp: false,
         // membership: IBPortMembership::Full,

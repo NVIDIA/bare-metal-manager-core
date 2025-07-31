@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::CarbideError;
@@ -35,6 +37,9 @@ pub struct IBNetwork {
     /// It is done to avoid floating point data type usage for rate limit w/o obvious benefits.
     /// 2 to 2.5 and back conversion is done just on REST API operations.
     pub rate_limit: IBRateLimit,
+    /// Guids associated with the Partition
+    /// Only available if explicitly requested
+    pub associated_guids: Option<HashSet<String>>,
     // Not implemented yet:
     // --
     // /// Default false; create sharp allocation accordingly.

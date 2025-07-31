@@ -13,7 +13,10 @@
 use chrono::Utc;
 use forge_uuid::machine::MachineId;
 use sqlx::{PgConnection, PgPool};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use tokio::sync::oneshot;
 use tracing::Instrument;
 
@@ -22,12 +25,15 @@ use crate::{
     cfg::file::{CarbideConfig, HostHealthConfig, IbFabricDefinition},
     db::{self, DatabaseError, machine::MachineSearchConfig, managed_host::LoadSnapshotOptions},
     ib::{
-        IBFabricManager, IBFabricManagerType,
-        types::{IBPort, IBPortState},
+        GetPartitionOptions, IBFabricManager, IBFabricManagerType,
+        types::{IBNetwork, IBPort, IBPortState},
     },
-    model::machine::{
-        ManagedHostStateSnapshot,
-        infiniband::{MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation},
+    model::{
+        ib_partition::PartitionKey,
+        machine::{
+            ManagedHostStateSnapshot,
+            infiniband::{MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation},
+        },
     },
 };
 
@@ -243,6 +249,26 @@ impl IbFabricMonitor {
                     continue;
                 }
             }
+
+            match get_partition_information(self.fabric_manager.as_ref(), fabric, fabric_metrics)
+                .await
+            {
+                Ok(partitions) => {
+                    fabric_data.partitions = Some(partitions);
+                }
+                Err(e) => {
+                    tracing::error!(fabric, endpoints = fabric_definition.endpoints.join(","), error = %e, "Loading partition information failed");
+                    // TODO: This isn't efficient because we will get a lot of different dimensions
+                    // We need to have better defined errors from the UFM APIs, so we can convert
+                    // those into a smaller set of labels
+                    fabric_metrics.fabric_error = e.to_string();
+                    // There's no point in loading other information case the fabric is down
+                    continue;
+                }
+            }
+
+            // Derive Partitions by GUID
+            fabric_data.derive_partitions_by_guid();
         }
 
         for (machine, mut snapshot) in snapshots {
@@ -313,9 +339,6 @@ async fn check_ib_fabric(
     metrics.sa_key = config.sa_key;
     metrics.m_key_per_port = config.m_key_per_port;
 
-    let networks = conn.get_ib_networks().await?;
-    metrics.num_partitions = Some(networks.len());
-
     // Check if any of the expected security settings is not configured
     // TODO: We are not checking whether the default partition is in restricted mode
     metrics.insecure_fabric_configuration = false;
@@ -332,7 +355,38 @@ async fn check_ib_fabric(
 
 #[derive(Debug, Default)]
 struct FabricData {
+    /// Ports by GUID. `None` if port data could not be loaded
     ports_by_guid: Option<HashMap<String, IBPort>>,
+    /// Partitions by pkey. `None` if partition data could not be loaded
+    partitions: Option<HashMap<u16, IBNetwork>>,
+    /// Partitions associated with a single guid
+    partition_ids_by_guid: Option<HashMap<String, HashSet<u16>>>,
+}
+
+impl FabricData {
+    pub fn derive_partitions_by_guid(&mut self) {
+        let Some(partitions) = self.partitions.as_ref() else {
+            self.partition_ids_by_guid = None;
+            return;
+        };
+
+        let mut partitions_by_guid: HashMap<String, HashSet<u16>> = HashMap::new();
+        for (pkey, partition) in partitions.iter() {
+            let Some(associated_guids) = partition.associated_guids.as_ref() else {
+                // We can not correctly calculate partition_ids_by_guid if any partition has
+                // incomplete GUID data
+                self.partition_ids_by_guid = None;
+                return;
+            };
+
+            for guid in associated_guids.iter() {
+                let guid_partitions = partitions_by_guid.entry(guid.clone()).or_default();
+                guid_partitions.insert(*pkey);
+            }
+        }
+
+        self.partition_ids_by_guid = Some(partitions_by_guid);
+    }
 }
 
 /// Return port information within a single IB fabric
@@ -357,6 +411,26 @@ async fn get_ports_information(
     metrics.ports_by_state = Some(ports_by_state);
 
     Ok(ports_by_guid)
+}
+
+/// Return partitioning information within a single IB fabric
+async fn get_partition_information(
+    fabric_manager: &dyn IBFabricManager,
+    fabric: &str,
+    metrics: &mut FabricMetrics,
+) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
+    let conn = fabric_manager.connect(fabric).await?;
+
+    // Get GUID data here but no QoS data, since GUIDs are what we really care about
+    let networks = conn
+        .get_ib_networks(GetPartitionOptions {
+            include_guids_data: true,
+            include_qos_conf: false,
+        })
+        .await?;
+    metrics.num_partitions = Some(networks.len());
+
+    Ok(networks)
 }
 
 async fn record_machine_infiniband_status_observation(
@@ -408,25 +482,50 @@ async fn record_machine_infiniband_status_observation(
                 .as_ref()
                 .and_then(|ports_by_guid| ports_by_guid.get(guid))
             {
-                found_port_data = Some((fabric_id, port_data));
+                found_port_data = Some((fabric_id, fabric_data, port_data));
                 break;
             }
         }
 
-        let (fabric_id, lid) = match found_port_data {
-            Some((fabric_id, port_data)) => (
-                fabric_id,
-                if port_data.state == Some(IBPortState::Active) {
-                    active_ports += 1;
-                    port_data.lid as u16
-                } else {
-                    0xffff_u16
-                },
-            ),
+        let (fabric_id, lid, associated_pkeys) = match found_port_data {
+            Some((fabric_id, fabric_data, port_data)) => {
+                // Port was found. Now try to look up associated pkeys
+                // If there's no associated pkeys found, don't return any potentially invalid or empty
+                // pkey list. Instead opt for a safe result and return `None` (we don't know).
+                let associated_pkeys = match fabric_data.partition_ids_by_guid.as_ref() {
+                    Some(partition_ids_by_guid) => match partition_ids_by_guid.get(guid) {
+                        Some(partition_ids) => {
+                            let mut ids = HashSet::new();
+                            for id in partition_ids {
+                                if let Ok(id) = PartitionKey::try_from(*id) {
+                                    ids.insert(id);
+                                }
+                            }
+                            Some(ids)
+                        }
+                        None => Some(HashSet::new()),
+                    },
+                    None => None,
+                };
+
+                (
+                    fabric_id,
+                    if port_data.state == Some(IBPortState::Active) {
+                        active_ports += 1;
+                        port_data.lid as u16
+                    } else {
+                        0xffff_u16
+                    },
+                    associated_pkeys,
+                )
+            }
             None => {
+                // The port was not found on UFM. In this case we don't even try
+                // to look up associated pkeys
+
                 // TODO: We should differentiate between "Can not communicate with fabric"
                 // and "UFM definitely did not know about this GUID".
-                (&String::new(), 0xffff_u16)
+                (&String::new(), 0xffff_u16, None)
             }
         };
 
@@ -434,6 +533,7 @@ async fn record_machine_infiniband_status_observation(
             guid: guid.clone(),
             lid,
             fabric_id: fabric_id.to_string(),
+            associated_pkeys,
         });
     }
 

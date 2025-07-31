@@ -13,6 +13,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::cfg::file::IBFabricConfig;
+use crate::ib::types::IBNetwork;
+use crate::ib::{GetPartitionOptions, IBFabric, IBMtu, IBRateLimit, IBServiceLevel};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use common::api_fixtures::create_managed_host;
@@ -95,13 +97,68 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
     // Down the first and third interface of host_machine_1 and check
     // whether this gets reflected in the observed status
     let guid1 = guids.get(&host_machine_id_1).unwrap()[0].clone();
-    let guid3 = guids.get(&host_machine_id_1).unwrap()[0].clone();
-    env.ib_fabric_manager
-        .get_mock_manager()
-        .set_port_state(&guid1, false);
-    env.ib_fabric_manager
-        .get_mock_manager()
-        .set_port_state(&guid3, false);
+    let guid2 = guids.get(&host_machine_id_1).unwrap()[1].clone();
+    let guid3 = guids.get(&host_machine_id_1).unwrap()[2].clone();
+    let guid4 = guids.get(&host_machine_id_1).unwrap()[3].clone();
+    let ib_manager = env.ib_fabric_manager.get_mock_manager().clone();
+    ib_manager.set_port_state(&guid1, false);
+    ib_manager.set_port_state(&guid3, false);
+
+    // Also bind the 2nd GUID with a partition behind the scenes
+    let partition1 = IBNetwork {
+        pkey: 0x42,
+        name: "x".to_string(),
+        mtu: IBMtu::default(),
+        ipoib: false,
+        service_level: IBServiceLevel::default(),
+        rate_limit: IBRateLimit::default(),
+        associated_guids: None,
+        // Not implemented yet
+        // enable_sharp: false,
+        // membership: IBPortMembership::Full,
+        // index0: false,
+    };
+    let mut partition2 = partition1.clone();
+    partition2.pkey = 0x43;
+    ib_manager
+        .bind_ib_ports(partition1, vec![guid2.clone(), guid4.clone()])
+        .await
+        .unwrap();
+    ib_manager
+        .bind_ib_ports(partition2, vec![guid2.clone()])
+        .await
+        .unwrap();
+    // Double check that the setting is applied
+    let p1 = ib_manager
+        .get_ib_network(
+            0x42,
+            GetPartitionOptions {
+                include_guids_data: true,
+                include_qos_conf: true,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        p1.associated_guids,
+        Some(HashSet::from_iter([guid2.clone(), guid4.clone()]))
+    );
+    let p2 = ib_manager
+        .get_ib_network(
+            0x43,
+            GetPartitionOptions {
+                include_guids_data: true,
+                include_qos_conf: true,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        p2.associated_guids,
+        Some(HashSet::from_iter([guid2.clone()]))
+    );
+
+    env.ib_fabric_manager.get_mock_manager();
 
     env.ib_fabric_monitor.run_single_iteration().await.unwrap();
     assert_eq!(
@@ -115,7 +172,7 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
             .parsed_metrics("forge_ib_monitor_machines_by_port_state_count"),
         vec![
             (
-                "{active_ports=\"5\",total_ports=\"6\"}".to_string(),
+                "{active_ports=\"4\",total_ports=\"6\"}".to_string(),
                 "1".to_string()
             ),
             (
@@ -161,6 +218,22 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
                     iface_status.lid()
                 );
                 active_lids.insert(iface_status.lid());
+            }
+
+            let mut associated_pkeys = iface_status
+                .associated_pkeys
+                .clone()
+                .expect("Associated pkeys should be available");
+            associated_pkeys.pkeys.sort();
+            match &ib_iface.guid {
+                guid if guid == &guid2 => assert_eq!(
+                    associated_pkeys.pkeys,
+                    vec!["0x42".to_string(), "0x43".to_string()]
+                ),
+                guid if guid == &guid4 => {
+                    assert_eq!(associated_pkeys.pkeys, vec!["0x42".to_string()])
+                }
+                _ => assert!(associated_pkeys.pkeys.is_empty()),
             }
         }
 

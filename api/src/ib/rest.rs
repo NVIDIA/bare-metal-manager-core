@@ -15,11 +15,11 @@ use std::{path::Path, sync::Arc};
 
 use async_trait::async_trait;
 
-use super::iface::{Filter, IBFabricRawResponse};
+use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
 use super::types::{IBMtu, IBNetwork, IBPort, IBPortState, IBRateLimit, IBServiceLevel};
 use super::ufmclient::{
-    self, GetPartitionOptions, Partition, PartitionKey, PartitionQoS, Port, PortConfig,
-    PortMembership, SmConfig, UFMCert, UFMConfig, UFMError, Ufm,
+    self, Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, SmConfig,
+    UFMCert, UFMConfig, UFMError, Ufm,
 };
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
@@ -82,12 +82,15 @@ impl IBFabric for RestIBFabric {
     }
 
     /// Get all IB Networks
-    async fn get_ib_networks(&self) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
+    async fn get_ib_networks(
+        &self,
+        options: GetPartitionOptions,
+    ) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
         let partitions = self
             .ufm
-            .list_partitions(GetPartitionOptions {
-                include_guids_data: false,
-                include_qos_conf: true,
+            .list_partitions(ufmclient::GetPartitionOptions {
+                include_guids_data: options.include_guids_data,
+                include_qos_conf: options.include_qos_conf,
             })
             .await
             .map_err(CarbideError::from)?;
@@ -103,16 +106,20 @@ impl IBFabric for RestIBFabric {
     }
 
     /// Get IBNetwork by ID
-    async fn get_ib_network(&self, pkey: u16) -> Result<IBNetwork, CarbideError> {
+    async fn get_ib_network(
+        &self,
+        pkey: u16,
+        options: GetPartitionOptions,
+    ) -> Result<IBNetwork, CarbideError> {
         let pkey = PartitionKey::try_from(pkey).map_err(CarbideError::from)?;
 
         let partition = self
             .ufm
             .get_partition(
                 pkey,
-                GetPartitionOptions {
-                    include_guids_data: false,
-                    include_qos_conf: true,
+                ufmclient::GetPartitionOptions {
+                    include_guids_data: options.include_guids_data,
+                    include_qos_conf: options.include_qos_conf,
                 },
             )
             .await
@@ -267,6 +274,7 @@ impl TryFrom<&Partition> for IBNetwork {
             ipoib: p.ipoib,
             service_level: IBServiceLevel::try_from(qos.service_level as i32)?,
             rate_limit: IBRateLimit::try_from(rate_limit_value)?,
+            associated_guids: p.guids.clone(),
             // Not implemented yet
             // enable_sharp: false,
             // membership: IBNETWORK_DEFAULT_MEMBERSHIP,
