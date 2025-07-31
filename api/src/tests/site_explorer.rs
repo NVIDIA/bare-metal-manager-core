@@ -3170,3 +3170,128 @@ async fn test_delete_explored_endpoint(
 
     Ok(())
 }
+
+#[crate::sqlx_test]
+async fn test_machine_creation_with_sku(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    const HOST1_DPU_MAC: &str = "B8:3F:D2:90:97:A6";
+    const HOST1_MAC: &str = "AA:AB:AC:AD:AA:02";
+    const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
+
+    let mut host1_dpu = FakeMachine {
+        mac: HOST1_DPU_MAC.parse().unwrap(),
+        dhcp_vendor: "Vendor1".to_string(),
+        segment: env.underlay_segment.unwrap(),
+        ip: String::new(),
+    };
+
+    let mut host1 = FakeMachine {
+        mac: HOST1_MAC.parse().unwrap(),
+        dhcp_vendor: "Vendor2".to_string(),
+        segment: env.underlay_segment.unwrap(),
+        ip: String::new(),
+    };
+
+    // Create dhcp entries and machine_interface entries for the machines
+    for machine in [&mut host1_dpu, &mut host1] {
+        let response = env
+            .api
+            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+                mac_address: machine.mac.to_string(),
+                relay_address: match machine.segment {
+                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
+                    _ => "192.0.2.1".to_string(),
+                },
+                link_address: None,
+                vendor_string: Some(machine.dhcp_vendor.clone()),
+                circuit_id: None,
+                remote_id: None,
+            }))
+            .await?
+            .into_inner();
+        tracing::info!(
+            "DHCP with mac {} assigned ip {}",
+            machine.mac,
+            response.address
+        );
+        machine.ip = response.address;
+    }
+    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
+
+    // Create a host and dpu reports && host has no dpu_serial
+    endpoint_explorer.insert_endpoint_results(vec![
+        (
+            host1_dpu.ip.parse().unwrap(),
+            Ok(DpuConfig::with_serial(HOST1_DPU_SERIAL_NUMBER.to_string()).into()),
+        ),
+        (
+            host1.ip.parse().unwrap(),
+            Ok(ManagedHostConfig::default().into()),
+        ),
+    ]);
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        test_meter.meter(),
+        endpoint_explorer,
+        Arc::new(env.config.get_firmware_config()),
+        env.common_pools.clone(),
+    );
+
+    // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
+    let mut txn = env.pool.begin().await?;
+    ExpectedMachine::create(
+        &mut txn,
+        HOST1_MAC.to_string().parse().unwrap(),
+        "user1".to_string(),
+        "pw".to_string(),
+        "host1".to_string(),
+        vec![HOST1_DPU_SERIAL_NUMBER.to_string()],
+        Metadata::default(),
+        Some("Some SKU".to_string()),
+    )
+    .await?;
+    txn.commit().await?;
+
+    // Run site explorer
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    let explored_endpoints = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
+
+    // Mark explored endpoints as pre-ingestion_complete
+    for ee in explored_endpoints.clone() {
+        DbExploredEndpoint::set_preingestion_complete(ee.address, &mut txn).await?;
+    }
+    txn.commit().await?;
+
+    assert_eq!(explored_endpoints.len(), 2);
+
+    let mut txn = env.pool.begin().await?;
+    let machines = db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+        .await
+        .unwrap();
+
+    txn.commit().await?;
+
+    for m in machines {
+        if m.is_dpu() {
+            assert_eq!(m.hw_sku, None);
+        } else {
+            assert_eq!(m.hw_sku, Some("Some SKU".to_string()));
+        }
+    }
+    Ok(())
+}

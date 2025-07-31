@@ -2008,6 +2008,7 @@ mod tests {
                 name: machine_id.to_string(),
                 ..Default::default()
             },
+            None,
         )
         .await
         .unwrap();

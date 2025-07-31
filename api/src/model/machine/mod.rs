@@ -2666,6 +2666,7 @@ pub enum BomValidating {
     VerifyingSku(BomValidatingContext),
     SkuVerificationFailed(BomValidatingContext),
     WaitingForSkuAssignment(BomValidatingContext),
+    SkuMissing(BomValidatingContext),
 }
 
 /// Represents the machine validation test filter
