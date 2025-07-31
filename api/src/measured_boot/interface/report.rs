@@ -247,6 +247,35 @@ pub async fn delete_report_values_for_id(
         .map_err(|e| DatabaseError::new(file!(), line!(), "delete_report_values_for_id", e.source))
 }
 
+pub(crate) async fn update_report_tstamp(
+    txn: &mut PgConnection,
+    report_id: MeasurementReportId,
+    ts: chrono::DateTime<chrono::Utc>,
+) -> Result<MeasurementReportRecord, DatabaseError> {
+    let query = "UPDATE measurement_reports SET ts = $1 WHERE report_id = $2 returning *";
+    sqlx::query_as(query)
+        .bind(ts)
+        .bind(report_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "update_report_tstamp", e))
+}
+
+pub(crate) async fn update_report_values_tstamp(
+    txn: &mut PgConnection,
+    report_id: MeasurementReportId,
+    ts: chrono::DateTime<chrono::Utc>,
+) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
+    let query = "UPDATE measurement_reports_values SET ts = $1 WHERE report_id = $2 returning *";
+
+    sqlx::query_as(query)
+        .bind(ts)
+        .bind(report_id)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "update_report_values_tstamp", e))
+}
+
 #[cfg(test)]
 pub(crate) mod test_support {
     use super::*;

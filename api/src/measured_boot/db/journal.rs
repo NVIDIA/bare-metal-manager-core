@@ -20,6 +20,7 @@ use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::journal::{
     delete_journal_where_id, get_measurement_journal_record_by_id,
     get_measurement_journal_record_by_report_id, insert_measurement_journal_record,
+    update_measurement_journal_record,
 };
 use crate::{CarbideError, CarbideResult};
 use forge_uuid::{
@@ -89,6 +90,27 @@ async fn create_measurement_journal(
     let info =
         insert_measurement_journal_record(txn, machine_id, report_id, profile_id, bundle_id, state)
             .await?;
+
+    Ok(MeasurementJournal {
+        journal_id: info.journal_id,
+        machine_id: info.machine_id,
+        report_id: info.report_id,
+        profile_id: info.profile_id,
+        bundle_id: info.bundle_id,
+        state: info.state,
+        ts: info.ts,
+    })
+}
+
+pub(crate) async fn update_measurement_journal(
+    txn: &mut PgConnection,
+    report_id: MeasurementReportId,
+    profile_id: Option<MeasurementSystemProfileId>,
+    bundle_id: Option<MeasurementBundleId>,
+    state: MeasurementMachineState,
+) -> CarbideResult<MeasurementJournal> {
+    let info =
+        update_measurement_journal_record(txn, report_id, profile_id, bundle_id, state).await?;
 
     Ok(MeasurementJournal {
         journal_id: info.journal_id,

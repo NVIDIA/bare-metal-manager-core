@@ -93,14 +93,28 @@ mod tests {
         assert_eq!(same_report.pcr_values().len(), 7);
         let same_report_value_map = pcr_register_values_to_map(&same_report.pcr_values())?;
 
-        // Now make another report with the same values, which is totally fine,
-        // and make sure that all looks good too.
+        // Now make another report with the same values. This will simply update the timestamp of
+        // the previous report.
+        // Verify that the timestamp has been updated.
+
+        // get journal first
+        let journal = db::journal::get_journal_for_report_id(&mut txn, report.report_id).await?;
 
         let report2 = db::report::new_with_txn(&mut txn, machine.machine_id, &values).await?;
         assert_eq!(report2.machine_id, machine.machine_id);
+        assert_eq!(report2.report_id, report.report_id);
         assert_eq!(report2.pcr_values().len(), 7);
 
-        assert_ne!(report2.report_id, report.report_id);
+        // check journal too
+        let journal2 = db::journal::get_journal_for_report_id(&mut txn, report.report_id).await?;
+        assert_eq!(journal.journal_id, journal2.journal_id);
+        assert_eq!(journal.report_id, journal2.report_id);
+        assert_eq!(journal.machine_id, journal2.machine_id);
+        assert_eq!(journal.profile_id, journal2.profile_id);
+        assert_ne!(journal.ts, journal2.ts);
+
+        assert_eq!(report2.report_id, report.report_id);
+        assert_ne!(report.ts, report2.ts);
         let report2_value_map = pcr_register_values_to_map(&report2.pcr_values())?;
 
         // Double check values against the input values.
@@ -180,14 +194,14 @@ mod tests {
 
         // And then get everything thus far.
         let reports = db::report::get_all(&mut txn).await?;
-        assert_eq!(reports.len(), 3);
+        assert_eq!(reports.len(), 2);
 
         // And now lets do some database record checks.
         let report_records = get_all_measurement_report_records(&mut txn).await?;
-        assert_eq!(report_records.len(), 3);
+        assert_eq!(report_records.len(), 2);
 
         let report_value_records = get_all_measurement_report_value_records(&mut txn).await?;
-        assert_eq!(report_value_records.len(), 21);
+        assert_eq!(report_value_records.len(), 14);
 
         Ok(())
     }

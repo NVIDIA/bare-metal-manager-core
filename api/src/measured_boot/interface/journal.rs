@@ -48,6 +48,28 @@ pub async fn insert_measurement_journal_record(
         .map_err(|e| DatabaseError::new(file!(), line!(), "insert_measurement_journal_record", e))
 }
 
+/// this is used to remove the duplication of reports and records
+/// we update everything except for machine id and report id as
+/// those things are not supposed to change
+pub async fn update_measurement_journal_record(
+    txn: &mut PgConnection,
+    report_id: MeasurementReportId,
+    profile_id: Option<MeasurementSystemProfileId>,
+    bundle_id: Option<MeasurementBundleId>,
+    state: MeasurementMachineState,
+) -> Result<MeasurementJournalRecord, DatabaseError> {
+    let query = "update measurement_journal set profile_id = $1, bundle_id = $2, state = $3, ts = $4 where report_id = $5 returning *";
+    sqlx::query_as(query)
+        .bind(profile_id)
+        .bind(bundle_id)
+        .bind(state)
+        .bind(chrono::Utc::now())
+        .bind(report_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "update_measurement_journal_record", e))
+}
+
 /// delete_journal_where_id deletes a journal record.
 pub async fn delete_journal_where_id(
     txn: &mut PgConnection,
