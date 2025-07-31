@@ -421,16 +421,37 @@ async fn get_partition_information(
 ) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
     let conn = fabric_manager.connect(fabric).await?;
 
-    // Get GUID data here but no QoS data, since GUIDs are what we really care about
-    let networks = conn
+    // Due to the UFM bug we need to first get partition IDs and then query
+    // each partition individually for additional data
+    let partitions = conn
         .get_ib_networks(GetPartitionOptions {
-            include_guids_data: true,
-            include_qos_conf: false,
+            include_guids_data: false,
+            include_qos_conf: true,
         })
         .await?;
-    metrics.num_partitions = Some(networks.len());
+    metrics.num_partitions = Some(partitions.len());
 
-    Ok(networks)
+    let mut result = HashMap::new();
+    for &pkey in partitions.keys() {
+        match conn
+            .get_ib_network(
+                pkey,
+                GetPartitionOptions {
+                    include_guids_data: true,
+                    include_qos_conf: true,
+                },
+            )
+            .await
+        {
+            Ok(partition) => {
+                result.insert(pkey, partition);
+            }
+            Err(CarbideError::NotFoundError { .. }) => continue, // Partition might have been deleted
+            Err(e) => return Err(e),
+        }
+    }
+
+    Ok(result)
 }
 
 async fn record_machine_infiniband_status_observation(
