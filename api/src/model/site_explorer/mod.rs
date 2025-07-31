@@ -15,6 +15,7 @@ use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use forge_uuid::machine::{MachineId, MachineType};
 use itertools::Itertools;
+use lazy_static::lazy_static;
 use libredfish::RedfishError;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
@@ -1113,6 +1114,11 @@ pub struct EthernetInterface {
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct UefiDevicePath(String);
 
+lazy_static! {
+    static ref UEFI_DEVICE_PATH_REGEX: Regex =
+        Regex::new(r"PciRoot\((.*?)\)\/Pci\((.*?)\)\/Pci\((.*?)\)").expect("must always compile");
+}
+
 impl FromStr for UefiDevicePath {
     type Err = RedfishError;
 
@@ -1123,14 +1129,12 @@ impl FromStr for UefiDevicePath {
 
         let st = s.rsplit_once("/MAC").map(|x| x.0).unwrap_or(s);
 
-        let re = Regex::new(r"PciRoot\((.*?)\)\/Pci\((.*?)\)\/Pci\((.*?)\)").map_err(|x| {
-            RedfishError::GenericError {
-                error: x.to_string(),
-            }
-        })?;
-        let captures = re.captures(st).ok_or_else(|| RedfishError::GenericError {
-            error: format!("Could not match regex in PCI Device Path {}.", s),
-        })?;
+        let captures =
+            UEFI_DEVICE_PATH_REGEX
+                .captures(st)
+                .ok_or_else(|| RedfishError::GenericError {
+                    error: format!("Could not match regex in PCI Device Path {}.", s),
+                })?;
 
         let mut pci = vec![];
 
