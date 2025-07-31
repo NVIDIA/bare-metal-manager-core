@@ -2188,6 +2188,16 @@ message MachineIbInterface {
   // The ID of the fabric on which the GUID has been observed
   // This is empty if the GUID hasn't been observed on any fabric
   optional string fabric_id = 3;
+
+  // Partition keys currently associated with the interface at UFM
+  // The value of this field is null in case the associated_pkeys could not be determined
+  // The value is an empty list in case there are no pkeys associated with the interface
+  optional PkeyList associated_pkeys = 4;
+}
+
+// A nullable list of partition keys
+message PkeyList {
+  repeated string pkeys = 1;
 }
 
 message DhcpDiscovery {

@@ -18,7 +18,9 @@ use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials}
 
 #[cfg(test)]
 pub use self::iface::Filter;
-pub use self::iface::{IBFabric, IBFabricConfig, IBFabricManager, IBFabricVersions};
+pub use self::iface::{
+    GetPartitionOptions, IBFabric, IBFabricConfig, IBFabricManager, IBFabricVersions,
+};
 pub use self::types::{IBMtu, IBRateLimit, IBServiceLevel};
 
 use crate::CarbideError;

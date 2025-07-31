@@ -464,6 +464,7 @@ struct MachineIbInterfaceDisplay {
     slot: String,
     lid: String,
     fabric_id: String,
+    associated_pkeys: String,
     observed_at: String,
 }
 
@@ -570,6 +571,14 @@ impl From<forgerpc::Machine> for MachineDetail {
                                 iter_status.fabric_id.clone().unwrap_or_default();
                             iface_display.lid =
                                 format!("0x{:x}", iter_status.lid.unwrap_or_default());
+
+                            iface_display.associated_pkeys =
+                                match iter_status.associated_pkeys.as_ref() {
+                                    None => "unknown".to_string(), // Status unknown
+                                    Some(pkeys) => {
+                                        serde_json::to_string(&pkeys.pkeys).unwrap_or_default()
+                                    }
+                                };
                             break;
                         }
                     }

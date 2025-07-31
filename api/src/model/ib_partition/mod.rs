@@ -10,11 +10,110 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::str::FromStr;
+
 use crate::model::StateSla;
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
 
 mod slas;
+
+/// Represents an InfiniBand Partition Key
+/// Partition Keys are 16 bit values valid up to a value of 0x7fff
+/// Partition Keys are serialized as strings, since the hex represenation is
+/// their canonical representation.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct PartitionKey(u16);
+
+#[derive(thiserror::Error, Debug, Clone)]
+#[error("Partition Key \"{0}\" is not valid")]
+pub struct InvalidPartitionKeyError(String);
+
+impl serde::Serialize for PartitionKey {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.to_string().serialize(s)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for PartitionKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+        let str_value = String::deserialize(deserializer)?;
+        let version =
+            PartitionKey::from_str(&str_value).map_err(|err| Error::custom(err.to_string()))?;
+        Ok(version)
+    }
+}
+
+impl TryFrom<u16> for PartitionKey {
+    type Error = InvalidPartitionKeyError;
+
+    fn try_from(pkey: u16) -> Result<Self, Self::Error> {
+        if pkey != (pkey & 0x7fff) {
+            return Err(InvalidPartitionKeyError(pkey.to_string()));
+        }
+
+        Ok(PartitionKey(pkey))
+    }
+}
+
+impl FromStr for PartitionKey {
+    type Err = InvalidPartitionKeyError;
+
+    fn from_str(pkey: &str) -> Result<Self, Self::Err> {
+        let pkey = pkey.to_lowercase();
+        let base = if pkey.starts_with("0x") { 16 } else { 10 };
+        let p = pkey.trim_start_matches("0x");
+        let k = u16::from_str_radix(p, base);
+
+        match k {
+            Ok(v) => Ok(PartitionKey(v)),
+            Err(_e) => Err(InvalidPartitionKeyError(pkey.to_string())),
+        }
+    }
+}
+
+impl TryFrom<String> for PartitionKey {
+    type Error = InvalidPartitionKeyError;
+
+    fn try_from(pkey: String) -> Result<Self, Self::Error> {
+        PartitionKey::from_str(&pkey)
+    }
+}
+
+impl TryFrom<&String> for PartitionKey {
+    type Error = InvalidPartitionKeyError;
+
+    fn try_from(pkey: &String) -> Result<Self, Self::Error> {
+        PartitionKey::try_from(pkey.to_string())
+    }
+}
+
+impl TryFrom<&str> for PartitionKey {
+    type Error = InvalidPartitionKeyError;
+
+    fn try_from(pkey: &str) -> Result<Self, Self::Error> {
+        PartitionKey::try_from(pkey.to_string())
+    }
+}
+
+impl std::fmt::Display for PartitionKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "0x{:x}", self.0)
+    }
+}
+
+impl From<PartitionKey> for u16 {
+    fn from(v: PartitionKey) -> u16 {
+        v.0
+    }
+}
 
 /// State of a IB subnet as tracked by the controller
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,6 +153,20 @@ pub fn state_sla(state: &IBPartitionControllerState, state_version: &ConfigVersi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serialize_and_format_pkey() {
+        let pkey = PartitionKey::from_str("0xf").unwrap();
+        let serialized = serde_json::to_string(&pkey).unwrap();
+        assert_eq!(serialized, "\"0xf\"");
+        assert_eq!(pkey.to_string(), "0xf");
+        let deserialized = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(pkey, deserialized);
+        let deserialized = serde_json::from_str("\"15\"").unwrap();
+        assert_eq!(pkey, deserialized);
+        let deserialized = serde_json::from_str("\"0xf\"").unwrap();
+        assert_eq!(pkey, deserialized);
+    }
 
     #[test]
     fn serialize_controller_state() {
