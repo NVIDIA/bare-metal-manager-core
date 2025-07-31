@@ -2350,7 +2350,7 @@ async fn handle_dpu_reprovision(
             next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?
         )),
         ReprovisionState::VerifyFirmareVersions => {
-            check_bmc_fw_component_version(
+            if let Some(outcome) = check_fw_component_version(
                 ctx.services,
                 dpu_snapshot,
                 txn,
@@ -2359,7 +2359,10 @@ async fn handle_dpu_reprovision(
                 state,
                 reachability_params,
             )
-            .await?;
+            .await?
+            {
+                return Ok(outcome);
+            }
 
             Ok(transition!(
                 next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?
@@ -2566,7 +2569,10 @@ async fn try_wait_for_dpu_discovery(
     Ok(None)
 }
 
-async fn check_bmc_fw_component_version(
+/// Returns Option<StateHandlerOutcome>:
+///     If Some(_) means at least one fw component is not updated.
+///     If None: All fw components are updated.
+async fn check_fw_component_version(
     services: &StateHandlerServices,
     dpu_snapshot: &Machine,
     txn: &mut PgConnection,
@@ -2574,7 +2580,7 @@ async fn check_bmc_fw_component_version(
     host_power_cycle_done: bool,
     state: &ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
-) -> Result<bool, StateHandlerError> {
+) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
     let redfish_client = services
         .redfish_client_pool
         .create_client_from_machine(dpu_snapshot, txn)
@@ -2660,7 +2666,7 @@ async fn check_bmc_fw_component_version(
                     cur_version,
                     expected_version
                 );
-                return Ok(true);
+                return Ok(None);
             }
 
             /*
@@ -2694,12 +2700,13 @@ async fn check_bmc_fw_component_version(
                 );
             }
 
-            return Err(StateHandlerError::FirmwareUpdateError(eyre::eyre!(
+            // Don't return Error. In case of the error, reboot time won't be updated in db.
+            // This will cause continuous reboot of machine after first failure_retry_time is
+            // passed.
+            return Ok(Some(wait!(format!(
                 "{:#?} FW didn't update succesfully. Expected version: {}, Current version: {}",
-                component,
-                expected_version,
-                cur_version,
-            )));
+                component, expected_version, cur_version,
+            ))));
         }
 
         tracing::info!(
@@ -2710,7 +2717,8 @@ async fn check_bmc_fw_component_version(
         );
     }
 
-    Ok(false)
+    // All good.
+    Ok(None)
 }
 
 async fn set_managed_host_topology_update_needed(
@@ -3104,7 +3112,7 @@ impl DpuMachineStateHandler {
                     }
                 };
 
-                check_bmc_fw_component_version(
+                if let Some(outcome) = check_fw_component_version(
                     ctx.services,
                     dpu_snapshot,
                     txn,
@@ -3113,7 +3121,10 @@ impl DpuMachineStateHandler {
                     state,
                     &self.reachability_params,
                 )
-                .await?;
+                .await?
+                {
+                    return Ok(outcome);
+                }
 
                 let boot_interface_mac = None; // libredfish will choose the DPU
                 if let Err(e) = call_forge_setup_and_handle_no_dpu_error(
@@ -3535,6 +3546,11 @@ pub struct RebootStatus {
 
 /// In case machine does not come up until a specified duration, this function tries to reboot
 /// it again. The reboot continues till 6 hours only. After that this function gives up.
+/// WARNING:
+/// If using this function in handler, never return Error, return wait/donothing.
+/// In case a error is returned, last_reboot_requested won't be updated in db by state handler.
+/// This will cause continuous reboot of machine after first failure_retry_time is
+/// passed.
 pub async fn trigger_reboot_if_needed(
     target: &Machine,
     state: &ManagedHostStateSnapshot,
