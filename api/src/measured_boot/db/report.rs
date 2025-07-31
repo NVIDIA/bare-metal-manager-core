@@ -19,6 +19,7 @@ use crate::measured_boot::db;
 use crate::measured_boot::db::machine::bundle_state_to_machine_state;
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::common::pcr_register_values_to_map;
+use crate::measured_boot::interface::report::{update_report_tstamp, update_report_values_tstamp};
 use crate::measured_boot::interface::{
     report::{
         delete_report_for_id, delete_report_values_for_id, get_measurement_report_record_by_id,
@@ -120,12 +121,30 @@ pub async fn create_measurement_report(
     machine_id: MachineId,
     values: &[PcrRegisterValue],
 ) -> CarbideResult<MeasurementReport> {
-    let info = insert_measurement_report_record(txn, machine_id)
-        .await
-        .map_err(CarbideError::from)?;
-    let values = insert_measurement_report_value_records(txn, info.report_id, values)
-        .await
-        .map_err(CarbideError::from)?;
+    // we check if a previous measurement report has the same values,
+    // if true, we'll just update the timestamp on the previous report
+    // otherwise, we'll create a new one
+    let (info, values, new_report_created) =
+        match same_as_previous_one(txn, machine_id, values).await? {
+            SameOrNot::Same(report_id) => {
+                // update the timestamps
+                let now = chrono::Utc::now();
+
+                let info = update_report_tstamp(txn, report_id, now).await?;
+                let values = update_report_values_tstamp(txn, report_id, now).await?;
+                (info, values, false)
+            }
+            SameOrNot::Different => {
+                let info = insert_measurement_report_record(txn, machine_id)
+                    .await
+                    .map_err(CarbideError::from)?;
+                let values = insert_measurement_report_value_records(txn, info.report_id, values)
+                    .await
+                    .map_err(CarbideError::from)?;
+                (info, values, true)
+            }
+        };
+
     let report = MeasurementReport {
         report_id: info.report_id,
         machine_id: info.machine_id,
@@ -135,18 +154,30 @@ pub async fn create_measurement_report(
 
     let journal_data =
         JournalData::new_from_values(txn, report.machine_id, &report.pcr_values()).await?;
+
     // Now that the bundle_id and profile_id bits have been sorted, its
     // time to make a new journal entry that captures the [possible]
     // bundle_id, the profile_id, and the values to log to the journal.
-    let journal = db::journal::new_with_txn(
-        txn,
-        report.machine_id,
-        report.report_id,
-        journal_data.profile_id,
-        journal_data.bundle_id,
-        journal_data.state,
-    )
-    .await?;
+    let journal = if new_report_created {
+        db::journal::new_with_txn(
+            txn,
+            report.machine_id,
+            report.report_id,
+            journal_data.profile_id,
+            journal_data.bundle_id,
+            journal_data.state,
+        )
+        .await?
+    } else {
+        db::journal::update_measurement_journal(
+            txn,
+            report.report_id,
+            journal_data.profile_id,
+            journal_data.bundle_id,
+            journal_data.state,
+        )
+        .await?
+    };
 
     // TODO(chet): Now that profiles are auto-created if a matching one
     // doesn't exist, maybe this can go, but i'm keeping it here as a
@@ -445,4 +476,35 @@ pub async fn create_bundle_with_state(
     };
 
     db::bundle::new_with_txn(txn, profile.profile_id, None, &values, Some(state)).await
+}
+
+enum SameOrNot {
+    Same(MeasurementReportId),
+    Different,
+}
+
+async fn same_as_previous_one(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+    values: &[PcrRegisterValue],
+) -> CarbideResult<SameOrNot> {
+    let latest_journal = match db::journal::get_latest_journal_for_id(txn, machine_id).await? {
+        Some(journal) => journal,
+        None => return Ok(SameOrNot::Different),
+    };
+
+    let latest_report =
+        get_measurement_report_by_id_with_txn(txn, latest_journal.report_id).await?;
+
+    let mut incoming_values = values.to_vec().clone();
+    incoming_values.sort_by_key(|e| e.pcr_register);
+
+    let mut previous_values = latest_report.pcr_values().clone();
+    previous_values.sort_by_key(|e| e.pcr_register);
+
+    if incoming_values == previous_values {
+        Ok(SameOrNot::Same(latest_journal.report_id))
+    } else {
+        Ok(SameOrNot::Different)
+    }
 }
