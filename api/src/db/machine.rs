@@ -355,6 +355,7 @@ pub async fn get_or_create(
             stable_machine_id,
             state,
             &Metadata::default(),
+            None,
         )
         .await?;
         db::machine_interface::associate_interface_with_machine(&interface.id, &machine.id, txn)
@@ -1369,6 +1370,7 @@ pub async fn create(
     stable_machine_id: &MachineId,
     state: ManagedHostState,
     metadata: &Metadata,
+    sku_id: Option<String>,
 ) -> CarbideResult<Machine> {
     let stable_machine_id_string = stable_machine_id.to_string();
     // Host and DPU machines are created in same `discover_machine` call. Update same
@@ -1404,8 +1406,8 @@ pub async fn create(
     };
 
     let query = r#"INSERT INTO machines(
-                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels)
-                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json) RETURNING id"#;
+                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, hw_sku)
+                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12) RETURNING id"#;
     let machine_id: MachineId = sqlx::query_as(query)
         .bind(&stable_machine_id_string)
         .bind(state_version)
@@ -1418,6 +1420,7 @@ pub async fn create(
         .bind(&metadata.name)
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
+        .bind(&sku_id)
         .fetch_one(&mut *txn)
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
@@ -2131,7 +2134,7 @@ pub async fn update_sku_status_verify_request_time(
 
 pub async fn find_machine_ids_by_sku_id(
     txn: &mut PgConnection,
-    sku_id: &str,
+    sku_id: &String,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = "SELECT id FROM machines WHERE hw_sku=$1";
 
@@ -2255,6 +2258,7 @@ mod test {
             &id,
             ManagedHostState::Ready,
             &Metadata::default(),
+            None,
         )
         .await?;
         super::set_firmware_autoupdate(&mut txn, &id, Some(true)).await?;

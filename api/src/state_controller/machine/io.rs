@@ -258,6 +258,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 machine::BomValidating::WaitingForSkuAssignment(_) => {
                     ("bomvalidating", "waitingforskuassignment")
                 }
+                machine::BomValidating::SkuMissing(_) => ("bomvalidating", "skumissing"),
             },
             ManagedHostState::Validation { validation_state } => match validation_state {
                 ValidationState::MachineValidation { machine_validation } => (

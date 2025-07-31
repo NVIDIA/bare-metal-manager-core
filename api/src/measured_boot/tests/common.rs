@@ -50,6 +50,7 @@ pub async fn create_test_machine(
             name: machine_id.to_string(),
             ..Default::default()
         },
+        None,
     )
     .await?;
     MachineTopology::create_or_update(txn, &machine_id, topology).await?;

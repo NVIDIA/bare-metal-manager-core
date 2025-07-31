@@ -584,13 +584,16 @@ impl SiteExplorer {
             DatabaseError::new(file!(), line!(), "begin load create_managed_host", e)
         })?;
 
-        let metadata = match expected_machine {
-            Some(m) => m.metadata.clone(),
-            None => Metadata {
-                name: String::new(),
-                description: String::new(),
-                labels: Default::default(),
-            },
+        let (metadata, sku_id) = match expected_machine {
+            Some(m) => (m.metadata.clone(), m.sku_id.clone()),
+            None => (
+                Metadata {
+                    name: String::new(),
+                    description: String::new(),
+                    labels: Default::default(),
+                },
+                None,
+            ),
         };
 
         // Zero-dpu case: If the explored host had no DPUs, we can create the machine now
@@ -631,8 +634,14 @@ impl SiteExplorer {
                 return Ok(false);
             }
 
-            self.attach_dpu_to_host(&mut txn, &mut managed_host, dpu_report, metadata.clone())
-                .await?;
+            self.attach_dpu_to_host(
+                &mut txn,
+                &mut managed_host,
+                dpu_report,
+                metadata.clone(),
+                sku_id.clone(),
+            )
+            .await?;
         }
 
         // Now since all DPUs are created, update host and DPUs state correctly.
@@ -1563,8 +1572,14 @@ impl SiteExplorer {
             return Ok(false);
         }
 
-        self.create_machine_from_explored_managed_host(txn, managed_host, machine_id, metadata)
-            .await?;
+        self.create_machine_from_explored_managed_host(
+            txn,
+            managed_host,
+            machine_id,
+            metadata,
+            None,
+        )
+        .await?;
 
         let machine_id = *machine_id; // 🦀 end the borrow so we can write to managed_host.machine_id
         managed_host.machine_id = Some(machine_id);
@@ -1687,6 +1702,7 @@ impl SiteExplorer {
                     name: dpu_machine_id.to_string(),
                     ..Default::default()
                 },
+                None,
             )
             .await
             {
@@ -1731,6 +1747,7 @@ impl SiteExplorer {
         explored_host: &mut ManagedHost,
         explored_dpu: &ExploredDpu,
         metadata: Metadata,
+        sku_id: Option<String>,
     ) -> CarbideResult<()> {
         let dpu_hw_info = explored_dpu.hardware_info()?;
         // Create Host proactively.
@@ -1758,6 +1775,7 @@ impl SiteExplorer {
             &host_machine_interface,
             explored_dpu,
             metadata,
+            sku_id,
         )
         .await?;
 
@@ -1800,6 +1818,7 @@ impl SiteExplorer {
         host_machine_interface: &MachineInterfaceSnapshot,
         explored_dpu: &ExploredDpu,
         metadata: Metadata,
+        sku_id: Option<String>,
     ) -> CarbideResult<MachineId> {
         match &explored_host.machine_id {
             Some(host_machine_id) => {
@@ -1823,6 +1842,7 @@ impl SiteExplorer {
                         &explored_host.explored_host,
                         explored_dpu,
                         metadata,
+                        sku_id,
                     )
                     .await?;
 
@@ -1849,6 +1869,7 @@ impl SiteExplorer {
         explored_host: &ExploredManagedHost,
         explored_dpu: &ExploredDpu,
         mut metadata: Metadata,
+        sku_id: Option<String>,
     ) -> CarbideResult<MachineId> {
         let dpu_hw_info = explored_dpu.hardware_info()?;
         let predicted_machine_id = host_id_from_dpu_hardware_info(&dpu_hw_info)
@@ -1864,6 +1885,7 @@ impl SiteExplorer {
             &predicted_machine_id,
             ManagedHostState::Created,
             &metadata,
+            sku_id,
         )
         .await?;
 
@@ -1888,6 +1910,7 @@ impl SiteExplorer {
         managed_host: &ManagedHost,
         predicted_machine_id: &MachineId,
         mut metadata: Metadata,
+        sku_id: Option<String>,
     ) -> CarbideResult<()> {
         if metadata.name.is_empty() {
             metadata.name = predicted_machine_id.to_string();
@@ -1899,6 +1922,7 @@ impl SiteExplorer {
             predicted_machine_id,
             ManagedHostState::Created,
             &metadata,
+            sku_id,
         )
         .await?;
         let hardware_info = HardwareInfo::default();

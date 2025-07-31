@@ -57,24 +57,27 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> CarbideRes
     let mut skus = crate::db::sku::find(&mut txn, &sku_id_list).await?;
 
     let Some(sku) = skus.pop() else {
-        return Err(CarbideError::InvalidArgument("Missing SKU Id".to_string()));
+        return Err(CarbideError::InvalidArgument(format!(
+            "The SKU {} does not exist",
+            sku_id_list
+                .first()
+                .map(|id| id.to_string())
+                .unwrap_or_default()
+        )));
     };
+    if !skus.is_empty() {
+        return Err(CarbideError::NotImplemented);
+    }
 
-    crate::db::sku::delete(&mut txn, &sku.id)
-        .await
-        .map_err(|db_error| match db_error.source.as_database_error() {
-            Some(sqlx_db_error) => {
-                if sqlx_db_error.is_foreign_key_violation() {
-                    CarbideError::InvalidArgument(format!(
-                        "The SKU with id '{}' is in use and cannot be deleted",
-                        sku.id
-                    ))
-                } else {
-                    db_error.into()
-                }
-            }
-            _ => db_error.into(),
-        })?;
+    let machine_ids = crate::db::machine::find_machine_ids_by_sku_id(&mut txn, &sku.id).await?;
+    if !machine_ids.is_empty() {
+        return Err(CarbideError::InvalidArgument(format!(
+            "The SKUs are in use by {} machines",
+            machine_ids.len()
+        )));
+    }
+
+    crate::db::sku::delete(&mut txn, &sku.id).await?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(file!(), line!(), "commit sku create", e))

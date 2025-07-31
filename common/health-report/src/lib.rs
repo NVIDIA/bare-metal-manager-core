@@ -180,6 +180,16 @@ impl HealthReport {
         }
     }
 
+    /// Returns a health report which indicates that a machine failed SKU validation
+    pub fn sku_missing(sku_id: &str) -> Self {
+        Self {
+            source: Self::SKU_VALIDATION_SOURCE.to_string(),
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![],
+            alerts: vec![HealthProbeAlert::sku_missing(sku_id)],
+        }
+    }
+
     /// Update the in_alert_since timestamps on all alerts in the reports
     /// by taking into account the timestaps in a previous report
     /// - If the alert has been reported in the previous report, the old timestamp
@@ -402,6 +412,17 @@ impl HealthProbeAlert {
             target: None,
             in_alert_since: Some(chrono::Utc::now()),
             message: mismatches.join("\n"),
+            tenant_message: None,
+            classifications: vec![HealthAlertClassification::prevent_allocations()],
+        }
+    }
+
+    pub fn sku_missing(sku_id: &str) -> Self {
+        Self {
+            id: HealthProbeId::sku_validation(),
+            target: None,
+            in_alert_since: Some(chrono::Utc::now()),
+            message: format!("The assigned sku {sku_id} does not exist"),
             tenant_message: None,
             classifications: vec![HealthAlertClassification::prevent_allocations()],
         }
