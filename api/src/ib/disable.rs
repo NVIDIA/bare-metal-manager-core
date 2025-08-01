@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 
 use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
-use super::types::{IBNetwork, IBPort};
+use super::types::{IBNetwork, IBPort, IBQosConf};
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
 
@@ -56,8 +56,12 @@ impl IBFabric for DisableIBFabric {
         ))
     }
 
-    /// Update IBNetwork, e.g. QoS
-    async fn update_ib_network(&self, _: &IBNetwork) -> Result<(), CarbideError> {
+    /// Update an IB Partitions QoS configuration
+    async fn update_partition_qos_conf(
+        &self,
+        _pkey: u16,
+        _qos_conf: &IBQosConf,
+    ) -> Result<(), CarbideError> {
         Err(CarbideError::IBFabricError(
             "ib fabric is disabled".to_string(),
         ))

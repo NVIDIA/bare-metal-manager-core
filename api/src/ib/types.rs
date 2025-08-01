@@ -20,23 +20,17 @@ use crate::CarbideError;
 // pub const IBNETWORK_DEFAULT_MEMBERSHIP: IBPortMembership = IBPortMembership::Full;
 // pub const IBNETWORK_DEFAULT_INDEX0: bool = true;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IBNetwork {
     /// The name of IB network.
     pub name: String,
     /// The pkey of IB network.
     pub pkey: u16,
-    /// Default 2k; one of 2k or 4k; the MTU of the services.
-    pub mtu: IBMtu,
     /// Default false
     pub ipoib: bool,
-    /// Default is None, value can be range from 0-15.
-    pub service_level: IBServiceLevel,
-    /// Supported values: 10, 30, 5, 20, 40, 60, 80, 120, 14, 56, 112, 168, 25, 100, 200, or 300.
-    /// 2 is also valid but is used internally to represent rate limit 2.5 that is possible in UFM for lagecy hardware.
-    /// It is done to avoid floating point data type usage for rate limit w/o obvious benefits.
-    /// 2 to 2.5 and back conversion is done just on REST API operations.
-    pub rate_limit: IBRateLimit,
+    /// Quality of service parameters associated with the partition
+    /// Only available if explicitly requested
+    pub qos_conf: Option<IBQosConf>,
     /// Guids associated with the Partition
     /// Only available if explicitly requested
     pub associated_guids: Option<HashSet<String>>,
@@ -49,6 +43,20 @@ pub struct IBNetwork {
     // /// The default index0 of IB network.
     // pub index0: bool,
     // --
+}
+
+/// Quality of service configuration
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IBQosConf {
+    /// Default 2k; one of 2k or 4k; the MTU of the services.
+    pub mtu: IBMtu,
+    /// Default is None, value can be range from 0-15.
+    pub service_level: IBServiceLevel,
+    /// Supported values: 10, 30, 5, 20, 40, 60, 80, 120, 14, 56, 112, 168, 25, 100, 200, or 300.
+    /// 2 is also valid but is used internally to represent rate limit 2.5 that is possible in UFM for lagecy hardware.
+    /// It is done to avoid floating point data type usage for rate limit w/o obvious benefits.
+    /// 2 to 2.5 and back conversion is done just on REST API operations.
+    pub rate_limit: IBRateLimit,
 }
 
 #[derive(Clone, PartialEq, Debug)]

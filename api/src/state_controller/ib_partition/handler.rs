@@ -12,7 +12,7 @@
 use crate::{
     CarbideError,
     db::ib_partition::{IBPartition, IBPartitionStatus},
-    ib::{DEFAULT_IB_FABRIC_NAME, GetPartitionOptions, IBFabricManagerConfig, types::IBNetwork},
+    ib::{DEFAULT_IB_FABRIC_NAME, GetPartitionOptions, IBFabricManagerConfig, types::IBQosConf},
     model::ib_partition::IBPartitionControllerState,
     state_controller::{
         ib_partition::context::IBPartitionStateHandlerContextObjects,
@@ -148,22 +148,42 @@ impl StateHandler for IBPartitionStateHandler {
                                 // If found the IBNetwork, update the status accordingly. And check
                                 // it whether align with the config; if mismatched, return error.
                                 // The mismatched status is still there in DB for debug.
-                                state.status = Some(IBPartitionStatus::from(&ibnetwork));
+                                // QoS data can be exected here, since the API call above queries for it
+                                let qos = ibnetwork.qos_conf.as_ref().ok_or_else(|| {
+                                    StateHandlerError::MissingData {
+                                        object_id: partition_id.to_string(),
+                                        missing: "qos_conf",
+                                    }
+                                })?;
+
+                                state.status = Some(IBPartitionStatus {
+                                    partition: ibnetwork.name.clone(),
+                                    mtu: qos.mtu.clone(),
+                                    rate_limit: qos.rate_limit.clone(),
+                                    service_level: qos.service_level.clone(),
+                                });
                                 state.update(txn).await?;
 
-                                if !is_valid_status(&ib_config, &ibnetwork) {
+                                if !is_qos_conf_applied(&ib_config, qos) {
                                     // Update the QoS of IBNetwork in UFM.
                                     //
-                                    // TODO(k82cn): Currently, the IBNeetwork is created only after
+                                    // TODO(k82cn): Currently, the IBNetwork is created only after
                                     // at least one port was bound to the partition.
                                     // In latest version, the UFM will support create partition without
                                     // port.
-                                    let mut ibnetwork = ibnetwork;
-                                    ibnetwork.mtu = ib_config.mtu.clone();
-                                    ibnetwork.rate_limit = ib_config.rate_limit.clone();
-                                    ibnetwork.service_level = ib_config.service_level.clone();
+                                    let desired_qos_conf = IBQosConf {
+                                        mtu: ib_config.mtu.clone(),
+                                        rate_limit: ib_config.rate_limit.clone(),
+                                        service_level: ib_config.service_level.clone(),
+                                    };
 
-                                    if let Err(e) = ib_fabric.update_ib_network(&ibnetwork).await {
+                                    if let Err(e) = ib_fabric
+                                        .update_partition_qos_conf(
+                                            ibnetwork.pkey,
+                                            &desired_qos_conf,
+                                        )
+                                        .await
+                                    {
                                         return Ok(transition!(
                                             IBPartitionControllerState::Error {
                                                 cause: format!("Failed to update IB partition {e}"),
@@ -203,21 +223,10 @@ impl StateHandler for IBPartitionStateHandler {
     }
 }
 
-fn is_valid_status(c: &IBFabricManagerConfig, r: &IBNetwork) -> bool {
-    c.mtu == r.mtu
+fn is_qos_conf_applied(c: &IBFabricManagerConfig, actual_qos: &IBQosConf) -> bool {
+    c.mtu == actual_qos.mtu
         // NOTE: The rate_limit is defined as 'f64' for lagency device, e.g. 2.5G; so it's ok to
         // convert to i32 for new devices.
-        && c.rate_limit == r.rate_limit
-        && c.service_level == r.service_level
-}
-
-impl From<&IBNetwork> for IBPartitionStatus {
-    fn from(ib: &IBNetwork) -> IBPartitionStatus {
-        Self {
-            partition: ib.name.clone(),
-            mtu: ib.mtu.clone(),
-            rate_limit: ib.rate_limit.clone(),
-            service_level: ib.service_level.clone(),
-        }
-    }
+        && c.rate_limit == actual_qos.rate_limit
+        && c.service_level == actual_qos.service_level
 }

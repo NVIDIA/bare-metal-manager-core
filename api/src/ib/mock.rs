@@ -18,6 +18,8 @@ use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
 use super::types::{IBNetwork, IBPort, IBPortState};
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
+use crate::ib::types::IBQosConf;
+use crate::ib::{IBMtu, IBRateLimit, IBServiceLevel};
 
 pub struct MockIBFabric {
     state: Arc<Mutex<State>>,
@@ -126,6 +128,12 @@ impl IBFabric for MockIBFabric {
         ports: Vec<String>,
     ) -> Result<(), CarbideError> {
         ib.associated_guids = None; // Nothing can be associated by caller
+        // The initial QOS config is always coming from UFM. The caller can't specify it
+        ib.qos_conf = Some(IBQosConf {
+            mtu: IBMtu::default(),
+            service_level: IBServiceLevel::default(),
+            rate_limit: IBRateLimit::default(),
+        });
 
         let mut state = self
             .state
@@ -153,19 +161,21 @@ impl IBFabric for MockIBFabric {
         Ok(())
     }
 
-    /// Update IBNetwork, e.g. QoS
-    async fn update_ib_network(&self, ibnetwork: &IBNetwork) -> Result<(), CarbideError> {
+    /// Update an IB Partitions QoS configuration
+    async fn update_partition_qos_conf(
+        &self,
+        pkey: u16,
+        qos_conf: &IBQosConf,
+    ) -> Result<(), CarbideError> {
         let mut state = self
             .state
             .lock()
             .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
 
-        match state.subnets.get_mut(&ibnetwork.pkey.to_string()) {
+        match state.subnets.get_mut(&pkey.to_string()) {
             Some(ib) => {
                 // Update QoS accordingly
-                ib.mtu = ibnetwork.mtu.clone();
-                ib.rate_limit = ibnetwork.rate_limit.clone();
-                ib.service_level = ibnetwork.service_level.clone();
+                ib.qos_conf = Some(qos_conf.clone());
                 Ok(())
             }
             None => Err(CarbideError::IBFabricError(
