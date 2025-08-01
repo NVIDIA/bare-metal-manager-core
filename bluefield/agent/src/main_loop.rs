@@ -48,8 +48,9 @@ use crate::network_monitor::{self, NetworkPingerType};
 use crate::util::{UrlResolver, get_host_boot_timestamp};
 use crate::{
     FMDS_MINIMUM_HBN_VERSION, HBNDeviceNames, NVUE_MINIMUM_HBN_VERSION, RunOptions, command_line,
-    ethernet_virtualization, hbn, health, instance_metadata_endpoint, machine_inventory_updater,
-    managed_files, mtu, netlink, nvue, periodic_config_fetcher, pretty_cmd, sysfs, upgrade,
+    ethernet_virtualization, hbn, health, instance_metadata_endpoint, lldp,
+    machine_inventory_updater, managed_files, mtu, netlink, nvue, periodic_config_fetcher,
+    pretty_cmd, sysfs, upgrade,
 };
 
 // Main loop when running in daemon mode
@@ -178,6 +179,10 @@ pub async fn setup_and_run(
     };
 
     managed_files::main_sync(duppet_options, &machine_id, &periodic_config_fetcher);
+
+    if let Err(e) = lldp::set_lldp_system_description(machine_id.as_str()) {
+        tracing::warn!("Couldn't update LLDP system description: {e}")
+    }
 
     let periodic_config_reader = periodic_config_fetcher.reader();
 
