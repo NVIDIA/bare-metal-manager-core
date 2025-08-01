@@ -466,6 +466,10 @@ async fn record_machine_infiniband_status_observation(
             .num_machines_by_port_states
             .entry((0, 0))
             .or_default() += 1;
+        *metrics
+            .num_machines_by_ports_with_partitions
+            .entry(0)
+            .or_default() += 1;
         return Ok(());
     }
 
@@ -493,6 +497,7 @@ async fn record_machine_infiniband_status_observation(
         Vec::with_capacity(guids.len());
 
     let mut active_ports = 0;
+    let mut ports_with_partitions = 0;
     for guid in guids.iter() {
         // Search for the GUID in all fabrics. Record the fabric where we found it, plus the actual data
         // Note: This only works since GUIDs are globally unique
@@ -529,6 +534,13 @@ async fn record_machine_infiniband_status_observation(
                     None => None,
                 };
 
+                if associated_pkeys
+                    .as_ref()
+                    .is_some_and(|pkeys| !pkeys.is_empty())
+                {
+                    ports_with_partitions += 1;
+                }
+
                 (
                     fabric_id,
                     if port_data.state == Some(IBPortState::Active) {
@@ -561,6 +573,10 @@ async fn record_machine_infiniband_status_observation(
     *metrics
         .num_machines_by_port_states
         .entry((guids.len(), active_ports))
+        .or_default() += 1;
+    *metrics
+        .num_machines_by_ports_with_partitions
+        .entry(ports_with_partitions)
         .or_default() += 1;
 
     let cur = MachineInfinibandStatusObservation {
