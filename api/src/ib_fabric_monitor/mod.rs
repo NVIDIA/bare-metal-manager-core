@@ -11,10 +11,12 @@
  */
 
 use chrono::Utc;
-use forge_uuid::machine::MachineId;
+use forge_uuid::{infiniband::IBPartitionId, machine::MachineId};
+use rpc::forge::IbPartitionSearchFilter;
 use sqlx::{PgConnection, PgPool};
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Write,
     sync::Arc,
 };
 use tokio::sync::oneshot;
@@ -23,7 +25,12 @@ use tracing::Instrument;
 use crate::{
     CarbideError, CarbideResult,
     cfg::file::{CarbideConfig, HostHealthConfig, IbFabricDefinition},
-    db::{self, DatabaseError, machine::MachineSearchConfig, managed_host::LoadSnapshotOptions},
+    db::{
+        self, DatabaseError,
+        ib_partition::{IBPartition, IBPartitionSearchConfig},
+        machine::MachineSearchConfig,
+        managed_host::LoadSnapshotOptions,
+    },
     ib::{
         GetPartitionOptions, IBFabricManager, IBFabricManagerType,
         types::{IBNetwork, IBPort, IBPortState},
@@ -211,6 +218,21 @@ impl IbFabricMonitor {
             }
         };
 
+        let tenant_partitions = match get_tenant_partitions(&mut conn).await {
+            Ok(snapshots) => snapshots,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to load Partition data in IbFabricMonitor");
+                // Record the same error for all fabrics, so that the problem is at least visible on dashboards
+                for (fabric, _fabric_definition) in self.fabrics.iter() {
+                    metrics.num_fabrics += 1;
+                    let fabric_metrics = metrics.fabrics.entry(fabric.to_string()).or_default();
+                    fabric_metrics.fabric_error = "ManagedHostSnapshotLoadingError".to_string();
+                }
+                return Err(e);
+            }
+        };
+        drop(conn); // Don't reuse the postgres connection later on. It might be stale
+
         let mut fabric_data: HashMap<String, FabricData> = HashMap::new();
         for (fabric, fabric_definition) in self.fabrics.iter() {
             let fabric_data = fabric_data.entry(fabric.to_string()).or_default();
@@ -275,6 +297,7 @@ impl IbFabricMonitor {
             match record_machine_infiniband_status_observation(
                 &self.db_pool,
                 &mut snapshot,
+                &tenant_partitions,
                 &fabric_data,
                 metrics,
             )
@@ -454,9 +477,46 @@ async fn get_partition_information(
     Ok(result)
 }
 
+/// Find all active partitions in order to determine pkeys
+async fn get_tenant_partitions(
+    txn: &mut PgConnection,
+) -> Result<HashMap<IBPartitionId, IBPartition>, CarbideError> {
+    let partition_ids = db::ib_partition::IBPartition::find_ids(
+        txn,
+        IbPartitionSearchFilter {
+            tenant_org_id: None,
+            name: None,
+        },
+    )
+    .await?;
+
+    const PAGE_SIZE: usize = 100;
+    let mut result = HashMap::new();
+    let mut offset = 0;
+    while offset != partition_ids.len() {
+        let page_size = PAGE_SIZE.min(partition_ids.len() - offset);
+        let next_ids = &partition_ids[offset..offset + page_size];
+        let partition_data = db::ib_partition::IBPartition::find_by(
+            txn,
+            db::ObjectColumnFilter::List(db::ib_partition::IdColumn, next_ids),
+            IBPartitionSearchConfig {},
+        )
+        .await?;
+
+        for partition in partition_data {
+            result.insert(partition.id, partition);
+        }
+
+        offset += page_size;
+    }
+
+    Ok(result)
+}
+
 async fn record_machine_infiniband_status_observation(
     db_pool: &PgPool,
     mh_snapshot: &mut ManagedHostStateSnapshot,
+    tenant_partitions: &HashMap<IBPartitionId, IBPartition>,
     data_by_fabric: &HashMap<String, FabricData>,
     metrics: &mut IbFabricMonitorMetrics,
 ) -> Result<(), CarbideError> {
@@ -473,9 +533,6 @@ async fn record_machine_infiniband_status_observation(
         return Ok(());
     }
 
-    let mut has_unexpected_pkeys = false;
-    let mut has_missing_pkeys = false;
-
     let machine_id = &mh_snapshot.host_snapshot.id;
     let ib_hw_info = &mh_snapshot
         .host_snapshot
@@ -491,16 +548,23 @@ async fn record_machine_infiniband_status_observation(
         .instance
         .as_ref()
         .map(|instance| &instance.config.infiniband);
-    let mut expected_partition_ids = HashMap::new();
+    let mut expected_pkeys = HashMap::new();
     if let Some(expected_ib_config) = expected_ib_config {
         for iface in expected_ib_config.ib_interfaces.iter() {
-            if let Some(guid) = iface.guid.as_ref() {
-                expected_partition_ids.insert(guid.clone(), iface.ib_partition_id);
-            }
+            let Some(guid) = iface.guid.as_ref() else {
+                continue;
+            };
+            let Some(partition_data) = tenant_partitions.get(&iface.ib_partition_id) else {
+                continue;
+            };
+            let Some(expected_pkey) = partition_data.config.pkey else {
+                continue;
+            };
+            expected_pkeys.insert(guid.clone(), expected_pkey);
         }
     }
 
-    // Form list of requested guids
+    // The list of GUIDs that are part of this Machine
     let mut guids: Vec<String> = Vec::new();
     for ib_interface in ib_hw_info.iter() {
         guids.push(ib_interface.guid.clone());
@@ -517,6 +581,10 @@ async fn record_machine_infiniband_status_observation(
 
     let mut active_ports = 0;
     let mut ports_with_partitions = 0;
+    // These are the GUID/Pkey combinations where changes are required
+    let mut missing_guid_pkeys = Vec::new();
+    let mut unexpected_guid_pkeys = Vec::new();
+
     for guid in guids.iter() {
         // Search for the GUID in all fabrics. Record the fabric where we found it, plus the actual data
         // Note: This only works since GUIDs are globally unique
@@ -559,25 +627,23 @@ async fn record_machine_infiniband_status_observation(
                             ports_with_partitions += 1;
                         }
 
-                        match expected_partition_ids.get(guid) {
-                            Some(_partition_id) => {
-                                // GUID should be associated with `partition_id`
-                                match pkeys.len() {
-                                    1 => {
-                                        // TODO: Verify against the actual desired pkey
-                                    }
-                                    0 => {
-                                        has_missing_pkeys = true;
-                                    }
-                                    _ => {
-                                        has_unexpected_pkeys = true;
+                        match expected_pkeys.get(guid) {
+                            Some(expected_pkey) => {
+                                // GUID should be associated with `expected_pkey`
+                                if !pkeys.contains(expected_pkey) {
+                                    missing_guid_pkeys.push((guid.to_string(), *expected_pkey));
+                                }
+                                // Everything else is unexpected
+                                for pkey in pkeys {
+                                    if pkey != expected_pkey {
+                                        unexpected_guid_pkeys.push((guid.to_string(), *pkey));
                                     }
                                 }
                             }
                             None => {
-                                // GUID should not be associated with any partition
-                                if !pkeys.is_empty() {
-                                    has_unexpected_pkeys = true;
+                                // All GUIDs are unexpected
+                                for pkey in pkeys {
+                                    unexpected_guid_pkeys.push((guid.to_string(), *pkey));
                                 }
                             }
                         }
@@ -626,11 +692,27 @@ async fn record_machine_infiniband_status_observation(
         .entry(ports_with_partitions)
         .or_default() += 1;
 
-    if has_missing_pkeys {
+    if !missing_guid_pkeys.is_empty() {
         metrics.num_machines_with_missing_pkeys += 1;
+        let mut msg = "Machine is missing pkeys on UFM: ".to_string();
+        for (idx, (guid, pkey)) in missing_guid_pkeys.iter().enumerate() {
+            if idx != 0 {
+                msg.push(',');
+            }
+            write!(&mut msg, "(guid: {guid}, pkey: {pkey})").unwrap();
+        }
+        tracing::warn!(machine_id = %machine_id, msg);
     }
-    if has_unexpected_pkeys {
+    if !unexpected_guid_pkeys.is_empty() {
         metrics.num_machines_with_unexpected_pkeys += 1;
+        let mut msg = "Machine has unexpected registered pkeys on UFM: ".to_string();
+        for (idx, (guid, pkey)) in unexpected_guid_pkeys.iter().enumerate() {
+            if idx != 0 {
+                msg.push(',');
+            }
+            write!(&mut msg, "(guid: {guid}, pkey: {pkey})").unwrap();
+        }
+        tracing::warn!(machine_id = %machine_id, msg);
     }
 
     let cur = MachineInfinibandStatusObservation {
