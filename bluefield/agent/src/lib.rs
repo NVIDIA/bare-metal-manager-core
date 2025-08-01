@@ -49,6 +49,7 @@ mod health;
 mod instance_metadata_endpoint;
 pub mod instrumentation;
 mod interfaces;
+pub mod lldp;
 mod machine_inventory_updater;
 mod main_loop;
 mod managed_files;

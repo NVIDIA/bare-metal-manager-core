@@ -1,6 +1,8 @@
 // Code for configuring the host platform that the agent is running on.
 
 use std::fs::File;
+use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use eyre::{WrapErr, eyre};
@@ -28,7 +30,7 @@ pub fn ensure_doca_hbn_pod() -> eyre::Result<()> {
 }
 
 /// A representation of a file at `path` that we manage at runtime.
-struct ManagedFile {
+pub struct ManagedFile {
     path: PathBuf,
 }
 
@@ -61,6 +63,33 @@ impl ManagedFile {
             Ok(())
         }
     }
+
+    pub fn ensure_contents(&mut self, contents: &[u8]) -> eyre::Result<bool> {
+        let destination_exists = self.path.try_exists().wrap_err_with(|| {
+            format!(
+                "Couldn't check existence of destination file {f}",
+                f = self.path.display()
+            )
+        })?;
+
+        let update_needed = match destination_exists {
+            false => true,
+            true => {
+                let current_contents = std::fs::read(self.path.as_path()).wrap_err_with(|| {
+                    format!(
+                        "Couldn't read current file contents of {f}",
+                        f = self.path.display()
+                    )
+                })?;
+                current_contents.as_slice() != contents
+            }
+        };
+
+        match update_needed {
+            true => safe_write(self.path.as_path(), contents).map(|_| true),
+            false => Ok(false),
+        }
+    }
 }
 
 /// Copies a file from one destination to another using reasonably safe
@@ -88,6 +117,48 @@ fn safe_copy(destination_path: &Path, source_path: &Path) -> eyre::Result<()> {
             "Couldn't copy file contents from {s} to {d}",
             s = source_path.display(),
             d = tmp_destination.path().display()
+        )
+    })?;
+    let destination_file = tmp_destination.persist(destination_path).with_context(|| {
+        format!(
+            "Couldn't persist contents to destination file {d}",
+            d = destination_path.display()
+        )
+    })?;
+    destination_file.sync_all().with_context(|| {
+        format!(
+            "Couldn't sync file data of destination file {d}",
+            d = destination_path.display()
+        )
+    })?;
+
+    Ok(())
+}
+
+/// Writes the contents of a file using reasonably safe semantics. A new
+/// temporary file is written in the same directory, after which it's renamed
+/// into place and fsync()-ed.
+fn safe_write(destination_path: &Path, contents: &[u8]) -> eyre::Result<()> {
+    let destination_dirname = destination_path.parent().ok_or_else(|| {
+        eyre!(
+            "Couldn't determine directory name of destination file {d}",
+            d = destination_path.display()
+        )
+    })?;
+    let mut tmp_destination = tempfile::Builder::new()
+        .permissions(std::fs::Permissions::from_mode(0o644))
+        .suffix(".tmp")
+        .tempfile_in(destination_dirname)
+        .with_context(|| {
+            format!(
+                "Couldn't create temporary file in destination directory {d}",
+                d = destination_dirname.display()
+            )
+        })?;
+    tmp_destination.write_all(contents).with_context(|| {
+        format!(
+            "Couldn't write file contents to {d}",
+            d = destination_path.display()
         )
     })?;
     let destination_file = tmp_destination.persist(destination_path).with_context(|| {
