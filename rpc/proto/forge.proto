@@ -507,6 +507,7 @@ service Forge {
   rpc DeleteSku(SkuIdList) returns (google.protobuf.Empty);
   rpc GetAllSkuIds(google.protobuf.Empty) returns (SkuIdList);
   rpc FindSkusByIds(SkusByIdsRequest) returns (SkuList);
+  rpc UpdateSkuMetadata(SkuUpdateMetadataRequest) returns (google.protobuf.Empty);
 
   // get/set/clear quarantine state on machines
   rpc GetManagedHostQuarantineState(GetManagedHostQuarantineStateRequest) returns (GetManagedHostQuarantineStateResponse);
@@ -2014,6 +2015,8 @@ message Machine {
   optional SkuStatus hw_sku_status = 39;
 
   optional ManagedHostQuarantineState quarantine_state = 40;
+
+  optional string hw_sku_device_type = 41;
 }
 
 message InstanceNetworkRestrictions {
@@ -4673,6 +4676,7 @@ message Sku {
   reserved 5;
   uint32 schema_version = 6;
   repeated common.MachineId associated_machine_ids = 7;
+  optional string device_type = 8;
 }
 
 message SkuMachinePair {
@@ -4698,6 +4702,12 @@ message SkusByIdsRequest {
 }
 
 message SkuSearchFilter {
+}
+
+message SkuUpdateMetadataRequest {
+  string sku_id = 1;
+  optional string description = 2;
+  optional string device_type = 3;
 }
 
 message PowerOptionRequest {

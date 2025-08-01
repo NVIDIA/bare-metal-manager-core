@@ -13,6 +13,7 @@ use data_encoding::BASE32_DNSSEC;
 use std::net::IpAddr;
 
 use crate::model::hardware_info::HardwareInfo;
+use crate::tests::sku::tests::FULL_SKU_DATA;
 use crate::{
     db,
     db::{ObjectFilter, machine::MachineSearchConfig},
@@ -99,6 +100,45 @@ async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
             .unwrap()
             .is_none()
     );
+}
+
+#[crate::sqlx_test]
+async fn test_find_machine_without_sku(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let host_machine_id = create_managed_host(&env).await.0;
+    let mut txn = env.pool.begin().await.unwrap();
+
+    let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(machine.hw_sku, None);
+}
+
+#[crate::sqlx_test]
+async fn test_find_machine_with_sku(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let host_machine_id = create_managed_host(&env).await.0;
+    let sku = serde_json::de::from_str::<rpc::forge::Sku>(FULL_SKU_DATA)
+        .unwrap()
+        .into();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    db::sku::create(&mut txn, &sku).await.unwrap();
+    db::machine::assign_sku(&mut txn, &host_machine_id, "sku id")
+        .await
+        .unwrap();
+
+    txn.commit().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
+
+    let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(machine.hw_sku, Some("sku id".to_string()));
 }
 
 #[crate::sqlx_test]

@@ -635,6 +635,9 @@ pub struct Machine {
 
     /// Host's power options.
     pub power_options: Option<PowerOptions>,
+
+    /// The hardware SKU's device type
+    pub hw_sku_device_type: Option<String>,
 }
 
 impl Machine {
@@ -981,6 +984,7 @@ impl From<Machine> for rpc::forge::Machine {
                 .quarantine_state
                 .take()
                 .map(Into::into),
+            hw_sku_device_type: machine.hw_sku_device_type,
         }
     }
 }

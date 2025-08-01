@@ -198,6 +198,14 @@ fn show_sku_details(
                     .map(|v| v.to_string())
                     .unwrap_or_default()
             )?;
+            writeln!(
+                output,
+                "Device Type:     {}",
+                sku.device_type
+                    .as_ref()
+                    .map(|v| v.to_string())
+                    .unwrap_or_default()
+            )?;
 
             let model = sku
                 .components
@@ -390,6 +398,9 @@ pub async fn handle_sku_command(
             let machine_id = ::rpc::common::MachineId { id: machine_id };
 
             api_client.0.verify_sku_for_machine(machine_id).await?;
+        }
+        Sku::UpdateMetadata(update_request) => {
+            api_client.0.update_sku_metadata(update_request).await?;
         }
     }
     Ok(())

@@ -137,6 +137,48 @@ pub async fn find(txn: &mut PgConnection, sku_ids: &[String]) -> Result<Vec<Sku>
     Ok(skus)
 }
 
+pub async fn update_metadata(
+    txn: &mut PgConnection,
+    sku_id: String,
+    description: Option<String>,
+    device_type: Option<String>,
+) -> Result<(), DatabaseError> {
+    if description.is_none() && device_type.is_none() {
+        return Err(DatabaseError::new(
+            file!(),
+            line!(),
+            "Update SKU Metadata",
+            sqlx::Error::InvalidArgument("desciption and/or device_type required".to_string()),
+        ));
+    }
+
+    let mut builder = sqlx::QueryBuilder::new("UPDATE machine_skus SET ".to_string());
+    if let Some(description) = description {
+        builder.push(" description = ");
+        builder.push_bind(description);
+        if device_type.is_some() {
+            builder.push(",");
+        }
+    }
+
+    if let Some(device_type) = device_type {
+        builder.push(" device_type = ");
+        builder.push_bind(device_type);
+    }
+
+    builder.push(" WHERE id = ");
+    builder.push_bind(sku_id);
+    builder.push(" RETURNING id");
+
+    let _: (String,) = builder
+        .build_query_as()
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), builder.sql(), err))?;
+
+    Ok(())
+}
+
 pub async fn generate_sku_from_machine(
     txn: &mut PgConnection,
     machine_id: &MachineId,
@@ -316,6 +358,7 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
             infiniband_devices: ib_components,
             storage: storage.into_values().collect(),
         },
+        device_type: None,
     })
 }
 
@@ -470,5 +513,6 @@ pub async fn generate_sku_from_machine_at_version_2(
             infiniband_devices,
             storage: storage.into_values().collect(),
         },
+        device_type: None,
     })
 }

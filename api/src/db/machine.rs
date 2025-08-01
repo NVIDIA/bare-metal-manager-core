@@ -179,6 +179,7 @@ pub struct MachineSnapshotPgJson {
     sku_validation_health_report: Option<HealthReport>,
     #[serde(default)] // Power options are valid only for host, not for DPUs.
     power_options: Option<PowerOptions>,
+    hw_sku_device_type: Option<String>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -296,6 +297,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             hw_sku_status: value.hw_sku_status,
             sku_validation_health_report: value.sku_validation_health_report,
             power_options: value.power_options,
+            hw_sku_device_type: value.hw_sku_device_type,
         })
     }
 }
