@@ -5,7 +5,7 @@
 ## Base Forge Deployment
 The local development environment is based on the production kubernetes deployment.  For local development start by following [The forge deployment dev guide](https://gitlab-master.nvidia.com/nvmetal/forge-deployment/-/tree/master/dev) but *STOP* before `make forgedeploy`.  This is done in the forge-deployment repo
 
-Alternatively, once the prerequisits are installed, the process can be done using the `dev/kube-init-dev.sh` script in the `forge-deployment` repo
+Alternatively, once the prerequisites are installed, the process can be done using the `dev/kube-init-dev.sh` script in the `forge-deployment` repo
 
 At this point the kubernetes pods should look something like:
 ```
@@ -66,7 +66,7 @@ minikube cache reload
 ```
 
 ### Start Long Running Tasks
-There are two tasks that run continuously while testing or iterating on chagnes.  The first one sets up a watch on different components in the `carbide` repo and notifies the second of changes.  The second one rebuilds and redeploys the changes to kubernetes<br>
+There are two tasks that run continuously while testing or iterating on changes.  The first one sets up a watch on different components in the `carbide` repo and notifies the second of changes.  The second one rebuilds and redeploys the changes to kubernetes<br>
 Skaffold and just will stay running and pickup changes to code, containers or helm charts and rebuild and redeploy pods as necessary.  You may not want to leave them running while making multiple or large changes.
 
 #### Setup watches
@@ -97,7 +97,7 @@ info: syncing channel updates for '1.68.0-x86_64-unknown-linux-gnu'
 Note that `just watch` starts multiple builds in parallel and you need to wait until its finished building before continuing (and when when you think its finished, wait another minute.)
 
 #### Run Skaffold
-Start Skaffold to respond to repo changes and re-deply carbide componenets. This is a continuous process and needs its own shell.
+Start Skaffold to respond to repo changes and re-deply carbide components. This is a continuous process and needs its own shell.
 ```
 $ skaffold dev
 Generating tags...

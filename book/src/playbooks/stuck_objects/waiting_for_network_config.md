@@ -55,10 +55,10 @@ Host:
   Memory                : Unknown
   Admin IP              : 10.217.18.95
   Admin MAC             : B8:3F:D2:B7:70:64
-  Health                
-    Probe Alerts        : HeartbeatTimeout [Target: forge-dpu-agent]: 
-    Overrides           
-  BMC                   
+  Health
+    Probe Alerts        : HeartbeatTimeout [Target: forge-dpu-agent]:
+    Overrides
+  BMC
     Version             : Unknown
     Firmware Version    : Unknown
     IP                  : Unknown
@@ -77,12 +77,12 @@ DPU0:
   BIOS Version          : BlueField:3.9.3-7-g8f2d8ca
   Admin IP              : 10.217.134.233
   Admin MAC             : B8:3F:D2:B7:70:72
-  BMC                   
+  BMC
     Version             : 1
     Firmware Version    : 2.08
     IP                  : 10.217.134.234
     MAC                 : B8:3F:D2:B7:70:66
-  Health                
+  Health
     Probe Alerts        : HeartbeatTimeout [Target: forge-dpu-agent]: No health data was received from DPU
 ```
 

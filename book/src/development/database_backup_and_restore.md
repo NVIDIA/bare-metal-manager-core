@@ -1,6 +1,6 @@
 # Managing Forge Database Backups
 
-*Postgres* backups for *Forge* are managed by the [postgres-operator](https://github.com/zalando/postgres-operator) component, which is used to manage all aspects of the `forge-pg-cluster` database cluster. Behind the scenes, [wal-g](https://github.com/wal-g/wal-g) is used to manage the backup & restore operations, which is what this document focuses on (*note: it could also use [wal-e](https://github.com/wal-e/wal-e), but `wal-e` is deprecated in favor of `wal-g`, so we explicily enable `wal-g`*).
+*Postgres* backups for *Forge* are managed by the [postgres-operator](https://github.com/zalando/postgres-operator) component, which is used to manage all aspects of the `forge-pg-cluster` database cluster. Behind the scenes, [wal-g](https://github.com/wal-g/wal-g) is used to manage the backup & restore operations, which is what this document focuses on (*note: it could also use [wal-e](https://github.com/wal-e/wal-e), but `wal-e` is deprecated in favor of `wal-g`, so we explicitly enable `wal-g`*).
 
 Out of the box, `wal-g` has support for storing to S3, and since *nvidia* has its own internal blob storage with an S3 interface (thanks to [SwiftStack](https://techcrunch.com/2020/03/05/nvidia-acquires-data-storage-and-management-platform-swiftstack/)), we use that, and manage our account(s) + quota via the [nvidia Core Storage Portal](https://cssportal.sre.nsv.nvidia.com:4443/). You should already have access to look at our accounts, view credentials, etc.
 
@@ -130,7 +130,7 @@ Here are some reference MRs:
 
 ### Ensure The Bucket Exists
 
-**As of now, we just have a `forge-pg-cluster` bucket that we dump all site backups to, so you should't need to do this, unless you're switching to a new cluster that doesn't have the bucket yet.**
+**As of now, we just have a `forge-pg-cluster` bucket that we dump all site backups to, so you shouldn't need to do this, unless you're switching to a new cluster that doesn't have the bucket yet.**
 
 To verify the bucket exists, just get the `walS3Bucket` value you want to use (which is probably just `forge-pg-cluster`), and then check it:
 
@@ -235,7 +235,7 @@ Once you disable, just run a sync in *ArgoCD*, at which point `postgres-operator
 
 At this point, you can choose to leave the backup data in PBSS, **or**, you can clean up after yourself:
 
-Make sure you know what you're about to delete: 
+Make sure you know what you're about to delete:
 ```
 s5cmd ls s3://forge-pg-cluster/spilo/<sitePrefix>-forge-pg-cluster*
 ```
@@ -250,7 +250,7 @@ s5cmd rm s3://forge-pg-cluster/spilo/<sitePrefix>-forge-pg-cluster*
 ### PBSS is failing during pod startup due to connectivity or access.
 
 When backups are enabled, the `backup-list` operation happens as part of a pod starting up (even if it doesn't need to restore from backup). If for some reason the endpoint (i.e. PBSS) is unavailable, or credentials are invalid (e.g. they changed), the `backup-list` operation will fail, and will keep trying indefinitely, effectively stopping the pod from starting up and joining the cluster.
- 
+
 This ends up manifesting as `postgres-operator` seeing something is wrong with the pod, and will then refuse to make any subsequent config changes to the cluster until the node is healthy.
 
 This means, even if you push out an MR to fix credentials, or fix the endpoint, or even disable backups, `postgres-operator` will refuse to make changes, because the cluster is in an unhealthy/unsynced state. Unfortunately, this also means you now need to manually modify each pod manually to get you to your desired state, by:
@@ -258,7 +258,7 @@ This means, even if you push out an MR to fix credentials, or fix the endpoint, 
 2. Fixing each environment variable to your desired value.
 3. Calling `patronictl reinit forge-pg-cluster`, and selecting the node you're on + fixing.
 
-By calling `reinit`, it will kick off the initialization commands again, and load in the modified environment variables. Do **NOT** restart the pod -- if you do, it will revert back to the old enviroment variables, and then you'll just have to set them again.
+By calling `reinit`, it will kick off the initialization commands again, and load in the modified environment variables. Do **NOT** restart the pod -- if you do, it will revert back to the old environment variables, and then you'll just have to set them again.
 
 ### PBSS is failing, but all pods are already RUNNING.
 

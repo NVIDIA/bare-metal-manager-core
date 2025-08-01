@@ -33,7 +33,7 @@ If you use minikube locally, it is not included in the config provided in vault,
 	2. add `proxy-url: socks5://localhost:8888`  (same level as `server`)
 	3. change name from kubernetes (which may conflict with other configs)
 	4. change `cluster` in `- context` to match the cluster name (from previous step)
-	5. change the user to something unique:  
+	5. change the user to something unique:
 		1. rename `kubernetes-admin` to `dev3-admin`
 		2. make sure you rename all the references as well.
 	3. you may wish to update the name of the context as well
@@ -51,10 +51,10 @@ If you use minikube locally, it is not included in the config provided in vault,
 ```
 $kubectl config get-contexts
 CURRENT   NAME       CLUSTER            AUTHINFO      NAMESPACE
-          demo1      demo1              demo1-admin   
-*         dev3       dev3               dev3-admin    
-          microk8s   microk8s-cluster   admin      
-             
+          demo1      demo1              demo1-admin
+*         dev3       dev3               dev3-admin
+          microk8s   microk8s-cluster   admin
+
 $kubectl config use-context demo1
 Switched to context "demo1".
 

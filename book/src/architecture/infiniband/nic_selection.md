@@ -131,7 +131,7 @@ network device. E.g. a dual port ConnectX-6 NIC gets reported as:
 ```
 
 There however seem to be aspects that we can improve on:
-1. The device and vendor names are passed as identfiers. If Tenants would want to
+1. The device and vendor names are passed as identifiers. If Tenants would want to
   use the same information to configure infiniband on an instance, the API calls
   to do that would contain the same non-descriptive data: Configure the first
   Infiniband interface of type `vendor: 0x15b3` and `device: 0x101b`. If we would
@@ -205,7 +205,7 @@ Forge Cloud backend to cover infiniband:
 - For multi-fabric support, each entry would also be annotated with the `fabric`
   that the port is connected to.
 - Virtual Functions (VF)s are not presented in this list of hardware capabilities,
-  since their existance can be controlled by configuring the asssociated
+  since their existence can be controlled by configuring the associated
   Physical Function (PF).
 - Hardware details like PCI slots and hardware GUIDs are not shown in this
   model. Since they could be different from Machine to Machine, they they can not
@@ -331,7 +331,7 @@ The API described above fully omits the device vendor as a selection criteria.
 This would make selection ambiguous in case a Machine would feature devices with the
 same name but produced by different vendors.
 Given all known devices that Forge will support initially are produced by Mellanox/NVIDIA,
-this is however not an issue in the forseeable future.
+this is however not an issue in the foreseeable future.
 In case such a setup ever needs to be supported, an optional `device_vendor` field
 could be added for each entry of `InstanceInfinibandConfig` to disambiguate the
 target device in case of conflicts:
@@ -497,7 +497,7 @@ FMDS, in a format that is still TBD:
                 "device": "MT28908 Family [ConnectX-6]",
                 "fabric": "IbFabric1",
                 "device_instance": 0,
-                
+
                 // Select the PF or a specific VF
                 "function_type": "VirtualFunction",
                 "virtual_function_id": 0,
@@ -529,7 +529,7 @@ the fabric is one part of the mapping in a multi-fabric context, the mapping wou
 no longer be unambiguous. An alternative to this is to extend
 `status.infiniband.ib_interfaces` in a way that allows the software on the tenant
 host to easier lookup the necessary device. E.g. we would return the hardware
-guid of the associated physical function in every interface. Along: 
+guid of the associated physical function in every interface. Along:
 
 ```json
 {
@@ -625,7 +625,7 @@ no additional changes are required here.
 
 However the machine capability model needs to be extended to include the `slot`
 information, since it is used by the Forge Web UI to explain the tenant what devices
-can be configured. E.g. the reported machine capabability data could be:
+can be configured. E.g. the reported machine capability data could be:
 
 ```json
 [

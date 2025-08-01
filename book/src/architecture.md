@@ -3,7 +3,7 @@
 This page discusses the high level architecture of a Forge managed site.
 
 Each site managed by the [Forge Cloud](https://gitlab-master.nvidia.com/nvmetal/cloud-api) must have an established
-control plane through which command and control traffic can flow in order to deploy and opperate tenant resources. The
+control plane through which command and control traffic can flow in order to deploy and operate tenant resources. The
 control plane is deployed via [Fleet Command](https://docs.nvidia.com/fleet-command/user-guide/0.1.0/overview.html)
 and consists of a three node Kubernetes cluster on which we run all the required services.
 
@@ -45,8 +45,8 @@ The Carbide API server includes a number of services:
   console logging and access over ssh. The virtual serial console allows viewing the console of remote
   machines deployed in customer sites. The ssh-console also logs the output of each hosts serial console into
   the logging system (Loki), from where it can be queried using Grafana and logcli.
-- [DNS](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/dns): Domain name service (DNS) fuctionality
-  is handled by two services. The `carbide-dns` service handels DNS queries from the site controller and managed nodes
+- [DNS](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/dns): Domain name service (DNS) functionality
+  is handled by two services. The `carbide-dns` service handles DNS queries from the site controller and managed nodes
   and is authoritative for all `<name>.<site>.frg.nvidia.com` records while the
   `unbound` service hands out authoritative DNS records to the outside world.
 - Route Server: The route server (K8s service `frrouting`) is responsible for configuring networking, especially
@@ -75,10 +75,10 @@ pods. There are three different K8s statefulsets that run in the controller node
   store logs for the site controller components.
 - [Hashicorp Vault](https://www.vaultproject.io/) - Used by Kubernetes for certificate signing requests (CSRs). Vault
   uses three each (one per K8s control node) of the `data-vault` and `audit-vault` 10GB PVs to protect and distribute
-  the data in the absense of a shared storage solution.
+  the data in the absence of a shared storage solution.
 - [Postgres](https://www.postgresql.org/) - Used to store state for any Carbide or site controller components that
   require it including the main "forgedb". There are three 10GB `pgdata` PVs deployed to protect and distribute
-  the data in the absense of a shared storage solution. The `forgedb` database is stored here.
+  the data in the absence of a shared storage solution. The `forgedb` database is stored here.
 
 ## Managed Hosts
 

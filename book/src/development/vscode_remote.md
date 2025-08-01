@@ -20,7 +20,7 @@ development feeling.
         User your_id
         Port 22
         ProxyJump renojump
-        
+
     # Jumphost info
     Host renojump 155.130.12.194
     User your_id
@@ -44,7 +44,7 @@ development feeling.
         ```
     - For MacBook:
       - Port forwarding may fail initially.
-      - To resolve this issue, remove the `~/.ssh/known_hosts` file. 
+      - To resolve this issue, remove the `~/.ssh/known_hosts` file.
     *Source*: [Stack Overflow](https://stackoverflow.com/questions/75837749/vscode-failed-to-set-up-socket-for-dynamic-port-forward-to-remote-port-connect)
       - **Note**: Be sure to back up the file before deleting it.
 

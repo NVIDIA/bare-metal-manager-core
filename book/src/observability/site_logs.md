@@ -6,7 +6,7 @@ Logs are produced by various services running on each Forge site.
 Usually those services write logs to stdout and stderr, from where kubernetes
 will collect them into a set of pod/container log files.
 
-These logs are read by an [OpenTelemetry collector instance](https://gitlab-master.nvidia.com/nvmetal/forged/-/blob/main/bases/opentelemtry-collector/kustomization.yaml) inside the
+These logs are read by an [OpenTelemetry collector instance](https://gitlab-master.nvidia.com/nvmetal/forged/-/blob/main/bases/opentelemetry-collector/kustomization.yaml) inside the
 site, which is deployed into the `otel` namespace.
 
 The collector forwards the logs into a site-local [Grafana Loki](https://grafana.com/oss/loki/) installation. The Loki installation runs on a single side controller node as a stateful service. Therefore log retention is subject to this control plane node staying healthy.
@@ -15,7 +15,7 @@ Besides this additional logs are ingested via the OpenTelemetry collector system
 - 🚧: The Hardware Health service forwards BMC log events via OTLP protocol.
 - 🚧: DPUs forward certain logs - e.g. from forge-dpu-agent to the collector on the control plane node.
 
-The Forge [ssh-console](https://gitlab-master.nvidia.com/nvmetal/ssh-console) service also fowards the serial console logs of each Machine via a second instance of the OpenTelemetry collector (running inside the console POD) directly to Loki.
+The Forge [ssh-console](https://gitlab-master.nvidia.com/nvmetal/ssh-console) service also forwards the serial console logs of each Machine via a second instance of the OpenTelemetry collector (running inside the console POD) directly to Loki.
 
 Logs can be queried via the following path:
 - Site local Loki can be accessed via the [logcli](https://grafana.com/docs/loki/latest/query/logcli/) tool.
@@ -31,6 +31,7 @@ The URL for this is is `https://grafana-siteid.frg.nvidia.com`, e.g. [https://gr
 All Forge sites also forward their logs to [Kratos](https://confluence.nvidia.com/display/PLATFORM/Kratos+Data+Science+Platform+aaS) from where they will be forwarded to PSOC in order to fulfill certain security requirements.
 
 ```mermaid
+%%{init: {'themeVariables': { 'fontSize': '20px' }}}%%
 flowchart LR
     subgraph NVIDIA Cloud
         Kratos --> Heimdall
@@ -38,18 +39,18 @@ flowchart LR
     end
 
     subgraph Forge SiteController K8S Cluster
-        K["K8S Logs (/var/log/pods)\ncarbide-api\nsite-agent\nssh-console\npostgres\n..."] --> OTELC["OpenTelemetry Collector"]
+        K["K8S Logs (/var/log/pods)<br>carbide-api<br>site-agent<br>ssh-console<br>postgres<br>..."] --> OTELC["OpenTelemetry Collector"]
         OTELC --> Loki["Grafana Loki"]
         SSHC["Forge SSH console"] -- Machine serial console logs --> SSHLF["Serial Console Log Files per Machine"]
         SSHLF --> SSHCOTELC["SSH console OpenTelemetry Collector"]
         SSHCOTELC --> Loki
         HHH["Forge Hardware Health"] -- Machine event log via OTLP --> OTELC
 
-        Loki -. Short term retention\nEasy setup\nLimited durability .-> LokiLs[(Loki Local Storage)]
+        Loki -. Short term retention<br>Easy setup<br>Limited durability .-> LokiLs[(Loki Local Storage)]
 
-        MetalLb --> SiteEnvoy["Envoy/Counter\n(L7 HTTP Proxy)"]
-        SiteEnvoy -. "https://grafana-siteid.frg.nvidia.com" .-> SiteGrafana[Grafana\nLog/Metric Query UI\nOICD auth]
-        SiteEnvoy -. "https://loki-siteid.frg.nvidia.com" .-> Loki
+        MetalLb --> SiteEnvoy["Envoy/Counter<br>(L7 HTTP Proxy)"]
+        SiteEnvoy -. "grafana-siteid.frg.nvidia.com" .-> SiteGrafana[Grafana<br>Log/Metric Query UI<br>OICD auth]
+        SiteEnvoy -. "loki-siteid.frg.nvidia.com" .-> Loki
         SiteGrafana --> Loki
 
         K -..-> KBOTS["Kratos BOTS"]
@@ -59,12 +60,11 @@ flowchart LR
     subgraph DPU
         DPUAGENT["forge-dpu-agent"] -- via stdout --> dpu-systemd-journal
         dpu-systemd-journal --> DPUOTELC["OpenTelemetry Collector"]
-        DPUOTELC -- authenticated OTLP --> OTELC
-    end    
+        DPUOTELC -- Authenticated OTLP --> OTELC
+    end
 
-    LV{"🧑\nOperator querying logs via Grafana"} -- https://grafana-siteid.frg.nvidia.com  --> MetalLb
-
-    LV2{"🧑\nOperator querying logs via logcli"} -- https://loki-siteid.frg.nvidia.com  --> MetalLb
+    LV{"🧑<br>Operator querying logs via Grafana"} -- "grafana-siteid.frg.nvidia.com" --> MetalLb
+    LV2{"🧑<br>Operator querying logs via logcli"} -- "loki-siteid.frg.nvidia.com" --> MetalLb
 ```
 
 ## Log access
@@ -95,7 +95,7 @@ This section provides some query examples. Please reference the [Loki queries](h
     ```
 - Show all `FindInstances` requests which required more than 100ms to process:
     ```
-    {k8s_container_name="carbide-api"} |= "FindInstances" | logfmt | timing_elapsed_us > 100000 
+    {k8s_container_name="carbide-api"} |= "FindInstances" | logfmt | timing_elapsed_us > 100000
     ```
 - Show logs for the carbide-pxe service:
     ```

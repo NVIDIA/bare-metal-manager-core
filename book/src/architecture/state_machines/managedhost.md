@@ -35,14 +35,14 @@
   }
   DPU_WaitingForNetworkConfig --> HostInit: DPU acknowledged newest network configuration is fetched \nand applied and aggregate health status is good
   state HostInit {
-    [*] --> Host_EnableIpmiOverLan 
+    [*] --> Host_EnableIpmiOverLan
     Host_EnableIpmiOverLan --> Host_WaitingForPlatformConfiguration: Enable IPMI over LAN access
     Host_WaitingForPlatformConfiguration --> Host_SetBootOrder: Call forge setup/Restart Host
     state attestation_enabled <<choice>>
     Host_SetBootOrder --> attestation_enabled: set primary interface MAC as bootable interface\nRestart host
     attestation_enabled --> Host_Measuring: if attestation is enabled
     attestation_enabled --> Host_WaitingForDiscovery: if attestation is disabled
-    
+
     Host_Measuring --> Host_WaitingForDiscovery: Measurement status passed
     Host_WaitingForDiscovery --> Host_UefiSetup: Discovery is Successful.
     state Host_UefiSetup {
@@ -97,7 +97,7 @@
     A_Ready --> NetworkUpdate: On NetworkUpdate Request
 
     state NetworkUpdate {
-      [*] --> NW_WaitingForNetworkSegmentToBeReady: 
+      [*] --> NW_WaitingForNetworkSegmentToBeReady:
       NW_WaitingForNetworkSegmentToBeReady --> NW_WaitingForConfigSynced: Network segment created for vpc_prefixes are ready.
       NW_WaitingForConfigSynced --> NW_ReleaseOldResources: DPU Agent responded with network ready with latest config
     }
@@ -114,7 +114,7 @@
   state DPUReprovision {
     [*] --> Reprov_FirmwareUpgrade
     Reprov_FirmwareUpgrade --> Reprov_WaitingForNetworkInstall: DPU rebooted after firmware upgrade
-    Reprov_WaitingForNetworkInstall --> Reprov_BufferTime: DPU rebooted and discovery is succesful.
+    Reprov_WaitingForNetworkInstall --> Reprov_BufferTime: DPU rebooted and discovery is successful.
     Reprov_BufferTime --> Reprov_WaitingForNetworkConfig: Wait time over
   }
 

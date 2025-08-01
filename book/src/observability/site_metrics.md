@@ -15,19 +15,20 @@ The URL for this is is `https://grafana-siteid.frg.nvidia.com`, e.g. [https://gr
 All Forge sites also forward their metrics to [Thanos](https://confluence.nvidia.com/pages/viewpage.action?pageId=381166728)
 via the prometheus remote-write protocol. Thanos is an installation of the open source Thanos stack. It is managed as part of NVIDIAs Kratos observability effort.
 
-Metrics for all Forge sites can be viewed on [https://ngcobservability-grafana.thanos.nvidiangn.net/](https://ngcobservability-grafana.thanos.nvidiangn.net/).
+Metrics for all Forge sites can be viewed on [https://ngcobservability-grafana.thanos.nvidiangn.net](https://ngcobservability-grafana.thanos.nvidiangn.net).
 
 
 ```mermaid
+%%{init: {'themeVariables': { 'fontSize': '20px' }}}%%
 flowchart LR
     subgraph Forge SiteController K8S Cluster
         Prometheus[Site Local Prometheus] -- scrapes --> Carbide-API
         Prometheus -- scrapes --> Elektra-Site-Agent
         Prometheus -- scrapes --> K8S-Services
 
-        MetalLb --> SiteEnvoy["Envoy/Counter\n(L7 HTTP Proxy)"]
-        SiteEnvoy -."https://grafana-siteid.frg.nvidia.com" .-> SiteGrafana[Grafana\nLog/Metric Query UI\nOICD auth]
-        SiteEnvoy -. "https://prometheus-siteid.frg.nvidia.com" .-> Prometheus
+        MetalLb --> SiteEnvoy["Envoy/Counter<br>(L7 HTTP Proxy)"]
+        SiteEnvoy -. "grafana-siteid.frg.nvidia.com" .-> SiteGrafana[Grafana<br>Log/Metric Query UI<br>OICD auth]
+        SiteEnvoy -. "prometheus-siteid.frg.nvidia.com" .-> Prometheus
         SiteGrafana --> Prometheus
         OTELC["OpenTelemetry Collector"] --> Prometheus
     end
@@ -39,13 +40,13 @@ flowchart LR
     end
 
     subgraph Nvidia Cloud
-        Prometheus -- remote write --> Thanos[Thanos\nPrometheus aggregation service]
-        CloudGrafana[Grafana] --> Thanos 
+        Prometheus -- remote write --> Thanos[Thanos<br>Prometheus aggregation service]
+        CloudGrafana[Grafana] --> Thanos
     end
 
-    LV2{"🧑\nOperator checking prometheus state"} -- https://prometheus-siteid.frg.nvidia.com --> MetalLb
-    LV{"🧑\nOperator querying metrics"} -- https://grafana-siteid.frg.nvidia.com --> MetalLb
-    LV -- https://ngcobservability-grafana.thanos.nvidiangn.net --> CloudGrafana
+    LV2{"🧑<br>Operator checking prometheus state"} -- "prometheus-siteid.frg.nvidia.com" --> MetalLb
+    LV{"🧑<br>Operator querying metrics"} -- "grafana-siteid.frg.nvidia.com" --> MetalLb
+    LV -- "ngcobservability-grafana.thanos.nvidiangn.net" --> CloudGrafana
 ```
 
 ## Metric access

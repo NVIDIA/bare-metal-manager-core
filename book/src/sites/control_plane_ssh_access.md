@@ -148,7 +148,7 @@ ssh -J renojump 10.217.4.197
 ```
 
 This will get you to the `pdx-dev3` environment.
-After you are on the control plane node, you will need to switch to the `root user` 
+After you are on the control plane node, you will need to switch to the `root user`
 by executing
 ```
 sudo -i
@@ -223,7 +223,7 @@ To SSH to a Forge control plane instance using the FleetCommand web UI:
 ### SSHing to a Forge control plane node via the ngc CLI
 
 The ngc CLI can be used to SSH to a control plane node by using the
-`ngc remote console` commmand. E.g. the command
+`ngc remote console` command. E.g. the command
 
 ```
 ngc fleet-command remote console reno-int-lp:rno1-m04-d03-cpu-1  --org wdksahew1rqv

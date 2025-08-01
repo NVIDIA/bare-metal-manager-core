@@ -72,7 +72,7 @@ alt="Add redirect URL">
 
 The ArgoCD SSO Kubernetes `secret`` is required during the bootstrapping of a new environment
 
-1. In `envs/<env>/bootstrap/secerts` create new file `secret.enc.env`.
+1. In `envs/<env>/bootstrap/secrets` create new file `secret.enc.env`.
 2. Inside `secret.enc.env` include the following:
 
 ```ini

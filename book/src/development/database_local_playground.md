@@ -222,16 +222,16 @@ Just make sure you're in the profile you want to expose a tunnel for, and go!
 ```
 $ minikube profile local-forge-db
 $ minikube tunnel
-[sudo] password for chet:             
-Status:	
+[sudo] password for chet:
+Status:
 	machine: local-forge-db
 	pid: 875893
 	route: 10.96.0.0/12 -> 192.168.58.2
 	minikube: Running
 	services: []
-    errors: 
+    errors:
 		minikube: no errors
-		router: conflicting route: 10.96.0.0/12 via 192.168.49.2 dev br-8b7abf4549ab 
+		router: conflicting route: 10.96.0.0/12 via 192.168.49.2 dev br-8b7abf4549ab
 		loadbalancer emulator: no errors
 ```
 
@@ -245,13 +245,13 @@ forge-pg-cluster          LoadBalancer   10.104.96.77    10.104.96.77   5432:322
 ### Import the Forge Carbide schema
 
 Now that you have direct access to your leader VIP (thanks to `enableMasterLoadBalancer` and `minikube tunnel` above), you will now be able to run `psql` commands directly from your workstation, including using it to apply `carbide_schema.sql`.
-  
+
 ### 1. First, you'll need the `postgres` user password:
 ```
 $ kubectl exec -ti forge-pg-cluster-0 -n postgres -- cat postgres.yml | grep -A1 "superuser" | grep password:
       password: Rfyydsfadsasd2OGosIxr0qeqweqweasdlksudhalquewghqwleukpooosaodsdkjl
 ```
-  
+
 ### 2. Now try running psql
 
 ```
@@ -259,11 +259,11 @@ $ psql -h 10.104.96.77 -U postgres
 
 forge_system_carbide=# \l
                                                 List of databases
-         Name         |           Owner            | Encoding |   Collate   |    Ctype    |   Access privileges   
+         Name         |           Owner            | Encoding |   Collate   |    Ctype    |   Access privileges
 ----------------------+----------------------------+----------+-------------+-------------+-----------------------
- elektra              | elektra-site-agent.elektra | UTF8     | en_US.utf-8 | en_US.utf-8 | 
- forge_system_carbide | forge-system.carbide       | UTF8     | en_US.utf-8 | en_US.utf-8 | 
- postgres             | postgres                   | UTF8     | en_US.utf-8 | en_US.utf-8 | 
+ elektra              | elektra-site-agent.elektra | UTF8     | en_US.utf-8 | en_US.utf-8 |
+ forge_system_carbide | forge-system.carbide       | UTF8     | en_US.utf-8 | en_US.utf-8 |
+ postgres             | postgres                   | UTF8     | en_US.utf-8 | en_US.utf-8 |
  template0            | postgres                   | UTF8     | en_US.utf-8 | en_US.utf-8 | =c/postgres          +
                       |                            |          |             |             | postgres=CTc/postgres
  template1            | postgres                   | UTF8     | en_US.utf-8 | en_US.utf-8 | =c/postgres          +
@@ -282,7 +282,7 @@ SSL connection (protocol: TLSv1.3, cipher: TLS_AES_256_GCM_SHA384, bits: 256, co
 You are now connected to database "forge_system_carbide" as user "postgres".
 forge_system_carbide=# \d
                  List of relations
- Schema |          Name           | Type |  Owner   
+ Schema |          Name           | Type |  Owner
 --------+-------------------------+------+----------
  public | pg_stat_kcache          | view | postgres
  public | pg_stat_kcache_detail   | view | postgres
@@ -304,7 +304,7 @@ And now verify!
 
 ```
 chet@groundhog:dev $ psql -h 10.104.96.77 -U postgres forge_system_carbide
-Password for user postgres: 
+Password for user postgres:
 psql (14.10 (Ubuntu 14.10-0ubuntu0.22.04.1), server 15.2 (Ubuntu 15.2-1.pgdg22.04+1))
 WARNING: psql major version 14, server major version 15.
          Some psql features might not work.
@@ -313,7 +313,7 @@ Type "help" for help.
 
 forge_system_carbide=# \d
                                 List of relations
- Schema |                 Name                 |   Type   |        Owner         
+ Schema |                 Name                 |   Type   |        Owner
 --------+--------------------------------------+----------+----------------------
  public | _sqlx_migrations                     | table    | forge-system.carbide
  public | bmc_machine                          | table    | forge-system.carbide

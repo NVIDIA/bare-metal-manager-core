@@ -28,7 +28,7 @@ The Forge [Site dashboard](https://ngcobservability-grafana.thanos.nvidiangn.net
 
 ### Forge PostgreSQL Patroni
 
-[Forge PostgresSQL Patroni](https://ngcobservability-grafana.thanos.nvidiangn.net/d/rLzu8z_Vk/forge-postgresql-patroni?orgId=1&refresh=1m) shows metrics extracted from Patroni - the Postgres high availability orchestration system that is installed on each Forge site.
+[Forge PostgreSQL Patroni](https://ngcobservability-grafana.thanos.nvidiangn.net/d/rLzu8z_Vk/forge-postgresql-patroni?orgId=1&refresh=1m) shows metrics extracted from Patroni - the Postgres high availability orchestration system that is installed on each Forge site.
 
 ### Forge PostgreSQL Database
 
@@ -76,7 +76,7 @@ This dashboard can be useful to understand the state of a Host (e.g. whether it 
 
 [Blackbox Probes](https://grafana-dev3.frg.nvidia.com/d/xtkCtBkiz/blackbox-probes?orgId=1&refresh=10s) shows information from the blackbox probe system. This system continuously performs requests against various services installed in Forge sites and measures/visualizes their availability.
 
-[Forge PostgresSQL Patroni](https://grafana-dev3.frg.nvidia.com/d/rLzu8z_Vk/patroni-dashboard?orgId=1&refresh=1m) shows metrics extracted from Patroni - the Postgres high availability orchestration system that is installed on each Forge site.
+[Forge PostgreSQL Patroni](https://grafana-dev3.frg.nvidia.com/d/rLzu8z_Vk/patroni-dashboard?orgId=1&refresh=1m) shows metrics extracted from Patroni - the Postgres high availability orchestration system that is installed on each Forge site.
 
 ### Forge PostgreSQL Database
 
@@ -93,14 +93,14 @@ Browse [Dashboards](https://grafana-dev3.frg.nvidia.com/dashboards) to view addi
 ## <a name="modifying_dashboards"></a>Modifying Dashboards
 
 The process to edit a dashboard depends on the dashboards. This section provides an overview on how to edit Thanos dashboards and site local dashboards.
-Since both sets of dashboards ideally should show the same data, edits to show additional data should be applied to both locations. 
+Since both sets of dashboards ideally should show the same data, edits to show additional data should be applied to both locations.
 
 ### Modifying Thanos Dashboards
 
 Dashboards on Thanos are modified directly on Thanos. To modify a dashboard on Thanos
 - press edit on the dashboard you want to modify
-- make the necesary changes
-- click "Apply" on the top righ of the dashboard
+- make the necessary changes
+- click "Apply" on the top right of the dashboard
 - Save the dashboard if you are satisfied with the changes
 
 When editing changes, please also follow the following best practices

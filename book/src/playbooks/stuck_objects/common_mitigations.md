@@ -58,7 +58,7 @@ it often seems appealing to just delete the object and retry.
 been created on the Forge Site and if the source of the creation problem is
 within the scope of the Forge Cloud Backend.**
 
-If the object was already created on the site and is stuck in a certain 
+If the object was already created on the site and is stuck in a certain
 provisioning state there, then the deletion attempt will not help getting
 the object unstuck. The lifecycle of any object is fully linear
 with no shortcuts. If the object isn't getting `Ready` it will also never
@@ -67,6 +67,6 @@ avoid any important object creation or deletion steps accidentally being skipped
 skipping states.
 
 **Due to this reason, it is usually not helpful to initiate deletion of
-objects stuck in Provisioning. Instead of this, the reason for an object 
-stuck in provisioning should be inspected and the underlying issue being 
+objects stuck in Provisioning. Instead of this, the reason for an object
+stuck in provisioning should be inspected and the underlying issue being
 resolved.**

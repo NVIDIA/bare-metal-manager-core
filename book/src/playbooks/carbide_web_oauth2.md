@@ -21,7 +21,7 @@ The oauth2 in carbide-web has defaults for most settings:
 |----|----|
 |CARBIDE_WEB_OAUTH2_CLIENT_SECRET|A secret used to talk to MS entra/graph.  This comes from the Azure step at the start of this playbook.  It's set in the forged repo at https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/bases/carbide/api/secrets?ref_type=heads.|
 |CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY|A secret used for encrypting the cookie values used for sessions.  Although there's no default, we set this to the site's postgres password in the [forged repo](https://gitlab-master.nvidia.com/nvmetal/forged/-/blob/main/bases/carbide/api/deployment.yaml).|
-|CARBIDE_WEB_HOSTNAME|A hostname specific for each site that's needed for redirects.  The value must match what's set in the Azure/Entra portal for the [redirect URIs of the carbide-web app](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Authentication/appId/5ae5fa35-be8e-44cc-be7b-01ff76af5315/isMSAApp~/false).  We're currrently setting this via a configmap set in each site's kustomization.yaml in the forged repo.|
+|CARBIDE_WEB_HOSTNAME|A hostname specific for each site that's needed for redirects.  The value must match what's set in the Azure/Entra portal for the [redirect URIs of the carbide-web app](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Authentication/appId/5ae5fa35-be8e-44cc-be7b-01ff76af5315/isMSAApp~/false).  We're currently setting this via a configmap set in each site's kustomization.yaml in the forged repo.|
 
 
 # Updating the Production Client Secret

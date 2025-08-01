@@ -17,8 +17,8 @@ This document describes how Forge controls DPUs in order to achieve this behavio
 The DPUs are configured by the Forge site controller (Carbide) via a **declarative** and **stateless** mechanism:
 - The Forge agent running on DPUs (`forge-dpu-agent`) request the current desired configuration via the `GetManagedHostNetworkConfig` gRPC API call. Example data of the returned configuration can be seen in the [Appendix](#dpu-configuration-example)
 - Every configuration that gets received from the Forge site controller gets converted into a [NVUE](https://docs.nvidia.com/networking-ethernet-software/cumulus-linux/System-Configuration/NVIDIA-User-Experience-NVUE/) configuration file. That configuration file is used to reconfigure HBN via the nvue CLI tool (`nv config apply`).
-- `forge-dpu-agent` also reconfigures a DHCP server running on the DPU, which responds to DCHP requests from the attached host.
-- After HBN and the DHCP server are reconfigured, `forge-dpu-agent` implements health-checks that supervise whether the desired configurations are in-place and check whether the DPU is healthy. E.g. Forge continously checks whether the DPU has established BGP peering with TORs and route servers according to the desired configuration.
+- `forge-dpu-agent` also reconfigures a DHCP server running on the DPU, which responds to DHCP requests from the attached host.
+- After HBN and the DHCP server are reconfigured, `forge-dpu-agent` implements health-checks that supervise whether the desired configurations are in-place and check whether the DPU is healthy. E.g. Forge continuously checks whether the DPU has established BGP peering with TORs and route servers according to the desired configuration.
 - `forge-dpu-agent` uses the `RecordDpuNetworkStatus` gRPC API call to report back to the Forge site control plane whether the desired configurations are applied, and whether all health checks are succeeding.
 - For the first 30s after any configuration change, the DPU will be reporting itself as unhealthy with a `PostConfigCheckWait` alert. This gives the DPU some time to monitor the stability and health of the new configuration before the site controller assumes that the new configuration is fully applied and operational.
 
@@ -88,7 +88,7 @@ sequenceDiagram
         Agent->>Carbide: GetManagedHostNetworkConfig()<br>Returns desired configs and versions
         Agent->>Nvue: Apply requested configuration
         Agent->>Dhcp: Reconfigure DHCP Server
-        Agent->>Carbide: RecordDpuNetworkStatus()<br>Report applied config versions<br>Report DPU health 
+        Agent->>Carbide: RecordDpuNetworkStatus()<br>Report applied config versions<br>Report DPU health
         Carbide->>Carbide: Observe that expected ManagedHost network config is applied<br>Transition Host to cleanup states
         Note right of Carbide: Additional Host cleanup
         Carbide ->> Tenant: Notify Tenant that instance deletion succeeded

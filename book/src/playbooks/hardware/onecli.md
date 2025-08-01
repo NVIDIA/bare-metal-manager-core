@@ -53,7 +53,7 @@ Then execute the following commands to set the values:
 # Set Platform System Type
 ./onecli config set SYSTEM_PROD_DATA.SysInfoProdName $SYSTEMTYPE --override --imm $USER:$HOSTBMCPW@$HOSTBMCIP
 
-# Set Platform identifier 
+# Set Platform identifier
 ./onecli config set SYSTEM_PROD_DATA.SysInfoProdIdentifier "$SYSTEMIDENTFIER" --override --imm $USER:$HOSTBMCPW@$HOSTBMCIP
 
 # TPM Policy (if needed)
