@@ -5064,6 +5064,15 @@ impl Forge for Api {
             .map_err(|e| e.into())
     }
 
+    async fn update_sku_metadata(
+        &self,
+        request: Request<rpc::SkuUpdateMetadataRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::sku::update_sku_metadata(self, request)
+            .await
+            .map_err(|e| e.into())
+    }
+
     async fn set_managed_host_quarantine_state(
         &self,
         request: tonic::Request<rpc::SetManagedHostQuarantineStateRequest>,

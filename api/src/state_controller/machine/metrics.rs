@@ -48,6 +48,7 @@ pub struct MachineMetrics {
     pub replace_override_enabled: bool,
     /// The SKU that is assigned to the host
     pub sku: Option<String>,
+    pub sku_device_type: Option<String>,
     /// Whether the Machine is usable as an instance for a tenant
     /// Doing so requires
     /// - the Machine to be in `Ready` state
@@ -89,7 +90,7 @@ pub struct MachineStateControllerIterationMetrics {
     /// The amount of configured overrides by type (merge vs replace) and assignment status
     pub num_overrides: HashMap<(&'static str, IsInUseByTenant), usize>,
     /// Mapping from SKU ID to the amount of hosts which have the SKU configured
-    pub hosts_by_sku: HashMap<String, usize>,
+    pub hosts_by_sku: HashMap<(String, String), usize>,
     pub hosts_with_bios_password_set: usize,
     pub last_machine_validation_list: HashMap<(String, String), i32>,
 }
@@ -421,10 +422,15 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 )
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
-                        for (sku, count) in metrics.hosts_by_sku.iter() {
+                        for ((sku, device_type), count) in metrics.hosts_by_sku.iter() {
                             observer.observe(
                                 *count as u64,
-                                &[attrs, &[KeyValue::new("sku", sku.clone())]].concat(),
+                                &[
+                                    attrs,
+                                    &[KeyValue::new("sku", sku.clone())],
+                                    &[KeyValue::new("device_type", device_type.clone())],
+                                ]
+                                .concat(),
                             );
                         }
                     })
@@ -664,10 +670,11 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 .or_default() += 1;
         }
 
-        if let Some(sku) = object_metrics.sku.as_ref() {
+        if let Some(sku) = object_metrics.sku.clone() {
+            let device_type = object_metrics.sku_device_type.clone().unwrap_or_default();
             *iteration_metrics
                 .hosts_by_sku
-                .entry(sku.to_string())
+                .entry((sku, device_type))
                 .or_default() += 1;
         }
 
@@ -762,6 +769,7 @@ mod tests {
                 is_host_bios_password_set: true,
                 last_machine_validation_list: HashMap::new(),
                 sku: None,
+                sku_device_type: None,
             },
             MachineMetrics {
                 num_gpus: 2,
@@ -814,6 +822,7 @@ mod tests {
                     1,
                 )]),
                 sku: Some("SkuA".to_string()),
+                sku_device_type: Some("DeviceTypeA".to_string()),
             },
             MachineMetrics {
                 num_gpus: 3,
@@ -842,6 +851,7 @@ mod tests {
                 is_host_bios_password_set: true,
                 last_machine_validation_list: HashMap::new(),
                 sku: Some("SkuA".to_string()),
+                sku_device_type: Some("DeviceTypeA".to_string()),
             },
             MachineMetrics {
                 num_gpus: 1,
@@ -880,6 +890,7 @@ mod tests {
                 is_host_bios_password_set: true,
                 last_machine_validation_list: HashMap::new(),
                 sku: Some("SkuB".to_string()),
+                sku_device_type: Some("DeviceTypeA".to_string()),
             },
             MachineMetrics {
                 num_gpus: 2,
@@ -942,6 +953,7 @@ mod tests {
                 is_host_bios_password_set: true,
                 last_machine_validation_list: HashMap::new(),
                 sku: Some("SkuC".to_string()),
+                sku_device_type: Some("DeviceTypeC".to_string()),
             },
             MachineMetrics {
                 num_gpus: 3,
@@ -991,6 +1003,7 @@ mod tests {
                 is_host_bios_password_set: false,
                 last_machine_validation_list: HashMap::new(),
                 sku: Some("SkuC".to_string()),
+                sku_device_type: Some("DeviceTypeC".to_string()),
             },
         ];
 
@@ -1184,9 +1197,9 @@ mod tests {
         assert_eq!(
             iteration_metrics.hosts_by_sku,
             HashMap::from_iter([
-                ("SkuA".to_string(), 2),
-                ("SkuB".to_string(), 1),
-                ("SkuC".to_string(), 2),
+                (("SkuA".to_string(), "DeviceTypeA".to_string()), 2),
+                (("SkuB".to_string(), "DeviceTypeA".to_string()), 1),
+                (("SkuC".to_string(), "DeviceTypeC".to_string()), 2),
             ])
         );
 

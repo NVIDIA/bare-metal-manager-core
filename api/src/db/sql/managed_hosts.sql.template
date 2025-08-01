@@ -22,11 +22,13 @@ SELECT m.* FROM (
     INNER JOIN LATERAL (
         SELECT
         m2.*,
+        sku.device_type as hw_sku_device_type,
         COALESCE(i.json, '[]') AS interfaces,
         COALESCE(t.json, '[]') AS topology,
         COALESCE(p.json, '[]') AS power_options
         __HISTORY_SELECT__
         FROM machines m2
+        LEFT JOIN machine_skus sku on m2.hw_sku = sku.id
 
         -- (1.1) Join in interfaces as JSON
         LEFT JOIN LATERAL (

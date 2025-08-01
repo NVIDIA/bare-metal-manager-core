@@ -35,10 +35,10 @@ fn convert_machine_to_nice_format(
     machine: forgerpc::Machine,
     history_count: u32,
 ) -> CarbideCliResult<String> {
-    let width = 14;
     let mut lines = String::new();
     let machine_id = machine.id.clone().unwrap_or_default().id;
     let sku = machine.hw_sku.unwrap_or_default();
+    let sku_device_type = machine.hw_sku_device_type.unwrap_or_default();
 
     let mut data = vec![
         ("ID", machine.id.clone().unwrap_or_default().id),
@@ -54,6 +54,7 @@ fn convert_machine_to_nice_format(
         ),
         ("VERSION", machine.version),
         ("SKU", sku),
+        ("SKU DEVICE TYPE", sku_device_type),
     ];
     if let Some(di) = machine.discovery_info.as_ref() {
         if let Some(dmi) = di.dmi_data.as_ref() {
@@ -72,6 +73,13 @@ fn convert_machine_to_nice_format(
         "Default".to_string()
     };
     data.push(("FIRMWARE AUTOUPDATE", autoupdate));
+
+    let width = data
+        .iter()
+        .map(|(key, _value)| key.len())
+        .max()
+        .unwrap_or(20)
+        + 1;
 
     for (key, value) in data {
         writeln!(&mut lines, "{:<width$}: {}", key, value)?;

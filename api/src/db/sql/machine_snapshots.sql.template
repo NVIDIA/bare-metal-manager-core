@@ -6,10 +6,12 @@
 
 SELECT
 m.*,
+sku.device_type as hw_sku_device_type,
 COALESCE(i.json, '[]') AS interfaces,
 COALESCE(t.json, '[]') AS topology
 __HISTORY_SELECT__
 FROM machines m
+LEFT JOIN machine_skus sku on  m.hw_sku = sku.id
 
 -- (1) Read related interfaces as JSON
 LEFT JOIN LATERAL (
@@ -60,3 +62,4 @@ LEFT JOIN LATERAL (
 
 -- (3) Read the history as JSON
 __HISTORY_JOIN__
+

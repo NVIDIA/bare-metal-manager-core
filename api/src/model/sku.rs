@@ -14,6 +14,7 @@ pub struct Sku {
     pub description: String,
     pub created: DateTime<Utc>,
     pub components: SkuComponents,
+    pub device_type: Option<String>,
 }
 
 impl<'r> FromRow<'r, PgRow> for Sku {
@@ -25,13 +26,14 @@ impl<'r> FromRow<'r, PgRow> for Sku {
         let components = row
             .try_get::<sqlx::types::Json<SkuComponents>, _>("components")?
             .0;
-
+        let device_type = row.try_get("device_type")?;
         Ok(Sku {
             schema_version,
             id,
             description,
             created,
             components,
+            device_type,
         })
     }
 }
@@ -46,6 +48,7 @@ impl From<Sku> for rpc::forge::Sku {
             components: Some(value.components.into()),
             // filled in afterwards
             associated_machine_ids: Vec::default(),
+            device_type: value.device_type,
         }
     }
 }
@@ -62,6 +65,7 @@ impl From<rpc::forge::Sku> for Sku {
             description: value.description.unwrap_or_default(),
             created,
             components: value.components.unwrap_or_default().into(),
+            device_type: value.device_type,
         }
     }
 }

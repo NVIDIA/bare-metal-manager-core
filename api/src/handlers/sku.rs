@@ -353,3 +353,40 @@ pub(crate) async fn find_skus_by_ids(
 
     Ok(Response::new(rpc::forge::SkuList { skus: rpc_skus }))
 }
+
+pub(crate) async fn update_sku_metadata(
+    api: &Api,
+    request: Request<::rpc::forge::SkuUpdateMetadataRequest>,
+) -> CarbideResult<Response<()>> {
+    log_request_data(&request);
+
+    let request = request.into_inner();
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin find_skus_by_ids",
+            e,
+        ))
+    })?;
+
+    crate::db::sku::update_metadata(
+        &mut txn,
+        request.sku_id,
+        request.description,
+        request.device_type,
+    )
+    .await?;
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "remove sku association",
+            e,
+        ))
+    })?;
+
+    Ok(Response::new(()))
+}

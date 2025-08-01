@@ -2917,6 +2917,8 @@ pub enum Sku {
     Unassign { machine_id: String },
     #[clap(about = "Verify a machine against its SKU", visible_alias = "v")]
     Verify { machine_id: String },
+    #[clap(about = "Update the metadata of a SKU")]
+    UpdateMetadata(UpdateSkuMetadata),
 }
 
 #[derive(Parser, Debug)]
@@ -3007,10 +3009,32 @@ pub struct GenerateSku {
     #[clap(help = "override the ID of the SKU", long)]
     pub id: Option<String>,
 }
+
 #[derive(Parser, Debug)]
 pub struct CreateSku {
     #[clap(help = "The filename of the SKU data")]
     pub filename: String,
     #[clap(help = "override the ID of the SKU", long)]
     pub id: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+#[clap(group(ArgGroup::new("group").required(true).multiple(true).args(&["description", "device_type"])))]
+pub struct UpdateSkuMetadata {
+    #[clap(help = "SKU ID of the SKU to update")]
+    pub sku_id: String,
+    #[clap(help = "Update the SKU's description", long, group("group"))]
+    pub description: Option<String>,
+    #[clap(help = "Update the SKU's device type", long, group("group"))]
+    pub device_type: Option<String>,
+}
+
+impl From<UpdateSkuMetadata> for ::rpc::forge::SkuUpdateMetadataRequest {
+    fn from(value: UpdateSkuMetadata) -> Self {
+        ::rpc::forge::SkuUpdateMetadataRequest {
+            sku_id: value.sku_id,
+            description: value.description,
+            device_type: value.device_type,
+        }
+    }
 }

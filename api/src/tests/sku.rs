@@ -24,7 +24,7 @@ pub mod tests {
         },
     };
 
-    const FULL_SKU_DATA: &str = r#"
+    pub const FULL_SKU_DATA: &str = r#"
     {
         "id": "sku id",
         "description": "PowerEdge R760; 2xCPU; 8xGPU; 256 GiB",
@@ -1056,4 +1056,113 @@ pub mod tests {
 
         Ok(())
     }
+
+    #[crate::sqlx_test(fixtures("create_sku"))]
+    pub fn test_sku_metadata_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+
+        crate::db::sku::update_metadata(
+            &mut txn,
+            "sku1".to_string(),
+            Some("new description".to_string()),
+            Some("fancy device".to_string()),
+        )
+        .await?;
+
+        let sku = crate::db::sku::find(&mut txn, &["sku1".to_string()])
+            .await?
+            .pop()
+            .unwrap();
+
+        assert_eq!(&sku.description, "new description");
+        assert_eq!(&sku.device_type.unwrap(), "fancy device");
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test(fixtures("create_sku"))]
+    pub fn test_sku_metadata_update_description(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+
+        crate::db::sku::update_metadata(
+            &mut txn,
+            "sku1".to_string(),
+            Some("new description".to_string()),
+            None,
+        )
+        .await?;
+
+        let sku = crate::db::sku::find(&mut txn, &["sku1".to_string()])
+            .await?
+            .pop()
+            .unwrap();
+
+        assert_eq!(&sku.description, "new description");
+        assert!(&sku.device_type.is_none());
+
+        crate::db::sku::update_metadata(
+            &mut txn,
+            "sku1".to_string(),
+            Some("old description".to_string()),
+            Some("old device".to_string()),
+        )
+        .await?;
+
+        crate::db::sku::update_metadata(
+            &mut txn,
+            "sku1".to_string(),
+            Some("really new description".to_string()),
+            None,
+        )
+        .await?;
+
+        let sku = crate::db::sku::find(&mut txn, &["sku1".to_string()])
+            .await?
+            .pop()
+            .unwrap();
+
+        assert_eq!(&sku.description, "really new description");
+        assert_eq!(&sku.device_type.unwrap(), "old device");
+
+        Ok(())
+    }
+}
+
+#[crate::sqlx_test(fixtures("create_sku"))]
+pub fn test_sku_metadata_update_device_type(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+
+    crate::db::sku::update_metadata(
+        &mut txn,
+        "sku1".to_string(),
+        None,
+        Some("new device type".to_string()),
+    )
+    .await?;
+
+    let sku = crate::db::sku::find(&mut txn, &["sku1".to_string()])
+        .await?
+        .pop()
+        .unwrap();
+
+    assert_eq!(&sku.description, "test description");
+    assert_eq!(&sku.device_type.unwrap(), "new device type");
+
+    Ok(())
+}
+
+#[crate::sqlx_test(fixtures("create_sku"))]
+pub fn test_sku_metadata_update_invalid(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+
+    let result = crate::db::sku::update_metadata(&mut txn, "sku1".to_string(), None, None).await;
+
+    assert!(result.is_err());
+    Ok(())
 }
