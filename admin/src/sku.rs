@@ -1,6 +1,10 @@
+use std::io::Write;
+use std::pin::Pin;
+
 use ::rpc::forge::SkuList;
 use prettytable::{Row, Table};
 use rpc::forge::SkuIdList;
+use tokio::io::AsyncWriteExt;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 use crate::cfg::cli_options::{CreateSku, GenerateSku, Sku};
@@ -135,14 +139,16 @@ fn storage_table(storage: Vec<::rpc::forge::SkuComponentStorage>) -> Table {
     table
 }
 
-fn show_skus_table(
-    output: &mut dyn std::io::Write,
+async fn show_skus_table(
+    output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     output_format: &OutputFormat,
     skus: Vec<::rpc::forge::Sku>,
 ) -> CarbideCliResult<()> {
     match output_format {
         OutputFormat::Json => {
-            output.write_all(serde_json::to_string_pretty(&skus)?.to_string().as_bytes())?;
+            output
+                .write_all(serde_json::to_string_pretty(&skus)?.to_string().as_bytes())
+                .await?;
         }
         OutputFormat::Csv => {
             let skus = SkusWrapper::from(
@@ -150,11 +156,12 @@ fn show_skus_table(
                     .map(std::convert::Into::into)
                     .collect::<Vec<SkuWrapper>>(),
             );
-
+            let mut buffer = Vec::default();
             let table: Table = skus.into();
             table
-                .to_csv(output)
+                .to_csv(&mut buffer)
                 .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+            output.write_all(buffer.as_slice()).await?;
         }
         OutputFormat::AsciiTable => {
             let skus = SkusWrapper::from(
@@ -164,7 +171,7 @@ fn show_skus_table(
             );
 
             let table: Table = skus.into();
-            table.print(output)?;
+            output.write_all(format!("{}", table).as_bytes()).await?;
         }
         OutputFormat::Yaml => todo!(),
     }
@@ -172,15 +179,17 @@ fn show_skus_table(
     Ok(())
 }
 
-fn show_sku_details(
-    output: &mut dyn std::io::Write,
+async fn show_sku_details(
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     output_format: &OutputFormat,
     extended: bool,
     sku: ::rpc::forge::Sku,
 ) -> CarbideCliResult<()> {
     match output_format {
         OutputFormat::Json => {
-            output.write_all(serde_json::to_string_pretty(&sku)?.to_string().as_bytes())?;
+            output_file
+                .write_all(serde_json::to_string_pretty(&sku)?.to_string().as_bytes())
+                .await?;
         }
         OutputFormat::Csv => {
             return Err(CarbideCliError::GenericError(
@@ -188,6 +197,7 @@ fn show_sku_details(
             ));
         }
         OutputFormat::AsciiTable => {
+            let mut output: Vec<u8> = Vec::default();
             writeln!(output, "ID:              {}", sku.id)?;
             writeln!(output, "Schema Version:  {}", sku.schema_version)?;
             writeln!(
@@ -232,9 +242,9 @@ fn show_sku_details(
             )?;
             if let Some(components) = sku.components {
                 writeln!(output, "CPUs:")?;
-                cpu_table(components.cpus).print(output)?;
+                cpu_table(components.cpus).print(&mut output)?;
                 writeln!(output, "GPUs:")?;
-                gpu_table(components.gpus).print(output)?;
+                gpu_table(components.gpus).print(&mut output)?;
                 if components.memory.is_empty() {
                     writeln!(output, "Memory:")?;
                 } else {
@@ -249,14 +259,14 @@ fn show_sku_details(
                         )
                     )?;
                 }
-                memory_table(components.memory).print(output)?;
+                memory_table(components.memory).print(&mut output)?;
 
                 writeln!(output, "IB Devices:")?;
-                ib_device_table(components.infiniband_devices).print(output)?;
+                ib_device_table(components.infiniband_devices).print(&mut output)?;
 
                 if sku.schema_version >= 1 {
                     writeln!(output, "Storage Devices:")?;
-                    storage_table(components.storage).print(output)?;
+                    storage_table(components.storage).print(&mut output)?;
                 }
             }
 
@@ -266,8 +276,9 @@ fn show_sku_details(
                 for machine_id in sku.associated_machine_ids {
                     table.add_row(Row::from(vec![machine_id.id]));
                 }
-                table.print(output)?;
+                table.print(&mut output)?;
             }
+            output_file.write_all(output.as_slice()).await?;
         }
         OutputFormat::Yaml => {
             return Err(CarbideCliError::GenericError(
@@ -279,8 +290,8 @@ fn show_sku_details(
     Ok(())
 }
 
-fn show_machine_table(
-    output: &mut dyn std::io::Write,
+async fn show_machine_table(
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     output_format: &OutputFormat,
     skus: Vec<::rpc::forge::Sku>,
 ) -> CarbideCliResult<()> {
@@ -290,6 +301,7 @@ fn show_machine_table(
         ));
     }
 
+    let mut output = Vec::default();
     let mut table = Table::new();
     table.set_titles(Row::from(vec!["SKU ID", "Assigned Machine IDs"]));
 
@@ -302,13 +314,14 @@ fn show_machine_table(
             .join("\n");
         table.add_row(Row::from(vec![sku.id, machines]));
     }
-    table.print(output)?;
+    table.print(&mut output)?;
+    output_file.write_all(output.as_slice()).await?;
     Ok(())
 }
 
 pub async fn handle_sku_command(
     api_client: &ApiClient,
-    output: &mut dyn std::io::Write,
+    output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     output_format: &OutputFormat,
     extended: bool,
     sku_command: Sku,
@@ -319,7 +332,7 @@ pub async fn handle_sku_command(
                 let skus = api_client.0.find_skus_by_ids(vec![sku_id]).await?;
 
                 if let Some(sku) = skus.skus.into_iter().next() {
-                    show_sku_details(output, output_format, extended, sku)?;
+                    show_sku_details(output, output_format, extended, sku).await?;
                 }
             } else {
                 let all_ids = api_client.0.get_all_sku_ids().await?;
@@ -329,14 +342,14 @@ pub async fn handle_sku_command(
                     SkuList::default()
                 };
 
-                show_skus_table(output, output_format, sku_list.skus)?;
+                show_skus_table(output, output_format, sku_list.skus).await?;
             };
         }
         Sku::ShowMachines(show_sku) => {
             if let Some(sku_id) = show_sku.sku_id {
                 let skus = api_client.0.find_skus_by_ids(vec![sku_id]).await?;
 
-                show_machine_table(output, output_format, skus.skus)?;
+                show_machine_table(output, output_format, skus.skus).await?;
             } else {
                 let all_ids = api_client.0.get_all_sku_ids().await?;
                 let sku_list = if !all_ids.ids.is_empty() {
@@ -345,7 +358,7 @@ pub async fn handle_sku_command(
                     SkuList::default()
                 };
 
-                show_machine_table(output, output_format, sku_list.skus)?;
+                show_machine_table(output, output_format, sku_list.skus).await?;
             };
         }
 
@@ -357,7 +370,7 @@ pub async fn handle_sku_command(
             if let Some(id) = id {
                 sku.id = id;
             }
-            show_sku_details(output, output_format, extended, sku)?;
+            show_sku_details(output, output_format, extended, sku).await?;
         }
         Sku::Create(CreateSku { filename, id }) => {
             let file_data = std::fs::read_to_string(filename)?;
@@ -376,7 +389,7 @@ pub async fn handle_sku_command(
             }
             let sku_ids = api_client.0.create_sku(sku_list).await?;
             let sku_list = api_client.0.find_skus_by_ids(sku_ids.ids).await?;
-            show_skus_table(output, output_format, sku_list.skus)?;
+            show_skus_table(output, output_format, sku_list.skus).await?;
         }
         Sku::Delete { sku_id } => {
             api_client

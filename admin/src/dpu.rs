@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
+use std::pin::Pin;
 
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::{BuildInfo, ManagedHostNetworkConfigResponse};
@@ -20,6 +21,7 @@ use serde::Serialize;
 use crate::cfg::cli_options::{AgentUpgradePolicyChoice, HealthOverrideTemplates};
 use crate::machine::get_health_report;
 use crate::rpc::ApiClient;
+use crate::{async_write, async_write_table_as_csv};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 pub async fn trigger_reprovisioning(
@@ -240,7 +242,7 @@ impl From<DpuVersions> for Row {
 
 pub fn generate_firmware_status_json(machines: Vec<Machine>) -> CarbideCliResult<String> {
     let machines: Vec<DpuVersions> = machines.into_iter().map(DpuVersions::from).collect();
-    Ok(serde_json::to_string(&machines)?)
+    Ok(serde_json::to_string_pretty(&machines)?)
 }
 
 pub fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
@@ -260,7 +262,7 @@ pub fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
 }
 
 pub async fn handle_dpu_versions(
-    output: &mut dyn std::io::Write,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     output_format: OutputFormat,
     api_client: &ApiClient,
     updates_only: bool,
@@ -314,20 +316,15 @@ pub async fn handle_dpu_versions(
     match output_format {
         OutputFormat::Json => {
             let json_output = generate_firmware_status_json(dpus)?;
-            write!(output, "{}", json_output)?;
+            async_write!(output_file, "{}", json_output)?;
         }
         OutputFormat::Csv => {
             let result = generate_firmware_status_table(dpus);
-
-            if let Err(error) = result.to_csv(output) {
-                tracing::warn!("Error writing csv data: {}", error);
-            }
+            async_write_table_as_csv!(output_file, result)?;
         }
         _ => {
             let result = generate_firmware_status_table(dpus);
-            if let Err(error) = result.print(output) {
-                tracing::warn!("Error writing table data: {}", error);
-            }
+            async_write!(output_file, "{}", result)?;
         }
     }
     Ok(())
@@ -464,7 +461,7 @@ pub async fn get_dpu_version_status(
 }
 
 pub async fn handle_dpu_status(
-    output: &mut dyn std::io::Write,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
@@ -484,20 +481,15 @@ pub async fn handle_dpu_status(
     match output_format {
         OutputFormat::Json => {
             let machines: Vec<DpuStatus> = generate_dpu_status_data(api_client, dpus).await?;
-            write!(output, "{}", serde_json::to_string(&machines).unwrap())?;
+            async_write!(output_file, "{}", serde_json::to_string(&machines).unwrap())?;
         }
         OutputFormat::Csv => {
             let result = generate_dpu_status_table(api_client, dpus).await?;
-
-            if let Err(error) = result.to_csv(output) {
-                tracing::warn!("Error writing csv data: {}", error);
-            }
+            async_write_table_as_csv!(output_file, result)?;
         }
         _ => {
             let result = generate_dpu_status_table(api_client, dpus).await?;
-            if let Err(error) = result.print(output) {
-                tracing::warn!("Error writing table data: {}", error);
-            }
+            async_write!(output_file, "{}", result)?;
         }
     }
     Ok(())
@@ -550,6 +542,7 @@ fn deny_prefix(config: &ManagedHostNetworkConfigResponse) -> String {
 
 pub async fn show_dpu_network_config(
     api_client: &ApiClient,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     dpu_id: String,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
@@ -615,7 +608,7 @@ pub async fn show_dpu_network_config(
                     .map(|x| x.to_string())
                     .unwrap_or_else(|| "Not Set".to_string())
             ]);
-            table.printstd();
+            async_write!(output_file, "{}", table)?;
 
             println!("Admin Interface:");
             let admin_interface = config.admin_interface.clone();
@@ -637,7 +630,7 @@ pub async fn show_dpu_network_config(
                 table.add_row(row!["Tenant VRF Loopback", aintf.tenant_vrf_loopback_ip()]);
                 table.add_row(row!["Boot URL", aintf.booturl()]);
 
-                table.printstd();
+                async_write!(output_file, "{}", table)?;
             }
 
             println!("Tenant Interfaces:");
@@ -683,7 +676,7 @@ pub async fn show_dpu_network_config(
                 table.add_row(row!["Tenant VRF Loopback", tintf.tenant_vrf_loopback_ip()]);
                 table.add_row(row!["Boot URL", tintf.booturl()]);
 
-                table.printstd();
+                async_write!(output_file, "{}", table)?;
             }
         }
         _ => {
@@ -694,7 +687,10 @@ pub async fn show_dpu_network_config(
     Ok(())
 }
 
-pub async fn show_dpu_status(api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn show_dpu_status(
+    api_client: &ApiClient,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+) -> CarbideCliResult<()> {
     let all_status = api_client
         .0
         .get_all_managed_host_network_status()
@@ -763,7 +759,7 @@ pub async fn show_dpu_status(api_client: &ApiClient) -> CarbideCliResult<()> {
                 st.dpu_agent_version.unwrap_or("".to_string())
             ]);
         }
-        table.printstd();
+        async_write!(output_file, "{}", table)?;
     }
     Ok(())
 }

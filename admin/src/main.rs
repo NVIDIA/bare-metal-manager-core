@@ -24,6 +24,7 @@ use std::io::Write;
 use std::net::IpAddr;
 use std::path::Path;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::str::FromStr;
 
 use crate::cfg::cli_options::QuarantineAction;
@@ -93,6 +94,7 @@ use site_explorer::show_site_explorer_discovered_managed_host;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
 use utils::admin_cli::{CarbideCliError, OutputFormat};
 
+mod async_write;
 mod cfg;
 mod devenv;
 mod domain;
@@ -209,6 +211,8 @@ async fn main() -> color_eyre::Result<()> {
         Some(s) => s,
     };
 
+    let mut output_file = get_output_file_or_stdout(config.output.as_deref()).await?;
+
     // Command do talk to Carbide API
     match command {
         CliCommand::Version(version) => {
@@ -231,17 +235,16 @@ async fn main() -> color_eyre::Result<()> {
                         .get_machines_by_ids(&[cmd.machine.clone().into()])
                         .await?
                         .machines;
-                    if machines.len() != 1 {
+                    let Some(machine) = machines.pop() else {
                         return Err(eyre::eyre!("Machine with ID {} was not found", cmd.machine));
-                    }
-                    let machine = machines.remove(0);
-
-                    let metadata = machine
-                        .metadata
-                        .ok_or_else(|| eyre::eyre!("Machine does not carry Metadata"))?;
-
-                    // TODO: Support non-json output
-                    println!("{}", serde_json::to_string_pretty(&metadata)?);
+                    };
+                    machine::handle_metadata_show(
+                        &mut output_file,
+                        &config.format,
+                        config.extended,
+                        machine,
+                    )
+                    .await?;
                 }
                 MachineMetadataCommand::Set(cmd) => {
                     let mut machines = api_client
@@ -400,17 +403,22 @@ async fn main() -> color_eyre::Result<()> {
                     println!(
                         "Deprecated: Use dpu network, instead machine network. machine network will be removed in future."
                     );
-                    dpu::show_dpu_status(&api_client).await?;
+                    dpu::show_dpu_status(&api_client, &mut output_file).await?;
                 }
                 NetworkCommand::Config(query) => {
                     println!(
                         "Deprecated: Use dpu network, instead of machine network. machine network will be removed in future."
                     );
-                    let config = api_client
+                    let network_config = api_client
                         .0
                         .get_managed_host_network_config(query.machine_id)
                         .await?;
-                    println!("{config:?}");
+                    if config.format == OutputFormat::Json {
+                        println!("{}", serde_json::ser::to_string_pretty(&network_config)?);
+                    } else {
+                        // someone might be parsing this output
+                        println!("{network_config:?}");
+                    }
                 }
             },
             Machine::HealthOverride(command) => {
@@ -605,16 +613,6 @@ async fn main() -> color_eyre::Result<()> {
         },
         CliCommand::ManagedHost(managed_host) => match managed_host {
             ManagedHost::Show(managed_host) => {
-                let mut output_file = if let Some(filename) = config.output {
-                    Box::new(
-                        fs::OpenOptions::new()
-                            .write(true)
-                            .create_new(true)
-                            .open(filename)?,
-                    ) as Box<dyn std::io::Write>
-                } else {
-                    Box::new(std::io::stdout()) as Box<dyn std::io::Write>
-                };
                 managed_host::handle_show(
                     &mut output_file,
                     managed_host,
@@ -778,17 +776,6 @@ async fn main() -> color_eyre::Result<()> {
                 dpu::handle_agent_upgrade_policy(&api_client, rpc_choice).await?
             }
             Versions(options) => {
-                let mut output_file = if let Some(filename) = config.output {
-                    Box::new(
-                        fs::OpenOptions::new()
-                            .write(true)
-                            .create_new(true)
-                            .open(filename)?,
-                    ) as Box<dyn std::io::Write>
-                } else {
-                    Box::new(std::io::stdout()) as Box<dyn std::io::Write>
-                };
-
                 dpu::handle_dpu_versions(
                     &mut output_file,
                     config.format,
@@ -799,17 +786,6 @@ async fn main() -> color_eyre::Result<()> {
                 .await?
             }
             DpuAction::Status => {
-                let mut output_file = if let Some(filename) = config.output {
-                    Box::new(
-                        fs::OpenOptions::new()
-                            .write(true)
-                            .create_new(true)
-                            .open(filename)?,
-                    ) as Box<dyn std::io::Write>
-                } else {
-                    Box::new(std::io::stdout()) as Box<dyn std::io::Write>
-                };
-
                 dpu::handle_dpu_status(
                     &mut output_file,
                     config.format,
@@ -821,11 +797,16 @@ async fn main() -> color_eyre::Result<()> {
 
             DpuAction::Network(network) => match network {
                 NetworkCommand::Config(query) => {
-                    dpu::show_dpu_network_config(&api_client, query.machine_id, config.format)
-                        .await?;
+                    dpu::show_dpu_network_config(
+                        &api_client,
+                        &mut output_file,
+                        query.machine_id,
+                        config.format,
+                    )
+                    .await?;
                 }
                 NetworkCommand::Status => {
-                    dpu::show_dpu_status(&api_client).await?;
+                    dpu::show_dpu_status(&api_client, &mut output_file).await?;
                 }
             },
         },
@@ -1063,6 +1044,7 @@ async fn main() -> color_eyre::Result<()> {
             SiteExplorer::GetReport(mode) => {
                 show_site_explorer_discovered_managed_host(
                     &api_client,
+                    &mut output_file,
                     config.format,
                     config.internal_page_size,
                     mode,
@@ -1209,17 +1191,6 @@ async fn main() -> color_eyre::Result<()> {
         },
         CliCommand::ExpectedMachine(expected_machine_action) => match expected_machine_action {
             cfg::cli_options::ExpectedMachineAction::Show(expected_machine_query) => {
-                let mut output_file = if let Some(filename) = config.output {
-                    Box::new(
-                        fs::OpenOptions::new()
-                            .write(true)
-                            .create_new(true)
-                            .open(filename)?,
-                    ) as Box<dyn std::io::Write>
-                } else {
-                    Box::new(std::io::stdout()) as Box<dyn std::io::Write>
-                };
-
                 expected_machines::show_expected_machines(
                     &expected_machine_query,
                     &api_client,
@@ -1459,6 +1430,7 @@ async fn main() -> color_eyre::Result<()> {
                         ExploredEndpoint => {
                             site_explorer::show_site_explorer_discovered_managed_host(
                                 &api_client,
+                                &mut output_file,
                                 config_format,
                                 config.internal_page_size,
                                 cfg::cli_options::GetReportMode::Endpoint(cfg::cli_options::EndpointInfo{
@@ -1862,16 +1834,8 @@ async fn main() -> color_eyre::Result<()> {
             }
         },
         CliCommand::Sku(sku_command) => {
-            let mut output_file = if let Some(filename) = config.output {
-                Box::new(
-                    fs::OpenOptions::new()
-                        .write(true)
-                        .create_new(true)
-                        .open(filename)?,
-                ) as Box<dyn std::io::Write>
-            } else {
-                Box::new(std::io::stdout()) as Box<dyn std::io::Write>
-            };
+            let mut output_file = get_output_file_or_stdout(config.output.as_deref()).await?;
+
             sku::handle_sku_command(
                 &api_client,
                 &mut output_file,
@@ -1991,6 +1955,21 @@ pub async fn password_validator(s: String) -> Result<String, CarbideCliError> {
     }
 
     Ok(s)
+}
+
+pub async fn get_output_file_or_stdout(
+    output_filename: Option<&str>,
+) -> Result<Pin<Box<dyn tokio::io::AsyncWrite>>, CarbideCliError> {
+    if let Some(filename) = output_filename {
+        let file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(filename)
+            .await?;
+        Ok(Box::pin(file))
+    } else {
+        Ok(Box::pin(tokio::io::stdout()))
+    }
 }
 
 #[cfg(test)]

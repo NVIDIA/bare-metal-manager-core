@@ -12,12 +12,14 @@
 
 use crate::cfg::cli_options::{ShowManagedHost, ShowPowerOptions, SortField, UpdatePowerOptions};
 use crate::rpc::ApiClient;
+use crate::{async_write, async_write_table_as_csv};
 use ::rpc::{Machine, MachineId};
 use prettytable::{Cell, Row, Table};
 use rpc::forge::PowerOptions;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::fmt::Write;
+use std::pin::Pin;
 use tracing::warn;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
@@ -190,7 +192,7 @@ fn convert_managed_hosts_to_nice_output(
 
 async fn show_managed_hosts(
     managed_host_data: utils::ManagedHostMetadata,
-    output: &mut dyn std::io::Write,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     output_format: OutputFormat,
     output_options: ManagedHostOutputOptions,
     sort_by: SortField,
@@ -227,10 +229,7 @@ async fn show_managed_hosts(
         }
         OutputFormat::Csv => {
             let result = convert_managed_hosts_to_nice_output(managed_hosts, output_options);
-
-            if let Err(error) = result.to_csv(output) {
-                warn!("Error writing csv data: {}", error);
-            }
+            async_write_table_as_csv!(output_file, result)?;
         }
         _ => {
             if output_options.single_host_detail_view {
@@ -242,9 +241,7 @@ async fn show_managed_hosts(
                 )?;
             } else {
                 let result = convert_managed_hosts_to_nice_output(managed_hosts, output_options);
-                if let Err(error) = result.print(output) {
-                    warn!("Error writing table data: {}", error);
-                }
+                async_write!(output_file, "{}", result)?;
             }
         }
     }
@@ -443,7 +440,7 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
 }
 
 pub async fn handle_show(
-    output: &mut dyn std::io::Write,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     args: ShowManagedHost,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -559,7 +556,7 @@ pub async fn handle_show(
             network_devices,
             exploration_reports: vec![], //Todo - add exploration reports
         },
-        output,
+        output_file,
         output_format,
         output_options,
         sort_by,

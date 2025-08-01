@@ -115,6 +115,9 @@ pub enum CarbideCliError {
     /// If empty is acceptable don't use this.
     #[error("No results returned")]
     Empty,
+
+    #[error("Not Implemented {0}")]
+    NotImplemented(String),
 }
 
 pub type CarbideCliResult<T> = Result<T, CarbideCliError>;
