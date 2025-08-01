@@ -21,7 +21,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
 use crate::ib::IBFabricManagerConfig;
-use crate::ib::types::{IBMtu, IBNetwork, IBRateLimit, IBServiceLevel};
+use crate::ib::types::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::InfinibandInterface;
 use crate::model::ib_partition::state_sla;
@@ -132,15 +132,16 @@ impl From<&IBPartition> for IBNetwork {
         Self {
             name: ib.config.name.clone(),
             pkey: ib.config.pkey.unwrap_or(0),
-            mtu: ib.config.mtu.clone().unwrap_or_default(),
             ipoib: true,
-            service_level: ib.config.service_level.clone().unwrap_or_default(),
-            rate_limit: ib.config.rate_limit.clone().unwrap_or_default(),
             associated_guids: None,
-            // Not implemented yet
-            // enable_sharp: false,
-            // membership: IBNETWORK_DEFAULT_MEMBERSHIP,
-            // index0: IBNETWORK_DEFAULT_INDEX0,
+            qos_conf: Some(IBQosConf {
+                mtu: ib.config.mtu.clone().unwrap_or_default(),
+                rate_limit: ib.config.rate_limit.clone().unwrap_or_default(),
+                service_level: ib.config.service_level.clone().unwrap_or_default(),
+            }), // Not implemented yet
+                // enable_sharp: false,
+                // membership: IBNETWORK_DEFAULT_MEMBERSHIP,
+                // index0: IBNETWORK_DEFAULT_INDEX0,
         }
     }
 }

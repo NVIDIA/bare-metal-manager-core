@@ -18,10 +18,16 @@ use crate::{
     api::Api,
     api::rpc::{IbPartitionConfig, IbPartitionSearchConfig},
     cfg::file::IBFabricConfig,
-    db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition},
+    db::{
+        self, ObjectColumnFilter,
+        ib_partition::{
+            IBPartition, IBPartitionConfig, IBPartitionSearchConfig, IBPartitionStatus,
+            NewIBPartition,
+        },
+    },
     ib::{
         IBFabricManagerConfig, IBFabricManagerType,
-        types::{IBMtu, IBNetwork, IBRateLimit, IBServiceLevel},
+        types::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel},
     },
 };
 use forge_uuid::infiniband::IBPartitionId;
@@ -327,20 +333,40 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     let ibnetwork = IBNetwork {
         pkey: 42,
         name: "x".to_string(),
-        mtu: IBMtu::default(),
+        qos_conf: Some(IBQosConf {
+            mtu: IBMtu(2),
+            service_level: IBServiceLevel(15),
+            rate_limit: IBRateLimit(112),
+        }),
         ipoib: false,
-        service_level: IBServiceLevel::default(),
-        rate_limit: IBRateLimit::default(),
         associated_guids: None,
         // Not implemented yet
         // enable_sharp: false,
         // membership: IBPortMembership::Full,
         // index0: false,
     };
-    partition.status = Some(IBPartitionStatus::from(&ibnetwork));
+    let qos_conf = ibnetwork.qos_conf.as_ref().unwrap();
+    partition.status = Some(IBPartitionStatus {
+        partition: ibnetwork.name.clone(),
+        mtu: qos_conf.mtu.clone(),
+        rate_limit: qos_conf.rate_limit.clone(),
+        service_level: qos_conf.service_level.clone(),
+    });
     // What we're testing
     let mut txn = pool.begin().await?;
     partition.update(&mut txn).await?;
+    txn.commit().await?;
+
+    let mut txn = pool.begin().await?;
+    let partition2 = IBPartition::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(db::ib_partition::IdColumn, &partition.id),
+        IBPartitionSearchConfig::default(),
+    )
+    .await?
+    .remove(0);
+    assert_eq!(IBNetwork::from(&partition), IBNetwork::from(&partition2));
+    txn.commit().await?;
 
     Ok(())
 }

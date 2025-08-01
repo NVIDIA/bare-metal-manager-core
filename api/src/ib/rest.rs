@@ -16,7 +16,7 @@ use std::{path::Path, sync::Arc};
 use async_trait::async_trait;
 
 use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
-use super::types::{IBMtu, IBNetwork, IBPort, IBPortState, IBRateLimit, IBServiceLevel};
+use super::types::{IBMtu, IBNetwork, IBPort, IBPortState, IBQosConf, IBRateLimit, IBServiceLevel};
 use super::ufmclient::{
     self, Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, SmConfig,
     UFMCert, UFMConfig, UFMError, Ufm,
@@ -143,14 +143,14 @@ impl IBFabric for RestIBFabric {
             .map_err(CarbideError::from)
     }
 
-    /// Update IBNetwork, e.g. QoS
-    async fn update_ib_network(&self, ibnetwork: &IBNetwork) -> Result<(), CarbideError> {
-        let partition = Partition::try_from(ibnetwork)?;
-
-        let pkey = partition.pkey;
-        let qos = partition.qos.ok_or_else(|| {
-            CarbideError::internal(format!("QoS data for partition {} is not present", pkey))
-        })?;
+    /// Update an IB Partitions QoS configuration
+    async fn update_partition_qos_conf(
+        &self,
+        pkey: u16,
+        qos_conf: &IBQosConf,
+    ) -> Result<(), CarbideError> {
+        let qos = PartitionQoS::try_from(qos_conf)?;
+        let pkey = PartitionKey::try_from(pkey)?;
 
         self.ufm
             .update_partition_qos(pkey, qos)
@@ -239,23 +239,16 @@ impl From<SmConfig> for IBFabricConfig {
     }
 }
 
-impl TryFrom<Partition> for IBNetwork {
+impl TryFrom<PartitionQoS> for IBQosConf {
     type Error = CarbideError;
-    fn try_from(p: Partition) -> Result<Self, Self::Error> {
-        IBNetwork::try_from(&p)
+    fn try_from(qos: PartitionQoS) -> Result<Self, Self::Error> {
+        IBQosConf::try_from(&qos)
     }
 }
 
-impl TryFrom<&Partition> for IBNetwork {
+impl TryFrom<&PartitionQoS> for IBQosConf {
     type Error = CarbideError;
-    fn try_from(p: &Partition) -> Result<Self, Self::Error> {
-        let qos = p.qos.as_ref().ok_or_else(|| {
-            CarbideError::internal(format!(
-                "Can not create IBNetwork object for IB partition {} with missing QoS data",
-                p.pkey
-            ))
-        })?;
-
+    fn try_from(qos: &PartitionQoS) -> Result<Self, Self::Error> {
         let rate_limit_value = if qos.rate_limit == (qos.rate_limit as i32) as f32 {
             qos.rate_limit as i32
         } else if qos.rate_limit == 2.5 {
@@ -267,13 +260,29 @@ impl TryFrom<&Partition> for IBNetwork {
                 qos.rate_limit
             )));
         };
+        Ok(IBQosConf {
+            mtu: IBMtu::try_from(qos.mtu_limit as i32)?,
+            service_level: IBServiceLevel::try_from(qos.service_level as i32)?,
+            rate_limit: IBRateLimit::try_from(rate_limit_value)?,
+        })
+    }
+}
+
+impl TryFrom<Partition> for IBNetwork {
+    type Error = CarbideError;
+    fn try_from(p: Partition) -> Result<Self, Self::Error> {
+        IBNetwork::try_from(&p)
+    }
+}
+
+impl TryFrom<&Partition> for IBNetwork {
+    type Error = CarbideError;
+    fn try_from(p: &Partition) -> Result<Self, Self::Error> {
         Ok(IBNetwork {
             name: p.name.clone(),
             pkey: p.pkey.into(),
-            mtu: IBMtu::try_from(qos.mtu_limit as i32)?,
             ipoib: p.ipoib,
-            service_level: IBServiceLevel::try_from(qos.service_level as i32)?,
-            rate_limit: IBRateLimit::try_from(rate_limit_value)?,
+            qos_conf: p.qos.as_ref().map(|qos| qos.try_into()).transpose()?,
             associated_guids: p.guids.clone(),
             // Not implemented yet
             // enable_sharp: false,
@@ -297,6 +306,30 @@ impl TryFrom<Filter> for ufmclient::Filter {
     }
 }
 
+impl TryFrom<IBQosConf> for PartitionQoS {
+    type Error = CarbideError;
+    fn try_from(qos: IBQosConf) -> Result<Self, Self::Error> {
+        PartitionQoS::try_from(&qos)
+    }
+}
+
+impl TryFrom<&IBQosConf> for PartitionQoS {
+    type Error = CarbideError;
+    fn try_from(qos: &IBQosConf) -> Result<Self, Self::Error> {
+        let rate_limit_value = if qos.rate_limit == IBRateLimit(2) {
+            // It is special case for SDR as 2.5
+            2.5_f32
+        } else {
+            Into::<i32>::into(qos.rate_limit.clone()) as f32
+        };
+        Ok(PartitionQoS {
+            mtu_limit: Into::<i32>::into(qos.mtu.clone()) as u16,
+            service_level: Into::<i32>::into(qos.service_level.clone()) as u8,
+            rate_limit: rate_limit_value,
+        })
+    }
+}
+
 impl TryFrom<IBNetwork> for Partition {
     type Error = CarbideError;
     fn try_from(p: IBNetwork) -> Result<Self, Self::Error> {
@@ -307,22 +340,12 @@ impl TryFrom<IBNetwork> for Partition {
 impl TryFrom<&IBNetwork> for Partition {
     type Error = CarbideError;
     fn try_from(p: &IBNetwork) -> Result<Self, Self::Error> {
-        let rate_limit_value = if p.rate_limit == IBRateLimit(2) {
-            // It is special case for SDR as 2.5
-            2.5_f32
-        } else {
-            Into::<i32>::into(p.rate_limit.clone()) as f32
-        };
         Ok(Partition {
             name: p.name.clone(),
             pkey: PartitionKey::try_from(p.pkey)
                 .map_err(|_| CarbideError::IBFabricError("invalid pkey".to_string()))?,
             ipoib: p.ipoib,
-            qos: Some(PartitionQoS {
-                mtu_limit: Into::<i32>::into(p.mtu.clone()) as u16,
-                service_level: Into::<i32>::into(p.service_level.clone()) as u8,
-                rate_limit: rate_limit_value,
-            }),
+            qos: p.qos_conf.as_ref().map(|qos| qos.try_into()).transpose()?,
             guids: Default::default(),
         })
     }
@@ -466,7 +489,7 @@ mod tests {
         let value = IBNetwork::try_from(expected_partition.clone());
         assert!(value.is_ok(), "IBNetwork::try_from() failure");
         let v = value.unwrap();
-        assert_eq!(v.rate_limit, IBRateLimit(2));
+        assert_eq!(v.qos_conf.as_ref().unwrap().rate_limit, IBRateLimit(2));
         let result = Partition::try_from(v);
         assert!(result.is_ok(), "Partition::try_from() failure");
         let v = result.unwrap();

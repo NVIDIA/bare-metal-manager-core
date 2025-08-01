@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use crate::CarbideError;
 use crate::ib::IBFabricManagerConfig;
-use crate::ib::types::{IBNetwork, IBPort, IBPortState};
+use crate::ib::types::{IBNetwork, IBPort, IBPortState, IBQosConf};
 
 #[derive(Default)]
 pub struct Filter {
@@ -94,8 +94,12 @@ pub trait IBFabric: Send + Sync {
     /// Get fabric configuration
     async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError>;
 
-    /// Update IBNetwork, e.g. QoS
-    async fn update_ib_network(&self, ibnetwork: &IBNetwork) -> Result<(), CarbideError>;
+    /// Update an IB Partitions QoS configuration
+    async fn update_partition_qos_conf(
+        &self,
+        pkey: u16,
+        qos_conf: &IBQosConf,
+    ) -> Result<(), CarbideError>;
 
     /// Get all IB Networks
     async fn get_ib_networks(

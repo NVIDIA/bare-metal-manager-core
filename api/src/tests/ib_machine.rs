@@ -13,7 +13,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::cfg::file::IBFabricConfig;
-use crate::ib::types::IBNetwork;
+use crate::ib::types::{IBNetwork, IBQosConf};
 use crate::ib::{GetPartitionOptions, IBFabric, IBMtu, IBRateLimit, IBServiceLevel};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
@@ -108,10 +108,12 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
     let partition1 = IBNetwork {
         pkey: 0x42,
         name: "x".to_string(),
-        mtu: IBMtu::default(),
+        qos_conf: Some(IBQosConf {
+            mtu: IBMtu::default(),
+            service_level: IBServiceLevel::default(),
+            rate_limit: IBRateLimit::default(),
+        }),
         ipoib: false,
-        service_level: IBServiceLevel::default(),
-        rate_limit: IBRateLimit::default(),
         associated_guids: None,
         // Not implemented yet
         // enable_sharp: false,
