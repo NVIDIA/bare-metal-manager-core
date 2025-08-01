@@ -9,12 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use crate::config::Config;
-use crate::proxy_channel_message;
+use crate::ssh_server::backend_connection::BackendConnectionKind;
 use crate::ssh_server::backend_pool::BackendConnectionStore;
 use crate::ssh_server::backend_session::BackendSubscription;
 use crate::ssh_server::server::ServerMetrics;
+use crate::{ChannelMsgOrExec, ExecReply, proxy_channel_message};
 use eyre::Context;
 use lazy_static::lazy_static;
 use rpc::forge::ValidateTenantPublicKeyRequest;
@@ -22,14 +22,43 @@ use rpc::forge_api_client::ForgeApiClient;
 use russh::keys::ssh_key::AuthorizedKeys;
 use russh::keys::{Certificate, PublicKey, PublicKeyBase64};
 use russh::server::{Auth, Msg, Session};
-use russh::{Channel, ChannelId, ChannelMsg, MethodKind, MethodSet, Pty, Sig};
+use russh::{Channel, ChannelId, ChannelMsg, MethodKind, MethodSet, Pty};
 use std::collections::HashMap;
 use std::fmt;
+use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::oneshot;
 use tonic::Code;
 use uuid::Uuid;
+
+static EXEC_TIMEOUT: Duration = Duration::from_secs(10);
+
+static BANNER_SSH_BACKEND: &str = "\
++------------------------------------------------------------------------------+\r\n\
+|                 NVIDIA Forge SSH Serial Console (beta)                       |\r\n\
++------------------------------------------------------------------------------+\r\n\
+|             Use SSH escape sequences to manage this session.                 |\r\n\
+|      (Note that escapes are only recognized immediately after newline.)      |\r\n\
+|                               ~. | terminate session                         |\r\n\
+|                               ~? | Help                                      |\r\n\
++------------------------------------------------------------------------------+\r\n\
+";
+
+static BANNER_IPMI_BACKEND: &str = "\
++------------------------------------------------------------------------------+\r\n\
+|                 NVIDIA Forge SSH Serial Console (beta)                       |\r\n\
++------------------------------------------------------------------------------+\r\n\
+|             Use SSH escape sequences to manage this session.                 |\r\n\
+|      (Note that escapes are only recognized immediately after newline.)      |\r\n\
+|                               ~. | terminate session                         |\r\n\
+|                               ~? | Help                                      |\r\n\
+|   This system supports power reset requests. To reboot this system, append   |\r\n\
+|                \"power reset\" to your original SSH command                    |\r\n\
+|                (e.g. ssh <host>@<console-ip> power reset)                    |\r\n\
++------------------------------------------------------------------------------+\r\n\
+";
 
 lazy_static! {
     static ref CERT_AUTH_FAILURE_METRIC: [opentelemetry::KeyValue; 1] =
@@ -44,44 +73,79 @@ lazy_static! {
 pub struct Handler {
     config: Arc<Config>,
     forge_api_client: ForgeApiClient,
-    backend_connections: BackendConnectionStore,
+    backend_connection_store: BackendConnectionStore,
     authenticated_user: Option<String>,
-    backends: HashMap<ChannelId, BackendSubscription>,
+    per_client_state: HashMap<ChannelId, PerClientState>,
     metrics: Arc<ServerMetrics>,
-    last_auth_failure: Option<&'static [opentelemetry::KeyValue]>,
+    last_auth_failure: Option<AuthFailureReason>,
+    // Specifically for logging. A string so that we can use <unknown> if we don't get an address at connection time.
+    peer_addr: String,
+}
+
+struct PerClientState {
+    backend: BackendSubscription,
+    // Option so that it can be taken with .take() when we get a shell_request or exec_request
+    client_channel: Option<Channel<Msg>>,
 }
 
 impl Handler {
     pub fn new(
-        backend_connections: BackendConnectionStore,
+        backend_connection_store: BackendConnectionStore,
         config: Arc<Config>,
         forge_api_client: ForgeApiClient,
         metrics: Arc<ServerMetrics>,
+        peer_addr: Option<SocketAddr>,
     ) -> Self {
         tracing::debug!("spawning new frontend connection handler");
         Self {
             config,
             forge_api_client,
-            backend_connections,
-            authenticated_user: Default::default(),
-            backends: Default::default(),
+            backend_connection_store,
+            authenticated_user: None,
+            per_client_state: HashMap::new(),
             metrics,
             last_auth_failure: Default::default(),
+            peer_addr: peer_addr
+                .map(|addr| addr.to_string())
+                .unwrap_or_else(|| "<unknown>".to_string()),
         }
+    }
+
+    fn get_client_state_or_report_error(
+        &mut self,
+        session: &mut Session,
+        channel_id: ChannelId,
+    ) -> Option<&mut PerClientState> {
+        if let Some(state) = self.per_client_state.get_mut(&channel_id) {
+            return Some(state);
+        }
+
+        tracing::error!(self.peer_addr, "Request on unknown channel");
+        session.channel_failure(channel_id).ok();
+        session
+            .data(channel_id, "ssh-console error: Unknown channel\n".into())
+            .ok();
+        session.close(channel_id).ok();
+        None
     }
 }
 
 impl Drop for Handler {
     fn drop(&mut self) {
-        tracing::debug!("dropping frontend connection handler");
+        tracing::info!(self.peer_addr, "end frontend connection");
         // All auth failure paths set self.last_auth_failure, but auth can still succeed (they may
         // be trying multiple pubkeys, etc.) So if authenticated_user is None but last_auth_failure
         // is Some, bump the metrics.
-        if let (None, Some(last_auth_failure)) = (&self.authenticated_user, self.last_auth_failure)
+        if let (None, Some(last_auth_failure)) = (&self.authenticated_user, &self.last_auth_failure)
         {
+            tracing::warn!(
+                self.peer_addr,
+                "authentication failed for user: {}",
+                last_auth_failure.user()
+            );
             self.metrics
                 .client_auth_failures_total
-                .add(1, last_auth_failure);
+                .add(1, last_auth_failure.metric());
         }
     }
 }
@@ -94,6 +158,7 @@ impl russh::server::Handler for Handler {
         channel: Channel<Msg>,
         session: &mut Session,
     ) -> Result<bool, Self::Error> {
+        tracing::trace!(self.peer_addr, "channel_open_session");
         let Some(user) = &self.authenticated_user else {
             return Err(eyre::format_err!(
                 "BUG: channel_open_session called but we don't have an authenticated user"
@@ -104,7 +169,7 @@ impl russh::server::Handler for Handler {
         // fetch the backend connection
         let channel_id = channel.id();
         let backend = self
-            .backend_connections
+            .backend_connection_store
             .get_connection(
                 user,
                 &self.config,
@@ -114,8 +179,245 @@ impl russh::server::Handler for Handler {
             .await
             .with_context(|| format!("could not get backend connection for {user}"))?;
 
-        let machine_id = backend.machine_id;
-        let Some(mut to_frontend_rx) = backend
+        // Save the backend and client channel in self, so the Handler methods can find it
+        self.per_client_state.insert(
+            channel_id,
+            PerClientState {
+                backend,
+                client_channel: Some(channel),
+            },
+        );
+
+        session
+            .channel_success(channel_id)
+            .context("error replying with success to channel_open_session")?;
+
+        Ok(true)
+    }
+
+    async fn auth_none(&mut self, _user: &str) -> Result<Auth, Self::Error> {
+        tracing::trace!(self.peer_addr, "auth_none");
+        Ok(Auth::Reject {
+            // Note: openssh_certificate auth is just another kind of PublicKey auth, this should
+            // imply either one.
+            proceed_with_methods: Some(MethodSet::from([MethodKind::PublicKey].as_slice())),
+            partial_success: false,
+        })
+    }
+
+    async fn auth_openssh_certificate(
+        &mut self,
+        user: &str,
+        certificate: &Certificate,
+    ) -> Result<Auth, Self::Error> {
+        tracing::trace!(self.peer_addr, "auth_openssh_certificate");
+        let is_trusted =
+            self.config
+                .openssh_certificate_ca_fingerprints
+                .iter()
+                .any(|trusted_fingerprint| {
+                    let client_ca_fingerprint = certificate
+                        .signature_key()
+                        .fingerprint(trusted_fingerprint.algorithm());
+                    client_ca_fingerprint.eq(trusted_fingerprint)
+                });
+
+        if !is_trusted {
+            tracing::warn!(
+                self.peer_addr,
+                user,
+                "openssh certificate CA certificate not trusted, rejecting authentication"
+            );
+            self.last_auth_failure = Some(AuthFailureReason::Certificate {
+                user: user.to_owned(),
+            });
+            return Ok(Auth::Reject {
+                proceed_with_methods: None,
+                partial_success: false,
+            });
+        }
+
+        if !certificate_contains_role(certificate, &self.config.admin_certificate_role) {
+            tracing::warn!(
+                self.peer_addr,
+                "certificate auth failed for user {user}, not in role {}",
+                &self.config.admin_certificate_role
+            );
+            self.last_auth_failure = Some(AuthFailureReason::Certificate {
+                user: user.to_owned(),
+            });
+            return Ok(Auth::Reject {
+                proceed_with_methods: None,
+                partial_success: false,
+            });
+        }
+
+        tracing::info!(
+            self.peer_addr,
+            "certificate auth succeeded for user {user}, in role {}",
+            &self.config.admin_certificate_role
+        );
+        self.authenticated_user = Some(user.to_owned());
+        Ok(Auth::Accept)
+    }
+
+    async fn auth_publickey(
+        &mut self,
+        user: &str,
+        public_key: &PublicKey,
+    ) -> Result<Auth, Self::Error> {
+        tracing::trace!(self.peer_addr, "auth_publickey");
+        // Authentication flow:
+        // 1. If authorized_keys_path is set, check against file first
+        // 2. If not found in file, validate via carbide-api
+        // 3. If insecure mode is enabled, accept all connections
+
+        let success = if pubkey_auth_admin_authorized_keys(public_key, &self.config, user)
+            .context("error checking authorized_keys")?
+        {
+            true
+        } else if Uuid::from_str(user).is_ok() {
+            // Only try tenant auth if the user is a valid-looking UUID.
+            pubkey_auth_tenant(user, public_key, &self.forge_api_client)
+                .await
+                .context("error validating pubkey with carbide-api")?
+        } else {
+            tracing::debug!(self.peer_addr, user, "rejecting public key for user {user}");
+            false
+        };
+
+        let success = if !success && self.config.insecure {
+            tracing::info!(
+                self.peer_addr,
+                "Overriding public-key rejection because we are in insecure (testing) mode"
+            );
+            true
+        } else {
+            success
+        };
+
+        if success {
+            self.authenticated_user = Some(user.to_owned());
+            Ok(Auth::Accept)
+        } else {
+            self.last_auth_failure = Some(AuthFailureReason::PubKey {
+                user: user.to_owned(),
+            });
+            Ok(Auth::Reject {
+                partial_success: false,
+                proceed_with_methods: None,
+            })
+        }
+    }
+
+    /// Forward the data to the backend
+    async fn data(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        tracing::trace!(self.peer_addr, "data");
+        if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
+            client_state
+                .backend
+                .to_backend_msg_tx
+                .send(ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data {
+                    data: data.to_vec().into(),
+                }))
+                .await
+                .context("error writing data to channel")?;
+        }
+        Ok(())
+    }
+
+    /// Forward the data to the backend
+    async fn extended_data(
+        &mut self,
+        channel: ChannelId,
+        code: u32,
+        data: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        tracing::trace!(self.peer_addr, "extended_data");
+        if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
+            client_state
+                .backend
+                .to_backend_msg_tx
+                .send(ChannelMsgOrExec::ChannelMsg(ChannelMsg::ExtendedData {
+                    data: data.to_vec().into(),
+                    ext: code,
+                }))
+                .await
+                .context("error writing extended_data to channel")?;
+        }
+        Ok(())
+    }
+
+    async fn pty_request(
+        &mut self,
+        channel: ChannelId,
+        term: &str,
+        col_width: u32,
+        row_height: u32,
+        pix_width: u32,
+        pix_height: u32,
+        modes: &[(Pty, u32)],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        tracing::trace!(self.peer_addr, "pty_request");
+        if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
+            client_state
+                .backend
+                .to_backend_msg_tx
+                .send(ChannelMsgOrExec::ChannelMsg(ChannelMsg::RequestPty {
+                    want_reply: false,
+                    term: term.to_string(),
+                    col_width,
+                    row_height,
+                    pix_width,
+                    pix_height,
+                    terminal_modes: modes.to_vec(),
+                }))
+                .await
+                .context("error sending pty request to backend")?;
+        }
+        Ok(())
+    }
+
+    async fn shell_request(
+        &mut self,
+        channel_id: ChannelId,
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        tracing::trace!(self.peer_addr, "shell_request");
+        let peer_addr = self.peer_addr.clone();
+        let Some(client_state) = self.get_client_state_or_report_error(session, channel_id) else {
+            return Ok(());
+        };
+
+        // shell requests are when we actually subscribe to the backend. We have to take ownership
+        // of the client channel here so that we can drop it when they disconnect, which means we
+        // can't support both a shell_request and an exec_request on the same channel (which makes
+        // sense.)
+        let Some(channel) = client_state.client_channel.take() else {
+            tracing::error!(
+                self.peer_addr,
+                "Channel unavailable, cannot service shell request"
+            );
+            session.channel_failure(channel_id).ok();
+            session
+                .data(
+                    channel_id,
+                    "ssh-console error: Channel unavailable\r\n".into(),
+                )
+                .ok();
+            session.close(channel_id).ok();
+            return Ok(());
+        };
+        let machine_id = client_state.backend.machine_id;
+        let Some(mut to_frontend_rx) = client_state
+            .backend
             .to_frontend_msg_weak_tx
             .upgrade()
             .map(|tx| tx.subscribe())
@@ -143,6 +445,7 @@ impl russh::server::Handler for Handler {
                                 Ok(()) => {}
                                 Err(error) => {
                                     tracing::debug!(
+                                        peer_addr,
                                         %error,
                                         "error sending message to frontend, likely disconnected"
                                     );
@@ -151,7 +454,7 @@ impl russh::server::Handler for Handler {
                             }
                         }
                         Err(_) => {
-                            tracing::debug!("client channel closed when writing message from backend");
+                            tracing::debug!(peer_addr, "client channel closed when writing message from backend");
                             break;
                         }
                     },
@@ -173,227 +476,85 @@ impl russh::server::Handler for Handler {
             proxy_shutdown_tx.send(()).ok();
         });
 
-        // Save the backend writer in self.backends so the Handler methods can find it
-        self.backends.insert(channel_id, backend);
-
-        session
-            .channel_success(channel_id)
-            .context("error replying with success to channel_open_session")?;
-
-        Ok(true)
+        let banner = match client_state.backend.kind {
+            BackendConnectionKind::Ssh => BANNER_SSH_BACKEND.as_bytes(),
+            BackendConnectionKind::Ipmi => BANNER_IPMI_BACKEND.as_bytes(),
+        };
+        session.data(channel_id, banner.into()).ok();
+        Ok(())
     }
 
-    async fn auth_none(&mut self, _user: &str) -> Result<Auth, Self::Error> {
-        Ok(Auth::Reject {
-            // Note: openssh_certificate auth is just another kind of PublicKey auth, this should
-            // imply either one.
-            proceed_with_methods: Some(MethodSet::from([MethodKind::PublicKey].as_slice())),
-            partial_success: false,
-        })
-    }
-
-    async fn auth_openssh_certificate(
+    async fn exec_request(
         &mut self,
-        user: &str,
-        certificate: &Certificate,
-    ) -> Result<Auth, Self::Error> {
-        let is_trusted =
-            self.config
-                .openssh_certificate_ca_fingerprints
-                .iter()
-                .any(|trusted_fingerprint| {
-                    let client_ca_fingerprint = certificate
-                        .signature_key()
-                        .fingerprint(trusted_fingerprint.algorithm());
-                    client_ca_fingerprint.eq(trusted_fingerprint)
-                });
-
-        if !is_trusted {
-            tracing::warn!(
-                user,
-                "openssh certificate CA certificate not trusted, rejecting authentication"
-            );
-            self.last_auth_failure = Some(CERT_AUTH_FAILURE_METRIC.as_slice());
-            return Ok(Auth::Reject {
-                proceed_with_methods: None,
-                partial_success: false,
-            });
-        }
-
-        if !certificate_contains_role(certificate, &self.config.admin_certificate_role) {
-            tracing::warn!(
-                "certificate auth failed for user {user}, not in role {}",
-                &self.config.admin_certificate_role
-            );
-            return Ok(Auth::Reject {
-                proceed_with_methods: None,
-                partial_success: false,
-            });
-        }
-
-        tracing::info!(
-            "certificate auth succeeded for user {user}, in role {}",
-            &self.config.admin_certificate_role
-        );
-        self.authenticated_user = Some(user.to_owned());
-        Ok(Auth::Accept)
-    }
-
-    async fn auth_publickey(
-        &mut self,
-        user: &str,
-        public_key: &PublicKey,
-    ) -> Result<Auth, Self::Error> {
-        // Authentication flow:
-        // 1. If authorized_keys_path is set, check against file first
-        // 2. If not found in file, validate via carbide-api
-        // 3. If insecure mode is enabled, accept all connections
-
-        let success = if pubkey_auth_admin_authorized_keys(public_key, &self.config, user)
-            .context("error checking authorized_keys")?
-        {
-            true
-        } else if Uuid::from_str(user).is_ok() {
-            // Only try tenant auth if the user is a valid-looking UUID.
-            pubkey_auth_tenant(user, public_key, &self.forge_api_client)
-                .await
-                .context("error validating pubkey with carbide-api")?
-        } else {
-            tracing::warn!(user, "rejecting public key for user {user}");
-            false
+        channel_id: ChannelId,
+        data: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        tracing::trace!(self.peer_addr, "exec_request");
+        let Some(PerClientState {
+            client_channel,
+            backend,
+        }) = self.get_client_state_or_report_error(session, channel_id)
+        else {
+            return Ok(());
         };
 
-        let success = if !success && self.config.insecure {
-            tracing::info!(
-                "Overriding public-key rejection because we are in insecure (testing) mode"
+        // Drop the client channel when we're done, so that it properly disconnects.
+        let Some(channel) = client_channel.take() else {
+            tracing::error!(
+                self.peer_addr,
+                "Channel unavailable, cannot service exec request"
             );
-            true
-        } else {
-            success
+            session.channel_failure(channel_id).ok();
+            session
+                .data(
+                    channel_id,
+                    "ssh-console error: Channel unavailable\r\n".into(),
+                )
+                .ok();
+            session.close(channel_id).ok();
+            return Ok(());
         };
 
-        if success {
-            self.authenticated_user = Some(user.to_owned());
-            Ok(Auth::Accept)
-        } else {
-            self.last_auth_failure = Some(CERT_AUTH_FAILURE_METRIC.as_slice());
-            Ok(Auth::Reject {
-                partial_success: false,
-                proceed_with_methods: None,
+        let (reply_tx, reply_rx) = oneshot::channel();
+        backend
+            .to_backend_msg_tx
+            .send(ChannelMsgOrExec::Exec {
+                command: data.to_vec(),
+                reply_tx,
             })
-        }
-    }
+            .await
+            .context("error sending exec request to backend")?;
 
-    /// Forward the data to the backend, but remove any escape sequences, to avoid letting the user
-    /// drop to the BMC prompt.
-    async fn data(
-        &mut self,
-        channel: ChannelId,
-        data: &[u8],
-        _session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.get(&channel) {
-            backend
-                .to_backend_msg_tx
-                .send(ChannelMsg::Data {
-                    data: data.to_vec().into(),
-                })
-                .await
-                .context("error writing data to channel")?;
+        tokio::select! {
+            _ = tokio::time::sleep(EXEC_TIMEOUT) => {
+                    channel
+                        .data(b"Error: request timeout\r\n".as_slice())
+                        .await
+                        .ok();
+                    channel.exit_status(1).await.ok();
+            }
+            res = reply_rx => match res {
+                Ok(ExecReply {
+                    output,
+                    exit_status,
+                }) => {
+                    channel.data(output.as_slice()).await.ok();
+                    channel.exit_status(exit_status).await.ok();
+                }
+                Err(_) => {
+                    channel
+                        .data(b"Error: BMC disconnected\r\n".as_slice())
+                        .await
+                        .ok();
+                    channel.exit_status(1).await.ok();
+                }
+            }
         }
-        Ok(())
-    }
 
-    /// Forward the data to the backend, but remove any escape sequences, to avoid letting the user
-    /// drop to the BMC prompt.
-    async fn extended_data(
-        &mut self,
-        channel: ChannelId,
-        code: u32,
-        data: &[u8],
-        _session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.get(&channel) {
-            backend
-                .to_backend_msg_tx
-                .send(ChannelMsg::ExtendedData {
-                    data: data.to_vec().into(),
-                    ext: code,
-                })
-                .await
-                .context("error writing extended_data to channel")?;
-        }
-        Ok(())
-    }
+        session.channel_success(channel_id).ok();
+        channel.close().await.ok();
 
-    async fn channel_close(
-        &mut self,
-        channel: ChannelId,
-        _session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.remove(&channel) {
-            // Ignore errors here
-            backend.to_backend_msg_tx.send(ChannelMsg::Close).await.ok();
-        }
-        Ok(())
-    }
-
-    async fn channel_eof(
-        &mut self,
-        channel: ChannelId,
-        _session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.remove(&channel) {
-            backend
-                .to_backend_msg_tx
-                .send(ChannelMsg::Eof)
-                .await
-                .context("error sending eof to backend")?;
-        }
-        Ok(())
-    }
-
-    async fn pty_request(
-        &mut self,
-        channel: ChannelId,
-        term: &str,
-        col_width: u32,
-        row_height: u32,
-        pix_width: u32,
-        pix_height: u32,
-        modes: &[(Pty, u32)],
-        _session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.get(&channel) {
-            backend
-                .to_backend_msg_tx
-                .send(ChannelMsg::RequestPty {
-                    want_reply: false,
-                    term: term.to_string(),
-                    col_width,
-                    row_height,
-                    pix_width,
-                    pix_height,
-                    terminal_modes: modes.to_vec(),
-                })
-                .await
-                .context("error sending pty request to backend")?;
-        }
-        Ok(())
-    }
-
-    async fn shell_request(
-        &mut self,
-        channel: ChannelId,
-        _session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.get(&channel) {
-            backend
-                .to_backend_msg_tx
-                .send(ChannelMsg::RequestShell { want_reply: false })
-                .await
-                .context("error sending shell request to backend")?;
-        }
         Ok(())
     }
 
@@ -404,56 +565,22 @@ impl russh::server::Handler for Handler {
         row_height: u32,
         pix_width: u32,
         pix_height: u32,
-        _session: &mut Session,
+        session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.get(&channel) {
-            backend
+        tracing::trace!(self.peer_addr, "window_change_request");
+        if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
+            client_state
+                .backend
                 .to_backend_msg_tx
-                .send(ChannelMsg::WindowChange {
+                .send(ChannelMsgOrExec::ChannelMsg(ChannelMsg::WindowChange {
                     col_width,
                     row_height,
                     pix_width,
                     pix_height,
-                })
+                }))
                 .await
                 .context("error sending window change request to backend")?;
         }
-        Ok(())
-    }
-
-    async fn signal(
-        &mut self,
-        channel: ChannelId,
-        signal: Sig,
-        _session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        if let Some(backend) = self.backends.get(&channel) {
-            backend
-                .to_backend_msg_tx
-                .send(ChannelMsg::Signal { signal })
-                .await
-                .context("error sending signal to backend")?;
-        }
-        Ok(())
-    }
-
-    // MARK: Unsupported ssh features
-
-    async fn exec_request(
-        &mut self,
-        channel: ChannelId,
-        data: &[u8],
-        session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        tracing::warn!(
-            "Unsupported exec request: {}",
-            String::from_utf8_lossy(data)
-        );
-        session.request_failure();
-        session
-            .data(channel, "Exec requests are unsupported\n".into())
-            .ok();
-        session.close(channel).ok();
         Ok(())
     }
 }
@@ -492,6 +619,28 @@ impl From<eyre::Error> for RusshOrEyreError {
 impl From<russh::Error> for RusshOrEyreError {
     fn from(value: russh::Error) -> Self {
         RusshOrEyreError::Russh(value)
+    }
+}
+
+/// Indicates the reason auth may have failed. This is so we can avoid logging warnings about failed authentication if only the first method (pubkey) failed but the second succeeded.
+enum AuthFailureReason {
+    PubKey { user: String },
+    Certificate { user: String },
+}
+
+impl AuthFailureReason {
+    fn metric(&self) -> &'static [opentelemetry::KeyValue] {
+        match self {
+            AuthFailureReason::PubKey { .. } => PUBKEY_AUTH_FAILURE_METRIC.as_slice(),
+            AuthFailureReason::Certificate { .. } => CERT_AUTH_FAILURE_METRIC.as_slice(),
+        }
+    }
+
+    fn user(&self) -> &str {
+        match self {
+            AuthFailureReason::PubKey { user, .. } => user,
+            AuthFailureReason::Certificate { user, .. } => user,
+        }
     }
 }
 
@@ -578,7 +727,7 @@ async fn pubkey_auth_tenant(
         Err(e) => match e.code() {
             Code::Internal | Code::NotFound => {
                 // Internal means the key doesn't match, NotFound means there's no instance like this
-                tracing::warn!(
+                tracing::debug!(
                     user,
                     "rejecting public key via carbide validate_tenant_public_key"
                 );
@@ -592,7 +741,8 @@ async fn pubkey_auth_tenant(
                 false
             }
             code => {
-                // Any other error, we should just reject for safety.
+                // Any other error, we should just reject, even if the config overrides it, to stop
+                // bugs.
                 return Err(e).context(format!(
                     "Unexpected error calling carbide-api to validate pubkey for {user}: {code}"
                 ));

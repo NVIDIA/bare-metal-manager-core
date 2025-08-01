@@ -41,6 +41,8 @@ pub use ssh_server::{SpawnHandle, spawn};
 use std::future;
 use tokio::sync::oneshot;
 
+pub static POWER_RESET_COMMAND: &str = "power reset";
+
 /// Take a russh::ChannelMsg being sent in either direction from the frontend or backend, and call
 /// the appropriate method on the underlying channel.
 ///
@@ -125,6 +127,21 @@ where
     }
 
     Ok(())
+}
+
+#[derive(Debug)]
+pub(crate) enum ChannelMsgOrExec {
+    ChannelMsg(ChannelMsg),
+    Exec {
+        command: Vec<u8>,
+        reply_tx: oneshot::Sender<ExecReply>,
+    },
+}
+
+#[derive(Debug)]
+pub(crate) struct ExecReply {
+    output: Vec<u8>,
+    exit_status: u32,
 }
 
 /// Convenience trait for a task with a shutdown handle (in the form of a [`oneshot::Sender<()>`])

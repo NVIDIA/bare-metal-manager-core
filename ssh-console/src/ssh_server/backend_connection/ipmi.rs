@@ -15,14 +15,15 @@ use crate::config::Config;
 use crate::io_util::{self, set_controlling_terminal_on_exec, write_data_to_async_fd};
 use crate::ssh_server::backend_connection::{BackendConnectionHandle, IpmiConnectionDetails};
 use crate::ssh_server::backend_pool::BackendPoolMetrics;
+use crate::{ChannelMsgOrExec, ExecReply, POWER_RESET_COMMAND};
 use eyre::Context;
-use forge_uuid::machine::MachineId;
 use nix::errno::Errno;
 use nix::pty::OpenptyResult;
 use nix::unistd;
 use opentelemetry::KeyValue;
 use russh::ChannelMsg;
 use std::os::fd::{AsRawFd, OwnedFd};
+use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::unix::AsyncFd;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -38,9 +39,9 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 ///
 /// Returns a [`mpsc::Sender<ChannelMsg>`] that the frontend can use to send data to ipmitool.
 pub fn spawn(
-    connection_details: &IpmiConnectionDetails,
+    connection_details: Arc<IpmiConnectionDetails>,
     to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
-    config: &Config,
+    config: Arc<Config>,
     metrics: Arc<BackendPoolMetrics>,
 ) -> eyre::Result<BackendConnectionHandle> {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -97,7 +98,7 @@ pub fn spawn(
     let mut process = command.spawn().context("error spawning ipmitool")?;
 
     // Make a channel the frontend can use to send messages to us
-    let (from_frontend_tx, from_frontend_rx) = mpsc::channel(1);
+    let (from_frontend_tx, from_frontend_rx) = mpsc::channel::<ChannelMsgOrExec>(1);
 
     // Send messages to/from ipmitool in the background. We have to print our own errors here,
     // because nothing is polling the exit status.
@@ -108,7 +109,7 @@ pub fn spawn(
                 tracing::debug!(%machine_id, "ipmitool backend shutting down");
                 process.start_kill().context("error killing ipmitool")?;
             }
-            res = ipmitool_process_loop(machine_id, pty_master, from_frontend_rx, to_frontend_tx, ready_tx, metrics) => match res {
+            res = ipmitool_process_loop(&connection_details, &config, pty_master, from_frontend_rx, to_frontend_tx, ready_tx, metrics) => match res {
                 Ok(()) => tracing::debug!(%machine_id, "ipmitool task finished successfully"),
                 Err(error) => {
                     result = Err(error);
@@ -139,6 +140,48 @@ pub fn spawn(
     })
 }
 
+async fn power_reset(
+    connection_details: &IpmiConnectionDetails,
+    config: &Config,
+) -> eyre::Result<()> {
+    let mut command = tokio::process::Command::new("ipmitool");
+    command
+        .arg("-I")
+        .arg("lanplus")
+        .arg("-H")
+        .arg(connection_details.addr.ip().to_string())
+        .arg("-p")
+        .arg(connection_details.addr.port().to_string())
+        .arg("-U")
+        .arg(&connection_details.user)
+        .arg("-P")
+        .arg(&connection_details.password)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    if config.insecure_ipmi_ciphers {
+        command.arg("-C").arg("3"); // use SHA1 ciphers, useful for ipmi_sim
+    }
+    command.arg("power").arg("reset");
+
+    let output = command
+        .spawn()
+        .context("error spawning ipmitool for power reset")?
+        .wait_with_output()
+        .await
+        .context("ipmitool error running power reset")?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(eyre::eyre!(
+            "power reset failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
+
 /// Poll from the SSH frontend and the ipmitool PTY in the foreground, pumping messages between
 /// them, until either the frontend closes or ipmitool exits.
 ///
@@ -146,13 +189,15 @@ pub fn spawn(
 /// O_NONBLOCK), but we want to poll them in a tokio::select loop.  So we have to do the typical
 /// UNIX pattern of reading/writing data until we get EWOULDBLOCK, returning to the main loop, etc.
 async fn ipmitool_process_loop(
-    machine_id: MachineId,
+    connection_details: &IpmiConnectionDetails,
+    config: &Config,
     pty_master: AsyncFd<OwnedFd>,
-    mut from_frontend_rx: mpsc::Receiver<ChannelMsg>,
+    mut from_frontend_rx: mpsc::Receiver<ChannelMsgOrExec>,
     to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
     mut ready_tx: Option<oneshot::Sender<()>>,
     metrics: Arc<BackendPoolMetrics>,
 ) -> eyre::Result<()> {
+    let machine_id = connection_details.machine_id;
     let metrics_attrs = vec![KeyValue::new("machine_id", machine_id.to_string())];
     // Keep track of whether the last byte sent from the client was the first byte of an escape sequence.
     let mut escape_was_pending = false;
@@ -194,7 +239,7 @@ async fn ipmitool_process_loop(
             // Poll for any messages from the SSH frontend
             res = from_frontend_rx.recv() => match res {
                 Some(msg) => {
-                    escape_was_pending = send_frontend_message_to_ipmi_console(machine_id, msg, &pty_master, escape_was_pending).await.context(
+                    escape_was_pending = send_frontend_message_to_ipmi_console(connection_details, config, msg, &pty_master, escape_was_pending).await.context(
                         "error sending frontend message to ipmi console"
                     ).inspect_err(|_| {
                         metrics.bmc_tx_errors_total.add(1, metrics_attrs.as_slice());
@@ -212,20 +257,24 @@ async fn ipmitool_process_loop(
 }
 
 async fn send_frontend_message_to_ipmi_console(
-    machine_id: MachineId,
-    msg: ChannelMsg,
+    connection_details: &IpmiConnectionDetails,
+    config: &Config,
+    msg: ChannelMsgOrExec,
     ipmitool_pty: &AsyncFd<OwnedFd>,
     escape_was_pending: bool,
 ) -> eyre::Result<bool> {
+    let machine_id = connection_details.machine_id;
     let (msg, escape_pending) = match msg {
         // Filter out escape sequences
-        ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, ext: _ } => {
+        ChannelMsgOrExec::ChannelMsg(
+            ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, ext: _ },
+        ) => {
             let (data, escape_pending) =
                 IPMITOOL_ESCAPE_SEQUENCE.filter_escape_sequences(data.as_ref(), escape_was_pending);
             (
-                ChannelMsg::Data {
+                ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data {
                     data: data.as_ref().into(),
-                },
+                }),
                 escape_pending,
             )
         }
@@ -235,20 +284,20 @@ async fn send_frontend_message_to_ipmi_console(
     // TODO: parse an escape sequence to trigger a reboot (legacy ssh-console used ^U, but that was awful.)
 
     match msg {
-        ChannelMsg::Eof | ChannelMsg::Close => {
+        ChannelMsgOrExec::ChannelMsg(ChannelMsg::Eof | ChannelMsg::Close) => {
             // multiple clients can come and go, we don't close just because one of them disconnected.
         }
-        ChannelMsg::Data { data } => {
+        ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data { data }) => {
             write_data_to_async_fd(&data, ipmitool_pty)
                 .await
                 .context("error writing to ipmitool pty")?;
         }
-        ChannelMsg::WindowChange {
+        ChannelMsgOrExec::ChannelMsg(ChannelMsg::WindowChange {
             col_width,
             row_height,
             pix_width,
             pix_height,
-        } => {
+        }) => {
             // update the kernel pty size
             let winsz = libc::winsize {
                 ws_row: row_height.try_into().unwrap_or(80),
@@ -261,6 +310,36 @@ async fn send_frontend_message_to_ipmi_console(
                 libc::ioctl(ipmitool_pty.as_raw_fd(), libc::TIOCSWINSZ, &winsz);
             }
         }
+        ChannelMsgOrExec::Exec { command, reply_tx } => match String::from_utf8(command) {
+            Ok(command) if command == POWER_RESET_COMMAND => {
+                match power_reset(connection_details, config).await {
+                    Ok(()) => {
+                        reply_tx
+                            .send(ExecReply {
+                                output: b"Power reset completed successfully\r\n".to_vec(),
+                                exit_status: 0,
+                            })
+                            .ok();
+                    }
+                    Err(e) => {
+                        reply_tx
+                            .send(ExecReply {
+                                output: format!("{e}\r\n").into_bytes(),
+                                exit_status: 1,
+                            })
+                            .ok();
+                    }
+                }
+            }
+            _ => {
+                reply_tx
+                    .send(ExecReply {
+                        output: b"Unsupported command\r\n".as_slice().into(),
+                        exit_status: 127,
+                    })
+                    .ok();
+            }
+        },
         other => {
             tracing::debug!(%machine_id, "Not handling unknown SSH frontend message in ipmitool: {other:?}");
         }

@@ -11,9 +11,9 @@
  */
 
 use crate::bmc_vendor::SshBmcVendor;
-use crate::proxy_channel_message;
 use crate::ssh_server::backend_connection::{BackendConnectionHandle, SshConnectionDetails};
 use crate::ssh_server::backend_pool::BackendPoolMetrics;
+use crate::{ChannelMsgOrExec, ExecReply, POWER_RESET_COMMAND, proxy_channel_message};
 use eyre::Context;
 use forge_uuid::machine::MachineId;
 use opentelemetry::KeyValue;
@@ -55,7 +55,7 @@ pub fn spawn(
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
     let (ready_tx, ready_rx) = oneshot::channel::<()>();
     let mut ready_tx = Some(ready_tx); // only send it once
-    let (to_backend_msg_tx, mut to_backend_msg_rx) = mpsc::channel::<ChannelMsg>(1);
+    let (to_backend_msg_tx, mut to_backend_msg_rx) = mpsc::channel::<ChannelMsgOrExec>(1);
     let metrics_attrs = vec![KeyValue::new(
         "machine_id",
         connection_details.machine_id.to_string(),
@@ -117,17 +117,33 @@ pub fn spawn(
                 res = to_backend_msg_rx.recv() => match res {
                     Some(msg) => {
                         let msg = match msg {
-                            ChannelMsg::Data { data } => {
+                            ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, ..}) => {
                                 let (data, escape_pending) = bmc_vendor.filter_escape_sequences(data.as_ref(), prior_escape_pending);
                                 prior_escape_pending = escape_pending;
-                                ChannelMsg::Data { data: data.as_ref().into() }
-                            }
-                            ChannelMsg::ExtendedData { data, ext } => {
-                                let (data, escape_pending) = bmc_vendor.filter_escape_sequences(data.as_ref(), prior_escape_pending);
-                                prior_escape_pending = escape_pending;
-                                ChannelMsg::ExtendedData { data: data.as_ref().into(), ext }
+                                ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data { data: data.as_ref().into() })
                             }
                             msg => msg,
+                        };
+                        let msg = match msg {
+                            ChannelMsgOrExec::ChannelMsg(msg) => msg,
+                            ChannelMsgOrExec::Exec { command, reply_tx} => {
+                                let command = String::from_utf8(command);
+                                match command {
+                                    Ok(command) if command == POWER_RESET_COMMAND => {
+                                        reply_tx.send(ExecReply {
+                                            output: b"This BMC does not support power reset\r\n".to_vec(),
+                                            exit_status: 1,
+                                        }).ok();
+                                    }
+                                    _ => {
+                                        reply_tx.send(ExecReply {
+                                            output: b"Unsupported command\r\n".to_vec(),
+                                            exit_status: 1,
+                                        }).ok();
+                                    }
+                                }
+                                continue;
+                            }
                         };
                         proxy_channel_message(&msg, &backend_channel_tx)
                             .await
