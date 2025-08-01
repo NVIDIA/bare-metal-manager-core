@@ -58,10 +58,10 @@ See [Configuring kubectl for site access](remote_kubernetes.md)
 ### Firefox
 copy the following and put in a file
 ```
-function FindProxyForURL(url, host) { 
+function FindProxyForURL(url, host) {
     if (isInNet(dnsResolve(host), "10.0.0.0", "255.0.0.0")) {
         //alert("url = " + url + " *** host = " + host + " *** Resolved IP = " + dnsResolve(host));
-        return "SOCKS5 127.0.0.1:8888"; 
+        return "SOCKS5 127.0.0.1:8888";
     }
     return "DIRECT";
 }

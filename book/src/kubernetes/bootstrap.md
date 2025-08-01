@@ -21,13 +21,13 @@ Next, clone the [forge-deployment git repo](https://gitlab-master.nvidia.com/nvm
 
 **NOTE**
 >If the environment _requires_ changes, edit the YAML file corresponding
->to the component that needs configuration changes. e.g., `environment/$environment/<file>.yaml`. 
+>to the component that needs configuration changes. e.g., `environment/$environment/<file>.yaml`.
 
 ## Example configuration update
 In the `dev1` environment, there is one Kubernetes host. Our default
 configuration assumes three hosts for Vault. The installation will hang and
 eventually time out without changing the Vault configuration.
- 
+
 Edit `environment/$environment/fleetcommand/vault.yaml` overriding the
 vault-specific configuration. Changing the layout to a single
 host allows the installation to succeed and Vault to start
@@ -164,20 +164,20 @@ This `chart` handles the installation of all Carbide related components.
 ```sh
 helm upgrade -i -n forge-system carbide --values environments/$environment/fleetcommand/forge.yaml --debug  .
 ```
- 
+
 ## vpc
 ---
 
 VPC has three `charts` that are installed and upgraded separately.
 
 1. `vpc-crds` - CRD definitions for VPC.  These are maintained in a separate `chart `  to allow upgrades without impacting VPC itself
-2. `vpc` - The actual software VPC. 
+2. `vpc` - The actual software VPC.
 3. `vpc-site` - Site-specific VPC resources such as `administration-resource-group` and  `configurationResourcePool`
 
 ```sh
 helm upgrade -i -n forge-system vpc --values environments/$environment/fleetcommand/vpc-crds.yaml --debug .
 
-helm upgrade -i -n forge-system vpc --values environments/$environment/fleetcommand/vpc.yaml --debug  . 
+helm upgrade -i -n forge-system vpc --values environments/$environment/fleetcommand/vpc.yaml --debug  .
 
 helm upgrade -i -n forge-system vpc --values environments/$environment/fleetcommand/vpc-site.yaml --debug .
 ```

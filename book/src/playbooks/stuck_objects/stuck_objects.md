@@ -16,10 +16,10 @@ advance into the next state.
 The state of Forge objects is tracked and advanced in 2 different systems:
 - The Forge cloud backend, which stores the states that are shown by the
   Forge Web UI and ngc console.
-- The actual Forge site, which manages the lifecycle of each object inside the 
+- The actual Forge site, which manages the lifecycle of each object inside the
   site.
 
-If the state of an object doesn't advance, there might be mulitiple reasons for it:
+If the state of an object doesn't advance, there might be multiple reasons for it:
 1. The state of the object isn't advanced on the actual Forge site
 2. The request to change the state of the object is not forwarded from the Forge
     cloud to the Forge site. Or the notification about the state changed was
@@ -87,14 +87,14 @@ the deletion request was sent to the site, but deletion might be stuck there:
 ```
 
 In this example, we can see the Forge Cloud Backend indicated it transferred
-the deletion request to the Site. In this case, we should continue the 
+the deletion request to the Site. In this case, we should continue the
 investigation by checking the site state for this subnet.
 
-If you are using the Forge Web UI, not all API details like `statusHistory` 
+If you are using the Forge Web UI, not all API details like `statusHistory`
 are displayed. However we can work around this by getting
 access to the raw Forge Cloud API response.
 A browsers developer tools can be used for this:
-- While on the page that shows the status of the object (E.g. "Virtual 
+- While on the page that shows the status of the object (E.g. "Virtual
   Private Clouds"), open the browser developer tools. The F12 key will open
   it on a lot of browsers.
 - Click the Network Tab
@@ -260,7 +260,7 @@ iteration of this function, it will automatically be retried 30s later.
 Inside the `handle_object_state` function, you will find a branch that
 indicates what needs to happen in order to move the object into the next state.
 
-E.g. for the `Assigned/BootingWithDiscoveryImage` state that was detected 
+E.g. for the `Assigned/BootingWithDiscoveryImage` state that was detected
 above, we can find the following logic:
 ```rs
 if let ManagedHostState::Assigned { instance_state } = &state.managed_state {
@@ -317,13 +317,13 @@ from state `Assigned/WaitingForNetworkConfig`, but due to a vault issue we faile
 to load the BMC credentials for the reboot request that is required to exit the state:
 
 ```
-level=SPAN span_id="0x807c960ebf6ad096" span_name=state_controller_iteration status="Ok" busy_ns=42812249 code_filepath=api/src/state_controller/controller.rs code_lineno=115 code_namespace=carbide::state_controller::controller controller=machine_state_controller elapsed_us=61825 error_types="{\"assigned.waitingfornetworkconfig\":{\"redfish_client_creation_error\":1}}" handler_latencies_us="{\"ready\":{\"min\":20714,\"max\":22499,\"avg\":21551},\"assigned.waitingfornetworkconfig\":{\"min\":55593,\"max\":55593,\"avg\":55593}}" idle_ns=18985935 service_name=carbide-api service_namespace=forge-system skipped_iteration=false start_time=2023-09-11T07:55:36.598202068Z states="{\"assigned.waitingfornetworkconfig\":1,\"ready\":3}" times_in_state_s="{\"assigned.waitingfornetworkconfig\":{\"min\":2013,\"max\":2013,\"avg\":2013},\"ready\":{\"min\":1432860,\"max\":2998789,\"avg\":1954860}}" 
+level=SPAN span_id="0x807c960ebf6ad096" span_name=state_controller_iteration status="Ok" busy_ns=42812249 code_filepath=api/src/state_controller/controller.rs code_lineno=115 code_namespace=carbide::state_controller::controller controller=machine_state_controller elapsed_us=61825 error_types="{\"assigned.waitingfornetworkconfig\":{\"redfish_client_creation_error\":1}}" handler_latencies_us="{\"ready\":{\"min\":20714,\"max\":22499,\"avg\":21551},\"assigned.waitingfornetworkconfig\":{\"min\":55593,\"max\":55593,\"avg\":55593}}" idle_ns=18985935 service_name=carbide-api service_namespace=forge-system skipped_iteration=false start_time=2023-09-11T07:55:36.598202068Z states="{\"assigned.waitingfornetworkconfig\":1,\"ready\":3}" times_in_state_s="{\"assigned.waitingfornetworkconfig\":{\"min\":2013,\"max\":2013,\"avg\":2013},\"ready\":{\"min\":1432860,\"max\":2998789,\"avg\":1954860}}"
 level=ERROR span_id="0x807c960ebf6ad096" error="An error occurred with the request" location="/usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/vaultrs-0.6.2/src/auth/kubernetes.rs:53"
 level=WARN span_id="0x807c960ebf6ad096" msg="State handler error" error="RedfishClientCreationError(MissingCredentials(Failed to execute kubernetes service account login request\n\nCaused by:\n   0: An error occurred with the request\n   1: Error sending HTTP request\n   2: error sending request for url (https://vault.vault.svc.cluster.local:8200/v1/auth/kubernetes/login): error trying to connect: error:0A000086:SSL routines:tls_post_process_server_certificate:certificate verify failed:../ssl/statem/statem_clnt.c:1889: (certificate has expired)\n   3: error trying to connect: error:0A000086:SSL routines:tls_post_process_server_certificate:certificate verify failed:../ssl/statem/statem_clnt.c:1889: (certificate has expired)\n   4: error:0A000086:SSL routines:tls_post_process_server_certificate:certificate verify failed:../ssl/statem/statem_clnt.c:1889: (certificate has expired)\n   5: error:0A000086:SSL routines:tls_post_process_server_certificate:certificate verify failed:../ssl/statem/statem_clnt.c:1889:\n\nLocation:\n    forge_secrets/src/forge_vault.rs:141:22))" object_id=fm100htbj4teuomt9p8095cg3nikudaqq69uih6t3gg61tpgkkmtncvjbgg location="api/src/state_controller/controller.rs:357"
 ```
 
 As seen from the example above, the field `error_types` can also provide
-a quick overview on what errors have occured in certain states and
+a quick overview on what errors have occurred in certain states and
 prevented the state machine to advance the state of objects.
 
 ```

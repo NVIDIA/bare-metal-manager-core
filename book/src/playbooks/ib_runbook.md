@@ -4,11 +4,11 @@
 
 [Infiniband](https://en.wikipedia.org/wiki/InfiniBand) is a new feature in Forge since the latest release. This runbook describes the steps on infrastructure setup and configuration of Forge to enable Infiniband in a site.
 
-## UFM
+## Unified Fabric Manager (UFM)
 
 ### Installation
 
-UFM 6.19.0 and up is recomended for configuring UFM in more secury mode.
+UFM 6.19.0 and up is recommended for configuring UFM in more secury mode.
 
 For the Forge product environment, the HA mode is required.
 
@@ -218,10 +218,10 @@ No additional steps are required to enable Infiniband in Forge.
 
 #### UFM Credential
 
-One of two options can be selected to UFM Authentification mechanism such as `token authentication` or `client authentification`.
+One of two options can be selected to UFM Authentication mechanism such as `token authentication` or `client authentication`.
 Follow the instructions in the section that applies to the selected option.
 
-##### Token Authentification
+##### Token Authentication
 
 Get the token of the admin user in UFM in above step, or get it again by following the rest api (the password of the admin user is required to get the token):
 
@@ -244,10 +244,10 @@ Create the credential for UFM client in Forge by forge-admin-cli as follows:
 root:/# forge-admin-cli credential add-ufm --url=https://<address:port> --token=<access_token>
 ```
 
-##### Client Authentification (mTLS)
+##### Client Authentication (mTLS)
 
 Mutual TLS, or mTLS for short, is a method for mutual authentication. mTLS ensures that the parties at each end of a network connection are who they claim to be by verifying that they both have the correct private key. The information within their respective TLS certificates provides additional verification.
-mTLS is often used in a Zero Trust security framework to verify users, devices, and servers within an organization. 
+mTLS is often used in a Zero Trust security framework to verify users, devices, and servers within an organization.
 Zero Trust means that no user, device, or network traffic is trusted by default, an approach that helps eliminate many security vulnerabilities.
 
 ###### Configure UFM to enable mTLS according the instruction
@@ -275,7 +275,7 @@ openssl x509 -in server.crt -text -noout | grep DNS
      def get_apache_conf_path(self):
 ```
 
-**Select Client Authentification mode.**
+**Select Client Authentication mode.**
 
 Existing carbide certificates such as `/run/secrets/spiffe.io/{tls.crt,tls.key,ca.crt}` are used for client side.
 

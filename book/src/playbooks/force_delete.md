@@ -32,7 +32,7 @@ machines and instances running on top of them from the database, and clean up as
 It accepts the machine-id, hostname,  MAC or IP of either the managed host or DPU as input,
 and will delete information about both of them (since they are heavily coupled).
 
-It returns all machine-ids and instance-ids it acted on, as well as the BMC informations for the host.
+It returns all machine-ids and instance-ids it acted on, as well as the BMC information for the host.
 
 Example:
 
@@ -57,7 +57,7 @@ should be fully rebuilt and available.
 
 Deleting and recreating a Forge instance can take upwards of 1.5 hours. However, if you do not need to change the
 PXE image you can reinstall the OS in place and reuse your allocated system. All the other information about your
-instance will stay the same. *This proceedure will delete any data on the host!*
+instance will stay the same. *This procedure will delete any data on the host!*
 
 The following steps can be used to reinstall the host OS on a Forge host:
 

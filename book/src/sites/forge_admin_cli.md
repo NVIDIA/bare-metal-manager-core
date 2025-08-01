@@ -19,12 +19,12 @@ revisited unless the root certificate changes.
 6. Follow the directions for [nvinit user certificates](#nvinit-user-certificates)
 7. `docker run -v ~/.nvinit:/root/.nvinit nvcr.io/nvidian/nvforge-devel/forge-admin-cli:latest`
 
-The docker image runs on both x86 and ARM based processors. 
+The docker image runs on both x86 and ARM based processors.
 
 To update to the latest version: `docker pull nvcr.io/nvidian/nvforge-devel/forge-admin-cli:latest`
 
 You can substiture `docker run -v ~/.nvinit:/root/.nvinit nvcr.io/nvidian/nvforge-devel/forge-admin-cli:latest`
-wherever you see `/forge-admin-cli` in the documentation 
+wherever you see `/forge-admin-cli` in the documentation
 
 ## Root certificate setup
 *NOTE* If using the docker container you do not need to do this. The root cert is already present in the container

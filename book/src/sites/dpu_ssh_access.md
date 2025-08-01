@@ -90,7 +90,7 @@ The network operator reserves the right to consent to valid law
 enforcement requests to search the network and to institute legal or
 disciplinary action against any misuse of the network.
 ***********************************************************************
-xxxxx@10.217.133.81's password: 
+xxxxx@10.217.133.81's password:
 Welcome to Ubuntu 20.04.5 LTS (GNU/Linux 5.4.0-1054.44.g88324c5-bluefield aarch64)
 
  * Documentation:  https://help.ubuntu.com
@@ -132,7 +132,7 @@ Last login: Thu Jun  1 18:07:12 2023 from 10.180.49.149
 To run a command as administrator (user "root"), use "sudo <command>".
 See "man sudo_root" for details.
 
-xxxxx@leopard-floor:mgmt:~$ 
+xxxxx@leopard-floor:mgmt:~$
 
 ```
 
@@ -197,7 +197,7 @@ Last login: Thu Jun  1 20:06:39 2023 from 10.180.49.149
 To run a command as administrator (user "root"), use "sudo <command>".
 See "man sudo_root" for details.
 
-forge@leopard-floor:mgmt:~$ 
+forge@leopard-floor:mgmt:~$
 
 ```
 

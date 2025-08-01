@@ -27,7 +27,7 @@
     2. SSH to the DPU using the instructions on the [DPU SSH Access Playbook](sites/dpu_ssh_access.md)
     3. Search for the `forge-dpu-agent` process, which updates the DPU configuration based on requests of the carbide-api control-plane server.
     5. Inspect the logs of the forge-dpu-agent process using `journalctl -u forge-dpu-agent.service`. You should be able to observe the dpu-agent applying new configurations at the time your instance was created.
-    6. Inspect the status reports that the DPU is periodically sending to carbide-api. You can check the last submitted report using forge-admin-cli machine network status. 
+    6. Inspect the status reports that the DPU is periodically sending to carbide-api. You can check the last submitted report using forge-admin-cli machine network status.
 6. Inspect the state of the site controller database for the objects you created:
     1. Get access to the dev3 site controller node. See [Control Plane SSH Access](sites/control_plane_ssh_access.md)
     2. Execute `kubectl exec -i -t -n postgres forge-pg-cluster-0 -- /usr/bin/psql -U postgres forge_system_carbide`

@@ -21,7 +21,7 @@
 | SYS-821GE-TNHR                     | [SMC Support](https://www.supermicro.com/en/support/resources/downloadcenter/swdownload)         | 01.01.06               | 02/09/24            | 2.4                 |       | 08/09/24            |
 | HPE ProLiant DL385 Gen10 Plus v2       | [HPE Support](https://support.hpe.com/connect/s/?language=en_US)         | 3.10                   | 12/16/24            | 3.60_01-16-2025     |       | 01/23/25            |
 
-Note: * OVX does not show up as an option; need to check with Server Serial Number. 
+Note: * OVX does not show up as an option; need to check with Server Serial Number.
 ## DPU
 | DPU          | Firmware / Software Version                |
 |--------------|-------------------------------------------|

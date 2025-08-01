@@ -70,7 +70,7 @@ SRE, Provider admin, Developer
 
 1) Access to forge sites
 
-##### 
+#####
 
 # Features and Functionalities {#features-and-functionalities}
 
@@ -78,13 +78,13 @@ SRE, Provider admin, Developer
 
 #### Feature gate {#feature-gate}
 
-Forge site controller has site settings. These settings provide mechanisms to enable and disable features. Machine Validation feature controlled using these settings.  The feature gate enables or disables machine validation features at deploy time. 
+Forge site controller has site settings. These settings provide mechanisms to enable and disable features. Machine Validation feature controlled using these settings.  The feature gate enables or disables machine validation features at deploy time.
 
 #### Test case management {#test-case-management}
 
 Test Case Management is the process of  adding, updating test cases. There are two types of test cases
 
-1) Test cases added during deploy- These are common across all the sites and these are read-only test cases. Test cases are added through forge DB migration.  
+1) Test cases added during deploy- These are common across all the sites and these are read-only test cases. Test cases are added through forge DB migration.
 2) Site specific test case - Added by site admin
 
 #### Enable disable test {#enable-disable-test}
@@ -93,7 +93,7 @@ If the test case is enabled then forge-scout selects the test case for running.
 
 #### Verify tests {#verify-tests}
 
-If site admin adds a test case, by default the test case verified flag will be set to false. The term verify means test case added to forge datastore but not actually verified on hardware. By default the forge-scout never runs unverified test cases. Using on-demand machine validation, admin can run unverified test cases. 
+If site admin adds a test case, by default the test case verified flag will be set to false. The term verify means test case added to forge datastore but not actually verified on hardware. By default the forge-scout never runs unverified test cases. Using on-demand machine validation, admin can run unverified test cases.
 
 #### View tests results {#view-tests-results}
 
@@ -198,7 +198,7 @@ If the machine is not allocated for long and the machine remains in ready state,
 
 ### Initial setup {#initial-setup}
 
-Forge has a Machine validation feature gate. By default the feature is disabled. 
+Forge has a Machine validation feature gate. By default the feature is disabled.
 
 To enable add below section in api site config toml [forged/](https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/envs/)<name>/site/site-controller/files/carbide-api/carbide-api-site-config.toml
 
@@ -206,7 +206,7 @@ To enable add below section in api site config toml [forged/](https://gitlab-mas
 
 enabled = true
 
-Eg - [pdx-dev3](https://gitlab-master.nvidia.com/nvmetal/forged/-/blob/main/envs/pdx-dev3/site/site-controller/files/carbide-api/carbide-api-site-config.toml?ref_type=heads#L191) 
+Eg - [pdx-dev3](https://gitlab-master.nvidia.com/nvmetal/forged/-/blob/main/envs/pdx-dev3/site/site-controller/files/carbide-api/carbide-api-site-config.toml?ref_type=heads#L191)
 
 Also Add following in version of machine_validation in [forged/](https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/envs/)<name>/site/site-controller/kustomization.yaml
 
@@ -216,9 +216,9 @@ Also Add following in version of machine_validation in [forged/](https://gitlab-
 
   newTag: <Version>
 
-Machine Validation allows site operators to configure the NGC container registry.  This allows machine validation to use private container in 
+Machine Validation allows site operators to configure the NGC container registry.  This allows machine validation to use private container in
 
-Eg :  Store the container registry auth in  `/tmp/config.json` 
+Eg :  Store the container registry auth in  `/tmp/config.json`
 
 ```
 # cat EOF <<  >/tmp/config.json
@@ -232,17 +232,17 @@ Eg :  Store the container registry auth in  `/tmp/config.json`
 EOF
 ```
 
-Finally add the config to site 
+Finally add the config to site
 
     root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation external-config    add-update --name container_auth --description "NVCR description"  --file-name /tmp/config.json
 
  Note: One can copy Imagepullsecret  from Site controller  - **kubectl get secrets -n forge-system imagepullsecret -o yaml | awk '$1==".dockerconfigjson:" {print $2}'**
 
-	
+
 
 ### Enable test cases {#enable-test-cases}
 
-By default all the test cases are disabled. 
+By default all the test cases are disabled.
 
     root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests show
 
@@ -264,7 +264,7 @@ By default all the test cases are disabled.
 
     +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-To enable tests 
+To enable tests
 
     forge-admin-cli machine-validation tests enable --test-id <test_id> --version  <test version>
 
@@ -272,13 +272,13 @@ To enable tests
 
     Note: There is a bug, a workaround is to use two commands. Will be fixed in coming releases.
 
-    Eg:  To enable forge_CudaSample  execute following steps 
+    Eg:  To enable forge_CudaSample  execute following steps
 
     root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests enable --test-id forge_CudaSample  --version  V1-T1734600519831720
 
     root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests verify --test-id forge_CudaSample  --version  V1-T1734600519831720
 
-Enabling different tests cases 
+Enabling different tests cases
 
 CPU Benchmarking test cases
 
@@ -410,7 +410,7 @@ Shoreline Agent test case
 
         forge-admin-cli machine-validation tests verify --test-id forge_ForgeRunBook  --version  V1-T1731383523746813
 
-### 
+###
 
 ### Verify tests {#verify-tests-1}
 
@@ -428,19 +428,19 @@ If a test is modified or added by site admin by default the test case verify fla
 
         +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-To mark test as verified 
+To mark test as verified
 
         forge-admin-cli machine-validation tests verify --test-id <test_id> --version  <test version>
 
-Eg:  To enable forge_CudaSample  execute following steps 
+Eg:  To enable forge_CudaSample  execute following steps
 
     root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests verify --test-id forge_site_admin --version  V1-T1734009539861341
 
-### 
+###
 
 ### Add test case {#add-test-case}
 
-Site admin can add test cases per site. 
+Site admin can add test cases per site.
 
         root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests add  --help
 
@@ -546,7 +546,7 @@ Eg: add test case which prints **‘newtest’**
 
         +---------------+---------+---------+---------+------------+----------------------+-----------+
 
-By default the test case’s verify flag is set to false. Set 
+By default the test case’s verify flag is set to false. Set
 
         root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests verify  --test-id forge_NewTest --version V1-T1736492939564126
 
@@ -562,11 +562,11 @@ By default the test case’s verify flag is set to false. Set
 
         +---------------+---------+---------+---------+------------+----------------------+-----------+
 
-### 
+###
 
 ### Update test case {#update-test-case}
 
-Update existing testcases 
+Update existing testcases
 
         root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests update --help
 
@@ -688,14 +688,14 @@ We can selectively update fields of test cases. Once the test case is updated th
 
         root@pdx01-m01-h16-cpu-1:~#
 
-### 
+###
 
 ### Run On-Demand Validation {#run-on-demand-validation}
 
-Machine validation has 3 Contexts 
+Machine validation has 3 Contexts
 
-1) Discovery - Tests cases with this context will be executed during node ingestion time.  
-2) Cleanup - Tests cases with context will be executed during node cleanup(between tenants).  
+1) Discovery - Tests cases with this context will be executed during node ingestion time.
+2) Cleanup - Tests cases with context will be executed during node cleanup(between tenants).
 3) On-Demand - Tests cases with context will be executed when on demand machine validation is triggered.
 
         root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation on-demand start  --help
@@ -720,7 +720,7 @@ Start on demand machine validation
 
       --extended                       Extended result output.
 
-Usecase 1 - Run tests whose context is on-demand 
+Usecase 1 - Run tests whose context is on-demand
 
         root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
 
@@ -738,7 +738,7 @@ Usecase 4 - Run un verified forge_CudaSample test case
 
 ### View results {#view-results}
 
-Feature shows progress of the on-going machine validation 
+Feature shows progress of the on-going machine validation
 
         root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation runs show --help
 
@@ -832,9 +832,9 @@ Show results
 
 To add a new platform for individual tests
 
-1) Get system sku id- 
-        # dmidecode -s system-sku-number | tr "[:upper:]" "[:lower:]"  
-2) 
+1) Get system sku id-
+        # dmidecode -s system-sku-number | tr "[:upper:]" "[:lower:]"
+2)
         # forge-admin-cli machine-validation tests update  --test-id  <test_id> --version   <test version> --supported-platforms    <sku>
 
         Eg: # forge-admin-cli machine-validation tests update  --test-id  forge_default  --version   V1-T1734009539861341   --supported-platforms    7d9ectOlww
@@ -849,5 +849,5 @@ slack #swngc-forge-dev
 
 # References {#references}
 
-[Design doc](https://gitlab-master.nvidia.com/nvmetal/designs/-/blob/vc/burn-in/designs/0000-host-validation.md) 
+[Design doc](https://gitlab-master.nvidia.com/nvmetal/designs/-/blob/vc/burn-in/designs/0000-host-validation.md)
 

@@ -13,7 +13,7 @@
 
 ## Cert-Manager
 The `CertificateRequest` (which includes the CSR) references a
-`ClusterIssuer` set up during the initial bootstrap of the site. 
+`ClusterIssuer` set up during the initial bootstrap of the site.
 
 The `ClusterIssuer` sends CSRs to Vault for signing using the forgeCA PKI.
 Before a `CertificateRequest` can be signed, it must be approved.
@@ -29,13 +29,13 @@ Vault for signing.
 
 SPIFFE is a means of identifying software systems.  The identity of the software is
 cryptographically verifiable and exists within a "trust domain"  The trust domain could be a user, organization, or anything
-representable in a URI. 
+representable in a URI.
 
-With SPIFFE formatted `Certificates`, the only field populated is the SAN (Subject Alternative Name).  The SAN must conform to the  
+With SPIFFE formatted `Certificates`, the only field populated is the SAN (Subject Alternative Name).  The SAN must conform to the
  [SPIFFE ID format](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE.md#2-the-spiffe-id).
- 
+
  The validation of the SPIFFE ID format and submission of `CertificateRequest` gets handled by `cert-manager-csi-driver-spiffe-approver` and `cert-manager-csi-driver-spiffe`, respectively.
- 
+
  `cert-manager-csi-driver-spiffe` runs as a `DaemonSet`. It is responsible for generating the TLS key, CSR and submitting the CSR for
  approval (By way of `CertificateRequest`).
 
@@ -110,11 +110,11 @@ After creating the `serviceAccount`, `role`, and `rolebinding`, modify your depl
 spec:
   serviceAccountName: carbide-api
 ...
-      volumeMounts: 
+      volumeMounts:
         - name: spiffe
           mountPath: "/var/run/secrets/spiffe.io"
 ...
-    volumes: 
+    volumes:
     - name: spiffe
     csi:
       driver: spiffe.csi.cert-manager.io

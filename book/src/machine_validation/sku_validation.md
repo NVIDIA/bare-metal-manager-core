@@ -6,17 +6,17 @@ known as "SKU Validation."
 ## Summary
 
 A SKU is a collection of definitions managed by Forge that define a specific configuration of machine.
-Each host managed by Forge must have a SKU associated with it before it can be made available for use by a tenant 
+Each host managed by Forge must have a SKU associated with it before it can be made available for use by a tenant
 (TODO: did we actually implement this?).
 
-Hardware configurations or SKUs are generated from existing machines by an admin and uploaded to forge via the CLI.  
+Hardware configurations or SKUs are generated from existing machines by an admin and uploaded to forge via the CLI.
 SKU's can be downloaded for modification or use with other sites.
 
-Machines that are assigned a SKU are automatically validated during ingestion based on their discovery information. 
+Machines that are assigned a SKU are automatically validated during ingestion based on their discovery information.
 Hardware validation occurs during initial ingestion and after an instance is released and new discovery information is received.
 
-New machines are automatically checked against existing SKUs and if a match is found, the machine passes 
-SKU validation and continues with the normal ingestion process.  If no match is found the machine waits until 
+New machines are automatically checked against existing SKUs and if a match is found, the machine passes
+SKU validation and continues with the normal ingestion process.  If no match is found the machine waits until
 a matching SKU is available or until the machine is made compatible with an existing SKU, if SKU validation is enabled
 in the site (`ignore_unassigned_machines` configuration option).
 
@@ -24,7 +24,7 @@ in the site (`ignore_unassigned_machines` configuration option).
 
 SKU Validation can be enabled or disabled for a site, however, when it is enabled, it may or may not
 apply to a given machine. For a machine to have SKU Validation enforced, it must have an assigned SKU,
-however, note that SKUs will automatically be assigned to machines that match a given SKU, if they are in ready state. 
+however, note that SKUs will automatically be assigned to machines that match a given SKU, if they are in ready state.
 
 If the flag `ignore_unassigned_machines` is set in the site configuration, then machines that do not have an
 assigned SKU will still be usable and assignable.
@@ -51,7 +51,7 @@ ignore_unassigned_machines = false
  - `enabled` - Enables or disables the entire bom validation process.  When disabled, machines
   will skip bom validation and proceed as if all validation has passed.
  - `ignore_unassigned_machines` - When true and BOM validation encounters a machine that does not have an associated SKU,
-  it will proceed as if all validation has passed. Only machines with an associated SKU will be validated. This allows 
+  it will proceed as if all validation has passed. Only machines with an associated SKU will be validated. This allows
   existing sites to be upgraded and BOM Validation enabled as SKUs are added to the system without impacting site operation.
 
 ### Hardware Validated
@@ -124,10 +124,10 @@ Create the SKU information (on your local machine, written to an output file):
 ```sh
 export CARBIDE_API_URL="https://api-<site>.frg.nvidia.com"
 
-forge-admin-cli -f json -o <sku_name>.json sku generate <machineid> --id <sku_name> 
+forge-admin-cli -f json -o <sku_name>.json sku generate <machineid> --id <sku_name>
 ```
 
-This will create a file in the current directory with the name `<sku_name>.json`, at this point you can create the 
+This will create a file in the current directory with the name `<sku_name>.json`, at this point you can create the
 SKU on the site controller:
 
 ```sh
@@ -142,7 +142,7 @@ machine goes to ready (not assigned) state, or goes through a machine validation
 ```sh
 export CARBIDE_API_URL="https://api-<site>.frg.nvidia.com"
 
-forge-admin-cli sku assign <sku_name> <machineid> 
+forge-admin-cli sku assign <sku_name> <machineid>
 ```
 
 ### Remove a SKU assignment from a machine
@@ -154,7 +154,7 @@ the site controller after this command is run.
 ```sh
 export CARBIDE_API_URL="https://api-<site>.frg.nvidia.com"
 
-forge-admin-cli sku unassign <machineid> 
+forge-admin-cli sku unassign <machineid>
 ```
 
 ### Remove a SKU from a site
@@ -210,4 +210,4 @@ machine is actually configured incorrectly, or in the case that the new configur
 correct, you can remove the SKU from the machine `sku unassign` and create a new SKU as shown
 above to represent this machine.
 
-### 
+###

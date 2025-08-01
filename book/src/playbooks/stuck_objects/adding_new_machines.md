@@ -15,7 +15,7 @@ Some of the configuration items that should be considered which could potentiall
 
 ***Note:*** New servers should be using the default username for the server type e.g. USERID for Lenovo, admin for NVIDIA/Vikings, root for Dell
 
-You should check both the expected machines DB and the site vault pod data store for any existing data. If entries exist in both expected machines and vault, you should consider the password stored in vault as the password that shuld be used.
+You should check both the expected machines DB and the site vault pod data store for any existing data. If entries exist in both expected machines and vault, you should consider the password stored in vault as the password that should be used.
 
 ### Check Host BMC exists in Expected Machines DB
 
@@ -145,10 +145,10 @@ For Bluefield 2 DPUs you should expect the output similar to the following:
 
 ```text
 Querying Mellanox devices firmware ...
- 
+
 Device #1:
 ----------
- 
+
   Device Type:      BlueField2
   Part Number:      MBF2H536C-CECO_Ax_Bx
   Description:      BlueField-2 P-Series DPU 100GbE Dual-Port QSFP56; integrated BMC; PCIe Gen4 x16; Secure Boot Enabled; Crypto Enabled; 32GB on-board DDR; 1GbE OOB management; FHHL
@@ -170,10 +170,10 @@ For Bluefield 3 DPUs you should expect the output similar to the following:
 
 ```text
 Querying Mellanox devices firmware ...
- 
+
 Device #1:
-----------   
- 
+----------
+
 Device Type:      BlueField3
   Part Number:      900-9D3B6-00CV-A_Ax
   Description:      NVIDIA BlueField-3 B3220 P-Series FHHL DPU; 200GbE (default mode) / NDR200 IB; Dual-port QSFP112; PCIe Gen5.0 x16 with x16 PCIe extension option; 16 Arm cores; 32GB on-board DDR; integrated BMC; Crypto Enabled
@@ -186,7 +186,7 @@ Device Type:      BlueField3
      UEFI           14.34.0012     N/A
      UEFI Virtio blk   22.4.0013      N/A
      UEFI Virtio net   21.4.0013      N/A
- 
+
   Status:           No matching image found
 ```
 
@@ -209,7 +209,7 @@ To check the current Bluefield firmware versions installed on a DPU:
 
     ```bash
     curl -k -H "X-Auth-Token: $BMCTOKEN" -X GET https://$DPUBMCIP/redfish/v1/UpdateService/FirmwareInventory
-    
+
     # Use the Firmware ID from the first command to complete the firmware ID needed for the following command:
     curl -k -H "X-Auth-Token: $BMCTOKEN" -X GET https://$DPUBMCIP/redfish/v1/UpdateService/FirmwareInventory/<firmware_id>_BMC_Firmware | jq -r ' .Version'
     ```
@@ -235,7 +235,7 @@ For the examples below, we are installing FW version 24.01-5, but confirm this w
     Bluefield 2:
 
     ```bash
-    wget https://urm.nvidia.com/artifactory/sw-bmc-generic-local/BF2/BF2BMC-24.01-5/OPN/bf2-bmc-ota-24.01-5-opn.tar  
+    wget https://urm.nvidia.com/artifactory/sw-bmc-generic-local/BF2/BF2BMC-24.01-5/OPN/bf2-bmc-ota-24.01-5-opn.tar
     ```
 
     Bluefield 3:
@@ -283,7 +283,7 @@ For the examples below, we are installing FW version 24.01-5, but confirm this w
       "Members@odata.count": 1,
       "Name": "Task Collection"
     }
- 
+
     # Display the current progress
     curl -ks -H "X-Auth-Token: $BMCTOKEN" -X GET https://$DPUBMCIP/redfish/v1/TaskService/Tasks/0 | jq -r ' .PercentComplete'
     30
@@ -427,9 +427,9 @@ If the "SecureBootCurrentBoot" setting is not shown, attempt to install DOCA 2.5
 6. Ensure that the DOCA firmware is up to date:
 
     ```bash
-    sudo -i 
+    sudo -i
     bfvcheck
-    /opt/mellanox/mlnx-fw-updater/mlnx_fw_updater.pl 
+    /opt/mellanox/mlnx-fw-updater/mlnx_fw_updater.pl
     ```
 
 7. Check that the DPU ARM OS is configured for HTTPs boot. Log into the DPU ARM OS and switch to root,

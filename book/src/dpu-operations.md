@@ -1,12 +1,12 @@
 # Operating Bluefield/DPU
 
 ### Connecting to DPU
-The DPU shares a physical 1GB ethernet connection for both BMC and OOB access.  
-This one interface has two different MAC addresses. So, while the physical 
+The DPU shares a physical 1GB ethernet connection for both BMC and OOB access.
+This one interface has two different MAC addresses. So, while the physical
 connection is shared the OOB and BMC have unique IP addresses.
 
 The BMC OS is a basic `busybox` shell,  so the available commands are limited.
-To connect the BMC, ssh to the IP address listed under `DPU BMC IP` address 
+To connect the BMC, ssh to the IP address listed under `DPU BMC IP` address
 using credentials in the `DPU BMC Credentials` table above.
 
 To then connect to the 'console' of the DPU you use `microcom` on the
@@ -41,14 +41,14 @@ in order to login to a jump host.
 
 
 Recent versions of BFB can also contain firmware updates which can need to be applied using `/opt/mellanox/mlnx-fw-updater/mlnx_fw_updater.pl` after that completes
-you must power cycle (not reboot) the server.  For HP the "Cold restart" option in iLO works.   
+you must power cycle (not reboot) the server.  For HP the "Cold restart" option in iLO works.
 
 `mlxfwmanager` will tell you the current version of firmware as well as the new version that will become active on power cycle
 
-Open Vswitch is loaded on the DPUs 
+Open Vswitch is loaded on the DPUs
 `ovs-vsctl` show will show which interfaces are the bridge interfaces
 
-From the ArmOS BMC you can instruct the DPU to restart using 
+From the ArmOS BMC you can instruct the DPU to restart using
 
 `echo "SW_RESET 1" > /dev/rshim0/misc`
 
@@ -79,7 +79,7 @@ After that connection is established, open a browser (I am using firefox)
 ![firefox_proxy](static/firefox_proxy.gif "Firefox")
 
 
-Once you have configured firefox to use the ssh connection as a SOCKS proxy, you can 
+Once you have configured firefox to use the ssh connection as a SOCKS proxy, you can
 put use the ip address of the host OOB. e.g. `https://<host OOB IP>` and which point
 the HP iLO interface should show up and you can login with the credentials shown above.
 
