@@ -567,13 +567,8 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     assert_eq!(ib_status.ib_interfaces.len(), 1);
 
     // one ib port in UFM
-    let pkey: u16 = ib_partition
-        .status
-        .clone()
-        .unwrap()
-        .pkey
-        .unwrap()
-        .parse()
+    let hex_pkey = ib_partition.status.clone().unwrap().pkey.unwrap();
+    let pkey: u16 = u16::from_str_radix(hex_pkey.strip_prefix("0x").unwrap(), 16)
         .expect("Failed to parse string to integer");
     let guids = HashSet::from_iter([ib_status.ib_interfaces[0].guid.clone().unwrap()]);
     let filter = ib::Filter {

@@ -79,7 +79,7 @@ impl StateHandler for IBPartitionStateHandler {
                         // and the ib_network will be removed when no ports are in it.
                         let res = ib_fabric
                             .get_ib_network(
-                                pkey,
+                                pkey.into(),
                                 GetPartitionOptions {
                                     include_guids_data: false,
                                     include_qos_conf: true,
@@ -103,7 +103,7 @@ impl StateHandler for IBPartitionStateHandler {
                                             "pkey pool for fabric \"{DEFAULT_IB_FABRIC_NAME}\" was not found"
                                         )})?;
 
-                                    pkey_pool.release(txn, pkey).await?;
+                                    pkey_pool.release(txn, pkey.into()).await?;
                                     Ok(deleted!())
                                 }
                                 _ => Err(StateHandlerError::IBFabricError {
@@ -135,7 +135,7 @@ impl StateHandler for IBPartitionStateHandler {
                     } else {
                         let res = ib_fabric
                             .get_ib_network(
-                                pkey,
+                                pkey.into(),
                                 GetPartitionOptions {
                                     include_guids_data: false,
                                     include_qos_conf: true,
