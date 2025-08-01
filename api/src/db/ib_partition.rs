@@ -24,7 +24,7 @@ use crate::ib::IBFabricManagerConfig;
 use crate::ib::types::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::InfinibandInterface;
-use crate::model::ib_partition::state_sla;
+use crate::model::ib_partition::{PartitionKey, state_sla};
 use crate::model::instance::config::{
     infiniband::InstanceInfinibandConfig, network::InterfaceFunctionId,
 };
@@ -93,7 +93,7 @@ impl TryFrom<rpc::IbPartitionCreationRequest> for NewIBPartition {
 #[derive(Debug, Clone, PartialEq)]
 pub struct IBPartitionConfig {
     pub name: String,
-    pub pkey: Option<u16>,
+    pub pkey: Option<PartitionKey>,
     pub tenant_organization_id: TenantOrganizationId,
     pub mtu: Option<IBMtu>,
     pub rate_limit: Option<IBRateLimit>,
@@ -131,7 +131,7 @@ impl From<&IBPartition> for IBNetwork {
     fn from(ib: &IBPartition) -> IBNetwork {
         Self {
             name: ib.config.name.clone(),
-            pkey: ib.config.pkey.unwrap_or(0),
+            pkey: ib.config.pkey.map(u16::from).unwrap_or(0u16),
             ipoib: true,
             associated_guids: None,
             qos_conf: Some(IBQosConf {
@@ -173,7 +173,10 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
             version: row.try_get("config_version")?,
             config: IBPartitionConfig {
                 name: row.try_get("name")?,
-                pkey: Some(pkey as u16),
+                pkey: Some(PartitionKey::try_from(pkey as u16).map_err(|_| {
+                    let err = eyre::eyre!("Pkey {} is not valid", pkey);
+                    sqlx::Error::Decode(err.into())
+                })?),
                 tenant_organization_id,
                 mtu: IBMtu::try_from(mtu).ok(),
                 rate_limit: IBRateLimit::try_from(rate_limit).ok(),
@@ -309,7 +312,7 @@ impl NewIBPartition {
         let segment: IBPartition = sqlx::query_as(query)
             .bind(self.id)
             .bind(&conf.name)
-            .bind(conf.pkey.map(|k| k as i32))
+            .bind(conf.pkey.map(|k| u16::from(k) as i32))
             .bind(conf.tenant_organization_id.to_string())
             .bind::<i32>(conf.mtu.clone().unwrap_or_default().into())
             .bind::<i32>(conf.rate_limit.clone().unwrap_or_default().into())

@@ -20,6 +20,7 @@ use std::time::Duration;
 use crate::db::attestation as db_attest;
 use crate::handlers::instance;
 use crate::handlers::utils::convert_and_log_machine_id;
+use crate::model::ib_partition::PartitionKey;
 use crate::model::metadata::Metadata;
 use crate::model::power_manager::PowerOptions;
 pub use ::rpc::forge as rpc;
@@ -5589,7 +5590,7 @@ impl Api {
         &self,
         txn: &mut PgConnection,
         owner_id: &str,
-    ) -> Result<Option<u16>, CarbideError> {
+    ) -> Result<Option<PartitionKey>, CarbideError> {
         match self
             .common_pools
             .infiniband
@@ -5599,7 +5600,9 @@ impl Api {
             .allocate(txn, resource_pool::OwnerType::IBPartition, owner_id)
             .await
         {
-            Ok(val) => Ok(Some(val)),
+            Ok(val) => Ok(Some(
+                PartitionKey::try_from(val)
+                .map_err(|_| CarbideError::internal(format!("Partition key {val} return from pool is not a valid pkey. Pool Definition is invalid")))?)),
             Err(resource_pool::ResourcePoolError::Empty) => {
                 tracing::error!(owner_id, pool = "pkey", "Pool exhausted, cannot allocate");
                 Err(CarbideError::ResourceExhausted("pool pkey".to_string()))

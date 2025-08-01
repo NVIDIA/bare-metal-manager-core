@@ -300,7 +300,7 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         id,
         config: IBPartitionConfig {
             name: "partition1".to_string(),
-            pkey: Some(42),
+            pkey: Some(42.try_into().unwrap()),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string().try_into().unwrap(),
             mtu: Some(IBMtu::default()),
             rate_limit: Some(IBRateLimit::default()),

@@ -132,7 +132,7 @@ pub(crate) async fn unbind_ib_ports(
             })?;
 
         ib_fabric
-            .unbind_ib_ports(pkey, v)
+            .unbind_ib_ports(pkey.into(), v)
             .await
             .map_err(|e| StateHandlerError::IBFabricError {
                 operation: "unbind_ib_ports".to_string(),

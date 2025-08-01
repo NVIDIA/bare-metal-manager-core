@@ -66,8 +66,14 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         DEFAULT_TENANT.to_string(),
     )
     .await;
-    let pkey = ib_partition.status.as_ref().unwrap().pkey().to_string();
-    let pkey_u16: u16 = pkey.parse().unwrap();
+    let hex_pkey = ib_partition.status.as_ref().unwrap().pkey().to_string();
+    let pkey_u16: u16 = u16::from_str_radix(
+        hex_pkey
+            .strip_prefix("0x")
+            .expect("Pkey needs to be in hex format"),
+        16,
+    )
+    .expect("Failed to parse string to integer");
 
     env.run_ib_partition_controller_iteration().await;
 
@@ -80,7 +86,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         ib_partition.status.clone().unwrap().state,
         ib_partition_status.state
     );
-    assert_eq!(&pkey, ib_partition_status.pkey.as_ref().unwrap());
+    assert_eq!(&hex_pkey, ib_partition_status.pkey.as_ref().unwrap());
     assert!(ib_partition_status.mtu.is_none());
     assert!(ib_partition_status.rate_limit.is_none());
     assert!(ib_partition_status.service_level.is_none());
@@ -239,9 +245,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         panic!("ib configuration is incorrect.");
     }
 
-    delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
-
-    // Check whether the IB ports are still bound to the partition
+    // Check if ports have been registered at UFM
     let ib_conn = env
         .ib_fabric_manager
         .connect(DEFAULT_IB_FABRIC_NAME)
@@ -255,9 +259,26 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         }))
         .await
         .unwrap();
+    assert_eq!(
+        ports.len(),
+        2,
+        "The expected amount of ports for pkey {hex_pkey} has not been registered"
+    );
+
+    delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
+
+    // Check whether the IB ports are still bound to the partition
+    let ports = ib_conn
+        .find_ib_port(Some(Filter {
+            guids: None,
+            pkey: Some(pkey_u16),
+            state: None,
+        }))
+        .await
+        .unwrap();
     assert!(
         ports.is_empty(),
-        "IB ports have not been removed for pkey {pkey}"
+        "IB ports have not been removed for pkey {hex_pkey}"
     );
 }
 
