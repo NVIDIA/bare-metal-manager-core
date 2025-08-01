@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use std::pin::Pin;
 
 use prettytable::{Table, row};
 use utils::admin_cli::{CarbideCliResult, OutputFormat};
 
+use crate::async_write;
 use crate::cfg::cli_options::ShowExpectedMachineQuery;
 use crate::rpc::ApiClient;
 
@@ -10,20 +12,28 @@ pub async fn show_expected_machines(
     expected_machine_query: &ShowExpectedMachineQuery,
     api_client: &ApiClient,
     output_format: OutputFormat,
-    output: &mut dyn std::io::Write,
+    output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
 ) -> CarbideCliResult<()> {
     if let Some(bmc_mac_address) = expected_machine_query.bmc_mac_address {
         let expected_machine = api_client
             .0
             .get_expected_machine(bmc_mac_address.to_string())
             .await?;
-        writeln!(output, "{:#?}", expected_machine)?;
+        if output_format == OutputFormat::Json {
+            async_write!(
+                output,
+                "{}",
+                serde_json::ser::to_string_pretty(&expected_machine)?
+            )?;
+        } else {
+            async_write!(output, "{:#?}", expected_machine)?;
+        }
         return Ok(());
     }
 
     let expected_machines = api_client.0.get_all_expected_machines().await?;
     if output_format == OutputFormat::Json {
-        writeln!(
+        async_write!(
             output,
             "{}",
             serde_json::to_string_pretty(&expected_machines)?
@@ -80,13 +90,14 @@ pub async fn show_expected_machines(
         &expected_machines,
         &expected_bmc_ip_vs_ids,
         &expected_mi,
-    )?;
+    )
+    .await?;
 
     Ok(())
 }
 
-fn convert_and_print_into_nice_table(
-    output: &mut dyn std::io::Write,
+async fn convert_and_print_into_nice_table(
+    output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     expected_machines: &::rpc::forge::ExpectedMachineList,
     expected_discovered_machine_ids: &HashMap<String, String>,
     expected_discovered_machine_interfaces: &HashMap<String, ::rpc::forge::MachineInterface>,
@@ -146,7 +157,7 @@ fn convert_and_print_into_nice_table(
         ]);
     }
 
-    table.print(output)?;
+    async_write!(output, "{}", table)?;
 
     Ok(())
 }

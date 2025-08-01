@@ -10,9 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::VecDeque;
+use std::pin::Pin;
 
 use super::cfg::cli_options::{HealthOverrideTemplates, MachineHardwareInfoGpus, ShowMachine};
 use super::default_uuid;
+use crate::async_writeln;
 use crate::cfg::cli_options::{
     ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand, SortField,
 };
@@ -710,5 +712,38 @@ pub async fn handle_show_machine_hardware_info(
     _machine_id: String,
 ) -> CarbideCliResult<()> {
     println!("Show hardware info not yet implemented");
+    Ok(())
+}
+
+pub async fn handle_metadata_show(
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_format: &OutputFormat,
+    _extended: bool,
+    machine: Machine,
+) -> CarbideCliResult<()> {
+    let metadata = machine.metadata.ok_or(CarbideCliError::Empty)?;
+
+    match output_format {
+        OutputFormat::AsciiTable => {
+            return Err(CarbideCliError::NotImplemented(
+                "Table formatted output".to_string(),
+            ));
+        }
+        OutputFormat::Csv => {
+            return Err(CarbideCliError::NotImplemented(
+                "CSV formatted output".to_string(),
+            ));
+        }
+        OutputFormat::Json => {
+            async_writeln!(output_file, "{}", serde_json::to_string_pretty(&metadata)?)?
+        }
+        OutputFormat::Yaml => {
+            return Err(CarbideCliError::NotImplemented(
+                "YAML formatted output".to_string(),
+            ));
+        }
+    }
+    // TODO: Support non-json output
+
     Ok(())
 }

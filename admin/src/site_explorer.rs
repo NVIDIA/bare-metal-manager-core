@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, pin::Pin};
 
-use crate::cfg::cli_options::GetReportMode;
+use crate::{async_write, async_writeln, cfg::cli_options::GetReportMode};
 use ::rpc::site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport};
 use prettytable::{Cell, Row, Table, format, row};
 
@@ -171,6 +171,7 @@ async fn get_exploration_report_for_bmc_address(
 
 pub async fn show_site_explorer_discovered_managed_host(
     api_client: &ApiClient,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     output_format: OutputFormat,
     internal_page_size: usize,
     mode: GetReportMode,
@@ -181,7 +182,11 @@ pub async fn show_site_explorer_discovered_managed_host(
                 .get_site_exploration_report(internal_page_size)
                 .await?;
 
-            println!("{}", serde_json::to_string_pretty(&exploration_report)?);
+            async_write!(
+                output_file,
+                "{}",
+                serde_json::to_string_pretty(&exploration_report)?
+            )?;
             return Ok(());
         }
 
@@ -196,28 +201,36 @@ pub async fn show_site_explorer_discovered_managed_host(
                 let Some(managed_host) = exploration_report.managed_hosts.iter().find(|x| {
                     x.host_bmc_ip == address || x.dpus.iter().any(|a| a.bmc_ip == address)
                 }) else {
-                    println!("Could not find IP in discovered managed host.");
+                    async_writeln!(output_file, "Could not find IP in discovered managed host.")?;
                     return Ok(());
                 };
                 if output_format == OutputFormat::Json {
-                    println!("{}", serde_json::to_string_pretty(&managed_host)?);
+                    async_writeln!(
+                        output_file,
+                        "{}",
+                        serde_json::to_string_pretty(&managed_host)?
+                    )?;
                     return Ok(());
                 }
                 let endpoints = get_endpoints_for_managed_host(managed_host, &exploration_report);
-                print_managed_host_info(managed_host, endpoints);
+                print_managed_host_info(output_file, managed_host, endpoints).await?;
             } else {
                 let exploration_report = api_client
                     .get_site_exploration_report(internal_page_size)
                     .await?;
                 if output_format == OutputFormat::Json {
-                    println!(
+                    async_writeln!(
+                        output_file,
                         "{}",
                         serde_json::to_string_pretty(&exploration_report.managed_hosts)?
-                    );
+                    )?;
                     return Ok(());
                 }
-                convert_managed_host_to_nice_table(&exploration_report, managed_host_info.vendor)
-                    .printstd();
+                let table = convert_managed_host_to_nice_table(
+                    &exploration_report,
+                    managed_host_info.vendor,
+                );
+                async_write!(output_file, "{}", table)?;
             }
         }
         GetReportMode::Endpoint(endpoint_info) => {
@@ -230,11 +243,16 @@ pub async fn show_site_explorer_discovered_managed_host(
                 .await?;
 
                 if output_format == OutputFormat::Json {
-                    println!("{}", serde_json::to_string_pretty(&exploration_report)?);
+                    async_writeln!(
+                        output_file,
+                        "{}",
+                        serde_json::to_string_pretty(&exploration_report)?
+                    )?;
                     return Ok(());
                 }
 
                 display_endpoint(
+                    output_file,
                     exploration_report
                         .endpoints
                         .iter()
@@ -243,7 +261,8 @@ pub async fn show_site_explorer_discovered_managed_host(
                             CarbideCliError::GenericError("Endpoint not found.".to_string())
                         })?
                         .clone(),
-                );
+                )
+                .await?;
             } else {
                 let exploration_report = api_client
                     .get_site_exploration_report(internal_page_size)
@@ -268,10 +287,11 @@ pub async fn show_site_explorer_discovered_managed_host(
                 );
 
                 if output_format == OutputFormat::Json {
-                    println!("{}", serde_json::to_string_pretty(&endpoints)?);
+                    async_writeln!(output_file, "{}", serde_json::to_string_pretty(&endpoints)?)?;
                     return Ok(());
                 }
-                convert_endpoints_to_nice_table(&endpoints).printstd();
+                let table = convert_endpoints_to_nice_table(&endpoints);
+                async_write!(output_file, "{}", table)?;
             }
         }
     }
@@ -330,22 +350,24 @@ fn filter_endpoints(
         .clone()
 }
 
-fn print_managed_host_info(
+async fn print_managed_host_info(
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     managed_host: &ExploredManagedHost,
     endpoints: HashMap<String, &ExploredEndpoint>,
-) {
+) -> CarbideCliResult<()> {
     let host_report = endpoints
         .get(&managed_host.host_bmc_ip)
         .and_then(|x| x.report.clone());
 
-    println!("Host BMC IP : {}", managed_host.host_bmc_ip);
-    println!(
+    async_writeln!(output_file, "Host BMC IP : {}", managed_host.host_bmc_ip)?;
+    async_writeln!(
+        output_file,
         "Vendor      : {}",
         host_report
             .and_then(|x| x.vendor)
             .unwrap_or("Unknown".to_string())
-    );
-    managed_host.dpus.iter().enumerate().for_each(|(i, x)| {
+    )?;
+    for (i, x) in managed_host.dpus.iter().enumerate() {
         let dpu_report = endpoints.get(&x.bmc_ip).and_then(|x| x.report.clone());
         let system = dpu_report.as_ref().and_then(|x| x.systems.first());
         let oob_mac = system
@@ -363,32 +385,40 @@ fn print_managed_host_info(
                     .unwrap_or("oob_net0 not found.".to_string())
             })
             .unwrap_or("Unknown".to_string());
-        println!();
-        println!("DPU{i}");
-        println!("------------------------------------------------");
-        println!("    BMC IP               : {}", x.bmc_ip);
-        println!(
+        async_writeln!(output_file)?;
+        async_writeln!(output_file, "DPU{i}")?;
+        async_writeln!(
+            output_file,
+            "------------------------------------------------"
+        )?;
+        async_writeln!(output_file, "    BMC IP               : {}", x.bmc_ip)?;
+        async_writeln!(
+            output_file,
             "    Machine ID           : {}",
             dpu_report
                 .as_ref()
                 .and_then(|x| x.machine_id.clone())
                 .unwrap_or("Unknwon".to_string())
-        );
-        println!(
+        )?;
+        async_writeln!(
+            output_file,
             "    Serial Number        : {}",
             system
                 .as_ref()
                 .and_then(|x| x.serial_number.clone())
                 .unwrap_or("Unknwon".to_string())
-        );
-        println!(
+        )?;
+        async_writeln!(
+            output_file,
             "    Host PF Mac Address  : {}",
             x.host_pf_mac_address
                 .clone()
                 .unwrap_or("Unknown".to_string())
-        );
-        println!("    oob net0 Mac Address : {oob_mac}");
-    });
+        )?;
+        async_writeln!(output_file, "    oob net0 Mac Address : {oob_mac}")?;
+    }
+
+    Ok(())
 }
 
 fn convert_endpoints_to_nice_table(endpoints: &[ExploredEndpoint]) -> Box<Table> {
@@ -487,7 +517,10 @@ fn endpoint_to_row(endpoint: &ExploredEndpoint) -> Row {
     ])
 }
 
-fn display_endpoint(endpoint: ExploredEndpoint) {
+async fn display_endpoint(
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    endpoint: ExploredEndpoint,
+) -> CarbideCliResult<()> {
     let report = &endpoint.report;
 
     let mut table = Table::new();
@@ -529,13 +562,13 @@ fn display_endpoint(endpoint: ExploredEndpoint) {
         endpoint.exploration_requested
     ]);
 
-    table.printstd();
+    async_write!(output_file, "{}", table)?;
 
     // Systems
     if let Some(system) = report.as_ref().and_then(|x| x.systems.first()) {
         let mut table = Table::new();
-        println!();
-        println!("Systems (First only)");
+        async_writeln!(output_file)?;
+        async_writeln!(output_file, "Systems (First only)")?;
         table.add_row(row!["Id", system.id]);
         table.add_row(row!["Manufacturer", system.manufacturer()]);
         table.add_row(row!["Model", system.model()]);
@@ -556,14 +589,14 @@ fn display_endpoint(endpoint: ExploredEndpoint) {
             ethernet_interface_table.to_string()
         ]);
 
-        table.printstd();
+        async_write!(output_file, "{}", table)?;
     }
 
     // Managers
     if let Some(manager) = report.as_ref().and_then(|x| x.managers.first()) {
         let mut table = Table::new();
-        println!();
-        println!("Managers (First only)");
+        async_writeln!(output_file)?;
+        async_writeln!(output_file, "Managers (First only)")?;
         table.add_row(row!["Id", manager.id]);
 
         let mut ethernet_interface_table = Table::new();
@@ -581,14 +614,14 @@ fn display_endpoint(endpoint: ExploredEndpoint) {
             ethernet_interface_table.to_string()
         ]);
 
-        table.printstd();
+        async_write!(output_file, "{}", table)?;
     }
 
     // Chassis
     if let Some(chassis) = report.as_ref().and_then(|x| x.chassis.first()) {
         let mut table = Table::new();
-        println!();
-        println!("Chassis (First only)");
+        async_writeln!(output_file)?;
+        async_writeln!(output_file, "Chassis (First only)")?;
         table.add_row(row!["Id", chassis.id]);
         table.add_row(row!["Manufacturer", chassis.manufacturer()]);
         table.add_row(row!["Model", chassis.model()]);
@@ -618,6 +651,8 @@ fn display_endpoint(endpoint: ExploredEndpoint) {
             ethernet_interface_table.to_string()
         ]);
 
-        table.printstd();
+        async_write!(output_file, "{}", table)?;
     }
+
+    Ok(())
 }

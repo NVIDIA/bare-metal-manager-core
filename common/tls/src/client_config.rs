@@ -30,7 +30,7 @@ pub fn get_carbide_api_url(
 ) -> String {
     // First from command line, second env var.
     if let Some(carbide_api) = carbide_api {
-        return carbide_api;
+        return carbide_api.clone();
     }
 
     // Third config file
