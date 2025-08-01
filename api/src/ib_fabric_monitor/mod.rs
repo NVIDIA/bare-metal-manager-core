@@ -473,6 +473,9 @@ async fn record_machine_infiniband_status_observation(
         return Ok(());
     }
 
+    let mut has_unexpected_pkeys = false;
+    let mut has_missing_pkeys = false;
+
     let machine_id = &mh_snapshot.host_snapshot.id;
     let ib_hw_info = &mh_snapshot
         .host_snapshot
@@ -480,6 +483,22 @@ async fn record_machine_infiniband_status_observation(
         .as_ref()
         .unwrap()
         .infiniband_interfaces;
+
+    // Determine what the expected configuration for each port on the host is
+    // That is derived by the instance configuration
+    // If there is no instance, then each interface should not have an associated partition
+    let expected_ib_config = mh_snapshot
+        .instance
+        .as_ref()
+        .map(|instance| &instance.config.infiniband);
+    let mut expected_partition_ids = HashMap::new();
+    if let Some(expected_ib_config) = expected_ib_config {
+        for iface in expected_ib_config.ib_interfaces.iter() {
+            if let Some(guid) = iface.guid.as_ref() {
+                expected_partition_ids.insert(guid.clone(), iface.ib_partition_id);
+            }
+        }
+    }
 
     // Form list of requested guids
     let mut guids: Vec<String> = Vec::new();
@@ -534,11 +553,39 @@ async fn record_machine_infiniband_status_observation(
                     None => None,
                 };
 
-                if associated_pkeys
-                    .as_ref()
-                    .is_some_and(|pkeys| !pkeys.is_empty())
-                {
-                    ports_with_partitions += 1;
+                match associated_pkeys.as_ref() {
+                    Some(pkeys) => {
+                        if !pkeys.is_empty() {
+                            ports_with_partitions += 1;
+                        }
+
+                        match expected_partition_ids.get(guid) {
+                            Some(_partition_id) => {
+                                // GUID should be associated with `partition_id`
+                                match pkeys.len() {
+                                    1 => {
+                                        // TODO: Verify against the actual desired pkey
+                                    }
+                                    0 => {
+                                        has_missing_pkeys = true;
+                                    }
+                                    _ => {
+                                        has_unexpected_pkeys = true;
+                                    }
+                                }
+                            }
+                            None => {
+                                // GUID should not be associated with any partition
+                                if !pkeys.is_empty() {
+                                    has_unexpected_pkeys = true;
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        // We don't know what is associated, therefore we can't make
+                        // a great decision about whether pkeys are missing or unexpected
+                    }
                 }
 
                 (
@@ -578,6 +625,13 @@ async fn record_machine_infiniband_status_observation(
         .num_machines_by_ports_with_partitions
         .entry(ports_with_partitions)
         .or_default() += 1;
+
+    if has_missing_pkeys {
+        metrics.num_machines_with_missing_pkeys += 1;
+    }
+    if has_unexpected_pkeys {
+        metrics.num_machines_with_unexpected_pkeys += 1;
+    }
 
     let cur = MachineInfinibandStatusObservation {
         observed_at: Utc::now(),

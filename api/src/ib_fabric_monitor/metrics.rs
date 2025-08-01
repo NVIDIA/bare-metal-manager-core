@@ -37,6 +37,12 @@ pub struct IbFabricMonitorMetrics {
     /// Key: The amount of associated partitions
     /// Value: Amount of Machines with that amount of associated partitions
     pub num_machines_by_ports_with_partitions: HashMap<usize, usize>,
+    /// The amount of machines where at least one port is not assigned to the
+    /// expected pkey on UFM
+    pub num_machines_with_missing_pkeys: usize,
+    /// The amount of machines where at least one port is assigned to an unexpected
+    /// pkey on UFM
+    pub num_machines_with_unexpected_pkeys: usize,
 }
 
 /// Metrics collected for a single fabric
@@ -77,6 +83,8 @@ impl IbFabricMonitorMetrics {
             num_machine_ib_status_updates: 0,
             num_machines_by_port_states: HashMap::new(),
             num_machines_by_ports_with_partitions: HashMap::new(),
+            num_machines_with_missing_pkeys: 0,
+            num_machines_with_unexpected_pkeys: 0,
         }
     }
 }
@@ -170,6 +178,36 @@ impl IbFabricMonitorInstruments {
                                 .concat(),
                             );
                         }
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_ib_monitor_machines_with_missing_pkeys_count")
+                .with_description(
+                    "The amount of machines where at least one port is not assigned to the expected pkey on UFM",
+                )
+                .with_callback(move |o| {
+                    metrics.if_available(|metrics, attrs| {
+                        o.observe(metrics.num_machines_with_missing_pkeys as u64, attrs);
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_ib_monitor_machines_with_unexpected_pkeys_count")
+                .with_description(
+                    "The amount of machines where at least one port is assigned to an unexpected pkey on UFM",
+                )
+                .with_callback(move |o| {
+                    metrics.if_available(|metrics, attrs| {
+                        o.observe(metrics.num_machines_with_unexpected_pkeys as u64, attrs);
                     })
                 })
                 .build();

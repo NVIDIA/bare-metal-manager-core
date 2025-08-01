@@ -93,6 +93,18 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
             "2".to_string()
         )]
     );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_missing_pkeys_count")
+            .unwrap(),
+        "0"
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_unexpected_pkeys_count")
+            .unwrap(),
+        "0"
+    );
 
     // Down the first and third interface of host_machine_1 and check
     // whether this gets reflected in the observed status
@@ -190,6 +202,18 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
             ("{ports_with_partitions=\"0\"}".to_string(), "1".to_string()),
             ("{ports_with_partitions=\"2\"}".to_string(), "1".to_string())
         ]
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_missing_pkeys_count")
+            .unwrap(),
+        "0"
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_unexpected_pkeys_count")
+            .unwrap(),
+        "1"
     );
 
     active_lids.clear();
