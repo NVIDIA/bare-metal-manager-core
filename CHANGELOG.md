@@ -15,6 +15,18 @@
 
   Note that `Off` functionality is not yet disabled.
 
+- [FORGE-6021](https://jirasw.nvidia.com/browse/FORGE-6021): Ability to link an expected machine to a SKU
+  When site-explorer creates machines, it will automatically assign a SKU specified in the expected machine to the new machine.
+  SKUs have a new field "device_type" that available for the user to edit.  It is considered metadata an does not affect how BOM validation works.
+  forge-admin-cli gets the following changes:
+  * `sku update-metadata <--description <DESCRIPTION>|--device-type <DEVICE_TYPE>> <SKU_ID>` allows updates of the sku description and device type.
+  * `expected-machines update` gains a --sku-id flag for updating the sku in the expected machine
+  * `expected-machines add` gains a --sku-id flag for updating the sku in the expected machine
+  * `expected-machines show` shows the sku id
+  * `expected-machines replace-all` takes an optional sku_id in the input json
+  * machine state machine has a new state `BomValidation/SkuMissing` to handle the situation when the sku specified in the expected machine does not exist.
+  * new metrics are emitted for the number of machines associated with a sku and/or device_type
+
 ### Changed
 
 ### Fixed
@@ -669,7 +681,7 @@
       -h, --help                           Print help
   ```
 
-- [FORGE-5585](https://jirasw.nvidia.com/browse/FORGE-5585) The Machine Validation Test Control feature provides flexible configuration options to manage test execution through TOML configuration files (carbide-api-site-config.toml). This enhancement allows administrators to globally control test execution states while maintaining the ability to override specific tests.
+- [FORGE-5585](https://jirasw.nvidia.com/browse/FORGE-5585) The Machine Validation Test Control feature provides flexible configuration options to manage test execution through TOML configuration files (carbide-api-site-config.toml). This enhancement allows administrators to globally control test execution states while maintaining the ability to override specific tests.
   - The feature introduces two new configuration fields under machine_validation_config.
     - test_selection_mode
     - tests
