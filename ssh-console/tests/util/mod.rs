@@ -230,9 +230,10 @@ impl BaselineTestEnvironment {
         connection_name: &str,
         assertions: &[BaselineTestAssertion],
         get_metrics: MetricsFn,
+        test_reboot_command: bool,
     ) -> eyre::Result<()>
     where
-        MetricsFn: FnOnce() -> BoxFuture<'static, eyre::Result<String>>,
+        MetricsFn: FnOnce() -> Option<BoxFuture<'static, eyre::Result<String>>>,
     {
         // Test each machine through legacy ssh-console
         for (i, mock_host) in self.mock_hosts.iter().enumerate() {
@@ -241,14 +242,16 @@ impl BaselineTestEnvironment {
             for assertion in assertions {
                 match assertion {
                     BaselineTestAssertion::ConnectAsMachineId => {
+                        let connection_config = ConnectionConfig {
+                            connection_name: &format!("{connection_name} to host").to_string(),
+                            user: &mock_host.machine_id.to_string(),
+                            private_key_path: &ADMIN_SSH_KEY_PATH,
+                            addr,
+                            expected_prompt: &expected_prompt,
+                        };
+
                         ssh_client::assert_connection_works_with_retries_and_timeout(
-                            ConnectionConfig {
-                                connection_name: &format!("{connection_name} to host").to_string(),
-                                user: &mock_host.machine_id.to_string(),
-                                private_key_path: &ADMIN_SSH_KEY_PATH,
-                                addr,
-                                expected_prompt: &expected_prompt,
-                            },
+                            &connection_config,
                             // The legacy ssh-console tends to take a few retries right after it boots up. After the
                             // first machine works, don't do any more retries.
                             if i == 0 { 5 } else { 0 },
@@ -256,9 +259,23 @@ impl BaselineTestEnvironment {
                         )
                         .await?;
 
+                        if test_reboot_command {
+                            ssh_client::assert_reboot_behavior(
+                                &connection_config,
+                                mock_host.sys_vendor.to_lowercase() == "supermicro",
+                            )
+                            .await
+                            .with_context(|| {
+                                format!(
+                                    "error asserting reboot behavior for {}",
+                                    mock_host.sys_vendor
+                                )
+                            })?;
+                        }
+
                         // Make sure it *doesn't* work as the tenant user.
                         let result_as_tenant =
-                            ssh_client::assert_connection_works(ConnectionConfig {
+                            ssh_client::assert_connection_works(&ConnectionConfig {
                                 connection_name: &format!("{connection_name} to host").to_string(),
                                 user: &mock_host.machine_id.to_string(),
                                 private_key_path: &TENANT_SSH_KEY_PATH,
@@ -274,28 +291,45 @@ impl BaselineTestEnvironment {
                         }
                     }
                     BaselineTestAssertion::ConnectAsInstanceId => {
+                        let connection_config = ConnectionConfig {
+                            connection_name: &format!("{connection_name} to instance").to_string(),
+                            user: &mock_host.instance_id.to_string(),
+                            private_key_path: &TENANT_SSH_KEY_PATH,
+                            addr,
+                            expected_prompt: &expected_prompt,
+                        };
+
                         ssh_client::assert_connection_works_with_retries_and_timeout(
-                            ConnectionConfig {
-                                connection_name: &format!("{connection_name} to instance")
-                                    .to_string(),
-                                user: &mock_host.instance_id.to_string(),
-                                private_key_path: &TENANT_SSH_KEY_PATH,
-                                addr,
-                                expected_prompt: &expected_prompt,
-                            },
+                            &connection_config,
                             0, // It already worked once, we shouldn't need to retry
                             Duration::from_secs(10),
                         )
                         .await?;
+
+                        if test_reboot_command {
+                            ssh_client::assert_reboot_behavior(
+                                &connection_config,
+                                mock_host.sys_vendor.to_lowercase() == "supermicro",
+                            )
+                            .await
+                            .with_context(|| {
+                                format!(
+                                    "error asserting reboot behavior for {}",
+                                    mock_host.sys_vendor
+                                )
+                            })?;
+                        }
                     }
                 }
             }
         }
 
-        let metrics = Box::pin(get_metrics())
-            .await
-            .context("Error getting metrics")?;
-        assert_metrics(metrics, self.mock_hosts.as_slice()).await?;
+        if let Some(metrics_fut) = get_metrics() {
+            let metrics = Box::pin(metrics_fut)
+                .await
+                .context("Error getting metrics")?;
+            assert_metrics(metrics, self.mock_hosts.as_slice()).await?;
+        }
 
         Ok(())
     }

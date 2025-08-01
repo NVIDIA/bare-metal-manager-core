@@ -13,6 +13,7 @@ use crate::util::log_stdout_and_stderr;
 use api_test_helper::utils::REPO_ROOT;
 use eyre::Context;
 use lazy_static::lazy_static;
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
@@ -62,6 +63,7 @@ pub async fn run(prompt: String) -> eyre::Result<IpmiSimHandle> {
     let ipmi_state_dir = temp_dir.path().join("ipmi_state");
     let lan_conf = temp_dir.path().join("lan.conf");
     let cmd_conf = temp_dir.path().join("cmd.conf");
+    let chassis_control = temp_dir.path().join("ipmi_sim_chassiscontrol.sh");
 
     // Build config to talk to our mock console for `sol activate` commands
     std::fs::create_dir(&ipmi_state_dir)?;
@@ -92,25 +94,13 @@ sol "telnet:127.0.0.1:{mock_serial_console_port}" 115200
         ),
     )?;
 
+    std::fs::write(&cmd_conf, include_bytes!("../../../dev/ipmi/cmd.conf"))?;
+
     std::fs::write(
-        &cmd_conf,
-        r#"
-mc_setbmc 0x20
-mc_add 0x20 0 no-device-sdrs 0x23 9 8 0x9f 0x1291 0xf02 persist_sdr
-sel_enable 0x20 1000 0x0a
-
-sensor_add 0x20 0 1 0x01 0x01
-sensor_set_value 0x20 0 1 0x60 0
-sensor_set_threshold 0x20 0 1 settable 111000 0xa0 0x90 0x70 00 00 00
-# Enable all upper threshold events events
-sensor_set_event_support 0x20 0 1 enable scanning per-state \
-        000111111000000 000111111000000 \
-        000111111000000 000111111000000
-
-# Turn on the BMC
-mc_enable 0x20
-    "#,
+        &chassis_control,
+        include_bytes!("../../../dev/ipmi/ipmi_sim_chassiscontrol.sh"),
     )?;
+    std::fs::set_permissions(&chassis_control, PermissionsExt::from_mode(0o755))?;
 
     // Then run ipmi_sim
     tracing::info!("Launching ipmi_sim");

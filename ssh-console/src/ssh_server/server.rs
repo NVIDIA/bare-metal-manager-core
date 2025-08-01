@@ -203,12 +203,13 @@ impl ServerMetrics {
 impl russh::server::Server for Server {
     type Handler = super::frontend::Handler;
 
-    fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self::Handler {
+    fn new_client(&mut self, addr: Option<std::net::SocketAddr>) -> Self::Handler {
         Self::Handler::new(
             self.backend_pool.get_connection_store(),
             self.config.clone(),
             self.forge_api_client.clone(),
             self.metrics.clone(),
+            addr,
         )
     }
 }

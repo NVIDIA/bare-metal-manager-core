@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use eyre::Context;
 use russh::ChannelMsg;
 use russh::keys::{PrivateKeyWithHashAlg, PublicKey};
+use ssh_console::POWER_RESET_COMMAND;
 use std::net::SocketAddr;
 use std::ops::Add;
 use std::sync::Arc;
@@ -38,7 +39,7 @@ pub struct ConnectionConfig<'a> {
 }
 
 pub async fn assert_connection_works_with_retries_and_timeout(
-    connection_config: ConnectionConfig<'_>,
+    connection_config: &ConnectionConfig<'_>,
     retry_count: u8,
     per_try_timeout: Duration,
 ) -> eyre::Result<()> {
@@ -84,7 +85,7 @@ pub async fn assert_connection_works(
         private_key_path,
         addr,
         expected_prompt,
-    }: ConnectionConfig<'_>,
+    }: &ConnectionConfig<'_>,
 ) -> eyre::Result<()> {
     // Connect to the server and authenticate
     let session = {
@@ -99,7 +100,7 @@ pub async fn assert_connection_works(
 
         session
             .authenticate_publickey(
-                user,
+                *user,
                 PrivateKeyWithHashAlg::new(
                     Arc::new(
                         russh::keys::load_secret_key(private_key_path, None)
@@ -187,7 +188,7 @@ pub async fn assert_connection_works(
                         output_buf.extend_from_slice(&data);
                         match test_state {
                             ConnectionTestState::WaitingForPrompt => {
-                                if output_buf.windows(expected_prompt.len()).any(|w| w == expected_prompt) {
+                                if output_buf.windows(expected_prompt.len()).any(|w| w == *expected_prompt) {
                                     tracing::info!("Got expected prompt, trying ctrl-\\");
                                     test_state = ConnectionTestState::TryingCtrlBackslash;
                                 }
@@ -233,6 +234,102 @@ pub async fn assert_connection_works(
     }
 
     result
+}
+
+pub async fn assert_reboot_behavior(
+    ConnectionConfig {
+        connection_name: _,
+        user,
+        private_key_path,
+        addr,
+        expected_prompt: _,
+    }: &ConnectionConfig<'_>,
+    supported: bool,
+) -> eyre::Result<()> {
+    // Connect to the server and authenticate
+    let session = {
+        let mut session = russh::client::connect(
+            Arc::new(russh::client::Config {
+                ..Default::default()
+            }),
+            addr,
+            PermissiveSshClient,
+        )
+        .await?;
+
+        session
+            .authenticate_publickey(
+                *user,
+                PrivateKeyWithHashAlg::new(
+                    Arc::new(
+                        russh::keys::load_secret_key(private_key_path, None)
+                            .context("error loading ssh private key")?,
+                    ),
+                    None,
+                ),
+            )
+            .await
+            .context("Error authenticating with public key")?;
+
+        Ok::<_, eyre::Error>(session)
+    }?;
+
+    // Open a session channel
+    let mut channel = session
+        .channel_open_session()
+        .await
+        .context("Error opening session")?;
+
+    // Issue reboot command
+    channel.exec(true, POWER_RESET_COMMAND).await?;
+    let mut exit_status = None;
+    let mut buf = Vec::new();
+    while let Some(msg) = channel.wait().await {
+        match msg {
+            ChannelMsg::Data { data } => {
+                buf.extend_from_slice(&data);
+            }
+            ChannelMsg::ExitStatus { exit_status: e } => {
+                exit_status = Some(e);
+            }
+            _ => {}
+        }
+    }
+
+    let Some(exit_status) = exit_status else {
+        return Err(eyre::format_err!(
+            "Sending reboot command did not return an exit status"
+        ));
+    };
+
+    let output = String::from_utf8_lossy(&buf);
+    let has_successful_response = output.contains("Power reset completed successfully");
+
+    if supported {
+        if !has_successful_response {
+            return Err(eyre::format_err!(
+                "Sending reboot command did not return expected output. output={output}, exit_status={exit_status}"
+            ));
+        }
+        if exit_status != 0 {
+            return Err(eyre::format_err!(
+                "Sending reboot command returned a nonzero exit status. output={output}, exit_status={exit_status}"
+            ));
+        }
+    } else {
+        if has_successful_response {
+            return Err(eyre::format_err!(
+                "Sending reboot command returned successful output, but was not supposed to. output={output}, exit_status={exit_status}"
+            ));
+        }
+        if exit_status == 0 {
+            return Err(eyre::format_err!(
+                "Sending reboot command returned successful exit status, but was not supposed to. output={output}, exit_status={exit_status}"
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug)]

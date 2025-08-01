@@ -12,12 +12,11 @@
 
 use crate::bmc_vendor::{BmcVendor, SshBmcVendor};
 use crate::config::Config;
-use crate::{ReadyHandle, ShutdownHandle};
+use crate::{ChannelMsgOrExec, ReadyHandle, ShutdownHandle};
 use eyre::{Context, ContextCompat};
 use forge_uuid::machine::{MachineId, MachineType};
 use rpc::forge;
 use rpc::forge_api_client::ForgeApiClient;
-use russh::ChannelMsg;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
@@ -34,7 +33,7 @@ pub mod ssh;
 
 /// A handle to a backend connection, which will shut down when dropped.
 pub struct BackendConnectionHandle {
-    pub to_backend_msg_tx: mpsc::Sender<ChannelMsg>,
+    pub to_backend_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
     pub shutdown_tx: oneshot::Sender<()>,
     pub join_handle: JoinHandle<eyre::Result<()>>,
     pub ready_rx: Option<oneshot::Receiver<()>>,
@@ -70,6 +69,13 @@ impl ConnectionDetails {
         match self {
             ConnectionDetails::Ssh(s) => s.machine_id,
             ConnectionDetails::Ipmi(i) => i.machine_id,
+        }
+    }
+
+    pub fn kind(&self) -> BackendConnectionKind {
+        match self {
+            ConnectionDetails::Ssh(_) => BackendConnectionKind::Ssh,
+            ConnectionDetails::Ipmi(_) => BackendConnectionKind::Ipmi,
         }
     }
 }
@@ -305,4 +311,10 @@ pub async fn lookup_connection_details(
     };
 
     Ok(connection_details)
+}
+
+#[derive(Copy, Clone)]
+pub enum BackendConnectionKind {
+    Ssh,
+    Ipmi,
 }

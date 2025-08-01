@@ -11,12 +11,12 @@
  */
 
 use crate::config::Config;
-use crate::ssh_server::backend_connection::ConnectionDetails;
+use crate::ssh_server::backend_connection::{BackendConnectionKind, ConnectionDetails};
 use crate::ssh_server::backend_pool::BackendPoolMetrics;
 use crate::ssh_server::connection_state::{AtomicConnectionState, ConnectionState};
 use crate::ssh_server::server::ServerMetrics;
 use crate::ssh_server::{backend_connection, console_logger};
-use crate::{ReadyHandle, ShutdownHandle};
+use crate::{ChannelMsgOrExec, ExecReply, ReadyHandle, ShutdownHandle};
 use forge_uuid::machine::MachineId;
 use futures_util::FutureExt;
 use opentelemetry::KeyValue;
@@ -42,7 +42,7 @@ pub fn spawn(
     // Shutdown handle for the retry loop that is retrying this connection
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     // Channel frontends can use to send messages to the backend
-    let (to_backend_msg_tx, to_backend_msg_rx) = mpsc::channel::<ChannelMsg>(1);
+    let (to_backend_msg_tx, to_backend_msg_rx) = mpsc::channel::<ChannelMsgOrExec>(1);
     // Channel that broadcasts messages to any subscribed frontends
     let (broadcast_to_frontend_tx, broadcast_to_frontend_rx) =
         broadcast::channel::<Arc<ChannelMsg>>(4096);
@@ -52,6 +52,7 @@ pub fn spawn(
 
     let connection_state = Arc::new(AtomicConnectionState::default());
     let machine_id = connection_details.machine_id();
+    let kind = connection_details.kind();
 
     let metrics_attrs = vec![KeyValue::new("machine_id", machine_id.to_string())];
     metrics.bmc_recovery_attempts.record(0, &metrics_attrs);
@@ -78,6 +79,7 @@ pub fn spawn(
         shutdown_tx,
         join_handle,
         connection_state,
+        kind,
     }
 }
 
@@ -87,7 +89,7 @@ struct BackendSession {
     connection_state: Arc<AtomicConnectionState>,
     shutdown_rx: oneshot::Receiver<()>,
     broadcast_to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
-    to_backend_msg_rx: mpsc::Receiver<ChannelMsg>,
+    to_backend_msg_rx: mpsc::Receiver<ChannelMsgOrExec>,
     metrics: Arc<BackendPoolMetrics>,
 }
 
@@ -147,9 +149,9 @@ impl BackendSession {
                 ),
                 ConnectionDetails::Ipmi(ipmi_connection_details) => {
                     backend_connection::ipmi::spawn(
-                        ipmi_connection_details.as_ref(),
+                        ipmi_connection_details.clone(),
                         self.broadcast_to_frontend_tx.clone(),
-                        &self.config,
+                        self.config.clone(),
                         self.metrics.clone(),
                     )
                 }
@@ -231,7 +233,7 @@ impl BackendSession {
 fn relay_input_to_backend(
     broadcast_to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
     connection_state: Arc<AtomicConnectionState>,
-    mut to_backend_msg_rx: mpsc::Receiver<ChannelMsg>,
+    mut to_backend_msg_rx: mpsc::Receiver<ChannelMsgOrExec>,
     backend_msg_tx_placeholder: BackendMessageTxPlaceholder,
 ) -> MessageRelayHandle {
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
@@ -256,20 +258,31 @@ fn relay_input_to_backend(
                             backend_tx_guard.as_ref().and_then(|guard| guard.as_ref())
                         {
                             tx.send(msg).await.ok();
-                        } else if let ChannelMsg::Data { data } = msg {
-                            // Otherwise, when the user types a newline, inform them the backend
-                            // is not connected
-                            if data.contains(&b'\r') || data.contains(&b'\n') {
-                                broadcast_to_frontend_tx
-                                    .send(
-                                        ChannelMsg::Data {
-                                            data: b"--- BMC console not connected ---\r\n"
-                                                .to_vec()
+                        } else {
+                            match msg {
+                                ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data { data }) => {
+                                    // Otherwise, when the user types a newline, inform them the backend
+                                    // is not connected
+                                    if data.contains(&b'\r') || data.contains(&b'\n') {
+                                        broadcast_to_frontend_tx
+                                            .send(
+                                                ChannelMsg::Data {
+                                                    data: b"--- BMC console not connected ---\r\n"
+                                                        .to_vec()
+                                                        .into(),
+                                                }
                                                 .into(),
-                                        }
-                                        .into(),
-                                    )
-                                    .ok();
+                                            )
+                                            .ok();
+                                    }
+                                }
+                                ChannelMsgOrExec::Exec { reply_tx, .. } => {
+                                    reply_tx.send(ExecReply {
+                                        output: b"BMC console not connected\r\n".to_vec(),
+                                        exit_status: 1,
+                                    }).ok();
+                                }
+                                _ => {}
                             }
                         }
                     }
@@ -290,16 +303,16 @@ struct MessageRelayHandle {
 }
 
 #[derive(Default, Clone)]
-struct BackendMessageTxPlaceholder(Arc<tokio::sync::Mutex<Option<mpsc::Sender<ChannelMsg>>>>);
+struct BackendMessageTxPlaceholder(Arc<tokio::sync::Mutex<Option<mpsc::Sender<ChannelMsgOrExec>>>>);
 
 impl BackendMessageTxPlaceholder {
     #[inline]
-    async fn replace(&self, value: Option<mpsc::Sender<ChannelMsg>>) {
+    async fn replace(&self, value: Option<mpsc::Sender<ChannelMsgOrExec>>) {
         *self.lock().await = value;
     }
 
     #[inline]
-    async fn lock(&self) -> MutexGuard<'_, Option<mpsc::Sender<ChannelMsg>>> {
+    async fn lock(&self) -> MutexGuard<'_, Option<mpsc::Sender<ChannelMsgOrExec>>> {
         self.0.lock().await
     }
 }
@@ -339,8 +352,9 @@ fn next_retry_backoff(prev: Duration) -> Duration {
 
 pub struct BackendSessionHandle {
     machine_id: MachineId,
+    kind: BackendConnectionKind,
     /// Writer to send messages (including data) to backend
-    to_backend_msg_tx: mpsc::Sender<ChannelMsg>,
+    to_backend_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
     // Hold a copy of the tx for broadcasting to frontends, so that we can subscribe to it multiple
     // times.
     broadcast_to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
@@ -369,6 +383,7 @@ impl BackendSessionHandle {
             to_frontend_msg_weak_tx: self.broadcast_to_frontend_tx.downgrade(),
             to_backend_msg_tx: self.to_backend_msg_tx.clone(),
             metrics,
+            kind: self.kind,
         }
     }
 }
@@ -377,7 +392,8 @@ impl BackendSessionHandle {
 pub struct BackendSubscription {
     pub machine_id: MachineId,
     pub to_frontend_msg_weak_tx: broadcast::WeakSender<Arc<ChannelMsg>>,
-    pub to_backend_msg_tx: mpsc::Sender<ChannelMsg>,
+    pub to_backend_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
+    pub kind: BackendConnectionKind,
     // Not pub, to make sure we go through BackendSessionHandle::subscribe() to build, so we get the
     // right metrics
     metrics: Arc<ServerMetrics>,

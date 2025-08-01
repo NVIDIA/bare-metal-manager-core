@@ -64,7 +64,8 @@ async fn test_legacy_ssh() -> eyre::Result<()> {
             BaselineTestAssertion::ConnectAsInstanceId,
             // BaselineTestAssertion::ConnectAsMachineId, // Not supported by legacy ssh-console today
         ],
-        || legacy::wait_for_metrics(Duration::from_secs(60)).boxed(),
+        || None,
+        false,
     )
     .await
 }
@@ -98,7 +99,8 @@ async fn test_legacy_ipmi() -> eyre::Result<()> {
             BaselineTestAssertion::ConnectAsInstanceId,
             // BaselineTestAssertion::ConnectAsMachineId, // Not supported by legacy ssh-console today
         ],
-        || new_ssh_console::get_metrics(handle.metrics_address).boxed(),
+        || None,
+        false,
     )
     .await
 }
@@ -126,7 +128,8 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
             BaselineTestAssertion::ConnectAsInstanceId,
             BaselineTestAssertion::ConnectAsMachineId,
         ],
-        || new_ssh_console::get_metrics(handle.metrics_address).boxed(),
+        || Some(new_ssh_console::get_metrics(handle.metrics_address).boxed()),
+        true,
     )
     .await?;
 
