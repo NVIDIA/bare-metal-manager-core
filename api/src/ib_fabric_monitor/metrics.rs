@@ -33,6 +33,10 @@ pub struct IbFabricMonitorMetrics {
     /// Key: Tuple of total and active amount of IB ports on the Machines
     /// Value: Amount of Machines with that amount of total and active ports
     pub num_machines_by_port_states: HashMap<(usize, usize), usize>,
+    /// The amount of Machines with a certain amount of associated partitions
+    /// Key: The amount of associated partitions
+    /// Value: Amount of Machines with that amount of associated partitions
+    pub num_machines_by_ports_with_partitions: HashMap<usize, usize>,
 }
 
 /// Metrics collected for a single fabric
@@ -72,6 +76,7 @@ impl IbFabricMonitorMetrics {
             fabrics: HashMap::new(),
             num_machine_ib_status_updates: 0,
             num_machines_by_port_states: HashMap::new(),
+            num_machines_by_ports_with_partitions: HashMap::new(),
         }
     }
 }
@@ -134,6 +139,32 @@ impl IbFabricMonitorInstruments {
                                     &[
                                         KeyValue::new("total_ports", total_ports as i64),
                                         KeyValue::new("active_ports", active_ports as i64),
+                                    ],
+                                ]
+                                .concat(),
+                            );
+                        }
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_ib_monitor_machines_by_ports_with_partitions_count")
+                .with_description(
+                    "The amount of Machines where a certain amount of ports is associated with at least one partition",
+                )
+                .with_callback(move |o| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (&ports_with_partitions, &num_machines) in metrics.num_machines_by_ports_with_partitions.iter() {
+                            o.observe(
+                                num_machines as u64,
+                                &[
+                                    attrs,
+                                    &[
+                                        KeyValue::new("ports_with_partitions", ports_with_partitions as i64),
                                     ],
                                 ]
                                 .concat(),

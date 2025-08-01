@@ -183,6 +183,14 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
             )
         ]
     );
+    assert_eq!(
+        env.test_meter
+            .parsed_metrics("forge_ib_monitor_machines_by_ports_with_partitions_count"),
+        vec![
+            ("{ports_with_partitions=\"0\"}".to_string(), "1".to_string()),
+            ("{ports_with_partitions=\"2\"}".to_string(), "1".to_string())
+        ]
+    );
 
     active_lids.clear();
     for host_machine_id in host_machines.iter().cloned() {
