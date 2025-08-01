@@ -15,7 +15,7 @@ pre_bmc_components_update() {
 }
 
 post_bmc_components_update() {
-    set -eE
+    set -exE
     tee data.json <<DOF
     {
         "CertificateString": "$(openssl x509 -inform der -outform pem -in /mnt/lib/firmware/mellanox/boot/capsule/certs/prod/db.cer | sed -e 's/[[:space:]]*$//' -e 's/$/\\n/')",
@@ -32,6 +32,6 @@ DOF
         # https://nvbugswb.nvidia.com/NvBugs5/SWBug.aspx?bugid=5334987
         curl --verbose --insecure --retry 5 --retry-all-errors --user $BMC_USER:$BMC_PASSWORD -d @data.json https://$BMC_IP/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases/db/Certificates
     fi
-    ipmitool user set name $USER_ID ""
-    set +eE
+    curl --verbose --insecure --retry 5 --retry-all-errors --user $BMC_USER:$BMC_PASSWORD -X DELETE https://$BMC_IP/redfish/v1/AccountService/Accounts/$BMC_USER
+    set +exE
 }
