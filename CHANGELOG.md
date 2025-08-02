@@ -57,6 +57,8 @@
 - [MR-4328](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4328): Added the ability to create and delete BMC users through the carbide-api. 
 - [MR-4316](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4316): Added the ability to use the `forge-admin-cli instance allocate` to configure VF interfaces.
 - [MR-4318](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4318): Added the ability to sort the output of `forge-admin-cli machine show`, `... managed-host show` and `... instance show` by use of the `--sort-by` argument.
+- [MR-4374](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4374): Add a new metric forge_ib_monitor_machines_by_ports_with_partitions_count which describes the amount of Machines where a certain amount ports is associated with at least one partition.
+- [MR-4377](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4374), [MR-4379](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4374): Add new metrics forge_ib_monitor_machines_with_missing_pkeys_count and forge_ib_monitor_machines_with_unexpected_pkeys_count which allow to detect configuration drift between Carbide and UFM. Also adds log lines that precisely show which ports/guids are not assigned to the expected pkeys.
 
 ### Changed
 
@@ -67,6 +69,7 @@
 - [MR-4325](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4325): Changed UfmClient API to allow specifying if `guid_data` or `qos_conf` data should be included and moved the functionality of `list_partition_ports` to `get_partition`.
 - [MR-4322](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4322): Changed ssh-console to always connect to all backends and retry forever even if logging is disabled.
 - [MR-4307](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4307): Changed IbFabricMonitor to only run a single instance.
+- [MR-4375](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4375): Changed IB Partition Status API to return the pkey in hexadecimal instead of decimal format.
 
 ### Fixed
 
