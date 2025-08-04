@@ -17,6 +17,7 @@ use libredfish::{Chassis, EthernetInterface, NetworkAdapter, OData, PCIeDevice};
 use regex::{Captures, Regex};
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 
@@ -120,6 +121,14 @@ pub fn wrap_router_with_mock_machine(
         patch(patch_dell_system).get(get_dell_system),
         )
         .route(
+            rf!("Systems/Bluefield/SecureBoot"),
+            get(get_dpu_secure_boot),
+        )
+        .route(
+            rf!("Systems/Bluefield/SecureBoot"),
+            patch(patch_dpu_secure_boot),
+        )
+        .route(
             rf!("Systems/1/Bios/Actions/Bios.ChangePassword"),
             post(post_password_change),
         )
@@ -134,6 +143,8 @@ pub fn wrap_router_with_mock_machine(
         )
         .route(rf!("Managers/iDRAC.Embedded.1/Jobs/:job_id"),get(get_dell_job),
         )
+        .route(rf!("TaskService/Tasks/:task_id"), get(get_task))
+        .route(rf!("UpdateService/Actions/UpdateService.SimpleUpdate"), post(update_firmware_simple_update))
         .route(rf!("UpdateService/FirmwareInventory/BMC_Firmware"), get(get_dpu_bmc_firmware))
         .route(rf!("UpdateService/FirmwareInventory/Bluefield_FW_ERoT"), get(get_dpu_erot_firmware))
         .route(rf!("UpdateService/FirmwareInventory/DPU_UEFI"), get(get_dpu_uefi_firmware))
@@ -147,6 +158,7 @@ pub fn wrap_router_with_mock_machine(
             mock_power_state,
             bmc_state: BmcState{
                 jobs: Arc::new(Mutex::new(HashMap::new())),
+                secure_boot_enabled: Arc::new(AtomicBool::new(false)),
             },
         })
 }
@@ -805,6 +817,76 @@ async fn post_dell_create_bios_job(
             .body(Body::from(e.to_string()))
             .unwrap(),
     }
+}
+
+async fn get_task(
+    State(_state): State<MockWrapperState>,
+    _path: Path<()>,
+    _request: Request<Body>,
+) -> MockWrapperResult {
+    Ok(Bytes::from(serde_json::to_string(&serde_json::json!(
+        {
+    "@odata.id": "/redfish/v1/TaskService/Tasks/0",
+    "@odata.type": "#Task.v1_4_3.Task",
+    "Id": "0",
+    "PercentComplete": 100,
+    "StartTime": "2024-01-30T09:00:52+00:00",
+    "TaskMonitor": "/redfish/v1/TaskService/Tasks/0/Monitor",
+    "TaskState": "Completed",
+    "TaskStatus": "OK"
+    }
+    ))?))
+}
+
+async fn update_firmware_simple_update(
+    State(_state): State<MockWrapperState>,
+    _path: Path<()>,
+    _request: Request<Body>,
+) -> MockWrapperResult {
+    Ok(Bytes::from(serde_json::to_string(&serde_json::json!(
+        {
+    "@odata.id": "/redfish/v1/TaskService/Tasks/0",
+    "@odata.type": "#Task.v1_4_3.Task",
+    "Id": "0"
+    }
+    ))?))
+}
+
+async fn patch_dpu_secure_boot(
+    State(mut state): State<MockWrapperState>,
+    _path: Path<()>,
+    _request: Request<Body>,
+) -> impl IntoResponse {
+    state.bmc_state.set_secure_boot_enabled(true);
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("Location", "/redfish/v1/Systems/Bluefield/SecureBoot")
+        .body(Body::from(""))
+        .unwrap()
+}
+
+async fn get_dpu_secure_boot(
+    State(state): State<MockWrapperState>,
+    _path: Path<()>,
+    _request: Request<Body>,
+) -> MockWrapperResult {
+    let secure_boot_enabled = state.bmc_state.secure_boot_enabled.load(Ordering::Relaxed);
+    Ok(Bytes::from(serde_json::to_string(&serde_json::json!(
+        {
+            "@odata.context": "/redfish/v1/$metadata#SecureBoot.SecureBoot",
+            "@odata.id": "/redfish/v1/Systems/Bluefield/SecureBoot",
+            "@odata.type": "#SecureBoot.v1_6_0.SecureBoot",
+            "Id": "SecureBoot",
+            "Name": "UEFI Secure Boot",
+            "SecureBootEnable": secure_boot_enabled,
+            "SecureBootMode": "UserMode",
+            "SecureBootCurrentBoot": if secure_boot_enabled {
+                "Enabled"
+            } else {
+                "Disabled"
+            },
+        }
+    ))?))
 }
 
 async fn get_dell_job(

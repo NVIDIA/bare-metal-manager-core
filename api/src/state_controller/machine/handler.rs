@@ -657,8 +657,17 @@ impl MachineStateHandler {
                     )
                     .await?;
 
-                    let reprov_state = ReprovisionState::WaitingForNetworkInstall;
-
+                    let reprov_state = if dpus_for_reprov
+                        .iter()
+                        .all(|m| m.bmc_info.supports_bfb_install())
+                    {
+                        tracing::info!("All DPUs support BFB install via Redfish");
+                        ReprovisionState::InstallDpuOs {
+                            substate: InstallDpuOsState::InstallingBFB,
+                        }
+                    } else {
+                        ReprovisionState::WaitingForNetworkInstall
+                    };
                     let next_state = reprov_state.next_state_with_all_dpus_updated(
                         &mh_state,
                         &mh_snapshot.dpu_snapshots,
@@ -1375,13 +1384,23 @@ impl MachineStateHandler {
             tracing::error!(%host_machine_id, "Host reboot failed with error: {err}");
         }
         set_managed_host_topology_update_needed(txn, &state.host_snapshot, dpus_for_reprov).await?;
-        Ok(Some(
-            ReprovisionState::WaitingForNetworkInstall.next_state_with_all_dpus_updated(
-                &state.managed_state,
-                &state.dpu_snapshots,
-                dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
-            )?,
-        ))
+
+        let next_state = if dpus_for_reprov
+            .iter()
+            .all(|m| m.bmc_info.supports_bfb_install())
+        {
+            tracing::info!("All DPUs support BFB install via Redfish");
+            ReprovisionState::InstallDpuOs {
+                substate: InstallDpuOsState::InstallingBFB,
+            }
+        } else {
+            ReprovisionState::WaitingForNetworkInstall
+        };
+        Ok(Some(next_state.next_state_with_all_dpus_updated(
+            &state.managed_state,
+            &state.dpu_snapshots,
+            dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
+        )?))
     }
 
     // If current BMC FW allows to install bfb via redfish - performs redfish install,
@@ -1401,27 +1420,6 @@ impl MachineStateHandler {
             .iter()
             .filter(|x| x.reprovision_requested.is_some())
             .collect_vec();
-
-        if dpus_for_reprov
-            .iter()
-            .all(|m| m.bmc_info.supports_bfb_install())
-        {
-            tracing::info!("All DPUs support BFB install via Redfish");
-            for dpu in dpus_for_reprov.iter() {
-                db::machine::update_dpu_reprovision_start_time(&dpu.id, txn).await?;
-            }
-
-            return Ok(Some(
-                ReprovisionState::InstallDpuOs {
-                    substate: InstallDpuOsState::InstallingBFB,
-                }
-                .next_state_with_all_dpus_updated(
-                    &state.managed_state,
-                    &state.dpu_snapshots,
-                    dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
-                )?,
-            ));
-        }
 
         match managed_state {
             ManagedHostState::Assigned {
@@ -2871,7 +2869,12 @@ impl DpuMachineStateHandler {
                     .all(|m| m.bmc_info.supports_bfb_install())
                 {
                     tracing::info!(
-                        "DPU {dpu_machine_id} supports BFB install. Moving to EnableSecureBoot state."
+                        "DPU {dpu_machine_id} supports BFB install (BMC FW version: {}). Moving to EnableSecureBoot state.",
+                        dpu_snapshot
+                            .bmc_info
+                            .firmware_version
+                            .clone()
+                            .unwrap_or("unknown".to_string())
                     );
                     // Move with a redfish install path
                     DpuDiscoveringState::EnableSecureBoot {

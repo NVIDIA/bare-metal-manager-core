@@ -13,7 +13,7 @@
 use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 
 use crate::cfg::file::DpuConfig as InitialDpuConfig;
-use crate::model::machine::Machine;
+use crate::model::machine::{InstallDpuOsState, Machine, SetSecureBootState};
 use crate::tests::common;
 use crate::tests::common::{
     api_fixtures,
@@ -1376,10 +1376,8 @@ async fn test_site_explorer_creates_managed_host(
             dpu_states: crate::model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(
                     dpu_machine.id,
-                    DpuDiscoveringState::DisableSecureBoot {
-                        disable_secure_boot_state: Some(
-                            crate::model::machine::SetSecureBootState::CheckSecureBootStatus
-                        ),
+                    DpuDiscoveringState::EnableSecureBoot {
+                        enable_secure_boot_state: SetSecureBootState::CheckSecureBootStatus,
                         count: 0,
                     },
                 )]),
@@ -1399,11 +1397,22 @@ async fn test_site_explorer_creates_managed_host(
         dpu_machine.current_state(),
         &ManagedHostState::DpuDiscoveringState {
             dpu_states: crate::model::machine::DpuDiscoveringStates {
-                states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::SetUefiHttpBoot,)]),
+                states: HashMap::from([(
+                    dpu_machine.id,
+                    DpuDiscoveringState::EnableSecureBoot {
+                        enable_secure_boot_state: SetSecureBootState::SetSecureBoot,
+                        count: 0,
+                    },
+                )]),
             },
         }
     );
 
+    env.run_machine_state_controller_iteration().await;
+    // EnableSecureBoot: RebootDPU
+    env.run_machine_state_controller_iteration().await;
+    // CheckSecureBootStatus:
+    env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
     let dpu_machine =
         db::machine::find_one(&mut txn, &dpu_machine.id, MachineSearchConfig::default())
@@ -1413,13 +1422,20 @@ async fn test_site_explorer_creates_managed_host(
 
     assert_eq!(
         dpu_machine.current_state(),
-        &ManagedHostState::DpuDiscoveringState {
-            dpu_states: crate::model::machine::DpuDiscoveringStates {
-                states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::RebootAllDPUS)]),
+        &ManagedHostState::DPUInit {
+            dpu_states: crate::model::machine::DpuInitStates {
+                states: HashMap::from([(
+                    dpu_machine.id,
+                    DpuInitState::InstallDpuOs {
+                        substate: InstallDpuOsState::InstallingBFB
+                    }
+                )]),
             },
         }
     );
 
+    env.run_machine_state_controller_iteration().await;
+    // Wait for installComplete
     env.run_machine_state_controller_iteration().await;
 
     let dpu_machine =
