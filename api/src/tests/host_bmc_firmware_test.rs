@@ -17,7 +17,7 @@ use crate::tests::common::api_fixtures::{
 };
 use crate::{
     CarbideResult,
-    cfg::file::{FirmwareComponentType, TimePeriod},
+    cfg::file::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry, TimePeriod},
     db,
     db::{
         DatabaseError, explored_endpoints::DbExploredEndpoint,
@@ -41,6 +41,7 @@ use crate::{
 use common::api_fixtures::{self, TestEnv, create_test_env_with_overrides, get_config};
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
+use regex::Regex;
 use rpc::forge::DhcpDiscovery;
 use rpc::forge::forge_server::Forge;
 use sqlx::PgConnection;
@@ -48,6 +49,7 @@ use std::{
     collections::HashMap,
     fs,
     net::{IpAddr, Ipv4Addr},
+    os::unix::fs::PermissionsExt,
     str::FromStr,
     time::Duration,
 };
@@ -1742,5 +1744,203 @@ async fn test_instance_upgrading_actual_part_2(
             .merges
             .contains_key(HOST_FW_UPDATE_HEALTH_REPORT_SOURCE)
     );
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_script_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
+    let tmpdir = TempDir::with_prefix("test_script_upgrade").unwrap();
+    let mut filename = tmpdir.path().to_path_buf();
+    filename.push("testscript_delete_me.sh");
+    fs::write(
+        &filename,
+        r#"#!/bin/bash
+
+echo BMC_IP $BMC_IP
+echo BMC_USERNAME $BMC_USERNAME
+echo BMC_PASSWORD $BMC_PASSWORD
+if [ "$BMC_IP" != "192.0.1.4" ]; then
+    echo "Wrong BMC IP"
+    exit 1
+fi
+sleep 2
+cat /proc/self/stat
+exit 0
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&filename, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut config = get_config();
+    config.host_models = HashMap::from([(
+        "1".to_string(),
+        Firmware {
+            vendor: bmc_vendor::BMCVendor::Dell,
+            model: "PowerEdge R750".to_string(),
+            components: HashMap::from([(
+                FirmwareComponentType::Bmc,
+                FirmwareComponent {
+                    current_version_reported_as: Some(Regex::new("^Installed-.*__iDRAC.").unwrap()),
+                    preingest_upgrade_when_below: None,
+                    known_firmware: vec![FirmwareEntry::standard_script(
+                        "1234",
+                        filename.to_str().unwrap(),
+                    )],
+                },
+            )]),
+            ordering: vec![FirmwareComponentType::Uefi, FirmwareComponentType::Bmc],
+        },
+    )]);
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+
+    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+
+    // Create and start an update manager
+    let update_manager =
+        MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
+    // Update manager should notice that the host is underversioned, setting the request to update it
+    update_manager.run_single_iteration().await.unwrap();
+
+    // Check that we're properly marking it as upgrade needed
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(host.host_reprovision_requested.is_some());
+    txn.commit().await.unwrap();
+
+    // Now we want a tick of the state machine
+    env.run_machine_state_controller_iteration().await;
+
+    // It should have started the script
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(host.host_reprovision_requested.is_some());
+    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+        panic!("Not in HostReprovision");
+    };
+    let HostReprovisionState::WaitingForScript { .. } = reprovision_state else {
+        panic!("Not in WaitingForScript");
+    };
+    txn.commit().await.unwrap();
+
+    // The script shouldn't have completed yet, so the state machine running shouldn't change anything
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(host.host_reprovision_requested.is_some());
+    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+        panic!("Not in HostReprovision");
+    };
+    let HostReprovisionState::WaitingForScript { .. } = reprovision_state else {
+        panic!("Not in WaitingForScript");
+    };
+    txn.commit().await.unwrap();
+
+    // Wait a few seconds for the sleep, now the script should complete and we go to CheckingFirmwareRetry
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(host.host_reprovision_requested.is_some());
+    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+        panic!("Not in HostReprovision");
+    };
+    let HostReprovisionState::CheckingFirmwareRepeat { .. } = reprovision_state else {
+        panic!("Not in CheckingFirmwareRepeat");
+    };
+    txn.commit().await.unwrap();
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_script_upgrade_failure(pool: sqlx::PgPool) -> CarbideResult<()> {
+    let mut config = get_config();
+    config.host_models = HashMap::from([(
+        "1".to_string(),
+        Firmware {
+            vendor: bmc_vendor::BMCVendor::Dell,
+            model: "PowerEdge R750".to_string(),
+            components: HashMap::from([(
+                FirmwareComponentType::Bmc,
+                FirmwareComponent {
+                    current_version_reported_as: Some(Regex::new("^Installed-.*__iDRAC.").unwrap()),
+                    preingest_upgrade_when_below: None,
+                    known_firmware: vec![FirmwareEntry::standard_script("1234", "/bin/false")],
+                },
+            )]),
+            ordering: vec![FirmwareComponentType::Uefi, FirmwareComponentType::Bmc],
+        },
+    )]);
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+
+    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+
+    // Create and start an update manager
+    let update_manager =
+        MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
+    // Update manager should notice that the host is underversioned, setting the request to update it
+    update_manager.run_single_iteration().await.unwrap();
+
+    // Check that we're properly marking it as upgrade needed
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(host.host_reprovision_requested.is_some());
+    txn.commit().await.unwrap();
+
+    // Now we want a tick of the state machine
+    env.run_machine_state_controller_iteration().await;
+
+    // It should have started the script
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(host.host_reprovision_requested.is_some());
+    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+        panic!("Not in HostReprovision");
+    };
+    let HostReprovisionState::WaitingForScript { .. } = reprovision_state else {
+        panic!("Not in WaitingForScript");
+    };
+    txn.commit().await.unwrap();
+
+    // Give it a bit to run, it will have exited with error code 0
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(host.host_reprovision_requested.is_some());
+    let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
+        panic!("Not in HostReprovision");
+    };
+    let HostReprovisionState::FailedFirmwareUpgrade { .. } = reprovision_state else {
+        panic!("Not in FailedFirmwareUpgrade");
+    };
+    txn.commit().await.unwrap();
+
     Ok(())
 }

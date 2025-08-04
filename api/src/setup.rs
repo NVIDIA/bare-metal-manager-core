@@ -529,6 +529,7 @@ pub async fn initialize_and_start_controllers(
                         .instance_autoreboot_period
                         .clone(),
                 )
+                .credential_provider(api_service.credential_provider.clone())
                 .power_options_config(PowerOptionConfig {
                     // Should these parameters be configurable?
                     enabled: carbide_config.power_manager_options.enabled,

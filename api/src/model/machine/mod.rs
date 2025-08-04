@@ -1289,6 +1289,7 @@ pub enum HostReprovisionState {
         phase: InitialResetPhase,
         last_time: DateTime<Utc>,
     },
+    WaitingForScript {},
     WaitingForUpload {
         final_version: String,
         firmware_type: FirmwareComponentType,
@@ -1318,6 +1319,7 @@ pub enum HostReprovisionState {
     FailedFirmwareUpgrade {
         firmware_type: FirmwareComponentType,
         report_time: Option<DateTime<Utc>>,
+        reason: Option<String>,
     },
 }
 
