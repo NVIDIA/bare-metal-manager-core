@@ -1,6 +1,6 @@
 # OLD Kubernetes Development Workflow
 
-**NOTE: This refers to the unsupported Minikube setup. Use the Argo/Kustomize setup instead - and ask someone to document it**
+**NOTE: This refers to the unsupported Minikube setup. Use the [CI-Tools Repo Readme](https://gitlab-master.nvidia.com/nvmetal/ci-tools/internal-services-images/-/blob/main/README.md) instead**
 
 ## Base Forge Deployment
 The local development environment is based on the production kubernetes deployment.  For local development start by following [The forge deployment dev guide](https://gitlab-master.nvidia.com/nvmetal/forge-deployment/-/tree/master/dev) but *STOP* before `make forgedeploy`.  This is done in the forge-deployment repo
