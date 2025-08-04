@@ -721,9 +721,12 @@ pub mod test_support {
         },
     };
     use mac_address::MacAddress;
-    use std::path::Path;
     use std::sync::Mutex;
     use std::time::Duration;
+    use std::{
+        path::Path,
+        sync::atomic::{AtomicBool, Ordering},
+    };
     use {chrono::Utc, forge_secrets::credentials::TestCredentialProvider};
 
     #[derive(Default)]
@@ -731,6 +734,7 @@ pub mod test_support {
         _hosts: HashMap<String, RedfishSimHostState>,
         users: HashMap<String, String>,
         fw_version: Arc<String>,
+        secure_boot: AtomicBool,
     }
 
     #[derive(Debug, Default)]
@@ -1097,6 +1101,13 @@ pub mod test_support {
         async fn get_secure_boot(
             &self,
         ) -> Result<libredfish::model::secure_boot::SecureBoot, RedfishError> {
+            let secure_boot_enabled = self
+                .state
+                .clone()
+                .lock()
+                .unwrap()
+                .secure_boot
+                .load(Ordering::Relaxed);
             Ok(libredfish::model::secure_boot::SecureBoot {
                 odata: ODataLinks {
                     odata_context: None,
@@ -1107,8 +1118,12 @@ pub mod test_support {
                 },
                 id: "SecureBoot".to_string(),
                 name: "UEFI Secure Boot".to_string(),
-                secure_boot_current_boot: Some(EnabledDisabled::Disabled),
-                secure_boot_enable: Some(false),
+                secure_boot_current_boot: if secure_boot_enabled {
+                    Some(EnabledDisabled::Enabled)
+                } else {
+                    Some(EnabledDisabled::Disabled)
+                },
+                secure_boot_enable: Some(secure_boot_enabled),
                 secure_boot_mode: Some(SecureBootMode::UserMode),
             })
         }
@@ -1370,6 +1385,12 @@ pub mod test_support {
         }
 
         async fn enable_secure_boot(&self) -> Result<(), RedfishError> {
+            self.state
+                .clone()
+                .lock()
+                .unwrap()
+                .secure_boot
+                .store(true, Ordering::Relaxed);
             Ok(())
         }
 

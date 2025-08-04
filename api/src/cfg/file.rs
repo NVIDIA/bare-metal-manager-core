@@ -1044,7 +1044,7 @@ impl Default for DpuConfig {
                                         Regex::new("BMC_Firmware").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard("BF-24.07-14")],
+                                    known_firmware: vec![FirmwareEntry::standard("BF-24.10-33")],
                                 },
                             ),
                             (
@@ -1097,8 +1097,8 @@ impl Default for DpuConfig {
                                     ),
                                     preingest_upgrade_when_below: None,
                                     known_firmware: vec![
-                                        // BF-24.07-14 (DOCA 2.8) is the expected BMC FW that we expect on BF3s after ingesting them
-                                        FirmwareEntry::standard("BF-24.07-14"),
+                                        // BF-24.10-33 (DOCA 2.9) is the expected BMC FW that we expect on BF3s after ingesting them
+                                        FirmwareEntry::standard("BF-24.10-33"),
                                     ],
                                 },
                             ),
@@ -1111,7 +1111,7 @@ impl Default for DpuConfig {
 
                                     preingest_upgrade_when_below: None,
                                     known_firmware: vec![FirmwareEntry::standard(
-                                        "00.02.0182.0000_n02",
+                                        "00.02.0195.0000_n02",
                                     )],
                                 },
                             ),
@@ -1122,7 +1122,7 @@ impl Default for DpuConfig {
                                         Regex::new("DPU_NIC").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard("32.42.1000")],
+                                    known_firmware: vec![FirmwareEntry::standard("32.43.3608")],
                                 },
                             ),
                         ]),
@@ -1131,7 +1131,7 @@ impl Default for DpuConfig {
             ]),
             dpu_nic_firmware_update_versions: vec![
                 "24.42.1000".to_string(),
-                "32.42.1000".to_string(),
+                "32.43.3608".to_string(),
             ],
         }
     }

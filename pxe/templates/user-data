@@ -183,7 +183,7 @@ write_files:
       date -s '@{{ seconds_since_epoch }}'
       hwclock --systohc
       /usr/bin/systemctl daemon-reload
-      /usr/bin/bfrec --capsule /lib/firmware/mellanox/boot/capsule/efi_sbkeysync.cap
+      /usr/bin/bfrec --capsule /lib/firmware/mellanox/boot/capsule/efi_sbkeysync.cap || true
       /usr/bin/bfcfg
       ip vrf exec mgmt curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem {{ pxe_url }}/api/v0/tls/root_ca
       echo "downloaded forge root cert"

@@ -13,6 +13,7 @@ use forge_uuid::machine::MachineId;
  * its affiliates is strictly prohibited.
  */
 use crate::db::{self, machine::MachineSearchConfig};
+use crate::model::machine::InstallDpuOsState;
 use crate::model::{
     instance::status::tenant::TenantState,
     machine::{
@@ -167,7 +168,29 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(
                     dpu_machine_id,
-                    crate::model::machine::ReprovisionState::WaitingForNetworkInstall
+                    crate::model::machine::ReprovisionState::InstallDpuOs {
+                        substate: InstallDpuOsState::InstallingBFB
+                    }
+                )]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id,
+                    crate::model::machine::ReprovisionState::WaitingForNetworkInstall,
                 )]),
             },
         }
@@ -457,6 +480,28 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     assert_eq!(dpu.reprovision_requested.unwrap().initiator, "AdminCli");
 
     let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id,
+                    ReprovisionState::InstallDpuOs {
+                        substate: InstallDpuOsState::InstallingBFB
+                    }
+                )]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
 
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1616,8 +1661,9 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     let last_reboot_requested_time = dpu.last_reboot_requested.as_ref();
 
-    env.run_machine_state_controller_iteration().await;
-    env.run_machine_state_controller_iteration().await;
+    for _ in 0..3 {
+        env.run_machine_state_controller_iteration().await;
+    }
 
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -1918,7 +1964,29 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(
                     dpu_machine_id,
-                    ReprovisionState::WaitingForNetworkInstall
+                    ReprovisionState::InstallDpuOs {
+                        substate: InstallDpuOsState::InstallingBFB
+                    }
+                )]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id,
+                    ReprovisionState::WaitingForNetworkInstall,
                 )]),
             },
         }
@@ -2104,8 +2172,9 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
 
-    env.run_machine_state_controller_iteration().await;
-    env.run_machine_state_controller_iteration().await;
+    for _ in 0..3 {
+        env.run_machine_state_controller_iteration().await;
+    }
 
     let mut txn = env.pool.begin().await.unwrap();
 
@@ -2181,7 +2250,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(
                     dpu_machine_id,
-                    ReprovisionState::WaitingForNetworkInstall
+                    ReprovisionState::WaitingForNetworkInstall,
                 )]),
             },
         }
@@ -2229,6 +2298,31 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
 
     let last_reboot_requested_time = dpu.last_reboot_requested.as_ref();
 
+    env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: HashMap::from([
+                    (
+                        dpu_machine_id_1,
+                        ReprovisionState::InstallDpuOs {
+                            substate: InstallDpuOsState::InstallingBFB
+                        }
+                    ),
+                    (dpu_machine_id_2, ReprovisionState::NotUnderReprovision)
+                ]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
 
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
@@ -2524,6 +2618,42 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
     let last_reboot_requested_time = dpu.last_reboot_requested.as_ref();
 
     env.run_machine_state_controller_iteration().await;
+
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_ne!(
+        dpu.last_reboot_requested.as_ref().unwrap().time,
+        last_reboot_requested_time.unwrap().time
+    );
+
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: HashMap::from([
+                    (
+                        dpu_machine_id_1,
+                        ReprovisionState::InstallDpuOs {
+                            substate: InstallDpuOsState::InstallingBFB
+                        }
+                    ),
+                    (
+                        dpu_machine_id_2,
+                        ReprovisionState::InstallDpuOs {
+                            substate: InstallDpuOsState::InstallingBFB
+                        }
+                    )
+                ]),
+            },
+        }
+    );
+
+    for _ in 0..5 {
+        env.run_machine_state_controller_iteration().await;
+    }
 
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -3134,6 +3264,32 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
+    assert_eq!(
+        dpu.current_state(),
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: crate::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id,
+                        ReprovisionState::InstallDpuOs {
+                            substate: InstallDpuOsState::InstallingBFB,
+                        },
+                    )]),
+                },
+            }
+        }
+    );
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
     let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
 
     assert_eq!(
@@ -3149,6 +3305,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
             }
         }
     );
+    txn.commit().await.unwrap();
 
     let pxe = env
         .api

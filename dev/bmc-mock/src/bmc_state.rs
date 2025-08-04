@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rand::Rng;
@@ -33,6 +34,7 @@ impl Job {
 #[derive(Debug, Clone)]
 pub struct BmcState {
     pub jobs: Arc<Mutex<HashMap<String, Job>>>,
+    pub secure_boot_enabled: Arc<AtomicBool>,
 }
 
 impl BmcState {
@@ -74,5 +76,9 @@ impl BmcState {
             job.end_time = Some(chrono::offset::Utc::now());
             jobs.insert(job.job_id.clone(), job);
         }
+    }
+
+    pub fn set_secure_boot_enabled(&mut self, enabled: bool) {
+        self.secure_boot_enabled.store(enabled, Ordering::Relaxed);
     }
 }

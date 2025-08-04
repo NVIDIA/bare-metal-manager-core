@@ -450,15 +450,12 @@ impl MachineStateMachine {
             MachineState::MachineUp(inner_state) => match inner_state.booted_os {
                 OsImage::DpuAgent => self.run_dpu_agent_iteration(inner_state).await,
                 OsImage::Scout => self.run_scout_iteration(inner_state).await,
+                // Now we install bfb via redfish, so this is expected.
+                OsImage::None if matches!(self.machine_info, MachineInfo::Dpu(_)) => {
+                    self.run_scout_iteration(inner_state).await
+                }
                 OsImage::None => {
-                    match self.machine_info {
-                        MachineInfo::Host(_) => {
-                            tracing::debug!("Host booted to tenant OS")
-                        }
-                        MachineInfo::Dpu(_) => tracing::debug!(
-                            "DPU booted to empty OS, will wait for carbide to reboot us"
-                        ),
-                    }
+                    tracing::debug!("Host booted to tenant OS");
                     Ok(NextState::SleepFor(Duration::MAX))
                 }
             },

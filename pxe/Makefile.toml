@@ -17,19 +17,21 @@ PKG_VERSION = { script = [
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem" }
 
 # BFB stuff
-BFB_NAME = "bf-bundle-2.8.0-98_24.07_ubuntu-22.04_prod.bfb"
-BFB_UPSTREAM_LOCATION = "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/"
+BFB_NAME = "bf-bundle-2.9.3-32_25.06_ubuntu-22.04_prod.bfb"
+BFB_UPSTREAM_LOCATION = "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04"
 URM_LOCATION = "https://urm.nvidia.com/artifactory/sw-forge-admins-generic-local/build-artifacts/${HBN_VERSION}"
-DOCA_VERSION = "2.8.0"
-HBN_VERSION = "2.3.0"
-# The upstream config url no longer works, and the file must be retrieved manually from the following page, then downloaded
-# to the machine that is running the upload job
-# https://catalog.ngc.nvidia.com/orgs/nvidia/teams/doca/resources/doca_container_configs/version
-HBN_UPSTREAM_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/${DOCA_VERSION}v2/zip"
+DOCA_VERSION = "2.9.3"
+HBN_VERSION = "2.4.3"
+# As of 2.4.3, PID is used to download artifacts. A url like this http://pid/1138607 will be given to download the zip, which contains
+# the zip file, which was saved manually to the same name of teh hbn uri in the scripts/2.4.3/doca_hbn.yml which is also in the same zip.
+# once we know for sure the zip file in pid is the new way to get this file, we can automate all the manual steps that went in to upload
+# Such as making the doca_container_configs.zip manually from files inside the zip from pid and manually exporting the hbn image to 
+# the named DOCA_HBN_URI.
+HBN_UPSTREAM_CONFIG_URL = "/tmp/doca_container_configs.zip"
 IPXE_BANNER_VERSION = { script = [
   "echo ${VERSION:-$(git describe --tags --first-parent --always --long)}",
 ] }
-DOCA_HBN_URI = "nvcr.io/nvidia/doca/doca_hbn:2.3.0-doca2.8.0"
+DOCA_HBN_URI = "nvcr.io/nvstaging/doca/doca_hbn:2.4.3-doca2.9.3"
 BUILD_LOCATION = "/tmp/bfb-dump/initramfs-tmp"
 [tasks.upload-bfb-artifacts-to-urm]
 env = { "BFB_LOCATION" = "${BFB_UPSTREAM_LOCATION}", "HBN_CONFIG_URL" = "${HBN_UPSTREAM_CONFIG_URL}" }
@@ -43,9 +45,8 @@ dependencies = [
   "bfb-download",
   "save-bfb-for-preingestion",
   "bfb-mv-to-build-dir",
-  "bfb-hbn-download",
   "bfb-hbn-export",
-  "download-hbn-installer-to-bfb",
+  "cp-hbn-installer-to-bfb",
   "upload-artifacts-to-artifactory",
 ]
 
@@ -832,6 +833,12 @@ args = [
   "${BUILD_LOCATION}",
 ]
 dependencies = [{ name = "build-scout-aarch64-release-cross", path = "${REPO_ROOT}" }]
+
+[tasks.cp-hbn-installer-to-bfb]
+category = "iPXE Kernel"
+description = "Add the HBN installer to the bfb"
+command = "cp"
+args = ["${HBN_CONFIG_URL}", "${BUILD_LOCATION}", ]
 
 [tasks.download-hbn-installer-to-bfb]
 category = "iPXE Kernel"
