@@ -6,6 +6,11 @@ fi
 
 set -Eeux
 
+# We've moved this to a post-install script, to avoid double-triggering the DKMS build
+NV_PACKAGES="cuda-drivers-580 nvidia-driver-580-open datacenter-gpu-manager-4-cuda-all nvidia-fabricmanager-580"
+export DEBIAN_FRONTEND=noninteractive
+apt-get -y install ${NV_PACKAGES}
+
 dpkg -i /build-output/forge-scout.deb
 systemctl enable forge-scout
 
@@ -68,22 +73,42 @@ groupadd nsv
 
 # end nvinit setup
 
-# Setup the daily scout update check script
+systemctl enable nvidia-fabricmanager
+
+# Copy the daily scout update check script to systemd
 cp /build-output/check-scout-updates.sh /opt/forge/
 cp /build-output/check-scout-updates.service /etc/systemd/system
 cp /build-output/check-scout-updates.timer /etc/systemd/system
 
 ln -s /etc/systemd/system/check-scout-updates.service /etc/systemd/system/multi-user.target.wants/check-scout-updates.service
 ln -s /etc/systemd/system/check-scout-updates.timer /etc/systemd/system/timers.target.wants/check-scout-updates.timer
-# end sdaily scout update check script
+# end daily scout update check script
 
 # Some sanity checks for the image, to ensure forge-scout can run, and expected modules are present.
-if [ "$(ldd /opt/forge/forge-scout | fgrep -c 'not found')" != "0" ]
+# Ensure no missing libraries for some key commands
+for bin in /opt/forge/forge-scout \
+           /usr/bin/dcgmi \
+           /usr/libexec/datacenter-gpu-manager-4/nvvs \
+           /usr/libexec/datacenter-gpu-manager-4/plugins/cuda12/BwChecker_12
+do
+  if [ "$(ldd ${bin} | fgrep -c 'not found')" != "0" ]
+  then
+    echo "ERROR: Potentially missing libraries, command ${bin} may not run"
+    exit 1
+  fi
+done
+
+# Check the nvidia driver versions are consistent
+NV_PKGS="cuda-drivers-580 libnvidia-common-580 libnvidia-compute-580 nvidia-compute-utils-580
+         nvidia-dkms-580-open nvidia-driver-580-open nvidia-fabricmanager-580 nvidia-firmware-580
+         nvidia-kernel-common-580 nvidia-kernel-source-580-open nvidia-persistenced"
+if [ $(dpkg -l ${NV_PKGS} | grep '^ii' | awk '{print $3}' | cut -d. -f1-2 | sort -u | wc -l) -ne 1 ]
 then
-  echo "ERROR: Missing libraries, forge-scout will not run"
+  echo "ERROR: Mismatched nvidia package versions, dcgmi may not run"
   exit 1
 fi
 
+# Check for key modules
 for mod in nvidia.ko.zst mlx5_ib.ko.zst
 do
   if [ $(find /lib/modules -type f -name ${mod} | wc -l) == "0" ]
@@ -93,6 +118,7 @@ do
   fi
 done
 
+# Ensure we have header files for the installed kernel, so we can build dkms
 for kern_ver in $(ls -1 /usr/lib/modules)
 do
   if [ ! -d /usr/src/linux-headers-${kern_ver} ]
@@ -101,3 +127,4 @@ do
     exit 1
   fi
 done
+
