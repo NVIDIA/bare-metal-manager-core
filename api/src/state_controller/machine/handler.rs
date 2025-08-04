@@ -31,7 +31,7 @@ use machine_validation::{handle_machine_validation_requested, handle_machine_val
 use measured_boot::records::MeasurementMachineState;
 use sku::{handle_bom_validation_requested, handle_bom_validation_state};
 use sqlx::PgConnection;
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex, Semaphore};
 use tracing::instrument;
 use version_compare::Cmp;
 
@@ -300,6 +300,7 @@ impl MachineStateHandler {
                 .unwrap_or(Arc::new(Semaphore::new(5))),
             no_firmware_update_reset_retries: builder.no_firmware_update_reset_retries,
             instance_autoreboot_period: builder.instance_autoreboot_period,
+            async_firmware_uploader: Arc::new(Default::default()),
         });
         MachineStateHandler {
             dpu_up_threshold: builder.dpu_up_threshold,
@@ -5493,6 +5494,12 @@ impl HostFirmwareScenario {
     }
 }
 
+#[derive(Debug, Clone)]
+enum UploadResult {
+    Success { task_id: String },
+    Failure,
+}
+
 #[derive(Debug)]
 struct HostUpgradeState {
     parsed_hosts: Arc<FirmwareConfig>,
@@ -5500,6 +5507,7 @@ struct HostUpgradeState {
     upload_limiter: Arc<Semaphore>,
     no_firmware_update_reset_retries: bool,
     instance_autoreboot_period: Option<TimePeriod>,
+    async_firmware_uploader: Arc<AsyncFirmwareUploader>,
 }
 
 impl HostUpgradeState {
@@ -5566,6 +5574,9 @@ impl HostUpgradeState {
                     txn,
                 )
                 .await
+            }
+            details @ HostReprovisionState::WaitingForUpload { .. } => {
+                self.waiting_for_upload(details, state, scenario, txn).await
             }
             details @ HostReprovisionState::WaitingForFirmwareUpgrade { .. } => {
                 self.host_waiting_fw(details, state, services, machine_id, scenario, txn)
@@ -5676,7 +5687,7 @@ impl HostUpgradeState {
                 }
 
                 return self
-                    .initiate_host_fw_update_new_state(
+                    .initiate_host_fw_update(
                         explored_endpoint.address,
                         state,
                         services,
@@ -5849,8 +5860,9 @@ impl HostUpgradeState {
         state: &ManagedHostStateSnapshot,
         services: &StateHandlerServices,
         fw_info: FullFirmwareInfo<'_>,
+        scenario: HostFirmwareScenario,
         txn: &mut PgConnection,
-    ) -> Result<Option<String>, StateHandlerError> {
+    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         let snapshot = &state.host_snapshot;
         let to_install = fw_info.to_install;
         let component_type = fw_info.component_type;
@@ -5924,61 +5936,118 @@ impl HostUpgradeState {
             }
         };
 
+        let machine_id = state.host_snapshot.id.to_string();
+        let filename = to_install.get_filename(*fw_info.firmware_number);
         let redfish_component_type: libredfish::model::update_service::ComponentType =
             match to_install.install_only_specified {
                 false => libredfish::model::update_service::ComponentType::Unknown,
                 true => (*component_type).into(),
             };
-        let task = match redfish_client
-            .update_firmware_multipart(
-                to_install.get_filename(*fw_info.firmware_number).as_path(),
-                true,
-                std::time::Duration::from_secs(120),
+        let address = address.to_string();
+
+        self.async_firmware_uploader
+            .start_upload(
+                machine_id,
+                redfish_client,
+                filename,
                 redfish_component_type,
+                address,
             )
-            .await
-        {
-            Ok(task) => task,
-            Err(e) => {
-                tracing::warn!("Failed uploading firmware to {}: {e}", address.to_string());
-                return Ok(None);
-            }
+            .await;
+
+        // Upload complete and updated started, will monitor task in future iterations
+        let reprovision_state = HostReprovisionState::WaitingForUpload {
+            firmware_type: *fw_info.component_type,
+            final_version: fw_info.to_install.version.clone(),
+            power_drains_needed: fw_info.to_install.power_drains_needed,
+            firmware_number: Some(*fw_info.firmware_number),
         };
 
-        Ok(Some(task))
+        scenario.actual_new_state(reprovision_state)
     }
 
-    // initiate_host_fw_update_new_state cals initiate_host_fw_update and returns the new state machine status
-    async fn initiate_host_fw_update_new_state(
+    async fn waiting_for_upload(
         &self,
-        address: IpAddr,
+        details: &HostReprovisionState,
         state: &ManagedHostStateSnapshot,
-        services: &StateHandlerServices,
-        fw_info: FullFirmwareInfo<'_>,
         scenario: HostFirmwareScenario,
         txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
-        tracing::debug!("Installing {:?} on {}", fw_info.to_install, address);
-
-        match self
-            .initiate_host_fw_update(address, state, services, fw_info.clone(), txn)
-            .await?
-        {
-            Some(task_id) => {
-                // Upload complete and updated started, will monitor task in future iterations
-                let reprovision_state = HostReprovisionState::WaitingForFirmwareUpgrade {
-                    task_id,
-                    firmware_type: *fw_info.component_type,
-                    final_version: fw_info.to_install.version.clone(),
-                    power_drains_needed: fw_info.to_install.power_drains_needed,
-                    firmware_number: Some(*fw_info.firmware_number),
-                    started_waiting: Some(Utc::now()),
-                };
-                scenario.actual_new_state(reprovision_state)
+        let (final_version, firmware_type, power_drains_needed, firmware_number) = match details {
+            HostReprovisionState::WaitingForUpload {
+                final_version,
+                firmware_type,
+                power_drains_needed,
+                firmware_number,
+            } => (
+                final_version,
+                firmware_type,
+                power_drains_needed,
+                firmware_number,
+            ),
+            _ => {
+                return Err(StateHandlerError::GenericError(eyre!(
+                    "Wrong enum in waiting_for_upload"
+                )));
             }
+        };
+
+        let machine_id = state.host_snapshot.id;
+        let address = match find_explored_refreshed_endpoint(state, &machine_id, txn).await {
+            Ok(explored_endpoint) => match explored_endpoint {
+                Some(explored_endpoint) => explored_endpoint.address.to_string(),
+                None => "unknown".to_string(),
+            },
+            Err(_) => "unknown".to_string(),
+        };
+        let machine_id = machine_id.to_string();
+        match self
+            .async_firmware_uploader
+            .upload_status(&machine_id)
+            .await
+        {
             None => {
-                // Deferred upload due to download or other reason, recheck later
+                tracing::info!(
+                    "Apparent restart before upload to {machine_id} {address} completion, returning to CheckingFirmware"
+                );
                 scenario.actual_new_state(HostReprovisionState::CheckingFirmwareRepeat)
+            }
+            Some(upload_status) => {
+                match upload_status {
+                    None => {
+                        tracing::debug!("Upload to {machine_id} {address} not yet complete");
+                        Ok(None)
+                    }
+                    Some(result) => {
+                        match result {
+                            UploadResult::Success { task_id } => {
+                                // We want to remove the machine ID from the hashmap, but do not do it here, because we may fail the commit.  Run it in the next state handling.  Failure case doesn't matter, it would have identical behavior.
+                                tracing::info!(
+                                    "Upload to {machine_id} {address} completed with task ID {task_id}"
+                                );
+                                // Upload complete and updated started, will monitor task in future iterations
+                                let reprovision_state =
+                                    HostReprovisionState::WaitingForFirmwareUpgrade {
+                                        task_id: task_id.clone(),
+                                        firmware_type: *firmware_type,
+                                        final_version: final_version.clone(),
+                                        power_drains_needed: *power_drains_needed,
+                                        firmware_number: *firmware_number,
+                                        started_waiting: Some(Utc::now()),
+                                    };
+                                scenario.actual_new_state(reprovision_state)
+                            }
+                            UploadResult::Failure => {
+                                self.async_firmware_uploader
+                                    .finish_upload(&machine_id)
+                                    .await;
+                                // The upload thread already logged this
+                                scenario
+                                    .actual_new_state(HostReprovisionState::CheckingFirmwareRepeat)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -6021,6 +6090,11 @@ impl HostUpgradeState {
                 )));
             }
         };
+
+        // Now it's safe to clear the hashmap for the upload status
+        self.async_firmware_uploader
+            .finish_upload(&state.host_snapshot.id.to_string())
+            .await;
 
         let address = state
             .host_snapshot
@@ -6079,7 +6153,7 @@ impl HostUpgradeState {
                                             );
 
                                             return self
-                                                .initiate_host_fw_update_new_state(
+                                                .initiate_host_fw_update(
                                                     endpoint.address,
                                                     state,
                                                     services,
@@ -6471,6 +6545,73 @@ impl HostUpgradeState {
         let now = chrono::Utc::now();
 
         now > start && now < end
+    }
+}
+
+#[derive(Clone, Default, Debug)]
+struct AsyncFirmwareUploader {
+    active_uploads: Arc<Mutex<HashMap<String, Option<UploadResult>>>>,
+}
+
+impl AsyncFirmwareUploader {
+    async fn start_upload(
+        &self,
+        id: String,
+        redfish_client: Box<dyn Redfish>,
+        filename: std::path::PathBuf,
+        redfish_component_type: libredfish::model::update_service::ComponentType,
+        address: String,
+    ) {
+        if self.upload_status(&id).await.is_some() {
+            // This situation can happen during an upgrade (typically a config upgrade) where the new instance of carbide-api starts an upgrade,
+            // the old one sees that it's not the uploader and returns us to Checking, then the new one is following this path.  As we would be
+            // trying to return to the exact same state that we generated before and the upload is already in progress, all we need to do here is
+            // return.  It's possible that we may fluctuate the state a few times, but once the old instance dies we will be fine.
+            //
+            // In the odd situation where the old one was doing the upload, a similar thing will happen, but when the old one dies it will kill
+            // the upload and the restart is the correct thing to do.
+            //
+            // Log it so we can see what's going on in case there's problems.
+            tracing::info!(
+                "Uploading conflict for {id} {address}; our upload should still be in progress."
+            );
+            return;
+        }
+        // We set a None value to indicate that we know about this.  If we restart and we're in the next state but it's not set, we'll not find anything and know that the connection was reset.
+        let mut hashmap = self.active_uploads.lock().await;
+        hashmap.insert(id.clone(), None);
+        drop(hashmap);
+
+        let active_uploads = self.active_uploads.clone();
+        tokio::spawn(async move {
+            match redfish_client
+                .update_firmware_multipart(
+                    filename.as_path(),
+                    true,
+                    std::time::Duration::from_secs(3600),
+                    redfish_component_type,
+                )
+                .await
+            {
+                Ok(task_id) => {
+                    let mut hashmap = active_uploads.lock().await;
+                    hashmap.insert(id, Some(UploadResult::Success { task_id }));
+                }
+                Err(e) => {
+                    tracing::warn!("Failed uploading firmware to {id} {address}: {e}");
+                    let mut hashmap = active_uploads.lock().await;
+                    hashmap.insert(id, Some(UploadResult::Failure));
+                }
+            };
+        });
+    }
+    async fn upload_status(&self, id: &String) -> Option<Option<UploadResult>> {
+        let hashmap = self.active_uploads.lock().await;
+        hashmap.get(id).cloned()
+    }
+    async fn finish_upload(&self, id: &String) {
+        let mut hashmap = self.active_uploads.lock().await;
+        hashmap.remove(id);
     }
 }
 
