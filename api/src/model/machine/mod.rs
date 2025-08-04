@@ -1289,6 +1289,12 @@ pub enum HostReprovisionState {
         phase: InitialResetPhase,
         last_time: DateTime<Utc>,
     },
+    WaitingForUpload {
+        final_version: String,
+        firmware_type: FirmwareComponentType,
+        power_drains_needed: Option<u32>,
+        firmware_number: Option<u32>,
+    },
     WaitingForFirmwareUpgrade {
         task_id: String,
         final_version: String,

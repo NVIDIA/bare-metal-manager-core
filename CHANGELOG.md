@@ -4,6 +4,7 @@
 ## [Unreleased (v2025.08.15-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.01-rc2-0...trunk)
 
 ### Added
+- [FORGE-6524](https://jirasw.nvidia.com/browse/FORGE-6524) [MR-4293](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4293): Background upload of host firmware for already ingested machines, increased timeout to 1 hour.
 
 - [FORGE-6230](https://jirasw.nvidia.com/browse/FORGE-6230): Indicate the desired power state of a machine in forge and prevent alerts.
   Power manager is *disabled* by default. This can be enabled in carbide api config with following section.

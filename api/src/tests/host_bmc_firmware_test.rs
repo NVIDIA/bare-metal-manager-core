@@ -39,6 +39,7 @@ use crate::{
     preingestion_manager::PreingestionManager,
 };
 use common::api_fixtures::{self, TestEnv, create_test_env_with_overrides, get_config};
+use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
 use rpc::forge::DhcpDiscovery;
 use rpc::forge::forge_server::Forge;
@@ -48,10 +49,10 @@ use std::{
     fs,
     net::{IpAddr, Ipv4Addr},
     str::FromStr,
-    thread::sleep,
     time::Duration,
 };
 use temp_dir::TempDir;
+use tokio::time::sleep;
 use tonic::Request;
 
 #[crate::sqlx_test]
@@ -379,6 +380,12 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     // Now we want a tick of the state machine
     env.run_machine_state_controller_iteration().await;
 
+    // Wait a bit for upload to complete
+    sleep(Duration::from_millis(6000)).await;
+
+    // Now we want a tick of the state machine
+    env.run_machine_state_controller_iteration().await;
+
     // It should have "started" a UEFI upgrade
     let mut txn = env.pool.begin().await.unwrap();
     let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -466,6 +473,12 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     };
     txn.commit().await.unwrap();
 
+    // Now we want a tick of the state machine, going to upload
+    env.run_machine_state_controller_iteration().await;
+
+    // Wait a bit for upload to complete
+    sleep(Duration::from_millis(6000)).await;
+
     // Another state machine pass
     env.run_machine_state_controller_iteration().await;
 
@@ -489,6 +502,10 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // Another state machine pass
     env.run_machine_state_controller_iteration().await;
+    // Wait a bit for upload to complete
+    sleep(Duration::from_millis(6000)).await;
+    env.run_machine_state_controller_iteration().await;
+
     let mut txn = env.pool.begin().await.unwrap();
     let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
@@ -757,7 +774,7 @@ known_firmware = [
     "#,
     )?;
     // Even though the file modification time has a precision of nanoseconds, the two files can have matching times, so we have to wait a bit.
-    sleep(Duration::from_millis(100));
+    std::thread::sleep(Duration::from_millis(100));
     test_merge_firmware_configs_write(
         &tmpdir,
         "dir_A_2",
@@ -1119,13 +1136,24 @@ async fn test_instance_upgrading_actual(
         env.api.invoke_instance_power(request).await.unwrap();
     }
 
+    // Split here to avoid hitting stack size limits
+    test_instance_upgrading_actual_part_2(&env, &host_machine_id, &instance_id, &update_manager)
+        .await
+}
+
+async fn test_instance_upgrading_actual_part_2(
+    env: &TestEnv,
+    host_machine_id: &MachineId,
+    instance_id: &InstanceId,
+    update_manager: &MachineUpdateManager,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = env.pool.begin().await.unwrap();
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
-    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1145,7 +1173,7 @@ async fn test_instance_upgrading_actual(
     // A tick of the state machine, now we begin.
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1156,7 +1184,7 @@ async fn test_instance_upgrading_actual(
         panic!("Unexpected instance state {:?}", host.state);
     };
 
-    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1186,14 +1214,14 @@ async fn test_instance_upgrading_actual(
     txn.commit().await.unwrap();
 
     // Simulate agent saying it's booted so we can continue
-    _ = forge_agent_control(&env, host_machine_id.into()).await;
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    _ = forge_agent_control(env, (*host_machine_id).into()).await;
+    sleep(std::time::Duration::from_secs(2)).await;
 
     env.run_machine_state_controller_iteration().await;
 
     // Should check firmware next
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1210,7 +1238,7 @@ async fn test_instance_upgrading_actual(
     };
     assert!(host.host_reprovision_requested.is_some());
 
-    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1240,8 +1268,12 @@ async fn test_instance_upgrading_actual(
     // Next one should start a UEFI upgrade
     env.run_machine_state_controller_iteration().await;
 
+    // Wait a second for the thread to run, and the next should show it complete
+    sleep(Duration::from_millis(6000)).await;
+    env.run_machine_state_controller_iteration().await;
+
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1255,12 +1287,12 @@ async fn test_instance_upgrading_actual(
     };
     let HostReprovisionState::WaitingForFirmwareUpgrade { firmware_type, .. } = reprovision_state
     else {
-        panic!("Not in WaitingForFirmwareUpgrade");
+        panic!("Not in WaitingForFirmwareUpgrade: {:?}", host.state);
     };
     assert_eq!(firmware_type, FirmwareComponentType::Uefi);
 
     // Verify expected TenantState
-    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1286,7 +1318,7 @@ async fn test_instance_upgrading_actual(
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1301,7 +1333,7 @@ async fn test_instance_upgrading_actual(
     };
 
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1327,7 +1359,7 @@ async fn test_instance_upgrading_actual(
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1363,7 +1395,7 @@ async fn test_instance_upgrading_actual(
     .unwrap();
 
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1389,7 +1421,7 @@ async fn test_instance_upgrading_actual(
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1404,7 +1436,7 @@ async fn test_instance_upgrading_actual(
     };
 
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1425,12 +1457,15 @@ async fn test_instance_upgrading_actual(
     );
     txn.commit().await.unwrap();
 
-    // Another state machine pass
+    // Another state machine pass, we're do a 2 chained uploads
+    env.run_machine_state_controller_iteration().await;
+    // Wait a second for the thread to run, and the next should show it complete
+    sleep(Duration::from_millis(6000)).await;
     env.run_machine_state_controller_iteration().await;
 
     // It should have "started" a BMC upgrade now
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1447,9 +1482,8 @@ async fn test_instance_upgrading_actual(
         panic!("Not in WaitingForFirmwareUpgrade");
     };
     assert_eq!(firmware_type, FirmwareComponentType::Bmc);
-
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1473,11 +1507,13 @@ async fn test_instance_upgrading_actual(
 
     // Another state machine pass
     env.run_machine_state_controller_iteration().await;
+    sleep(Duration::from_millis(6000)).await;
     // Another state machine pass
     env.run_machine_state_controller_iteration().await;
-
+    // Another state machine pass
+    env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1492,7 +1528,7 @@ async fn test_instance_upgrading_actual(
     };
 
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1545,7 +1581,7 @@ async fn test_instance_upgrading_actual(
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1560,7 +1596,7 @@ async fn test_instance_upgrading_actual(
     };
 
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1585,7 +1621,7 @@ async fn test_instance_upgrading_actual(
 
     // It should be checking
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1600,7 +1636,7 @@ async fn test_instance_upgrading_actual(
     }
 
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1626,7 +1662,7 @@ async fn test_instance_upgrading_actual(
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -1638,7 +1674,7 @@ async fn test_instance_upgrading_actual(
     };
 
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1661,13 +1697,13 @@ async fn test_instance_upgrading_actual(
         .await
         .unwrap();
     assert!(reqs.is_empty());
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
 
     // Make sure TenantState agrees
-    let instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
         .await
         .unwrap()
         .unwrap();
