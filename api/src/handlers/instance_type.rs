@@ -651,12 +651,14 @@ pub(crate) async fn remove_machine_association(
         .await
         .map_err(CarbideError::from)?;
 
-    if !instances.is_empty() {
-        return Err(CarbideError::FailedPrecondition(format!(
-            "machine {} has instance assigned",
+    if let Some(instance) = instances.first() {
+        if instance.deleted.is_none() {
+            return Err(CarbideError::FailedPrecondition(format!(
+            "machine {} has instance assigned. This operation is allowed only in terminating state.",
             &machine.id
         ))
         .into());
+        }
     }
 
     // Make our DB query to remove the association

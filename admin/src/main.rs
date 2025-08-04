@@ -1910,7 +1910,12 @@ async fn main() -> color_eyre::Result<()> {
                 instance_type::create_association(associate_instance_type, &api_client).await?;
             }
             InstanceTypeActions::Disassociate(disassociate_instance_type) => {
-                instance_type::remove_association(disassociate_instance_type, &api_client).await?;
+                instance_type::remove_association(
+                    disassociate_instance_type,
+                    config.cloud_unsafe_op.is_some(),
+                    &api_client,
+                )
+                .await?;
             }
         },
         CliCommand::Ssh(action) => match action {

@@ -11,6 +11,7 @@
  */
 
 use prettytable::{Table, row};
+use rpc::TenantState;
 use rpc::forge::{
     CreateInstanceTypeRequest, DeleteInstanceTypeRequest, InstanceTypeAttributes,
     UpdateInstanceTypeRequest,
@@ -314,13 +315,39 @@ pub async fn create_association(
 
 pub async fn remove_association(
     disassociate_instance_type: DisassociateInstanceType,
+    cloud_unsafe_operation_allowed: bool,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    api_client
-        .remove_instance_type_association(disassociate_instance_type.machine_id)
+    let instance = api_client
+        .0
+        .find_instance_by_machine_id(disassociate_instance_type.machine_id.clone())
         .await?;
 
-    println!("Association is removed successfully!!");
+    if let Some(instance) = instance.instances.first() {
+        if let Some(status) = &instance.status {
+            if let Some(tenant) = &status.tenant {
+                match tenant.state() {
+                    TenantState::Terminating | TenantState::Terminated => {
+                        if !cloud_unsafe_operation_allowed {
+                            return Err(CarbideCliError::GenericError(
+                                r#"A instance is already allocated to this machine, but terminating.
+        Removing instance type will create a mismatch between cloud and carbide. If you are sure, run this command again with --cloud-unsafe-op flag."#.to_string(),
+        ));
+                        }
+                        api_client
+                            .remove_instance_type_association(disassociate_instance_type.machine_id)
+                            .await?;
+
+                        println!("Association is removed successfully!!");
+                    }
+                    _ => {}
+                }
+            }
+        }
+        return Err(CarbideCliError::GenericError(
+            "A instance is already allocated to this machine. You can remove an instance-type association only in Teminating state.".to_string(),
+        ));
+    }
 
     Ok(())
 }
