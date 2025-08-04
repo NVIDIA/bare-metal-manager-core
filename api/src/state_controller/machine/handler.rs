@@ -6363,7 +6363,21 @@ impl HostUpgradeState {
                 .redfish_client_pool
                 .create_client_from_machine(&state.host_snapshot, txn)
                 .await?;
-            if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
+
+            // DGX models only had an "off", GB200 (and presumably later ones) has an actual AC powercycle.
+            let model = endpoint
+                .report
+                .systems
+                .iter()
+                .find(|&x| x.model.is_some())
+                .and_then(|system| system.model.clone())
+                .unwrap_or("unknown".to_string());
+            let poweroff_style = if model.starts_with("DGX") {
+                SystemPowerControl::ForceOff
+            } else {
+                SystemPowerControl::ACPowercycle
+            };
+            if let Err(e) = redfish_client.power(poweroff_style).await {
                 tracing::error!("Failed to power off {}: {e}", &endpoint.address);
                 return Ok(None);
             }
