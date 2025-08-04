@@ -1064,19 +1064,7 @@ impl Default for DpuConfig {
                                         Regex::new("DPU_NIC").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry {
-                                        version: "24.42.1000".to_string(),
-                                        mandatory_upgrade_from_priority: None,
-                                        default: true,
-                                        filename: None,
-                                        filenames: vec![],
-                                        url: None,
-                                        checksum: None,
-                                        install_only_specified: false,
-                                        power_drains_needed: None,
-                                        preingestion_exclusive_config: false,
-                                        pre_update_resets: false,
-                                    }],
+                                    known_firmware: vec![FirmwareEntry::standard("24.42.1000")],
                                 },
                             ),
                         ]),
@@ -1289,6 +1277,8 @@ pub struct FirmwareEntry {
     /// If true, we will need a series of resets before even trying to upgrade
     #[serde(default)]
     pub pre_update_resets: bool,
+    #[serde(default)]
+    pub script: Option<PathBuf>,
 }
 
 impl FirmwareEntry {
@@ -1306,6 +1296,7 @@ impl FirmwareEntry {
             power_drains_needed: None,
             preingestion_exclusive_config: false,
             pre_update_resets: false,
+            script: None,
         }
     }
     pub fn standard_multiple_filenames(version: &str) -> Self {
@@ -1335,6 +1326,11 @@ impl FirmwareEntry {
         let mut ret = FirmwareEntry::standard(version);
         ret.power_drains_needed = Some(powerdrains);
         ret.pre_update_resets = true;
+        ret
+    }
+    pub fn standard_script(version: &str, script: &str) -> Self {
+        let mut ret = FirmwareEntry::standard(version);
+        ret.script = Some(script.into());
         ret
     }
 

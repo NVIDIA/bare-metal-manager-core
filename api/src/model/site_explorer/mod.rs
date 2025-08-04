@@ -97,7 +97,7 @@ impl EndpointExplorationReport {
         // Prefer Systems, not Chassis; at least for Lenovo, Chassis has what is more of a SKU instead of the actual model name.
         let system_with_model = self.systems.iter().find(|&x| x.model.is_some());
         Some(match system_with_model {
-            Some(chassis) => match &chassis.model {
+            Some(system) => match &system.model {
                 Some(model) => model.to_owned(),
                 None => {
                     return None;

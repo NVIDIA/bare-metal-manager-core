@@ -18,7 +18,9 @@ use std::{mem::discriminant as enum_discr, net::IpAddr, sync::Arc};
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
+use forge_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
+};
 use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
 use itertools::Itertools;
@@ -31,7 +33,10 @@ use machine_validation::{handle_machine_validation_requested, handle_machine_val
 use measured_boot::records::MeasurementMachineState;
 use sku::{handle_bom_validation_requested, handle_bom_validation_state};
 use sqlx::PgConnection;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::{
+    io::AsyncBufReadExt,
+    sync::{Mutex, Semaphore},
+};
 use tracing::instrument;
 use version_compare::Cmp;
 
@@ -150,6 +155,7 @@ pub struct MachineStateHandlerBuilder {
     common_pools: Option<Arc<CommonPools>>,
     bom_validation: BomValidationConfig,
     instance_autoreboot_period: Option<TimePeriod>,
+    credential_provider: Option<Arc<dyn CredentialProvider>>,
     power_options_config: PowerOptionConfig,
 }
 
@@ -176,6 +182,7 @@ impl MachineStateHandlerBuilder {
             common_pools: None,
             bom_validation: BomValidationConfig::default(),
             instance_autoreboot_period: None,
+            credential_provider: None,
             power_options_config: PowerOptionConfig {
                 enabled: true,
                 next_try_duration_on_success: chrono::Duration::minutes(0),
@@ -185,6 +192,10 @@ impl MachineStateHandlerBuilder {
         }
     }
 
+    pub fn credential_provider(mut self, credential_provider: Arc<dyn CredentialProvider>) -> Self {
+        self.credential_provider = Some(credential_provider);
+        self
+    }
     pub fn dpu_up_threshold(mut self, dpu_up_threshold: chrono::Duration) -> Self {
         self.dpu_up_threshold = dpu_up_threshold;
         self
@@ -300,6 +311,8 @@ impl MachineStateHandler {
                 .unwrap_or(Arc::new(Semaphore::new(5))),
             no_firmware_update_reset_retries: builder.no_firmware_update_reset_retries,
             instance_autoreboot_period: builder.instance_autoreboot_period,
+            upgrade_script_state: Default::default(),
+            credential_provider: builder.credential_provider,
             async_firmware_uploader: Arc::new(Default::default()),
         });
         MachineStateHandler {
@@ -5521,14 +5534,30 @@ enum UploadResult {
     Failure,
 }
 
-#[derive(Debug)]
 struct HostUpgradeState {
     parsed_hosts: Arc<FirmwareConfig>,
     downloader: FirmwareDownloader,
     upload_limiter: Arc<Semaphore>,
     no_firmware_update_reset_retries: bool,
     instance_autoreboot_period: Option<TimePeriod>,
+    upgrade_script_state: Arc<UpdateScriptManager>,
+    credential_provider: Option<Arc<dyn CredentialProvider>>,
     async_firmware_uploader: Arc<AsyncFirmwareUploader>,
+}
+
+impl std::fmt::Debug for HostUpgradeState {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "HostUpgradeState: parsed_hosts: {:?} downloader: {:?} upload_limiter: {:?} no_firmware_update_reset_retries: {:?} instance_autoreboot_period: {:?}, upgrade_script_state: {:?}",
+            self.parsed_hosts,
+            self.downloader,
+            self.upload_limiter,
+            self.no_firmware_update_reset_retries,
+            self.instance_autoreboot_period,
+            self.upgrade_script_state
+        )
+    }
 }
 
 impl HostUpgradeState {
@@ -5583,6 +5612,10 @@ impl HostUpgradeState {
             }
             HostReprovisionState::CheckingFirmwareRepeat => {
                 self.host_checking_fw(state, services, original_state, scenario, true, txn)
+                    .await
+            }
+            HostReprovisionState::WaitingForScript { .. } => {
+                self.waiting_for_script(state, services, scenario, txn)
                     .await
             }
             HostReprovisionState::InitialReset { phase, last_time } => {
@@ -5695,6 +5728,11 @@ impl HostUpgradeState {
             if let Some(to_install) =
                 need_host_fw_upgrade(&explored_endpoint, &fw_info, firmware_type)
             {
+                if to_install.script.is_some() {
+                    return self
+                        .by_script(to_install, state, explored_endpoint, scenario, txn)
+                        .await;
+                }
                 tracing::info!(%machine_id,
                     "Installing {:?} on {}",
                     to_install,
@@ -5782,6 +5820,169 @@ impl HostUpgradeState {
                 }
                 scenario.complete_state()
             }
+        }
+    }
+
+    async fn by_script(
+        &self,
+        to_install: FirmwareEntry,
+        state: &ManagedHostStateSnapshot,
+        explored_endpoint: ExploredEndpoint,
+        scenario: HostFirmwareScenario,
+        _txn: &mut PgConnection,
+    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        let machine_id = state.host_snapshot.id;
+
+        self.upgrade_script_state
+            .started(machine_id.to_string())
+            .await;
+
+        let address = explored_endpoint.address.to_string().clone();
+        let script = to_install.script.unwrap_or("/bin/false".into()); // Should always be Some at this point
+        let upgrade_script_state = self.upgrade_script_state.clone();
+        let (username, password) = if let Some(credential_provider) = &self.credential_provider {
+            let bmc_mac_address =
+                state
+                    .host_snapshot
+                    .bmc_info
+                    .mac
+                    .ok_or_else(|| StateHandlerError::MissingData {
+                        object_id: state.host_snapshot.id.to_string(),
+                        missing: "bmc_mac",
+                    })?;
+            let key = CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+            };
+            match credential_provider.get_credentials(key).await {
+                Ok(credentials) => match credentials {
+                    Credentials::UsernamePassword { username, password } => (username, password),
+                },
+                Err(e) => {
+                    return Err(StateHandlerError::GenericError(eyre!(
+                        "Unable to get BMC credentials: {e}"
+                    )));
+                }
+            }
+        } else {
+            ("Unknown".to_string(), "Unknown".to_string())
+        };
+        tokio::spawn(async move {
+            let mut cmd = match tokio::process::Command::new(script)
+                .env("BMC_IP", address.clone())
+                .env("BMC_USERNAME", username)
+                .env("BMC_PASSWORD", password)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+            {
+                Ok(cmd) => cmd,
+                Err(e) => {
+                    tracing::error!(
+                        "Upgrade script {machine_id} {address} command creation failed: {e}"
+                    );
+                    upgrade_script_state
+                        .completed(machine_id.to_string(), false)
+                        .await;
+                    return;
+                }
+            };
+
+            let Some(stdout) = cmd.stdout.take() else {
+                tracing::error!("Upgrade script {machine_id} {address} STDOUT creation failed");
+                let _ = cmd.kill().await;
+                let _ = cmd.wait().await;
+                upgrade_script_state
+                    .completed(machine_id.to_string(), false)
+                    .await;
+                return;
+            };
+            let stdout = tokio::io::BufReader::new(stdout);
+
+            let Some(stderr) = cmd.stderr.take() else {
+                tracing::error!("Upgrade script {machine_id} {address} STDERR creation failed");
+                let _ = cmd.kill().await;
+                let _ = cmd.wait().await;
+                upgrade_script_state
+                    .completed(machine_id.to_string(), false)
+                    .await;
+                return;
+            };
+            let stderr = tokio::io::BufReader::new(stderr);
+
+            // Take the stdout and stderr from the script and write them to a log with a searchable prefix
+            let machine_id2 = address.clone();
+            let address2 = address.clone();
+            let thread = tokio::spawn(async move {
+                let mut lines = stderr.lines();
+                while let Some(line) = lines.next_line().await.unwrap_or(None) {
+                    tracing::info!("Upgrade script {machine_id2} {address2} STDERR {line}");
+                }
+            });
+            let mut lines = stdout.lines();
+            while let Some(line) = lines.next_line().await.unwrap_or(None) {
+                tracing::info!("Upgrade script {machine_id} {address} {line}");
+            }
+            let _ = tokio::join!(thread);
+
+            match cmd.wait().await {
+                Err(e) => {
+                    tracing::info!(
+                        "Upgrade script {machine_id} {address} FAILED: Wait failure {e}"
+                    );
+                    upgrade_script_state
+                        .completed(machine_id.to_string(), false)
+                        .await;
+                }
+                Ok(errorcode) => {
+                    if errorcode.success() {
+                        tracing::info!(
+                            "Upgrade script {machine_id} {address} completed successfully"
+                        );
+                        upgrade_script_state
+                            .completed(machine_id.to_string(), true)
+                            .await;
+                    } else {
+                        tracing::warn!(
+                            "Upgrade script {machine_id} {address} FAILED: Exited with {errorcode}"
+                        );
+                        upgrade_script_state
+                            .completed(machine_id.to_string(), false)
+                            .await;
+                    }
+                }
+            }
+        });
+
+        scenario.actual_new_state(HostReprovisionState::WaitingForScript {})
+    }
+
+    async fn waiting_for_script(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        _services: &StateHandlerServices,
+        scenario: HostFirmwareScenario,
+        _txn: &mut PgConnection,
+    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        let machine_id = state.host_snapshot.id.to_string();
+        let Some(success) = self.upgrade_script_state.state(&machine_id).await else {
+            // Not yet completed, or we restarted (which specifically needs a manual restart of interrupted scripts)
+            return Ok(None);
+        };
+
+        self.upgrade_script_state.clear(&machine_id).await;
+
+        if success {
+            scenario.actual_new_state(HostReprovisionState::CheckingFirmwareRepeat)
+        } else {
+            let reprovision_state = HostReprovisionState::FailedFirmwareUpgrade {
+                firmware_type: FirmwareComponentType::Unknown,
+                report_time: Some(Utc::now()),
+                reason: Some(format!(
+                    "The upgrade script failed.  Search the log for \"Upgrade script {}\" for script output.  Use \"forge-admin-cli mh reset-host-reprovisioning --machine {}\" to retry.",
+                    state.host_snapshot.id, state.host_snapshot.id
+                )),
+            };
+            scenario.actual_new_state(reprovision_state)
         }
     }
 
@@ -6228,15 +6429,17 @@ impl HostUpgradeState {
                     }
                     _ => {
                         // Unexpected state
-                        tracing::warn!(
+                        let msg = format!(
                             "Unrecognized task state for {}: {:?}",
-                            machine_id,
-                            task_info.task_state
+                            machine_id, task_info.task_state
                         );
+                        tracing::warn!(msg);
+
                         // For now, a force delete will be needed to recover from this state
                         let reprovision_state = HostReprovisionState::FailedFirmwareUpgrade {
                             firmware_type: *firmware_type,
                             report_time: Some(Utc::now()),
+                            reason: Some(msg),
                         };
                         scenario.actual_new_state(reprovision_state)
                     }
@@ -6580,6 +6783,33 @@ impl HostUpgradeState {
         let now = chrono::Utc::now();
 
         now > start && now < end
+    }
+}
+
+#[derive(Debug, Default)]
+struct UpdateScriptManager {
+    active: tokio::sync::Mutex<HashMap<String, Option<bool>>>,
+}
+
+impl UpdateScriptManager {
+    async fn started(&self, id: String) {
+        let mut hashmap = self.active.lock().await;
+        hashmap.insert(id, None);
+    }
+
+    async fn completed(&self, id: String, success: bool) {
+        let mut hashmap = self.active.lock().await;
+        hashmap.insert(id, Some(success));
+    }
+
+    async fn clear(&self, id: &String) {
+        let mut hashmap = self.active.lock().await;
+        hashmap.remove(id);
+    }
+
+    async fn state(&self, id: &String) -> Option<bool> {
+        let hashmap = self.active.lock().await;
+        *hashmap.get(id).unwrap_or(&None)
     }
 }
 
