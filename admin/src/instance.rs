@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::fmt::Write;
+use std::pin::Pin;
 
 use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
@@ -18,6 +19,7 @@ use super::cfg::cli_options::ShowInstance;
 use super::{default_uuid, invalid_machine_id};
 use crate::cfg::cli_options::{RebootInstance, SortField};
 use crate::rpc::ApiClient;
+use crate::{async_write, async_writeln};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 fn convert_instance_to_nice_format(
@@ -375,7 +377,8 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
 
 async fn show_instance_details(
     id: String,
-    json: bool,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_format: &OutputFormat,
     api_client: &ApiClient,
     extrainfo: bool,
 ) -> CarbideCliResult<()> {
@@ -398,26 +401,39 @@ async fn show_instance_details(
     }
 
     let instance = &instance.instances[0];
-
-    if json {
-        println!("{}", serde_json::to_string_pretty(instance)?);
-    } else {
-        println!(
-            "{}",
-            convert_instance_to_nice_format(instance, extrainfo).unwrap_or_else(|x| x.to_string())
-        );
+    match output_format {
+        OutputFormat::Json => {
+            async_writeln!(output_file, "{}", serde_json::to_string_pretty(instance)?)?;
+        }
+        OutputFormat::AsciiTable => {
+            async_write!(
+                output_file,
+                "{}",
+                convert_instance_to_nice_format(instance, extrainfo)?
+            )?;
+        }
+        OutputFormat::Csv => {
+            return Err(CarbideCliError::NotImplemented(
+                "CSV formatted output".to_string(),
+            ));
+        }
+        OutputFormat::Yaml => {
+            return Err(CarbideCliError::NotImplemented(
+                "YAML formatted output".to_string(),
+            ));
+        }
     }
     Ok(())
 }
 
 pub async fn handle_show(
     args: ShowInstance,
-    output_format: OutputFormat,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_format: &OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
     sort_by: &SortField,
 ) -> CarbideCliResult<()> {
-    let is_json = output_format == OutputFormat::Json;
     if args.id.is_empty() {
         let mut all_instances = api_client
             .get_all_instances(
@@ -450,14 +466,39 @@ pub async fn handle_show(
                 tenant_status1.cmp(&tenant_status2)
             }),
         }
-        if is_json {
-            println!("{}", serde_json::to_string_pretty(&all_instances)?);
-        } else {
-            convert_instances_to_nice_table(all_instances).printstd();
+        match output_format {
+            OutputFormat::Json => {
+                async_writeln!(
+                    output_file,
+                    "{}",
+                    serde_json::to_string_pretty(&all_instances)?
+                )?;
+            }
+            OutputFormat::AsciiTable => {
+                let table = convert_instances_to_nice_table(all_instances);
+                async_write!(output_file, "{}", table)?;
+            }
+            OutputFormat::Csv => {
+                return Err(CarbideCliError::NotImplemented(
+                    "CSV formatted output".to_string(),
+                ));
+            }
+            OutputFormat::Yaml => {
+                return Err(CarbideCliError::NotImplemented(
+                    "YAML formatted output".to_string(),
+                ));
+            }
         }
         return Ok(());
     }
-    show_instance_details(args.id, is_json, api_client, args.extrainfo).await?;
+    show_instance_details(
+        args.id,
+        output_file,
+        output_format,
+        api_client,
+        args.extrainfo,
+    )
+    .await?;
     Ok(())
 }
 
