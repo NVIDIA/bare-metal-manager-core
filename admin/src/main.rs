@@ -189,27 +189,31 @@ async fn main() -> color_eyre::Result<()> {
     let forge_root_ca_path =
         get_forge_root_ca_path(config.forge_root_ca_path, file_config.as_ref());
 
-    let forge_client_cert = get_client_cert_info(
-        config.client_cert_path,
-        config.client_key_path,
-        file_config.as_ref(),
-    );
-
-    let proxy = get_proxy_info()?;
-
-    let mut client_config = ForgeClientConfig::new(forge_root_ca_path, Some(forge_client_cert));
-    client_config.socks_proxy(proxy);
-
-    // api_client is created here and subsequently
-    // borrowed by all others.
-    let api_client = ApiClient(ForgeApiClient::new(&ApiConfig::new(&url, &client_config)));
-
     let command = match config.commands {
         None => {
             return Ok(CliOptions::command().print_long_help()?);
         }
         Some(s) => s,
     };
+
+    let forge_client_cert = if matches!(command, CliCommand::Version(_)) {
+        None
+    } else {
+        Some(get_client_cert_info(
+            config.client_cert_path,
+            config.client_key_path,
+            file_config.as_ref(),
+        ))
+    };
+
+    let proxy = get_proxy_info()?;
+
+    let mut client_config = ForgeClientConfig::new(forge_root_ca_path, forge_client_cert);
+    client_config.socks_proxy(proxy);
+
+    // api_client is created here and subsequently
+    // borrowed by all others.
+    let api_client = ApiClient(ForgeApiClient::new(&ApiConfig::new(&url, &client_config)));
 
     let mut output_file = get_output_file_or_stdout(config.output.as_deref()).await?;
 
