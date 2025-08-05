@@ -24,9 +24,10 @@ pub struct BmcInfo {
 
 impl BmcInfo {
     pub fn supports_bfb_install(&self) -> bool {
-        self.firmware_version
-            .as_ref()
-            .is_some_and(|v| version_compare::compare_to(v, "24.10", Cmp::Ge).is_ok_and(|r| r))
+        self.firmware_version.as_ref().is_some_and(|v| {
+            version_compare::compare_to(v.to_lowercase().replace("bf-", ""), "24.10", Cmp::Ge)
+                .is_ok_and(|r| r)
+        })
     }
 }
 
