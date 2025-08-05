@@ -9,6 +9,7 @@ use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 use crate::cfg::cli_options::{CreateSku, GenerateSku, Sku};
 use crate::rpc::ApiClient;
+use crate::{async_write_table_as_csv, async_writeln};
 
 struct SkuWrapper {
     sku: ::rpc::forge::Sku,
@@ -140,15 +141,13 @@ fn storage_table(storage: Vec<::rpc::forge::SkuComponentStorage>) -> Table {
 }
 
 async fn show_skus_table(
-    output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     output_format: &OutputFormat,
     skus: Vec<::rpc::forge::Sku>,
 ) -> CarbideCliResult<()> {
     match output_format {
         OutputFormat::Json => {
-            output
-                .write_all(serde_json::to_string_pretty(&skus)?.to_string().as_bytes())
-                .await?;
+            async_writeln!(output_file, "{}", serde_json::to_string_pretty(&skus)?)?;
         }
         OutputFormat::Csv => {
             let skus = SkusWrapper::from(
@@ -156,12 +155,8 @@ async fn show_skus_table(
                     .map(std::convert::Into::into)
                     .collect::<Vec<SkuWrapper>>(),
             );
-            let mut buffer = Vec::default();
             let table: Table = skus.into();
-            table
-                .to_csv(&mut buffer)
-                .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
-            output.write_all(buffer.as_slice()).await?;
+            async_write_table_as_csv!(output_file, table)?;
         }
         OutputFormat::AsciiTable => {
             let skus = SkusWrapper::from(
@@ -171,7 +166,7 @@ async fn show_skus_table(
             );
 
             let table: Table = skus.into();
-            output.write_all(format!("{}", table).as_bytes()).await?;
+            async_writeln!(output_file, "{}", table)?;
         }
         OutputFormat::Yaml => todo!(),
     }

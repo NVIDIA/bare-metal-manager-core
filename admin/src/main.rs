@@ -222,7 +222,8 @@ async fn main() -> color_eyre::Result<()> {
             Machine::Show(machine) => {
                 machine::handle_show(
                     machine,
-                    config.format,
+                    &config.format,
+                    &mut output_file,
                     &api_client,
                     config.internal_page_size,
                     &config.sort_by,
@@ -437,7 +438,13 @@ async fn main() -> color_eyre::Result<()> {
             Machine::AutoUpdate(cfg) => machine::autoupdate(cfg, &api_client).await?,
             Machine::HardwareInfo(hardware_info_command) => match hardware_info_command {
                 MachineHardwareInfoCommand::Show(show_command) => {
-                    handle_show_machine_hardware_info(&api_client, show_command.machine).await?
+                    handle_show_machine_hardware_info(
+                        &api_client,
+                        &mut output_file,
+                        &config.format,
+                        show_command.machine,
+                    )
+                    .await?
                 }
                 MachineHardwareInfoCommand::Update(capability) => match capability {
                     MachineHardwareInfo::Gpus(gpus) => {
@@ -451,7 +458,8 @@ async fn main() -> color_eyre::Result<()> {
             Instance::Show(instance) => {
                 instance::handle_show(
                     instance,
-                    config.format,
+                    &mut output_file,
+                    &config.format,
                     &api_client,
                     config.internal_page_size,
                     &config.sort_by,
@@ -1351,7 +1359,8 @@ async fn main() -> color_eyre::Result<()> {
                         instance_type_id: None,
                         history_count: 5,
                     },
-                    config.format,
+                    &config.format,
+                    &mut output_file,
                     &api_client,
                     config.internal_page_size,
                     &config.sort_by,
@@ -1399,7 +1408,8 @@ async fn main() -> color_eyre::Result<()> {
                                     label_value: None,
                                     instance_type_id: None,
                                 },
-                                config_format,
+                                &mut output_file,
+                                &config_format,
                                 &api_client,
                                 config.internal_page_size,
                                 &config.sort_by,
@@ -1419,7 +1429,8 @@ async fn main() -> color_eyre::Result<()> {
                                     instance_type_id: None,
                                     history_count: 5
                                 },
-                                config_format,
+                                &config_format,
+                                &mut output_file,
                                 &api_client,
                                 config.internal_page_size,
                                 &config.sort_by,
@@ -1499,7 +1510,8 @@ async fn main() -> color_eyre::Result<()> {
                                     label_value: None,
                                     instance_type_id: None,
                                 },
-                                config.format,
+                                &mut output_file,
+                                &config.format,
                                 &api_client,
                                 config.internal_page_size,
                                 &config.sort_by,
@@ -1602,7 +1614,8 @@ async fn main() -> color_eyre::Result<()> {
                         instance_type_id: None,
                         history_count: 5,
                     },
-                    config.format,
+                    &config.format,
+                    &mut output_file,
                     &api_client,
                     config.internal_page_size,
                     &config.sort_by,

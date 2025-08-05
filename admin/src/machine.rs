@@ -14,23 +14,22 @@ use std::pin::Pin;
 
 use super::cfg::cli_options::{HealthOverrideTemplates, MachineHardwareInfoGpus, ShowMachine};
 use super::default_uuid;
-use crate::async_writeln;
 use crate::cfg::cli_options::{
     ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand, SortField,
 };
 use crate::rpc::ApiClient;
+use crate::{async_write, async_write_table_as_csv, async_writeln};
 use ::rpc::forge as forgerpc;
 use chrono::Utc;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
 };
-use prettytable::{Table, row};
+use prettytable::{Row, Table, row};
 use rpc::Machine;
 use std::fmt::Write;
 use std::fs;
 use std::str::FromStr;
 use std::time::Duration;
-use tracing::warn;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 fn convert_machine_to_nice_format(
@@ -326,7 +325,8 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
 }
 
 async fn show_all_machines(
-    json: bool,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_format: &OutputFormat,
     api_client: &ApiClient,
     search_config: rpc::forge::MachineSearchConfig,
     page_size: usize,
@@ -341,42 +341,68 @@ async fn show_all_machines(
         SortField::State => machines.machines.sort_by(|m1, m2| m1.state.cmp(&m2.state)),
     };
 
-    if json {
-        println!("{}", serde_json::to_string_pretty(&machines)?);
-    } else {
-        convert_machines_to_nice_table(machines).printstd();
+    match output_format {
+        OutputFormat::Json => {
+            async_writeln!(output_file, "{}", serde_json::to_string_pretty(&machines)?)?;
+        }
+        OutputFormat::AsciiTable => {
+            let table = convert_machines_to_nice_table(machines);
+            async_write!(output_file, "{}", table)?;
+        }
+        OutputFormat::Csv => {
+            let table = convert_machines_to_nice_table(machines);
+            async_write_table_as_csv!(output_file, table)?;
+        }
+        OutputFormat::Yaml => {
+            return Err(CarbideCliError::NotImplemented(
+                "YAML formatted output".to_string(),
+            ));
+        }
     }
     Ok(())
 }
 
 async fn show_machine_information(
     args: &ShowMachine,
-    json: bool,
+    output_format: &OutputFormat,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let machine = api_client.get_machine(args.machine.clone()).await?;
-    if json {
-        println!("{}", serde_json::to_string_pretty(&machine)?);
-    } else {
-        println!(
+    match output_format {
+        OutputFormat::Json => {
+            async_write!(output_file, "{}", serde_json::to_string_pretty(&machine)?)?
+        }
+        OutputFormat::AsciiTable => async_write!(
+            output_file,
             "{}",
             convert_machine_to_nice_format(machine, args.history_count)
                 .unwrap_or_else(|x| x.to_string())
-        );
+        )?,
+        OutputFormat::Csv => {
+            return Err(CarbideCliError::NotImplemented(
+                "CSV formatted output".to_string(),
+            ));
+        }
+        OutputFormat::Yaml => {
+            return Err(CarbideCliError::NotImplemented(
+                "YAML formatted output".to_string(),
+            ));
+        }
     }
     Ok(())
 }
 
 pub async fn handle_show(
     args: ShowMachine,
-    output_format: OutputFormat,
+    output_format: &OutputFormat,
+    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     api_client: &ApiClient,
     page_size: usize,
     sort_by: &SortField,
 ) -> CarbideCliResult<()> {
-    let is_json = output_format == OutputFormat::Json;
     if !args.machine.is_empty() {
-        show_machine_information(&args, is_json, api_client).await?;
+        show_machine_information(&args, output_format, output_file, api_client).await?;
     } else {
         // Show both hosts and DPUs if neither flag is specified
         let show_all_types = !args.dpus && !args.hosts;
@@ -387,14 +413,15 @@ pub async fn handle_show(
             include_predicted_host: args.hosts || show_all_types,
             ..Default::default()
         };
-        show_all_machines(is_json, api_client, search_config, page_size, sort_by).await?;
-        // TODO(chet): Remove this ~March 2024.
-        // Use tracing::warn for this so its both a little more
-        // noticeable, and a little more annoying/naggy. If people
-        // complain, it means its working.
-        if args.all && output_format == OutputFormat::AsciiTable {
-            warn!("redundant `--all` with basic `show` is deprecated. just do `machine show`")
-        }
+        show_all_machines(
+            output_file,
+            output_format,
+            api_client,
+            search_config,
+            page_size,
+            sort_by,
+        )
+        .await?;
     }
 
     Ok(())
@@ -709,10 +736,13 @@ pub async fn handle_update_machine_hardware_info_gpus(
 
 pub async fn handle_show_machine_hardware_info(
     _api_client: &ApiClient,
+    _output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    _output_format: &OutputFormat,
     _machine_id: String,
 ) -> CarbideCliResult<()> {
-    println!("Show hardware info not yet implemented");
-    Ok(())
+    Err(CarbideCliError::NotImplemented(
+        "machine hardware output".to_string(),
+    ))
 }
 
 pub async fn handle_metadata_show(
@@ -725,9 +755,14 @@ pub async fn handle_metadata_show(
 
     match output_format {
         OutputFormat::AsciiTable => {
-            return Err(CarbideCliError::NotImplemented(
-                "Table formatted output".to_string(),
-            ));
+            async_writeln!(output_file, "Name        : {}", metadata.name)?;
+            async_writeln!(output_file, "Description : {}", metadata.description)?;
+            let mut table = Table::new();
+            table.set_titles(Row::from(vec!["Key", "Value"]));
+            for l in &metadata.labels {
+                table.add_row(Row::from(vec![&l.key, l.value.as_deref().unwrap_or("")]));
+            }
+            async_write!(output_file, "{}", table)?;
         }
         OutputFormat::Csv => {
             return Err(CarbideCliError::NotImplemented(
@@ -743,7 +778,6 @@ pub async fn handle_metadata_show(
             ));
         }
     }
-    // TODO: Support non-json output
 
     Ok(())
 }
