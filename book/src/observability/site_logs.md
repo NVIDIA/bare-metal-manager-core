@@ -28,19 +28,25 @@ Logs can be queried via the following path:
 - Logs can be accessed via the Grafana installation on each site.
 The URL for this is is `https://grafana-siteid.frg.nvidia.com`, e.g. [https://grafana-dev3.frg.nvidia.com](https://grafana-dev3.frg.nvidia.com).
 
-All Forge sites also forward their logs to [Kratos](https://confluence.nvidia.com/display/PLATFORM/Kratos+Data+Science+Platform+aaS) from where they will be forwarded to PSOC in order to fulfill certain security requirements.
+All Forge sites also forward their logs to multiple external observability systems:
+
+1. **Kratos**: Logs from [NVIDIA Kratos](https://confluence.nvidia.com/display/PLATFORM/Kratos+Data+Science+Platform+aaS) are forwarded later to PSOC in order to fulfill certain security requirements.
+
+2. **Panoptes**: Forge sites forward logs to region-specific [NVIDIA Panoptes](https://confluence.nvidia.com/pages/viewpage.action?pageId=2867001671) endpoints for centralized observability.
 
 ```mermaid
 %%{init: {'themeVariables': { 'fontSize': '20px' }}}%%
 flowchart LR
     subgraph NVIDIA Cloud
-        Kratos --> Heimdall
-        Heimdall --> PSOC
+        Panoptes[Panoptes<br>LGTM telemetry system<br>DGXC infrastructure]
+        Kratos --> Heimdall --> PSOC
     end
 
     subgraph Forge SiteController K8S Cluster
         K["K8S Logs (/var/log/pods)<br>carbide-api<br>site-agent<br>ssh-console<br>postgres<br>..."] --> OTELC["OpenTelemetry Collector"]
         OTELC --> Loki["Grafana Loki"]
+        Loki -- Logs for Panoptes --> OTELC
+        OTELC --> Panoptes
         SSHC["Forge SSH console"] -- Machine serial console logs --> SSHLF["Serial Console Log Files per Machine"]
         SSHLF --> SSHCOTELC["SSH console OpenTelemetry Collector"]
         SSHCOTELC --> Loki
@@ -65,6 +71,7 @@ flowchart LR
 
     LV{"🧑<br>Operator querying logs via Grafana"} -- "grafana-siteid.frg.nvidia.com" --> MetalLb
     LV2{"🧑<br>Operator querying logs via logcli"} -- "loki-siteid.frg.nvidia.com" --> MetalLb
+    LV3{"🧑<br>Operator querying logs via Panoptes Grafana"} -- "dashboards.telemetry.dgxc.ngc.nvidia.com" --> Panoptes
 ```
 
 ## Log access
@@ -76,6 +83,23 @@ See [Site metric access](site_metrics.md#site_metric_access) for general informa
 In Grafana, navigate to the [Explore](https://grafana-dev3.frg.nvidia.com/explore) screen.
 
 Then, select `Loki` as as datasource and enter a valid query. Examples are provided in the section below.
+
+### Panoptes (DGXC Telemetry) Grafana
+
+Forge Production [**logs**](https://dashboards.telemetry.dgxc.ngc.nvidia.com/a/grafana-lokiexplore-app/explore?orgId=7)
+
+## Log forwarding to Panoptes
+
+OpenTelemetry Collector on each site forwards logs to Panoptes using OAuth2 authentication. This is configured in site-specific [`opentelemetry-collector/env_values.yaml`](https://gitlab-master.nvidia.com/nvmetal/forged/-/blob/main/envs/pdx-dev3/site/opentelemetry-collector/env_values.yaml) files.
+
+Each site is configured with the appropriate regional endpoint based on its geographical location. See [Panoptes regional endpoints](site_metrics.md#panoptes_regional_endpoints)
+
+### Authentication secrets
+
+Authentication credentials for Panoptes log forwarding are managed through the [`overlays/lgtm-secret-dgxc`](https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/overlays/lgtm-secret-dgxc) kustomization overlay:
+- `lgtm-otel-secret-dgxc`: Contains OAuth2 client credentials for OpenTelemetry logs forwarding
+
+Each site includes this overlay and has site-specific credentials (eg. `client_secret_sdc-pdx-dev3`).
 
 ## Query examples
 

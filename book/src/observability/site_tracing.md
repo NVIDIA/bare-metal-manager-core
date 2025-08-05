@@ -4,7 +4,7 @@ Carbide (and potentially other services in the future) can be configured to emit
 runs.
 
 Tracing information is collected similarly to logs, by the [OpenTelemetry collector
-instance](https://gitlab-master.nvidia.com/nvmetal/forged/-/blob/main/bases/opentelemtry-collector/kustomization.yaml)
+instance](https://gitlab-master.nvidia.com/nvmetal/forged/-/blob/main/bases/opentelemetry-collector/kustomization.yaml)
 inside the site, which is deployed into the `otel` namespace.
 
 The collector forwards the traces into a site-local [Grafana Tempo](https://grafana.com/docs/tempo/latest/) installation.

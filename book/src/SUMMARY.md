@@ -25,6 +25,7 @@
 # Observability (Metrics & Logs)
 
 - [Site metrics](observability/site_metrics.md)
+- [Site alerts](observability/site_alerts.md)
 - [Site logs](observability/site_logs.md)
 - [Site tracing](observability/site_tracing.md)
 - [Dashboards](observability/dashboards.md)
