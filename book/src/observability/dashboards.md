@@ -90,6 +90,12 @@ This dashboard can be useful to understand the state of a Host (e.g. whether it 
 
 Browse [Dashboards](https://grafana-dev3.frg.nvidia.com/dashboards) to view additional dashboards that are available for Forge.
 
+### Panoptes (DGXC Telemetry) Grafana
+
+Forge Production:
+- [**Dashboards**](https://dashboards.telemetry.dgxc.ngc.nvidia.com/dashboards?orgId=7)
+- [**Metrics**](https://dashboards.telemetry.dgxc.ngc.nvidia.com/a/grafana-metricsdrilldown-app/drilldown?orgId=7)
+
 ## <a name="modifying_dashboards"></a>Modifying Dashboards
 
 The process to edit a dashboard depends on the dashboards. This section provides an overview on how to edit Thanos dashboards and site local dashboards.
@@ -98,18 +104,18 @@ Since both sets of dashboards ideally should show the same data, edits to show a
 ### Modifying Thanos Dashboards
 
 Dashboards on Thanos are modified directly on Thanos. To modify a dashboard on Thanos
-- press edit on the dashboard you want to modify
-- make the necessary changes
-- click "Apply" on the top right of the dashboard
+- Press edit on the dashboard you want to modify
+- Make the necessary changes
+- Click "Apply" on the top right of the dashboard
 - Save the dashboard if you are satisfied with the changes
 
-When editing changes, please also follow the following best practices
+When editing changes, please also follow the following best practices:
 - Make sure the panels on each page show up in a uniform fashion.
-  If all panels of a dashboard had been extended before your edit, they should keep staying extended after the edit.
-  If all panels had been collapsed, they should keep staying collapsed.
+  - If all panels of a dashboard had been extended before your edit, they should keep staying extended after the edit.
+  - If all panels had been collapsed, they should keep staying collapsed.
 - If previous metrics are using variables (like `${ClusterName}`), then make sure that newly added metrics use the same variables.
 - Thanos dashboards cover multiple sites which run different versions of the Forge control plane. These versions might emit different sets of metrics.
-  Dashboards should be compatible with old and new version of metrics. E.g. if a dashboard shows a "gRPC availablitiy metric", and the way we emit gRPC metrics changes between versions, dashboards should show both versions in a single graph.
+- Dashboards should be compatible with old and new version of metrics. E.g. if a dashboard shows a "gRPC availablitiy metric", and the way we emit gRPC metrics changes between versions, dashboards should show both versions in a single graph.
 
 ### Modifying Site Dashboards
 
@@ -117,8 +123,8 @@ Dashboards that are visible on the sites are deployed together with Grafana.
 They are stored at [https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/bases/forge-dashboards](https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/bases/forge-dashboards).
 
 To modify a dashboard on all sites:
-1. Try the changes to a dashboard on a single site (e.g. dev3) via a local edit
-2. Create a merge request against `forged` to modify the target dashboard
-3. Get approval for the merge request and merge it
-4. Sync the new dashboard to all sites via argocd. This step should be performed
+- Try the changes to a dashboard on a single site (e.g. dev3) via a local edit
+- Create a merge request against `forged` to modify the target dashboard
+- Get approval for the merge request and merge it
+- Sync the new dashboard to all sites via argocd. This step should be performed
   by the Forge SRE team in scope of the Forge rollout process.
