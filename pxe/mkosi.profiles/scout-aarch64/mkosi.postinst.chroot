@@ -7,7 +7,7 @@ fi
 set -Eeux
 
 # We've moved this to a post-install script, to avoid double-triggering the DKMS build
-NV_PACKAGES="cuda-drivers-580 nvidia-driver-580-open datacenter-gpu-manager-4-cuda-all nvidia-fabricmanager-580 nvidia-imex-580"
+NV_PACKAGES="cuda-drivers-575=575.57.08-0ubuntu1 datacenter-gpu-manager-4-cuda12=1:4.2.3-2 datacenter-gpu-manager-4-core=1:4.2.3-2 datacenter-gpu-manager-4-proprietary-cuda12=1:4.2.3-2 libnvidia-cfg1-575=575.57.08-0ubuntu1 libnvidia-common-575=575.57.08-0ubuntu1 libnvidia-compute-575=575.57.08-0ubuntu1 libnvidia-decode-575=575.57.08-0ubuntu1 libnvidia-encode-575=575.57.08-0ubuntu1 libnvidia-extra-575=575.57.08-0ubuntu1 libnvidia-fbc1-575=575.57.08-0ubuntu1 libnvidia-gl-575=575.57.08-0ubuntu1 libnvidia-gpucomp-575=575.57.08-0ubuntu1 nvidia-compute-utils-575=575.57.08-0ubuntu1 nvidia-dkms-575-open=575.57.08-0ubuntu1 nvidia-driver-575-open=575.57.08-0ubuntu1 nvidia-fabricmanager-575=575.57.08-1 nvidia-firmware-575=575.57.08-0ubuntu1 nvidia-kernel-common-575=575.57.08-0ubuntu1 nvidia-kernel-source-575-open=575.57.08-0ubuntu1 nvidia-modprobe=575.57.08-0ubuntu1 nvidia-persistenced=575.57.08-1ubuntu1 nvidia-utils-575=575.57.08-0ubuntu1 xserver-xorg-video-nvidia-575=575.57.08-0ubuntu1 libxnvctrl0=575.57.08-0ubuntu1 nvidia-settings=575.57.08-0ubuntu1 nvidia-imex-575=575.57.08-1"
 export DEBIAN_FRONTEND=noninteractive
 apt-get -y install ${NV_PACKAGES}
 
@@ -100,9 +100,9 @@ do
 done
 
 # Check the nvidia driver versions are consistent
-NV_PKGS="cuda-drivers-580 libnvidia-common-580 libnvidia-compute-580 nvidia-compute-utils-580
-         nvidia-dkms-580-open nvidia-driver-580-open nvidia-fabricmanager-580 nvidia-firmware-580
-         nvidia-kernel-common-580 nvidia-kernel-source-580-open nvidia-persistenced"
+NV_PKGS="cuda-drivers-575 libnvidia-common-575 libnvidia-compute-575 nvidia-compute-utils-575
+         nvidia-dkms-575-open nvidia-driver-575-open nvidia-fabricmanager-575 nvidia-firmware-575
+         nvidia-kernel-common-575 nvidia-kernel-source-575-open nvidia-persistenced"
 if [ $(dpkg -l ${NV_PKGS} | grep '^ii' | awk '{print $3}' | cut -d. -f1-2 | sort -u | wc -l) -ne 1 ]
 then
   echo "ERROR: Mismatched nvidia package versions, dcgmi may not run"
