@@ -1118,7 +1118,7 @@ impl Default for DpuConfig {
                 ),
             ]),
             dpu_nic_firmware_update_versions: vec![
-                "24.42.1000".to_string(),
+                "24.43.3608".to_string(),
                 "32.43.3608".to_string(),
             ],
         }
