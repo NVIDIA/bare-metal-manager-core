@@ -51,6 +51,7 @@ pub struct PeriodicConfigFetcherReader {
 pub struct InstanceMetadata {
     pub address: String,
     pub hostname: String,
+    pub sitename: Option<String>,
     pub instance_id: Option<uuid>,
     pub machine_id: Option<MachineId>,
     pub user_data: String,
@@ -180,7 +181,7 @@ async fn single_fetch(
         Ok(resp) => {
             state.netconf.store(Some(Arc::new(resp.clone())));
 
-            match instance_metadata_from_instance(resp.instance).await {
+            match instance_metadata_from_instance(resp.instance, resp.sitename).await {
                 Ok(Some(config)) => {
                     state.instmeta.store(Some(Arc::new(config)));
                 }
@@ -226,6 +227,7 @@ pub async fn fetch(
 
 pub async fn instance_metadata_from_instance(
     instance: Option<Instance>,
+    sitename: Option<String>,
 ) -> Result<Option<InstanceMetadata>, eyre::Error> {
     let instance = match instance {
         Some(instance) => instance,
@@ -272,6 +274,7 @@ pub async fn instance_metadata_from_instance(
     Ok(Some(InstanceMetadata {
         address: pf_address,
         hostname,
+        sitename,
         instance_id,
         machine_id,
         user_data,

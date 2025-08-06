@@ -82,6 +82,10 @@ pub async fn handle_show_version(
             Cell::new("intial_domain_name"),
             Cell::new(config.initial_domain_name()),
         ]));
+        table.add_row(Row::new(vec![
+            Cell::new("sitename"),
+            Cell::new(config.sitename()),
+        ]));
         r!(table, config, initial_dpu_agent_upgrade_policy);
 
         if !config.dpu_nic_firmware_update_version.is_empty() {

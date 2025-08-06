@@ -847,6 +847,7 @@ pub fn get_config() -> CarbideConfig {
         dpu_ipmi_tool_impl: None,
         dpu_ipmi_reboot_attempts: Some(0),
         initial_domain_name: Some("test.com".to_string()),
+        sitename: Some("testsite".to_string()),
         initial_dpu_agent_upgrade_policy: None,
         max_concurrent_machine_updates: None,
         machine_update_run_interval: Some(1),
