@@ -20,9 +20,8 @@ mod util;
 
 use crate::util::{BaselineTestAssertion, MockBmcType, run_baseline_test_environment};
 use api_test_helper::utils::REPO_ROOT;
-use ssh_console::ShutdownHandle;
-use util::legacy;
-use util::new_ssh_console;
+use ssh_console::shutdown_handle::ShutdownHandle;
+use util::{legacy, new_ssh_console};
 
 #[allow(dead_code)]
 static TENANT_SSH_KEY: &str = include_str!("fixtures/tenant_ssh_key");
@@ -137,11 +136,7 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
 
     // Shut down ssh-console now so we can assert on final log lines (and make sure it shuts down
     // properly.)
-    handle
-        .spawn_handle
-        .shutdown_and_wait()
-        .await
-        .context("new ssh-console service error")?;
+    handle.spawn_handle.shutdown_and_wait().await;
 
     let logs_path = handle.logs_dir.path();
 

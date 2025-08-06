@@ -9,12 +9,14 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use crate::bmc::client::BmcConnectionSubscription;
+use crate::bmc::client_pool::BmcConnectionStore;
+use crate::bmc::connection::Kind;
+use crate::bmc::message_proxy;
+use crate::bmc::message_proxy::{ChannelMsgOrExec, ExecReply};
 use crate::config::Config;
-use crate::ssh_server::backend_connection::BackendConnectionKind;
-use crate::ssh_server::backend_pool::BackendConnectionStore;
-use crate::ssh_server::backend_session::BackendSubscription;
-use crate::ssh_server::server::ServerMetrics;
-use crate::{ChannelMsgOrExec, ExecReply, proxy_channel_message};
+use crate::shutdown_handle::ShutdownHandle;
+use crate::ssh_server::ServerMetrics;
 use eyre::Context;
 use lazy_static::lazy_static;
 use rpc::forge::ValidateTenantPublicKeyRequest;
@@ -35,7 +37,7 @@ use uuid::Uuid;
 
 static EXEC_TIMEOUT: Duration = Duration::from_secs(10);
 
-static BANNER_SSH_BACKEND: &str = "\
+static BANNER_SSH_BMC: &str = "\
 +------------------------------------------------------------------------------+\r\n\
 |                 NVIDIA Forge SSH Serial Console (beta)                       |\r\n\
 +------------------------------------------------------------------------------+\r\n\
@@ -46,7 +48,7 @@ static BANNER_SSH_BACKEND: &str = "\
 +------------------------------------------------------------------------------+\r\n\
 ";
 
-static BANNER_IPMI_BACKEND: &str = "\
+static BANNER_IPMI_BMC: &str = "\
 +------------------------------------------------------------------------------+\r\n\
 |                 NVIDIA Forge SSH Serial Console (beta)                       |\r\n\
 +------------------------------------------------------------------------------+\r\n\
@@ -73,7 +75,7 @@ lazy_static! {
 pub struct Handler {
     config: Arc<Config>,
     forge_api_client: ForgeApiClient,
-    backend_connection_store: BackendConnectionStore,
+    bmc_connection_store: BmcConnectionStore,
     authenticated_user: Option<String>,
     per_client_state: HashMap<ChannelId, PerClientState>,
     metrics: Arc<ServerMetrics>,
@@ -83,14 +85,14 @@ pub struct Handler {
 }
 
 struct PerClientState {
-    backend: BackendSubscription,
+    bmc_connection: BmcConnectionSubscription,
     // Option so that it can be taken with .take() when we get a shell_request or exec_request
     client_channel: Option<Channel<Msg>>,
 }
 
 impl Handler {
     pub fn new(
-        backend_connection_store: BackendConnectionStore,
+        bmc_connection_store: BmcConnectionStore,
         config: Arc<Config>,
         forge_api_client: ForgeApiClient,
         metrics: Arc<ServerMetrics>,
@@ -100,7 +102,7 @@ impl Handler {
         Self {
             config,
             forge_api_client,
-            backend_connection_store,
+            bmc_connection_store,
             authenticated_user: None,
             per_client_state: HashMap::new(),
             metrics,
@@ -166,10 +168,10 @@ impl russh::server::Handler for Handler {
             .into());
         };
 
-        // fetch the backend connection
+        // fetch the BMC connection
         let channel_id = channel.id();
-        let backend = self
-            .backend_connection_store
+        let bmc_connection = self
+            .bmc_connection_store
             .get_connection(
                 user,
                 &self.config,
@@ -177,13 +179,13 @@ impl russh::server::Handler for Handler {
                 self.metrics.clone(),
             )
             .await
-            .with_context(|| format!("could not get backend connection for {user}"))?;
+            .with_context(|| format!("could not get BMC connection for {user}"))?;
 
-        // Save the backend and client channel in self, so the Handler methods can find it
+        // Save the BMC and client channel in self, so the Handler methods can find it
         self.per_client_state.insert(
             channel_id,
             PerClientState {
-                backend,
+                bmc_connection,
                 client_channel: Some(channel),
             },
         );
@@ -310,7 +312,7 @@ impl russh::server::Handler for Handler {
         }
     }
 
-    /// Forward the data to the backend
+    /// Forward the data to the BMC
     async fn data(
         &mut self,
         channel: ChannelId,
@@ -320,8 +322,8 @@ impl russh::server::Handler for Handler {
         tracing::trace!(self.peer_addr, "data");
         if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
             client_state
-                .backend
-                .to_backend_msg_tx
+                .bmc_connection
+                .to_bmc_msg_tx
                 .send(ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data {
                     data: data.to_vec().into(),
                 }))
@@ -331,7 +333,7 @@ impl russh::server::Handler for Handler {
         Ok(())
     }
 
-    /// Forward the data to the backend
+    /// Forward the data to the BMC
     async fn extended_data(
         &mut self,
         channel: ChannelId,
@@ -342,8 +344,8 @@ impl russh::server::Handler for Handler {
         tracing::trace!(self.peer_addr, "extended_data");
         if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
             client_state
-                .backend
-                .to_backend_msg_tx
+                .bmc_connection
+                .to_bmc_msg_tx
                 .send(ChannelMsgOrExec::ChannelMsg(ChannelMsg::ExtendedData {
                     data: data.to_vec().into(),
                     ext: code,
@@ -368,8 +370,8 @@ impl russh::server::Handler for Handler {
         tracing::trace!(self.peer_addr, "pty_request");
         if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
             client_state
-                .backend
-                .to_backend_msg_tx
+                .bmc_connection
+                .to_bmc_msg_tx
                 .send(ChannelMsgOrExec::ChannelMsg(ChannelMsg::RequestPty {
                     want_reply: false,
                     term: term.to_string(),
@@ -380,7 +382,7 @@ impl russh::server::Handler for Handler {
                     terminal_modes: modes.to_vec(),
                 }))
                 .await
-                .context("error sending pty request to backend")?;
+                .context("error sending pty request to BMC")?;
         }
         Ok(())
     }
@@ -396,10 +398,10 @@ impl russh::server::Handler for Handler {
             return Ok(());
         };
 
-        // shell requests are when we actually subscribe to the backend. We have to take ownership
-        // of the client channel here so that we can drop it when they disconnect, which means we
-        // can't support both a shell_request and an exec_request on the same channel (which makes
-        // sense.)
+        // shell requests are when we actually subscribe to the BMC connection. We have to take
+        // ownership of the client channel here so that we can drop it when they disconnect, which
+        // means we can't support both a shell_request and an exec_request on the same channel
+        // (which makes sense.)
         let Some(channel) = client_state.client_channel.take() else {
             tracing::error!(
                 self.peer_addr,
@@ -415,56 +417,27 @@ impl russh::server::Handler for Handler {
             session.close(channel_id).ok();
             return Ok(());
         };
-        let machine_id = client_state.backend.machine_id;
-        let Some(mut to_frontend_rx) = client_state
-            .backend
+        let machine_id = client_state.bmc_connection.machine_id;
+        let Some(from_bmc_rx) = client_state
+            .bmc_connection
             .to_frontend_msg_weak_tx
             .upgrade()
             .map(|tx| tx.subscribe())
         else {
             return Err(eyre::format_err!(
-                "Backend for {machine_id} dropped before we could subscribe to messages"
+                "BMC connection for {machine_id} dropped before we could subscribe to messages"
             )
             .into());
         };
 
-        // Proxy messages from the backend BMC to the user's connection.
+        // Proxy messages from the BMC to the user's connection
         // NOTE: We have to go through extra effort to know when to stop proxying messages, because
         // we don't get reliably told when clients disconnect. So we poll for channel_rx here
         // (taking ownership of it) and signal a shutdown of the proxy loop, then when that happens,
         // we finally close the channel. Only then is Self::channel_close() actually sent! (This is
         // IMO a design flaw in russh.)
-        let (proxy_shutdown_tx, mut proxy_shutdown_rx) = oneshot::channel();
         let (mut channel_rx, channel_tx) = channel.split();
-        let _proxy_loop = tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    res = to_frontend_rx.recv() => match res {
-                        Ok(msg) => {
-                            match proxy_channel_message(msg.as_ref(), &channel_tx).await {
-                                Ok(()) => {}
-                                Err(error) => {
-                                    tracing::debug!(
-                                        peer_addr,
-                                        %error,
-                                        "error sending message to frontend, likely disconnected"
-                                    );
-                                    break;
-                                }
-                            }
-                        }
-                        Err(_) => {
-                            tracing::debug!(peer_addr, "client channel closed when writing message from backend");
-                            break;
-                        }
-                    },
-                    _ = &mut proxy_shutdown_rx => {
-                        break;
-                    }
-                }
-            }
-            channel_tx.close().await.ok();
-        });
+        let proxy_handle = message_proxy::spawn(from_bmc_rx, channel_tx, peer_addr);
 
         // Wait for the channel to close, then stop the proxy loop.
         tokio::spawn(async move {
@@ -473,12 +446,12 @@ impl russh::server::Handler for Handler {
                     break;
                 }
             }
-            proxy_shutdown_tx.send(()).ok();
+            proxy_handle.shutdown_and_wait().await;
         });
 
-        let banner = match client_state.backend.kind {
-            BackendConnectionKind::Ssh => BANNER_SSH_BACKEND.as_bytes(),
-            BackendConnectionKind::Ipmi => BANNER_IPMI_BACKEND.as_bytes(),
+        let banner = match client_state.bmc_connection.kind {
+            Kind::Ssh => BANNER_SSH_BMC.as_bytes(),
+            Kind::Ipmi => BANNER_IPMI_BMC.as_bytes(),
         };
         session.data(channel_id, banner.into()).ok();
         Ok(())
@@ -493,7 +466,7 @@ impl russh::server::Handler for Handler {
         tracing::trace!(self.peer_addr, "exec_request");
         let Some(PerClientState {
             client_channel,
-            backend,
+            bmc_connection,
         }) = self.get_client_state_or_report_error(session, channel_id)
         else {
             return Ok(());
@@ -517,14 +490,14 @@ impl russh::server::Handler for Handler {
         };
 
         let (reply_tx, reply_rx) = oneshot::channel();
-        backend
-            .to_backend_msg_tx
+        bmc_connection
+            .to_bmc_msg_tx
             .send(ChannelMsgOrExec::Exec {
                 command: data.to_vec(),
                 reply_tx,
             })
             .await
-            .context("error sending exec request to backend")?;
+            .context("error sending exec request to BMC")?;
 
         tokio::select! {
             _ = tokio::time::sleep(EXEC_TIMEOUT) => {
@@ -570,8 +543,8 @@ impl russh::server::Handler for Handler {
         tracing::trace!(self.peer_addr, "window_change_request");
         if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
             client_state
-                .backend
-                .to_backend_msg_tx
+                .bmc_connection
+                .to_bmc_msg_tx
                 .send(ChannelMsgOrExec::ChannelMsg(ChannelMsg::WindowChange {
                     col_width,
                     row_height,
@@ -579,7 +552,7 @@ impl russh::server::Handler for Handler {
                     pix_height,
                 }))
                 .await
-                .context("error sending window change request to backend")?;
+                .context("error sending window change request to BMC")?;
         }
         Ok(())
     }

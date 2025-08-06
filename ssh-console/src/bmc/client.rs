@@ -10,13 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::bmc::client_pool::BmcPoolMetrics;
+use crate::bmc::connection::{self, AtomicConnectionState, ConnectionDetails};
+use crate::bmc::message_proxy::{ChannelMsgOrExec, ExecReply};
 use crate::config::Config;
-use crate::ssh_server::backend_connection::{BackendConnectionKind, ConnectionDetails};
-use crate::ssh_server::backend_pool::BackendPoolMetrics;
-use crate::ssh_server::connection_state::{AtomicConnectionState, ConnectionState};
-use crate::ssh_server::server::ServerMetrics;
-use crate::ssh_server::{backend_connection, console_logger};
-use crate::{ChannelMsgOrExec, ExecReply, ReadyHandle, ShutdownHandle};
+use crate::console_logger;
+use crate::shutdown_handle::ShutdownHandle;
+use crate::ssh_server::ServerMetrics;
 use forge_uuid::machine::MachineId;
 use futures_util::FutureExt;
 use opentelemetry::KeyValue;
@@ -31,18 +31,18 @@ static RETRY_BASE_DURATION: Duration = Duration::from_secs(10);
 /// Max retry interval after subsequent failures
 static RETRY_MAX_DURATION: Duration = Duration::from_secs(600);
 
-/// Spawn a connection to the given backend in the background, returning a handle. Connections will
+/// Spawn a connection to the given BMC in the background, returning a handle. Connections will
 /// be retried indefinitely, with exponential backoff, until a shutdown is signaled (ie. by dropping
-/// the BackendSessionHandle.)
+/// the ClientHandle.)
 pub fn spawn(
     connection_details: ConnectionDetails,
     config: Arc<Config>,
-    metrics: Arc<BackendPoolMetrics>,
-) -> BackendSessionHandle {
+    metrics: Arc<BmcPoolMetrics>,
+) -> ClientHandle {
     // Shutdown handle for the retry loop that is retrying this connection
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    // Channel frontends can use to send messages to the backend
-    let (to_backend_msg_tx, to_backend_msg_rx) = mpsc::channel::<ChannelMsgOrExec>(1);
+    // Channel frontends can use to send messages to the BMC
+    let (to_bmc_msg_tx, to_bmc_msg_rx) = mpsc::channel::<ChannelMsgOrExec>(1);
     // Channel that broadcasts messages to any subscribed frontends
     let (broadcast_to_frontend_tx, broadcast_to_frontend_rx) =
         broadcast::channel::<Arc<ChannelMsg>>(4096);
@@ -60,20 +60,20 @@ pub fn spawn(
     metrics.bmc_tx_errors_total.add(0, &metrics_attrs);
     metrics.bmc_bytes_received_total.add(0, &metrics_attrs);
 
-    let backend_session = BackendSession {
+    let bmc_client = BmcClient {
         connection_details,
         config,
         connection_state: connection_state.clone(),
         broadcast_to_frontend_tx: broadcast_to_frontend_tx.clone(),
         shutdown_rx,
-        to_backend_msg_rx,
+        to_bmc_msg_rx,
         metrics,
     };
 
-    let join_handle = tokio::spawn(backend_session.run());
+    let join_handle = tokio::spawn(bmc_client.run());
 
-    BackendSessionHandle {
-        to_backend_msg_tx,
+    ClientHandle {
+        to_bmc_msg_tx,
         broadcast_to_frontend_tx,
         machine_id,
         shutdown_tx,
@@ -83,17 +83,17 @@ pub fn spawn(
     }
 }
 
-struct BackendSession {
+struct BmcClient {
     connection_details: ConnectionDetails,
     config: Arc<Config>,
     connection_state: Arc<AtomicConnectionState>,
     shutdown_rx: oneshot::Receiver<()>,
     broadcast_to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
-    to_backend_msg_rx: mpsc::Receiver<ChannelMsgOrExec>,
-    metrics: Arc<BackendPoolMetrics>,
+    to_bmc_msg_rx: mpsc::Receiver<ChannelMsgOrExec>,
+    metrics: Arc<BmcPoolMetrics>,
 }
 
-impl BackendSession {
+impl BmcClient {
     async fn run(mut self) {
         let machine_id = self.connection_details.machine_id();
         let metrics_attrs = vec![KeyValue::new("machine_id", machine_id.to_string())];
@@ -110,17 +110,17 @@ impl BackendSession {
             None
         };
 
-        // Spawn a message relay for communicating status to the user if the backend is
+        // Spawn a message relay for communicating status to the user if the BMC is
         // disconnected.
-        let backend_msg_tx_placeholder = BackendMessageTxPlaceholder::default();
-        let backend_message_relay = relay_input_to_backend(
+        let bmc_msg_tx_placeholder = BmcMessageTxPlaceholder::default();
+        let bmc_message_relay = relay_input_to_bmc(
             self.broadcast_to_frontend_tx.clone(),
             self.connection_state.clone(),
-            self.to_backend_msg_rx,
-            backend_msg_tx_placeholder.clone(),
+            self.to_bmc_msg_rx,
+            bmc_msg_tx_placeholder.clone(),
         );
 
-        // Connect and reconnect, in a loop, until the session is shut down
+        // Connect and reconnect, in a loop, until the client is shut down
         let mut retry_time = Duration::ZERO;
         let mut retries = 0;
         'retry: loop {
@@ -128,10 +128,10 @@ impl BackendSession {
                 .bmc_recovery_attempts
                 .record(retries, metrics_attrs.as_slice());
             if retries == 0 {
-                self.connection_state.store(ConnectionState::Connecting);
+                self.connection_state.store(connection::State::Connecting);
             } else {
                 self.connection_state
-                    .store(ConnectionState::ConnectionError);
+                    .store(connection::State::ConnectionError);
             }
             retries += 1;
 
@@ -141,50 +141,39 @@ impl BackendSession {
             retry_time = next_retry_backoff(retry_time);
             let try_start_time = Instant::now();
 
-            let spawn_result = match &self.connection_details {
-                ConnectionDetails::Ssh(ssh_connection_details) => backend_connection::ssh::spawn(
-                    ssh_connection_details.clone(),
-                    self.broadcast_to_frontend_tx.clone(),
-                    self.metrics.clone(),
-                ),
-                ConnectionDetails::Ipmi(ipmi_connection_details) => {
-                    backend_connection::ipmi::spawn(
-                        ipmi_connection_details.clone(),
-                        self.broadcast_to_frontend_tx.clone(),
-                        self.config.clone(),
-                        self.metrics.clone(),
-                    )
-                }
-            };
-
-            // These channels and handle are only for this particular connection attempt
-            let mut backend_connection_handle = match spawn_result {
+            // Spawn a single connection to this BMC.
+            let bmc_connection_handle = match connection::spawn(
+                self.connection_details.clone(),
+                self.broadcast_to_frontend_tx.clone(),
+                self.metrics.clone(),
+                self.config.clone(),
+            )
+            .await
+            {
                 Ok(handle) => handle,
                 Err(error) => {
                     tracing::error!(
                         ?error,
                         %machine_id,
-                        "error spawning backend connection, will retry in {}s",
+                        "error spawning BMC connection, will retry in {}s",
                         retry_time.as_secs()
                     );
                     continue 'retry;
                 }
             };
 
-            if backend_connection_handle.wait_until_ready().await.is_ok() {
-                // Successfully ready, give the backend channel to the message relay and set the
-                // state to Connected. (if ready_rx is not ok, then the tx must have been dropped,
-                // and we'll report errors and retry below.)
-                backend_msg_tx_placeholder
-                    .replace(Some(backend_connection_handle.to_backend_msg_tx))
-                    .await;
-                self.connection_state.store(ConnectionState::Connected);
-            }
+            // Successfully ready, give the BMC channel to the message relay and set the state
+            // to Connected. (if ready_rx is not ok, then the tx must have been dropped, and
+            // we'll report errors and retry below.)
+            bmc_msg_tx_placeholder
+                .replace(Some(bmc_connection_handle.to_bmc_msg_tx))
+                .await;
+            self.connection_state.store(connection::State::Connected);
 
-            // Turn the actual backend connection JoinHandle into a shared future, so we can check
+            // Turn the actual BMC connection JoinHandle into a shared future, so we can check
             // the result from multiple select arms.
             let connection_result = async move {
-                backend_connection_handle
+                bmc_connection_handle
                     .join_handle
                     .await
                     .expect("task panicked")
@@ -195,10 +184,10 @@ impl BackendSession {
             tokio::select! {
                 // If we're shutting down, shut down this connection attempt
                 _ = &mut self.shutdown_rx => {
-                    tracing::info!(%machine_id, "shutting down backend connection");
-                    backend_connection_handle.shutdown_tx.send(()).ok();
+                    tracing::info!(%machine_id, "shutting down BMC connection");
+                    bmc_connection_handle.shutdown_tx.send(()).ok();
                     if let Err(error) = connection_result.await {
-                        tracing::error!(%machine_id, error = ?error.as_ref(), "backend connection failed while shutting down");
+                        tracing::error!(%machine_id, error = ?error.as_ref(), "BMC connection failed while shutting down");
                     };
                     break 'retry;
                 }
@@ -211,30 +200,30 @@ impl BackendSession {
                         retry_time = Duration::ZERO;
                     }
                     let error_string = res.err().map(|e| format!("{:?}", e.as_ref())).unwrap_or("<none>".to_string());
-                    tracing::warn!(%machine_id, error = error_string, "connection to backend closed, will retry in {}s", retry_time.as_secs());
+                    tracing::warn!(%machine_id, error = error_string, "connection to BMC closed, will retry in {}s", retry_time.as_secs());
                 }
             }
         }
 
         // Clean up: Shut down message relay and logger
-        backend_message_relay.shutdown_and_wait().await;
+        bmc_message_relay.shutdown_and_wait().await;
         if let Some(logger_handle) = logger_handle {
             logger_handle.shutdown_and_wait().await;
         }
     }
 }
 
-/// Spawn a task which will take messages from to_backend_msg_rx and either relay them to a
-/// backend connection, *or* reply to the user saying the backend is disconnected, depending on
-/// whether the backend connection is healthy.
+/// Spawn a task which will take messages from to_bmc_msg_rx and either relay them to a
+/// BMC connection, *or* reply to the user saying the BMC is disconnected, depending on
+/// whether the BMC connection is healthy.
 ///
-/// - `backend_msg_tx_placeholder`: A shareable placeholder for a channel to send   messages to
-///   the backend, once the backend connection is ready.
-fn relay_input_to_backend(
+/// - `bmc_msg_tx_placeholder`: A shareable placeholder for a channel to send messages to
+///   the BMC, once the connection is ready.
+fn relay_input_to_bmc(
     broadcast_to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
     connection_state: Arc<AtomicConnectionState>,
-    mut to_backend_msg_rx: mpsc::Receiver<ChannelMsgOrExec>,
-    backend_msg_tx_placeholder: BackendMessageTxPlaceholder,
+    mut to_bmc_msg_rx: mpsc::Receiver<ChannelMsgOrExec>,
+    bmc_msg_tx_placeholder: BmcMessageTxPlaceholder,
 ) -> MessageRelayHandle {
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
 
@@ -245,23 +234,23 @@ fn relay_input_to_backend(
                     _ = &mut shutdown_rx => {
                         break;
                     }
-                    Some(msg) = to_backend_msg_rx.recv() => {
-                        let backend_tx_guard =
-                            if let ConnectionState::Connected = connection_state.load() {
-                                Some(backend_msg_tx_placeholder.lock().await)
+                    Some(msg) = to_bmc_msg_rx.recv() => {
+                        let bmc_tx_guard =
+                            if let connection::State::Connected = connection_state.load() {
+                                Some(bmc_msg_tx_placeholder.lock().await)
                             } else {
                                 None
                             };
 
                         // If we're connected, relay the message
                         if let Some(tx) =
-                            backend_tx_guard.as_ref().and_then(|guard| guard.as_ref())
+                            bmc_tx_guard.as_ref().and_then(|guard| guard.as_ref())
                         {
                             tx.send(msg).await.ok();
                         } else {
                             match msg {
                                 ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data { data }) => {
-                                    // Otherwise, when the user types a newline, inform them the backend
+                                    // Otherwise, when the user types a newline, inform them the BMC
                                     // is not connected
                                     if data.contains(&b'\r') || data.contains(&b'\n') {
                                         broadcast_to_frontend_tx
@@ -303,9 +292,9 @@ struct MessageRelayHandle {
 }
 
 #[derive(Default, Clone)]
-struct BackendMessageTxPlaceholder(Arc<tokio::sync::Mutex<Option<mpsc::Sender<ChannelMsgOrExec>>>>);
+struct BmcMessageTxPlaceholder(Arc<tokio::sync::Mutex<Option<mpsc::Sender<ChannelMsgOrExec>>>>);
 
-impl BackendMessageTxPlaceholder {
+impl BmcMessageTxPlaceholder {
     #[inline]
     async fn replace(&self, value: Option<mpsc::Sender<ChannelMsgOrExec>>) {
         *self.lock().await = value;
@@ -324,8 +313,8 @@ impl ShutdownHandle<()> for MessageRelayHandle {
 }
 
 /// Consume all the messages of a broadcast::Receiver, doing nothing with them, until the channel is
-/// closed. This is a quick and dirty way to prevent a backend's to_frontend_tx channel from
-/// returning failures due to nobody listening. (Listeners may come and go, as logging is optional.)
+/// closed. This is a quick and dirty way to prevent a BMC's to_frontend_tx channel from returning
+/// failures due to nobody listening. (Listeners may come and go, as logging is optional.)
 fn dev_null<T: Clone + Send + 'static>(mut rx: broadcast::Receiver<T>) {
     tokio::spawn(async move {
         loop {
@@ -350,11 +339,11 @@ fn next_retry_backoff(prev: Duration) -> Duration {
     Duration::from_secs_f64(rand::random_range(BASE_F64..upper))
 }
 
-pub struct BackendSessionHandle {
+pub struct ClientHandle {
     machine_id: MachineId,
-    kind: BackendConnectionKind,
-    /// Writer to send messages (including data) to backend
-    to_backend_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
+    kind: connection::Kind,
+    /// Writer to send messages (including data) to BMC
+    to_bmc_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
     // Hold a copy of the tx for broadcasting to frontends, so that we can subscribe to it multiple
     // times.
     broadcast_to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
@@ -363,46 +352,47 @@ pub struct BackendSessionHandle {
     pub connection_state: Arc<AtomicConnectionState>, // pub for metrics gathering
 }
 
-impl ShutdownHandle<()> for BackendSessionHandle {
+impl ShutdownHandle<()> for ClientHandle {
     fn into_parts(self) -> (oneshot::Sender<()>, JoinHandle<()>) {
         (self.shutdown_tx, self.join_handle)
     }
 }
 
-impl BackendSessionHandle {
-    pub fn subscribe(&self, metrics: Arc<ServerMetrics>) -> BackendSubscription {
-        tracing::debug!("new backend subscription");
+impl ClientHandle {
+    pub fn subscribe(&self, metrics: Arc<ServerMetrics>) -> BmcConnectionSubscription {
+        tracing::debug!("new bmc subscription");
         metrics.total_clients.add(1, &[]);
         metrics.bmc_clients.add(
             1,
             &[KeyValue::new("machine_id", self.machine_id.to_string())],
         );
 
-        BackendSubscription {
+        BmcConnectionSubscription {
             machine_id: self.machine_id,
             to_frontend_msg_weak_tx: self.broadcast_to_frontend_tx.downgrade(),
-            to_backend_msg_tx: self.to_backend_msg_tx.clone(),
+            to_bmc_msg_tx: self.to_bmc_msg_tx.clone(),
             metrics,
             kind: self.kind,
         }
     }
 }
 
-/// An individual "subscription" to a backend connection, expected to be used by a frontend. Metrics are affected when one is created or dropped.
-pub struct BackendSubscription {
+/// An individual "subscription" to a BMC connection, expected to be used by a frontend. Metrics
+/// are affected when one is created or dropped.
+pub struct BmcConnectionSubscription {
     pub machine_id: MachineId,
     pub to_frontend_msg_weak_tx: broadcast::WeakSender<Arc<ChannelMsg>>,
-    pub to_backend_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
-    pub kind: BackendConnectionKind,
-    // Not pub, to make sure we go through BackendSessionHandle::subscribe() to build, so we get the
+    pub to_bmc_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
+    pub kind: connection::Kind,
+    // Not pub, to make sure we go through ClientHandle::subscribe() to build, so we get the
     // right metrics
     metrics: Arc<ServerMetrics>,
 }
 
-impl Drop for BackendSubscription {
+impl Drop for BmcConnectionSubscription {
     // Decrement metrics when dropping
     fn drop(&mut self) {
-        tracing::debug!("dropping backend subscription");
+        tracing::debug!("dropping bmc subscription");
         self.metrics.total_clients.add(-1, &[]);
         self.metrics.bmc_clients.add(
             -1,

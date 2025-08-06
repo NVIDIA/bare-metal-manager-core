@@ -5,9 +5,7 @@ use eyre::Context;
 use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper_util::rt::TokioExecutor;
-use ssh_console::ReadyHandle;
 use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
-use std::sync::Arc;
 use std::time::Duration;
 use temp_dir::TempDir;
 
@@ -59,9 +57,7 @@ pub async fn spawn(carbide_port: u16) -> eyre::Result<NewSshConsoleHandle> {
         successful_connection_minimum_duration: Duration::ZERO,
     };
 
-    let metrics = Arc::new(ssh_console::metrics::MetricsState::new());
-    let mut spawn_handle = ssh_console::spawn(config, metrics).await?;
-    spawn_handle.wait_until_ready().await.ok();
+    let spawn_handle = ssh_console::spawn(config).await?;
 
     Ok(NewSshConsoleHandle {
         addr: listen_address,

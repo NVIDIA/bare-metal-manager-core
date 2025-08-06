@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::bmc_vendor::SshBmcVendor;
-use crate::ssh_server::backend_connection::{BackendConnectionHandle, SshConnectionDetails};
-use crate::ssh_server::backend_pool::BackendPoolMetrics;
-use crate::{ChannelMsgOrExec, ExecReply, POWER_RESET_COMMAND, proxy_channel_message};
+use crate::POWER_RESET_COMMAND;
+use crate::bmc::client_pool::BmcPoolMetrics;
+use crate::bmc::connection;
+use crate::bmc::message_proxy::{ChannelMsgOrExec, ExecReply, proxy_channel_message};
+use crate::bmc::vendor::SshBmcVendor;
 use eyre::Context;
 use forge_uuid::machine::MachineId;
 use opentelemetry::KeyValue;
@@ -23,39 +24,25 @@ use ringbuf::traits::RingBuffer;
 use russh::client::{AuthResult, GexParams, KeyboardInteractiveAuthResponse};
 use russh::keys::{HashAlg, PrivateKeyWithHashAlg, PublicKey};
 use russh::{Channel, ChannelMsg, MethodKind};
+use std::fmt::Debug;
 use std::io::Read;
+use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, oneshot};
 
-struct Handler;
-
-impl russh::client::Handler for Handler {
-    type Error = eyre::Error;
-
-    async fn check_server_key(
-        &mut self,
-        _server_public_key: &PublicKey,
-    ) -> Result<bool, Self::Error> {
-        // TODO: known_hosts support?
-        Ok(true)
-    }
-}
-
 static RUSSH_CLIENT_CONFIG: LazyLock<Arc<russh::client::Config>> =
     LazyLock::new(russh_client_config);
 
-/// Connect to the backend for an instance or machine one time, returning a [`SshBackendHandle`].
-/// Will not retry on connection errors.
-pub fn spawn(
-    connection_details: Arc<SshConnectionDetails>,
+/// Connect to a BMC one time, returning a [`connection::Handle`]. Will not retry on connection errors.
+pub async fn spawn(
+    connection_details: Arc<ConnectionDetails>,
     to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
-    metrics: Arc<BackendPoolMetrics>,
-) -> eyre::Result<BackendConnectionHandle> {
+    metrics: Arc<BmcPoolMetrics>,
+) -> eyre::Result<connection::Handle> {
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
-    let (ready_tx, ready_rx) = oneshot::channel::<()>();
-    let mut ready_tx = Some(ready_tx); // only send it once
-    let (to_backend_msg_tx, mut to_backend_msg_rx) = mpsc::channel::<ChannelMsgOrExec>(1);
+    let (to_bmc_msg_tx, mut to_bmc_msg_rx) = mpsc::channel::<ChannelMsgOrExec>(1);
     let metrics_attrs = vec![KeyValue::new(
         "machine_id",
         connection_details.machine_id.to_string(),
@@ -64,57 +51,56 @@ pub fn spawn(
     let machine_id = connection_details.machine_id;
     let bmc_vendor = connection_details.bmc_vendor;
 
+    let bmc_ssh_client = make_authenticated_client(&connection_details).await?;
+
+    // Channel to send data to/from the BMC
+    let mut ssh_client_channel = bmc_ssh_client
+        .channel_open_session()
+        .await
+        .context("Error opening session to BMC")?;
+
+    trigger_and_await_sol_console(machine_id, &mut ssh_client_channel, bmc_vendor)
+        .await
+        .context("error activating serial console")?;
+
+    let mut output_ringbuf: LocalRb<Array<u8, 1024>> = ringbuf::LocalRb::default();
+    let bmc_prompt = bmc_vendor.bmc_prompt();
+    let mut prior_escape_pending = false;
+
     let join_handle = tokio::spawn(async move {
-        let client = make_authenticated_client(&connection_details).await?;
-
-        // Channel to send data to/from the backend (BMC)
-        let mut backend_channel = client
-            .channel_open_session()
-            .await
-            .context("Error opening session to backend")?;
-
-        trigger_and_await_sol_console(machine_id, &mut backend_channel, bmc_vendor)
-            .await
-            .context("error activating serial console")?;
-
-        let mut backend_ringbuf: LocalRb<Array<u8, 1024>> = ringbuf::LocalRb::default();
-        let bmc_prompt = bmc_vendor.bmc_prompt();
-        let mut prior_escape_pending = false;
-        ready_tx.take().map(|ch| ch.send(()));
-
-        let (mut backend_channel_rx, backend_channel_tx) = backend_channel.split();
+        let (mut ssh_client_rx, ssh_client_tx) = ssh_client_channel.split();
 
         loop {
             tokio::select! {
                 _ = &mut shutdown_rx => {
-                    tracing::info!(%machine_id, "backend connection shutting down");
+                    tracing::info!(%machine_id, "BMC connection shutting down");
                     break;
                 }
-                res = backend_channel_rx.wait() => match res {
+                res = ssh_client_rx.wait() => match res {
                     // Data coming from the BMC to the frontend
                     Some(msg) => {
                         if let ChannelMsg::Data { data, .. } = &msg {
                             metrics.bmc_bytes_received_total.add(data.len() as _, metrics_attrs.as_slice());
-                            backend_ringbuf.push_iter_overwrite(data.iter().copied());
+                            output_ringbuf.push_iter_overwrite(data.iter().copied());
                             if let Some(bmc_prompt) = bmc_prompt {
-                                if ringbuf_contains(&backend_ringbuf, bmc_prompt) {
+                                if ringbuf_contains(&output_ringbuf, bmc_prompt) {
                                     let mut ringbuf_str = String::new();
-                                    backend_ringbuf.read_to_string(&mut ringbuf_str).ok();
-                                    tracing::warn!(%machine_id, "backend dropped to BMC, exiting. output: {ringbuf_str:?}");
+                                    output_ringbuf.read_to_string(&mut ringbuf_str).ok();
+                                    tracing::warn!(%machine_id, "BMC dropped to system prompt, exiting. output: {ringbuf_str:?}");
                                     break;
                                 }
                             }
                         }
-                        to_frontend_tx.send(Arc::new(msg)).context("error sending message from ssh backend to frontend")?;
+                        to_frontend_tx.send(Arc::new(msg)).context("error sending message from BMC to frontend")?;
                     }
                     None => {
                         metrics.bmc_rx_errors_total.add(1, metrics_attrs.as_slice());
-                        tracing::debug!(%machine_id, "backend channel closed, closing connection");
+                        tracing::debug!(%machine_id, "BMC channel closed, closing connection");
                         break;
                     }
                 },
 
-                res = to_backend_msg_rx.recv() => match res {
+                res = to_bmc_msg_rx.recv() => match res {
                     Some(msg) => {
                         let msg = match msg {
                             ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, ..}) => {
@@ -145,9 +131,9 @@ pub fn spawn(
                                 continue;
                             }
                         };
-                        proxy_channel_message(&msg, &backend_channel_tx)
+                        proxy_channel_message(&msg, &ssh_client_tx)
                             .await
-                            .context("error sending message to backend").inspect_err(|_| {
+                            .context("error sending message to BMC").inspect_err(|_| {
                             metrics.bmc_tx_errors_total.add(1, metrics_attrs.as_slice());
                         })?;
                     }
@@ -161,25 +147,24 @@ pub fn spawn(
         Ok(())
     });
 
-    Ok(BackendConnectionHandle {
-        to_backend_msg_tx,
+    Ok(connection::Handle {
+        to_bmc_msg_tx,
         shutdown_tx,
         join_handle,
-        ready_rx: Some(ready_rx),
     })
 }
 
 /// Builds and authenticates an SSH client to a machine, using credentials from carbide-api or
 /// overridden by config.
 async fn make_authenticated_client(
-    SshConnectionDetails {
+    ConnectionDetails {
         addr,
         user,
         password,
         ssh_key_path,
         machine_id,
         ..
-    }: &SshConnectionDetails,
+    }: &ConnectionDetails,
 ) -> eyre::Result<russh::client::Handle<Handler>> {
     let mut client = russh::client::connect(RUSSH_CLIENT_CONFIG.clone(), addr, Handler)
         .await
@@ -313,7 +298,7 @@ async fn make_authenticated_client(
 // continuing.
 async fn trigger_and_await_sol_console(
     machine_id: MachineId,
-    backend_channel: &mut Channel<russh::client::Msg>,
+    ssh_client_channel: &mut Channel<russh::client::Msg>,
     bmc_vendor: SshBmcVendor,
 ) -> eyre::Result<()> {
     let Some(bmc_prompt) = bmc_vendor.bmc_prompt() else {
@@ -332,18 +317,18 @@ async fn trigger_and_await_sol_console(
     // - Wait for command echo to confirm activation
     // - Only then allow client to use the console
 
-    backend_channel
+    ssh_client_channel
         .request_pty(false, "xterm", 80, 24, 0, 0, &[])
         .await
-        .context("error sending pty request to backend")?;
-    backend_channel
+        .context("error sending pty request to BMC")?;
+    ssh_client_channel
         .request_shell(false)
         .await
-        .context("error sending shell request to backend")?;
-    backend_channel
+        .context("error sending shell request to BMC")?;
+    ssh_client_channel
         .data(b"\n".as_slice())
         .await
-        .context("error sending newline to backend")?;
+        .context("error sending newline to BMC")?;
 
     let mut prompt_buf: Vec<u8> = Vec::with_capacity(1024);
     let timeout = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
@@ -359,9 +344,9 @@ async fn trigger_and_await_sol_console(
             _ = tokio::time::sleep_until(timeout) => {
                 return Err(eyre::format_err!("Unable to activate serial console after timeout"))
             }
-            res = backend_channel.wait() => {
+            res = ssh_client_channel.wait() => {
                 let Some(msg) = res else {
-                    tracing::error!(%machine_id, "backend ssh connection closed before entering serial-on-lan console");
+                    tracing::error!(%machine_id, "BMC ssh connection closed before entering serial-on-lan console");
                     break
                 };
                 match msg {
@@ -375,17 +360,17 @@ async fn trigger_and_await_sol_console(
                                 // etc) one byte at a time: This seems to work better with some
                                 // consoles.
                                 for byte in activate_command {
-                                    backend_channel
+                                    ssh_client_channel
                                         .data([*byte].as_slice())
                                         .await
                                         .with_context(|| {
                                             format!(
-                                                "error sending serial activate command ({}) to backend",
+                                                "error sending serial activate command ({}) to BMC",
                                                 String::from_utf8_lossy(activate_command)
                                             )
                                         })?;
                                 }
-                                backend_channel.data(b"\n".as_slice()).await.context("error sending data to backend")?;
+                                ssh_client_channel.data(b"\n".as_slice()).await.context("error sending data to BMC")?;
                                 activation_step = SerialConsoleActivationStep::ActivateSent;
                                 // Clear the prompt
                                 prompt_buf.clear();
@@ -414,6 +399,20 @@ async fn trigger_and_await_sol_console(
     }
 
     Ok(())
+}
+
+struct Handler;
+
+impl russh::client::Handler for Handler {
+    type Error = eyre::Error;
+
+    async fn check_server_key(
+        &mut self,
+        _server_public_key: &PublicKey,
+    ) -> Result<bool, Self::Error> {
+        // TODO: known_hosts support?
+        Ok(true)
+    }
 }
 
 /// Configuration for russh's SSH client connections
@@ -497,4 +496,27 @@ fn test_ringbuf_contains() {
     assert!(ringbuf_contains(&rb, b"")); // empty always true
     assert!(!ringbuf_contains(&rb, b"rustacean")); // longer than buf
     assert!(!ringbuf_contains(&rb, b"aean")); // non-contiguous
+}
+
+#[derive(Clone)]
+pub struct ConnectionDetails {
+    pub machine_id: MachineId,
+    pub addr: SocketAddr,
+    pub user: String,
+    pub password: String,
+    pub ssh_key_path: Option<PathBuf>,
+    pub bmc_vendor: SshBmcVendor,
+}
+
+impl Debug for ConnectionDetails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Skip writing the password
+        f.debug_struct("SshConnectionDetails")
+            .field("addr", &self.addr)
+            .field("user", &self.user)
+            .field("ssh_key_path", &self.ssh_key_path)
+            .field("bmc_vendor", &self.bmc_vendor)
+            .field("machine_id", &self.machine_id.to_string())
+            .finish()
+    }
 }

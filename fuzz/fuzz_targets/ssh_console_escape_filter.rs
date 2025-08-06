@@ -1,6 +1,6 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use ssh_console::bmc_vendor::{EscapeSequence, IPMITOOL_ESCAPE_SEQUENCE};
+use ssh_console::{EscapeSequence, IPMITOOL_ESCAPE_SEQUENCE};
 
 fuzz_target!(|data: &[u8]| {
     static SINGLE_SEQUENCE: u8 = 0x1b;

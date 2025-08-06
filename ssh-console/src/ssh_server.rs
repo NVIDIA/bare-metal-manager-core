@@ -9,69 +9,101 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
+use crate::bmc::client_pool::BmcConnectionStore;
 use crate::config::Config;
-use crate::ssh_server::backend_pool;
-use crate::ssh_server::backend_pool::BackendPoolHandle;
-use crate::ssh_server::frontend::RusshOrEyreError;
-use crate::{ReadyHandle, ShutdownHandle};
+use crate::frontend::{Handler, RusshOrEyreError};
+use crate::shutdown_handle::ShutdownHandle;
 use eyre::Context;
-use forge_tls::client_config::ClientCert;
 use opentelemetry::metrics::{Counter, Meter, ObservableGauge, UpDownCounter};
 use rpc::forge_api_client::ForgeApiClient;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
-use russh::server::Server as _;
-use russh::server::run_stream;
+use russh::server::{Server as RusshServer, run_stream};
+use russh::{MethodKind, MethodSet};
 use std::io;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
+use tokio::sync::oneshot::Sender;
+use tokio::task::JoinHandle;
 
-/// Construct a new [`Server`]
-pub fn new(config: Arc<Config>, meter: &Meter) -> Server {
-    let forge_api_client = config.make_forge_api_client();
-    let backend_pool = backend_pool::spawn(config.clone(), forge_api_client.clone(), meter);
+pub async fn spawn(
+    config: Arc<Config>,
+    forge_api_client: ForgeApiClient,
+    bmc_connection_store: BmcConnectionStore,
+    meter: &Meter,
+) -> eyre::Result<Handle> {
     let metrics = Arc::new(ServerMetrics::new(meter, &config));
-    Server {
+    let listen_address = config.listen_address;
+
+    let host_key =
+        russh::keys::PrivateKey::read_openssh_file(&config.host_key_path).with_context(|| {
+            format!(
+                "Error reading host key file at {}",
+                config.host_key_path.display()
+            )
+        })?;
+
+    let russh_config = Arc::new(russh::server::Config {
+        keys: vec![host_key],
+        // We only accept PublicKey auth (certificates are a kind of PublicKey auth)
+        methods: MethodSet::from([MethodKind::PublicKey].as_slice()),
+        nodelay: true,
+        auth_rejection_time: Duration::from_millis(30),
+        ..Default::default()
+    });
+
+    let server = SshServer {
         config,
         forge_api_client,
-        backend_pool,
+        bmc_connection_store,
+        russh_config,
         metrics,
+    };
+
+    let listener = TcpListener::bind(listen_address)
+        .await
+        .with_context(|| format!("Error listening on {listen_address}"))?;
+    tracing::info!("listening on {}", listen_address);
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let join_handle = tokio::spawn(server.run(listener, shutdown_rx));
+
+    Ok(Handle {
+        shutdown_tx,
+        join_handle,
+    })
+}
+
+pub struct Handle {
+    shutdown_tx: oneshot::Sender<()>,
+    join_handle: JoinHandle<()>,
+}
+
+impl ShutdownHandle<()> for Handle {
+    fn into_parts(self) -> (Sender<()>, JoinHandle<()>) {
+        (self.shutdown_tx, self.join_handle)
     }
 }
 
-pub struct Server {
+struct SshServer {
     config: Arc<Config>,
+    russh_config: Arc<russh::server::Config>,
     forge_api_client: ForgeApiClient,
-    backend_pool: BackendPoolHandle,
+    bmc_connection_store: BmcConnectionStore,
     metrics: Arc<ServerMetrics>,
 }
 
-impl Server {
+impl SshServer {
     /// Run an instance of ssh-console on the given socket, looping forever until `shutdown` is
     /// received (or if the sending end of `shutdown` is dropped.)
-    pub async fn run(
-        mut self,
-        russh_config: Arc<russh::server::Config>,
-        ready_tx: oneshot::Sender<()>,
-        mut shutdown: oneshot::Receiver<()>,
-    ) -> eyre::Result<()> {
-        // Don't actually start listening until the backend pool is ready, this ensures we our k8s
-        // service doesn't become ready while actual incoming connections could fail.
-        self.backend_pool.wait_until_ready().await.ok();
-
-        let socket = TcpListener::bind(self.config.listen_address)
-            .await
-            .with_context(|| format!("Error listening on {}", self.config.listen_address))?;
-
-        tracing::info!("listening on {}", self.config.listen_address);
-        ready_tx.send(()).ok();
-
+    pub async fn run(mut self, socket: TcpListener, mut shutdown: oneshot::Receiver<()>) {
         loop {
             tokio::select! {
                 accept_result = socket.accept() => {
                     match accept_result {
                         Ok((socket, _)) => {
-                            let russh_config = russh_config.clone();
+                            let russh_config = self.russh_config.clone();
                             let handler = self.new_client(socket.peer_addr().ok());
 
                             tokio::spawn(async move {
@@ -138,10 +170,6 @@ impl Server {
                 _ = &mut shutdown => break,
             }
         }
-
-        self.backend_pool.shutdown_and_wait().await;
-
-        Ok(())
     }
 }
 
@@ -200,47 +228,16 @@ impl ServerMetrics {
     }
 }
 
-impl russh::server::Server for Server {
-    type Handler = super::frontend::Handler;
+impl russh::server::Server for SshServer {
+    type Handler = Handler;
 
     fn new_client(&mut self, addr: Option<std::net::SocketAddr>) -> Self::Handler {
         Self::Handler::new(
-            self.backend_pool.get_connection_store(),
+            self.bmc_connection_store.clone(),
             self.config.clone(),
             self.forge_api_client.clone(),
             self.metrics.clone(),
             addr,
         )
-    }
-}
-
-impl Config {
-    fn make_forge_api_client(&self) -> ForgeApiClient {
-        let carbide_uri_string = self.carbide_uri.to_string();
-        tracing::info!("carbide_uri_string: {}", carbide_uri_string);
-
-        // TODO: The API's for ClientCert/ForgeClientConfig/etc really ought to take PathBufs, not Strings.
-        let client_cert = ClientCert {
-            cert_path: self
-                .client_cert_path
-                .to_str()
-                .expect("Invalid utf-8 in client_cert_path")
-                .to_string(),
-            key_path: self
-                .client_key_path
-                .to_str()
-                .expect("Invalid utf-8 in client_key_path")
-                .to_string(),
-        };
-        let client_config = ForgeClientConfig::new(
-            self.forge_root_ca_path
-                .to_str()
-                .expect("Invalid utf-8 in forge_root_ca_path")
-                .to_string(),
-            Some(client_cert),
-        );
-
-        let api_config = ApiConfig::new(&carbide_uri_string, &client_config);
-        ForgeApiClient::new(&api_config)
     }
 }

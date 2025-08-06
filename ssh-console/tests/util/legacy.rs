@@ -17,13 +17,11 @@ use crate::util::{BaselineTestEnvironment, MockBmcHandle, log_stdout_and_stderr}
 use api_test_helper::utils::REPO_ROOT;
 use eyre::Context;
 use lazy_static::lazy_static;
+use std::fs;
+use std::io::{BufWriter, Write};
 use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::{
-    fs,
-    io::{BufWriter, Write},
-};
 use temp_dir::TempDir;
 
 lazy_static! {
