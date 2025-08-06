@@ -348,7 +348,7 @@ description = "Runs clippy code linter."
 category = "Test"
 dependencies = ["install-clippy"]
 command = "cargo"
-args = ["clippy", "--locked", "--tests", "--all-features"]
+args = ["clippy", "--locked", "--all-targets", "--all-features"]
 
 [tasks.build-debug-test-prerequisites]
 script = '''
