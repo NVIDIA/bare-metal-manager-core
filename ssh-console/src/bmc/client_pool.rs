@@ -10,14 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::bmc::client::{BmcConnectionSubscription, ClientHandle};
+use crate::bmc::connection::State;
+use crate::bmc::{client, connection};
 use crate::config::Config;
-use crate::ssh_server::backend_connection::lookup_connection_details;
-use crate::ssh_server::backend_session;
-use crate::ssh_server::backend_session::{BackendSessionHandle, BackendSubscription};
-use crate::ssh_server::connection_state::ConnectionState;
-use crate::ssh_server::server::ServerMetrics;
-use crate::{ReadyHandle, ShutdownHandle};
-use eyre::{Context, ContextCompat};
+use crate::shutdown_handle::{ReadyHandle, ShutdownHandle};
+use crate::ssh_server::ServerMetrics;
+use eyre::{ContextCompat, WrapErr};
 use forge_uuid::machine::MachineId;
 use futures_util::future::join_all;
 use opentelemetry::KeyValue;
@@ -26,7 +25,6 @@ use rpc::forge;
 use rpc::forge_api_client::ForgeApiClient;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::fmt::Debug;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use tokio::sync::oneshot;
@@ -36,79 +34,70 @@ use tokio::time::MissedTickBehavior;
 use uuid::Uuid;
 
 /// Spawn a background task that connects to all BMC's in the environment, reconnecting if they fail.
-pub fn spawn(
-    config: Arc<Config>,
-    forge_api_client: ForgeApiClient,
-    meter: &Meter,
-) -> BackendPoolHandle {
+pub fn spawn(config: Arc<Config>, forge_api_client: ForgeApiClient, meter: &Meter) -> Handle {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let (ready_tx, ready_rx) = oneshot::channel();
-    let members: Arc<RwLock<HashMap<MachineId, BackendSessionHandle>>> = Default::default();
+    let members: Arc<RwLock<HashMap<MachineId, ClientHandle>>> = Default::default();
     let join_handle = tokio::spawn(
-        BackendPool {
+        BmcPool {
             members: members.clone(),
             shutdown_rx,
             config,
             forge_api_client,
-            metrics: Arc::new(BackendPoolMetrics::new(meter, members.clone())),
+            metrics: Arc::new(BmcPoolMetrics::new(meter, members.clone())),
         }
         .run_loop(ready_tx),
     );
 
-    BackendPoolHandle {
+    Handle {
         shutdown_tx,
-        members,
+        connection_store: BmcConnectionStore(members),
         ready_rx: Some(ready_rx),
         join_handle,
     }
 }
 
-/// A owned handle to the entire backend pool background task. The pool will shut down when this is
+/// A owned handle to the entire BMC client pool background task. The pool will shut down when this is
 /// dropped.
-pub struct BackendPoolHandle {
-    members: Arc<RwLock<HashMap<MachineId, BackendSessionHandle>>>,
+pub struct Handle {
+    connection_store: BmcConnectionStore,
     shutdown_tx: oneshot::Sender<()>,
     ready_rx: Option<oneshot::Receiver<()>>,
     join_handle: tokio::task::JoinHandle<()>,
 }
 
-impl ShutdownHandle<()> for BackendPoolHandle {
+impl Handle {
+    pub fn connection_store(&self) -> BmcConnectionStore {
+        self.connection_store.clone()
+    }
+}
+
+impl ShutdownHandle<()> for Handle {
     fn into_parts(self) -> (oneshot::Sender<()>, JoinHandle<()>) {
         (self.shutdown_tx, self.join_handle)
     }
 }
 
-impl ReadyHandle for BackendPoolHandle {
+impl ReadyHandle for Handle {
     fn take_ready_rx(&mut self) -> Option<Receiver<()>> {
         self.ready_rx.take()
     }
 }
 
-impl BackendPoolHandle {
-    /// Return a connection store for the backends in this pool, which can be used by an individual frontend
-    /// connection to find the correct backend.
-    pub fn get_connection_store(&self) -> BackendConnectionStore {
-        BackendConnectionStore {
-            members: self.members.clone(),
-        }
-    }
-}
+/// An Arc reference to the available BMC connections in this pool
+#[derive(Clone)]
+pub struct BmcConnectionStore(Arc<RwLock<HashMap<MachineId, ClientHandle>>>);
 
-/// An Arc reference to the available backend connections in this pool
-pub struct BackendConnectionStore {
-    members: Arc<RwLock<HashMap<MachineId, BackendSessionHandle>>>,
-}
-
-impl BackendConnectionStore {
+impl BmcConnectionStore {
     pub async fn get_connection(
         &self,
         machine_or_instance_id: &str,
         config: &Config,
         forge_api_client: &ForgeApiClient,
         metrics: Arc<ServerMetrics>,
-    ) -> eyre::Result<BackendSubscription> {
+    ) -> eyre::Result<BmcConnectionSubscription> {
         if let Ok(machine_id) = MachineId::from_str(machine_or_instance_id) {
-            self.members
+            self.0
                 .read()
                 .expect("lock poisoned")
                 .get(&machine_id)
@@ -158,7 +147,7 @@ impl BackendConnectionStore {
                     .with_context(|| format!("Instance {instance_id} has an invalid machine_id"))?
             };
 
-            self.members
+            self.0
                 .read()
                 .expect("lock poisoned")
                 .get(&machine_id_candidate)
@@ -172,32 +161,32 @@ impl BackendConnectionStore {
     }
 }
 
-/// A BackendPool runs in a background Task and maintains a single BackendSession handle to each
-/// backend
-struct BackendPool {
-    members: Arc<RwLock<HashMap<MachineId, BackendSessionHandle>>>,
+/// A BmcPool runs in a background Task and maintains a single BmcSession handle to each
+/// BMC
+struct BmcPool {
+    members: Arc<RwLock<HashMap<MachineId, ClientHandle>>>,
     shutdown_rx: oneshot::Receiver<()>,
     config: Arc<Config>,
     forge_api_client: ForgeApiClient,
-    metrics: Arc<BackendPoolMetrics>,
+    metrics: Arc<BmcPoolMetrics>,
 }
 
-pub struct BackendPoolMetrics {
+pub struct BmcPoolMetrics {
     grpc_total_hosts: Gauge<u64>,
     total_machines: Gauge<u64>,
     _failed_machines: ObservableGauge<u64>,
     _healthy_machines: ObservableGauge<u64>,
     _bmc_status: ObservableGauge<u64>,
 
-    // per-backend metrics (need to be pub, since code outside this module is setting them
+    // per-BMC metrics (need to be pub, since code outside this module is setting them
     pub bmc_bytes_received_total: Counter<u64>,
     pub bmc_rx_errors_total: Counter<u64>,
     pub bmc_tx_errors_total: Counter<u64>,
     pub bmc_recovery_attempts: Gauge<u64>,
 }
 
-impl BackendPoolMetrics {
-    fn new(meter: &Meter, members: Arc<RwLock<HashMap<MachineId, BackendSessionHandle>>>) -> Self {
+impl BmcPoolMetrics {
+    fn new(meter: &Meter, members: Arc<RwLock<HashMap<MachineId, ClientHandle>>>) -> Self {
         Self {
             grpc_total_hosts: meter
                 .u64_gauge("ssh_console_grpc_total_machines")
@@ -214,7 +203,7 @@ impl BackendPoolMetrics {
                         let error_count = members.read().expect("lock poisoned")
                             .values()
                             .fold(0, |acc, conn| {
-                                if conn.connection_state.load() == ConnectionState::ConnectionError { acc + 1 } else { acc }
+                                if conn.connection_state.load() == State::ConnectionError { acc + 1 } else { acc }
                             });
                         observer.observe(error_count, &[]);
                     }
@@ -229,7 +218,7 @@ impl BackendPoolMetrics {
                         let error_count = members.read().expect("lock poisoned")
                             .values()
                             .fold(0, |acc, conn| {
-                                if conn.connection_state.load() == ConnectionState::Connected { acc + 1 } else { acc }
+                                if conn.connection_state.load() == State::Connected { acc + 1 } else { acc }
                             });
                         observer.observe(error_count, &[]);
                     }
@@ -271,8 +260,8 @@ impl BackendPoolMetrics {
     }
 }
 
-impl BackendPool {
-    /// Run a loop which refreshes the list backends from the API and ensures we have a running
+impl BmcPool {
+    /// Run a loop which refreshes the list of BMC's from the API and ensures we have a running
     /// connection to each one.
     async fn run_loop(mut self, ready_tx: oneshot::Sender<()>) {
         let mut api_refresh = tokio::time::interval(self.config.api_poll_interval);
@@ -284,12 +273,12 @@ impl BackendPool {
         loop {
             tokio::select! {
                 _ = &mut self.shutdown_rx => {
-                    tracing::info!("shutting down BackendPool");
+                    tracing::info!("shutting down BmcPool");
                     break;
                 }
                 _ = api_refresh.tick() => {
-                    if let Err(error) = self.refresh_backends().await {
-                        tracing::error!(?error, "error refreshing backend list from API");
+                    if let Err(error) = self.refresh_bmcs().await {
+                        tracing::error!(?error, "error refreshing BMC list from API");
                     }
                     // Inform callers that we're ready once the first API refresh happens.
                     ready_tx.take().map(|ch| ch.send(()).ok());
@@ -297,7 +286,7 @@ impl BackendPool {
             }
         }
 
-        // Shutdown each backend
+        // Shutdown each BMC connection
         let members = self
             .members
             .write()
@@ -308,7 +297,7 @@ impl BackendPool {
         join_all(members.into_iter().map(|handle| handle.shutdown_and_wait())).await;
     }
 
-    async fn refresh_backends(&mut self) -> eyre::Result<()> {
+    async fn refresh_bmcs(&mut self) -> eyre::Result<()> {
         // Get all machine ID's from forge, parsing them into forge_uuid::MachineId.
         let machine_ids: HashSet<MachineId> = match &self.config.override_bmcs {
                 Some(override_bmcs) => {
@@ -387,7 +376,7 @@ impl BackendPool {
             let config = self.config.clone();
             let forge_api_client = self.forge_api_client.clone();
             async move {
-                match lookup_connection_details(
+                match connection::lookup(
                     &machine_id.to_string(),
                     &config,
                     &forge_api_client,
@@ -396,7 +385,7 @@ impl BackendPool {
                 {
                     Ok(connection_details) => Some((machine_id, connection_details)),
                     Err(error) => {
-                        tracing::error!(%machine_id, ?error, "error looking up connection details, excluding from backend list");
+                        tracing::error!(%machine_id, ?error, "error looking up connection details, excluding from bmc list");
                         None
                     }
                 }
@@ -411,12 +400,12 @@ impl BackendPool {
                     continue;
                 }
                 tracing::info!(%machine_id, "begin connection to machine");
-                let backend_session_handle = backend_session::spawn(
+                let bmc_session_handle = client::spawn(
                     connection_details,
                     self.config.clone(),
                     self.metrics.clone(),
                 );
-                guard.insert(machine_id, backend_session_handle);
+                guard.insert(machine_id, bmc_session_handle);
             }
 
             self.metrics.total_machines.record(guard.len() as _, &[]);

@@ -12,10 +12,9 @@
 
 use clap::Parser;
 use eyre::Context;
-use ssh_console::config::Config;
-use ssh_console::{ShutdownHandle, config};
+use ssh_console::config::{Config, Defaults};
+use ssh_console::shutdown_handle::ShutdownHandle;
 use std::path::PathBuf;
-use std::sync::Arc;
 use tracing::metadata::LevelFilter;
 
 #[tokio::main(flavor = "multi_thread")]
@@ -23,24 +22,17 @@ pub async fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
     setup_logging(&cli);
-    let metrics = Arc::new(ssh_console::metrics::MetricsState::new());
 
     match cli.command {
         Command::Run(run_command) => {
-            let spawn_handle = ssh_console::spawn(run_command.try_into()?, metrics).await?;
+            let spawn_handle = ssh_console::spawn(run_command.try_into()?).await?;
             // Let the service run forever by awaiting the join handle, while holding onto the
             // shutdown handle.
             let (_shutdown_tx, join_handle) = spawn_handle.into_parts();
-            join_handle
-                .await
-                .expect("ssh-console task panicked")
-                .context("error in ssh-console service")?;
+            join_handle.await.expect("ssh-console task panicked");
         }
         Command::DefaultRunConfig => {
-            print!(
-                "{}",
-                ssh_console::config::Config::default().into_annotated_config_file()
-            )
+            print!("{}", Config::default().into_annotated_config_file())
         }
     }
 
@@ -83,19 +75,19 @@ struct RunCommand {
     #[clap(
         long,
         env = "FORGE_ROOT_CA_PATH",
-        help = format!("Default to FORGE_ROOT_CA_PATH environment variable or {}", config::Defaults::root_ca_path().display())
+        help = format!("Default to FORGE_ROOT_CA_PATH environment variable or {}", Defaults::root_ca_path().display())
     )]
     forge_root_ca_path: Option<PathBuf>,
     #[clap(
         long,
         env = "CLIENT_CERT_PATH",
-        help = format!("Client cert to use to talk to forge. Default to CLIENT_CERT_PATH environment variable or {}", config::Defaults::client_cert_path().display())
+        help = format!("Client cert to use to talk to forge. Default to CLIENT_CERT_PATH environment variable or {}", Defaults::client_cert_path().display())
     )]
     client_cert_path: Option<PathBuf>,
     #[clap(
         long,
         env = "CLIENT_KEY_PATH",
-        help = format!("Client cert to use to talk to forge. Default to CLIENT_CERT_PATH environment variable or {}", config::Defaults::client_key_path().display())
+        help = format!("Client cert to use to talk to forge. Default to CLIENT_CERT_PATH environment variable or {}", Defaults::client_key_path().display())
     )]
     client_key_path: Option<PathBuf>,
     #[clap(long, short = 'k', help = "Path to SSH host key")]
@@ -192,7 +184,9 @@ impl TryInto<Config> for RunCommand {
 }
 
 fn setup_logging(cli: &Cli) {
-    use tracing_subscriber::{filter::EnvFilter, prelude::*, util::SubscriberInitExt};
+    use tracing_subscriber::filter::EnvFilter;
+    use tracing_subscriber::prelude::*;
+    use tracing_subscriber::util::SubscriberInitExt;
 
     let level = if cli.debug {
         Some(LevelFilter::DEBUG)

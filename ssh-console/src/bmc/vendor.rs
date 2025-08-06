@@ -115,22 +115,6 @@ impl BmcVendor {
             BmcVendor::Ipmi(i) => i.config_string(),
         }
     }
-
-    pub fn filter_escape_sequences<'a>(
-        &self,
-        input: &'a [u8],
-        prev_pending: bool,
-    ) -> (Cow<'a, [u8]>, bool) {
-        match self {
-            BmcVendor::Ssh(ssh_bmc_vendor) => {
-                ssh_bmc_vendor.filter_escape_sequences(input, prev_pending)
-            }
-            BmcVendor::Ipmi(_) => {
-                // TODO: figure out how ipmitool will be escaped (ctrl+]?)
-                (Cow::Borrowed(input), false)
-            }
-        }
-    }
 }
 
 impl Serialize for BmcVendor {
@@ -203,12 +187,6 @@ impl SshBmcVendor {
             SshBmcVendor::Dpu => "dpu",
         }
     }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum BmcConnectionKind {
-    Ssh,
-    Ipmi,
 }
 
 #[derive(Clone, Copy, PartialEq)]

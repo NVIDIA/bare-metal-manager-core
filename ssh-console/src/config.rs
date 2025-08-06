@@ -10,9 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::bmc_vendor::{BmcVendor, SshBmcVendor};
+use crate::bmc::vendor::{BmcVendor, SshBmcVendor};
 use duration_str::deserialize_duration;
 use eyre::{Context, ContextCompat};
+use forge_tls::client_config::ClientCert;
+use rpc::forge_api_client::ForgeApiClient;
+use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use russh::keys::ssh_key::Fingerprint;
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -215,7 +218,7 @@ console_logs_path = {console_logs_path:?}
 ## a single SSH server to mock all BMC SSH connections.
 # override_bmc_ssh_host = <hostname>
 
-## How long should a connection to a backend be up before it's considered a successful connection,
+## How long should a connection to a BMC be up before it's considered a successful connection,
 ## and the exponential backoff timer is reset to zero. (This can be set to zero for integration
 ## tests where we intentionally test failure scenarios and want to quickly retry.)
 successful_connection_minimum_duration = {successful_connection_minimum_duration:?}
@@ -237,6 +240,35 @@ successful_connection_minimum_duration = {successful_connection_minimum_duration
 # # ... more bmcs sections can define more than one
 "#
         )
+    }
+
+    pub fn make_forge_api_client(&self) -> ForgeApiClient {
+        let carbide_uri_string = self.carbide_uri.to_string();
+        tracing::info!("carbide_uri_string: {}", carbide_uri_string);
+
+        // TODO: The API's for ClientCert/ForgeClientConfig/etc really ought to take PathBufs, not Strings.
+        let client_cert = ClientCert {
+            cert_path: self
+                .client_cert_path
+                .to_str()
+                .expect("Invalid utf-8 in client_cert_path")
+                .to_string(),
+            key_path: self
+                .client_key_path
+                .to_str()
+                .expect("Invalid utf-8 in client_key_path")
+                .to_string(),
+        };
+        let client_config = ForgeClientConfig::new(
+            self.forge_root_ca_path
+                .to_str()
+                .expect("Invalid utf-8 in forge_root_ca_path")
+                .to_string(),
+            Some(client_cert),
+        );
+
+        let api_config = ApiConfig::new(&carbide_uri_string, &client_config);
+        ForgeApiClient::new(&api_config)
     }
 }
 

@@ -10,115 +10,48 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::bmc_vendor::{BmcVendor, SshBmcVendor};
+use crate::bmc::client_pool::BmcPoolMetrics;
+use crate::bmc::connection_impl;
+use crate::bmc::connection_impl::{ipmi, ssh};
+use crate::bmc::message_proxy::ChannelMsgOrExec;
+use crate::bmc::vendor::{BmcVendor, SshBmcVendor};
 use crate::config::Config;
-use crate::{ChannelMsgOrExec, ReadyHandle, ShutdownHandle};
-use eyre::{Context, ContextCompat};
+use crate::shutdown_handle::ShutdownHandle;
+use eyre::{ContextCompat, WrapErr};
 use forge_uuid::machine::{MachineId, MachineType};
 use rpc::forge;
 use rpc::forge_api_client::ForgeApiClient;
+use russh::ChannelMsg;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::oneshot::Receiver;
-use tokio::sync::{mpsc, oneshot};
+use std::sync::atomic::{AtomicU8, Ordering};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-pub mod ipmi;
-pub mod ssh;
-
-/// A handle to a backend connection, which will shut down when dropped.
-pub struct BackendConnectionHandle {
-    pub to_backend_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
-    pub shutdown_tx: oneshot::Sender<()>,
-    pub join_handle: JoinHandle<eyre::Result<()>>,
-    pub ready_rx: Option<oneshot::Receiver<()>>,
-}
-
-impl ShutdownHandle<eyre::Result<()>> for BackendConnectionHandle {
-    fn into_parts(self) -> (oneshot::Sender<()>, JoinHandle<eyre::Result<()>>) {
-        (self.shutdown_tx, self.join_handle)
-    }
-}
-
-impl ReadyHandle for BackendConnectionHandle {
-    fn take_ready_rx(&mut self) -> Option<Receiver<()>> {
-        self.ready_rx.take()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum ConnectionDetails {
-    Ssh(Arc<SshConnectionDetails>),
-    Ipmi(Arc<IpmiConnectionDetails>),
-}
-
-impl ConnectionDetails {
-    pub fn addr(&self) -> SocketAddr {
-        match self {
-            ConnectionDetails::Ssh(s) => s.addr,
-            ConnectionDetails::Ipmi(i) => i.addr,
+pub async fn spawn(
+    connection_details: ConnectionDetails,
+    broadcast_to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
+    metrics: Arc<BmcPoolMetrics>,
+    config: Arc<Config>,
+) -> eyre::Result<Handle> {
+    match connection_details {
+        ConnectionDetails::Ssh(ssh_connection_details) => {
+            connection_impl::ssh::spawn(ssh_connection_details, broadcast_to_frontend_tx, metrics)
+                .await
         }
-    }
-
-    pub fn machine_id(&self) -> MachineId {
-        match self {
-            ConnectionDetails::Ssh(s) => s.machine_id,
-            ConnectionDetails::Ipmi(i) => i.machine_id,
+        ConnectionDetails::Ipmi(ipmi_connection_details) => {
+            connection_impl::ipmi::spawn(
+                ipmi_connection_details,
+                broadcast_to_frontend_tx,
+                config,
+                metrics,
+            )
+            .await
         }
-    }
-
-    pub fn kind(&self) -> BackendConnectionKind {
-        match self {
-            ConnectionDetails::Ssh(_) => BackendConnectionKind::Ssh,
-            ConnectionDetails::Ipmi(_) => BackendConnectionKind::Ipmi,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct SshConnectionDetails {
-    pub machine_id: MachineId,
-    pub addr: SocketAddr,
-    pub user: String,
-    pub password: String,
-    pub ssh_key_path: Option<PathBuf>,
-    pub bmc_vendor: SshBmcVendor,
-}
-
-impl Debug for SshConnectionDetails {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Skip writing the password
-        f.debug_struct("SshConnectionDetails")
-            .field("addr", &self.addr)
-            .field("user", &self.user)
-            .field("ssh_key_path", &self.ssh_key_path)
-            .field("bmc_vendor", &self.bmc_vendor)
-            .field("machine_id", &self.machine_id.to_string())
-            .finish()
-    }
-}
-
-#[derive(Clone)]
-pub struct IpmiConnectionDetails {
-    pub machine_id: MachineId,
-    pub addr: SocketAddr,
-    pub user: String,
-    pub password: String,
-}
-
-impl Debug for IpmiConnectionDetails {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Skip writing the password
-        f.debug_struct("IpmiConnectionDetails")
-            .field("addr", &self.addr)
-            .field("user", &self.user)
-            .field("machine_id", &self.machine_id.to_string())
-            .finish()
     }
 }
 
@@ -126,7 +59,7 @@ impl Debug for IpmiConnectionDetails {
 ///
 /// This information is normally gotten by calling GetBMCMetadData on carbide-api, but it can
 /// also obey overridden information from ssh-console's config.
-pub async fn lookup_connection_details(
+pub async fn lookup(
     machine_or_instance_id: &str,
     config: &Config,
     forge_api_client: &ForgeApiClient,
@@ -151,7 +84,7 @@ pub async fn lookup_connection_details(
         })?;
         let connection_details = match override_bmc.bmc_vendor {
             BmcVendor::Ssh(ssh_bmc_vendor) => {
-                ConnectionDetails::Ssh(Arc::new(SshConnectionDetails {
+                ConnectionDetails::Ssh(Arc::new(ssh::ConnectionDetails {
                     machine_id,
                     addr: config
                         .override_bmc_ssh_addr(override_bmc.addr().port())
@@ -164,7 +97,7 @@ pub async fn lookup_connection_details(
                     bmc_vendor: ssh_bmc_vendor,
                 }))
             }
-            BmcVendor::Ipmi(_) => ConnectionDetails::Ipmi(Arc::new(IpmiConnectionDetails {
+            BmcVendor::Ipmi(_) => ConnectionDetails::Ipmi(Arc::new(ipmi::ConnectionDetails {
                 machine_id,
                 addr: override_bmc.addr(),
                 user: override_bmc.user,
@@ -294,15 +227,17 @@ pub async fn lookup_connection_details(
     };
 
     let connection_details = match bmc_vendor {
-        BmcVendor::Ssh(ssh_bmc_vendor) => ConnectionDetails::Ssh(Arc::new(SshConnectionDetails {
-            machine_id,
-            addr,
-            user,
-            password,
-            ssh_key_path: None,
-            bmc_vendor: ssh_bmc_vendor,
-        })),
-        BmcVendor::Ipmi(_) => ConnectionDetails::Ipmi(Arc::new(IpmiConnectionDetails {
+        BmcVendor::Ssh(ssh_bmc_vendor) => {
+            ConnectionDetails::Ssh(Arc::new(ssh::ConnectionDetails {
+                machine_id,
+                addr,
+                user,
+                password,
+                ssh_key_path: None,
+                bmc_vendor: ssh_bmc_vendor,
+            }))
+        }
+        BmcVendor::Ipmi(_) => ConnectionDetails::Ipmi(Arc::new(ipmi::ConnectionDetails {
             machine_id,
             addr,
             user,
@@ -313,8 +248,108 @@ pub async fn lookup_connection_details(
     Ok(connection_details)
 }
 
+/// A handle to a BMC connection, which will shut down when dropped.
+pub struct Handle {
+    pub to_bmc_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
+    pub shutdown_tx: oneshot::Sender<()>,
+    pub join_handle: JoinHandle<eyre::Result<()>>,
+}
+
+impl ShutdownHandle<eyre::Result<()>> for Handle {
+    fn into_parts(self) -> (oneshot::Sender<()>, JoinHandle<eyre::Result<()>>) {
+        (self.shutdown_tx, self.join_handle)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ConnectionDetails {
+    Ssh(Arc<ssh::ConnectionDetails>),
+    Ipmi(Arc<ipmi::ConnectionDetails>),
+}
+
+impl ConnectionDetails {
+    pub fn addr(&self) -> SocketAddr {
+        match self {
+            ConnectionDetails::Ssh(s) => s.addr,
+            ConnectionDetails::Ipmi(i) => i.addr,
+        }
+    }
+
+    pub fn machine_id(&self) -> MachineId {
+        match self {
+            ConnectionDetails::Ssh(s) => s.machine_id,
+            ConnectionDetails::Ipmi(i) => i.machine_id,
+        }
+    }
+
+    pub fn kind(&self) -> Kind {
+        match self {
+            ConnectionDetails::Ssh(_) => Kind::Ssh,
+            ConnectionDetails::Ipmi(_) => Kind::Ipmi,
+        }
+    }
+}
+
 #[derive(Copy, Clone)]
-pub enum BackendConnectionKind {
+pub enum Kind {
     Ssh,
     Ipmi,
+}
+
+/// Represents the state of a connection to a BMC
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum State {
+    Disconnected = 0,
+    Connecting = 1,
+    Connected = 2,
+    ConnectionError = 3,
+}
+
+impl From<State> for u8 {
+    fn from(state: State) -> u8 {
+        state as u8
+    }
+}
+
+impl TryFrom<u8> for State {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(State::Disconnected),
+            1 => Ok(State::Connecting),
+            2 => Ok(State::Connected),
+            3 => Ok(State::ConnectionError),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Wrapper for an AtomicU8 representing a [`State`], so that the state can be shared
+/// between threads.
+#[derive(Debug)]
+pub struct AtomicConnectionState(AtomicU8);
+
+impl AtomicConnectionState {
+    #[inline]
+    pub fn new(state: State) -> Self {
+        Self(AtomicU8::new(state.into()))
+    }
+
+    #[inline]
+    pub fn load(&self) -> State {
+        State::try_from(self.0.load(Ordering::SeqCst)).expect("BUG: connection state corrupted")
+    }
+
+    #[inline]
+    pub fn store(&self, state: State) {
+        self.0.store(state.into(), Ordering::SeqCst);
+    }
+}
+
+impl Default for AtomicConnectionState {
+    fn default() -> Self {
+        AtomicConnectionState::new(State::Disconnected)
+    }
 }

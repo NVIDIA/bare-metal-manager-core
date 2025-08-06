@@ -10,18 +10,22 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::bmc_vendor::IPMITOOL_ESCAPE_SEQUENCE;
+use crate::POWER_RESET_COMMAND;
+use crate::bmc::client_pool::BmcPoolMetrics;
+use crate::bmc::connection::Handle;
+use crate::bmc::message_proxy::{ChannelMsgOrExec, ExecReply};
+use crate::bmc::vendor::IPMITOOL_ESCAPE_SEQUENCE;
 use crate::config::Config;
 use crate::io_util::{self, set_controlling_terminal_on_exec, write_data_to_async_fd};
-use crate::ssh_server::backend_connection::{BackendConnectionHandle, IpmiConnectionDetails};
-use crate::ssh_server::backend_pool::BackendPoolMetrics;
-use crate::{ChannelMsgOrExec, ExecReply, POWER_RESET_COMMAND};
 use eyre::Context;
+use forge_uuid::machine::MachineId;
 use nix::errno::Errno;
 use nix::pty::OpenptyResult;
 use nix::unistd;
 use opentelemetry::KeyValue;
 use russh::ChannelMsg;
+use std::fmt::Debug;
+use std::net::SocketAddr;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -38,12 +42,12 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 /// `to_frontend_tx` is a [`russh::Channel`] to send data from ipmitool to the SSH frontend.
 ///
 /// Returns a [`mpsc::Sender<ChannelMsg>`] that the frontend can use to send data to ipmitool.
-pub fn spawn(
-    connection_details: Arc<IpmiConnectionDetails>,
+pub async fn spawn(
+    connection_details: Arc<ConnectionDetails>,
     to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
     config: Arc<Config>,
-    metrics: Arc<BackendPoolMetrics>,
-) -> eyre::Result<BackendConnectionHandle> {
+    metrics: Arc<BmcPoolMetrics>,
+) -> eyre::Result<Handle> {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let (ready_tx, ready_rx) = oneshot::channel::<()>();
     let ready_tx = Some(ready_tx); // only send it once
@@ -106,7 +110,7 @@ pub fn spawn(
         let mut result = Ok(());
         tokio::select! {
             _ = shutdown_rx => {
-                tracing::debug!(%machine_id, "ipmitool backend shutting down");
+                tracing::debug!(%machine_id, "ipmitool shutting down");
                 process.start_kill().context("error killing ipmitool")?;
             }
             res = ipmitool_process_loop(&connection_details, &config, pty_master, from_frontend_rx, to_frontend_tx, ready_tx, metrics) => match res {
@@ -132,18 +136,18 @@ pub fn spawn(
         result
     });
 
-    Ok(BackendConnectionHandle {
-        to_backend_msg_tx: from_frontend_tx,
+    ready_rx
+        .await
+        .context("error waiting for ipmitool to be ready")?;
+
+    Ok(Handle {
+        to_bmc_msg_tx: from_frontend_tx,
         shutdown_tx,
         join_handle,
-        ready_rx: Some(ready_rx),
     })
 }
 
-async fn power_reset(
-    connection_details: &IpmiConnectionDetails,
-    config: &Config,
-) -> eyre::Result<()> {
+async fn power_reset(connection_details: &ConnectionDetails, config: &Config) -> eyre::Result<()> {
     let mut command = tokio::process::Command::new("ipmitool");
     command
         .arg("-I")
@@ -189,13 +193,13 @@ async fn power_reset(
 /// O_NONBLOCK), but we want to poll them in a tokio::select loop.  So we have to do the typical
 /// UNIX pattern of reading/writing data until we get EWOULDBLOCK, returning to the main loop, etc.
 async fn ipmitool_process_loop(
-    connection_details: &IpmiConnectionDetails,
+    connection_details: &ConnectionDetails,
     config: &Config,
     pty_master: AsyncFd<OwnedFd>,
     mut from_frontend_rx: mpsc::Receiver<ChannelMsgOrExec>,
     to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
     mut ready_tx: Option<oneshot::Sender<()>>,
-    metrics: Arc<BackendPoolMetrics>,
+    metrics: Arc<BmcPoolMetrics>,
 ) -> eyre::Result<()> {
     let machine_id = connection_details.machine_id;
     let metrics_attrs = vec![KeyValue::new("machine_id", machine_id.to_string())];
@@ -257,7 +261,7 @@ async fn ipmitool_process_loop(
 }
 
 async fn send_frontend_message_to_ipmi_console(
-    connection_details: &IpmiConnectionDetails,
+    connection_details: &ConnectionDetails,
     config: &Config,
     msg: ChannelMsgOrExec,
     ipmitool_pty: &AsyncFd<OwnedFd>,
@@ -280,8 +284,6 @@ async fn send_frontend_message_to_ipmi_console(
         }
         msg => (msg, escape_was_pending),
     };
-
-    // TODO: parse an escape sequence to trigger a reboot (legacy ssh-console used ^U, but that was awful.)
 
     match msg {
         ChannelMsgOrExec::ChannelMsg(ChannelMsg::Eof | ChannelMsg::Close) => {
@@ -345,4 +347,23 @@ async fn send_frontend_message_to_ipmi_console(
         }
     };
     Ok(escape_pending)
+}
+
+#[derive(Clone)]
+pub struct ConnectionDetails {
+    pub machine_id: MachineId,
+    pub addr: SocketAddr,
+    pub user: String,
+    pub password: String,
+}
+
+impl Debug for ConnectionDetails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Skip writing the password
+        f.debug_struct("IpmiConnectionDetails")
+            .field("addr", &self.addr)
+            .field("user", &self.user)
+            .field("machine_id", &self.machine_id.to_string())
+            .finish()
+    }
 }
