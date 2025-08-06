@@ -1082,16 +1082,12 @@ build-site-auto-deploy-container:
 # Build and push the image that contains the dependencies for job 'scheduled-test:machine-lifecycle-test'
 #
 build-machine-lifecycle-test-container:
+  stage: build
   extends: build-container
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
-      changes:
-        - dev/docker/Dockerfile.machine-lifecycle-test-container
-        - tests/machine-lifecycle/requirements.txt
-        - tests/machine-lifecycle/pyproject.toml
-        - tests/machine-lifecycle/poetry.lock
   variables:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.machine-lifecycle-test-container
     BUILD_DOCKER_IMAGE: $CONTAINER_MACHINE_LIFECYCLE_TEST
