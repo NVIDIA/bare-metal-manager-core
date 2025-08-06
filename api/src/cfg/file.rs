@@ -269,6 +269,10 @@ pub struct CarbideConfig {
 
     #[serde(default = "default_power_options")]
     pub power_manager_options: PowerManagerOptions,
+
+    /// sitename is made visible to customers running
+    /// tenant OS via an FMDS endpoint.
+    pub sitename: Option<String>,
 }
 
 /// Parameters used by the Power config.
@@ -1963,6 +1967,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             dpu_ipmi_tool_impl: value.dpu_ipmi_tool_impl.unwrap_or("Not Set".to_string()),
             dpu_ipmi_reboot_attempt: value.dpu_ipmi_reboot_attempts.unwrap_or_default(),
             initial_domain_name: value.initial_domain_name,
+            sitename: value.sitename,
             initial_dpu_agent_upgrade_policy: value
                 .initial_dpu_agent_upgrade_policy
                 .unwrap_or(AgentUpgradePolicyChoice::Off)

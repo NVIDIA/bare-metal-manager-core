@@ -242,6 +242,23 @@ pub async fn test_fmds_get_data() -> eyre::Result<()> {
 
     assert_eq!(body_str, "65535");
 
+    // Test get sitename
+    let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build_http();
+    let request: hyper::Request<Full<Bytes>> = hyper::Request::builder()
+        .method(hyper::Method::GET)
+        .uri("http://0.0.0.0:7777/latest/meta-data/sitename".to_string())
+        .body("".into())
+        .unwrap();
+
+    let response = client.request(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body_str = std::str::from_utf8(&body).unwrap();
+
+    assert_eq!(body_str, "testsite");
+
     Ok(())
 }
 
@@ -695,6 +712,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         internet_l3_vni: Some(1337),
         stateful_acls_enabled: true,
         instance: Some(instance),
+        sitename: Some("testsite".to_string()),
     };
     common::respond(netconf)
 }

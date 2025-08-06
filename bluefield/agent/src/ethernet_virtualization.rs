@@ -2200,6 +2200,7 @@ mod tests {
             internet_l3_vni: Some(1337),
             stateful_acls_enabled: true,
             instance: None,
+            sitename: Some("testsite".to_string()),
         }
     }
 
@@ -2590,6 +2591,7 @@ mod tests {
             internet_l3_vni: Some(1337),
             stateful_acls_enabled: true,
             instance: None,
+            sitename: Some("testsite".to_string()),
         };
 
         let f = tempfile::NamedTempFile::new()?;

@@ -32,6 +32,7 @@ use rpc::forge::ManagedHostNetworkConfigResponse;
 
 const PUBLIC_IPV4_CATEGORY: &str = "public-ipv4";
 const HOSTNAME_CATEGORY: &str = "hostname";
+const SITENAME_CATEGORY: &str = "sitename";
 const USER_DATA_CATEGORY: &str = "user-data";
 const META_DATA_CATEGORY: &str = "meta-data";
 const GUID: &str = "guid";
@@ -207,6 +208,10 @@ fn extract_metadata(
         match category.as_str() {
             PUBLIC_IPV4_CATEGORY => (StatusCode::OK, metadata.address.clone()),
             HOSTNAME_CATEGORY => (StatusCode::OK, metadata.hostname.clone()),
+            SITENAME_CATEGORY => (
+                StatusCode::OK,
+                metadata.sitename.clone().unwrap_or(String::new()),
+            ),
             USER_DATA_CATEGORY => (StatusCode::OK, metadata.user_data.clone()),
             ASN_CATEGORY => (StatusCode::OK, network_config.asn.to_string()),
             _ => (
@@ -275,6 +280,7 @@ async fn get_metadata_params(
         StatusCode::OK,
         [
             HOSTNAME_CATEGORY,
+            SITENAME_CATEGORY,
             MACHINE_ID_CATEGORY,
             INSTANCE_ID_CATEGORY,
             ASN_CATEGORY,
@@ -543,6 +549,7 @@ mod tests {
             ib_devices: None,
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
         };
 
         let (server, server_port) = setup_server(
@@ -573,6 +580,7 @@ mod tests {
             ib_devices: None,
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
         };
 
         let (server, server_port) = setup_server(
@@ -603,10 +611,12 @@ mod tests {
             ib_devices: None,
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
         };
 
         let expected_output = [
             HOSTNAME_CATEGORY,
+            SITENAME_CATEGORY,
             MACHINE_ID_CATEGORY,
             INSTANCE_ID_CATEGORY,
             ASN_CATEGORY,
@@ -644,6 +654,7 @@ mod tests {
             ib_devices: None,
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
         };
 
         let (server, server_port) = setup_server(
@@ -704,6 +715,7 @@ mod tests {
             ]),
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
         };
 
         let (server, server_port) = setup_server(
@@ -741,6 +753,7 @@ mod tests {
             }]),
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
         };
 
         let (server, server_port) = setup_server(
@@ -785,6 +798,7 @@ mod tests {
             }]),
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
         };
 
         let (server, server_port) = setup_server(
@@ -824,6 +838,7 @@ mod tests {
             }]),
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
         };
 
         let (server, server_port) = setup_server(
@@ -861,6 +876,7 @@ mod tests {
             }]),
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
         };
 
         let (server, server_port) = setup_server(
@@ -898,6 +914,7 @@ mod tests {
             }]),
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
         };
 
         let (server, server_port) = setup_server(
@@ -935,6 +952,7 @@ mod tests {
             }]),
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
         };
 
         let (server, server_port) = setup_server(
@@ -972,6 +990,7 @@ mod tests {
             }]),
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
         };
 
         let (server, server_port) = setup_server(
@@ -1002,6 +1021,7 @@ mod tests {
             ib_devices: None,
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
         };
 
         let (server, server_port) = setup_server(
@@ -1032,6 +1052,7 @@ mod tests {
             ib_devices: None,
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
         };
 
         let (server, server_port) = setup_server(
@@ -1062,6 +1083,7 @@ mod tests {
             ib_devices: None,
             config_version: "V2-T1666644937962267".parse().unwrap(),
             network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
         };
 
         let network_config = ManagedHostNetworkConfigResponse {
@@ -1072,6 +1094,38 @@ mod tests {
         let (server, server_port) =
             setup_server(Some(metadata.clone()), Some(network_config)).await;
         send_request_and_check_response(server_port, "meta-data/asn", "123", StatusCode::OK).await;
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn test_get_sitename() {
+        let metadata = InstanceMetadata {
+            instance_id: None,
+            machine_id: Some(MachineId {
+                id: "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg".to_string(),
+            }),
+            address: "127.0.0.1".to_string(),
+            hostname: "localhost".to_string(),
+            user_data: "\"userData\": {\"data\": 0}".to_string(),
+            ib_devices: None,
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
+            sitename: Some("testsite".to_string()),
+        };
+
+        let (server, server_port) = setup_server(
+            Some(metadata.clone()),
+            Some(ManagedHostNetworkConfigResponse::default()),
+        )
+        .await;
+
+        send_request_and_check_response(
+            server_port,
+            "meta-data/sitename",
+            "testsite",
+            StatusCode::OK,
+        )
+        .await;
         server.abort();
     }
 }
