@@ -68,7 +68,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-        _expected: Option<ExpectedMachine>,
+        _expected: Option<&ExpectedMachine>,
         _last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         tracing::info!("Endpoint {bmc_ip_address} is getting explored");

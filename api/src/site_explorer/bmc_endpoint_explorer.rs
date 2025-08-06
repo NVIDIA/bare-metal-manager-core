@@ -164,7 +164,7 @@ impl BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         bmc_mac_address: MacAddress,
         vendor: RedfishVendor,
-        expected_machine: Option<ExpectedMachine>,
+        expected_machine: Option<&ExpectedMachine>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let current_bmc_credentials;
 
@@ -173,8 +173,8 @@ impl BmcEndpointExplorer {
         if let Some(expected_machine_credentials) = expected_machine {
             tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected machine for this BMC mac address");
             current_bmc_credentials = Credentials::UsernamePassword {
-                username: expected_machine_credentials.bmc_username,
-                password: expected_machine_credentials.bmc_password,
+                username: expected_machine_credentials.bmc_username.clone(),
+                password: expected_machine_credentials.bmc_password.clone(),
             };
         } else {
             tracing::info!(%bmc_ip_address, %bmc_mac_address, %vendor, "No expected machine found, could be a BlueField");
@@ -571,7 +571,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-        expected_machine: Option<ExpectedMachine>,
+        expected_machine: Option<&ExpectedMachine>,
         last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         // If the site explorer was previously unable to login to the root BMC account using

@@ -1299,7 +1299,7 @@ impl SiteExplorer {
                         .explore_endpoint(
                             bmc_target_addr,
                             &endpoint.iface,
-                            endpoint.expected.clone(),
+                            endpoint.expected.as_ref(),
                             endpoint.old_report.as_ref().map(|report| &report.1),
                         )
                         .await;
