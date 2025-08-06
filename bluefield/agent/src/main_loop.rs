@@ -1092,17 +1092,17 @@ async fn hack_dpu_os_to_load_atf_uefi_with_specific_versions() -> eyre::Result<(
     // validate the actual strings
     if bfvcheck_output.clone().contains("WARNING: ATF VERSION DOES NOT MATCH RECOMMENDED!") &&
         bfvcheck_output.clone().contains("WARNING: UEFI VERSION DOES NOT MATCH RECOMMENDED!") &&
-        // This is to ensure that the recommended is 4.9.2, meaning its only going to fix this if 
-        // moving to 4.9.2. This is done so that no older DPUs which may be operating under a customer
+        // This is to ensure that the recommended is 4.9.3, meaning its only going to fix this if 
+        // moving to 4.9.3. This is done so that no older DPUs which may be operating under a customer
         // that have not properly updated but yet somehow became assigned. These DPUS are only in 
         // this state because they are stuck in reprovisioning as part of the same release with 
-        // 4.9.2 included. If this check was deployed to production weeks after the update to 4.9.2,
+        // 4.9.3 included. If this check was deployed to production weeks after the update to 4.9.3,
         // there could be a problem with  assigned machines having 2.9.2 recommended but not loaded,
         // but if both releases drop at the same time, this state will only be seen during 
         // reprovisioning / initial discovery.
         bfvcheck_output.clone().contains(
         "-RECOMMENDED VERSIONS-
-ATF: v2.2(release):4.9.2-")
+ATF: v2.2(release):4.9.3-")
     && !cfg!(test)
     {
         tracing::info!(
