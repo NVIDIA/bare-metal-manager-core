@@ -36,7 +36,7 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         &self,
         address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-        expected: Option<ExpectedMachine>,
+        expected: Option<&ExpectedMachine>,
         last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError>;
 

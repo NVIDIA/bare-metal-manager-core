@@ -45,7 +45,12 @@ pub(crate) async fn explore(
 
     let report = api
         .endpoint_explorer
-        .explore_endpoint(bmc_addr, &machine_interface, expected_machine, None)
+        .explore_endpoint(
+            bmc_addr,
+            &machine_interface,
+            expected_machine.as_ref(),
+            None,
+        )
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
