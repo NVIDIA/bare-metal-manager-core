@@ -273,6 +273,10 @@ pub struct CarbideConfig {
     /// sitename is made visible to customers running
     /// tenant OS via an FMDS endpoint.
     pub sitename: Option<String>,
+
+    /// Auto machine repair plugin configuration
+    #[serde(default)]
+    pub auto_machine_repair_plugin: AutoMachineRepairPluginConfig,
 }
 
 /// Parameters used by the Power config.
@@ -2076,6 +2080,14 @@ impl BomValidationConfig {
     const fn default_find_match_interval() -> std::time::Duration {
         std::time::Duration::from_secs(300)
     }
+}
+
+/// Auto machine repair plugin related configuration
+#[derive(Default, Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct AutoMachineRepairPluginConfig {
+    /// Whether automatic machine repair mode is enabled
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 /// Defines the policy for VPC peering based on network virtualization type.

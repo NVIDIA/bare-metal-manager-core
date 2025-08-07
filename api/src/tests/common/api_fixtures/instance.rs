@@ -365,6 +365,8 @@ pub async fn delete_instance(
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
             id: Some(instance_id.into()),
+            issue: None,
+            is_repair_tenant: None,
         }))
         .await
         .expect("Delete instance failed.");

@@ -75,6 +75,8 @@ pub struct NewInstance<'a> {
 
 pub struct DeleteInstance {
     pub instance_id: InstanceId,
+    pub issue: Option<rpc::Issue>,
+    pub is_repair_tenant: Option<bool>,
 }
 
 /// This represents the structure of an instance we get from postgres via the row_to_json or
@@ -216,6 +218,8 @@ impl TryFrom<rpc::InstanceReleaseRequest> for DeleteInstance {
         let id = value.id.ok_or(CarbideError::MissingArgument("id"))?;
         Ok(DeleteInstance {
             instance_id: id.try_into()?,
+            issue: value.issue,
+            is_repair_tenant: value.is_repair_tenant,
         })
     }
 }

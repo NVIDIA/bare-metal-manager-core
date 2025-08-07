@@ -1268,6 +1268,8 @@ pub enum HealthOverrideTemplates {
     SuppressExternalAlerting,
     MarkHealthy,
     StopRebootForAutomaticRecoveryFromStateMachine,
+    TenantReportedIssue,
+    RequestRepair,
 }
 
 #[derive(Parser, Debug)]

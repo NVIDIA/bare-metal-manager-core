@@ -1075,6 +1075,8 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
             id: Some(::rpc::Uuid {
                 value: instance_id.to_string(),
             }),
+            issue: None,
+            is_repair_tenant: None,
         }))
         .await
         .expect("Delete instance failed.");

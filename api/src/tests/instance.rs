@@ -583,6 +583,8 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
             id: Some(instance_id.into()),
+            issue: None,
+            is_repair_tenant: None,
         }))
         .await
         .expect("Delete instance failed.");
@@ -1468,6 +1470,8 @@ async fn test_instance_deletion_before_provisioning_finishes(
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
             id: Some(instance_id.into()),
+            issue: None,
+            is_repair_tenant: None,
         }))
         .await
         .expect("Delete instance failed.");
@@ -1537,6 +1541,8 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
         env.api
             .release_instance(tonic::Request::new(InstanceReleaseRequest {
                 id: Some(instance_id.into()),
+                issue: None,
+                is_repair_tenant: None,
             }))
             .await
             .unwrap_or_else(|_| panic!("Delete instance failed failed on attempt {}.", i));
@@ -1566,6 +1572,8 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
         .api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
             id: Some(instance_id.into()),
+            issue: None,
+            is_repair_tenant: None,
         }))
         .await
         .expect_err("Expect deletion to fail");
@@ -2477,6 +2485,8 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
             id: Some(instance_id.into()),
+            issue: None,
+            is_repair_tenant: None,
         }))
         .await
         .expect("Delete instance failed.");

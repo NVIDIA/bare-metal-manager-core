@@ -1812,8 +1812,28 @@ message InstancePhoneHomeLastContactResponse {
   google.protobuf.Timestamp timestamp = 1;
 }
 
+// Enum defining different categories of issues that can be reported during instance release
+enum IssueCategory {
+  UNSPECIFIED = 0;
+  HARDWARE = 1;
+  NETWORK = 2;
+  PERFORMANCE = 3;
+  OTHER = 4;
+}
+
+// Message containing details about an issue reported during instance release
+message Issue {
+  IssueCategory category = 1;    // Category of issue
+  string summary = 2;    // User-friendly summary of the issue  
+  string details = 3;    // Additional context about the issue
+}
+
 message InstanceReleaseRequest {
   common.UUID id = 1;
+  // Optional issue information if tenant is reporting a problem
+  optional Issue issue = 2;
+  // Optional flag indicating the call is from repair tenant (default: false)
+  optional bool is_repair_tenant = 3;
 }
 
 message InstanceReleaseResult {

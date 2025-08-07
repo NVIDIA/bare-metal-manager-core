@@ -5062,6 +5062,8 @@ impl StateHandler for InstanceStateHandler {
                     // Delete from database now. Once done, reboot and move to next state.
                     DeleteInstance {
                         instance_id: instance.id,
+                        issue: None,
+                        is_repair_tenant: None,
                     }
                     .delete(txn)
                     .await

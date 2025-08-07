@@ -511,6 +511,30 @@ pub(crate) fn get_health_report(
             report.source = "admin-cli".to_string();
             report.alerts.clear();
         }
+        // Template to indicate that the instance is identified as unhealthy by the tenant and
+        // should be fixed before returning to the tenant.
+        HealthOverrideTemplates::TenantReportedIssue => {
+            report.source = "tenant-reported-issue".to_string();
+            report.alerts[0].id = HealthProbeId::from_str("TenantReportedIssue")
+                .expect("TenantReportedIssue is a valid non-empty HealthProbeId");
+            report.alerts[0].target = Some("tenant-reported".to_string());
+            report.alerts[0].classifications = vec![
+                HealthAlertClassification::prevent_allocations(),
+                HealthAlertClassification::suppress_external_alerting(),
+            ];
+        }
+        // Template to indicate that the instance is identified as unhealthy and
+        // is ready to be picked by Repair System for diagnosis and fix.
+        HealthOverrideTemplates::RequestRepair => {
+            report.source = "repair-request".to_string();
+            report.alerts[0].id = HealthProbeId::from_str("RequestRepair")
+                .expect("RequestRepair is a valid non-empty HealthProbeId");
+            report.alerts[0].target = Some("repair-requested".to_string());
+            report.alerts[0].classifications = vec![
+                HealthAlertClassification::prevent_allocations(),
+                HealthAlertClassification::suppress_external_alerting(),
+            ];
+        }
     }
 
     report
@@ -780,4 +804,121 @@ pub async fn handle_metadata_show(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use health_report::{HealthAlertClassification, HealthProbeId};
+    use std::str::FromStr;
+
+    #[test]
+    fn test_tenant_reported_issue_template() {
+        let report = get_health_report(
+            HealthOverrideTemplates::TenantReportedIssue,
+            Some("Customer reported network connectivity issues".to_string()),
+        );
+
+        assert_eq!(report.source, "tenant-reported-issue");
+        assert_eq!(report.alerts.len(), 1);
+
+        let alert = &report.alerts[0];
+        assert_eq!(
+            alert.id,
+            HealthProbeId::from_str("TenantReportedIssue").unwrap()
+        );
+        assert_eq!(alert.target, Some("tenant-reported".to_string()));
+        assert_eq!(
+            alert.message,
+            "Customer reported network connectivity issues"
+        );
+        assert!(alert.tenant_message.is_none());
+
+        // Check classifications
+        assert_eq!(alert.classifications.len(), 2);
+        assert!(
+            alert
+                .classifications
+                .contains(&HealthAlertClassification::prevent_allocations())
+        );
+        assert!(
+            alert
+                .classifications
+                .contains(&HealthAlertClassification::suppress_external_alerting())
+        );
+    }
+
+    #[test]
+    fn test_request_repair_template() {
+        let report = get_health_report(
+            HealthOverrideTemplates::RequestRepair,
+            Some("Hardware diagnostics indicate memory failure".to_string()),
+        );
+
+        assert_eq!(report.source, "repair-request");
+        assert_eq!(report.alerts.len(), 1);
+
+        let alert = &report.alerts[0];
+        assert_eq!(alert.id, HealthProbeId::from_str("RequestRepair").unwrap());
+        assert_eq!(alert.target, Some("repair-requested".to_string()));
+        assert_eq!(
+            alert.message,
+            "Hardware diagnostics indicate memory failure"
+        );
+        assert!(alert.tenant_message.is_none());
+
+        // Check classifications
+        assert_eq!(alert.classifications.len(), 2);
+        assert!(
+            alert
+                .classifications
+                .contains(&HealthAlertClassification::prevent_allocations())
+        );
+        assert!(
+            alert
+                .classifications
+                .contains(&HealthAlertClassification::suppress_external_alerting())
+        );
+    }
+
+    #[test]
+    fn test_tenant_reported_issue_template_with_empty_message() {
+        let report = get_health_report(HealthOverrideTemplates::TenantReportedIssue, None);
+
+        assert_eq!(report.source, "tenant-reported-issue");
+        assert_eq!(report.alerts[0].message, "");
+    }
+
+    #[test]
+    fn test_request_repair_template_with_empty_message() {
+        let report = get_health_report(HealthOverrideTemplates::RequestRepair, None);
+
+        assert_eq!(report.source, "repair-request");
+        assert_eq!(report.alerts[0].message, "");
+    }
+
+    #[test]
+    fn test_new_templates_have_suppress_external_alerting() {
+        // Verify both new templates include SuppressExternalAlerting classification
+        let tenant_report = get_health_report(
+            HealthOverrideTemplates::TenantReportedIssue,
+            Some("test".to_string()),
+        );
+        let repair_report = get_health_report(
+            HealthOverrideTemplates::RequestRepair,
+            Some("test".to_string()),
+        );
+
+        // Both should suppress external alerting
+        assert!(
+            tenant_report.alerts[0]
+                .classifications
+                .contains(&HealthAlertClassification::suppress_external_alerting())
+        );
+        assert!(
+            repair_report.alerts[0]
+                .classifications
+                .contains(&HealthAlertClassification::suppress_external_alerting())
+        );
+    }
 }
