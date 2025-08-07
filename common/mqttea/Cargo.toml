@@ -1,0 +1,31 @@
+[package]
+name = "mqttea"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "mqttea"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+rumqttc = "0.24"
+prost = "0.12"
+prost-types = "0.12"
+async-trait = "0.1"
+thiserror = "1.0"
+tracing = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+clap = { version = "4.4", features = ["derive"] }
+tracing-subscriber = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1.10"
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+[dev-dependencies]
+prost-build = "0.12"
+tokio-test = "0.4"
+
+[build-dependencies]
+prost-build = "0.12"
