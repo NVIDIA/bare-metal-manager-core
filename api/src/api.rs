@@ -5497,13 +5497,13 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
                     })?;
 
             let bmc_ip = topology.topology().bmc_info.ip.as_ref().ok_or_else(|| {
-                CarbideError::internal(
-                    format!("Machine found for {machine_id} but BMC IP is missing").to_string(),
-                )
+                CarbideError::internal(format!(
+                    "Machine found for {machine_id} but BMC IP is missing"
+                ))
             })?;
 
             let bmc_mac_address = topology.topology().bmc_info.mac.ok_or_else(|| {
-                CarbideError::internal(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC").to_string())
+                CarbideError::internal(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC"))
             })?;
 
             Ok(BmcEndpointRequest {

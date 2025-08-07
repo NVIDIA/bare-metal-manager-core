@@ -46,3 +46,6 @@ forge-ssh = { path = "../common/ssh" }
 [build-dependencies]
 clap = { workspace = true }
 forge-version = { path = "../common/version" }
+
+[lints]
+workspace = true

@@ -102,7 +102,7 @@ async fn test_find_explored_managed_hosts_by_ids(
     assert_eq!(host_list.managed_hosts.len(), 5);
 
     // validate we got endpoints with specified ids
-    let mut hosts_copy = host_list.managed_hosts.clone();
+    let mut hosts_copy = host_list.managed_hosts;
     for _ in 0..5 {
         let host = hosts_copy.remove(0);
         let host_id = host.host_bmc_ip;

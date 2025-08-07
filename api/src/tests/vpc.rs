@@ -376,7 +376,6 @@ async fn create_vpc_with_labels(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     assert_eq!(
         fetched_vpc
             .metadata
-            .clone()
             .unwrap()
             .labels
             .iter()

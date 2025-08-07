@@ -372,7 +372,7 @@ impl MachineStateMachine {
                 }
             }
             MachineState::Init(inner_state) => {
-                let Some(primary_mac) = self.machine_info.dhcp_mac_addresses().first().cloned()
+                let Some(primary_mac) = self.machine_info.dhcp_mac_addresses().first().copied()
                 else {
                     return Err(MachineStateError::NoMachineMacAddress);
                 };

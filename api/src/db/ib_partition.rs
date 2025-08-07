@@ -236,7 +236,7 @@ impl TryFrom<IBPartition> for rpc::IbPartition {
     fn try_from(src: IBPartition) -> Result<Self, Self::Error> {
         let config = Some(rpc::IbPartitionConfig {
             name: src.config.name.clone(),
-            tenant_organization_id: src.config.tenant_organization_id.clone().to_string(),
+            tenant_organization_id: src.config.tenant_organization_id.to_string(),
         });
 
         let mut state = match &src.controller_state.value {

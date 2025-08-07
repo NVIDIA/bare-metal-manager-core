@@ -153,7 +153,7 @@ fn convert_ib_partition_to_nice_format(
                 | forgerpc::ControllerStateOutcome::Todo => "OK".to_string(),
                 forgerpc::ControllerStateOutcome::Wait
                 | forgerpc::ControllerStateOutcome::Error => {
-                    state_reason.outcome_msg.clone().unwrap_or_default()
+                    state_reason.outcome_msg.unwrap_or_default()
                 }
             },
         ),

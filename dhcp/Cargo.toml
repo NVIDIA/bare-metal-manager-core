@@ -44,3 +44,6 @@ prometheus = "0.13.4"
 [build-dependencies]
 cbindgen = "*"
 cc = "1.0"
+
+[lints]
+workspace = true

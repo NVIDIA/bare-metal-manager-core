@@ -528,7 +528,7 @@ impl From<MeasurementBundleValueRecord> for PcrRegisterValue {
     fn from(val: MeasurementBundleValueRecord) -> Self {
         PcrRegisterValue {
             pcr_register: val.pcr_register,
-            sha_any: val.sha_any.clone(),
+            sha_any: val.sha_any,
         }
     }
 }
@@ -678,7 +678,7 @@ impl From<MeasurementReportValueRecord> for PcrRegisterValue {
     fn from(val: MeasurementReportValueRecord) -> Self {
         Self {
             pcr_register: val.pcr_register,
-            sha_any: val.sha_any.clone(),
+            sha_any: val.sha_any,
         }
     }
 }

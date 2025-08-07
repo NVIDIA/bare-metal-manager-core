@@ -150,8 +150,6 @@ impl HostFirmwareUpdate {
     ) -> Option<Self> {
         tracing::info!("Using firmware configuration: {firmware_config:?}");
 
-        let config = config.clone();
-
         let metrics = HostFirmwareUpdateMetrics::new();
         metrics.register_callbacks(&meter);
 

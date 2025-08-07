@@ -41,3 +41,6 @@ thiserror = "2.0.12"
 
 [build-dependencies]
 forge-version = { path = "../version" }
+
+[lints]
+workspace = true

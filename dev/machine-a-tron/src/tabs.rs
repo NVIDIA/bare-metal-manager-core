@@ -262,8 +262,8 @@ impl OverrideState {
                         // Read back modified response from file.
                         // TODO: validate the response is valid JSON
                         // and maybe validate if is valid redfish response.
-                        let content = std::fs::read_to_string(path.clone())
-                            .expect("could not read from tempfile");
+                        let content =
+                            std::fs::read_to_string(path).expect("could not read from tempfile");
                         data.routes
                             .lock()
                             .unwrap()

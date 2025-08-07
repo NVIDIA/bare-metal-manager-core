@@ -48,7 +48,7 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
                 .map(|n| rpc::MachineInventorySoftwareComponent {
                     name: n.name.clone(),
                     version: n.version.clone(),
-                    url: n.repository.clone(),
+                    url: n.repository,
                 })
                 .collect::<Vec<_>>()
         })

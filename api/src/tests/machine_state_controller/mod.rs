@@ -146,7 +146,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
         let guard = machine_handler.counts_per_id.lock().unwrap();
         let count = guard
             .get(&machine_id.to_string())
-            .cloned()
+            .copied()
             .unwrap_or_default() as f64;
 
         assert!(

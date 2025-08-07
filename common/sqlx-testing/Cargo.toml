@@ -16,3 +16,6 @@ tokio = { workspace = true }
 # [local-dependencies]
 carbide-api = { path = "../../api" }
 
+
+[lints]
+workspace = true

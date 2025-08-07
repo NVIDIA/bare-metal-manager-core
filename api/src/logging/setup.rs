@@ -309,7 +309,7 @@ mod tests {
         let state = KeyValue::new("state", "mystate");
         let p1 = vec![state.clone(), KeyValue::new("error", "ErrA")];
         let p2 = vec![state.clone(), KeyValue::new("error", "ErrB")];
-        let p3 = vec![state.clone(), KeyValue::new("error", "ErrC")];
+        let p3 = vec![state, KeyValue::new("error", "ErrC")];
 
         let counter = std::sync::Arc::new(AtomicUsize::new(0));
 

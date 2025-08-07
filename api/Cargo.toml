@@ -133,3 +133,6 @@ machine-a-tron = { path = "../dev/machine-a-tron" }
 bmc-mock = { path = "../dev/bmc-mock" }
 api-test-helper = { path = "../common/api-test-helper" }
 sqlx-testing = { path = "../common/sqlx-testing" }
+
+[lints]
+workspace = true

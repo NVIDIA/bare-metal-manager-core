@@ -14,3 +14,6 @@ tracing-subscriber = { version = "*" }
 
 [dev-dependencies]
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
+
+[lints]
+workspace = true

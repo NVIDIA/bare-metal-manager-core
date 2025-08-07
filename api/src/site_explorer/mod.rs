@@ -2883,7 +2883,7 @@ mod tests {
         );
 
         // Missing FirmwareInventory field
-        let mut ep1 = ep.clone();
+        let mut ep1 = ep;
         ep1.report
             .service
             .retain_mut(|inv| inv.id != "FirmwareInventory");

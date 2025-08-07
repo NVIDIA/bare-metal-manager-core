@@ -23,5 +23,5 @@ pub async fn create(carbide_api_addrs: &[SocketAddr]) -> eyre::Result<String> {
     });
     let vpc_id = grpcurl_id(carbide_api_addrs, "CreateVpc", &data.to_string()).await?;
     tracing::info!("VPC created with ID {vpc_id}");
-    Ok(vpc_id.to_string())
+    Ok(vpc_id)
 }

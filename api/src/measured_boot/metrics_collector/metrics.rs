@@ -198,7 +198,7 @@ fn hydrate_meter(
     }
 
     {
-        let metrics = shared_metrics.clone();
+        let metrics = shared_metrics;
         meter
             .u64_observable_gauge("forge_measured_boot_machines_per_pcr_value_total")
             .with_description(

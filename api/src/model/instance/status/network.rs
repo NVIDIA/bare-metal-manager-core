@@ -896,9 +896,9 @@ mod tests {
 
         for iface in interfaces {
             let mac_address = iface.host_inband_mac_address.map(|mac| mac.into());
-            let addresses = iface.ip_addrs.values().cloned().collect();
-            let prefixes = iface.interface_prefixes.values().cloned().collect();
-            let gateways = iface.network_segment_gateways.values().cloned().collect();
+            let addresses = iface.ip_addrs.values().copied().collect();
+            let prefixes = iface.interface_prefixes.values().copied().collect();
+            let gateways = iface.network_segment_gateways.values().copied().collect();
 
             obs.push(InstanceInterfaceStatusObservation {
                 function_id: iface.function_id.clone(),
@@ -972,9 +972,9 @@ mod tests {
         interface_status.push(InstanceInterfaceStatus {
             function_id: InterfaceFunctionId::Physical {},
             mac_address: iface.host_inband_mac_address,
-            addresses: iface.ip_addrs.values().cloned().collect(),
-            prefixes: iface.interface_prefixes.values().cloned().collect(),
-            gateways: iface.network_segment_gateways.values().cloned().collect(),
+            addresses: iface.ip_addrs.values().copied().collect(),
+            prefixes: iface.interface_prefixes.values().copied().collect(),
+            gateways: iface.network_segment_gateways.values().copied().collect(),
             device: iface.device_locator.as_ref().map(|dl| dl.device.clone()),
             device_instance: iface
                 .device_locator
@@ -987,9 +987,9 @@ mod tests {
         interface_status.push(InstanceInterfaceStatus {
             function_id: InterfaceFunctionId::Virtual { id: 1 },
             mac_address: iface.host_inband_mac_address,
-            addresses: iface.ip_addrs.values().cloned().collect(),
-            prefixes: iface.interface_prefixes.values().cloned().collect(),
-            gateways: iface.network_segment_gateways.values().cloned().collect(),
+            addresses: iface.ip_addrs.values().copied().collect(),
+            prefixes: iface.interface_prefixes.values().copied().collect(),
+            gateways: iface.network_segment_gateways.values().copied().collect(),
             device: iface.device_locator.as_ref().map(|dl| dl.device.clone()),
             device_instance: iface
                 .device_locator
@@ -1003,9 +1003,9 @@ mod tests {
         interface_status.push(InstanceInterfaceStatus {
             function_id: InterfaceFunctionId::Virtual { id: 2 },
             mac_address: iface.host_inband_mac_address,
-            addresses: iface.ip_addrs.values().cloned().collect(),
-            prefixes: iface.interface_prefixes.values().cloned().collect(),
-            gateways: iface.network_segment_gateways.values().cloned().collect(),
+            addresses: iface.ip_addrs.values().copied().collect(),
+            prefixes: iface.interface_prefixes.values().copied().collect(),
+            gateways: iface.network_segment_gateways.values().copied().collect(),
             device: iface.device_locator.as_ref().map(|dl| dl.device.clone()),
             device_instance: iface
                 .device_locator

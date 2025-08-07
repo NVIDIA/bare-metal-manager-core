@@ -200,7 +200,7 @@ impl DpuNicFirmwareUpdate {
         metrics.register_callbacks(&meter);
         Some(DpuNicFirmwareUpdate {
             metrics: Some(metrics),
-            config: config.clone(),
+            config,
         })
     }
 

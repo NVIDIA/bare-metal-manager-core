@@ -463,7 +463,7 @@ impl<'a> ConnectingTcp<'a> {
                     preferred: ConnectingTcpRemote::new(
                         preferred_addrs,
                         config.connect_timeout,
-                        metrics.clone(),
+                        metrics,
                     ),
                     fallback: None,
                     config,
@@ -481,18 +481,14 @@ impl<'a> ConnectingTcp<'a> {
                     remote: ConnectingTcpRemote::new(
                         fallback_addrs,
                         config.connect_timeout,
-                        metrics.clone(),
+                        metrics,
                     ),
                 }),
                 config,
             }
         } else {
             ConnectingTcp {
-                preferred: ConnectingTcpRemote::new(
-                    remote_addrs,
-                    config.connect_timeout,
-                    metrics.clone(),
-                ),
+                preferred: ConnectingTcpRemote::new(remote_addrs, config.connect_timeout, metrics),
                 fallback: None,
                 config,
             }

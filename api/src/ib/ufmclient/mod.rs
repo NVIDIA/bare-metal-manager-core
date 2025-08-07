@@ -291,7 +291,7 @@ pub fn connect(conf: UFMConfig) -> Result<Ufm, UFMError> {
 
     let (base_path, auth_info) = match &conf.token {
         None if conf.cert.is_some() => {
-            let auth_cert = conf.cert.unwrap().clone();
+            let auth_cert = conf.cert.unwrap();
             (
                 "/ufmRest".to_string(),
                 format!(
@@ -662,7 +662,7 @@ mod tests {
                 name: String::from("filter by guids (2,3) and pkey guids (1,2)"),
                 ports: vec![p1.clone(), p2.clone(), p3.clone()],
                 pkey_guids: Some(HashSet::from_iter([p1_id.clone(), p2_id.clone()])),
-                guids: Some(HashSet::from_iter([p2_id.clone(), p3_id.clone()])),
+                guids: Some(HashSet::from_iter([p2_id, p3_id])),
                 port_state: None,
                 expected: vec![p2.clone()],
             },
@@ -676,9 +676,9 @@ mod tests {
             },
             TestCase {
                 name: String::from("filter by guids and port state"),
-                ports: vec![p1.clone(), p2.clone(), p3.clone()],
+                ports: vec![p1, p2, p3],
                 pkey_guids: None,
-                guids: Some(HashSet::from_iter([p1_id.clone()])),
+                guids: Some(HashSet::from_iter([p1_id])),
                 port_state: Some("Disabled".to_string()),
                 expected: vec![],
             },

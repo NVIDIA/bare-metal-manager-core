@@ -132,7 +132,7 @@ fn verify_bgp_summary(
         health_data,
         route_servers,
         min_healthy_links,
-        hbn_device_names.clone(),
+        hbn_device_names,
     );
 }
 

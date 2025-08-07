@@ -152,9 +152,9 @@ impl InstanceNetworkConfig {
             Self {
                 interfaces: vec![InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Physical {},
-                    network_segment_id: network_segment_ids.first().cloned(),
+                    network_segment_id: network_segment_ids.first().copied(),
                     network_details: Some(NetworkDetails::NetworkSegment(
-                        network_segment_ids.first().cloned().unwrap(),
+                        network_segment_ids.first().copied().unwrap(),
                     )),
                     ip_addrs: HashMap::default(),
                     interface_prefixes: HashMap::default(),
@@ -171,7 +171,7 @@ impl InstanceNetworkConfig {
                     .enumerate()
                     .map(|(dl_index, dl)| InstanceInterfaceConfig {
                         function_id: InterfaceFunctionId::Physical {},
-                        network_segment_id: network_segment_ids.get(dl_index).cloned(),
+                        network_segment_id: network_segment_ids.get(dl_index).copied(),
                         network_details: Some(NetworkDetails::NetworkSegment(
                             network_segment_ids[dl_index],
                         )),
@@ -689,7 +689,7 @@ pub fn validate_interface_function_ids<
             ));
         };
 
-        let fids_hash: HashSet<i32> = HashSet::from_iter(fids.iter().cloned());
+        let fids_hash: HashSet<i32> = HashSet::from_iter(fids.iter().copied());
         if fids.len() != fids_hash.len() {
             // Duplicate function ids are present.
             return Err(format!(

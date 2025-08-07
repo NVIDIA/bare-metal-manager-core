@@ -66,7 +66,7 @@ pub fn create_metrics(meter: Meter) -> Arc<AgentMetricsState> {
         .build();
 
     Arc::new(AgentMetricsState {
-        meter: meter.clone(),
+        meter,
         http_counter,
         http_req_latency_histogram,
     })
@@ -91,7 +91,6 @@ impl NetworkMonitorMetricsState {
 
         {
             let network_reachable_map = network_reachable_map.clone();
-            let machine_id = machine_id.clone();
             meter
                 .u64_observable_gauge("forge_dpu_agent_network_reachable")
                 .with_description(

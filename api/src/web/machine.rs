@@ -143,7 +143,7 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
             product_serial,
             num_gpus,
             num_ib_ifs,
-            health_probe_alerts: health.alerts.clone(),
+            health_probe_alerts: health.alerts,
             override_mode_counts: format!(
                 "{}",
                 if replace_count > 0 {

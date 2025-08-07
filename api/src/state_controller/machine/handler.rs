@@ -2663,7 +2663,7 @@ async fn check_fw_component_version(
                     .last()
                     .cloned()
             })
-            .map(|f| f.version.clone())
+            .map(|f| f.version)
             .unwrap_or("Unknown current configured BMC FW version".to_string());
 
         if cur_version != expected_version {
@@ -5415,7 +5415,7 @@ fn check_instance_network_synced_and_dpu_healthy(
                 }
                 false
             })
-            .cloned()
+            .copied()
             .collect()
     };
 
@@ -6252,7 +6252,7 @@ impl HostUpgradeState {
                                 // Upload complete and updated started, will monitor task in future iterations
                                 let reprovision_state =
                                     HostReprovisionState::WaitingForFirmwareUpgrade {
-                                        task_id: task_id.clone(),
+                                        task_id,
                                         firmware_type: *firmware_type,
                                         final_version: final_version.clone(),
                                         power_drains_needed: *power_drains_needed,

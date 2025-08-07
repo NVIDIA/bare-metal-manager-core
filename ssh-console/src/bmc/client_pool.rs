@@ -227,7 +227,6 @@ impl BmcPoolMetrics {
             _bmc_status: meter.u64_observable_gauge("ssh_console_bmc_status")
                 .with_description("Current status of the session to the bmc, see value label")
                 .with_callback({
-                    let members = members.clone();
                     move |observer| {
                         members.read().expect("lock poisoned").iter().for_each(|(machine_id, handle)| {
                             let state = handle.connection_state.load();

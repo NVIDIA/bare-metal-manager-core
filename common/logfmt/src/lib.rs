@@ -115,11 +115,10 @@ impl LogFmtData {
         // allocations for `.to_string()` if the entry does already exist
         match self.attributes.get_mut(field.name()) {
             Some(entry) => {
-                *entry = value.to_string();
+                *entry = value;
             }
             None => {
-                self.attributes
-                    .insert(field.name().to_string(), value.to_string());
+                self.attributes.insert(field.name().to_string(), value);
             }
         }
     }

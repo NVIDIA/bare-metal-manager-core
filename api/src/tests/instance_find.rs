@@ -375,7 +375,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
     assert_eq!(instance_list.instances.len(), 5);
 
     // validate we got instances with specified ids
-    let mut instances_copy = instance_list.instances.clone();
+    let mut instances_copy = instance_list.instances;
     for _ in 0..5 {
         let instance = instances_copy.remove(0);
         let instance_id = instance.id.unwrap();

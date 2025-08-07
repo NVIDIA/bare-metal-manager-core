@@ -213,7 +213,7 @@ mod tests {
             is_bmc: None,
         };
 
-        let interface_id: rpc::Uuid = interface.id.clone().unwrap();
+        let interface_id: rpc::Uuid = interface.id.unwrap();
         let config = generate_forge_agent_config(&interface_id);
 
         // The intent here is to actually test what the written

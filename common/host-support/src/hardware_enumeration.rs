@@ -116,7 +116,7 @@ impl TryFrom<&Device> for PciDevicePropertiesExt {
                 description: Some(
                     convert_property_to_string(PCI_MODEL, "NO_PCI_MODEL", device)?.to_string(),
                 ),
-                slot: Some(slot.to_string()),
+                slot: Some(slot),
             },
             device_id: convert_property_to_string(PCI_DEVICE_ID, "", device)?.to_string(),
         })
@@ -358,7 +358,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
 
     let cpu_part = cpu_info
         .get_info(0)
-        .and_then(|info| info.get("CPU part").cloned())
+        .and_then(|info| info.get("CPU part").copied())
         .map(str::to_string)
         .unwrap_or_default();
 

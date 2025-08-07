@@ -291,7 +291,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         new_interface.mac_address.to_string()
     );
     assert_eq!(
-        response.interfaces[0].vendor.clone().unwrap().to_string(),
+        response.interfaces[0].vendor.clone().unwrap(),
         "NVIDIA New".to_string()
     );
     assert_eq!(

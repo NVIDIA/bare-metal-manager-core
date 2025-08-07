@@ -15,3 +15,6 @@ humantime = "2.1.0"
 thiserror = "2.0.3"
 tracing = "*"
 
+
+[lints]
+workspace = true

@@ -17,7 +17,7 @@ impl HealthReportOverrides {
     pub fn create_iter(self) -> impl Iterator<Item = (HealthReport, OverrideMode)> {
         self.merges
             .into_values()
-            .map(|r| (r.clone(), OverrideMode::Merge))
+            .map(|r| (r, OverrideMode::Merge))
             .chain(self.replace.map(|r| (r, OverrideMode::Replace)))
     }
 }

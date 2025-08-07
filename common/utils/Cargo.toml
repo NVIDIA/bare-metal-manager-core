@@ -32,3 +32,6 @@ config-version = { path = "../config-version" }
 health-report = { path = "../health-report" }
 forge-network = { path = "../network" }
 rpc = { path = "../../rpc" }
+
+[lints]
+workspace = true

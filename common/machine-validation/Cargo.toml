@@ -24,3 +24,6 @@ reqwest = { version = "*", default-features = false, features = [
     "stream",
 ] }
 futures-util = "0.3"
+
+[lints]
+workspace = true

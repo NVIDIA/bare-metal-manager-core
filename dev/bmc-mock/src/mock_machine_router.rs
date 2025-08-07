@@ -433,7 +433,7 @@ async fn get_chassis_network_adapter(
             manufacturer: Some("Mellanox Technologies".to_string()),
             model: Some("BlueField-2 SmartNIC Main Card".to_string()),
             part_number: Some("MBF2H5".to_string()),
-            serial_number: Some(dpu.serial.clone()),
+            serial_number: Some(dpu.serial),
             odata: libredfish::OData {
                 odata_id: format!(
                     "/redfish/v1/Chassis/{}/NetworkAdapters/{}",

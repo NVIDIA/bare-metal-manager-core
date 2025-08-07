@@ -207,7 +207,7 @@ pub async fn results(
             .map(|r: forgerpc::MachineValidationResult| ValidationResult {
                 validation_id: r.validation_id.unwrap_or_default().to_string(),
                 name: r.name,
-                test_id: r.test_id.unwrap_or_default().to_string(),
+                test_id: r.test_id.unwrap_or_default(),
                 context: r.context,
                 status: r.exit_code.to_string(),
                 start_time: r.start_time.unwrap_or_default().to_string(),

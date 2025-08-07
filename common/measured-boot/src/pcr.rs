@@ -188,7 +188,7 @@ impl From<PcrRegisterValue> for PcrRegisterValuePb {
     fn from(val: PcrRegisterValue) -> Self {
         Self {
             pcr_register: val.pcr_register as i32,
-            sha_any: val.sha_any.clone(),
+            sha_any: val.sha_any,
         }
     }
 }

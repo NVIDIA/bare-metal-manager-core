@@ -74,7 +74,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
             .build();
     }
     {
-        let metrics = shared_metrics.clone();
+        let metrics = shared_metrics;
         meter
             .u64_observable_gauge("forge_machine_validation_tests")
             .with_description("The details of machine validation tests")

@@ -23,3 +23,6 @@ eyre = { version = "0.6", optional = true }
 serde = "1"
 chrono = "0.4"
 tonic = { workspace = true }
+
+[lints]
+workspace = true

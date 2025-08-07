@@ -378,7 +378,7 @@ impl RedfishClientPool for RedfishClientPoolImpl {
             // This client does not make any HTTP requests
             let client: Box<dyn Redfish> = self
                 .pool
-                .create_standard_client_with_custom_headers(endpoint.clone(), custom_headers)
+                .create_standard_client_with_custom_headers(endpoint, custom_headers)
                 .map_err(RedfishClientCreationError::RedfishError)?;
             Ok(client)
         }

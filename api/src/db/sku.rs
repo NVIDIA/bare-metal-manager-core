@@ -347,7 +347,7 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
 
     Ok(Sku {
         schema_version,
-        id: format!("{} {}", chassis.model.clone(), Utc::now()),
+        id: format!("{} {}", chassis.model, Utc::now()),
         description,
         created,
         components: SkuComponents {
@@ -502,7 +502,7 @@ pub async fn generate_sku_from_machine_at_version_2(
 
     Ok(Sku {
         schema_version: CURRENT_SKU_VERSION,
-        id: format!("{} {}", chassis.model.clone(), Utc::now()),
+        id: format!("{} {}", chassis.model, Utc::now()),
         description,
         created,
         components: SkuComponents {
