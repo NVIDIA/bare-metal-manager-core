@@ -16,3 +16,6 @@ syn = "2.0.90"
 quote = { version = "1.0.37", default-features = false }
 eyre = { version = "0.6.12" }
 proc-macro2 = { version = "1.0.92", features = ["proc-macro"] }
+
+[lints]
+workspace = true

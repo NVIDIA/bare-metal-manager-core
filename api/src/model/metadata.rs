@@ -186,10 +186,7 @@ mod tests {
 
         // name too long
         let metadata = Metadata {
-            name: [0; 257]
-                .iter()
-                .fold(String::new(), |name, _| name + "a")
-                .to_string(),
+            name: [0; 257].iter().fold(String::new(), |name, _| name + "a"),
             description: "anything is fine".to_string(),
             labels: HashMap::from([("key1".to_string(), "val1".to_string())]),
         };
@@ -240,10 +237,7 @@ mod tests {
             name: "nice name".to_string(),
             description: "anything is fine".to_string(),
             labels: HashMap::from([(
-                [0; 256]
-                    .iter()
-                    .fold(String::new(), |name, _| name + "a")
-                    .to_string(),
+                [0; 256].iter().fold(String::new(), |name, _| name + "a"),
                 "val1".to_string(),
             )]),
         };
@@ -259,10 +253,7 @@ mod tests {
             description: "anything is fine".to_string(),
             labels: HashMap::from([(
                 "key1".to_string(),
-                [0; 256]
-                    .iter()
-                    .fold(String::new(), |name, _| name + "a")
-                    .to_string(),
+                [0; 256].iter().fold(String::new(), |name, _| name + "a"),
             )]),
         };
 

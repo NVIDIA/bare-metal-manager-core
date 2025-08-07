@@ -407,7 +407,7 @@ impl<'a> MockExploredHost<'a> {
 
         network_configured(
             self.test_env,
-            &self.dpu_machine_ids.values().cloned().collect(),
+            &self.dpu_machine_ids.values().copied().collect(),
         )
         .await;
 
@@ -615,7 +615,7 @@ impl<'a> MockExploredHost<'a> {
         // DPU has rebooted.
         super::network_configured(
             self.test_env,
-            &self.dpu_machine_ids.values().cloned().collect(),
+            &self.dpu_machine_ids.values().copied().collect(),
         )
         .await;
 
@@ -747,7 +747,7 @@ impl<'a> MockExploredHost<'a> {
         let ips = self
             .dpu_bmc_ips
             .values()
-            .cloned()
+            .copied()
             .chain(iter::once(self.host_bmc_ip.unwrap()))
             .collect::<Vec<_>>();
         let mut txn = self.test_env.pool.begin().await?;
@@ -821,7 +821,7 @@ impl<'a> MockExploredHost<'a> {
         // DPU has rebooted.
         super::network_configured(
             self.test_env,
-            &self.dpu_machine_ids.values().cloned().collect(),
+            &self.dpu_machine_ids.values().copied().collect(),
         )
         .await;
 

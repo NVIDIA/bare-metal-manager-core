@@ -170,7 +170,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
                 manufacturer: Some("Nvidia".to_string()),
                 model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
                 part_number: Some("900-9D3B6-00CV-AA0".to_string()),
-                serial_number: Some(value.serial.clone()),
+                serial_number: Some(value.serial),
                 network_adapters: vec![],
             }],
             service: vec![Service {

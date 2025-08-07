@@ -256,14 +256,7 @@ fn convert_instance_to_nice_format(
                             .unwrap_or_default(),
                     ),
                     ("PF GUID", status.pf_guid.clone().unwrap_or_default()),
-                    (
-                        "GUID",
-                        status
-                            .guid
-                            .clone()
-                            .map(|id| id.to_string())
-                            .unwrap_or_default(),
-                    ),
+                    ("GUID", status.guid.clone().unwrap_or_default()),
                     ("LID", status.lid.to_string()),
                 ];
 

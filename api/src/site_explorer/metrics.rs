@@ -414,7 +414,7 @@ impl SiteExplorerInstruments {
         }
 
         {
-            let metrics = shared_metrics.clone();
+            let metrics = shared_metrics;
             meter
                 .u64_observable_gauge("forge_site_explorer_bmc_reset_count")
                 .with_description("The amount of BMC resets initiated in the last SiteExplorer run")

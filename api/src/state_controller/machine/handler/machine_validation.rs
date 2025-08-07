@@ -57,7 +57,7 @@ pub(crate) async fn handle_machine_validation_state(
             let next_state = ManagedHostState::Validation {
                 validation_state: ValidationState::MachineValidation {
                     machine_validation: MachineValidatingState::MachineValidating {
-                        context: machine_validation.context.clone().unwrap_or_default(),
+                        context: machine_validation.context.unwrap_or_default(),
                         id: *validation_id,
                         completed: 1,
                         total: 1,
@@ -113,7 +113,7 @@ pub(crate) async fn handle_machine_validation_state(
                     .last_machine_validation_list
                     .entry((
                         machine_validation.machine_id.to_string(),
-                        machine_validation.context.clone().unwrap_or_default(),
+                        machine_validation.context.unwrap_or_default(),
                     ))
                     .or_default() = 0_i32;
                 return Ok(transition!(ManagedHostState::HostInit {

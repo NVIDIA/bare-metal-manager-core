@@ -57,3 +57,6 @@ futures = "0.3.31"
 api-test-helper = { path = "../common/api-test-helper" }
 ssh_console_mock_api_server = { path = "mock_api_server" }
 forge-uuid = { path = "../common/uuid" }
+
+[lints]
+workspace = true

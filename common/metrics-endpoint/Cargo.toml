@@ -19,3 +19,6 @@ opentelemetry = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true, features = ["semconv_experimental"] }
 opentelemetry-prometheus = { workspace = true }
 opentelemetry_sdk = { workspace = true, features = ["spec_unstable_metrics_views"] }
+
+[lints]
+workspace = true

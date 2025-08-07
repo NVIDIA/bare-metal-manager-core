@@ -104,7 +104,7 @@ impl MetricsEmitter for NetworkSegmentMetricsEmitter {
         };
 
         {
-            let metrics = shared_metrics.clone();
+            let metrics = shared_metrics;
             meter
                 .u64_observable_gauge("forge_total_ips_count")
                 .with_description("The total number of ips in the Forge site")

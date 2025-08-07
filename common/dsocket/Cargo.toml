@@ -11,3 +11,6 @@ authors.workspace = true
 socket2 = { version = "0.5.5", features = ["all"] }
 tracing = { version = "0.1.40", features = ["log"] }
 tokio = { workspace = true }
+
+[lints]
+workspace = true

@@ -25,7 +25,7 @@ pub fn spawn_metadata_service(
     metrics_state: Arc<AgentMetricsState>,
     state: Arc<InstanceMetadataRouterStateImpl>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let instance_metadata_state = state.clone();
+    let instance_metadata_state = state;
 
     let prometheus_registry = get_prometheus_registry();
     // let meter = get_dpu_agent_meter();
@@ -41,8 +41,7 @@ pub fn spawn_metadata_service(
             )
             .nest(
                 "/2009-04-04",
-                get_fmds_router(instance_metadata_state.clone())
-                    .with_tracing_layer(metrics_state.clone()),
+                get_fmds_router(instance_metadata_state).with_tracing_layer(metrics_state),
             ),
     )
     .expect("metadata server panicked");

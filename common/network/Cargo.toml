@@ -21,3 +21,6 @@ sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "i
 thiserror = { version = "2" }
 
 rpc = { path = "../../rpc" }
+
+[lints]
+workspace = true

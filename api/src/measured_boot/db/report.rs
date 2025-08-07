@@ -496,10 +496,10 @@ async fn same_as_previous_one(
     let latest_report =
         get_measurement_report_by_id_with_txn(txn, latest_journal.report_id).await?;
 
-    let mut incoming_values = values.to_vec().clone();
+    let mut incoming_values = values.to_vec();
     incoming_values.sort_by_key(|e| e.pcr_register);
 
-    let mut previous_values = latest_report.pcr_values().clone();
+    let mut previous_values = latest_report.pcr_values();
     previous_values.sort_by_key(|e| e.pcr_register);
 
     if incoming_values == previous_values {

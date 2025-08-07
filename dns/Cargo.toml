@@ -28,3 +28,6 @@ rpc = { path = "../rpc" }
 
 [build-dependencies]
 forge-version = { path = "../common/version" }
+
+[lints]
+workspace = true

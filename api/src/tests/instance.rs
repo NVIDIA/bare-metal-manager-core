@@ -2762,9 +2762,9 @@ async fn test_allocate_instance_with_old_network_segemnt(
     let fetched_instance = snapshot.instance.unwrap();
     assert_eq!(fetched_instance.machine_id, host_machine_id);
 
-    let network_config = fetched_instance.config.network.clone();
+    let network_config = fetched_instance.config.network;
     assert_eq!(fetched_instance.network_config_version.version_nr(), 1);
-    let mut network_config_no_addresses = network_config.clone();
+    let mut network_config_no_addresses = network_config;
     for iface in network_config_no_addresses.interfaces.iter_mut() {
         assert_eq!(iface.ip_addrs.len(), 1);
         assert_eq!(iface.interface_prefixes.len(), 1);
@@ -4043,7 +4043,7 @@ pub async fn validate_post_migration_instance_network_config(
                 Some(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(_))
             ));
             assert!(
-                i.config.clone().unwrap().network.unwrap().interfaces[0]
+                i.config.unwrap().network.unwrap().interfaces[0]
                     .network_segment_id
                     .is_some(),
             );
@@ -4301,8 +4301,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
         .values()
         .collect_vec()
         .first()
-        .cloned()
-        .cloned()
+        .copied()
         .unwrap();
 
     txn.rollback().await.unwrap();
@@ -4419,8 +4418,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
         .values()
         .collect_vec()
         .first()
-        .cloned()
-        .cloned()
+        .copied()
         .unwrap();
 
     assert_eq!(current_ip, updated_config_ip);

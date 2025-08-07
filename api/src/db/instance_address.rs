@@ -492,7 +492,7 @@ impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
         let matching_addresses = inband_host_interface
             .addresses
             .iter()
-            .cloned()
+            .copied()
             .filter(|a| network_prefix.prefix.contains(*a))
             .collect::<Vec<_>>();
 

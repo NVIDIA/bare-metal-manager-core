@@ -1614,7 +1614,7 @@ pub async fn network_configured_with_health(
                 "Different network config versions reported via FindInstanceByMachineId and GetManagedHostNetworkConfig"
             );
         }
-        Some(instance.config_version.clone())
+        Some(instance.config_version)
     } else {
         None
     };

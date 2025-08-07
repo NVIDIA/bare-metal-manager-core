@@ -47,7 +47,7 @@ async fn test_machine_discovery_no_domain(
     let actual_ips = machine_interface
         .addresses
         .iter()
-        .cloned()
+        .copied()
         .sorted()
         .collect::<Vec<IpAddr>>();
 
@@ -81,7 +81,7 @@ async fn test_machine_discovery_with_domain(
         machine_interface
             .addresses
             .iter()
-            .cloned()
+            .copied()
             .sorted()
             .collect::<Vec<IpAddr>>(),
         wanted_ips.into_iter().sorted().collect::<Vec<IpAddr>>()

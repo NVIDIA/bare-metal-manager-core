@@ -55,7 +55,7 @@ impl From<forgerpc::Machine> for Row {
                 .and_then(|di| di.dmi_data.as_ref())
                 .map(|dmi_data| dmi_data.product_name.clone())
                 .unwrap_or_default(),
-            state: state.to_owned(),
+            state,
             dpu_agent_version: machine
                 .inventory
                 .as_ref()

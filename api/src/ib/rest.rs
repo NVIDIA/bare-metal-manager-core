@@ -494,7 +494,7 @@ mod tests {
         assert!(result.is_ok(), "Partition::try_from() failure");
         let v = result.unwrap();
         assert_eq!(v.qos.as_ref().unwrap().rate_limit, 2.5_f32);
-        assert_eq!(expected_partition.clone(), v);
+        assert_eq!(expected_partition, v);
 
         // Partition <-> IBNetwork
         let expected_partition = Partition {
@@ -512,7 +512,7 @@ mod tests {
         assert!(value.is_ok(), "IBNetwork::try_from() failure");
         let result = Partition::try_from(value.unwrap());
         assert!(result.is_ok(), "Partition::try_from() failure");
-        assert_eq!(expected_partition.clone(), result.unwrap());
+        assert_eq!(expected_partition, result.unwrap());
 
         // Check IBPortState
         assert_eq!(
@@ -560,7 +560,7 @@ mod tests {
             physical_state: "Link Up".to_string(),
             logical_state: "Active".to_string(),
         };
-        let value = IBPort::from(expected_port.clone());
+        let value = IBPort::from(expected_port);
         assert_eq!(
             value,
             IBPort {
@@ -581,7 +581,7 @@ mod tests {
             physical_state: "Link Up".to_string(),
             logical_state: "Active".to_string(),
         };
-        let value = IBPort::from(expected_port.clone());
+        let value = IBPort::from(expected_port);
         assert_eq!(
             value,
             IBPort {
@@ -603,7 +603,7 @@ mod tests {
             physical_state: "Link Up".to_string(),
             logical_state: "Unknown".to_string(),
         };
-        let value = IBPort::from(expected_port.clone());
+        let value = IBPort::from(expected_port);
         assert_eq!(
             value,
             IBPort {
@@ -661,7 +661,7 @@ mod tests {
         assert_eq!(ibports.len(), 3);
 
         // Filter devices in Active state
-        let result_ports: Result<Vec<Port>, UFMError> = Ok(ports.clone());
+        let result_ports: Result<Vec<Port>, UFMError> = Ok(ports);
         let result: Result<Vec<IBPort>, CarbideError> = result_ports
             .map(|p| {
                 p.iter()

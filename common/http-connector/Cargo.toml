@@ -32,3 +32,6 @@ hyper = { workspace = true, features = [
     "http2",
 ] }
 tokio = { workspace = true, features = ["rt", "macros"] }
+
+[lints]
+workspace = true

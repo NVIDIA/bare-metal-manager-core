@@ -64,7 +64,7 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         AddressSelectionStrategy::Automatic,
     )
     .await?;
-    let bmc_ip = interface.addresses.iter().find(|x| x.is_ipv4()).cloned();
+    let bmc_ip = interface.addresses.iter().find(|x| x.is_ipv4()).copied();
     assert!(bmc_ip.is_some());
     let res = MachineInterfaceAddress::find_by_address(&mut txn, bmc_ip.unwrap()).await?;
     assert!(res.is_some());

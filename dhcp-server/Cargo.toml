@@ -35,3 +35,6 @@ forge-tls = { path = "../common/tls" }
 logfmt = { path = "../common/logfmt" }
 rpc = { path = "../rpc" }
 utils = { path = "../common/utils" }
+
+[lints]
+workspace = true

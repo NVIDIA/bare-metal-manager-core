@@ -115,7 +115,7 @@ pub async fn get_hardware_health_report(
         None
     };
     Ok(Response::new(::rpc::forge::OptionalHealthReport {
-        report: report.map(|hr| hr.clone().into()),
+        report: report.map(|hr| hr.into()),
     }))
 }
 

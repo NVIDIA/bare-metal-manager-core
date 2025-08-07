@@ -384,7 +384,7 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
         };
 
         {
-            let metrics = shared_metrics_holder.clone();
+            let metrics = shared_metrics_holder;
             meter
                 .u64_observable_gauge(format!(
                     "{}_with_state_handling_errors_per_state",

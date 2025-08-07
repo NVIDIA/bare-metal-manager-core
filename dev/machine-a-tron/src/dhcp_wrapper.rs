@@ -124,7 +124,6 @@ impl DpuDhcpRelayServer {
     /// implicitly dropped (and this task stopped) when the mock DPU is rebooted.
     pub fn spawn(&self, network_config: ManagedHostNetworkConfigResponse) -> oneshot::Sender<()> {
         let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
-        let network_config = network_config.clone();
         let request_rx = self.request_rx.clone();
         tokio::spawn(async move {
             // Only one dhcp relay at a time can respond to requests.

@@ -103,7 +103,7 @@ fn convert_machines_to_nice_table(
     let domainlist_map = domain_list
         .domains
         .into_iter()
-        .map(|x| (x.id.clone().unwrap_or_default().value, x.name.clone()))
+        .map(|x| (x.id.clone().unwrap_or_default().value, x.name))
         .collect::<BTreeMap<_, _>>();
     let mut headers = vec![
         "Id",
@@ -157,7 +157,7 @@ fn convert_machine_to_nice_format(
     let domainlist_map = domain_list
         .domains
         .into_iter()
-        .map(|x| (x.id.clone().unwrap_or_default().value, x.name.clone()))
+        .map(|x| (x.id.clone().unwrap_or_default().value, x.name))
         .collect::<BTreeMap<_, _>>();
     let domain_name = domainlist_map.get(
         &machine_interface
@@ -209,11 +209,7 @@ fn convert_machine_to_nice_format(
         ("Addresses", machine_interface.address.join(",")),
         (
             "Vendor",
-            machine_interface
-                .vendor
-                .clone()
-                .unwrap_or_default()
-                .to_string(),
+            machine_interface.vendor.clone().unwrap_or_default(),
         ),
     ];
     let mut lines = String::new();

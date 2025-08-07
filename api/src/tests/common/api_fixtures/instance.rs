@@ -295,7 +295,7 @@ pub async fn create_instance_with_config_and_unused_dpus(
         &dpu_machine_ids
             .iter()
             .chain(unused_dpu_machine_ids)
-            .cloned()
+            .copied()
             .collect(),
         host_machine_id,
         instance_id,

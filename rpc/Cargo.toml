@@ -42,3 +42,6 @@ tonic-client-wrapper = { path = "../common/tonic-client-wrapper", default-featur
 [build-dependencies]
 tonic-build = "0.12"
 tonic-client-wrapper = { path = "../common/tonic-client-wrapper" }
+
+[lints]
+workspace = true

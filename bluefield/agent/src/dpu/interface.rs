@@ -108,7 +108,6 @@ impl Interface {
                     if let Some(common_networks) =
                         Interface::find_common_addresses(&current_addresses, &proposed_addresses)
                     {
-                        let network_clone = common_networks.clone();
                         tracing::trace!(
                             "Proposed addresses already present on interface {interface}: {:?}",
                             common_networks
@@ -118,7 +117,7 @@ impl Interface {
                         // remove them from the list
                         // TODO - this is a bit of a hack, we shouldy probably change this logic to that of
                         // the Route::plan
-                        proposed_addresses.retain(|x| !network_clone.contains(x));
+                        proposed_addresses.retain(|x| !common_networks.contains(x));
                     }
                     tracing::trace!(
                         "Proposed addresses needing to be added to {interface}: {:?}",

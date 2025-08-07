@@ -205,7 +205,7 @@ impl MachineUpdateManager {
                     .get_updates_in_progress(&mut txn)
                     .await?
                     .union(&current_updating_machines)
-                    .cloned()
+                    .copied()
                     .collect();
             }
 
@@ -239,7 +239,7 @@ impl MachineUpdateManager {
 
                 current_updating_machines = current_updating_machines
                     .union(&updates_started)
-                    .cloned()
+                    .copied()
                     .collect();
             }
             current_updating_count = current_updating_machines.len();

@@ -239,7 +239,7 @@ impl ManagedHostRowDisplay {
                 Unknown => {}
             }
         }
-        k.join(",").to_string()
+        k.join(",")
     }
 }
 

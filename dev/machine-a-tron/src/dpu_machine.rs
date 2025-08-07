@@ -65,7 +65,7 @@ impl DpuMachine {
             PersistedMachine::Dpu(persisted_dpu_machine),
             config,
             app_context.clone(),
-            bmc_control_tx.clone(),
+            bmc_control_tx,
             host_dhcp_request_rx.map(|rx| DpuDhcpRelay::DpuEnd(DpuDhcpRelayServer::new(rx))),
         );
         DpuMachine {
@@ -113,7 +113,7 @@ impl DpuMachine {
             MachineInfo::Dpu(dpu_info.clone()),
             config,
             app_context.clone(),
-            bmc_control_tx.clone(),
+            bmc_control_tx,
             None,
             host_dhcp_request_rx.map(|rx| DpuDhcpRelay::DpuEnd(DpuDhcpRelayServer::new(rx))),
         );
@@ -141,7 +141,6 @@ impl DpuMachine {
     pub fn start(mut self, paused: bool) -> DpuMachineHandle {
         self.paused = paused;
         let (message_tx, mut message_rx) = mpsc::unbounded_channel();
-        let message_tx = message_tx.clone();
         let mat_id = self.mat_id;
         let dpu_info = self.dpu_info.clone();
         let dpu_index = self.dpu_index;

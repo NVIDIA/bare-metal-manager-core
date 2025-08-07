@@ -148,7 +148,7 @@ impl IBFabric for MockIBFabric {
             }
         }
 
-        let pkey = ib.clone().pkey.clone().to_string();
+        let pkey = ib.pkey.clone().to_string();
         // Create partition on demand. This matches what UFM does
         if !state.subnets.contains_key(&pkey) {
             state.subnets.insert(pkey.clone(), ib);

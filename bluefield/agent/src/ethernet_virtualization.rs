@@ -2700,7 +2700,7 @@ mod tests {
         let dhcp_host_config: HostConfig = serde_yaml::from_str(&super::read_limited(i.path())?)?;
         validate_host_config(
             dhcp_host_config,
-            HostConfig::try_from(network_config.clone(), "pf0hpf_sf", "pf0vf", "_sf")?,
+            HostConfig::try_from(network_config, "pf0hpf_sf", "pf0vf", "_sf")?,
         );
 
         Ok(())

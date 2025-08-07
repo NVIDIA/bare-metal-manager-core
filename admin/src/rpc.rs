@@ -291,7 +291,7 @@ impl ApiClient {
                 None
             } else {
                 Some(rpc::Label {
-                    key: label_key.unwrap_or_default().to_string(),
+                    key: label_key.unwrap_or_default(),
                     value: label_value,
                 })
             },
@@ -922,7 +922,7 @@ impl ApiClient {
                 None
             } else {
                 Some(rpc::Label {
-                    key: label_key.unwrap_or_default().to_string(),
+                    key: label_key.unwrap_or_default(),
                     value: label_value,
                 })
             },
@@ -2195,7 +2195,7 @@ impl ApiClient {
     ) -> CarbideCliResult<rpc::CreateBmcUserResponse> {
         let bmc_endpoint_request = if ip_address.is_some() || mac_address.is_some() {
             Some(rpc::BmcEndpointRequest {
-                ip_address: ip_address.unwrap_or_default().to_string(),
+                ip_address: ip_address.unwrap_or_default(),
                 mac_address: mac_address.map(|mac| mac.to_string()),
             })
         } else {
@@ -2224,7 +2224,7 @@ impl ApiClient {
     ) -> CarbideCliResult<rpc::DeleteBmcUserResponse> {
         let bmc_endpoint_request = if ip_address.is_some() || mac_address.is_some() {
             Some(rpc::BmcEndpointRequest {
-                ip_address: ip_address.unwrap_or_default().to_string(),
+                ip_address: ip_address.unwrap_or_default(),
                 mac_address: mac_address.map(|mac| mac.to_string()),
             })
         } else {

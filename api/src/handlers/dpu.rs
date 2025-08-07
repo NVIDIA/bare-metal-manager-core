@@ -294,7 +294,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             let instance_hostname = &instance.config.tenant.hostname;
             let fqdn: String;
             if let Some(hostname) = instance_hostname.clone() {
-                fqdn = format!("{}.{}", hostname.clone(), domain);
+                fqdn = format!("{}.{}", hostname, domain);
             } else {
                 let dashed_ip: String = physical_ip
                     .to_string()

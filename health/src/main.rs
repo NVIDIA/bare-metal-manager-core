@@ -330,8 +330,7 @@ pub async fn scrape_single_machine(
             health_data.description = format!(
                 "{} {} SN: {}",
                 dmi_data.sys_vendor, dmi_data.product_name, dmi_data.product_serial
-            )
-            .to_string();
+            );
         }
         health_data.host = endpoint.host;
         health_data.port = endpoint.port.unwrap_or(0);
@@ -387,7 +386,7 @@ pub async fn scrape_single_machine(
                 health_data.dpu = dpu_endpoint.host.clone();
                 health_data.dpu_port = dpu_endpoint.port.unwrap_or(0);
                 health_data.dpu_user = dpu_endpoint.user.clone().unwrap_or("".to_string());
-                health_data.dpu_password = dpu_endpoint.password.clone().unwrap_or("".to_string());
+                health_data.dpu_password = dpu_endpoint.password.unwrap_or("".to_string());
             }
         }
     }
@@ -410,7 +409,7 @@ pub async fn scrape_single_machine(
             dpu_attempted,
         )) => {
             if !firmware_digest.is_empty() {
-                health_data.firmware_digest = firmware_digest.to_string();
+                health_data.firmware_digest = firmware_digest;
             }
             if sel_count > 0 {
                 health_data.sel_count = sel_count;

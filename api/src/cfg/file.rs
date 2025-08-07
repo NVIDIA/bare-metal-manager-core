@@ -2000,7 +2000,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .ignore_unassigned_machines,
             dpu_nic_firmware_update_versions: value.dpu_config.dpu_nic_firmware_update_versions,
             spx_enabled: value.spx_config.clone().unwrap_or_default().enabled,
-            mqtt_endpoint: value.spx_config.clone().unwrap_or_default().mqtt_endpoint,
+            mqtt_endpoint: value.spx_config.unwrap_or_default().mqtt_endpoint,
         }
     }
 }

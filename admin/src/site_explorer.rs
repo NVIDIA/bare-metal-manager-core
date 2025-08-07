@@ -307,7 +307,6 @@ fn filter_endpoints(
     vendor: Option<String>,
 ) -> Vec<ExploredEndpoint> {
     endpoints
-        .clone()
         .into_iter()
         .filter(|x| {
             let paired_filter = if !paired_ips.is_empty() {
@@ -347,7 +346,6 @@ fn filter_endpoints(
                     .unwrap_or_default()
         })
         .collect::<Vec<ExploredEndpoint>>()
-        .clone()
 }
 
 async fn print_managed_host_info(

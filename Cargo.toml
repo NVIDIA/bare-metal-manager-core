@@ -99,3 +99,7 @@ axum-template = { version = "2.4" }
 debug = true            # Enable debuginfo
 debug-assertions = true # Add some extra assurance during development
 overflow-checks = true  # Add some extra assurance during development
+
+[workspace.lints.clippy]
+cloned_instead_of_copied = "warn"
+redundant_clone  = "warn"

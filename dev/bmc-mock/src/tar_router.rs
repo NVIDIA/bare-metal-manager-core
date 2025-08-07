@@ -227,7 +227,7 @@ async fn get_from_tar(
                     tracing::debug!("Reporting powered off");
                     let on = r#""PowerState": "On","#;
                     let off = r#""PowerState": "Off","#;
-                    return (StatusCode::OK, s.replace(on, off).to_string());
+                    return (StatusCode::OK, s.replace(on, off));
                 }
             }
             (StatusCode::OK, s.clone())

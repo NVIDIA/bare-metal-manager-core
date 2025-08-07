@@ -28,3 +28,6 @@ forge-version = { path = "../common/version" }
 
 [build-dependencies]
 forge-version = { path = "../common/version" }
+
+[lints]
+workspace = true

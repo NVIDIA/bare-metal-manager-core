@@ -137,7 +137,7 @@ pub fn increment_dropped_requests(reason: String) {
     {
         metrics
             .dropped_requests_counter
-            .add(1, &[KeyValue::new("reason", reason.clone())]);
+            .add(1, &[KeyValue::new("reason", reason)]);
     }
 }
 

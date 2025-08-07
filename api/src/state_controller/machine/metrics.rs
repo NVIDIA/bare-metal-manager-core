@@ -268,7 +268,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
                                 let count = metrics
                                     .hosts_healthy
                                     .get(&(healthy, IsInUseByTenant(in_use)))
-                                    .cloned()
+                                    .copied()
                                     .unwrap_or_default();
                                 observer.observe(
                                     count as u64,
@@ -298,7 +298,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
                                 let count = metrics
                                     .num_overrides
                                     .get(&(override_type, IsInUseByTenant(in_use)))
-                                    .cloned()
+                                    .copied()
                                     .unwrap_or_default();
                                 observer.observe(
                                     count as u64,
@@ -556,7 +556,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 .build()
         };
         {
-            let metrics = shared_metrics.clone();
+            let metrics = shared_metrics;
             meter
                 .u64_observable_gauge("forge_machine_validation_tests_on_machines")
                 .with_description(

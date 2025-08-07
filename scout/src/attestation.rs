@@ -371,7 +371,7 @@ pub fn get_tpm_description(ctx: &mut Context) -> Option<TpmDescription> {
         }
     };
 
-    let tpm_properties = match capabilities.clone() {
+    let tpm_properties = match capabilities {
         TpmProperties(property_list) => property_list,
         _ => {
             tracing::error!("Failed to call get TpmProperties");

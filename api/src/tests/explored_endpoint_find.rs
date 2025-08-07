@@ -88,7 +88,7 @@ async fn test_find_explored_endpoints_by_ids(
     assert_eq!(endpoint_list.endpoints.len(), 5);
 
     // validate we got endpoints with specified ids
-    let mut endpoints_copy = endpoint_list.endpoints.clone();
+    let mut endpoints_copy = endpoint_list.endpoints;
     for _ in 0..5 {
         let ep = endpoints_copy.remove(0);
         let ep_id = ep.address;

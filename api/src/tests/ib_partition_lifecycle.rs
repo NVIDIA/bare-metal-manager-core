@@ -209,8 +209,7 @@ async fn test_find_ib_partition_for_tenant(
         .into_inner()
         .ib_partitions
         .remove(0);
-    let find_ib_partition_id: IBPartitionId =
-        find_ib_partition.id.clone().unwrap().try_into().unwrap();
+    let find_ib_partition_id: IBPartitionId = find_ib_partition.id.unwrap().try_into().unwrap();
 
     assert_eq!(created_ib_partition_id, find_ib_partition_id);
     Ok(())

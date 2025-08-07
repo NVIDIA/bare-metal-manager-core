@@ -47,3 +47,6 @@ machine-validation = { path = "../common/machine-validation" }
 
 [build-dependencies]
 forge-version = { path = "../common/version" }
+
+[lints]
+workspace = true

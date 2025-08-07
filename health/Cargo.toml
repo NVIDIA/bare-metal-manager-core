@@ -46,3 +46,6 @@ utils = { path = "../common/utils" }
 
 [build-dependencies]
 forge-version = { path = "../common/version" }
+
+[lints]
+workspace = true

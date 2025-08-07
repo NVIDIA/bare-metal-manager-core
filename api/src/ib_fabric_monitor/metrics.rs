@@ -346,7 +346,7 @@ impl IbFabricMonitorInstruments {
         }
 
         {
-            let metrics = shared_metrics.clone();
+            let metrics = shared_metrics;
             meter
                 .u64_observable_gauge("forge_ib_monitor_ufm_ports_by_state_count")
                 .with_description(

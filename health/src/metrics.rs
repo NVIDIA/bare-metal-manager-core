@@ -611,7 +611,7 @@ pub async fn export_metrics(
         export_temperatures(meter.clone(), thermal.temperatures, machine_id, true)?;
     }
     if let Ok(Some(gpu_sensors)) = health.gpu_sensors {
-        export_gpu_sensors(meter.clone(), gpu_sensors, machine_id)?;
+        export_gpu_sensors(meter, gpu_sensors, machine_id)?;
     }
 
     let mut firmware_digest = String::new();
@@ -635,13 +635,7 @@ pub async fn export_metrics(
             || (sel_count > 0 && sel_count != last_sel_count)
             || (now.timestamp() - last_recorded_ts) > (24 * 60 * 60)
         {
-            export_otel_logs(
-                logger,
-                firmware.clone(),
-                logs.clone(),
-                machine_id,
-                &description,
-            )?;
+            export_otel_logs(logger, firmware, logs, machine_id, &description)?;
             recorded_ts = polled_ts;
         } else {
             firmware_digest.clear();

@@ -60,7 +60,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<PreingestionM
     }
 
     {
-        let metrics = shared_metrics.clone();
+        let metrics = shared_metrics;
         meter
             .u64_observable_gauge("forge_preingestion_waiting_download")
             .with_description("The amount of machines that are waiting for firmware downloads on other machines to complete before doing thier own")

@@ -400,7 +400,7 @@ impl From<health_report::HealthProbeSuccess> for health::HealthProbeSuccess {
     fn from(success: health_report::HealthProbeSuccess) -> Self {
         Self {
             id: success.id.to_string(),
-            target: success.target.clone(),
+            target: success.target,
         }
     }
 }

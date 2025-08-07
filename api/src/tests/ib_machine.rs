@@ -46,7 +46,7 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
 
     let mut active_lids = HashSet::new();
 
-    for host_machine_id in host_machines.iter().cloned() {
+    for host_machine_id in host_machines.iter().copied() {
         println!("Testing host machine {host_machine_id}");
         let rpc_machine_id: ::rpc::common::MachineId = host_machine_id.into();
 
@@ -217,7 +217,7 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
     );
 
     active_lids.clear();
-    for host_machine_id in host_machines.iter().cloned() {
+    for host_machine_id in host_machines.iter().copied() {
         println!("Testing host machine {host_machine_id}");
         let rpc_machine_id: ::rpc::common::MachineId = host_machine_id.into();
 

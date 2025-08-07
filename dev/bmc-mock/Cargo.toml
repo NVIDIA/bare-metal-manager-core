@@ -36,3 +36,6 @@ rand = "0.9"
 rustls = { workspace = true, features = ["default", "ring"] }
 rustls-pemfile = "2.2.0"
 http-body-util = "0.1.2"
+
+[lints]
+workspace = true

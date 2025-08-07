@@ -165,8 +165,7 @@ pub(crate) async fn get_cloud_init_instructions(
                         "Could not find an instance for {}",
                         instance_address.instance_id
                     ))
-                })?
-                .to_owned();
+                })?;
 
             rpc::CloudInitInstructions {
                 custom_cloud_init: instance.config.os.user_data,

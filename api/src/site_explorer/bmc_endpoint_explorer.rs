@@ -68,7 +68,7 @@ impl BmcEndpointExplorer {
             .get_sitewide_bmc_root_credentials()
             .await?;
 
-        let (_, password) = match credentials.clone() {
+        let (_, password) = match credentials {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 

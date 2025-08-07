@@ -125,7 +125,7 @@ fn get_tls_acceptor(tls_config: &ApiTlsConfig) -> Option<TlsAcceptor> {
             })
             .ok()?;
 
-    match ServerConfig::builder_with_provider(crypto_provider.clone())
+    match ServerConfig::builder_with_provider(crypto_provider)
         .with_safe_default_protocol_versions()
         .unwrap()
         .with_client_cert_verifier(client_cert_verifier)

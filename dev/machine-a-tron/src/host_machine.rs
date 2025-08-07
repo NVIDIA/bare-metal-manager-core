@@ -99,7 +99,7 @@ impl HostMachine {
             PersistedMachine::Host(persisted_host_machine),
             config,
             app_context.clone(),
-            bmc_control_tx.clone(),
+            bmc_control_tx,
             if !dpus.is_empty() && !dpus_in_nic_mode {
                 Some(DpuDhcpRelay::HostEnd(dpu_dhcp_tx))
             } else {
@@ -166,7 +166,7 @@ impl HostMachine {
             MachineInfo::Host(host_info.clone()),
             config,
             app_context.clone(),
-            bmc_control_tx.clone(),
+            bmc_control_tx,
             Some(create_random_self_signed_cert()),
             if !dpus.is_empty() && !dpus_in_nic_mode {
                 Some(DpuDhcpRelay::HostEnd(dpu_dhcp_tx))

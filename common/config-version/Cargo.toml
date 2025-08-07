@@ -14,3 +14,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "*"
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"], optional = true }
 thiserror = "2.0"
+
+[lints]
+workspace = true

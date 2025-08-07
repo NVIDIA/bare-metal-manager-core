@@ -185,7 +185,7 @@ fn test_ownership_noop_with_current_user() {
     let file_spec = FileSpec {
         content: "i like to eat aye-ples and ba-naye-nayes".to_string(),
         permissions: None,
-        owner: Some(current_user.clone()),
+        owner: Some(current_user),
         group: None,
     };
 
