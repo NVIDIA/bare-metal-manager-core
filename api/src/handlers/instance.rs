@@ -19,6 +19,7 @@ use crate::api::{Api, log_machine_id, log_request_data};
 use crate::db::{
     self, DatabaseError,
     instance::{DeleteInstance, Instance},
+    machine::MachineSearchConfig,
     managed_host::LoadSnapshotOptions,
     network_security_group,
 };
@@ -36,7 +37,12 @@ use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
+use health_report::{
+    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
+};
 use itertools::Itertools as _;
+use serde_json::json;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -262,6 +268,347 @@ pub(crate) async fn find_by_machine_id(
     Ok(response)
 }
 
+/// Creates a TenantReportedIssue health override template with issue details
+fn create_tenant_reported_issue_override(issue: &rpc::Issue) -> HealthReport {
+    HealthReport {
+        source: "tenant-reported-issue".to_string(),
+        observed_at: Some(chrono::Utc::now()),
+        alerts: vec![HealthProbeAlert {
+            id: HealthProbeId::from_str("TenantReportedIssue")
+                .expect("TenantReportedIssue is a valid non-empty HealthProbeId"),
+            target: Some("tenant-reported".to_string()),
+            message: json!({
+                "issue_category": format!("{:?}", rpc::IssueCategory::try_from(issue.category).unwrap_or(rpc::IssueCategory::Unspecified)),
+                "summary": issue.summary,
+                "details": issue.details
+            }).to_string(),
+            tenant_message: Some(format!("TenantReportedIssue: {}", issue.summary)),
+            classifications: vec![
+                HealthAlertClassification::prevent_allocations(),
+                HealthAlertClassification::suppress_external_alerting(),
+            ],
+            in_alert_since: None,
+        }],
+        ..Default::default()
+    }
+}
+
+/// Creates a RequestRepair health override template
+fn create_request_repair_override(issue: &rpc::Issue) -> HealthReport {
+    HealthReport {
+        source: "repair-request".to_string(),
+        observed_at: Some(chrono::Utc::now()),
+        alerts: vec![HealthProbeAlert {
+            id: HealthProbeId::from_str("RequestRepair")
+                .expect("RequestRepair is a valid non-empty HealthProbeId"),
+            target: Some("repair-requested".to_string()),
+            message: json!({
+                "issue_category": format!("{:?}", rpc::IssueCategory::try_from(issue.category).unwrap_or(rpc::IssueCategory::Unspecified)),
+                "summary": issue.summary,
+                "details": issue.details
+            }).to_string(),
+            tenant_message: Some(format!(
+                "RepairSystem: Node ready for repair - {}",
+                issue.summary
+            )),
+            classifications: vec![
+                HealthAlertClassification::prevent_allocations(),
+                HealthAlertClassification::suppress_external_alerting(),
+            ],
+            in_alert_since: None,
+        }],
+        ..Default::default()
+    }
+}
+
+/// Helper function to apply health override with consistent error handling
+async fn apply_health_override(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    machine_id: &MachineId,
+    override_report: &HealthReport,
+    operation_desc: &str,
+) -> Result<(), CarbideError> {
+    db::machine::insert_health_report_override(
+        txn,
+        machine_id,
+        OverrideMode::Merge,
+        override_report,
+        false,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            machine_id = %machine_id,
+            error = ?e,
+            operation = %operation_desc,
+            "Failed to apply health override"
+        );
+        CarbideError::from(e)
+    })?;
+
+    tracing::info!(
+        machine_id = %machine_id,
+        operation = %operation_desc,
+        "Successfully applied health override"
+    );
+    Ok(())
+}
+
+/// Helper function to remove health override with consistent error handling
+async fn remove_health_override(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    machine_id: &MachineId,
+    source: &str,
+    operation_desc: &str,
+) -> Result<(), CarbideError> {
+    db::machine::remove_health_report_override(txn, machine_id, OverrideMode::Merge, source)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                machine_id = %machine_id,
+                error = ?e,
+                operation = %operation_desc,
+                "Failed to remove health override"
+            );
+            CarbideError::from(e)
+        })?;
+
+    tracing::info!(
+        machine_id = %machine_id,
+        operation = %operation_desc,
+        "Successfully removed health override"
+    );
+    Ok(())
+}
+
+/// Handles the Instance Release workflow when released from the Repair tenant.
+///
+/// This function implements the logic for when the RepairSystem releases an instance after
+/// attempting repairs. It manages the transition from RequestRepair overrides to appropriate
+/// final states based on repair outcomes.
+///
+/// ## Workflow Logic
+///
+/// ### No RequestRepair Override Present
+/// - If issues are reported: Applies TenantReportedIssue (no auto-repair to prevent cycles)
+/// - If no issues: No action taken (machine is healthy)
+///
+/// ### RequestRepair Override Present
+/// - Checks machine metadata for `repair_status` label
+/// - **Repair Completed**: Removes RequestRepair, handles any new issues without auto-repair
+/// - **Repair Incomplete**: Remove RequestRepair override and replace with TenantReportedIssue
+///   to transition back to manual intervention by the Forge team.
+///
+/// ## Infinite Cycle Prevention
+/// The function specifically avoids triggering auto-repair (RequestRepair) for repair tenant
+/// releases to prevent infinite loops where RepairSystem triggers itself repeatedly.
+async fn handle_instance_release_from_repair_tenant(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    machine_id: &MachineId,
+    issue: Option<&rpc::Issue>,
+    machine: &crate::model::machine::Machine,
+) -> Result<(), CarbideError> {
+    let has_request_repair = machine
+        .health_report_overrides
+        .merges
+        .contains_key("repair-request");
+
+    if !has_request_repair {
+        // No existing RequestRepair override
+        if let Some(issue) = issue {
+            tracing::info!(
+                machine_id = %machine_id,
+                issue_category = ?issue.category,
+                issue_summary = %issue.summary,
+                "Repair tenant reports issues on machine without RequestRepair override"
+            );
+
+            let override_report = create_tenant_reported_issue_override(issue);
+            apply_health_override(
+                txn,
+                machine_id,
+                &override_report,
+                "TenantReportedIssue for repair tenant issues (no auto-repair to prevent cycles)",
+            )
+            .await?;
+        } else {
+            tracing::info!(
+                machine_id = %machine_id,
+                "Repair tenant release on machine without RequestRepair override and no issues - no action needed"
+            );
+        }
+        return Ok(());
+    }
+
+    // Machine has RequestRepair override - check repair status
+    let repair_status = machine.metadata.labels.get("repair_status").cloned();
+
+    tracing::info!(
+        machine_id = %machine_id,
+        repair_status = ?repair_status,
+        "Processing repair tenant release with repair status"
+    );
+
+    if repair_status.as_deref() == Some("Completed") {
+        // Repair completed successfully
+        remove_health_override(
+            txn,
+            machine_id,
+            "repair-request",
+            "RequestRepair removed - repair completed successfully",
+        )
+        .await?;
+
+        // If the Repair tenant reports new issues after repair completion cycle, apply TenantReportedIssue
+        // to route the machine back to manual intervention by the Forge team (prevents auto-repair cycles).
+        // The instance is already getting returned by the RepairSystem.
+        if let Some(issue) = issue {
+            tracing::info!(
+                machine_id = %machine_id,
+                issue_category = ?issue.category,
+                issue_summary = %issue.summary,
+                "Repair tenant reports new issues after repair completion"
+            );
+
+            let override_report = create_tenant_reported_issue_override(issue);
+            apply_health_override(
+                txn,
+                machine_id,
+                &override_report,
+                "TenantReportedIssue for repair tenant new issues (no auto-repair to prevent cycles)",
+            ).await?;
+        }
+    } else {
+        // Repair was not completed successfully. Remove the existing RequestRepair health override
+        // and replace it with TenantReportedIssue to route the machine back to manual intervention
+        // by the Forge team (prevents auto-repair cycles).
+        remove_health_override(
+            txn,
+            machine_id,
+            "repair-request",
+            "RequestRepair removed for incomplete repair",
+        )
+        .await?;
+
+        // Determine which issue to use
+        let issue_to_apply = if let Some(issue) = issue {
+            tracing::info!(
+                machine_id = %machine_id,
+                issue_category = ?issue.category,
+                issue_summary = %issue.summary,
+                "Using tenant-provided issue details for incomplete repair"
+            );
+            issue.clone()
+        } else {
+            tracing::info!(
+                machine_id = %machine_id,
+                repair_status = ?repair_status,
+                "Creating fallback issue for incomplete repair"
+            );
+            rpc::Issue {
+                category: rpc::IssueCategory::Other as i32,
+                summary: "RepairSystem processing incomplete".to_string(),
+                details: format!(
+                    "Machine released by repair tenant but repair status is: {:?}",
+                    repair_status.as_deref().unwrap_or("Unknown")
+                ),
+            }
+        };
+
+        let override_report = create_tenant_reported_issue_override(&issue_to_apply);
+        apply_health_override(
+            txn,
+            machine_id,
+            &override_report,
+            "TenantReportedIssue for incomplete repair (no auto-repair to prevent cycles)",
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+/// Handles regular (non-repair) tenant workflow when releasing instances with reported issues.
+///
+/// This function implements the standard workflow for normal tenant instance releases that
+/// include issue reports. It applies appropriate health overrides and conditionally triggers
+/// auto-repair based on global configuration.
+///
+/// ## Workflow Steps
+/// 1. **Always applies TenantReportedIssue**: Documents the reported issue in health overrides
+/// 2. **Conditionally applies RequestRepair**: Only if auto-repair is enabled globally
+///
+/// ## Auto-Repair Logic
+/// - **Enabled**: Applies both TenantReportedIssue and RequestRepair overrides
+/// - **Disabled**: Applies only TenantReportedIssue override
+///
+/// The RequestRepair override signals the RepairSystem to attempt automated repairs
+/// on the machine before it can be allocated to new instances.
+async fn handle_instance_release_from_regular_tenant_and_report_issue(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    machine_id: &MachineId,
+    issue: &rpc::Issue,
+    auto_repair_enabled: bool,
+) -> Result<(), CarbideError> {
+    tracing::info!(
+        machine_id = %machine_id,
+        issue_category = ?issue.category,
+        issue_summary = %issue.summary,
+        "Regular tenant reported issue during instance release"
+    );
+
+    // Apply TenantReportedIssue health override
+    let tenant_override = create_tenant_reported_issue_override(issue);
+    apply_health_override(
+        txn,
+        machine_id,
+        &tenant_override,
+        "TenantReportedIssue for regular tenant",
+    )
+    .await?;
+
+    // Apply RequestRepair if auto-repair is enabled
+    if auto_repair_enabled {
+        let repair_override = create_request_repair_override(issue);
+        apply_health_override(
+            txn,
+            machine_id,
+            &repair_override,
+            "RequestRepair for regular tenant (auto-repair enabled)",
+        )
+        .await?;
+    } else {
+        tracing::info!(
+            machine_id = %machine_id,
+            "Auto-repair disabled - only applied TenantReportedIssue for regular tenant"
+        );
+    }
+
+    Ok(())
+}
+
+/// Handles instance release requests with support for the Forge-RepairSystem integration.
+///
+/// This function processes instance deletion requests and applies appropriate health overrides
+/// based on the requesting tenant type and reported issues. It supports two main workflows:
+///
+/// ## Repair Tenant Workflow
+/// When `is_repair_tenant=true`, this indicates the RepairSystem is releasing an instance after
+/// attempting repairs. The function:
+/// - Checks for existing RequestRepair overrides on the machine
+/// - Examines the repair status from machine metadata labels
+/// - Removes RequestRepair overrides and applies TenantReportedIssue based on repair outcome
+/// - Prevents infinite repair cycles by not triggering auto-repair for repair tenant releases
+///
+/// ## Regular Tenant Workflow
+/// For normal tenant releases with reported issues:
+/// - Always applies TenantReportedIssue health override to document the problem
+/// - Conditionally applies RequestRepair override if auto-repair is enabled globally
+/// - Respects the auto_machine_repair_plugin configuration setting
+///
+/// ## Health Override Sources
+/// - `tenant-reported-issue`: Applied for all tenant-reported issues
+/// - `repair-request`: Applied when auto-repair is enabled (regular tenants only)
 pub(crate) async fn release(
     api: &Api,
     request: Request<rpc::InstanceReleaseRequest>,
@@ -287,6 +634,54 @@ pub(crate) async fn release(
         })?;
 
     log_machine_id(&instance.machine_id);
+
+    // Instance Release called from the Repair tenant.
+    if delete_instance.is_repair_tenant == Some(true) {
+        tracing::info!(
+            instance_id = %delete_instance.instance_id,
+            machine_id = %instance.machine_id,
+            has_issues = delete_instance.issue.is_some(),
+            "Instance release requested by repair tenant"
+        );
+
+        // Get machine details for repair tenant workflow
+        let machine = db::machine::find_one(
+            &mut txn,
+            &instance.machine_id,
+            MachineSearchConfig {
+                for_update: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "machine",
+            id: instance.machine_id.to_string(),
+        })?;
+
+        // Handle repair tenant workflow
+        handle_instance_release_from_repair_tenant(
+            &mut txn,
+            &instance.machine_id,
+            delete_instance.issue.as_ref(),
+            &machine,
+        )
+        .await
+        .map_err(|e| Status::internal(e.to_string()))?;
+    } else if let Some(issue) = &delete_instance.issue {
+        // Instance Release called from the regular tenant (not the Repair tenant) and has an issue to report.
+        let auto_repair_enabled = api.runtime_config.auto_machine_repair_plugin.enabled;
+
+        handle_instance_release_from_regular_tenant_and_report_issue(
+            &mut txn,
+            &instance.machine_id,
+            issue,
+            auto_repair_enabled,
+        )
+        .await
+        .map_err(|e| Status::internal(e.to_string()))?;
+    }
 
     if instance.deleted.is_some() {
         tracing::info!(
@@ -874,7 +1269,11 @@ pub async fn force_delete_instance(
 
     // Delete the instance and allocated address
     // TODO: This might need some changes with the new state machine
-    let delete_instance = DeleteInstance { instance_id };
+    let delete_instance = DeleteInstance {
+        instance_id,
+        issue: None,
+        is_repair_tenant: None,
+    };
     delete_instance.delete(txn).await?;
 
     let mut network_segment_ids_with_vpc = vec![];

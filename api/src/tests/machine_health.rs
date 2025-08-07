@@ -21,6 +21,7 @@ use crate::{
 };
 use health_report::OverrideMode;
 use rpc::forge::{HealthOverrideOrigin, forge_server::Forge};
+use std::str::FromStr;
 use tonic::Request;
 
 /// Tests whether health reports can be stored if their timestamp is newer or equal
@@ -836,4 +837,253 @@ fn check_reports_equal(
     assert_eq!(reported.source, source);
     expected.source = source.to_string();
     check_health_reports_equal(&reported, &expected);
+}
+
+#[crate::sqlx_test]
+async fn test_tenant_reported_issue_health_override_template(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_env(pool).await;
+    let (host_machine_id, _) = create_managed_host(&env).await;
+
+    // Create a TenantReportedIssue health override using the API
+    let tenant_issue_override = health_report::HealthReport {
+        source: "tenant-reported-issue".to_string(),
+        observed_at: Some(chrono::Utc::now()),
+        successes: vec![],
+        alerts: vec![health_report::HealthProbeAlert {
+            id: health_report::HealthProbeId::from_str("TenantReportedIssue").unwrap(),
+            target: Some("tenant-reported".to_string()),
+            in_alert_since: None,
+            message: "Customer reported intermittent network connectivity issues".to_string(),
+            tenant_message: None,
+            classifications: vec![
+                health_report::HealthAlertClassification::prevent_allocations(),
+                health_report::HealthAlertClassification::suppress_external_alerting(),
+            ],
+        }],
+    };
+
+    // Apply the override
+    send_health_report_override(
+        &env,
+        &host_machine_id,
+        (tenant_issue_override.clone(), OverrideMode::Merge),
+    )
+    .await;
+
+    // Verify the override is applied
+    let machine = get_machine(&env, &host_machine_id).await;
+
+    // Check that the override was stored
+    assert_eq!(machine.health_overrides.len(), 1);
+    assert_eq!(machine.health_overrides[0].mode, OverrideMode::Merge as i32);
+    assert_eq!(machine.health_overrides[0].source, "tenant-reported-issue");
+
+    // Verify aggregate health includes the override
+    let aggregate_health = aggregate(machine).unwrap();
+    assert_eq!(aggregate_health.source, "aggregate-host-health");
+    assert_eq!(aggregate_health.alerts.len(), 1);
+    assert_eq!(
+        aggregate_health.alerts[0].id.to_string(),
+        "TenantReportedIssue"
+    );
+    assert_eq!(
+        aggregate_health.alerts[0].target,
+        Some("tenant-reported".to_string())
+    );
+    assert_eq!(
+        aggregate_health.alerts[0].message,
+        "Customer reported intermittent network connectivity issues"
+    );
+
+    // Verify classifications
+    assert!(
+        aggregate_health.alerts[0]
+            .classifications
+            .contains(&health_report::HealthAlertClassification::prevent_allocations())
+    );
+    assert!(
+        aggregate_health.alerts[0]
+            .classifications
+            .contains(&health_report::HealthAlertClassification::suppress_external_alerting())
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_request_repair_health_override_template(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_env(pool).await;
+    let (host_machine_id, _) = create_managed_host(&env).await;
+
+    // Create a RequestRepair health override using the API
+    let repair_request_override = health_report::HealthReport {
+        source: "repair-request".to_string(),
+        observed_at: Some(chrono::Utc::now()),
+        successes: vec![],
+        alerts: vec![health_report::HealthProbeAlert {
+            id: health_report::HealthProbeId::from_str("RequestRepair").unwrap(),
+            target: Some("repair-requested".to_string()),
+            in_alert_since: None,
+            message: "Hardware diagnostics indicate memory failure requiring replacement"
+                .to_string(),
+            tenant_message: None,
+            classifications: vec![
+                health_report::HealthAlertClassification::prevent_allocations(),
+                health_report::HealthAlertClassification::suppress_external_alerting(),
+            ],
+        }],
+    };
+
+    // Apply the override
+    send_health_report_override(
+        &env,
+        &host_machine_id,
+        (repair_request_override.clone(), OverrideMode::Merge),
+    )
+    .await;
+
+    // Verify the override is applied
+    let machine = get_machine(&env, &host_machine_id).await;
+
+    // Check that the override was stored
+    assert_eq!(machine.health_overrides.len(), 1);
+    assert_eq!(machine.health_overrides[0].mode, OverrideMode::Merge as i32);
+    assert_eq!(machine.health_overrides[0].source, "repair-request");
+
+    // Verify aggregate health includes the override
+    let aggregate_health = aggregate(machine).unwrap();
+    assert_eq!(aggregate_health.source, "aggregate-host-health");
+    assert_eq!(aggregate_health.alerts.len(), 1);
+    assert_eq!(aggregate_health.alerts[0].id.to_string(), "RequestRepair");
+    assert_eq!(
+        aggregate_health.alerts[0].target,
+        Some("repair-requested".to_string())
+    );
+    assert_eq!(
+        aggregate_health.alerts[0].message,
+        "Hardware diagnostics indicate memory failure requiring replacement"
+    );
+
+    // Verify classifications
+    assert!(
+        aggregate_health.alerts[0]
+            .classifications
+            .contains(&health_report::HealthAlertClassification::prevent_allocations())
+    );
+    assert!(
+        aggregate_health.alerts[0]
+            .classifications
+            .contains(&health_report::HealthAlertClassification::suppress_external_alerting())
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_tenant_reported_issue_and_request_repair_combined(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_env(pool).await;
+    let (host_machine_id, _) = create_managed_host(&env).await;
+
+    // Apply both overrides to the same machine
+    let tenant_issue_override = health_report::HealthReport {
+        source: "tenant-reported-issue".to_string(),
+        observed_at: Some(chrono::Utc::now()),
+        successes: vec![],
+        alerts: vec![health_report::HealthProbeAlert {
+            id: health_report::HealthProbeId::from_str("TenantReportedIssue").unwrap(),
+            target: Some("tenant-reported".to_string()),
+            in_alert_since: None,
+            message: "Customer reports performance degradation".to_string(),
+            tenant_message: None,
+            classifications: vec![
+                health_report::HealthAlertClassification::prevent_allocations(),
+                health_report::HealthAlertClassification::suppress_external_alerting(),
+            ],
+        }],
+    };
+
+    let repair_request_override = health_report::HealthReport {
+        source: "repair-request".to_string(),
+        observed_at: Some(chrono::Utc::now()),
+        successes: vec![],
+        alerts: vec![health_report::HealthProbeAlert {
+            id: health_report::HealthProbeId::from_str("RequestRepair").unwrap(),
+            target: Some("repair-requested".to_string()),
+            in_alert_since: None,
+            message: "Diagnostics confirm hardware issue needs repair".to_string(),
+            tenant_message: None,
+            classifications: vec![
+                health_report::HealthAlertClassification::prevent_allocations(),
+                health_report::HealthAlertClassification::suppress_external_alerting(),
+            ],
+        }],
+    };
+
+    // Apply both overrides
+    send_health_report_override(
+        &env,
+        &host_machine_id,
+        (tenant_issue_override, OverrideMode::Merge),
+    )
+    .await;
+
+    send_health_report_override(
+        &env,
+        &host_machine_id,
+        (repair_request_override, OverrideMode::Merge),
+    )
+    .await;
+
+    // Verify both overrides are stored
+    let machine = get_machine(&env, &host_machine_id).await;
+
+    // Get aggregate health first to avoid partial move issues
+    let aggregate_health = aggregate(machine.clone()).unwrap();
+
+    // Check that both overrides were stored
+    assert_eq!(machine.health_overrides.len(), 2);
+    let sources: Vec<String> = machine
+        .health_overrides
+        .iter()
+        .map(|o| o.source.clone())
+        .collect();
+    assert!(sources.contains(&"tenant-reported-issue".to_string()));
+    assert!(sources.contains(&"repair-request".to_string()));
+
+    // All should be merge mode
+    for override_entry in &machine.health_overrides {
+        assert_eq!(override_entry.mode, OverrideMode::Merge as i32);
+    }
+    assert_eq!(aggregate_health.alerts.len(), 2);
+
+    // Find both alerts by ID
+    let alert_ids: Vec<String> = aggregate_health
+        .alerts
+        .iter()
+        .map(|alert| alert.id.to_string())
+        .collect();
+    assert!(alert_ids.contains(&"TenantReportedIssue".to_string()));
+    assert!(alert_ids.contains(&"RequestRepair".to_string()));
+
+    // Verify all alerts have SuppressExternalAlerting
+    for alert in &aggregate_health.alerts {
+        assert!(
+            alert
+                .classifications
+                .contains(&health_report::HealthAlertClassification::suppress_external_alerting())
+        );
+        assert!(
+            alert
+                .classifications
+                .contains(&health_report::HealthAlertClassification::prevent_allocations())
+        );
+    }
+
+    Ok(())
 }

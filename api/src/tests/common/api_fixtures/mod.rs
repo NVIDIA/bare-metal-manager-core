@@ -932,6 +932,7 @@ pub fn get_config() -> CarbideConfig {
             enabled: true,
             ..PowerManagerOptions::default()
         },
+        auto_machine_repair_plugin: Default::default(),
     }
 }
 

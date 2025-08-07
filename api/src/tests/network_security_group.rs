@@ -940,6 +940,8 @@ async fn test_network_security_group_delete(
         .api
         .release_instance(tonic::Request::new(rpc::forge::InstanceReleaseRequest {
             id: instance.id,
+            issue: None,
+            is_repair_tenant: None,
         }))
         .await
         .unwrap();
@@ -1867,6 +1869,8 @@ async fn test_network_security_group_get_attachments(
             id: Some(rpc::Uuid {
                 value: instance_id.to_string(),
             }),
+            issue: None,
+            is_repair_tenant: None,
         }))
         .await
         .unwrap();

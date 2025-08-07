@@ -134,6 +134,8 @@ impl ApiClient {
         for instance_id in instance_ids {
             let request = rpc::InstanceReleaseRequest {
                 id: Some(instance_id),
+                issue: None,
+                is_repair_tenant: None,
             };
             self.0.release_instance(request).await?;
         }
