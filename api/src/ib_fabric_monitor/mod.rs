@@ -33,7 +33,7 @@ use crate::{
     },
     ib::{
         GetPartitionOptions, IBFabricManager, IBFabricManagerType,
-        types::{IBNetwork, IBPort, IBPortState},
+        types::{IBNetwork, IBPort, IBPortMembership, IBPortState},
     },
     model::{
         ib_partition::PartitionKey,
@@ -371,6 +371,23 @@ async fn check_ib_fabric(
         || !metrics.m_key_per_port
     {
         metrics.insecure_fabric_configuration = true;
+    }
+
+    // Check if the default partition is in restricted mode
+    let default_partition = conn
+        .get_ib_network(
+            PartitionKey::for_default_partition().into(),
+            GetPartitionOptions {
+                include_guids_data: true,
+                include_qos_conf: true,
+            },
+        )
+        .await?;
+    if let Some(membership) = default_partition.membership {
+        metrics.default_partition_membership = Some(membership.to_string());
+        if membership == IBPortMembership::Full {
+            metrics.insecure_fabric_configuration = true;
+        }
     }
 
     Ok(())

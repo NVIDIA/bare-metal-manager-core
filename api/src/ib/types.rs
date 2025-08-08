@@ -34,12 +34,16 @@ pub struct IBNetwork {
     /// Guids associated with the Partition
     /// Only available if explicitly requested
     pub associated_guids: Option<HashSet<String>>,
+    /// The default membership status of ports on this partition
+    /// The value is only available if all of these things are true:
+    /// - The partition is the default partition
+    /// - associated ports/guid are queried
+    /// - UFM version is 6.19 or newer
+    pub membership: Option<IBPortMembership>,
     // Not implemented yet:
     // --
     // /// Default false; create sharp allocation accordingly.
     // pub enable_sharp: bool,
-    // /// The default membership of IB network.
-    // pub membership: IBPortMembership,
     // /// The default index0 of IB network.
     // pub index0: bool,
     // --
@@ -67,13 +71,20 @@ pub enum IBPortState {
     Armed,
 }
 
-// Not implemented yet
-// #[derive(Clone, Debug)]
-// pub(crate) enum IBPortMembership {
-//     Full,
-//     Limited,
-// }
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum IBPortMembership {
+    Full,
+    Limited,
+}
 
+impl std::fmt::Display for IBPortMembership {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            IBPortMembership::Full => f.write_str("full"),
+            IBPortMembership::Limited => f.write_str("limited"),
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq)]
 pub struct IBPort {
     pub name: String,
@@ -201,5 +212,16 @@ impl TryFrom<i32> for IBServiceLevel {
 impl From<IBServiceLevel> for i32 {
     fn from(service_level: IBServiceLevel) -> i32 {
         service_level.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn port_membership_to_string() {
+        assert_eq!(IBPortMembership::Full.to_string(), "full");
+        assert_eq!(IBPortMembership::Limited.to_string(), "limited");
     }
 }

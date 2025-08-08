@@ -16,7 +16,9 @@ use std::{path::Path, sync::Arc};
 use async_trait::async_trait;
 
 use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
-use super::types::{IBMtu, IBNetwork, IBPort, IBPortState, IBQosConf, IBRateLimit, IBServiceLevel};
+use super::types::{
+    IBMtu, IBNetwork, IBPort, IBPortMembership, IBPortState, IBQosConf, IBRateLimit, IBServiceLevel,
+};
 use super::ufmclient::{
     self, Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, SmConfig,
     UFMCert, UFMConfig, UFMError, Ufm,
@@ -284,9 +286,9 @@ impl TryFrom<&Partition> for IBNetwork {
             ipoib: p.ipoib,
             qos_conf: p.qos.as_ref().map(|qos| qos.try_into()).transpose()?,
             associated_guids: p.guids.clone(),
+            membership: p.membership.map(Into::into),
             // Not implemented yet
             // enable_sharp: false,
-            // membership: IBNETWORK_DEFAULT_MEMBERSHIP,
             // index0: IBNETWORK_DEFAULT_INDEX0,
         })
     }
@@ -347,6 +349,7 @@ impl TryFrom<&IBNetwork> for Partition {
             ipoib: p.ipoib,
             qos: p.qos_conf.as_ref().map(|qos| qos.try_into()).transpose()?,
             guids: Default::default(),
+            membership: p.membership.map(Into::into),
         })
     }
 }
@@ -400,6 +403,24 @@ impl From<String> for PortConfig {
     }
 }
 
+impl From<IBPortMembership> for PortMembership {
+    fn from(m: IBPortMembership) -> Self {
+        match m {
+            IBPortMembership::Full => PortMembership::Full,
+            IBPortMembership::Limited => PortMembership::Limited,
+        }
+    }
+}
+
+impl From<PortMembership> for IBPortMembership {
+    fn from(m: PortMembership) -> Self {
+        match m {
+            PortMembership::Full => IBPortMembership::Full,
+            PortMembership::Limited => IBPortMembership::Limited,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -422,6 +443,7 @@ mod tests {
                 rate_limit: 10.0,
             }),
             guids: Default::default(),
+            membership: None,
         };
         let result = IBNetwork::try_from(value);
         assert!(result.is_ok());
@@ -437,6 +459,7 @@ mod tests {
                 rate_limit: 10.0,
             }),
             guids: Default::default(),
+            membership: None,
         };
         let result = IBNetwork::try_from(value);
         assert!(result.is_err());
@@ -453,6 +476,7 @@ mod tests {
                 rate_limit: 10.0,
             }),
             guids: Default::default(),
+            membership: None,
         };
         let result = IBNetwork::try_from(value);
         assert!(result.is_err());
@@ -469,6 +493,7 @@ mod tests {
                 rate_limit: 15.0,
             }),
             guids: Default::default(),
+            membership: None,
         };
         let result = IBNetwork::try_from(value);
         assert!(result.is_err());
@@ -485,6 +510,7 @@ mod tests {
                 rate_limit: 2.5,
             }),
             guids: Default::default(),
+            membership: None,
         };
         let value = IBNetwork::try_from(expected_partition.clone());
         assert!(value.is_ok(), "IBNetwork::try_from() failure");
@@ -507,6 +533,7 @@ mod tests {
                 rate_limit: 10.0,
             }),
             guids: Default::default(),
+            membership: Some(PortMembership::Full),
         };
         let value = IBNetwork::try_from(expected_partition.clone());
         assert!(value.is_ok(), "IBNetwork::try_from() failure");

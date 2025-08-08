@@ -339,9 +339,9 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         }),
         ipoib: false,
         associated_guids: None,
+        membership: None,
         // Not implemented yet
         // enable_sharp: false,
-        // membership: IBPortMembership::Full,
         // index0: false,
     };
     let qos_conf = ibnetwork.qos_conf.as_ref().unwrap();

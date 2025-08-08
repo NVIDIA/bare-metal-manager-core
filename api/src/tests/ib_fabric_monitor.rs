@@ -52,17 +52,51 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
             .formatted_metric("forge_ib_monitor_fabric_error_count"),
         None
     );
+    // The default partition is found
     assert_eq!(
         env.test_meter
             .formatted_metric("forge_ib_monitor_ufm_partitions_count")
             .unwrap(),
-        r#"{fabric="default"} 0"#
+        r#"{fabric="default"} 1"#
     );
     assert_eq!(
         env.test_meter
             .formatted_metric("forge_ib_monitor_iteration_latency_milliseconds_count")
             .unwrap(),
         r#"1"#
+    );
+
+    // The fabric is configured securely
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_insecure_fabric_configuration_count")
+            .unwrap(),
+        r#"{fabric="default"} 0"#
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_allow_insecure_fabric_configuration_count")
+            .unwrap(),
+        r#"{fabric="default"} 0"#
+    );
+
+    // Set the default partition to full membership and test again
+    // We now except the fabric to be reported as insecure
+    env.ib_fabric_manager
+        .get_mock_manager()
+        .set_default_partition_membership(crate::ib::types::IBPortMembership::Full);
+    env.run_ib_fabric_monitor_iteration().await;
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_insecure_fabric_configuration_count")
+            .unwrap(),
+        r#"{fabric="default"} 1"#
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_allow_insecure_fabric_configuration_count")
+            .unwrap(),
+        r#"{fabric="default"} 0"#
     );
 
     Ok(())
