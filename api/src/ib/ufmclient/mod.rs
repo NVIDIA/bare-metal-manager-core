@@ -53,7 +53,7 @@ pub struct PartitionQoS {
     pub rate_limit: f32,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum PortMembership {
     Limited,
@@ -88,6 +88,12 @@ pub struct Partition {
     pub qos: Option<PartitionQoS>,
     /// GUIDS attached to the Partition. Only available if explictly queried for
     pub guids: Option<HashSet<String>>,
+    /// The default membership status of ports on this partition
+    /// The value is only available if all of these things are true:
+    /// - The partition is the default partition
+    /// - associated ports/guid are queried
+    /// - UFM version is 6.19 or newer
+    pub membership: Option<PortMembership>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
@@ -128,6 +134,12 @@ struct PartitionData {
     /// Ports attached to a partition. Only available if `guids_data==true`
     #[serde(default)]
     guids: Vec<PortConfig>,
+    /// The default membership status of ports on this partition
+    /// The value is only available if all of these things are true:
+    /// - The partition is the default partition
+    /// - associated ports/guid are queried with `guids_data==true`
+    /// - UFM version is 6.19 or newer
+    pub membership: Option<PortMembership>,
 }
 
 const HEX_PRE: &str = "0x";
@@ -373,7 +385,7 @@ impl Ufm {
 
         let mut guids = Vec::with_capacity(ports.len());
         for pb in ports {
-            membership = pb.membership.clone();
+            membership = pb.membership;
             index0 = pb.index0;
             guids.push(pb.guid.to_string());
         }
@@ -460,6 +472,7 @@ impl Ufm {
                     true => Some(partition.guids.into_iter().map(|p| p.guid).collect()),
                     false => None,
                 },
+                membership: partition.membership,
             };
             results.insert(pkey, partition);
         }
@@ -495,6 +508,7 @@ impl Ufm {
                 true => Some(partition.guids.into_iter().map(|p| p.guid).collect()),
                 false => None,
             },
+            membership: partition.membership,
         })
     }
 
@@ -835,5 +849,7 @@ mod test {
         let p1 = parts.get("0x2fb").unwrap();
         assert!(p1.qos_conf.is_none());
         assert_eq!(p1.partition, "api_pkey_0x2fb");
+        let p2 = parts.get("0x7fff").unwrap();
+        assert_eq!(p2.membership.unwrap(), PortMembership::Limited);
     }
 }

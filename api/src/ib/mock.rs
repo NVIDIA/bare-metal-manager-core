@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
-use super::types::{IBNetwork, IBPort, IBPortState};
+use super::types::{IBNetwork, IBPort, IBPortMembership, IBPortState};
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
 use crate::ib::types::IBQosConf;
@@ -27,11 +27,11 @@ pub struct MockIBFabric {
 
 struct State {
     /// Maps from pkey to subnet state
-    subnets: HashMap<String, IBNetwork>,
+    subnets: HashMap<u16, IBNetwork>,
     /// Maps from GUID to port state
     ports: HashMap<String, IBPort>,
     /// Map from pkey to associated ports/GUIDs
-    subnets_to_ports: HashMap<String, HashSet<String>>,
+    subnets_to_ports: HashMap<u16, HashSet<String>>,
     /// The next LID that will be used
     next_lid: i32,
 }
@@ -40,7 +40,13 @@ struct State {
 impl IBFabric for MockIBFabric {
     /// Get fabric configuration
     async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError> {
-        Ok(IBFabricConfig::default())
+        Ok(IBFabricConfig {
+            subnet_prefix: "0xfe80000000000000".to_string(),
+            m_key: "0x10".to_string(),
+            sm_key: "0x20".to_string(),
+            sa_key: "0x30".to_string(),
+            m_key_per_port: true,
+        })
     }
 
     /// Get all IB Networks
@@ -62,15 +68,12 @@ impl IBFabric for MockIBFabric {
             .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
 
         let mut results = HashMap::new();
-        for (pkey, subnet) in &state.subnets {
-            let pkey: u16 = pkey
-                .parse()
-                .map_err(|_| CarbideError::IBFabricError("pkey is not a u16".to_string()))?;
+        for (&pkey, subnet) in &state.subnets {
             let mut subnet = subnet.clone();
             if options.include_guids_data {
                 let guids = state
                     .subnets_to_ports
-                    .get(&pkey.to_string())
+                    .get(&pkey)
                     .cloned()
                     .unwrap_or_default();
                 subnet.associated_guids = Some(guids);
@@ -99,7 +102,7 @@ impl IBFabric for MockIBFabric {
             .lock()
             .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
 
-        let mut ib = match state.subnets.get(&pkey.to_string()) {
+        let mut ib = match state.subnets.get(&pkey) {
             None => {
                 return Err(CarbideError::NotFoundError {
                     kind: "",
@@ -111,7 +114,7 @@ impl IBFabric for MockIBFabric {
         if options.include_guids_data {
             let guids = state
                 .subnets_to_ports
-                .get(&pkey.to_string())
+                .get(&pkey)
                 .cloned()
                 .unwrap_or_default();
             ib.associated_guids = Some(guids);
@@ -134,6 +137,7 @@ impl IBFabric for MockIBFabric {
             service_level: IBServiceLevel::default(),
             rate_limit: IBRateLimit::default(),
         });
+        ib.membership = None;
 
         let mut state = self
             .state
@@ -148,11 +152,9 @@ impl IBFabric for MockIBFabric {
             }
         }
 
-        let pkey = ib.pkey.clone().to_string();
+        let pkey = ib.pkey;
         // Create partition on demand. This matches what UFM does
-        if !state.subnets.contains_key(&pkey) {
-            state.subnets.insert(pkey.clone(), ib);
-        }
+        state.subnets.entry(pkey).or_insert(ib);
         let associated_ports = state.subnets_to_ports.entry(pkey).or_default();
         for port in ports {
             associated_ports.insert(port);
@@ -172,7 +174,7 @@ impl IBFabric for MockIBFabric {
             .lock()
             .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
 
-        match state.subnets.get_mut(&pkey.to_string()) {
+        match state.subnets.get_mut(&pkey) {
             Some(ib) => {
                 // Update QoS accordingly
                 ib.qos_conf = Some(qos_conf.clone());
@@ -198,7 +200,7 @@ impl IBFabric for MockIBFabric {
             Some(pkey) => {
                 let associated_guids = state
                     .subnets_to_ports
-                    .get(&pkey.to_string())
+                    .get(pkey)
                     .cloned()
                     .unwrap_or_default();
                 Some(associated_guids)
@@ -215,7 +217,6 @@ impl IBFabric for MockIBFabric {
             .state
             .lock()
             .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
-        let pkey = pkey.to_string();
 
         for id in &ids {
             if !state.ports.contains_key(id) {
@@ -232,7 +233,8 @@ impl IBFabric for MockIBFabric {
                 }
 
                 // If the partition is empty, then remove knowledge about it
-                if associated_ports.is_empty() {
+                // This applies to all partitions except the default one
+                if associated_ports.is_empty() && pkey != DEFAULT_PARTITION_KEY {
                     state.subnets.remove(&pkey);
                 }
             }
@@ -261,9 +263,22 @@ impl IBFabric for MockIBFabric {
 
 impl MockIBFabric {
     pub fn new() -> Self {
+        let default_partition = IBNetwork {
+            name: "management".to_string(),
+            pkey: DEFAULT_PARTITION_KEY,
+            ipoib: true,
+            qos_conf: Some(IBQosConf {
+                mtu: IBMtu(2),
+                service_level: IBServiceLevel(0),
+                rate_limit: IBRateLimit(2),
+            }),
+            associated_guids: None,
+            membership: Some(IBPortMembership::Limited),
+        };
+
         Self {
             state: Arc::new(std::sync::Mutex::new(State {
-                subnets: HashMap::new(),
+                subnets: HashMap::from_iter([(DEFAULT_PARTITION_KEY, default_partition)]),
                 ports: HashMap::new(),
                 subnets_to_ports: HashMap::new(),
                 next_lid: 1,
@@ -307,6 +322,13 @@ impl MockIBFabric {
             IBPortState::Down
         });
     }
+
+    /// Sets the membership parameter of the default partition
+    pub fn set_default_partition_membership(&self, membership: IBPortMembership) {
+        let mut state: std::sync::MutexGuard<'_, State> = self.state.lock().unwrap();
+        let partition = state.subnets.get_mut(&DEFAULT_PARTITION_KEY).unwrap();
+        partition.membership = Some(membership);
+    }
 }
 
 fn filter_ports(
@@ -345,3 +367,5 @@ fn filter_ports(
 
     ports
 }
+
+const DEFAULT_PARTITION_KEY: u16 = 0x7fff;

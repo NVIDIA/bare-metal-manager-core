@@ -25,6 +25,18 @@ mod slas;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct PartitionKey(u16);
 
+impl PartitionKey {
+    /// Returns the partition key associated with the default partition
+    pub const fn for_default_partition() -> Self {
+        Self(0x7fff)
+    }
+
+    /// Returns whether the partition key describes the default partition
+    pub fn is_default_partition(self) -> bool {
+        self == Self::for_default_partition()
+    }
+}
+
 #[derive(thiserror::Error, Debug, Clone)]
 #[error("Partition Key \"{0}\" is not valid")]
 pub struct InvalidPartitionKeyError(String);

@@ -127,9 +127,9 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
         }),
         ipoib: false,
         associated_guids: None,
+        membership: None,
         // Not implemented yet
         // enable_sharp: false,
-        // membership: IBPortMembership::Full,
         // index0: false,
     };
     let mut partition2 = partition1.clone();

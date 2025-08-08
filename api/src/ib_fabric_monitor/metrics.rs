@@ -64,6 +64,8 @@ pub struct FabricMetrics {
     pub sa_key: String,
     /// The m_key_per_port of UFM
     pub m_key_per_port: bool,
+    /// Default partition membership
+    pub default_partition_membership: Option<String>,
     /// The amount of partitions visible at UFM
     pub num_partitions: Option<usize>,
     /// The amount of ports visible at UFM - indexed by state
