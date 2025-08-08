@@ -334,11 +334,8 @@ pub async fn remove_association(
         Removing instance type will create a mismatch between cloud and carbide. If you are sure, run this command again with --cloud-unsafe-op flag."#.to_string(),
         ));
                         }
-                        api_client
-                            .remove_instance_type_association(disassociate_instance_type.machine_id)
+                        remove_association_api(api_client, disassociate_instance_type.machine_id)
                             .await?;
-
-                        println!("Association is removed successfully!!");
                     }
                     _ => {}
                 }
@@ -347,7 +344,20 @@ pub async fn remove_association(
         return Err(CarbideCliError::GenericError(
             "A instance is already allocated to this machine. You can remove an instance-type association only in Teminating state.".to_string(),
         ));
+    } else {
+        remove_association_api(api_client, disassociate_instance_type.machine_id).await?;
     }
 
+    Ok(())
+}
+
+async fn remove_association_api(
+    api_client: &ApiClient,
+    machine_id: String,
+) -> Result<(), CarbideCliError> {
+    api_client
+        .remove_instance_type_association(machine_id)
+        .await?;
+    println!("Association is removed successfully!!");
     Ok(())
 }
