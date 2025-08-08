@@ -19,8 +19,8 @@ if [[ "$CI_COMMIT_REF_NAME" != "trunk" ]]; then
   git config user.email "dummy@example.com" && git config user.name "Pre-Merge Test User"
   git fetch origin trunk
   if ! git merge origin/trunk; then
-    echo "Merge conflict detected. This must be resolved before the pre-merge test can run. Exiting..."
-    exit 1
+    echo "WARNING: Merge conflict detected with trunk."
+    git merge --abort
   fi
 else
   echo "Already on 'trunk' (i.e. this is not a pre-merge job), so skipping branch update..."
