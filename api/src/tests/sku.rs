@@ -965,7 +965,7 @@ pub mod tests {
             "password".to_string(),
             "1234567890".to_string(),
             vec![],
-            Metadata::default(),
+            Metadata::new_with_default_name(),
             Some("no-sku".to_string()),
         )
         .await?;

@@ -580,7 +580,7 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
 /// e.g, an L2VNI of 1637817 would result in an SviMAC of 00:00:01:63:78:17
 /// for all DPUs in the VPC.
 fn vni_to_svi_mac(vni: u32) -> eyre::Result<MacAddress> {
-    sanitized_mac(format!("{:012}", vni))
+    sanitized_mac(&format!("{:012}", vni))
 }
 
 #[derive(Deserialize, Debug)]

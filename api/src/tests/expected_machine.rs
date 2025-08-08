@@ -66,7 +66,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         "hmm".into(),
         "JFAKLJF".into(),
         vec![],
-        Metadata::default(),
+        Metadata::new_with_default_name(),
         None,
     )
     .await;

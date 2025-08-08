@@ -16,7 +16,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 /// Metadata that can get associated with Forge managed resources
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize)]
 pub struct Metadata {
     /// user-defined resource name
     pub name: String,
@@ -26,12 +26,11 @@ pub struct Metadata {
     pub labels: HashMap<String, String>,
 }
 
-impl Default for Metadata {
-    fn default() -> Self {
+impl Metadata {
+    pub fn new_with_default_name() -> Self {
         Metadata {
             name: "default_name".to_string(),
-            description: String::new(),
-            labels: HashMap::new(),
+            ..Metadata::default()
         }
     }
 }

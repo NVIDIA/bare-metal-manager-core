@@ -44,7 +44,7 @@ pub const MELLANOX_SF_VF_MAC_ADDRESS_OUT: &str = "00:00:00:00:00:64";
 /// For example:
 ///   `"a088c2    460c68"` -> `a088c2460c68` -> `A0:88:C2:46:0C:68`
 ///   `aa:bb:cc:DD:ee:ff`  -> `aabbccDDeeff` -> `AA:BB:CC:DD:EE:FF`
-pub fn sanitized_mac(input_mac: String) -> eyre::Result<MacAddress> {
+pub fn sanitized_mac(input_mac: &String) -> eyre::Result<MacAddress> {
     // First, strip out anything that isn't hex ([0-9A-Fa-f]),
     // which can be done with is_ascii_hexdigit().
     //
@@ -163,7 +163,7 @@ mod tests {
     fn test_gross_redfish_mac() {
         let gross_redfish_mac = "\"a088c2    460c68\"".to_string();
         assert_eq!(
-            sanitized_mac(gross_redfish_mac).unwrap().to_string(),
+            sanitized_mac(&gross_redfish_mac).unwrap().to_string(),
             "A0:88:C2:46:0C:68".to_string()
         );
     }
@@ -172,7 +172,7 @@ mod tests {
     fn test_smashed_mac() {
         let smashed_mac = "000000ABC789".to_string();
         assert_eq!(
-            sanitized_mac(smashed_mac).unwrap().to_string(),
+            sanitized_mac(&smashed_mac).unwrap().to_string(),
             "00:00:00:AB:C7:89".to_string()
         );
     }
@@ -181,7 +181,7 @@ mod tests {
     fn test_clean_mac() {
         let clean_mac = "DE:ED:0F:BE:EF:99".to_string();
         assert_eq!(
-            sanitized_mac(clean_mac).unwrap().to_string(),
+            sanitized_mac(&clean_mac).unwrap().to_string(),
             "DE:ED:0F:BE:EF:99".to_string()
         );
     }
@@ -190,7 +190,7 @@ mod tests {
     fn test_casey_mac() {
         let casey_mac = "AabBCcdDEefF".to_string();
         assert_eq!(
-            sanitized_mac(casey_mac).unwrap().to_string(),
+            sanitized_mac(&casey_mac).unwrap().to_string(),
             "AA:BB:CC:DD:EE:FF".to_string()
         );
     }
@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn test_too_long_mac() {
         let too_long_mac = "aabbccddeeffgg00112233445566778899".to_string();
-        assert!(sanitized_mac(too_long_mac).is_err());
+        assert!(sanitized_mac(&too_long_mac).is_err());
     }
 
     #[test]

@@ -46,10 +46,7 @@ pub async fn create_test_machine(
         None,
         &machine_id,
         ManagedHostState::Ready,
-        &Metadata {
-            name: machine_id.to_string(),
-            ..Default::default()
-        },
+        &Metadata::default(),
         None,
     )
     .await?;
