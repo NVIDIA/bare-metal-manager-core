@@ -104,7 +104,7 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
 
         let metadata = match request.metadata {
             Some(metadata) => metadata.try_into()?,
-            None => Metadata::default(),
+            None => Metadata::new_with_default_name(),
         };
 
         let allow_unhealthy_machine = request.allow_unhealthy_machine;

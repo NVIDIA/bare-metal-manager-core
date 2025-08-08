@@ -26,15 +26,7 @@ use forge_uuid::machine::MachineInterfaceId;
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key";
 
-fn default_metadata_for_deserializer() -> Metadata {
-    Metadata {
-        name: "".to_string(),
-        description: "".to_string(),
-        labels: HashMap::default(),
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ExpectedMachine {
     pub bmc_mac_address: MacAddress,
     pub bmc_username: String,
@@ -42,7 +34,7 @@ pub struct ExpectedMachine {
     pub bmc_password: String,
     #[serde(default)]
     pub fallback_dpu_serial_numbers: Vec<String>,
-    #[serde(default = "default_metadata_for_deserializer")]
+    #[serde(default)]
     pub metadata: Metadata,
     pub sku_id: Option<String>,
 }

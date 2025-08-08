@@ -2670,7 +2670,7 @@ async fn check_fw_component_version(
             // CEC_MIN_RESET_VERSION="00.02.0180.0000"
             if component == FirmwareComponentType::Cec
                 && !host_power_cycle_done
-                && version_compare::compare_to(cur_version.clone(), "00.02.0180.0000", Cmp::Lt)
+                && version_compare::compare_to(&cur_version, "00.02.0180.0000", Cmp::Lt)
                     .is_ok_and(|x| x)
             {
                 // For this case need to run host power cycle
@@ -6461,7 +6461,7 @@ impl HostUpgradeState {
                             if let Some(current_version) =
                                 endpoint.find_version(&fw_info, *firmware_type)
                             {
-                                if current_version == *final_version {
+                                if current_version == final_version {
                                     tracing::info!(
                                         "Marking completion of Redfish task of firmware upgrade for {} with missing task",
                                         &endpoint.address
@@ -6734,7 +6734,7 @@ impl HostUpgradeState {
             return scenario.actual_new_state(HostReprovisionState::CheckingFirmwareRepeat);
         };
 
-        if current_version == *final_version {
+        if current_version == final_version {
             // Done waiting, go back to overall checking of version`2s
             tracing::debug!("Done waiting for {machine_id} to reach version");
             scenario.actual_new_state(HostReprovisionState::CheckingFirmwareRepeat)

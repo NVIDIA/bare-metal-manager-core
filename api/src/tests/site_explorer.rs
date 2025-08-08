@@ -1972,7 +1972,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         "pw".to_string(),
         "host1".to_string(),
         vec![],
-        Metadata::default(),
+        Metadata::new_with_default_name(),
         None,
     )
     .await?;
@@ -2013,7 +2013,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             "pw".to_string(),
             "host1".to_string(),
             vec![HOST1_DPU_SERIAL_NUMBER.to_string()],
-            Metadata::default(),
+            Metadata::new_with_default_name(),
             None,
         )
         .await?;
@@ -3276,7 +3276,7 @@ async fn test_machine_creation_with_sku(
         "pw".to_string(),
         "host1".to_string(),
         vec![HOST1_DPU_SERIAL_NUMBER.to_string()],
-        Metadata::default(),
+        Metadata::new_with_default_name(),
         Some("Some SKU".to_string()),
     )
     .await?;

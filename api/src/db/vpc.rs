@@ -362,7 +362,7 @@ impl TryFrom<rpc::VpcCreationRequest> for NewVpc {
 
         let mut metadata = match value.metadata {
             Some(metadata) => metadata.try_into()?,
-            None => Metadata::default(),
+            None => Metadata::new_with_default_name(),
         };
         if use_legacy_name {
             metadata.name = value.name;
@@ -408,7 +408,7 @@ impl TryFrom<rpc::VpcUpdateRequest> for UpdateVpc {
 
         let mut metadata = match value.metadata {
             Some(metadata) => metadata.try_into()?,
-            None => Metadata::default(),
+            None => Metadata::new_with_default_name(),
         };
         if use_legacy_name {
             metadata.name = value.name;

@@ -585,15 +585,8 @@ impl SiteExplorer {
         })?;
 
         let (metadata, sku_id) = match expected_machine {
-            Some(m) => (m.metadata.clone(), m.sku_id.clone()),
-            None => (
-                Metadata {
-                    name: String::new(),
-                    description: String::new(),
-                    labels: Default::default(),
-                },
-                None,
-            ),
+            Some(m) => (Some(&m.metadata), m.sku_id.as_ref()),
+            None => (None, None),
         };
 
         // Zero-dpu case: If the explored host had no DPUs, we can create the machine now
@@ -604,7 +597,12 @@ impl SiteExplorer {
                 return Err(error);
             }
             let did_create = self
-                .create_zero_dpu_machine(&mut txn, &mut managed_host, &mut report, metadata.clone())
+                .create_zero_dpu_machine(
+                    &mut txn,
+                    &mut managed_host,
+                    &mut report,
+                    metadata.unwrap_or(&Metadata::default()),
+                )
                 .await?;
             if !did_create {
                 // Site explorer has already created a machine for this endpoint previously, skip.
@@ -638,8 +636,8 @@ impl SiteExplorer {
                 &mut txn,
                 &mut managed_host,
                 dpu_report,
-                metadata.clone(),
-                sku_id.clone(),
+                metadata.unwrap_or(&Metadata::default()),
+                sku_id,
             )
             .await?;
         }
@@ -1385,8 +1383,7 @@ impl SiteExplorer {
                         .or_default() += 1;
 
                     if e.is_redfish() {
-                        self.handle_redfish_error(endpoint.clone(), metrics, e)
-                            .await;
+                        self.handle_redfish_error(&endpoint, metrics, e).await;
                     }
                 }
             }
@@ -1507,7 +1504,7 @@ impl SiteExplorer {
         txn: &mut PgConnection,
         managed_host: &mut ManagedHost,
         report: &mut EndpointExplorationReport,
-        metadata: Metadata,
+        metadata: &Metadata,
     ) -> CarbideResult<bool> {
         // If there's already a machine with the same MAC address as this endpoint, return false. We
         // can't rely on matching the machine_id, as it may have migrated to a stable MachineID
@@ -1698,10 +1695,7 @@ impl SiteExplorer {
                 Some(&self.common_pools),
                 dpu_machine_id,
                 ManagedHostState::Created,
-                &Metadata {
-                    name: dpu_machine_id.to_string(),
-                    ..Default::default()
-                },
+                &Metadata::default(),
                 None,
             )
             .await
@@ -1746,8 +1740,8 @@ impl SiteExplorer {
         txn: &mut PgConnection,
         explored_host: &mut ManagedHost,
         explored_dpu: &ExploredDpu,
-        metadata: Metadata,
-        sku_id: Option<String>,
+        metadata: &Metadata,
+        sku_id: Option<&String>,
     ) -> CarbideResult<()> {
         let dpu_hw_info = explored_dpu.hardware_info()?;
         // Create Host proactively.
@@ -1781,8 +1775,8 @@ impl SiteExplorer {
 
         // configure_host_machine should have setup the machine_id for the host
         let host_machine_id = explored_host
-            .clone()
             .machine_id
+            .as_ref()
             .ok_or(CarbideError::internal(format!(
                 "Failed to set machine ID for host: {:#?}",
                 explored_host
@@ -1790,7 +1784,7 @@ impl SiteExplorer {
 
         db::machine_interface::associate_interface_with_machine(
             &host_machine_interface.id,
-            &host_machine_id,
+            host_machine_id,
             txn,
         )
         .await?;
@@ -1817,8 +1811,8 @@ impl SiteExplorer {
         explored_host: &mut ManagedHost,
         host_machine_interface: &MachineInterfaceSnapshot,
         explored_dpu: &ExploredDpu,
-        metadata: Metadata,
-        sku_id: Option<String>,
+        metadata: &Metadata,
+        sku_id: Option<&String>,
     ) -> CarbideResult<MachineId> {
         match &explored_host.machine_id {
             Some(host_machine_id) => {
@@ -1868,23 +1862,19 @@ impl SiteExplorer {
         txn: &mut PgConnection,
         explored_host: &ExploredManagedHost,
         explored_dpu: &ExploredDpu,
-        mut metadata: Metadata,
-        sku_id: Option<String>,
+        metadata: &Metadata,
+        sku_id: Option<&String>,
     ) -> CarbideResult<MachineId> {
         let dpu_hw_info = explored_dpu.hardware_info()?;
         let predicted_machine_id = host_id_from_dpu_hardware_info(&dpu_hw_info)
             .map_err(|e| CarbideError::InvalidArgument(format!("hardware info missing: {e}")))?;
-
-        if metadata.name.is_empty() {
-            metadata.name = predicted_machine_id.to_string();
-        }
 
         let _host_machine = db::machine::create(
             txn,
             Some(&self.common_pools),
             &predicted_machine_id,
             ManagedHostState::Created,
-            &metadata,
+            metadata,
             sku_id,
         )
         .await?;
@@ -1909,19 +1899,15 @@ impl SiteExplorer {
         txn: &mut PgConnection,
         managed_host: &ManagedHost,
         predicted_machine_id: &MachineId,
-        mut metadata: Metadata,
-        sku_id: Option<String>,
+        metadata: &Metadata,
+        sku_id: Option<&String>,
     ) -> CarbideResult<()> {
-        if metadata.name.is_empty() {
-            metadata.name = predicted_machine_id.to_string();
-        }
-
         _ = db::machine::create(
             txn,
             Some(&self.common_pools),
             predicted_machine_id,
             ManagedHostState::Created,
-            &metadata,
+            metadata,
             sku_id,
         )
         .await?;
@@ -1964,7 +1950,7 @@ impl SiteExplorer {
 
     pub async fn handle_redfish_error(
         &self,
-        endpoint: Endpoint,
+        endpoint: &Endpoint,
         metrics: &mut SiteExplorationMetrics,
         error: &EndpointExplorationError,
     ) {
@@ -2030,7 +2016,7 @@ impl SiteExplorer {
         if (error.is_dpu_redfish_bios_response_invalid())
             && time_since_redfish_reboot > reset_rate_limit
             && self
-                .force_restart(&endpoint)
+                .force_restart(endpoint)
                 .await
                 .map_err(|err| {
                     tracing::error!(
@@ -2045,8 +2031,8 @@ impl SiteExplorer {
             return;
         }
 
-        if self.is_viking_bmc(&endpoint).await && time_since_redfish_reboot > reset_rate_limit {
-            match self.clear_nvram(&endpoint).await {
+        if self.is_viking_bmc(endpoint).await && time_since_redfish_reboot > reset_rate_limit {
+            match self.clear_nvram(endpoint).await {
                 Ok(_) => {
                     metrics.bmc_reboot_count += 1;
                     return;
@@ -2063,7 +2049,7 @@ impl SiteExplorer {
 
         if time_since_redfish_bmc_reset > reset_rate_limit
             && self
-                .redfish_reset_bmc(&endpoint)
+                .redfish_reset_bmc(endpoint)
                 .await
                 .map_err(|err| {
                     tracing::error!(
@@ -2079,7 +2065,7 @@ impl SiteExplorer {
         }
 
         if time_since_ipmitool_bmc_reset > reset_rate_limit {
-            let _ = self.ipmitool_reset_bmc(&endpoint).await.map_err(|err| {
+            let _ = self.ipmitool_reset_bmc(endpoint).await.map_err(|err| {
                 tracing::error!(
                     "Site Explorer failed to reset BMC {} through ipmitool: {}",
                     endpoint.address,
@@ -2310,7 +2296,7 @@ impl SiteExplorer {
 
     async fn set_nic_mode(
         &self,
-        dpu_endpoint: ExploredEndpoint,
+        dpu_endpoint: &ExploredEndpoint,
         mode: NicMode,
     ) -> CarbideResult<()> {
         let bmc_target_port = self.config.override_target_port.unwrap_or(443);
@@ -2446,7 +2432,7 @@ impl SiteExplorer {
             let _ = self.endpoint_explorer
                 .redfish_power_control(
                     bmc_target_addr,
-                    &interface.clone(),
+                    &interface,
                     libredfish::SystemPowerControl::On,
                 )
                 .await
@@ -2532,7 +2518,7 @@ impl SiteExplorer {
                 .await?;
 
             let _ = self.endpoint_explorer
-                .forge_setup(bmc_target_addr, &interface.clone(), None)
+                .forge_setup(bmc_target_addr, &interface, None)
                 .await
                 .map_err(|err| {
                     tracing::error!(
@@ -2579,7 +2565,7 @@ impl SiteExplorer {
                         "site explorer found a BF3 SuperNIC ({}) that is in DPU mode; will try setting it into NIC mode",
                         dpu_ep.address
                     );
-                    self.set_nic_mode(dpu_ep.clone(), NicMode::Nic).await?;
+                    self.set_nic_mode(&dpu_ep, NicMode::Nic).await?;
                     Ok(false)
                 } else {
                     Ok(true)
@@ -2591,7 +2577,7 @@ impl SiteExplorer {
                         "site explorer found a BF3 DPU ({}) that is in NIC mode; will try setting it into DPU mode",
                         dpu_ep.address
                     );
-                    self.set_nic_mode(dpu_ep.clone(), NicMode::Dpu).await?;
+                    self.set_nic_mode(&dpu_ep, NicMode::Dpu).await?;
                     Ok(false)
                 } else {
                     Ok(true)
@@ -2736,7 +2722,7 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
     // Once we've got a some unsanitized MAC value, from whatever source,
     // sanitize it (stripping out garbage like spaces, double quotes, etc),
     // and return a sanitized MA:CA:DD:RE:SS as a MacAddress.
-    sanitized_mac(source_mac.clone()).map_err(|e| {
+    sanitized_mac(&source_mac).map_err(|e| {
         format!(
             "Failed to build sanitized MAC from {} MAC: {} (source_mac: {})",
             source_type, e, source_mac

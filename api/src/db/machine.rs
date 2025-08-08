@@ -1366,15 +1366,27 @@ pub async fn clear_failure_details(
     Ok(())
 }
 
+/// Create new machine in DB.
+///
+/// If metadata is not specified then default metadata is used
+/// with name set to stable_machine_id.
+///
+/// If metadata.name is empty then it is initialized in
+/// stable_machine_id.to_string().
 pub async fn create(
     txn: &mut PgConnection,
     common_pools: Option<&CommonPools>,
     stable_machine_id: &MachineId,
     state: ManagedHostState,
     metadata: &Metadata,
-    sku_id: Option<String>,
+    sku_id: Option<&String>,
 ) -> CarbideResult<Machine> {
     let stable_machine_id_string = stable_machine_id.to_string();
+    let metadata_name = if metadata.name.is_empty() {
+        &stable_machine_id_string
+    } else {
+        &metadata.name
+    };
     // Host and DPU machines are created in same `discover_machine` call. Update same
     // state in both machines.
     let state_version = ConfigVersion::initial();
@@ -1419,10 +1431,10 @@ pub async fn create(
         .bind(CURRENT_STATE_MODEL_VERSION)
         .bind(asn)
         .bind(version)
-        .bind(&metadata.name)
+        .bind(metadata_name)
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
-        .bind(&sku_id)
+        .bind(sku_id)
         .fetch_one(&mut *txn)
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
@@ -2240,8 +2252,8 @@ pub async fn count_healthy_unhealthy_host_machines(
 #[cfg(test)]
 mod test {
     use crate::{
-        db::machine::MachineSearchConfig,
-        model::{machine::ManagedHostState, metadata::Metadata},
+        db::machine::MachineSearchConfig, model::machine::ManagedHostState,
+        model::metadata::Metadata,
     };
     use forge_uuid::machine::MachineId;
     use std::str::FromStr;

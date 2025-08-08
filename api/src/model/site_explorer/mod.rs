@@ -184,7 +184,7 @@ impl ExploredEndpoint {
         &self,
         fw_info: &Firmware,
         firmware_type: FirmwareComponentType,
-    ) -> Option<String> {
+    ) -> Option<&String> {
         for service in self.report.service.iter() {
             if let Some(matching_inventory) = service
                 .inventories
@@ -196,7 +196,7 @@ impl ExploredEndpoint {
                     self.address,
                     matching_inventory.version
                 );
-                return matching_inventory.version.clone();
+                return matching_inventory.version.as_ref();
             };
         }
         None
@@ -260,8 +260,8 @@ impl EndpointExplorationReport {
             if let (Some(pci_path), Some(existing_path)) =
                 (&x.uefi_device_path, &acc.uefi_device_path)
             {
-                let path = pci_path.0.clone();
-                let existing_path = existing_path.0.clone();
+                let path = &pci_path.0;
+                let existing_path = &existing_path.0;
 
                 if let Ok(res) =
                     version_compare::compare_to(path, existing_path, version_compare::Cmp::Lt)
@@ -433,8 +433,8 @@ pub struct ExploredDpu {
     pub report: EndpointExplorationReport,
 }
 
-impl From<ExploredDpu> for rpc::site_explorer::ExploredDpu {
-    fn from(dpu: ExploredDpu) -> Self {
+impl From<&ExploredDpu> for rpc::site_explorer::ExploredDpu {
+    fn from(dpu: &ExploredDpu) -> Self {
         rpc::site_explorer::ExploredDpu {
             bmc_ip: dpu.bmc_ip.to_string(),
             host_pf_mac_address: dpu.host_pf_mac_address.map(|m| m.to_string()),
@@ -505,9 +505,8 @@ impl ExploredDpu {
         let chassis_map = self
             .report
             .chassis
-            .clone()
-            .into_iter()
-            .map(|x| (x.id.clone(), x))
+            .iter()
+            .map(|x| (x.id.as_str(), x))
             .collect::<HashMap<_, _>>();
         let inventory_map = self.report.get_inventory_map();
 
@@ -518,7 +517,7 @@ impl ExploredDpu {
                 .to_string(),
             part_number: chassis_map
                 .get("Card1")
-                .and_then(|value: &Chassis| value.part_number.as_ref())
+                .and_then(|value| value.part_number.as_ref())
                 .unwrap_or(&"".to_string())
                 .to_string(),
             part_description: chassis_map
@@ -606,7 +605,7 @@ impl From<ExploredManagedHost> for rpc::site_explorer::ExploredManagedHost {
             dpus: host
                 .dpus
                 .iter()
-                .map(|d| rpc::site_explorer::ExploredDpu::from(d.clone()))
+                .map(rpc::site_explorer::ExploredDpu::from)
                 .collect(),
             dpu_bmc_ip: host
                 .dpus
@@ -677,9 +676,8 @@ impl EndpointExplorationReport {
 
         let chassis_map = self
             .chassis
-            .clone()
-            .into_iter()
-            .map(|x| (x.id.clone(), x))
+            .iter()
+            .map(|x| (x.id.as_str(), x))
             .collect::<HashMap<_, _>>();
         let model = chassis_map
             .get("Card1")
@@ -779,14 +777,14 @@ impl EndpointExplorationReport {
         }
     }
 
-    pub fn get_inventory_map(&self) -> HashMap<String, Inventory> {
+    pub fn get_inventory_map(&self) -> HashMap<&str, &Inventory> {
         self.service
             .iter()
             .find(|s| s.id == *"FirmwareInventory")
             .map(|s| {
                 s.inventories
                     .iter()
-                    .map(|i| (i.id.clone(), i.clone()))
+                    .map(|i| (i.id.as_str(), i))
                     .collect::<HashMap<_, _>>()
             })
             .unwrap_or_default()
