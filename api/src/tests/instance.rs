@@ -53,9 +53,7 @@ use crate::{
         network_security_group::NetworkSecurityGroupStatusObservation,
     },
     network_segment::allocate::Ipv4PrefixAllocator,
-    tests::common::api_fixtures::{
-        create_managed_host_multi_dpu, instance::create_instance_with_unused_dpus,
-    },
+    tests::common::api_fixtures::create_managed_host_multi_dpu,
 };
 use ::rpc::forge::forge_server::Forge;
 use chrono::Utc;
@@ -63,10 +61,9 @@ use common::api_fixtures::{
     TestEnvOverrides, create_managed_host, create_test_env, create_test_env_with_overrides, dpu,
     forge_agent_control, get_config, get_vpc_fixture_id, inject_machine_measurements,
     instance::{
-        advance_created_instance_into_ready_state, create_instance, create_instance_with_hostname,
-        create_instance_with_labels, default_os_config, default_tenant_config, delete_instance,
-        interface_network_config_with_devices, single_interface_network_config,
-        single_interface_network_config_with_vpc_prefix,
+        TestInstance, advance_created_instance_into_ready_state, default_os_config,
+        default_tenant_config, delete_instance, interface_network_config_with_devices,
+        single_interface_network_config, single_interface_network_config_with_vpc_prefix,
         update_instance_network_status_observation,
     },
     managed_host::ManagedHostConfig,
@@ -86,7 +83,6 @@ use rpc::{
 use tonic::Request;
 
 use crate::tests::common;
-use crate::tests::common::api_fixtures::instance::create_instance_with_config;
 use crate::tests::common::api_fixtures::{
     TestEnv, create_managed_host_with_ek, update_time_params,
 };
@@ -170,20 +166,14 @@ async fn test_allocate_and_release_instance_impl(
     ));
     txn.commit().await.unwrap();
 
-    let (instance_id, _instance) = create_instance_with_unused_dpus(
-        &env,
-        used_dpu_ids,
-        unused_dpu_ids,
-        &host_machine_id,
-        Some(interface_network_config_with_devices(
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .network(interface_network_config_with_devices(
             &segment_ids,
             &device_locators,
-        )),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+        ))
+        .unused_dpu_machine_ids(unused_dpu_ids)
+        .create(used_dpu_ids, &host_machine_id)
+        .await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);
@@ -416,19 +406,13 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let device_locator = host_machine
         .get_device_locator_for_dpu_id(&dpu_machine_id)
         .unwrap();
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(interface_network_config_with_devices(
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .network(interface_network_config_with_devices(
             &[segment_id],
             &[device_locator.clone()],
-        )),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+        ))
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);
@@ -909,17 +893,11 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
         ],
     };
 
-    let (instance_id, _instance) = create_instance_with_labels(
-        &env,
-        &dpu_machine_id,
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-        instance_metadata.clone(),
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .metadata(instance_metadata.clone())
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     // Test searching based on instance id.
     let mut instance_matched_by_id = env
@@ -1067,18 +1045,12 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
 
     let instance_hostname = "test-hostname";
 
-    let (_instance_id, _instance) = create_instance_with_hostname(
-        &env,
-        &dpu_machine_id,
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-        instance_hostname.to_string(),
-        "org-nebulon".to_string(),
-    )
-    .await;
+    let (_instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .hostname(instance_hostname)
+        .tenant_org("org-nebulon")
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut txn = env
         .pool
@@ -1110,18 +1082,12 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
     txn.commit().await.unwrap();
 
     let (new_host_machine_id, new_dpu_machine_id) = create_managed_host(&env).await;
-    let (_instance_id, _instance) = create_instance_with_hostname(
-        &env,
-        &new_dpu_machine_id,
-        &new_host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-        instance_hostname.to_string(),
-        "org-nvidia".to_string(), //different org, should fail on the same one
-    )
-    .await;
+    let (_instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .hostname(instance_hostname)
+        .tenant_org("org-nvidia") // different org, should fail on the same one
+        .create(&[new_dpu_machine_id], &new_host_machine_id)
+        .await;
 }
 
 #[crate::sqlx_test]
@@ -1131,7 +1097,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
     let (segment_id_1, segment_id_2) = env.create_vpc_and_dual_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let network = Some(rpc::InstanceNetworkConfig {
+    let network = rpc::InstanceNetworkConfig {
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1150,21 +1116,15 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
                 virtual_function_id: None,
             },
         ],
-    });
+    };
 
-    //Create instance with hostname
-    let (_instance_id, _instance) = create_instance_with_hostname(
-        &env,
-        &dpu_machine_id,
-        &host_machine_id,
-        network,
-        None,
-        None,
-        vec![],
-        "test-hostname".to_string(),
-        "nvidia-org".to_string(),
-    )
-    .await;
+    // Create instance with hostname
+    let (_instance_id, _instance) = TestInstance::new(&env)
+        .network(network)
+        .hostname("test-hostname")
+        .tenant_org("nvidia-org")
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let response = env
         .api
@@ -1217,14 +1177,10 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
         network_security_group_id: None,
     };
 
-    let (_instance_id, _instance) = create_instance_with_config(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        instance_config,
-        None,
-    )
-    .await;
+    let (_instance_id, _instance) = TestInstance::new(&env)
+        .config(instance_config)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let response = env
         .api
@@ -1262,15 +1218,9 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
     for i in 0..=9 {
         let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-        let (_instance_id, _instance) = create_instance_with_labels(
-            &env,
-            &dpu_machine_id,
-            &host_machine_id,
-            Some(single_interface_network_config(segment_id)),
-            None,
-            None,
-            vec![],
-            rpc::forge::Metadata {
+        let (_instance_id, _instance) = TestInstance::new(&env)
+            .single_interface_network_config(segment_id)
+            .metadata(rpc::forge::Metadata {
                 name: format!("instance_{}{}{}", i, i, i).to_string(),
                 description: format!("instance_{}{}{} have labels", i, i, i).to_string(),
                 labels: vec![
@@ -1283,9 +1233,9 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
                         value: None,
                     },
                 ],
-            },
-        )
-        .await;
+            })
+            .create(&[dpu_machine_id], &host_machine_id)
+            .await;
     }
 
     // Test searching based on value.
@@ -1525,16 +1475,10 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (instance_id, _instance) = common::api_fixtures::instance::TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     // We can call `release_instance` multiple times
     for i in 0..2 {
@@ -1683,16 +1627,10 @@ async fn test_instance_cloud_init_metadata(
 
     assert_eq!(metadata.instance_id, host_machine_id.to_string());
 
-    let (instance_id, instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (instance_id, instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let request = tonic::Request::new(rpc::forge::CloudInitInstructionsRequest {
         ip: instance.status.unwrap().network.unwrap().interfaces[0].addresses[0].to_string(),
@@ -1722,16 +1660,10 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     // TODO: The test is broken from here. This method already moves the instance
     // into READY state, which means most assertions that follow this won't test
     // anything new anymmore.
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut txn = env
         .pool
@@ -2142,7 +2074,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     );
     txn.commit().await.unwrap();
 
-    let network = Some(rpc::InstanceNetworkConfig {
+    let network = rpc::InstanceNetworkConfig {
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -2161,18 +2093,12 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
                 virtual_function_id: None,
             },
         ],
-    });
+    };
 
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        network,
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .network(network)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut txn = env
         .pool
@@ -2425,14 +2351,10 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
         network_security_group_id: None,
     };
 
-    let (instance_id, _instance) = create_instance_with_config(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        instance_config,
-        None,
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .config(instance_config)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let instance = env
         .find_instances(Some(instance_id.into()))
@@ -2471,16 +2393,10 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
@@ -2715,17 +2631,11 @@ async fn test_allocate_instance_with_old_network_segemnt(
         interface.network_details = None;
     }
 
-    let (instance_id, _instance) = create_instance_with_labels(
-        &env,
-        &dpu_machine_id,
-        &host_machine_id,
-        Some(nw_config),
-        None,
-        None,
-        vec![],
-        instance_metadata.clone(),
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .network(nw_config)
+        .metadata(instance_metadata.clone())
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     // Test searching based on instance id.
     let mut instance_matched_by_id = env
@@ -2936,18 +2846,12 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     assert_eq!(vpc_prefix.total_31_segments, 16);
     assert_eq!(vpc_prefix.available_31_segments, 16);
 
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config_with_vpc_prefix(rpc::Uuid {
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .network(single_interface_network_config_with_vpc_prefix(rpc::Uuid {
             value: vpc_prefix_id.to_string(),
-        })),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+        }))
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let vpc_prefix = env
         .api
@@ -4083,16 +3987,10 @@ async fn test_allocate_and_update_network_config_instance(
     ));
     txn.commit().await.unwrap();
 
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);
@@ -4240,16 +4138,10 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
     ));
     txn.commit().await.unwrap();
 
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);
@@ -4527,14 +4419,11 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         labels: vec![],
     };
 
-    let (instance_id, _instance) = create_instance_with_config(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        initial_config.clone(),
-        Some(initial_metadata.clone()),
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .config(initial_config.clone())
+        .metadata(initial_metadata.clone())
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);
@@ -4750,16 +4639,10 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
     ));
     txn.commit().await.unwrap();
 
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);
@@ -4964,14 +4847,11 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         labels: vec![],
     };
 
-    let (instance_id, _instance) = create_instance_with_config(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        initial_config.clone(),
-        Some(initial_metadata.clone()),
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .config(initial_config.clone())
+        .metadata(initial_metadata.clone())
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);

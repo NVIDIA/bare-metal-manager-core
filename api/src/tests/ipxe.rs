@@ -7,10 +7,7 @@ use crate::{
     model::machine::{DpuInitState, MachineState, ManagedHostState},
 };
 use common::api_fixtures::create_test_env;
-use common::api_fixtures::{
-    TestEnv,
-    instance::{create_instance, single_interface_network_config},
-};
+use common::api_fixtures::{TestEnv, instance::TestInstance};
 use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
@@ -298,16 +295,10 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
             .id;
     txn.commit().await.unwrap();
 
-    let (_instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (_instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let instructions = get_pxe_instructions(
         &env,

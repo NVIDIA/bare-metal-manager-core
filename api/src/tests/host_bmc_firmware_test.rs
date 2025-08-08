@@ -12,8 +12,7 @@
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{
-    TestEnvOverrides, create_test_env, forge_agent_control,
-    instance::{create_instance, single_interface_network_config},
+    TestEnvOverrides, create_test_env, forge_agent_control, instance::TestInstance,
 };
 use crate::{
     CarbideResult,
@@ -1090,16 +1089,10 @@ async fn test_instance_upgrading_actual(
 
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     // Create and start an update manager
     let update_manager =

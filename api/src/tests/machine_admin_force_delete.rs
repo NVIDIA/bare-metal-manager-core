@@ -41,7 +41,7 @@ use common::api_fixtures::{
     get_instance_type_fixture_id,
     host::host_discover_dhcp,
     ib_partition::{DEFAULT_TENANT, create_ib_partition},
-    instance::{create_instance, create_instance_with_ib_config, single_interface_network_config},
+    instance::{TestInstance, create_instance_with_ib_config},
     tpm_attestation::EK_CERT_SERIALIZED,
 };
 
@@ -705,16 +705,10 @@ async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     // 2) mock force-delete
 

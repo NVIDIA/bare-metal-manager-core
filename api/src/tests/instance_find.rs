@@ -13,10 +13,7 @@
 use crate::db::network_segment::NetworkSegment;
 use crate::tests::common::api_fixtures::{
     create_managed_host, create_test_env,
-    instance::{
-        create_instance, create_instance_with_labels, default_tenant_config,
-        single_interface_network_config,
-    },
+    instance::{TestInstance, default_tenant_config},
 };
 use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;
@@ -54,35 +51,23 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 .await
                 .unwrap();
 
-            let (_instance_id, _instance) = create_instance(
-                &env,
-                &[dpu_machine_id],
-                &host_machine_id,
-                Some(single_interface_network_config(segment_id)),
-                None,
-                None,
-                vec![],
-            )
-            .await;
+            let (_instance_id, _instance) = TestInstance::new(&env)
+                .single_interface_network_config(segment_id)
+                .create(&[dpu_machine_id], &host_machine_id)
+                .await;
         } else {
-            let (_instance_id, _instance) = create_instance_with_labels(
-                &env,
-                &dpu_machine_id,
-                &host_machine_id,
-                Some(single_interface_network_config(segment_id)),
-                None,
-                None,
-                vec![],
-                rpc::Metadata {
+            let (_instance_id, _instance) = TestInstance::new(&env)
+                .single_interface_network_config(segment_id)
+                .metadata(rpc::Metadata {
                     name: format!("instance_{}{}{}", i, i, i).to_string(),
                     description: format!("instance_{}{}{} with label", i, i, i).to_string(),
                     labels: vec![rpc::Label {
                         key: "label_test_key".to_string(),
                         value: Some(format!("label_value_{}", i).to_string()),
                     }],
-                },
-            )
-            .await;
+                })
+                .create(&[dpu_machine_id], &host_machine_id)
+                .await;
         }
     }
     let mut txn = env.pool.begin().await.unwrap();
@@ -312,35 +297,23 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
         let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
         if i % 2 == 0 {
-            let (_instance_id, _instance) = create_instance(
-                &env,
-                &[dpu_machine_id],
-                &host_machine_id,
-                Some(single_interface_network_config(segment_id)),
-                None,
-                None,
-                vec![],
-            )
-            .await;
+            let (_instance_id, _instance) = TestInstance::new(&env)
+                .single_interface_network_config(segment_id)
+                .create(&[dpu_machine_id], &host_machine_id)
+                .await;
         } else {
-            let (_instance_id, _instance) = create_instance_with_labels(
-                &env,
-                &dpu_machine_id,
-                &host_machine_id,
-                Some(single_interface_network_config(segment_id)),
-                None,
-                None,
-                vec![],
-                rpc::Metadata {
+            let (_instance_id, _instance) = TestInstance::new(&env)
+                .single_interface_network_config(segment_id)
+                .metadata(rpc::Metadata {
                     name: format!("instance_{}{}{}", i, i, i).to_string(),
                     description: format!("instance_{}{}{} with label", i, i, i).to_string(),
                     labels: vec![rpc::Label {
                         key: "label_test_key".to_string(),
                         value: Some(format!("label_value_{}", i).to_string()),
                     }],
-                },
-            )
-            .await;
+                })
+                .create(&[dpu_machine_id], &host_machine_id)
+                .await;
         }
     }
 

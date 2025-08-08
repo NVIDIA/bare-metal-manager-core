@@ -31,7 +31,7 @@ use common::api_fixtures::{
     TestEnvOverrides, create_host_with_machine_validation, create_test_env,
     create_test_env_with_overrides, forge_agent_control, get_config,
     get_machine_validation_results, get_machine_validation_runs,
-    instance::{create_instance, delete_instance, single_interface_network_config},
+    instance::{TestInstance, delete_instance},
     machine_validation_completed, on_demand_machine_validation, reboot_completed,
     update_machine_validation_run,
 };
@@ -349,16 +349,10 @@ async fn test_machine_validation_get_results(
             .await;
 
     let host_machine_id = try_parse_machine_id(&host_remote_id).unwrap();
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let runs = get_machine_validation_runs(&env, host_remote_id.clone(), false).await;
     assert_eq!(runs.runs.len(), 1);
