@@ -15,8 +15,7 @@ use crate::tests::common;
 use common::api_fixtures::{
     create_managed_host, create_test_env,
     instance::{
-        create_instance_with_config, default_os_config, default_tenant_config,
-        single_interface_network_config,
+        TestInstance, default_os_config, default_tenant_config, single_interface_network_config,
     },
 };
 
@@ -70,8 +69,10 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         network_security_group_id: None,
     };
 
-    let (instance_id, _instance) =
-        create_instance_with_config(&env, &[dpu_machine_id], &host_machine_id, config, None).await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .config(config)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);
@@ -272,8 +273,10 @@ async fn test_instance_creation_with_os_in_tenantconfig(
         network_security_group_id: None,
     };
 
-    let (instance_id, _instance) =
-        create_instance_with_config(&env, &[dpu_machine_id], &host_machine_id, config, None).await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .config(config)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);

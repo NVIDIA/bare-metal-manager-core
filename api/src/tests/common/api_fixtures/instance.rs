@@ -28,123 +28,115 @@ use rpc::{
     forge::{forge_server::Forge, instance_interface_config::NetworkDetails},
 };
 
-pub async fn create_instance(
-    env: &TestEnv,
-    dpu_machine_ids: &[MachineId],
-    host_machine_id: &MachineId,
-    network: Option<rpc::InstanceNetworkConfig>,
-    infiniband: Option<rpc::InstanceInfinibandConfig>,
-    storage: Option<rpc::forge::InstanceStorageConfig>,
-    keyset_ids: Vec<String>,
-) -> (InstanceId, rpc::Instance) {
-    let mut tenant_config = default_tenant_config();
-    tenant_config.tenant_keyset_ids = keyset_ids;
-
-    let config = rpc::InstanceConfig {
-        tenant: Some(tenant_config),
-        os: Some(default_os_config()),
-        network,
-        infiniband,
-        storage,
-        network_security_group_id: None,
-    };
-
-    create_instance_with_config(env, dpu_machine_ids, host_machine_id, config, None).await
+pub struct TestInstance<'a> {
+    env: &'a TestEnv,
+    config: rpc::InstanceConfig,
+    tenant: rpc::TenantConfig,
+    metadata: Option<rpc::Metadata>,
+    unused_dpu_machine_ids: Vec<MachineId>,
 }
 
-#[allow(clippy::too_many_arguments)]
-pub async fn create_instance_with_unused_dpus(
-    env: &TestEnv,
-    dpu_machine_ids: &[MachineId],
-    unused_dpu_machine_ids: &[MachineId],
-    host_machine_id: &MachineId,
-    network: Option<rpc::InstanceNetworkConfig>,
-    infiniband: Option<rpc::InstanceInfinibandConfig>,
-    storage: Option<rpc::forge::InstanceStorageConfig>,
-    keyset_ids: Vec<String>,
-) -> (InstanceId, rpc::Instance) {
-    let mut tenant_config = default_tenant_config();
-    tenant_config.tenant_keyset_ids = keyset_ids;
+impl<'a> TestInstance<'a> {
+    pub fn new(env: &'a TestEnv) -> Self {
+        Self {
+            env,
+            config: rpc::InstanceConfig {
+                tenant: None,
+                os: Some(default_os_config()),
+                network: None,
+                infiniband: None,
+                storage: None,
+                network_security_group_id: None,
+            },
+            tenant: default_tenant_config(),
+            metadata: None,
+            unused_dpu_machine_ids: vec![],
+        }
+    }
 
-    let config = rpc::InstanceConfig {
-        tenant: Some(tenant_config),
-        os: Some(default_os_config()),
-        network,
-        infiniband,
-        storage,
-        network_security_group_id: None,
-    };
+    pub fn config(mut self, config: rpc::InstanceConfig) -> Self {
+        self.config = config;
+        self
+    }
 
-    create_instance_with_config_and_unused_dpus(
-        env,
-        dpu_machine_ids,
-        unused_dpu_machine_ids,
-        host_machine_id,
-        config,
-        None,
-    )
-    .await
+    pub fn network(mut self, network: rpc::InstanceNetworkConfig) -> Self {
+        self.config.network = Some(network);
+        self
+    }
+
+    pub fn single_interface_network_config(self, segment_id: NetworkSegmentId) -> Self {
+        self.network(single_interface_network_config(segment_id))
+    }
+
+    pub fn keyset_ids(mut self, ids: &[&str]) -> Self {
+        self.tenant.tenant_keyset_ids = ids.iter().map(|s| (*s).into()).collect();
+        self
+    }
+
+    pub fn metadata(mut self, metadata: rpc::Metadata) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    pub fn hostname(mut self, hostname: impl Into<String>) -> Self {
+        self.tenant.hostname = Some(hostname.into());
+        self
+    }
+
+    pub fn tenant_org(mut self, tenant_org: impl Into<String>) -> Self {
+        self.tenant.tenant_organization_id = tenant_org.into();
+        self
+    }
+
+    pub fn unused_dpu_machine_ids(mut self, ids: &[MachineId]) -> Self {
+        self.unused_dpu_machine_ids = ids.to_vec();
+        self
+    }
+
+    pub async fn create(
+        mut self,
+        dpu_machine_ids: &[MachineId],
+        host_machine_id: &MachineId,
+    ) -> (InstanceId, rpc::Instance) {
+        if self.config.tenant.is_none() {
+            self.config.tenant = Some(self.tenant);
+        }
+        let instance_id: InstanceId = self
+            .env
+            .api
+            .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+                instance_id: None,
+                machine_id: Some(rpc::MachineId {
+                    id: host_machine_id.to_string(),
+                }),
+                instance_type_id: None,
+                config: Some(self.config),
+                metadata: self.metadata,
+                allow_unhealthy_machine: false,
+            }))
+            .await
+            .expect("Create instance failed.")
+            .into_inner()
+            .id
+            .expect("Missing instance ID")
+            .try_into()
+            .unwrap();
+
+        let instance = advance_created_instance_into_ready_state(
+            self.env,
+            &dpu_machine_ids
+                .iter()
+                .chain(self.unused_dpu_machine_ids.iter().collect::<Vec<_>>())
+                .copied()
+                .collect(),
+            host_machine_id,
+            instance_id,
+        )
+        .await;
+        (instance_id, instance)
+    }
 }
 
-#[allow(clippy::too_many_arguments)]
-pub async fn create_instance_with_labels(
-    env: &TestEnv,
-    dpu_machine_id: &MachineId,
-    host_machine_id: &MachineId,
-    network: Option<rpc::InstanceNetworkConfig>,
-    infiniband: Option<rpc::InstanceInfinibandConfig>,
-    storage: Option<rpc::forge::InstanceStorageConfig>,
-    keyset_ids: Vec<String>,
-    instance_metadata: rpc::Metadata,
-) -> (InstanceId, rpc::Instance) {
-    let mut tenant_config = default_tenant_config();
-    tenant_config.tenant_keyset_ids = keyset_ids;
-
-    let config = rpc::InstanceConfig {
-        tenant: Some(tenant_config),
-        os: Some(default_os_config()),
-        network,
-        infiniband,
-        storage,
-        network_security_group_id: None,
-    };
-    create_instance_with_config(
-        env,
-        &[*dpu_machine_id],
-        host_machine_id,
-        config,
-        Some(instance_metadata),
-    )
-    .await
-}
-
-#[allow(clippy::too_many_arguments)]
-pub async fn create_instance_with_hostname(
-    env: &TestEnv,
-    dpu_machine_id: &MachineId,
-    host_machine_id: &MachineId,
-    network: Option<rpc::InstanceNetworkConfig>,
-    infiniband: Option<rpc::InstanceInfinibandConfig>,
-    storage: Option<rpc::forge::InstanceStorageConfig>,
-    keyset_ids: Vec<String>,
-    hostname: String,
-    tenant_org: String,
-) -> (InstanceId, rpc::Instance) {
-    let mut tenant_config = default_tenant_config();
-    tenant_config.tenant_keyset_ids = keyset_ids;
-    tenant_config.tenant_organization_id = tenant_org;
-    tenant_config.hostname = Some(hostname);
-
-    let config = rpc::InstanceConfig {
-        tenant: Some(tenant_config),
-        os: Some(default_os_config()),
-        network,
-        infiniband,
-        storage,
-        network_security_group_id: None,
-    };
-    create_instance_with_config(env, &[*dpu_machine_id], host_machine_id, config, None).await
-}
 pub async fn create_instance_with_ib_config(
     env: &TestEnv,
     dpu_machine_id: &MachineId,
@@ -152,9 +144,10 @@ pub async fn create_instance_with_ib_config(
     ib_config: rpc::forge::InstanceInfinibandConfig,
     network_segment_id: NetworkSegmentId,
 ) -> (InstanceId, rpc::forge::Instance) {
-    let config = config_for_ib_config(ib_config, network_segment_id);
-
-    create_instance_with_config(env, &[*dpu_machine_id], host_machine_id, config, None).await
+    TestInstance::new(env)
+        .config(config_for_ib_config(ib_config, network_segment_id))
+        .create(&[*dpu_machine_id], host_machine_id)
+        .await
 }
 
 pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::InstanceNetworkConfig {
@@ -242,66 +235,6 @@ pub fn config_for_ib_config(
         storage: None,
         network_security_group_id: None,
     }
-}
-
-pub async fn create_instance_with_config(
-    env: &TestEnv,
-    dpu_machine_ids: &[MachineId],
-    host_machine_id: &MachineId,
-    config: rpc::InstanceConfig,
-    instance_metadata: Option<rpc::Metadata>,
-) -> (InstanceId, rpc::Instance) {
-    create_instance_with_config_and_unused_dpus(
-        env,
-        dpu_machine_ids,
-        &Vec::default(),
-        host_machine_id,
-        config,
-        instance_metadata,
-    )
-    .await
-}
-
-pub async fn create_instance_with_config_and_unused_dpus(
-    env: &TestEnv,
-    dpu_machine_ids: &[MachineId],
-    unused_dpu_machine_ids: &[MachineId],
-    host_machine_id: &MachineId,
-    config: rpc::InstanceConfig,
-    instance_metadata: Option<rpc::Metadata>,
-) -> (InstanceId, rpc::Instance) {
-    let instance_id: InstanceId = env
-        .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: None,
-            machine_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
-            instance_type_id: None,
-            config: Some(config),
-            metadata: instance_metadata,
-            allow_unhealthy_machine: false,
-        }))
-        .await
-        .expect("Create instance failed.")
-        .into_inner()
-        .id
-        .expect("Missing instance ID")
-        .try_into()
-        .unwrap();
-
-    let instance = advance_created_instance_into_ready_state(
-        env,
-        &dpu_machine_ids
-            .iter()
-            .chain(unused_dpu_machine_ids)
-            .copied()
-            .collect(),
-        host_machine_id,
-        instance_id,
-    )
-    .await;
-    (instance_id, instance)
 }
 
 pub async fn advance_created_instance_into_ready_state(

@@ -1034,16 +1034,10 @@ async fn test_update_svi_ip_post_instance_allocation(
     );
     txn.commit().await.unwrap();
 
-    let (_instance_id, _instance) = common::api_fixtures::instance::create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(common::api_fixtures::instance::single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (_instance_id, _instance) = common::api_fixtures::instance::TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     // At this moment, the third IP is taken from the tenant subnet for the instance.
     let mut txn = env.pool.begin().await?;

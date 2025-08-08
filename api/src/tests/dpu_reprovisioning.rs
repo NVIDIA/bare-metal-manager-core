@@ -32,9 +32,7 @@ use rpc::forge::forge_server::Forge;
 use crate::tests::common;
 
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
-use crate::tests::common::api_fixtures::instance::{
-    create_instance, single_interface_network_config,
-};
+use crate::tests::common::api_fixtures::instance::TestInstance;
 use crate::tests::common::api_fixtures::{
     TestEnv, create_managed_host, discovery_completed, forge_agent_control, network_configured,
     update_time_params,
@@ -693,16 +691,10 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let (instance_id, instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (instance_id, instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
@@ -1212,16 +1204,10 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
@@ -2898,16 +2884,10 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])

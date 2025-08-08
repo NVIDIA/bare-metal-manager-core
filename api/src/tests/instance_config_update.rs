@@ -14,9 +14,7 @@ use crate::tests::common::{self, api_fixtures::get_vpc_fixture_id};
 
 use common::api_fixtures::{
     create_managed_host, create_test_env,
-    instance::{
-        create_instance_with_config, default_tenant_config, single_interface_network_config,
-    },
+    instance::{TestInstance, default_tenant_config, single_interface_network_config},
     network_configured,
 };
 
@@ -113,14 +111,11 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         labels: vec![],
     };
 
-    let (instance_id, _instance) = create_instance_with_config(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        initial_config.clone(),
-        Some(initial_metadata.clone()),
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .config(initial_config.clone())
+        .metadata(initial_metadata.clone())
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);
@@ -402,14 +397,11 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         labels: vec![],
     };
 
-    let (instance_id, _instance) = create_instance_with_config(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        valid_config.clone(),
-        Some(initial_metadata.clone()),
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .config(valid_config.clone())
+        .metadata(initial_metadata.clone())
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     // Try to update to an invalid OS
     let invalid_os = rpc::forge::OperatingSystem {
@@ -683,14 +675,11 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
         labels: vec![],
     };
 
-    let (instance_id, _instance) = create_instance_with_config(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        initial_config.clone(),
-        Some(initial_metadata.clone()),
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .config(initial_config.clone())
+        .metadata(initial_metadata.clone())
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);
@@ -834,14 +823,11 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         labels: vec![],
     };
 
-    let (instance_id, _instance) = create_instance_with_config(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        initial_config.clone(),
-        Some(initial_metadata.clone()),
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .config(initial_config.clone())
+        .metadata(initial_metadata.clone())
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);
@@ -1039,14 +1025,11 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
         labels: vec![],
     };
 
-    let (instance_id, _instance) = create_instance_with_config(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        initial_config.clone(),
-        Some(initial_metadata.clone()),
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .config(initial_config.clone())
+        .metadata(initial_metadata.clone())
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
     assert_eq!(instances.len(), 1);

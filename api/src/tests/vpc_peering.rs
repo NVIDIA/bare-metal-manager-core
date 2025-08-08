@@ -12,7 +12,7 @@
 
 use crate::{
     db,
-    tests::common::api_fixtures::{create_managed_host, create_test_env},
+    tests::common::api_fixtures::{create_managed_host, create_test_env, instance::TestInstance},
 };
 use forge_uuid::{machine::MachineId, vpc::VpcId};
 use rpc::{
@@ -26,7 +26,7 @@ use rpc::{
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
-use super::common::api_fixtures::{self, TestEnv, instance};
+use super::common::api_fixtures::{self, TestEnv};
 
 async fn create_test_vpcs(env: &TestEnv, count: i32) -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..count {
@@ -275,7 +275,7 @@ async fn create_vpc_peering(
     let _ = env.api.create_vpc_peering(vpc_peering_request).await?;
 
     // Add an instance
-    let instance_network = Some(rpc::InstanceNetworkConfig {
+    let instance_network = rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some((segment_id).into()),
@@ -284,17 +284,11 @@ async fn create_vpc_peering(
             device_instance: 0,
             virtual_function_id: None,
         }],
-    });
-    let (_instance_id, _instance) = instance::create_instance(
-        env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        instance_network,
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    };
+    let (_instance_id, _instance) = TestInstance::new(env)
+        .network(instance_network)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     Ok((vpc_id, peer_vpc_id, vpc_vni, peer_vpc_vni, dpu_machine_id))
 }

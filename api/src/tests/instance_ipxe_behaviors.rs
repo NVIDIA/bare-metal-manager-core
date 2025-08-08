@@ -17,8 +17,7 @@ use rpc::forge::{PxeInstructions, forge_server::Forge};
 use crate::tests::common::api_fixtures::{
     create_managed_host,
     instance::{
-        create_instance_with_config, default_os_config, default_tenant_config,
-        single_interface_network_config,
+        TestInstance, default_os_config, default_tenant_config, single_interface_network_config,
     },
 };
 use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
@@ -189,6 +188,8 @@ pub async fn create_instance(
         storage: None,
         network_security_group_id: None,
     };
-
-    create_instance_with_config(env, &[*dpu_machine_id], host_machine_id, config, None).await
+    TestInstance::new(env)
+        .config(config)
+        .create(&[*dpu_machine_id], host_machine_id)
+        .await
 }

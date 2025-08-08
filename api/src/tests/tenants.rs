@@ -11,10 +11,7 @@
  */
 use crate::tests::common;
 
-use crate::tests::common::api_fixtures::{
-    create_managed_host,
-    instance::{create_instance, single_interface_network_config},
-};
+use crate::tests::common::api_fixtures::{create_managed_host, instance::TestInstance};
 use common::api_fixtures::{TestEnv, create_test_env};
 use rpc::forge::{CreateTenantKeysetResponse, forge_server::Forge};
 use tonic::Code;
@@ -760,16 +757,11 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
 
     // Create instance
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec!["keyset1".to_string(), "keyset2".to_string()],
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .keyset_ids(&["keyset1", "keyset2"])
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     // Test that key set validation NOT ok with ssh keys passed with instance.
     assert!(
@@ -852,16 +844,11 @@ async fn test_keyset_in_instance(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        Some(single_interface_network_config(segment_id)),
-        None,
-        None,
-        vec!["keyset1".to_string(), "keyset2".to_string()],
-    )
-    .await;
+    let (instance_id, _instance) = TestInstance::new(&env)
+        .single_interface_network_config(segment_id)
+        .keyset_ids(&["keyset1", "keyset2"])
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let instance = env
         .api

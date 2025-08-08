@@ -94,7 +94,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     // Add an instance
-    let instance_network = Some(rpc::InstanceNetworkConfig {
+    let instance_network = rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some((segment_id).into()),
@@ -103,17 +103,11 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
             device_instance: 0u32,
             virtual_function_id: None,
         }],
-    });
-    let (_instance_id, _instance) = instance::create_instance(
-        &env,
-        &[dpu_machine_id],
-        &host_machine_id,
-        instance_network,
-        None,
-        None,
-        vec![],
-    )
-    .await;
+    };
+    let (_instance_id, _instance) = instance::TestInstance::new(&env)
+        .network(instance_network)
+        .create(&[dpu_machine_id], &host_machine_id)
+        .await;
 
     let response = env
         .api
