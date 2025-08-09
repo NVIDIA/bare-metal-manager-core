@@ -390,7 +390,16 @@ async fn handle_discover(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl
 }
 
 async fn handle_version() -> impl IntoResponse {
-    common::respond(rpc::forge::BuildInfo::default())
+    let mut resp = rpc::forge::BuildInfo::default();
+
+    let rc = rpc::forge::RuntimeConfig {
+        sitename: Some("testsite".to_string()),
+        ..Default::default()
+    };
+
+    resp.runtime_config = Some(rc);
+
+    common::respond(resp)
 }
 
 async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl IntoResponse {
@@ -712,7 +721,6 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         internet_l3_vni: Some(1337),
         stateful_acls_enabled: true,
         instance: Some(instance),
-        sitename: Some("testsite".to_string()),
     };
     common::respond(netconf)
 }

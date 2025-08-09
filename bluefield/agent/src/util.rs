@@ -17,6 +17,7 @@ use rpc::{
     Instance, Timestamp,
     forge::InstancePhoneHomeLastContactRequest,
     forge::ManagedHostNetworkConfigRequest,
+    forge::VersionRequest,
     forge_resolver,
     forge_tls_client::{self, ApiConfig, ForgeClientConfig, ForgeClientT},
 };
@@ -171,6 +172,29 @@ pub async fn get_instance(
     };
 
     Ok(instances.first().cloned())
+}
+
+pub async fn get_sitename(client: &mut ForgeClientT) -> Result<Option<String>, eyre::Error> {
+    let request = tonic::Request::new(VersionRequest {
+        display_config: true,
+    });
+
+    let resp = match client.version(request).await {
+        Ok(response) => response.into_inner(),
+        Err(err) => {
+            return Err(eyre::eyre!(
+                "Error while executing the Version gRPC call: {}",
+                err.to_string()
+            ));
+        }
+    };
+
+    let sn = match resp.runtime_config {
+        Some(rc) => rc.sitename,
+        None => return Ok(None),
+    };
+
+    Ok(sn)
 }
 
 // Use grpc call GetPeriodicDpuConfig and return the retrieved info

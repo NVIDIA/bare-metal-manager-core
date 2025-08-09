@@ -513,7 +513,6 @@ pub(crate) async fn get_managed_host_network_config_inner(
             })
             .unwrap_or_default(),
         instance: maybe_instance,
-        sitename: api.runtime_config.sitename.clone(),
     };
 
     // If this all worked, we shouldn't emit a log line

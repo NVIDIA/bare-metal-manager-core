@@ -27,13 +27,14 @@ use ::rpc::Uuid as uuid;
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 
-use crate::util::{create_forge_client, get_periodic_dpu_config};
+use crate::util::{create_forge_client, get_periodic_dpu_config, get_sitename};
 
 pub struct PeriodicFetcherState {
     config: PeriodicConfigFetcherConfig,
     netconf: ArcSwapOption<rpc::ManagedHostNetworkConfigResponse>,
     instmeta: ArcSwapOption<InstanceMetadata>,
     is_cancelled: AtomicBool,
+    sitename: Option<String>,
 }
 
 /// Fetches the desired network configuration for a managed host in regular intervals
@@ -105,9 +106,20 @@ impl Drop for PeriodicConfigFetcher {
 impl PeriodicConfigFetcher {
     pub async fn new(config: PeriodicConfigFetcherConfig) -> Self {
         let forge_client_config = config.forge_client_config.clone();
+        // Fetch the sitename from Carbide at the start and keep it in State
+        // so that it can be made available as instance metadata.
+        let sitename = match fetch_sitename(&forge_client_config, &config.forge_api).await {
+            Ok(sn) => sn,
+            Err(e) => {
+                warn!("Unable to fetch sitename. Error {}", e);
+                None
+            }
+        };
+
         let state = Arc::new(PeriodicFetcherState {
             netconf: ArcSwapOption::default(),
             instmeta: ArcSwapOption::default(),
+            sitename,
             config,
             is_cancelled: AtomicBool::new(false),
         });
@@ -154,6 +166,18 @@ pub struct PeriodicConfigFetcherConfig {
     pub forge_client_config: ForgeClientConfig,
 }
 
+// Use the version grpc call to carbide to get
+// the sitename. This will be made visible to tenant OS
+// at an FMDS endpoint
+async fn fetch_sitename(
+    forge_client_config: &ForgeClientConfig,
+    forge_api: &str,
+) -> Result<Option<String>, eyre::Report> {
+    let mut client = create_forge_client(forge_api, forge_client_config).await?;
+
+    get_sitename(&mut client).await
+}
+
 async fn single_fetch(
     forge_client_config: &ForgeClientConfig,
     state: Arc<PeriodicFetcherState>,
@@ -181,7 +205,7 @@ async fn single_fetch(
         Ok(resp) => {
             state.netconf.store(Some(Arc::new(resp.clone())));
 
-            match instance_metadata_from_instance(resp.instance, resp.sitename).await {
+            match instance_metadata_from_instance(resp.instance, state.sitename.clone()).await {
                 Ok(Some(config)) => {
                     state.instmeta.store(Some(Arc::new(config)));
                 }

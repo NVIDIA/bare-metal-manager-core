@@ -850,7 +850,6 @@ async fn test_single_dpu_instance_allocation(
 
     assert_eq!(inst.machine_id, Some(mid));
     assert_eq!(inst.id, Some(instid));
-    assert_eq!(resp.sitename, Some("testsite".to_string()));
 
     Ok(())
 }
