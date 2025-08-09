@@ -2466,8 +2466,6 @@ message ManagedHostNetworkConfigResponse {
   // or to make it easier to handle GNI changes, such as a swap
   // in the default-route RT.
   repeated common.RouteTarget additional_route_target_imports = 110;
-
-  optional string sitename = 111;
 }
 
 message ManagedHostQuarantineState {
