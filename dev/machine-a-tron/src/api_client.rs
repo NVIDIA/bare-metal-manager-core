@@ -161,11 +161,25 @@ impl ApiClient {
                 dpu_info.firmware_version = dpu_nic_version;
             }
         }
+        let pci_properties = if machine_type == MachineType::Dpu {
+            None
+        } else {
+            Some(rpc::PciDeviceProperties {
+                vendor: "Mellanox Technologies".into(),
+                device: "0xa2d6".into(),
+                path: "/devices/pci0000:b0/0000:b0:04.0/0000:b1:00.1/net/enp177s0f1np1".into(),
+                numa_node: 1,
+                description: Some(
+                    "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller1".into(),
+                ),
+                slot: None,
+            })
+        };
         discovery_data.network_interfaces = network_interface_macs
             .iter()
             .map(|mac| rpc::machine_discovery::NetworkInterface {
                 mac_address: mac.clone(),
-                pci_properties: None,
+                pci_properties: pci_properties.clone(),
             })
             .collect();
 
