@@ -1072,7 +1072,7 @@ impl Default for DpuConfig {
                                         Regex::new("DPU_NIC").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard("24.42.1000")],
+                                    known_firmware: vec![FirmwareEntry::standard("24.43.3608")],
                                 },
                             ),
                         ]),
