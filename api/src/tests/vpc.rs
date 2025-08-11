@@ -25,7 +25,6 @@ use std::ops::DerefMut;
 use crate::tests::common;
 
 #[crate::sqlx_test]
-#[allow(deprecated)]
 async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
@@ -723,7 +722,6 @@ async fn create_admin_vpc(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 }
 
 #[crate::sqlx_test]
-#[allow(deprecated)]
 async fn create_update_network_security_group_for_vpc(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

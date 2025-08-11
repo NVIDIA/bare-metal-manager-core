@@ -571,52 +571,58 @@ fn export_otel_logs(
     Ok(())
 }
 
+pub struct ExportedHealthMetrics<'a> {
+    pub health: HardwareHealth,
+    pub dpu_health: DpuHealth,
+    pub last_firmware_digest: &'a String,
+    pub last_sel_count: usize,
+    pub last_recorded_ts: i64,
+    pub description: &'a String,
+    pub machine_id: &'a str,
+}
+
 // the attribute keys and values are specified in
 // https://opentelemetry.io/docs/specs/otel/metrics/semantic_conventions/hardware-metrics/
 // in the hw.temperature section.
 // hw.id, hw.type are required.
 // hw.host.id and hw.sensor_location are recommended
 // hw.state and hw.health are custom attributes based on redfish schema
-#[allow(clippy::too_many_arguments)]
 pub async fn export_metrics(
     provider: impl opentelemetry::metrics::MeterProvider,
     logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
-    health: HardwareHealth,
-    dpu_health: DpuHealth,
-    last_firmware_digest: String,
-    last_sel_count: usize,
-    last_recorded_ts: i64,
-    description: String,
-    machine_id: &str,
+    metrics: ExportedHealthMetrics<'_>,
 ) -> Result<(String, usize, i64, i64, bool, bool), HealthError> {
+    let machine_id = metrics.machine_id;
     // build or get meter for each machine
     let meter = provider.meter(get_static_machine_id_str(machine_id));
     let now: DateTime<Utc> = Utc::now();
     let mut polled_ts: i64 = 0;
     let mut recorded_ts: i64 = 0;
-    if let Ok(thermal) = health.thermal {
+    if let Ok(thermal) = metrics.health.thermal {
         export_temperatures(meter.clone(), thermal.temperatures, machine_id, false)?;
         export_fans(meter.clone(), thermal.fans, machine_id)?;
     }
-    if let (Ok(power), Ok(localstorage), Ok(power_state)) =
-        (health.power, health.localstorage, health.power_state)
-    {
+    if let (Ok(power), Ok(localstorage), Ok(power_state)) = (
+        metrics.health.power,
+        metrics.health.localstorage,
+        metrics.health.power_state,
+    ) {
         export_voltages(meter.clone(), power.voltages, machine_id)?;
         export_power_supplies(meter.clone(), power.power_supplies, power_state, machine_id)?;
         export_power_control(meter.clone(), power.power_control, power_state, machine_id)?;
         export_localstorage(meter.clone(), localstorage, power_state, machine_id)?;
     }
 
-    if let Some(thermal) = dpu_health.thermal {
+    if let Some(thermal) = metrics.dpu_health.thermal {
         export_temperatures(meter.clone(), thermal.temperatures, machine_id, true)?;
     }
-    if let Ok(Some(gpu_sensors)) = health.gpu_sensors {
+    if let Ok(Some(gpu_sensors)) = metrics.health.gpu_sensors {
         export_gpu_sensors(meter, gpu_sensors, machine_id)?;
     }
 
     let mut firmware_digest = String::new();
     let mut sel_count = 0;
-    if let (Ok(logs), Ok(firmware)) = (health.logs, health.firmware) {
+    if let (Ok(logs), Ok(firmware)) = (metrics.health.logs, metrics.health.firmware) {
         sel_count = logs.len();
         if !firmware.is_empty() {
             polled_ts = now.timestamp();
@@ -631,11 +637,11 @@ pub async fn export_metrics(
             let firmware_digest_bytes = hasher.finalize();
             firmware_digest = general_purpose::STANDARD_NO_PAD.encode(firmware_digest_bytes);
         }
-        if (!firmware_digest.is_empty() && firmware_digest != last_firmware_digest)
-            || (sel_count > 0 && sel_count != last_sel_count)
-            || (now.timestamp() - last_recorded_ts) > (24 * 60 * 60)
+        if (!firmware_digest.is_empty() && firmware_digest != *metrics.last_firmware_digest)
+            || (sel_count > 0 && sel_count != metrics.last_sel_count)
+            || (now.timestamp() - metrics.last_recorded_ts) > (24 * 60 * 60)
         {
-            export_otel_logs(logger, firmware, logs, machine_id, &description)?;
+            export_otel_logs(logger, firmware, logs, machine_id, metrics.description)?;
             recorded_ts = polled_ts;
         } else {
             firmware_digest.clear();
@@ -648,8 +654,8 @@ pub async fn export_metrics(
         sel_count,
         polled_ts,
         recorded_ts,
-        dpu_health.reachable,
-        dpu_health.attempted,
+        metrics.dpu_health.reachable,
+        metrics.dpu_health.attempted,
     ))
 }
 
@@ -733,13 +739,15 @@ pub async fn scrape_machine_health(
     export_metrics(
         provider.clone(),
         logger,
-        health,
-        dpu_health,
-        health_data.firmware_digest.clone(),
-        health_data.sel_count,
-        health_data.last_recorded_ts,
-        health_data.description.clone(),
-        machine_id,
+        ExportedHealthMetrics {
+            health,
+            dpu_health,
+            last_firmware_digest: &health_data.firmware_digest,
+            last_sel_count: health_data.sel_count,
+            last_recorded_ts: health_data.last_recorded_ts,
+            description: &health_data.description,
+            machine_id,
+        },
     )
     .await
 }

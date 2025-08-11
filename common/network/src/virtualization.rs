@@ -40,7 +40,6 @@ pub const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: VpcVirtualizationType =
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "network_virtualization_type_t"))]
-#[allow(clippy::enum_variant_names)]
 pub enum VpcVirtualizationType {
     #[cfg_attr(feature = "sqlx", sqlx(rename = "etv"))]
     EthernetVirtualizer,

@@ -133,7 +133,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 factory_mac_address,
                 forge_client_config,
                 agent,
-                options,
+                *options,
             )
             .await
             .wrap_err("main_loop error exit")?;

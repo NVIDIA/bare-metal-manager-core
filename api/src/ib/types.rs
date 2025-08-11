@@ -186,11 +186,9 @@ impl From<IBRateLimit> for i32 {
 }
 
 impl Default for IBServiceLevel {
-    // NOTES: Highlight the default value of service_level which is
-    // the same value of i32.
-    #[allow(clippy::derivable_impls)]
-    fn default() -> IBServiceLevel {
-        IBServiceLevel(0)
+    fn default() -> Self {
+        const DEFAULT_IB_SERVICE_LEVEL: i32 = 0;
+        Self(DEFAULT_IB_SERVICE_LEVEL)
     }
 }
 

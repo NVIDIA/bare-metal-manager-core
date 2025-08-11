@@ -9,7 +9,6 @@ use crossterm::{
 
 use futures::StreamExt;
 use libredfish::PowerState;
-#[allow(unused_imports)]
 use ratatui::{prelude::*, symbols::DOT, widgets::*};
 use tokio::{
     select,

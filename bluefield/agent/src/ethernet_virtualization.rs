@@ -692,7 +692,6 @@ pub async fn update_interface_state(
     InterfaceState::update_state(&needed_state, hbn_device_names, current_state).await
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn update_dhcp(
     hbn_root: &Path,
     network_config: &rpc::ManagedHostNetworkConfigResponse,

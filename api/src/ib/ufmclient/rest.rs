@@ -36,7 +36,7 @@ pub enum RestError {
     MalformedResponse {
         status_code: u16,
         body: String,
-        headers: http::HeaderMap,
+        headers: Box<http::HeaderMap>,
     },
     #[error("Failed to execute HTTP request: {0}")]
     HttpConnectionError(String),
@@ -44,7 +44,7 @@ pub enum RestError {
     HttpError {
         status_code: u16,
         body: String,
-        headers: http::HeaderMap,
+        headers: Box<http::HeaderMap>,
     },
     /// This error type is just needed because UFM in some cases does not return a 404 status
     /// code but a 200 status code with a body containing {}
@@ -55,7 +55,7 @@ pub enum RestError {
         path: String,
         status_code: u16,
         body: String,
-        headers: http::HeaderMap,
+        headers: Box<http::HeaderMap>,
     },
 }
 
@@ -109,7 +109,6 @@ pub struct RestClient {
 }
 
 impl RestClient {
-    #[allow(clippy::result_large_err)]
     pub fn new(conf: &RestClientConfig) -> Result<RestClient, RestError> {
         let mut auth_info = conf.auth_info.clone().trim().to_string();
         let mut auto_cert: Option<UFMCert> = None;
@@ -295,7 +294,7 @@ impl RestClient {
                 path: path.to_string(),
                 status_code: resp.details.status_code,
                 body: resp.body,
-                headers: resp.details.headers,
+                headers: Box::new(resp.details.headers),
             });
         }
 
@@ -304,7 +303,7 @@ impl RestClient {
             Err(_) => {
                 return Err(RestError::MalformedResponse {
                     status_code: resp.details.status_code,
-                    headers: resp.details.headers,
+                    headers: Box::new(resp.details.headers),
                     body: resp.body,
                 });
             }
@@ -333,7 +332,7 @@ impl RestClient {
             Err(_) => {
                 return Err(RestError::MalformedResponse {
                     status_code: resp.details.status_code,
-                    headers: resp.details.headers,
+                    headers: Box::new(resp.details.headers),
                     body: resp.body,
                 });
             }
@@ -401,7 +400,7 @@ impl RestClient {
             status => Err(RestError::HttpError {
                 status_code: status.as_u16(),
                 body,
-                headers,
+                headers: Box::new(headers),
             }),
         }
     }

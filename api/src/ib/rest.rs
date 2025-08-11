@@ -203,7 +203,7 @@ impl IBFabric for RestIBFabric {
             }) => IBFabricRawResponse {
                 body,
                 code: status_code,
-                headers,
+                headers: *headers,
             },
             Err(e) => return Err(e.into()),
         };

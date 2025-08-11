@@ -397,7 +397,6 @@ pub struct DpuVersionOptions {
     pub updates_only: bool,
 }
 
-#[allow(clippy::enum_variant_names)]
 #[derive(Parser, Debug)]
 pub enum HostAction {
     #[clap(about = "Set Host UEFI password")]

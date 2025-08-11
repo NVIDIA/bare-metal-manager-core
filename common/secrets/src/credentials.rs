@@ -149,7 +149,6 @@ impl CredentialProvider for TestCredentialProvider {
     }
 }
 
-#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CredentialType {
     DpuHardwareDefault,
@@ -158,7 +157,6 @@ pub enum CredentialType {
     Machine { machine_id: String },
 }
 
-#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BmcCredentialType {
     // Site Wide Root Credentials
