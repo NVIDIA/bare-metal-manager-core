@@ -310,7 +310,6 @@ impl Histogram {
 
 #[derive(Debug, Clone)]
 pub struct Bucket {
-    #[allow(dead_code)]
     pub count: u64,
     pub attributes: Attributes,
 }

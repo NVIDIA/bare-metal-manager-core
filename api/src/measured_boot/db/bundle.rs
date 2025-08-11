@@ -1059,9 +1059,8 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::useless_vec)]
     fn test_match_closest_bundle_no_matches() {
-        let measurement_bundles = vec![create_bundle_no_matches()];
+        let measurement_bundles = [create_bundle_no_matches()];
         // create 5 pcr values
         let pcr_register_values = create_pcr_register_values();
 
@@ -1082,9 +1081,8 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::useless_vec)]
     fn test_match_closest_bundle_the_only_match() {
-        let measurement_bundles = vec![create_bundle_no_matches(), create_bundle_one_matching()];
+        let measurement_bundles = [create_bundle_no_matches(), create_bundle_one_matching()];
         // create 5 pcr values
         let pcr_register_values = create_pcr_register_values();
 
@@ -1109,7 +1107,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::useless_vec)]
     fn test_match_closest_bundle_two_same_matches() {
         let bundle_one = create_bundle_one_matching();
         let bundle_two = create_generic_bundle(
@@ -1118,7 +1115,7 @@ mod tests {
             bundle_one.values.clone(),
         );
 
-        let measurement_bundles = vec![bundle_one, bundle_two];
+        let measurement_bundles = [bundle_one, bundle_two];
         // create 5 pcr values
         let pcr_register_values = create_pcr_register_values();
 

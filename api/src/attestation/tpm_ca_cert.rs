@@ -24,7 +24,6 @@ use x509_parser::extensions::ParsedExtension;
 use x509_parser::oid_registry;
 use x509_parser::prelude::{FromDer, GeneralName};
 
-#[allow(clippy::type_complexity)]
 pub fn extract_ca_fields(
     ca_cert_bytes: &[u8],
 ) -> CarbideResult<(DateTime<Utc>, DateTime<Utc>, Vec<u8>)> {

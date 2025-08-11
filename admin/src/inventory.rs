@@ -338,15 +338,16 @@ struct InstanceDetails {
     bmc_ip: String,
 }
 
+type CreateInventoryReturnType = (
+    HashMap<String, Vec<InstanceDetails>>,
+    Vec<Option<::rpc::common::MachineId>>,
+);
+
 /// Generate inventory item for instances.
-#[allow(clippy::type_complexity)]
 fn create_inventory_for_instances(
     instances: InstanceList,
     machines: &MachineList,
-) -> CarbideCliResult<(
-    HashMap<String, Vec<InstanceDetails>>,
-    Vec<Option<::rpc::common::MachineId>>,
-)> {
+) -> CarbideCliResult<CreateInventoryReturnType> {
     let mut tenant_map: HashMap<String, Vec<InstanceDetails>> = HashMap::new();
     let mut used_machines = vec![];
 

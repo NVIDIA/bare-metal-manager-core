@@ -391,7 +391,6 @@ impl TestEnv {
     /// Runs iterations of the machine state controller handler with the services
     /// in this test environment until the condition is met.  using a callback function
     /// allows the caller to use "matches!" to compare patterns instead of concrete values.
-    #[allow(clippy::await_holding_refcell_ref)]
     pub async fn run_machine_state_controller_iteration_until_state_condition(
         &self,
         host_machine_id: &MachineId,
@@ -435,7 +434,6 @@ impl TestEnv {
 
     /// Runs one iteration of the machine state controller handler
     //// with the services in this test environment
-    #[allow(clippy::await_holding_refcell_ref)]
     pub async fn run_machine_state_controller_iteration(&self) {
         self.machine_state_controller
             .lock()
@@ -446,7 +444,6 @@ impl TestEnv {
 
     /// Runs one iteration of the network state controller handler with the services
     /// in this test environment
-    #[allow(clippy::await_holding_refcell_ref)]
     pub async fn run_network_segment_controller_iteration(&self) {
         self.network_segment_controller
             .lock()
@@ -457,7 +454,6 @@ impl TestEnv {
 
     /// Runs one iteration of the IB partition state controller handler with the services
     /// in this test environment
-    #[allow(clippy::await_holding_refcell_ref)]
     pub async fn run_ib_partition_controller_iteration(&self) {
         self.ib_partition_controller
             .lock()

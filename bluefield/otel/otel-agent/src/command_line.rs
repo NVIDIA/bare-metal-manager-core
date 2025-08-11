@@ -26,10 +26,9 @@ pub struct Options {
 }
 
 #[derive(Parser, Debug)]
-#[allow(clippy::large_enum_variant)]
 pub enum AgentCommand {
     #[clap(about = "Run is the normal command. Runs main loop forever.")]
-    Run(RunOptions),
+    Run(Box<RunOptions>),
 }
 
 #[derive(Parser, Debug)]

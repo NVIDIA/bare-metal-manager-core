@@ -101,12 +101,12 @@ pub fn setup_agent_run_env(
     let opts = crate::Options {
         version: false,
         config_path: Some(acf.path().to_path_buf()),
-        cmd: Some(crate::AgentCommand::Run(crate::RunOptions {
+        cmd: Some(crate::AgentCommand::Run(Box::new(crate::RunOptions {
             enable_metadata_service: test_metadata_service,
             override_machine_id: None,
             override_network_virtualization_type: None,
             skip_upgrade_check: false,
-        })),
+        }))),
     };
 
     Ok(Some(opts))

@@ -50,7 +50,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         }
 
         Some(AgentCommand::Run(options)) => {
-            main_loop::setup_and_run(forge_client_config, agent, options)
+            main_loop::setup_and_run(forge_client_config, agent, *options)
                 .await
                 .wrap_err("main_loop error exit")?;
             tracing::info!("Agent exit");

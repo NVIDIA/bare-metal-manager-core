@@ -83,7 +83,6 @@ async fn main() -> Result<(), eyre::Report> {
     Ok(())
 }
 
-#[allow(clippy::blocks_in_conditions)]
 async fn initial_setup(config: &Options) -> Result<String, eyre::Report> {
     // we use the same retry params for both: retrying the discover_machine
     // call, as well as retrying the whole attestation sequence: discover_machine + attest_quote

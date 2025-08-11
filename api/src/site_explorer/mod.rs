@@ -1176,7 +1176,7 @@ impl SiteExplorer {
         // per iteration.
         let num_explore_endpoints = (self.config.explorations_per_run as usize)
             .min(unexplored_endpoints.len() + update_endpoints.len());
-        #[allow(clippy::type_complexity)]
+
         let mut explore_endpoint_data = Vec::with_capacity(num_explore_endpoints);
 
         // We prioritize existing endpoints which have the `exploration_requested` flag set
