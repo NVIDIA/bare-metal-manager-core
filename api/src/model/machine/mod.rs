@@ -1248,6 +1248,51 @@ impl ReprovisionState {
     }
 }
 
+pub trait NextStateBFBSupport<A> {
+    fn next_substate_based_on_bfb_support(dpu_snapshots: &[&Machine]) -> A;
+}
+
+impl NextStateBFBSupport<DpuDiscoveringState> for DpuDiscoveringState {
+    fn next_substate_based_on_bfb_support(dpu_snapshots: &[&Machine]) -> DpuDiscoveringState {
+        if bfb_install_support(dpu_snapshots) {
+            // Move with a redfish install path
+            DpuDiscoveringState::EnableSecureBoot {
+                count: 0,
+                enable_secure_boot_state: SetSecureBootState::CheckSecureBootStatus,
+            }
+        } else {
+            DpuDiscoveringState::DisableSecureBoot {
+                count: 0,
+                disable_secure_boot_state: Some(SetSecureBootState::CheckSecureBootStatus),
+            }
+        }
+    }
+}
+
+impl NextStateBFBSupport<ReprovisionState> for ReprovisionState {
+    fn next_substate_based_on_bfb_support(dpu_snapshots: &[&Machine]) -> ReprovisionState {
+        if bfb_install_support(dpu_snapshots) {
+            tracing::info!("All DPUs support BFB install via Redfish");
+            // Move with a redfish install path
+            ReprovisionState::InstallDpuOs {
+                substate: InstallDpuOsState::InstallingBFB,
+            }
+        } else {
+            ReprovisionState::WaitingForNetworkInstall
+        }
+    }
+}
+
+fn bfb_install_support(dpu_snapshots: &[&Machine]) -> bool {
+    let bfb_install_support_ = |dpu_snapshots: &[&Machine]| -> bool {
+        dpu_snapshots
+            .iter()
+            .all(|m| m.bmc_info.supports_bfb_install())
+    };
+
+    bfb_install_support_(dpu_snapshots)
+}
+
 /// MeasuringState contains states used for host attestion (or
 /// measured boot).
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

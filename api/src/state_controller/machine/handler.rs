@@ -48,7 +48,7 @@ use crate::model::instance::config::network::{
 };
 use crate::model::instance::snapshot::InstanceSnapshot;
 use crate::model::machine::{
-    CreateBossVolumeContext, CreateBossVolumeState, NetworkConfigUpdateState,
+    CreateBossVolumeContext, CreateBossVolumeState, NetworkConfigUpdateState, NextStateBFBSupport,
     SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
 };
 use crate::model::machine::{DpuInitNextStateResolver, InstallDpuOsState};
@@ -671,17 +671,9 @@ impl MachineStateHandler {
                     )
                     .await?;
 
-                    let reprov_state = if dpus_for_reprov
-                        .iter()
-                        .all(|m| m.bmc_info.supports_bfb_install())
-                    {
-                        tracing::info!("All DPUs support BFB install via Redfish");
-                        ReprovisionState::InstallDpuOs {
-                            substate: InstallDpuOsState::InstallingBFB,
-                        }
-                    } else {
-                        ReprovisionState::WaitingForNetworkInstall
-                    };
+                    let reprov_state =
+                        ReprovisionState::next_substate_based_on_bfb_support(&dpus_for_reprov);
+
                     let next_state = reprov_state.next_state_with_all_dpus_updated(
                         &mh_state,
                         &mh_snapshot.dpu_snapshots,
@@ -1399,18 +1391,8 @@ impl MachineStateHandler {
         }
         set_managed_host_topology_update_needed(txn, &state.host_snapshot, dpus_for_reprov).await?;
 
-        let next_state = if dpus_for_reprov
-            .iter()
-            .all(|m| m.bmc_info.supports_bfb_install())
-        {
-            tracing::info!("All DPUs support BFB install via Redfish");
-            ReprovisionState::InstallDpuOs {
-                substate: InstallDpuOsState::InstallingBFB,
-            }
-        } else {
-            ReprovisionState::WaitingForNetworkInstall
-        };
-        Ok(Some(next_state.next_state_with_all_dpus_updated(
+        let reprov_state = ReprovisionState::next_substate_based_on_bfb_support(dpus_for_reprov);
+        Ok(Some(reprov_state.next_state_with_all_dpus_updated(
             &state.managed_state,
             &state.dpu_snapshots,
             dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
@@ -2877,32 +2859,22 @@ impl DpuMachineStateHandler {
                     .await
                     .map_err(|e| tracing::info!("failed to enable rshim on DPU {e}"));
 
-                let next_state = if state
-                    .dpu_snapshots
-                    .iter()
-                    .all(|m| m.bmc_info.supports_bfb_install())
-                {
-                    tracing::info!(
-                        "DPU {dpu_machine_id} supports BFB install (BMC FW version: {}). Moving to EnableSecureBoot state.",
-                        dpu_snapshot
-                            .bmc_info
-                            .firmware_version
-                            .clone()
-                            .unwrap_or("unknown".to_string())
-                    );
-                    // Move with a redfish install path
-                    DpuDiscoveringState::EnableSecureBoot {
-                        count: 0,
-                        enable_secure_boot_state: SetSecureBootState::CheckSecureBootStatus,
-                    }
-                    .next_state(&state.managed_state, dpu_machine_id)?
-                } else {
-                    DpuDiscoveringState::DisableSecureBoot {
-                        count: 0,
-                        disable_secure_boot_state: Some(SetSecureBootState::CheckSecureBootStatus),
-                    }
-                    .next_state(&state.managed_state, dpu_machine_id)?
-                };
+                let dpu_states = state.dpu_snapshots.iter().collect::<Vec<&Machine>>();
+                let next_dpu_discovering_state =
+                    DpuDiscoveringState::next_substate_based_on_bfb_support(&dpu_states);
+
+                tracing::info!(
+                    "DPU {dpu_machine_id} (BMC FW version: {}); next_state: {}.",
+                    dpu_snapshot
+                        .bmc_info
+                        .firmware_version
+                        .clone()
+                        .unwrap_or("unknown".to_string()),
+                    next_dpu_discovering_state
+                );
+
+                let next_state =
+                    next_dpu_discovering_state.next_state(&state.managed_state, dpu_machine_id)?;
                 Ok(transition!(next_state))
             }
             DpuDiscoveringState::EnableSecureBoot {
