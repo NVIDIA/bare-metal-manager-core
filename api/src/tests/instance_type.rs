@@ -479,6 +479,10 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     )
     .await;
 
+    let orig_machine = env
+        .find_machines(Some(tmp_machine_id.into()), None, false)
+        .await;
+
     // Try to delete the instance type.  This should fail
     // because there's an instance associated with the machine associated
     // with the instance type.
@@ -511,6 +515,20 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     // Check that it has had its instance type id automatically removed.
     assert_eq!(machine.machines[0].instance_type_id, None);
+    // Check that version of machine is incremented
+    assert_eq!(
+        machine.machines[0]
+            .version
+            .parse::<ConfigVersion>()
+            .unwrap()
+            .version_nr(),
+        orig_machine.machines[0]
+            .version
+            .parse::<ConfigVersion>()
+            .unwrap()
+            .increment()
+            .version_nr()
+    );
 
     // Next, we'll try to retrieve the deleted instance type
     let forge_instance_types = env
@@ -597,6 +615,10 @@ async fn test_instance_type_associate(
 
     let (tmp_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
+    let orig_machine = env
+        .find_machines(Some(tmp_machine_id.into()), None, false)
+        .await;
+
     // Associate the machine with the instance type
     let _ = env
         .api
@@ -616,6 +638,20 @@ async fn test_instance_type_associate(
 
     // Check that it has the instance type ID we expect.
     assert_eq!(machine.machines[0].instance_type_id, Some(id.clone()));
+    // Check that version of machine is incremented
+    assert_eq!(
+        machine.machines[0]
+            .version
+            .parse::<ConfigVersion>()
+            .unwrap()
+            .version_nr(),
+        orig_machine.machines[0]
+            .version
+            .parse::<ConfigVersion>()
+            .unwrap()
+            .increment()
+            .version_nr()
+    );
 
     // Try to create an instance, but send in an expected instance type id
     // that doesn't match the source machine. This should fail.

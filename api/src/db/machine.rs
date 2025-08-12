@@ -550,8 +550,8 @@ pub async fn find_ids_by_instance_type_id(
     txn: &mut PgConnection,
     instance_type_id: &InstanceTypeId,
     for_update: bool,
-) -> Result<Vec<MachineId>, DatabaseError> {
-    let mut builder = sqlx::QueryBuilder::new("SELECT id FROM machines WHERE");
+) -> Result<Vec<(MachineId, ConfigVersion)>, DatabaseError> {
+    let mut builder = sqlx::QueryBuilder::new("SELECT id, version FROM machines WHERE");
 
     builder.push(" instance_type_id = ");
     builder.push_bind(instance_type_id);
@@ -568,6 +568,42 @@ pub async fn find_ids_by_instance_type_id(
         .map_err(|e| DatabaseError::new(file!(), line!(), builder.sql(), e))
 }
 
+async fn update_machine_instance_type(
+    txn: &mut PgConnection,
+    instance_type_id: Option<&InstanceTypeId>,
+    machine_versions: &[(&MachineId, &ConfigVersion)],
+) -> Result<Vec<MachineId>, DatabaseError> {
+    if machine_versions.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut builder = sqlx::QueryBuilder::default();
+    builder
+        .push("UPDATE machines AS t SET instance_type_id = ")
+        .push_bind(instance_type_id)
+        .push("::varchar")
+        .push(
+            ", version = v.new_version \
+               FROM ( ",
+        )
+        .push_values(machine_versions.iter(), |mut b, (id, old_version)| {
+            let new_version = old_version.increment();
+            b.push_bind(id)
+                .push_bind(old_version)
+                .push_bind(new_version);
+        })
+        .push(
+            ") AS v(id, old_version, new_version) \
+         WHERE t.id = v.id \
+           AND t.version = v.old_version \
+         RETURNING t.id",
+        );
+    builder
+        .build_query_as()
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), builder.sql(), e))
+}
+
 /// Associates machines with an InstanceType.
 ///
 /// * `txn`              - A reference to an active DB transaction
@@ -576,16 +612,9 @@ pub async fn find_ids_by_instance_type_id(
 pub async fn associate_machines_with_instance_type(
     txn: &mut PgConnection,
     instance_type_id: &InstanceTypeId,
-    machine_ids: &[MachineId],
+    machine_versions: &[(&MachineId, &ConfigVersion)],
 ) -> Result<Vec<MachineId>, DatabaseError> {
-    let query = "UPDATE machines SET instance_type_id=$1::varchar WHERE id = ANY($2) RETURNING id";
-
-    sqlx::query_as(query)
-        .bind(instance_type_id)
-        .bind(machine_ids)
-        .fetch_all(txn)
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    update_machine_instance_type(txn, Some(instance_type_id), machine_versions).await
 }
 
 /// Removes multiple machine associations with an InstanceType.
@@ -595,15 +624,9 @@ pub async fn associate_machines_with_instance_type(
 /// * `machine_ids` - A slice of machine IDs to update
 pub async fn remove_instance_type_associations(
     txn: &mut PgConnection,
-    machine_ids: &[MachineId],
+    machine_versions: &[(&MachineId, &ConfigVersion)],
 ) -> Result<Vec<MachineId>, DatabaseError> {
-    let query = "UPDATE machines SET instance_type_id=NULL WHERE id = ANY($1) RETURNING id";
-
-    sqlx::query_as(query)
-        .bind(machine_ids)
-        .fetch_all(txn)
-        .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    update_machine_instance_type(txn, None, machine_versions).await
 }
 
 pub async fn find_by_hostname(
