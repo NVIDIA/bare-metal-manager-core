@@ -24,6 +24,7 @@ use nix::pty::OpenptyResult;
 use nix::unistd;
 use opentelemetry::KeyValue;
 use russh::ChannelMsg;
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -127,7 +128,7 @@ pub async fn spawn(
             .with_context(|| {
                 format!(
                     "error running ipmitool. output: {}",
-                    String::from_utf8_lossy(&ipmitool_proxy.output_buf)
+                    ipmitool_proxy.output_buf_str()
                 )
             })?;
 
@@ -137,7 +138,7 @@ pub async fn spawn(
             .with_context(|| {
                 format!(
                     "error checking ipmitool exit status. output: {}",
-                    String::from_utf8_lossy(&ipmitool_proxy.output_buf)
+                    ipmitool_proxy.output_buf_str()
                 )
             })?;
 
@@ -148,7 +149,7 @@ pub async fn spawn(
                 Err(eyre::format_err!(
                     "ipmitool exited unexpectedly: {:?}, output: {}",
                     exit_status,
-                    String::from_utf8_lossy(&ipmitool_proxy.output_buf)
+                    ipmitool_proxy.output_buf_str()
                 ))
             }
             None => {
@@ -210,6 +211,7 @@ impl IpmitoolMessageProxy {
                                 tracing::debug!(%machine_id, "eof from pty fd");
                                 break;
                             }
+                            self.output_buf[n] = b'\0'; // null-terminate in case we need to print it later
                             // We've gotten at least one byte, we're now ready (ipmitool always outputs a message when connected.)
                             self.ready_tx.take().map(|ch| ch.send(()));
                             self.metrics.bmc_bytes_received_total.add(n as _, metrics_attrs.as_slice());
@@ -379,6 +381,15 @@ impl IpmitoolMessageProxy {
                 "power reset failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             ))
+        }
+    }
+
+    // output_buf is a 4096-byte array, get the output up to the first null terminator.
+    fn output_buf_str(&self) -> Cow<str> {
+        if let Some(null_idx) = self.output_buf.iter().position(|c| *c == b'\0') {
+            String::from_utf8_lossy(&self.output_buf[0..null_idx])
+        } else {
+            String::from_utf8_lossy(&self.output_buf)
         }
     }
 }
