@@ -72,6 +72,15 @@ struct FakeMachine {
 }
 
 impl FakeMachine {
+    fn new(mac: &str, vendor: &str, segment: &Option<NetworkSegmentId>) -> Self {
+        Self {
+            mac: mac.parse().unwrap(),
+            dhcp_vendor: vendor.to_string(),
+            segment: segment.unwrap(),
+            ip: String::new(),
+        }
+    }
+
     fn as_mock_dpu(&self) -> DpuConfig {
         DpuConfig {
             bmc_mac_address: self.mac,
@@ -88,6 +97,49 @@ impl FakeMachine {
     }
 }
 
+#[async_trait::async_trait]
+trait DiscoverDhcp {
+    async fn discover_dhcp(&mut self, env: &TestEnv) -> Result<(), Box<dyn std::error::Error>>;
+}
+
+#[async_trait::async_trait]
+impl DiscoverDhcp for FakeMachine {
+    async fn discover_dhcp(&mut self, env: &TestEnv) -> Result<(), Box<dyn std::error::Error>> {
+        let response = env
+            .api
+            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+                mac_address: self.mac.to_string(),
+                relay_address: match self.segment {
+                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
+                    _ => "192.0.2.1".to_string(),
+                },
+                link_address: None,
+                vendor_string: Some(self.dhcp_vendor.clone()),
+                circuit_id: None,
+                remote_id: None,
+            }))
+            .await?
+            .into_inner();
+        tracing::info!(
+            "DHCP with mac {} assigned ip {}",
+            self.mac,
+            response.address
+        );
+        self.ip = response.address;
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl DiscoverDhcp for Vec<FakeMachine> {
+    async fn discover_dhcp(&mut self, env: &TestEnv) -> Result<(), Box<dyn std::error::Error>> {
+        for machine in self.iter_mut() {
+            machine.discover_dhcp(env).await?
+        }
+        Ok(())
+    }
+}
+
 #[crate::sqlx_test]
 async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
@@ -98,58 +150,19 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     // to a panic if the machine is queried
     let mut machines = vec![
         // machines[0] is a DPU belonging to machines[1]
-        FakeMachine {
-            mac: "B8:3F:D2:90:97:A6".parse().unwrap(),
-            dhcp_vendor: "Vendor1".to_string(),
-            segment: env.underlay_segment.unwrap(),
-            ip: String::new(),
-        },
+        FakeMachine::new("B8:3F:D2:90:97:A6", "Vendor1", &env.underlay_segment),
         // machines[1] has 1 dpu (machines[0])
-        FakeMachine {
-            mac: "AA:AB:AC:AD:AA:02".parse().unwrap(),
-            dhcp_vendor: "Vendor2".to_string(),
-            segment: env.underlay_segment.unwrap(),
-            ip: String::new(),
-        },
+        FakeMachine::new("AA:AB:AC:AD:AA:02", "Vendor2", &env.underlay_segment),
         // machines[2] has no DPUs
-        FakeMachine {
-            mac: "AA:AB:AC:AD:AA:03".parse().unwrap(),
-            dhcp_vendor: "Vendor3".to_string(),
-            segment: env.underlay_segment.unwrap(),
-            ip: String::new(),
-        },
+        FakeMachine::new("AA:AB:AC:AD:AA:03", "Vendor3", &env.underlay_segment),
         // machines[3] is not on the underlay network and should not be searched.
-        FakeMachine {
-            mac: "AA:AB:AC:AD:BB:01".parse().unwrap(),
-            dhcp_vendor: "VendorInvalidSegment".to_string(),
-            segment: env.admin_segment.unwrap(),
-            ip: String::new(),
-        },
+        FakeMachine::new(
+            "AA:AB:AC:AD:BB:01",
+            "VendorInvalidSegment",
+            &env.admin_segment,
+        ),
     ];
-
-    for machine in &mut machines {
-        let response = env
-            .api
-            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-                mac_address: machine.mac.to_string(),
-                relay_address: match machine.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
-                link_address: None,
-                vendor_string: Some(machine.dhcp_vendor.clone()),
-                circuit_id: None,
-                remote_id: None,
-            }))
-            .await?
-            .into_inner();
-        tracing::info!(
-            "DHCP with mac {} assigned ip {}",
-            machine.mac,
-            response.address
-        );
-        machine.ip = response.address;
-    }
+    machines.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
@@ -491,80 +504,23 @@ async fn test_site_explorer_audit_exploration_results(
         // This will be our expected DPU, and it will have the
         // expected serial number, but we assume no DPUs are expected,
         // should it still shouldn't be counted as `expected`        .
-        FakeMachine {
-            mac: "5a:5b:5c:5d:5e:5f".parse().unwrap(),
-            dhcp_vendor: "Vendor1".to_string(),
-            segment: env.underlay_segment.unwrap(),
-            ip: String::new(),
-        },
+        FakeMachine::new("5a:5b:5c:5d:5e:5f", "Vendor1", &env.underlay_segment),
         // This will be expected but unauthorized, and the serial is mismatched
-        FakeMachine {
-            mac: "0a:0b:0c:0d:0e:0f".parse().unwrap(),
-            dhcp_vendor: "Vendor3".to_string(),
-            segment: env.underlay_segment.unwrap(),
-            ip: String::new(),
-        },
+        FakeMachine::new("0a:0b:0c:0d:0e:0f", "Vendor3", &env.underlay_segment),
         // This host will be expected but missing credentials, and the serial is mismatched
-        FakeMachine {
-            mac: "1a:1b:1c:1d:1e:1f".parse().unwrap(),
-            dhcp_vendor: "Vendor3".to_string(),
-            segment: env.underlay_segment.unwrap(),
-            ip: String::new(),
-        },
+        FakeMachine::new("1a:1b:1c:1d:1e:1f", "Vendor3", &env.underlay_segment),
         // This host will be expected, but the serial number will be mismatched.
-        FakeMachine {
-            mac: "2a:2b:2c:2d:2e:2f".parse().unwrap(),
-            dhcp_vendor: "Vendor3".to_string(),
-            segment: env.underlay_segment.unwrap(),
-            ip: String::new(),
-        },
+        FakeMachine::new("2a:2b:2c:2d:2e:2f", "Vendor3", &env.underlay_segment),
         // This will be expected, with a good serial number.
         // It will also have associated DPUs and should get a managed host.
-        FakeMachine {
-            mac: "3a:3b:3c:3d:3e:3f".parse().unwrap(),
-            dhcp_vendor: "Vendor3".to_string(),
-            segment: env.underlay_segment.unwrap(),
-            ip: String::new(),
-        },
+        FakeMachine::new("3a:3b:3c:3d:3e:3f", "Vendor3", &env.underlay_segment),
         // This host is not expected.
-        FakeMachine {
-            mac: "ab:cd:ef:ab:cd:ef".parse().unwrap(),
-            dhcp_vendor: "Vendor3".to_string(),
-            segment: env.underlay_segment.unwrap(),
-            ip: String::new(),
-        },
+        FakeMachine::new("ab:cd:ef:ab:cd:ef", "Vendor3", &env.underlay_segment),
         // This DPU is really not expected. (i.e. no DB entry)
-        FakeMachine {
-            mac: "ef:cd:ab:ef:cd:ab".parse().unwrap(),
-            dhcp_vendor: "Vendor3".to_string(),
-            segment: env.underlay_segment.unwrap(),
-            ip: String::new(),
-        },
+        FakeMachine::new("ef:cd:ab:ef:cd:ab", "Vendor3", &env.underlay_segment),
     ];
 
-    for machine in &mut machines {
-        let response = env
-            .api
-            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-                mac_address: machine.mac.to_string(),
-                relay_address: match machine.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
-                link_address: None,
-                vendor_string: Some(machine.dhcp_vendor.clone()),
-                circuit_id: None,
-                remote_id: None,
-            }))
-            .await?
-            .into_inner();
-        tracing::info!(
-            "DHCP with mac {} assigned ip {}",
-            machine.mac,
-            response.address
-        );
-        machine.ip = response.address;
-    }
+    machines.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
@@ -934,35 +890,11 @@ async fn test_site_explorer_reexplore(
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     let mut machines = vec![
-        FakeMachine {
-            mac: "B8:3F:D2:90:97:A6".parse().unwrap(),
-            dhcp_vendor: "Vendor1".to_string(),
-            segment: env.underlay_segment.unwrap(),
-            ip: String::new(),
-        },
-        FakeMachine {
-            mac: "AA:AB:AC:AD:AA:02".parse().unwrap(),
-            dhcp_vendor: "Vendor2".to_string(),
-            segment: env.underlay_segment.unwrap(),
-            ip: String::new(),
-        },
+        FakeMachine::new("B8:3F:D2:90:97:A6", "Vendor1", &env.underlay_segment),
+        FakeMachine::new("AA:AB:AC:AD:AA:02", "Vendor2", &env.underlay_segment),
     ];
 
-    for machine in &mut machines {
-        let response = env
-            .api
-            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-                mac_address: machine.mac.to_string(),
-                relay_address: "192.0.1.1".to_string(),
-                link_address: None,
-                vendor_string: Some(machine.dhcp_vendor.clone()),
-                circuit_id: None,
-                remote_id: None,
-            }))
-            .await?
-            .into_inner();
-        machine.ip = response.address;
-    }
+    machines.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
@@ -1893,43 +1825,13 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     const HOST1_MAC: &str = "AA:AB:AC:AD:AA:02";
     const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
 
-    let mut host1_dpu = FakeMachine {
-        mac: HOST1_DPU_MAC.parse().unwrap(),
-        dhcp_vendor: "Vendor1".to_string(),
-        segment: env.underlay_segment.unwrap(),
-        ip: String::new(),
-    };
+    let mut host1_dpu = FakeMachine::new(HOST1_DPU_MAC, "Vendor1", &env.underlay_segment);
 
-    let mut host1 = FakeMachine {
-        mac: HOST1_MAC.parse().unwrap(),
-        dhcp_vendor: "Vendor2".to_string(),
-        segment: env.underlay_segment.unwrap(),
-        ip: String::new(),
-    };
+    let mut host1 = FakeMachine::new(HOST1_MAC, "Vendor2", &env.underlay_segment);
 
     // Create dhcp entries and machine_interface entries for the machines
     for machine in [&mut host1_dpu, &mut host1] {
-        let response = env
-            .api
-            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-                mac_address: machine.mac.to_string(),
-                relay_address: match machine.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
-                link_address: None,
-                vendor_string: Some(machine.dhcp_vendor.clone()),
-                circuit_id: None,
-                remote_id: None,
-            }))
-            .await?
-            .into_inner();
-        tracing::info!(
-            "DHCP with mac {} assigned ip {}",
-            machine.mac,
-            response.address
-        );
-        machine.ip = response.address;
+        machine.discover_dhcp(&env).await?;
     }
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
 
@@ -2956,34 +2858,8 @@ async fn test_site_explorer_unknown_vendor(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
-    let mut machine = FakeMachine {
-        mac: "B8:3F:D2:90:97:A7".parse().unwrap(),
-        dhcp_vendor: "Vendor1".to_string(),
-        segment: env.underlay_segment.unwrap(),
-        ip: String::new(),
-    };
-
-    let response = env
-        .api
-        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-            mac_address: machine.mac.to_string(),
-            relay_address: match machine.segment {
-                s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                _ => "192.0.2.1".to_string(),
-            },
-            link_address: None,
-            vendor_string: Some(machine.dhcp_vendor.clone()),
-            circuit_id: None,
-            remote_id: None,
-        }))
-        .await?
-        .into_inner();
-    tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        machine.mac,
-        response.address
-    );
-    machine.ip = response.address;
+    let mut machine = FakeMachine::new("B8:3F:D2:90:97:A7", "Vendor1", &env.underlay_segment);
+    machine.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
@@ -3197,43 +3073,13 @@ async fn test_machine_creation_with_sku(
     const HOST1_MAC: &str = "AA:AB:AC:AD:AA:02";
     const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
 
-    let mut host1_dpu = FakeMachine {
-        mac: HOST1_DPU_MAC.parse().unwrap(),
-        dhcp_vendor: "Vendor1".to_string(),
-        segment: env.underlay_segment.unwrap(),
-        ip: String::new(),
-    };
+    let mut host1_dpu = FakeMachine::new(HOST1_DPU_MAC, "Vendor1", &env.underlay_segment);
 
-    let mut host1 = FakeMachine {
-        mac: HOST1_MAC.parse().unwrap(),
-        dhcp_vendor: "Vendor2".to_string(),
-        segment: env.underlay_segment.unwrap(),
-        ip: String::new(),
-    };
+    let mut host1 = FakeMachine::new(HOST1_MAC, "Vendor2", &env.underlay_segment);
 
     // Create dhcp entries and machine_interface entries for the machines
     for machine in [&mut host1_dpu, &mut host1] {
-        let response = env
-            .api
-            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
-                mac_address: machine.mac.to_string(),
-                relay_address: match machine.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
-                link_address: None,
-                vendor_string: Some(machine.dhcp_vendor.clone()),
-                circuit_id: None,
-                remote_id: None,
-            }))
-            .await?
-            .into_inner();
-        tracing::info!(
-            "DHCP with mac {} assigned ip {}",
-            machine.mac,
-            response.address
-        );
-        machine.ip = response.address;
+        machine.discover_dhcp(&env).await?;
     }
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
 
