@@ -343,7 +343,7 @@ WHERE vpc_id = ",
 
     pub async fn find_by_machine_ids(
         txn: &mut PgConnection,
-        machine_ids: &[MachineId],
+        machine_ids: &[&MachineId],
     ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
         let query = "SELECT row_to_json(i.*) from instances i WHERE machine_id = ANY($1)";
         sqlx::query_as(query)

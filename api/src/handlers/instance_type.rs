@@ -386,10 +386,15 @@ pub(crate) async fn delete(
             .map_err(CarbideError::from)?;
 
     // Check that there are no associated instances for the machines.
-    let instances =
-        instance::Instance::find_by_machine_ids(&mut txn, &existing_associated_machines)
-            .await
-            .map_err(CarbideError::from)?;
+    let instances = instance::Instance::find_by_machine_ids(
+        &mut txn,
+        &existing_associated_machines
+            .iter()
+            .map(|v| &v.0)
+            .collect::<Vec<_>>(),
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     if !instances.is_empty() {
         return Err(CarbideError::FailedPrecondition(format!(
@@ -400,10 +405,15 @@ pub(crate) async fn delete(
     }
 
     // Make our DB query to remove the machine associations.
-    let _ids =
-        db::machine::remove_instance_type_associations(&mut txn, &existing_associated_machines)
-            .await
-            .map_err(CarbideError::from)?;
+    let _ids = db::machine::remove_instance_type_associations(
+        &mut txn,
+        &existing_associated_machines
+            .iter()
+            .map(|v| (&v.0, &v.1))
+            .collect::<Vec<_>>(),
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     // Make our DB query to soft delete the instance type
     let _id = instance_type::soft_delete(&mut txn, &id).await?;
@@ -546,9 +556,10 @@ pub(crate) async fn associate_machines(
     // I expected machine.has_instance() to handle this, but the data
     // that drives that doesn't seem to get persisted until sometime in
     // the future after an instance is created in the DB.
-    let instances = instance::Instance::find_by_machine_ids(&mut txn, &machine_ids)
-        .await
-        .map_err(CarbideError::from)?;
+    let instances =
+        instance::Instance::find_by_machine_ids(&mut txn, &machine_ids.iter().collect::<Vec<_>>())
+            .await
+            .map_err(CarbideError::from)?;
 
     if !instances.is_empty() {
         return Err(CarbideError::FailedPrecondition(
@@ -557,9 +568,11 @@ pub(crate) async fn associate_machines(
         .into());
     }
 
+    let mut machine_versions = Vec::new();
+
     // Go through the requested machines and make sure they
     //actually meet the requirements of the instance type.
-    for machine in machines {
+    for machine in machines.iter() {
         let capabilities = machine
             .to_capabilities()
             .ok_or(CarbideError::InvalidArgument(format!(
@@ -574,16 +587,23 @@ pub(crate) async fn associate_machines(
             ))
             .into());
         }
+        machine_versions.push((&machine.id, &machine.version));
     }
 
     // Make our DB query for the association
-    let _ids = db::machine::associate_machines_with_instance_type(
+    let ids = db::machine::associate_machines_with_instance_type(
         &mut txn,
         &instance_type_id,
-        &machine_ids,
+        &machine_versions,
     )
     .await
     .map_err(CarbideError::from)?;
+
+    if ids.len() != machine_versions.len() {
+        tracing::error!(
+            "Not all machine's instances updated. This should never happen because we take row-lock. Something is terribly wrong. ids: {ids:?}; versions: {machine_versions:?}"
+        )
+    }
 
     // Prepare the response message
     let rpc_out = rpc::AssociateMachinesWithInstanceTypeResponse {};
@@ -647,7 +667,7 @@ pub(crate) async fn remove_machine_association(
     };
 
     // Check that there are no associated instances for the machines.
-    let instances = instance::Instance::find_by_machine_ids(&mut txn, &[machine_id])
+    let instances = instance::Instance::find_by_machine_ids(&mut txn, &[&machine_id])
         .await
         .map_err(CarbideError::from)?;
 
@@ -662,9 +682,12 @@ pub(crate) async fn remove_machine_association(
     }
 
     // Make our DB query to remove the association
-    let _id = db::machine::remove_instance_type_associations(&mut txn, &[machine_id])
-        .await
-        .map_err(CarbideError::from)?;
+    let _id = db::machine::remove_instance_type_associations(
+        &mut txn,
+        &[(&machine.id, &machine.version)],
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     // Prepare the response message
     let rpc_out = rpc::RemoveMachineInstanceTypeAssociationResponse {};
