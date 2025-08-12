@@ -424,6 +424,7 @@ pub async fn host_power_control(
                 .map_err(CarbideError::RedfishError)?;
         }
         bmc_vendor::BMCVendor::Supermicro => {
+            // Wait to test out the newly added logic to query the pending bios settings below before we remove this logic
             match machine.current_state() {
                 /*
                     These two states will add pending BIOS settings prior to calling host_power_control
@@ -445,22 +446,30 @@ pub async fn host_power_control(
                         },
                 } => {}
                 _ => {
-                    // We need to unlock BMC to perform boot modification, and relock it later
-                    let lstatus = redfish_client.lockdown_status().await?;
-                    if lstatus.is_fully_enabled() {
-                        redfish_client.lockdown(EnabledDisabled::Disabled).await?;
-                    }
-                    // Supermicro will boot the users OS if we don't do this
-                    let boot_result = redfish_client
-                        .boot_once(libredfish::Boot::Pxe)
-                        .await
-                        .map_err(CarbideError::RedfishError);
-                    if lstatus.is_fully_enabled() {
-                        redfish_client.lockdown(EnabledDisabled::Enabled).await?;
-                    }
+                    let pending = redfish_client.pending().await?;
+                    if pending.is_empty() {
+                        // We need to unlock BMC to perform boot modification, and relock it later
+                        let lstatus = redfish_client.lockdown_status().await?;
+                        if lstatus.is_fully_enabled() {
+                            redfish_client.lockdown(EnabledDisabled::Disabled).await?;
+                        }
+                        // Supermicro will boot the users OS if we don't do this
+                        let boot_result = redfish_client
+                            .boot_once(libredfish::Boot::Pxe)
+                            .await
+                            .map_err(CarbideError::RedfishError);
+                        if lstatus.is_fully_enabled() {
+                            redfish_client.lockdown(EnabledDisabled::Enabled).await?;
+                        }
 
-                    // We error only after lockdown is reinstaited
-                    boot_result?;
+                        // We error only after lockdown is reinstaited
+                        boot_result?;
+                    } else {
+                        tracing::debug!(
+                            "(host_power_control): skip setting boot order on supermicro {} with pending bios settings:\n {pending:#?}",
+                            machine.id.to_string()
+                        );
+                    }
                 }
             }
 
