@@ -12,8 +12,8 @@
 
 use crate::bmc::vendor::{BmcVendor, SshBmcVendor};
 use duration_str::deserialize_duration;
-use eyre::{Context, ContextCompat};
 use forge_tls::client_config::ClientCert;
+use forge_uuid::machine::MachineIdParseError;
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use russh::keys::ssh_key::Fingerprint;
@@ -89,25 +89,34 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn load(path: &Path) -> eyre::Result<Self> {
-        let cfg = std::fs::read_to_string(path)
-            .with_context(|| format!("Could not read config file at {}", path.display()))?;
-        toml::from_str::<Self>(&cfg)
-            .with_context(|| format!("TOML error reading config file at {}", path.display()))
+    pub fn load(path: &Path) -> Result<Self, ConfigError> {
+        let cfg = std::fs::read_to_string(path).map_err(|error| ConfigError::CouldNotRead {
+            path: path.to_string_lossy().to_string(),
+            error,
+        })?;
+        toml::from_str::<Self>(&cfg).map_err(|error| ConfigError::InvalidToml {
+            path: path.to_string_lossy().to_string(),
+            error,
+        })
     }
 
-    pub async fn override_bmc_ssh_addr(&self, port: u16) -> eyre::Result<Option<SocketAddr>> {
+    pub async fn override_bmc_ssh_addr(
+        &self,
+        port: u16,
+    ) -> Result<Option<SocketAddr>, ConfigError> {
         if let Some(override_bmc_ssh_host) = &self.override_bmc_ssh_host {
-            let addr =
-                tokio::net::lookup_host(format!("{override_bmc_ssh_host}:{port}"))
-                    .await
-                    .with_context(|| {
-                        format!("error looking up override_bmc_ssh_host: {override_bmc_ssh_host}")
-                    })?
-                    .next()
-                    .with_context(|| {
-                        format!("override_bmc_ssh_host did not resolve to any addresses: {override_bmc_ssh_host}")
-                    })?;
+            let addr = tokio::net::lookup_host(format!("{override_bmc_ssh_host}:{port}"))
+                .await
+                .map_err(|error| ConfigError::HostLookup {
+                    what: "override_bmc_ssh_host".to_string(),
+                    host: override_bmc_ssh_host.to_string(),
+                    error,
+                })?
+                .next()
+                .ok_or_else(|| ConfigError::HostNotFound {
+                    what: "override_bmc_ssh_host".to_string(),
+                    host: override_bmc_ssh_host.to_string(),
+                })?;
             Ok(Some(addr))
         } else {
             Ok(None)
@@ -330,6 +339,27 @@ impl Default for Config {
 }
 
 pub struct Defaults;
+
+#[derive(thiserror::Error, Debug)]
+pub enum ConfigError {
+    #[error("Could not read config file at {path}: {error}")]
+    CouldNotRead { path: String, error: std::io::Error },
+    #[error("TOML error reading config file at {path}: {error}")]
+    InvalidToml {
+        path: String,
+        error: toml::de::Error,
+    },
+    #[error("error looking up {what} {host}: {error}")]
+    HostLookup {
+        what: String,
+        host: String,
+        error: std::io::Error,
+    },
+    #[error("{what} {host} did not resolve to any addresses")]
+    HostNotFound { what: String, host: String },
+    #[error("Invalid machine_id in BMC override config: {0}")]
+    InvalidBmcOverrideMachineId(MachineIdParseError),
+}
 
 impl Defaults {
     pub fn listen_address() -> SocketAddr {

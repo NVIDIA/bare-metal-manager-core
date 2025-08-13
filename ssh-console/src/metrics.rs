@@ -12,7 +12,6 @@
 
 use crate::config::Config;
 use crate::shutdown_handle::ShutdownHandle;
-use eyre::WrapErr;
 use http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use http::{Method, Request, Response};
 use http_body_util::Full;
@@ -31,12 +30,14 @@ use tokio::task::JoinHandle;
 pub async fn spawn(
     config: Arc<Config>,
     metrics_state: Arc<MetricsState>,
-) -> eyre::Result<MetricsHandle> {
+) -> Result<MetricsHandle, SpawnError> {
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
     let listener = TcpListener::bind(config.metrics_address)
         .await
-        .context("error listening on metrics address")?;
+        .map_err(SpawnError::Listen)?;
+
     tracing::info!("metrics listening on {}", config.metrics_address);
+
     let join_handle = tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -77,10 +78,16 @@ pub async fn spawn(
     })
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum SpawnError {
+    #[error("error listening on metrics address: {0}")]
+    Listen(std::io::Error),
+}
+
 async fn serve_metrics(
     req: Request<body::Incoming>,
     state: Arc<MetricsState>,
-) -> eyre::Result<Response<Full<Bytes>>, hyper::Error> {
+) -> Result<Response<Full<Bytes>>, hyper::Error> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/metrics") => {
             let mut buffer = vec![];

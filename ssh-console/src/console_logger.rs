@@ -13,7 +13,6 @@
 use crate::config::Config;
 use crate::shutdown_handle::ShutdownHandle;
 use chrono::Utc;
-use eyre::Context;
 use forge_uuid::machine::MachineId;
 use russh::ChannelMsg;
 use std::net::{IpAddr, SocketAddr};
@@ -40,11 +39,10 @@ pub fn spawn(
             .append(true)
             .open(&log_path)
             .await
-            .context("could not open log file for writing")
         {
             Ok(file) => file,
             Err(error) => {
-                tracing::error!(path = log_path.display().to_string(), %machine_id, ?error, "could not open log file for writing");
+                tracing::error!(path = log_path.display().to_string(), %machine_id, %error, "could not open log file for writing");
                 return;
             }
         };

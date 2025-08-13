@@ -9,17 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use clap::Parser;
-use eyre::Context;
-use ssh_console::config::{Config, Defaults};
+use ssh_console::config::{Config, ConfigError, Defaults};
 use ssh_console::shutdown_handle::ShutdownHandle;
+use std::net::AddrParseError;
 use std::path::PathBuf;
 use tracing::metadata::LevelFilter;
 
 #[tokio::main(flavor = "multi_thread")]
-pub async fn main() -> eyre::Result<()> {
-    color_eyre::install()?;
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     setup_logging(&cli);
 
@@ -122,7 +120,7 @@ struct RunCommand {
 }
 
 impl TryInto<Config> for RunCommand {
-    type Error = eyre::Error;
+    type Error = CliError;
 
     // Load the config file, or the default, allowing CLI flags to override the corresponding settings.
     fn try_into(self) -> Result<Config, Self::Error> {
@@ -133,17 +131,25 @@ impl TryInto<Config> for RunCommand {
         };
 
         if let Some(address) = self.address {
-            config.listen_address = address
-                .parse()
-                .with_context(|| format!("Invalid listening address {address}"))?;
+            config.listen_address =
+                address
+                    .parse()
+                    .map_err(|error| CliError::InvalidListeningAddress {
+                        addr: address,
+                        error,
+                    })?;
         }
         if let Some(metrics_address) = self.metrics_address {
-            config.metrics_address = metrics_address
-                .parse()
-                .with_context(|| format!("Invalid metrics address {metrics_address}"))?;
+            config.metrics_address =
+                metrics_address
+                    .parse()
+                    .map_err(|error| CliError::InvalidMetricsAddress {
+                        addr: metrics_address,
+                        error,
+                    })?;
         }
         if let Some(carbide_url) = self.forge_url {
-            config.carbide_uri = carbide_url
+            config.carbide_uri = carbide_url;
         }
         if let Some(host_key) = self.host_key {
             config.host_key_path = host_key;
@@ -181,6 +187,16 @@ impl TryInto<Config> for RunCommand {
 
         Ok(config)
     }
+}
+
+#[derive(thiserror::Error, Debug)]
+enum CliError {
+    #[error("Invalid listening address {addr}: {error}")]
+    InvalidListeningAddress { addr: String, error: AddrParseError },
+    #[error("Invalid metrics address {addr}: {error}")]
+    InvalidMetricsAddress { addr: String, error: AddrParseError },
+    #[error("Configuration error: {0}")]
+    Config(#[from] ConfigError),
 }
 
 fn setup_logging(cli: &Cli) {

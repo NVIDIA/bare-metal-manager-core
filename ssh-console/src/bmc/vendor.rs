@@ -56,13 +56,15 @@ pub enum SshBmcVendor {
 }
 
 impl BmcVendor {
-    pub fn detect_from_api_machine(machine: &forge::Machine) -> eyre::Result<Self> {
+    pub fn detect_from_api_machine(
+        machine: &forge::Machine,
+    ) -> Result<Self, BmcVendorDetectionError> {
         let Some(dmi_data) = machine
             .discovery_info
             .as_ref()
             .and_then(|d| d.dmi_data.as_ref())
         else {
-            return Err(eyre::format_err!("Machine has no dmi data"));
+            return Err(BmcVendorDetectionError::MissingDmiData);
         };
 
         let sys_vendor = &dmi_data.sys_vendor;
@@ -83,9 +85,9 @@ impl BmcVendor {
                 BmcVendor::Ssh(SshBmcVendor::Dpu)
             }
         } else {
-            return Err(eyre::format_err!(
-                "Unknown or unsupported sys_vendor string: {sys_vendor}"
-            ));
+            return Err(BmcVendorDetectionError::UnknownSysVendor {
+                sys_vendor: sys_vendor.to_owned(),
+            });
         };
 
         Ok(vendor)
@@ -115,6 +117,14 @@ impl BmcVendor {
             BmcVendor::Ipmi(i) => i.config_string(),
         }
     }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum BmcVendorDetectionError {
+    #[error("Machine has no DMI data")]
+    MissingDmiData,
+    #[error("Unknown or unsupported sys_vendor string: {sys_vendor}")]
+    UnknownSysVendor { sys_vendor: String },
 }
 
 impl Serialize for BmcVendor {

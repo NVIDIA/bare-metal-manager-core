@@ -12,14 +12,14 @@
 
 use crate::bmc::client_pool::BmcConnectionStore;
 use crate::config::Config;
-use crate::frontend::{Handler, RusshOrEyreError};
+use crate::frontend::{Handler, HandlerError};
 use crate::shutdown_handle::ShutdownHandle;
-use eyre::Context;
 use opentelemetry::metrics::{Counter, Meter, ObservableGauge, UpDownCounter};
 use rpc::forge_api_client::ForgeApiClient;
 use russh::server::{Server as RusshServer, run_stream};
 use russh::{MethodKind, MethodSet};
 use std::io;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -32,16 +32,17 @@ pub async fn spawn(
     forge_api_client: ForgeApiClient,
     bmc_connection_store: BmcConnectionStore,
     meter: &Meter,
-) -> eyre::Result<Handle> {
+) -> Result<Handle, SpawnError> {
     let metrics = Arc::new(ServerMetrics::new(meter, &config));
     let listen_address = config.listen_address;
+    use SpawnError::*;
 
     let host_key =
-        russh::keys::PrivateKey::read_openssh_file(&config.host_key_path).with_context(|| {
-            format!(
-                "Error reading host key file at {}",
-                config.host_key_path.display()
-            )
+        russh::keys::PrivateKey::read_openssh_file(&config.host_key_path).map_err(|error| {
+            ReadingHostKeyFile {
+                path: config.host_key_path.as_path().to_string_lossy().to_string(),
+                error,
+            }
         })?;
 
     let russh_config = Arc::new(russh::server::Config {
@@ -63,7 +64,10 @@ pub async fn spawn(
 
     let listener = TcpListener::bind(listen_address)
         .await
-        .with_context(|| format!("Error listening on {listen_address}"))?;
+        .map_err(|error| Listening {
+            addr: listen_address,
+            error,
+        })?;
     tracing::info!("listening on {}", listen_address);
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -73,6 +77,20 @@ pub async fn spawn(
         shutdown_tx,
         join_handle,
     })
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum SpawnError {
+    #[error("Error reading host key file at {path}: {error}")]
+    ReadingHostKeyFile {
+        path: String,
+        error: russh::keys::ssh_key::Error,
+    },
+    #[error("Error listening on {addr}: {error}")]
+    Listening {
+        addr: SocketAddr,
+        error: std::io::Error,
+    },
 }
 
 pub struct Handle {
@@ -108,60 +126,56 @@ impl SshServer {
 
                             tokio::spawn(async move {
                                 if russh_config.nodelay {
-                                    if let Err(e) = socket.set_nodelay(true) {
-                                        tracing::warn!("set_nodelay() failed: {e:?}");
+                                    if let Err(error) = socket.set_nodelay(true) {
+                                        tracing::warn!(%error, "set_nodelay() failed");
                                     }
                                 }
 
-                                // Failures here are all from russh, but the error type is
-                                // Handler::Error, which is *our* error type. So we have go to
-                                // through this RusshOrEyreError hoops to track down what the actual
-                                // error was.
                                 let session = match run_stream(russh_config, socket, handler).await {
                                     Ok(s) => s,
-                                    Err(RusshOrEyreError::Russh(russh::Error::Disconnect)) => {
+                                    Err(HandlerError::Russh(russh::Error::Disconnect)) => {
                                         // If it was a simple disconnect, don't log a scary looking
                                         // error.
                                         tracing::debug!("client disconnected");
                                         return;
                                     }
-                                    Err(RusshOrEyreError::Russh(russh::Error::ConnectionTimeout)) => {
+                                    Err(HandlerError::Russh(russh::Error::ConnectionTimeout)) => {
                                         // ditto connection timeout
                                         tracing::debug!("client connection timeout");
                                         return;
                                     }
-                                    Err(RusshOrEyreError::Eyre(error)) => {
-                                        // I think this is impossible, none of our code is run yet.
-                                        tracing::warn!(?error, "Connection setup failed");
+                                    Err(HandlerError::Russh(error)) => {
+                                        tracing::warn!(%error, "Connection setup failed with internal russh error");
                                         return;
                                     }
-                                    Err(RusshOrEyreError::Russh(error)) => {
-                                        tracing::warn!(?error, "Connection setup failed with internal russh error");
+                                    Err(error) => {
+                                        // I think this is impossible, none of our code is run yet.
+                                        tracing::warn!(%error, "Connection setup failed");
                                         return;
                                     }
                                 };
 
                                 match session.await {
                                     Ok(_) => tracing::debug!("Connection closed"),
-                                    Err(RusshOrEyreError::Russh(russh::Error::IO(io_error))) => {
+                                    Err(HandlerError::Russh(russh::Error::IO(io_error))) => {
                                         match io_error.kind() {
                                             io::ErrorKind::UnexpectedEof => {
                                                 tracing::debug!("eof from client");
                                             }
                                             error => {
-                                                tracing::warn!(?error, "Connection closed with error");
+                                                tracing::warn!(%error, "Connection closed with error");
                                             }
                                         }
                                     }
                                     Err(error) => {
-                                        tracing::warn!(?error, "Connection closed with error");
+                                        tracing::warn!(%error, "Connection closed with error");
                                     }
                                 }
                             });
                         }
 
                         Err(error) => {
-                            tracing::error!(?error, "Error accepting SSH connection from socket");
+                            tracing::error!(%error, "Error accepting SSH connection from socket");
                             break;
                         },
                     }

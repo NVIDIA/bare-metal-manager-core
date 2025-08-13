@@ -10,14 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 use crate::bmc::client::BmcConnectionSubscription;
-use crate::bmc::client_pool::BmcConnectionStore;
+use crate::bmc::client_pool::{BmcConnectionStore, GetConnectionError};
 use crate::bmc::connection::Kind;
 use crate::bmc::message_proxy;
 use crate::bmc::message_proxy::{ChannelMsgOrExec, ExecReply};
 use crate::config::Config;
 use crate::shutdown_handle::ShutdownHandle;
 use crate::ssh_server::ServerMetrics;
-use eyre::Context;
+use forge_uuid::machine::MachineId;
 use lazy_static::lazy_static;
 use rpc::forge::ValidateTenantPublicKeyRequest;
 use rpc::forge_api_client::ForgeApiClient;
@@ -26,7 +26,6 @@ use russh::keys::{Certificate, PublicKey, PublicKeyBase64};
 use russh::server::{Auth, Msg, Session};
 use russh::{Channel, ChannelId, ChannelMsg, MethodKind, MethodSet, Pty};
 use std::collections::HashMap;
-use std::fmt;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -122,7 +121,7 @@ impl Handler {
             return Some(state);
         }
 
-        tracing::error!(self.peer_addr, "Request on unknown channel");
+        tracing::error!(peer_addr = self.peer_addr, "Request on unknown channel");
         session.channel_failure(channel_id).ok();
         session
             .data(channel_id, "ssh-console error: Unknown channel\n".into())
@@ -134,14 +133,14 @@ impl Handler {
 
 impl Drop for Handler {
     fn drop(&mut self) {
-        tracing::info!(self.peer_addr, "end frontend connection");
+        tracing::info!(peer_addr = self.peer_addr, "end frontend connection");
         // All auth failure paths set self.last_auth_failure, but auth can still succeed (they may
         // be trying multiple pubkeys, etc.) So if authenticated_user is None but last_auth_failure
         // is Some, bump the metrics.
         if let (None, Some(last_auth_failure)) = (&self.authenticated_user, &self.last_auth_failure)
         {
             tracing::warn!(
-                self.peer_addr,
+                peer_addr = self.peer_addr,
                 "authentication failed for user: {}",
                 last_auth_failure.user()
             );
@@ -153,19 +152,19 @@ impl Drop for Handler {
 }
 
 impl russh::server::Handler for Handler {
-    type Error = RusshOrEyreError;
+    type Error = HandlerError;
 
     async fn channel_open_session(
         &mut self,
         channel: Channel<Msg>,
         session: &mut Session,
     ) -> Result<bool, Self::Error> {
-        tracing::trace!(self.peer_addr, "channel_open_session");
+        use HandlerError::*;
+        tracing::trace!(peer_addr = self.peer_addr, "channel_open_session");
         let Some(user) = &self.authenticated_user else {
-            return Err(eyre::format_err!(
-                "BUG: channel_open_session called but we don't have an authenticated user"
-            )
-            .into());
+            return Err(MissingAuthenticatedUser {
+                method: "channel_open_session",
+            });
         };
 
         // fetch the BMC connection
@@ -179,7 +178,10 @@ impl russh::server::Handler for Handler {
                 self.metrics.clone(),
             )
             .await
-            .with_context(|| format!("could not get BMC connection for {user}"))?;
+            .map_err(|error| GettingBmcConnection {
+                user: user.to_owned(),
+                error,
+            })?;
 
         // Save the BMC and client channel in self, so the Handler methods can find it
         self.per_client_state.insert(
@@ -192,13 +194,17 @@ impl russh::server::Handler for Handler {
 
         session
             .channel_success(channel_id)
-            .context("error replying with success to channel_open_session")?;
+            .map_err(|error| Replying {
+                method: "channel_open_session",
+                what: "success",
+                error,
+            })?;
 
         Ok(true)
     }
 
     async fn auth_none(&mut self, _user: &str) -> Result<Auth, Self::Error> {
-        tracing::trace!(self.peer_addr, "auth_none");
+        tracing::trace!(peer_addr = self.peer_addr, "auth_none");
         Ok(Auth::Reject {
             // Note: openssh_certificate auth is just another kind of PublicKey auth, this should
             // imply either one.
@@ -212,7 +218,7 @@ impl russh::server::Handler for Handler {
         user: &str,
         certificate: &Certificate,
     ) -> Result<Auth, Self::Error> {
-        tracing::trace!(self.peer_addr, "auth_openssh_certificate");
+        tracing::trace!(peer_addr = self.peer_addr, "auth_openssh_certificate");
         let is_trusted =
             self.config
                 .openssh_certificate_ca_fingerprints
@@ -226,7 +232,7 @@ impl russh::server::Handler for Handler {
 
         if !is_trusted {
             tracing::warn!(
-                self.peer_addr,
+                peer_addr = self.peer_addr,
                 user,
                 "openssh certificate CA certificate not trusted, rejecting authentication"
             );
@@ -241,7 +247,7 @@ impl russh::server::Handler for Handler {
 
         if !certificate_contains_role(certificate, &self.config.admin_certificate_role) {
             tracing::warn!(
-                self.peer_addr,
+                peer_addr = self.peer_addr,
                 "certificate auth failed for user {user}, not in role {}",
                 &self.config.admin_certificate_role
             );
@@ -255,7 +261,7 @@ impl russh::server::Handler for Handler {
         }
 
         tracing::info!(
-            self.peer_addr,
+            peer_addr = self.peer_addr,
             "certificate auth succeeded for user {user}, in role {}",
             &self.config.admin_certificate_role
         );
@@ -268,29 +274,40 @@ impl russh::server::Handler for Handler {
         user: &str,
         public_key: &PublicKey,
     ) -> Result<Auth, Self::Error> {
-        tracing::trace!(self.peer_addr, "auth_publickey");
+        use HandlerError::*;
+        tracing::trace!(peer_addr = self.peer_addr, "auth_publickey");
         // Authentication flow:
         // 1. If authorized_keys_path is set, check against file first
         // 2. If not found in file, validate via carbide-api
         // 3. If insecure mode is enabled, accept all connections
 
-        let success = if pubkey_auth_admin_authorized_keys(public_key, &self.config, user)
-            .context("error checking authorized_keys")?
-        {
+        let success = if pubkey_auth_admin_authorized_keys(public_key, &self.config, user).map_err(
+            |error| PubkeyAuthAdminAuthorizedKeys {
+                machine_id: user.to_owned(),
+                error,
+            },
+        )? {
             true
         } else if Uuid::from_str(user).is_ok() {
             // Only try tenant auth if the user is a valid-looking UUID.
             pubkey_auth_tenant(user, public_key, &self.forge_api_client)
                 .await
-                .context("error validating pubkey with carbide-api")?
+                .map_err(|error| PubkeyAuthTenant {
+                    instance_id: user.to_owned(),
+                    error,
+                })?
         } else {
-            tracing::debug!(self.peer_addr, user, "rejecting public key for user {user}");
+            tracing::debug!(
+                peer_addr = self.peer_addr,
+                user,
+                "rejecting public key for user {user}"
+            );
             false
         };
 
         let success = if !success && self.config.insecure {
             tracing::info!(
-                self.peer_addr,
+                peer_addr = self.peer_addr,
                 "Overriding public-key rejection because we are in insecure (testing) mode"
             );
             true
@@ -319,7 +336,7 @@ impl russh::server::Handler for Handler {
         data: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        tracing::trace!(self.peer_addr, "data");
+        tracing::trace!(peer_addr = self.peer_addr, "data");
         if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
             client_state
                 .bmc_connection
@@ -328,7 +345,7 @@ impl russh::server::Handler for Handler {
                     data: data.to_vec().into(),
                 }))
                 .await
-                .context("error writing data to channel")?;
+                .map_err(|_| HandlerError::WritingToChannel { what: "data" })?;
         }
         Ok(())
     }
@@ -341,7 +358,7 @@ impl russh::server::Handler for Handler {
         data: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        tracing::trace!(self.peer_addr, "extended_data");
+        tracing::trace!(peer_addr = self.peer_addr, "extended_data");
         if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
             client_state
                 .bmc_connection
@@ -351,7 +368,9 @@ impl russh::server::Handler for Handler {
                     ext: code,
                 }))
                 .await
-                .context("error writing extended_data to channel")?;
+                .map_err(|_| HandlerError::WritingToChannel {
+                    what: "extended_data",
+                })?;
         }
         Ok(())
     }
@@ -367,7 +386,7 @@ impl russh::server::Handler for Handler {
         modes: &[(Pty, u32)],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        tracing::trace!(self.peer_addr, "pty_request");
+        tracing::trace!(peer_addr = self.peer_addr, "pty_request");
         if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
             client_state
                 .bmc_connection
@@ -382,7 +401,9 @@ impl russh::server::Handler for Handler {
                     terminal_modes: modes.to_vec(),
                 }))
                 .await
-                .context("error sending pty request to BMC")?;
+                .map_err(|_| HandlerError::WritingToChannel {
+                    what: "pty request",
+                })?;
         }
         Ok(())
     }
@@ -392,7 +413,7 @@ impl russh::server::Handler for Handler {
         channel_id: ChannelId,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        tracing::trace!(self.peer_addr, "shell_request");
+        tracing::trace!(peer_addr = self.peer_addr, "shell_request");
         let peer_addr = self.peer_addr.clone();
         let Some(client_state) = self.get_client_state_or_report_error(session, channel_id) else {
             return Ok(());
@@ -404,7 +425,7 @@ impl russh::server::Handler for Handler {
         // (which makes sense.)
         let Some(channel) = client_state.client_channel.take() else {
             tracing::error!(
-                self.peer_addr,
+                peer_addr = self.peer_addr,
                 "Channel unavailable, cannot service shell request"
             );
             session.channel_failure(channel_id).ok();
@@ -424,10 +445,7 @@ impl russh::server::Handler for Handler {
             .upgrade()
             .map(|tx| tx.subscribe())
         else {
-            return Err(eyre::format_err!(
-                "BMC connection for {machine_id} dropped before we could subscribe to messages"
-            )
-            .into());
+            return Err(HandlerError::BmcDisconnectedBeforeSubscribe { machine_id })?;
         };
 
         // Proxy messages from the BMC to the user's connection
@@ -463,7 +481,7 @@ impl russh::server::Handler for Handler {
         data: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        tracing::trace!(self.peer_addr, "exec_request");
+        tracing::trace!(peer_addr = self.peer_addr, "exec_request");
         let Some(PerClientState {
             client_channel,
             bmc_connection,
@@ -475,7 +493,7 @@ impl russh::server::Handler for Handler {
         // Drop the client channel when we're done, so that it properly disconnects.
         let Some(channel) = client_channel.take() else {
             tracing::error!(
-                self.peer_addr,
+                peer_addr = self.peer_addr,
                 "Channel unavailable, cannot service exec request"
             );
             session.channel_failure(channel_id).ok();
@@ -497,7 +515,9 @@ impl russh::server::Handler for Handler {
                 reply_tx,
             })
             .await
-            .context("error sending exec request to BMC")?;
+            .map_err(|_| HandlerError::WritingToChannel {
+                what: "exec request",
+            })?;
 
         tokio::select! {
             _ = tokio::time::sleep(EXEC_TIMEOUT) => {
@@ -540,7 +560,7 @@ impl russh::server::Handler for Handler {
         pix_height: u32,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        tracing::trace!(self.peer_addr, "window_change_request");
+        tracing::trace!(peer_addr = self.peer_addr, "window_change_request");
         if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
             client_state
                 .bmc_connection
@@ -552,47 +572,59 @@ impl russh::server::Handler for Handler {
                     pix_height,
                 }))
                 .await
-                .context("error sending window change request to BMC")?;
+                .map_err(|_| HandlerError::WritingToChannel {
+                    what: "window change request",
+                })?;
         }
         Ok(())
     }
 }
 
-/// The error type used by Handler, so that we can distinguish between Russh errors and our errors.
-#[derive(Debug)]
-pub enum RusshOrEyreError {
-    Russh(russh::Error),
-    Eyre(eyre::Error),
+#[derive(thiserror::Error, Debug)]
+pub enum HandlerError {
+    #[error("BUG: {method} called but we don't have an authenticated user")]
+    MissingAuthenticatedUser { method: &'static str },
+    #[error("Could not get BMC connection for {user}: {error}")]
+    GettingBmcConnection {
+        user: String,
+        error: GetConnectionError,
+    },
+    #[error("error replying with {what} to {method}: {error}")]
+    Replying {
+        method: &'static str,
+        what: &'static str,
+        error: russh::Error,
+    },
+    #[error("error writing {what} to channel: BMC disconnected?")]
+    WritingToChannel { what: &'static str },
+    #[error("BMC connection for {machine_id} dropped before we could subscribe to messages")]
+    BmcDisconnectedBeforeSubscribe { machine_id: MachineId },
+    #[error("Error performing pubkey auth via admin authorized_keys for {machine_id}: {error}")]
+    PubkeyAuthAdminAuthorizedKeys {
+        machine_id: String,
+        error: PubkeyAuthError,
+    },
+    #[error("error validating pubkey with carbide-api for instance {instance_id}: {error}")]
+    PubkeyAuthTenant {
+        instance_id: String,
+        error: PubkeyAuthError,
+    },
+    #[error(transparent)]
+    Russh(#[from] russh::Error),
 }
 
-impl fmt::Display for RusshOrEyreError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RusshOrEyreError::Russh(e) => fmt::Display::fmt(e, f),
-            RusshOrEyreError::Eyre(e) => fmt::Display::fmt(e, f),
-        }
-    }
-}
-
-impl std::error::Error for RusshOrEyreError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            RusshOrEyreError::Russh(e) => e.source(),
-            RusshOrEyreError::Eyre(e) => e.source(),
-        }
-    }
-}
-
-impl From<eyre::Error> for RusshOrEyreError {
-    fn from(value: eyre::Error) -> Self {
-        RusshOrEyreError::Eyre(value)
-    }
-}
-
-impl From<russh::Error> for RusshOrEyreError {
-    fn from(value: russh::Error) -> Self {
-        RusshOrEyreError::Russh(value)
-    }
+#[derive(thiserror::Error, Debug)]
+pub enum PubkeyAuthError {
+    #[error("Error reading authorized_keys file at {path}: {error}")]
+    ReadingAuthorizedKeys {
+        path: String,
+        error: russh::keys::ssh_key::Error,
+    },
+    #[error("Unexpected error calling carbide-api to validate pubkey for {user}: {tonic_status}")]
+    CarbideApi {
+        user: String,
+        tonic_status: tonic::Status,
+    },
 }
 
 /// Indicates the reason auth may have failed. This is so we can avoid logging warnings about failed authentication if only the first method (pubkey) failed but the second succeeded.
@@ -647,16 +679,16 @@ fn pubkey_auth_admin_authorized_keys(
     public_key: &PublicKey,
     config: &Config,
     user: &str,
-) -> eyre::Result<bool> {
+) -> Result<bool, PubkeyAuthError> {
     let Some(authorized_keys_path) = config.authorized_keys_path.as_ref() else {
         return Ok(false);
     };
 
-    let authorized_keys = AuthorizedKeys::read_file(authorized_keys_path).with_context(|| {
-        format!(
-            "Error reading authorized_keys file at {}",
-            authorized_keys_path.display()
-        )
+    let authorized_keys = AuthorizedKeys::read_file(authorized_keys_path).map_err(|error| {
+        PubkeyAuthError::ReadingAuthorizedKeys {
+            path: authorized_keys_path.to_string_lossy().to_string(),
+            error,
+        }
     })?;
 
     if authorized_keys.iter().any(|entry| {
@@ -677,7 +709,7 @@ async fn pubkey_auth_tenant(
     user: &str,
     public_key: &PublicKey,
     forge_api_client: &ForgeApiClient,
-) -> eyre::Result<bool> {
+) -> Result<bool, PubkeyAuthError> {
     let authorized = match forge_api_client
         .validate_tenant_public_key(ValidateTenantPublicKeyRequest {
             instance_id: user.to_string(),
@@ -697,7 +729,7 @@ async fn pubkey_auth_tenant(
             );
             true
         }
-        Err(e) => match e.code() {
+        Err(tonic_status) => match tonic_status.code() {
             Code::Internal | Code::NotFound => {
                 // Internal means the key doesn't match, NotFound means there's no instance like this
                 tracing::debug!(
@@ -713,12 +745,13 @@ async fn pubkey_auth_tenant(
                 );
                 false
             }
-            code => {
+            _ => {
                 // Any other error, we should just reject, even if the config overrides it, to stop
                 // bugs.
-                return Err(e).context(format!(
-                    "Unexpected error calling carbide-api to validate pubkey for {user}: {code}"
-                ));
+                return Err(PubkeyAuthError::CarbideApi {
+                    tonic_status,
+                    user: user.to_owned(),
+                });
             }
         },
     };

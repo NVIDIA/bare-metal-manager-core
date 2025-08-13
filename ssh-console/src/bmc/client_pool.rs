@@ -11,20 +11,19 @@
  */
 
 use crate::bmc::client::{BmcConnectionSubscription, ClientHandle};
+use crate::bmc::client_pool::GetConnectionError::InvalidMachineId;
 use crate::bmc::connection::State;
 use crate::bmc::{client, connection};
 use crate::config::Config;
 use crate::shutdown_handle::{ReadyHandle, ShutdownHandle};
 use crate::ssh_server::ServerMetrics;
-use eyre::{ContextCompat, WrapErr};
-use forge_uuid::machine::MachineId;
+use forge_uuid::machine::{MachineId, MachineIdParseError};
 use futures_util::future::join_all;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Gauge, Meter, ObservableGauge};
 use rpc::forge;
 use rpc::forge_api_client::ForgeApiClient;
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use tokio::sync::oneshot;
@@ -95,14 +94,16 @@ impl BmcConnectionStore {
         config: &Config,
         forge_api_client: &ForgeApiClient,
         metrics: Arc<ServerMetrics>,
-    ) -> eyre::Result<BmcConnectionSubscription> {
+    ) -> Result<BmcConnectionSubscription, GetConnectionError> {
         if let Ok(machine_id) = MachineId::from_str(machine_or_instance_id) {
             self.0
                 .read()
                 .expect("lock poisoned")
                 .get(&machine_id)
                 .map(|session_handle| session_handle.subscribe(metrics))
-                .with_context(|| format!("unknown machine id {machine_id}"))
+                .ok_or_else(|| GetConnectionError::InvalidMachineId {
+                    machine_or_instance_id: machine_or_instance_id.to_string(),
+                })
         } else if let Ok(instance_id) = Uuid::from_str(machine_or_instance_id) {
             let machine_id_candidate = if let Some(machine_id) =
                 config.override_bmcs.iter().flatten().find_map(|bmc| {
@@ -116,7 +117,7 @@ impl BmcConnectionStore {
                             .inspect_err(|error| {
                                 tracing::warn!(
                                     machine_id = bmc.machine_id,
-                                    ?error,
+                                    %error,
                                     "invalid machine_id in bmc override config"
                                 );
                             })
@@ -127,7 +128,7 @@ impl BmcConnectionStore {
                 }) {
                 machine_id
             } else {
-                forge_api_client
+                let machine_id = forge_api_client
                     .find_instances(forge::InstanceSearchQuery {
                         id: Some(rpc::Uuid {
                             value: instance_id.to_string(),
@@ -135,16 +136,25 @@ impl BmcConnectionStore {
                         label: None,
                     })
                     .await
-                    .with_context(|| format!("Error looking up instance ID {instance_id}"))?
+                    .map_err(|e| GetConnectionError::InstanceIdLookupFailure {
+                        tonic_status: e,
+                        instance_id,
+                    })?
                     .instances
                     .into_iter()
                     .next()
-                    .with_context(|| format!("Could not find instance with id {instance_id}"))?
+                    .ok_or_else(|| GetConnectionError::CouldNotFindInstanceId { instance_id })?
                     .machine_id
-                    .with_context(|| format!("Instance {instance_id} has no machine_id"))?
-                    .id
-                    .parse()
-                    .with_context(|| format!("Instance {instance_id} has an invalid machine_id"))?
+                    .ok_or_else(|| GetConnectionError::InstanceMissingMachineId { instance_id })?
+                    .id;
+
+                machine_id.parse().map_err(|error| {
+                    GetConnectionError::InstanceHasInvalidMachineId {
+                        instance_id,
+                        machine_id,
+                        error,
+                    }
+                })?
             };
 
             self.0
@@ -152,13 +162,36 @@ impl BmcConnectionStore {
                 .expect("lock poisoned")
                 .get(&machine_id_candidate)
                 .map(|session_handle| session_handle.subscribe(metrics))
-                .with_context(|| format!("no machine with instance_id {instance_id}"))
+                .ok_or_else(|| GetConnectionError::NoMachineWithInstanceId { instance_id })
         } else {
-            return Err(eyre::format_err!(
-                "{machine_or_instance_id} is not a valid machine_id or instance ID"
-            ));
+            return Err(InvalidMachineId {
+                machine_or_instance_id: machine_or_instance_id.to_owned(),
+            });
         }
     }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetConnectionError {
+    #[error("{machine_or_instance_id} is not a valid machine_id or instance ID")]
+    InvalidMachineId { machine_or_instance_id: String },
+    #[error("Error looking up instance ID {instance_id}: {tonic_status}")]
+    InstanceIdLookupFailure {
+        instance_id: Uuid,
+        tonic_status: tonic::Status,
+    },
+    #[error("Could not find instance with id {instance_id}")]
+    CouldNotFindInstanceId { instance_id: Uuid },
+    #[error("Instance {instance_id} has no machine ID")]
+    InstanceMissingMachineId { instance_id: Uuid },
+    #[error("Instance {instance_id} has an invalid machine ID: {machine_id}: {error}")]
+    InstanceHasInvalidMachineId {
+        instance_id: Uuid,
+        machine_id: String,
+        error: MachineIdParseError,
+    },
+    #[error("no machine with instance_id {instance_id}")]
+    NoMachineWithInstanceId { instance_id: Uuid },
 }
 
 /// A BmcPool runs in a background Task and maintains a single BmcSession handle to each
@@ -277,7 +310,7 @@ impl BmcPool {
                 }
                 _ = api_refresh.tick() => {
                     if let Err(error) = self.refresh_bmcs().await {
-                        tracing::error!(?error, "error refreshing BMC list from API");
+                        tracing::error!(%error, "error refreshing BMC list from API");
                     }
                     // Inform callers that we're ready once the first API refresh happens.
                     ready_tx.take().map(|ch| ch.send(()).ok());
@@ -296,7 +329,7 @@ impl BmcPool {
         join_all(members.into_iter().map(|handle| handle.shutdown_and_wait())).await;
     }
 
-    async fn refresh_bmcs(&mut self) -> eyre::Result<()> {
+    async fn refresh_bmcs(&mut self) -> Result<(), RefreshBmcsError> {
         // Get all machine ID's from forge, parsing them into forge_uuid::MachineId.
         let machine_ids: HashSet<MachineId> = match &self.config.override_bmcs {
                 Some(override_bmcs) => {
@@ -307,7 +340,7 @@ impl BmcPool {
                                 .parse()
                                 .inspect_err(|error| {
                                     tracing::error!(
-                                    ?error,
+                                    %error,
                                     machine_id = %b.machine_id,
                                     "invalid machine ID in config, will not do console logging on this machine"
                                 )
@@ -322,7 +355,7 @@ impl BmcPool {
                             ..Default::default()
                         })
                         .await
-                        .context("error fetching machine ids")?
+                        .map_err(|e| RefreshBmcsError::FetchingMachineIdsFailure { tonic_status: e })?
                         .machine_ids
                         .into_iter()
                         .filter_map(|rpc_machine_id| {
@@ -331,7 +364,7 @@ impl BmcPool {
                                 .parse()
                                 .inspect_err(|error| {
                                     tracing::error!(
-                                    ?error,
+                                    %error,
                                     machine_id = rpc_machine_id.id,
                                     "invalid machine ID, will not do console logging on this machine"
                                 )
@@ -384,7 +417,7 @@ impl BmcPool {
                 {
                     Ok(connection_details) => Some((machine_id, connection_details)),
                     Err(error) => {
-                        tracing::error!(%machine_id, ?error, "error looking up connection details, excluding from bmc list");
+                        tracing::error!(%machine_id, %error, "error looking up connection details, excluding from bmc list");
                         None
                     }
                 }
@@ -414,24 +447,8 @@ impl BmcPool {
     }
 }
 
-/// Newtype wrpper around Arc<eyre::Error> to make it clone-able for use in a future::Shared.
-#[derive(Debug, Clone)]
-struct ConnectionError(Arc<eyre::Error>);
-
-impl fmt::Display for ConnectionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(self.0.as_ref(), f)
-    }
-}
-
-impl std::error::Error for ConnectionError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.0.source()
-    }
-}
-
-impl From<eyre::Error> for ConnectionError {
-    fn from(eyre_error: eyre::Error) -> Self {
-        ConnectionError(eyre_error.into())
-    }
+#[derive(thiserror::Error, Debug)]
+enum RefreshBmcsError {
+    #[error("Error fetching machine ids: {tonic_status}")]
+    FetchingMachineIdsFailure { tonic_status: tonic::Status },
 }

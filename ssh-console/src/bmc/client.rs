@@ -153,7 +153,7 @@ impl BmcClient {
                 Ok(handle) => handle,
                 Err(error) => {
                     tracing::error!(
-                        ?error,
+                        %error,
                         %machine_id,
                         "error spawning BMC connection, will retry in {}s",
                         retry_time.as_secs()
@@ -187,7 +187,7 @@ impl BmcClient {
                     tracing::info!(%machine_id, "shutting down BMC connection");
                     bmc_connection_handle.shutdown_tx.send(()).ok();
                     if let Err(error) = connection_result.await {
-                        tracing::error!(%machine_id, error = ?error.as_ref(), "BMC connection failed while shutting down");
+                        tracing::error!(%machine_id, error = %error.as_ref(), "BMC connection failed while shutting down");
                     };
                     break 'retry;
                 }
