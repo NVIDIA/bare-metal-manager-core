@@ -17,6 +17,7 @@ PKG_VERSION = { script = [
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem" }
 
 # BFB stuff
+# When the BFB is updated, the corresponding values at the top of api/src/cfg/file.rs will need to be updated as well.
 BFB_NAME = "bf-bundle-2.9.3-32_25.06_ubuntu-22.04_prod.bfb"
 BFB_UPSTREAM_LOCATION = "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04"
 URM_LOCATION = "https://urm.nvidia.com/artifactory/sw-forge-admins-generic-local/build-artifacts/${HBN_VERSION}"
