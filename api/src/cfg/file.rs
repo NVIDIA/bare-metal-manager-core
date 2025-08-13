@@ -44,6 +44,12 @@ use crate::{
 };
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 31;
+static BF2_NIC: &str = "24.43.3608";
+static BF2_BMC: &str = "BF-24.10-33";
+static BF2_CEC: &str = "4-15";
+static BF3_NIC: &str = "32.43.3608";
+static BF3_BMC: &str = "BF-24.10-33";
+static BF3_CEC: &str = "00.02.0195.0000_n02";
 
 /// carbide-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1052,7 +1058,7 @@ impl Default for DpuConfig {
                                         Regex::new("BMC_Firmware").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard("BF-24.10-33")],
+                                    known_firmware: vec![FirmwareEntry::standard(BF2_BMC)],
                                 },
                             ),
                             (
@@ -1062,7 +1068,7 @@ impl Default for DpuConfig {
                                         Regex::new("Bluefield_FW_ERoT").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard("4-15")],
+                                    known_firmware: vec![FirmwareEntry::standard(BF2_CEC)],
                                 },
                             ),
                             (
@@ -1072,7 +1078,7 @@ impl Default for DpuConfig {
                                         Regex::new("DPU_NIC").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard("24.43.3608")],
+                                    known_firmware: vec![FirmwareEntry::standard(BF2_NIC)],
                                 },
                             ),
                         ]),
@@ -1094,7 +1100,7 @@ impl Default for DpuConfig {
                                     preingest_upgrade_when_below: None,
                                     known_firmware: vec![
                                         // BF-24.10-33 (DOCA 2.9) is the expected BMC FW that we expect on BF3s after ingesting them
-                                        FirmwareEntry::standard("BF-24.10-33"),
+                                        FirmwareEntry::standard(BF3_BMC),
                                     ],
                                 },
                             ),
@@ -1106,9 +1112,7 @@ impl Default for DpuConfig {
                                     ),
 
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard(
-                                        "00.02.0195.0000_n02",
-                                    )],
+                                    known_firmware: vec![FirmwareEntry::standard(BF3_CEC)],
                                 },
                             ),
                             (
@@ -1118,17 +1122,14 @@ impl Default for DpuConfig {
                                         Regex::new("DPU_NIC").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard("32.43.3608")],
+                                    known_firmware: vec![FirmwareEntry::standard(BF3_NIC)],
                                 },
                             ),
                         ]),
                     },
                 ),
             ]),
-            dpu_nic_firmware_update_versions: vec![
-                "24.43.3608".to_string(),
-                "32.43.3608".to_string(),
-            ],
+            dpu_nic_firmware_update_versions: vec![BF2_NIC.to_string(), BF3_NIC.to_string()],
         }
     }
 }
