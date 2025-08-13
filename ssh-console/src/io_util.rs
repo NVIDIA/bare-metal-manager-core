@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use eyre::Context;
 use nix::errno::Errno;
 use nix::fcntl::{FcntlArg, OFlag, fcntl};
 use nix::pty::{OpenptyResult, openpty};
@@ -21,7 +20,7 @@ use tokio::io::unix::AsyncFd;
 
 /// Allocate a pty with `nix::pty::openpty`, ensuring its file descriptors are set with O_NONBLOCK,
 /// and return it.
-pub fn alloc_pty(cols: u16, rows: u16) -> eyre::Result<OpenptyResult> {
+pub fn alloc_pty(cols: u16, rows: u16) -> Result<OpenptyResult, PtyAllocError> {
     // set up raw mode so the child sees a “dumb” terminal
     let libc_termios = libc::termios {
         c_iflag: 0,
@@ -44,12 +43,30 @@ pub fn alloc_pty(cols: u16, rows: u16) -> eyre::Result<OpenptyResult> {
         ws_ypixel: 0,
     };
 
-    let pty = openpty(Some(&winsz), Some(&termios)).context("error opening PTY")?;
+    let pty = openpty(Some(&winsz), Some(&termios)).map_err(|error| PtyAllocError::Io {
+        what: "opening PTY",
+        error: std::io::Error::from_raw_os_error(error as _),
+    })?;
 
-    set_nonblocking(&pty.master).context("error making PTY master fd non-blocking")?;
-    set_nonblocking(&pty.slave).context("error making PTY slave fd non-blocking")?;
+    set_nonblocking(&pty.master).map_err(|error| PtyAllocError::Io {
+        what: "making PTY master fd non-blocking",
+        error: std::io::Error::from_raw_os_error(error as _),
+    })?;
+    set_nonblocking(&pty.slave).map_err(|error| PtyAllocError::Io {
+        what: "making PTY slave fd non-blocking",
+        error: std::io::Error::from_raw_os_error(error as _),
+    })?;
 
     Ok(pty)
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum PtyAllocError {
+    #[error("error {what}: {error}")]
+    Io {
+        error: std::io::Error,
+        what: &'static str,
+    },
 }
 
 /// Make `pty_slave` the controlling terminal for the given command when it is executed.
@@ -81,13 +98,10 @@ fn set_nonblocking<F: AsFd>(fd: &F) -> nix::Result<()> {
 
 /// Waits for the fd to be ready for writing, and writes the data to it, looping repeatedly until
 /// all data is written.
-pub async fn write_data_to_async_fd(data: &[u8], fd: &AsyncFd<OwnedFd>) -> eyre::Result<usize> {
+pub async fn write_data_to_async_fd(data: &[u8], fd: &AsyncFd<OwnedFd>) -> std::io::Result<usize> {
     let mut written = 0;
     loop {
-        let mut guard = fd
-            .writable()
-            .await
-            .context("error waiting for fd to become writable")?;
+        let mut guard = fd.writable().await?;
         match unistd::write(fd, &data[written..]) {
             Ok(0) => {
                 // EOF
@@ -103,7 +117,7 @@ pub async fn write_data_to_async_fd(data: &[u8], fd: &AsyncFd<OwnedFd>) -> eyre:
                 // no data, await writable() again
                 guard.clear_ready();
             }
-            Err(e) => return Err(eyre::Report::new(e).wrap_err("error writing to async fd")),
+            Err(e) => return Err(std::io::Error::from_raw_os_error(e as _)),
         }
     }
     Ok(written)

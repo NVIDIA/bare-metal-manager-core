@@ -328,7 +328,7 @@ dependencies = [
  "sqlx",
  "temp-dir",
  "tempfile",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -430,7 +430,7 @@ dependencies = [
  "nom",
  "num-traits",
  "rusticata-macros",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "time",
 ]
 
@@ -1135,7 +1135,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tar",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tower 0.5.2",
  "tower-http",
@@ -1365,7 +1365,7 @@ dependencies = [
  "strum",
  "strum_macros",
  "temp-dir",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "time",
  "tokio",
  "tokio-rustls 0.26.1",
@@ -1741,7 +1741,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1775,7 +1775,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
 ]
 
 [[package]]
@@ -2390,7 +2390,7 @@ dependencies = [
  "serde",
  "serde_yaml",
  "socket2",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tonic 0.12.3",
  "tracing",
@@ -2570,7 +2570,7 @@ dependencies = [
  "chrono",
  "rust_decimal",
  "serde",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "time",
  "winnow 0.6.26",
 ]
@@ -2584,7 +2584,7 @@ dependencies = [
  "chrono",
  "rust_decimal",
  "serde",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "time",
  "winnow 0.7.11",
 ]
@@ -2923,7 +2923,7 @@ dependencies = [
  "rpc",
  "serde",
  "serde_json",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tonic 0.12.3",
  "tracing",
 ]
@@ -2946,7 +2946,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "smbios-lib",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "toml 0.8.23",
  "tonic 0.12.3",
@@ -2986,7 +2986,7 @@ dependencies = [
  "rpc",
  "serde",
  "sqlx",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
 ]
 
 [[package]]
@@ -2996,7 +2996,7 @@ dependencies = [
  "humantime",
  "openssl",
  "ssh2",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tonic 0.12.3",
  "tracing",
@@ -3012,7 +3012,7 @@ dependencies = [
  "rpc",
  "serde",
  "serde_json",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tonic 0.12.3",
  "tracing",
@@ -3024,7 +3024,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tonic 0.12.3",
 ]
 
@@ -3039,7 +3039,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "sqlx",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tonic 0.12.3",
  "uuid",
 ]
@@ -3486,7 +3486,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0-pre.4",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tonic 0.12.3",
  "tracing",
@@ -3501,7 +3501,7 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
 ]
 
 [[package]]
@@ -4249,7 +4249,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -4272,7 +4272,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_with",
- "thiserror 2.0.12",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -4424,7 +4424,7 @@ dependencies = [
  "rpc",
  "serde",
  "serde_json",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tonic 0.12.3",
 ]
@@ -4517,7 +4517,7 @@ dependencies = [
  "serde_json",
  "socket2",
  "tempfile",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "toml 0.8.23",
  "tonic 0.12.3",
@@ -4538,7 +4538,7 @@ dependencies = [
  "rpc",
  "serde",
  "serde_json",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tonic 0.12.3",
  "tracing",
@@ -4627,7 +4627,7 @@ dependencies = [
  "rpc",
  "serde",
  "sqlx",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tonic 0.12.3",
  "utils",
 ]
@@ -4920,7 +4920,7 @@ dependencies = [
  "log",
  "netlink-packet-core",
  "netlink-sys",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
 ]
 
 [[package]]
@@ -5147,7 +5147,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "getrandom 0.2.15",
  "http",
@@ -5266,7 +5266,7 @@ dependencies = [
  "futures-sink",
  "js-sys",
  "pin-project-lite",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tracing",
 ]
 
@@ -5299,7 +5299,7 @@ dependencies = [
  "opentelemetry_sdk",
  "prost 0.13.5",
  "reqwest",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tonic 0.12.3",
  "tracing",
@@ -5359,7 +5359,7 @@ dependencies = [
  "percent-encoding",
  "rand 0.8.5",
  "serde_json",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -5384,7 +5384,7 @@ dependencies = [
  "rustls-pemfile",
  "rustls-pki-types",
  "tempfile",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tonic 0.12.3",
  "tracing",
@@ -5578,7 +5578,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b7cafe60d6cf8e62e1b9b2ea516a089c008945bb5a275416789e7db0bc199dc"
 dependencies = [
  "memchr",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "ucd-trie",
 ]
 
@@ -6222,7 +6222,7 @@ dependencies = [
  "rustc-hash 2.1.1",
  "rustls 0.23.22",
  "socket2",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tracing",
 ]
@@ -6241,7 +6241,7 @@ dependencies = [
  "rustls 0.23.22",
  "rustls-pki-types",
  "slab",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tinyvec",
  "tracing",
  "web-time",
@@ -6639,7 +6639,7 @@ dependencies = [
  "rustls-pemfile",
  "serde",
  "serde_json",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tonic 0.12.3",
  "tonic-build 0.12.3",
@@ -7058,7 +7058,7 @@ dependencies = [
  "serde",
  "serde_json",
  "smbios-lib",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tonic 0.12.3",
  "tracing",
@@ -7597,7 +7597,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "smallvec",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -7682,7 +7682,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tracing",
  "uuid",
  "whoami",
@@ -7723,7 +7723,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tracing",
  "uuid",
  "whoami",
@@ -7749,7 +7749,7 @@ dependencies = [
  "serde",
  "serde_urlencoded",
  "sqlx-core",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tracing",
  "url",
  "uuid",
@@ -7790,7 +7790,6 @@ dependencies = [
  "bmc-mock",
  "chrono",
  "clap",
- "color-eyre",
  "ctor 0.4.2",
  "duration-str 0.17.0",
  "eyre",
@@ -7818,7 +7817,7 @@ dependencies = [
  "ssh_console_mock_api_server",
  "strip-ansi-escapes",
  "temp-dir",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "toml 0.8.23",
  "tonic 0.12.3",
@@ -8127,11 +8126,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.12"
+version = "2.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "567b8a2dae586314f7be2a752ec7474332959c6460e02bde30d702a66d488708"
+checksum = "0b0949c3a6c842cbde3f1686d6eea5a010516deb7085f79db747562d4102f41e"
 dependencies = [
- "thiserror-impl 2.0.12",
+ "thiserror-impl 2.0.14",
 ]
 
 [[package]]
@@ -8147,9 +8146,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.12"
+version = "2.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f7cf42b4507d8ea322120659672cf1b9dbb93f8f2d4ecfd6e51350ff5b17a1d"
+checksum = "cc5b44b4ab9c2fdd0e0512e6bece8388e214c0749f5862b114cc5b7a25daf227"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8511,7 +8510,7 @@ dependencies = [
  "quote",
  "syn 2.0.100",
  "temp-dir",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tonic 0.12.3",
  "tonic-build 0.12.3",
 ]
@@ -9100,7 +9099,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sqlx",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "tokio",
  "tonic 0.12.3",
  "tracing",
@@ -9420,7 +9419,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -9748,7 +9747,7 @@ dependencies = [
  "oid-registry",
  "ring",
  "rusticata-macros",
- "thiserror 2.0.12",
+ "thiserror 2.0.14",
  "time",
 ]
 

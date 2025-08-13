@@ -33,11 +33,6 @@ High-level module overview:
 
 ## Code notes
 
-### Error handling
-
-We don't bother with custom errors a la `thiserror`, but instead use `.context()` to add context information to an
-underlying error. This reduces boilerplate while still giving good error traces in logs.
-
 ### Concurrency/Background work
 
 Most of the code in this crate has a pattern of:

@@ -11,7 +11,6 @@
  */
 
 use crate::shutdown_handle::ShutdownHandle;
-use eyre::WrapErr;
 use russh::ChannelMsg;
 use russh::server::Msg;
 use std::sync::Arc;
@@ -82,29 +81,42 @@ impl ShutdownHandle<()> for Handle {
 pub(crate) async fn proxy_channel_message<S>(
     channel_msg: &russh::ChannelMsg,
     channel: &russh::ChannelWriteHalf<S>,
-) -> eyre::Result<()>
+) -> Result<(), MessageProxyError>
 where
     S: From<(russh::ChannelId, russh::ChannelMsg)> + Send + Sync + 'static,
 {
+    use MessageProxyError::*;
     match channel_msg {
         ChannelMsg::Open { .. } => {}
         ChannelMsg::Data { data } => {
             channel
                 .data(data.iter().as_slice())
                 .await
-                .context("error sending data")?;
+                .map_err(|error| Sending {
+                    what: "data",
+                    error,
+                })?;
         }
         ChannelMsg::ExtendedData { data, ext } => {
             channel
                 .extended_data(*ext, data.iter().as_slice())
                 .await
-                .context("error sending extended data")?;
+                .map_err(|error| Sending {
+                    what: "extended data",
+                    error,
+                })?;
         }
         ChannelMsg::Eof => {
-            channel.eof().await.context("error sending eof")?;
+            channel
+                .eof()
+                .await
+                .map_err(|error| Sending { what: "eof", error })?;
         }
         ChannelMsg::Close => {
-            channel.close().await.context("error sending close")?;
+            channel.close().await.map_err(|error| Sending {
+                what: "close",
+                error,
+            })?;
         }
         ChannelMsg::RequestPty {
             want_reply,
@@ -126,19 +138,28 @@ where
                     terminal_modes,
                 )
                 .await
-                .context("error sending pty request")?;
+                .map_err(|error| Sending {
+                    what: "pty request",
+                    error,
+                })?;
         }
         ChannelMsg::RequestShell { want_reply } => {
             channel
                 .request_shell(*want_reply)
                 .await
-                .context("error sending shell request")?;
+                .map_err(|error| Sending {
+                    what: "shell request",
+                    error,
+                })?;
         }
         ChannelMsg::Signal { signal } => {
             channel
                 .signal(signal.clone())
                 .await
-                .context("error sending signal")?;
+                .map_err(|error| Sending {
+                    what: "signal",
+                    error,
+                })?;
         }
         ChannelMsg::WindowChange {
             col_width,
@@ -149,7 +170,10 @@ where
             channel
                 .window_change(*col_width, *row_height, *pix_width, *pix_height)
                 .await
-                .context("error sending window change")?;
+                .map_err(|error| Sending {
+                    what: "window change",
+                    error,
+                })?;
         }
         _ => {
             tracing::debug!("Ignoring unknown channel message {channel_msg:?}");
@@ -157,6 +181,15 @@ where
     }
 
     Ok(())
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum MessageProxyError {
+    #[error("error sending {what}: {error}")]
+    Sending {
+        what: &'static str,
+        error: russh::Error,
+    },
 }
 
 #[derive(Debug)]

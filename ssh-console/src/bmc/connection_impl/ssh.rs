@@ -12,10 +12,10 @@
 
 use crate::POWER_RESET_COMMAND;
 use crate::bmc::client_pool::BmcPoolMetrics;
-use crate::bmc::connection;
-use crate::bmc::message_proxy::{ChannelMsgOrExec, ExecReply, proxy_channel_message};
+use crate::bmc::message_proxy::{
+    ChannelMsgOrExec, ExecReply, MessageProxyError, proxy_channel_message,
+};
 use crate::bmc::vendor::SshBmcVendor;
-use eyre::Context;
 use forge_uuid::machine::MachineId;
 use opentelemetry::KeyValue;
 use ringbuf::LocalRb;
@@ -31,16 +31,17 @@ use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::task::JoinHandle;
 
 static RUSSH_CLIENT_CONFIG: LazyLock<Arc<russh::client::Config>> =
     LazyLock::new(russh_client_config);
 
-/// Connect to a BMC one time, returning a [`connection::Handle`]. Will not retry on connection errors.
+/// Connect to a BMC one time, returning a [`Handle`]. Will not retry on connection errors.
 pub async fn spawn(
     connection_details: Arc<ConnectionDetails>,
     to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
     metrics: Arc<BmcPoolMetrics>,
-) -> eyre::Result<connection::Handle> {
+) -> Result<Handle, SpawnError> {
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
     let (to_bmc_msg_tx, mut to_bmc_msg_rx) = mpsc::channel::<ChannelMsgOrExec>(1);
     let metrics_attrs = vec![KeyValue::new(
@@ -57,11 +58,9 @@ pub async fn spawn(
     let mut ssh_client_channel = bmc_ssh_client
         .channel_open_session()
         .await
-        .context("Error opening session to BMC")?;
+        .map_err(|error| SpawnError::OpeningSession { error })?;
 
-    trigger_and_await_sol_console(machine_id, &mut ssh_client_channel, bmc_vendor)
-        .await
-        .context("error activating serial console")?;
+    trigger_and_await_sol_console(machine_id, &mut ssh_client_channel, bmc_vendor).await?;
 
     let mut output_ringbuf: LocalRb<Array<u8, 1024>> = ringbuf::LocalRb::default();
     let bmc_prompt = bmc_vendor.bmc_prompt();
@@ -91,7 +90,7 @@ pub async fn spawn(
                                 }
                             }
                         }
-                        to_frontend_tx.send(Arc::new(msg)).context("error sending message from BMC to frontend")?;
+                        to_frontend_tx.send(Arc::new(msg)).map_err(|_| SpawnError::SendingMsgToFrontend)?;
                     }
                     None => {
                         metrics.bmc_rx_errors_total.add(1, metrics_attrs.as_slice());
@@ -133,9 +132,9 @@ pub async fn spawn(
                         };
                         proxy_channel_message(&msg, &ssh_client_tx)
                             .await
-                            .context("error sending message to BMC").inspect_err(|_| {
+                            .inspect_err(|_| {
                             metrics.bmc_tx_errors_total.add(1, metrics_attrs.as_slice());
-                        })?;
+                        }).map_err(|error| SpawnError::MessageProxying { error })?;
                     }
                     None => {
                         tracing::debug!(%machine_id, "frontend channel closed, closing connection");
@@ -147,11 +146,75 @@ pub async fn spawn(
         Ok(())
     });
 
-    Ok(connection::Handle {
+    Ok(Handle {
         to_bmc_msg_tx,
         shutdown_tx,
         join_handle,
     })
+}
+
+/// A handle to a BMC connection, which will shut down when dropped.
+pub struct Handle {
+    pub to_bmc_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
+    pub shutdown_tx: oneshot::Sender<()>,
+    pub join_handle: JoinHandle<Result<(), SpawnError>>,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum SpawnError {
+    #[error("error sending message from BMC to frontend: no active receivers")]
+    SendingMsgToFrontend,
+    #[error("Error connecting to SSH BMC: {0}")]
+    ClientCreation(#[from] ClientCreationError),
+    #[error("Error opening session to SSH BMC: {error}")]
+    OpeningSession { error: russh::Error },
+    #[error("Error activating serial console: {0}")]
+    ConsoleActivation(#[from] ConsoleActivateError),
+    #[error("Error proxying message to BMC: {error}")]
+    MessageProxying { error: MessageProxyError },
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ClientCreationError {
+    #[error("error connecting to {addr}: {error}")]
+    Connection {
+        addr: SocketAddr,
+        error: russh::Error,
+    },
+    #[error("error beginning authentication to {addr}: {error}")]
+    Authentication {
+        addr: SocketAddr,
+        error: russh::Error,
+    },
+    #[error("Error loading SSH key from BMC override at {path}: {error}")]
+    LoadingSshKey {
+        path: String,
+        error: russh::keys::Error,
+    },
+    #[error("Error attempting {kind} authentication as {user} to {addr}: {error}")]
+    AuthenticationAttempt {
+        kind: &'static str,
+        user: String,
+        addr: SocketAddr,
+        error: russh::Error,
+    },
+
+    #[error("Could not authenticate to {addr} as {user}, all authentication attempts failed")]
+    AuthenticationFailed { user: String, addr: SocketAddr },
+
+    #[error("Error sending message to BMC: {0}")]
+    SendingMessageToBmc(#[from] MessageProxyError),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ConsoleActivateError {
+    #[error("error while {phase}: {error}")]
+    Request {
+        phase: &'static str,
+        error: russh::Error,
+    },
+    #[error("Unable to activate serial console after timeout")]
+    Timeout,
 }
 
 /// Builds and authenticates an SSH client to a machine, using credentials from carbide-api or
@@ -165,16 +228,16 @@ async fn make_authenticated_client(
         machine_id,
         ..
     }: &ConnectionDetails,
-) -> eyre::Result<russh::client::Handle<Handler>> {
+) -> Result<russh::client::Handle<Handler>, ClientCreationError> {
     let mut client = russh::client::connect(RUSSH_CLIENT_CONFIG.clone(), addr, Handler)
         .await
-        .with_context(|| format!("Error connecting to {addr}"))?;
+        .map_err(|error| ClientCreationError::Connection { addr: *addr, error })?;
 
     // Use authenticate_none to get a list of methods to try
     let methods = match client
         .authenticate_none(user)
         .await
-        .context("error beginning authentication to {addr}")?
+        .map_err(|error| ClientCreationError::Authentication { addr: *addr, error })?
     {
         AuthResult::Success => {
             tracing::warn!(%machine_id, %addr, %user, "auth_none succeeded, it shouldn't have!");
@@ -198,21 +261,22 @@ async fn make_authenticated_client(
                 };
 
                 let ssh_key = PrivateKeyWithHashAlg::new(
-                    Arc::new(
-                        russh::keys::load_secret_key(ssh_key_path, None).with_context(|| {
-                            format!(
-                                "Error loading SSH key from BMC override at {}",
-                                ssh_key_path.display()
-                            )
-                        })?,
-                    ),
+                    Arc::new(russh::keys::load_secret_key(ssh_key_path, None).map_err(
+                        |error| ClientCreationError::LoadingSshKey {
+                            path: ssh_key_path.display().to_string(),
+                            error,
+                        },
+                    )?),
                     Some(HashAlg::Sha512),
                 );
                 match client
                     .authenticate_publickey(user, ssh_key)
                     .await
-                    .with_context(|| {
-                        format!("Error attempting PublicKey authentication as {user} to {addr}")
+                    .map_err(|error| ClientCreationError::AuthenticationAttempt {
+                        kind: "PublicKey",
+                        user: user.to_owned(),
+                        addr: *addr,
+                        error,
                     })? {
                     AuthResult::Success => {
                         tracing::debug!(
@@ -230,8 +294,11 @@ async fn make_authenticated_client(
                 let mut response = client
                     .authenticate_keyboard_interactive_start(user, None)
                     .await
-                    .with_context(|| {
-                        format!("Error attempting KeyboardInteractive authentication as {user} to {addr}")
+                    .map_err(|error| ClientCreationError::AuthenticationAttempt {
+                        kind: "KeyboardInteractive",
+                        user: user.to_owned(),
+                        addr: *addr,
+                        error,
                     })?;
 
                 loop {
@@ -242,7 +309,12 @@ async fn make_authenticated_client(
                                     prompts.iter().map(|_| password.to_string()).collect(),
                                 )
                                 .await
-                                .with_context(|| format!("Error responding to KeyboardInteractive authentication as {user} to {addr}"))?;
+                                .map_err(|error| ClientCreationError::AuthenticationAttempt {
+                                    kind: "KeyboardInteractive authentication response",
+                                    user: user.to_owned(),
+                                    addr: *addr,
+                                    error,
+                                })?;
                             // We may get multiple info requests, so we to do this in a loop
                             // until we get a success or failure.
                         }
@@ -267,8 +339,11 @@ async fn make_authenticated_client(
                 match client
                     .authenticate_password(user, password)
                     .await
-                    .with_context(|| {
-                        format!("Error attempting Password authentication as {user} to {addr}")
+                    .map_err(|error| ClientCreationError::AuthenticationAttempt {
+                        kind: "Password",
+                        user: user.to_owned(),
+                        addr: *addr,
+                        error,
                     })? {
                     AuthResult::Success => {
                         tracing::debug!(
@@ -288,9 +363,10 @@ async fn make_authenticated_client(
         }
     }
 
-    Err(eyre::format_err!(
-        "Could not authenticate to {addr} as {user}, all authentication attempts failed"
-    ))
+    Err(ClientCreationError::AuthenticationFailed {
+        user: user.to_owned(),
+        addr: *addr,
+    })
 }
 
 // Interact with the serial-on-lan console within the BMC ssh session, calling the vendor's serial
@@ -300,7 +376,7 @@ async fn trigger_and_await_sol_console(
     machine_id: MachineId,
     ssh_client_channel: &mut Channel<russh::client::Msg>,
     bmc_vendor: SshBmcVendor,
-) -> eyre::Result<()> {
+) -> Result<(), ConsoleActivateError> {
     let Some(bmc_prompt) = bmc_vendor.bmc_prompt() else {
         // This vendor lets us get a console directly by SSH'ing in (e.g. a DPU.)
         return Ok(());
@@ -320,15 +396,24 @@ async fn trigger_and_await_sol_console(
     ssh_client_channel
         .request_pty(false, "xterm", 80, 24, 0, 0, &[])
         .await
-        .context("error sending pty request to BMC")?;
+        .map_err(|error| ConsoleActivateError::Request {
+            phase: "sending pty request to BMC",
+            error,
+        })?;
     ssh_client_channel
         .request_shell(false)
         .await
-        .context("error sending shell request to BMC")?;
+        .map_err(|error| ConsoleActivateError::Request {
+            phase: "sending shell request to BMC",
+            error,
+        })?;
     ssh_client_channel
         .data(b"\n".as_slice())
         .await
-        .context("error sending newline to BMC")?;
+        .map_err(|error| ConsoleActivateError::Request {
+            phase: "sending newline to BMC",
+            error,
+        })?;
 
     let mut prompt_buf: Vec<u8> = Vec::with_capacity(1024);
     let timeout = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
@@ -342,7 +427,7 @@ async fn trigger_and_await_sol_console(
     loop {
         tokio::select! {
             _ = tokio::time::sleep_until(timeout) => {
-                return Err(eyre::format_err!("Unable to activate serial console after timeout"))
+                return Err(ConsoleActivateError::Timeout);
             }
             res = ssh_client_channel.wait() => {
                 let Some(msg) = res else {
@@ -363,14 +448,10 @@ async fn trigger_and_await_sol_console(
                                     ssh_client_channel
                                         .data([*byte].as_slice())
                                         .await
-                                        .with_context(|| {
-                                            format!(
-                                                "error sending serial activate command ({}) to BMC",
-                                                String::from_utf8_lossy(activate_command)
-                                            )
-                                        })?;
+                                    .map_err(|error| ConsoleActivateError::Request { phase: "sending serial activate command to BMC", error })?;
                                 }
-                                ssh_client_channel.data(b"\n".as_slice()).await.context("error sending data to BMC")?;
+                                ssh_client_channel.data(b"\n".as_slice()).await
+                                    .map_err(|error| ConsoleActivateError::Request { phase: "sending data to BMC", error })?;
                                 activation_step = SerialConsoleActivationStep::ActivateSent;
                                 // Clear the prompt
                                 prompt_buf.clear();
@@ -404,7 +485,7 @@ async fn trigger_and_await_sol_console(
 struct Handler;
 
 impl russh::client::Handler for Handler {
-    type Error = eyre::Error;
+    type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,

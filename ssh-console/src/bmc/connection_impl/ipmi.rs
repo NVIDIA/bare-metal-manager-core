@@ -12,12 +12,12 @@
 
 use crate::POWER_RESET_COMMAND;
 use crate::bmc::client_pool::BmcPoolMetrics;
-use crate::bmc::connection::Handle;
 use crate::bmc::message_proxy::{ChannelMsgOrExec, ExecReply};
 use crate::bmc::vendor::IPMITOOL_ESCAPE_SEQUENCE;
 use crate::config::Config;
-use crate::io_util::{self, set_controlling_terminal_on_exec, write_data_to_async_fd};
-use eyre::Context;
+use crate::io_util::{
+    self, PtyAllocError, set_controlling_terminal_on_exec, write_data_to_async_fd,
+};
 use forge_uuid::machine::MachineId;
 use nix::errno::Errno;
 use nix::pty::OpenptyResult;
@@ -28,11 +28,12 @@ use std::borrow::Cow;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 use tokio::io::unix::AsyncFd;
 use tokio::process::Child;
 use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::task::JoinHandle;
 
 /// Spawn ipmitool in the background to connect to the given BMC specified by `connection_details`,
 /// and proxy data between it and the SSH frontend.
@@ -49,7 +50,7 @@ pub async fn spawn(
     to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
     config: Arc<Config>,
     metrics: Arc<BmcPoolMetrics>,
-) -> eyre::Result<Handle> {
+) -> Result<Handle, SpawnError> {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let (ready_tx, ready_rx) = oneshot::channel::<()>();
     let ready_tx = Some(ready_tx); // only send it once
@@ -59,7 +60,7 @@ pub async fn spawn(
     let OpenptyResult {
         master: pty_master,
         slave: pty_slave,
-    } = io_util::alloc_pty(80, 24).context("error spawning a PTY for ipmitool")?;
+    } = io_util::alloc_pty(80, 24)?;
     let pty_master = AsyncFd::new(pty_master).expect("BUG: not in tokio runtime?");
 
     // Run `ipmitool sol activate` with the appropriate args
@@ -79,17 +80,26 @@ pub async fn spawn(
         .stdin(
             pty_slave
                 .try_clone()
-                .context("error cloning pty fd for stdin")?,
+                .map_err(|error| SpawnError::PtySetup {
+                    reason: "error cloning pty fd for stdin",
+                    error,
+                })?,
         )
         .stdout(
             pty_slave
                 .try_clone()
-                .context("error cloning pty fd for stdout")?,
+                .map_err(|error| SpawnError::PtySetup {
+                    reason: "error cloning pty fd for stdout",
+                    error,
+                })?,
         )
         .stderr(
             pty_slave
                 .try_clone()
-                .context("error cloning pty fd for stderr")?,
+                .map_err(|error| SpawnError::PtySetup {
+                    reason: "error cloning pty fd for stderr",
+                    error,
+                })?,
         )
         // Set the xterm env var as a reasonable default.
         .env("TERM", "xterm");
@@ -101,7 +111,9 @@ pub async fn spawn(
 
     // Spawn ipmitool in the controlling pty
     set_controlling_terminal_on_exec(&mut command, pty_slave.as_raw_fd());
-    let ipmitool_process = command.spawn().context("error spawning ipmitool")?;
+    let ipmitool_process = command
+        .spawn()
+        .map_err(|error| SpawnError::SpawningIpmitool { error })?;
 
     // Make a channel the frontend can use to send messages to us
     let (from_frontend_tx, from_frontend_rx) = mpsc::channel::<ChannelMsgOrExec>(1);
@@ -125,32 +137,27 @@ pub async fn spawn(
         ipmitool_proxy
             .manage_ipmitool_process()
             .await
-            .with_context(|| {
-                format!(
-                    "error running ipmitool. output: {}",
-                    ipmitool_proxy.output_buf_str()
-                )
+            .map_err(|error| SpawnError::ProcessLoop {
+                error,
+                output: ipmitool_proxy.output_buf_str().to_string(),
             })?;
 
         let exit_status = ipmitool_proxy
             .ipmitool_process
             .try_wait()
-            .with_context(|| {
-                format!(
-                    "error checking ipmitool exit status. output: {}",
-                    ipmitool_proxy.output_buf_str()
-                )
+            .map_err(|error| SpawnError::CheckingIpmitoolExitStatus {
+                error,
+                output: ipmitool_proxy.output_buf_str().to_string(),
             })?;
 
         match exit_status {
             Some(exit_status) => {
                 // Any exit from ipmitool is unexpected: It's supposed to run forever until we shut
                 // it down.
-                Err(eyre::format_err!(
-                    "ipmitool exited unexpectedly: {:?}, output: {}",
+                Err(SpawnError::IpmitoolUnexpectedExit {
                     exit_status,
-                    ipmitool_proxy.output_buf_str()
-                ))
+                    output: ipmitool_proxy.output_buf_str().to_string(),
+                })
             }
             None => {
                 // Process is still running (normal shutdown), we can kill it.
@@ -163,15 +170,80 @@ pub async fn spawn(
         }
     });
 
-    ready_rx
-        .await
-        .context("error waiting for ipmitool to be ready")?;
+    ready_rx.await.map_err(|_| SpawnError::WaitingForReady)?;
 
     Ok(Handle {
         to_bmc_msg_tx: from_frontend_tx,
         shutdown_tx,
         join_handle,
     })
+}
+
+/// A handle to a BMC connection, which will shut down when dropped.
+pub struct Handle {
+    pub to_bmc_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
+    pub shutdown_tx: oneshot::Sender<()>,
+    pub join_handle: JoinHandle<Result<(), SpawnError>>,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum SpawnError {
+    #[error("error spawning a PTY for ipmitool: {0}")]
+    PtyAlloc(#[from] PtyAllocError),
+    #[error("error setting up pty: {reason}: {error}")]
+    PtySetup {
+        reason: &'static str,
+        error: std::io::Error,
+    },
+    #[error("error spawning ipmitool: {error}")]
+    SpawningIpmitool { error: std::io::Error },
+    #[error("error checking ipmitool exit status: {error}. output: {output}")]
+    CheckingIpmitoolExitStatus {
+        error: std::io::Error,
+        output: String,
+    },
+    #[error("ipmitool exited unexpectedly: {exit_status}, output: {output}")]
+    IpmitoolUnexpectedExit {
+        exit_status: ExitStatus,
+        output: String,
+    },
+    #[error("Unknown error waiting for ipmitool to be ready")]
+    WaitingForReady,
+    #[error("error running ipmitool: {error}. output: {output}")]
+    ProcessLoop {
+        error: ProcessLoopError,
+        output: String,
+    },
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ProcessLoopError {
+    #[error("Error polling from pty master fd: {error}")]
+    PollingFromPty { error: std::io::Error },
+    #[error("error writing data from ipmitool to frontend channel: no active receivers")]
+    WritingToFrontendChannel,
+    #[error("error reading ipmitool output: {error}")]
+    ReadingFromIpmitoolPty { error: std::io::Error },
+    #[error("error sending frontend message to ipmi console: {0}")]
+    SendingFrontendMessageToIpmiConsole(#[from] SendFrontendMessageToIpmiConsoleError),
+    #[error("error resetting power: {0}")]
+    PowerReset(#[from] PowerResetError),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum SendFrontendMessageToIpmiConsoleError {
+    #[error("error writing to ipmitool pty: {error}")]
+    WritingToPty { error: std::io::Error },
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum PowerResetError {
+    #[error("error spawning ipmitool for power reset: {error}")]
+    Spawning { error: std::io::Error },
+    #[error("ipmitool error running power reset: {error}")]
+    Waiting { error: std::io::Error },
+    #[error("ipmitool power reset failed: {output}")]
+    Failure { output: String },
 }
 
 struct IpmitoolMessageProxy {
@@ -196,14 +268,14 @@ impl IpmitoolMessageProxy {
     /// This function is tricky because we're dealing with "normal" UNIX file descriptors (set with
     /// O_NONBLOCK), but we want to poll them in a tokio::select loop.  So we have to do the typical
     /// UNIX pattern of reading/writing data until we get EWOULDBLOCK, returning to the main loop, etc.
-    async fn manage_ipmitool_process(&mut self) -> eyre::Result<()> {
+    async fn manage_ipmitool_process(&mut self) -> Result<(), ProcessLoopError> {
         let machine_id = self.connection_details.machine_id;
         let metrics_attrs = vec![KeyValue::new("machine_id", machine_id.to_string())];
         loop {
             tokio::select! {
                 // Poll for any data to be available in pty_master
                 guard = self.pty_master.readable() => {
-                    let mut guard = guard.context("error polling from pty master fd")?;
+                    let mut guard = guard.map_err(|error| ProcessLoopError::PollingFromPty { error })?;
                     // Read the available data
                     match unistd::read(guard.get_inner(), &mut self.output_buf) {
                         Ok(n) => {
@@ -216,7 +288,7 @@ impl IpmitoolMessageProxy {
                             self.ready_tx.take().map(|ch| ch.send(()));
                             self.metrics.bmc_bytes_received_total.add(n as _, metrics_attrs.as_slice());
                             self.to_frontend_tx.send(Arc::new(ChannelMsg::Data { data: self.output_buf[0..n].to_vec().into() }))
-                                .context("error writing data from ipmitool to frontend channel")?;
+                                .map_err(|_| ProcessLoopError::WritingToFrontendChannel)?;
                             // Note, we're not clearing the ready state, so the fd will stay readable.
                             // The next time through the loop we'll get EWOULDBLOCK and clear the
                             // status. This lets us handle cases where there's more data to read than
@@ -229,16 +301,14 @@ impl IpmitoolMessageProxy {
                         Err(e) => {
                             self.metrics.bmc_rx_errors_total.add(1, metrics_attrs.as_slice());
                             return Err(std::io::Error::from_raw_os_error(e as _))
-                                .context("error reading ipmitool output");
+                                .map_err(|error| ProcessLoopError::ReadingFromIpmitoolPty { error })
                         }
                     };
                 }
                 // Poll for any messages from the SSH frontend
                 res = self.from_frontend_rx.recv() => match res {
                     Some(msg) => {
-                        self.send_frontend_message_to_ipmi_console(msg).await.context(
-                            "error sending frontend message to ipmi console"
-                        ).inspect_err(|_| {
+                        self.send_frontend_message_to_ipmi_console(msg).await.inspect_err(|_| {
                             self.metrics.bmc_tx_errors_total.add(1, metrics_attrs.as_slice());
                         })?;
                     }
@@ -266,7 +336,7 @@ impl IpmitoolMessageProxy {
     async fn send_frontend_message_to_ipmi_console(
         &mut self,
         msg: ChannelMsgOrExec,
-    ) -> eyre::Result<()> {
+    ) -> Result<(), SendFrontendMessageToIpmiConsoleError> {
         let machine_id = self.connection_details.machine_id;
         let msg = match msg {
             // Filter out escape sequences
@@ -290,7 +360,9 @@ impl IpmitoolMessageProxy {
             ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data { data }) => {
                 write_data_to_async_fd(&data, &self.pty_master)
                     .await
-                    .context("error writing to ipmitool pty")?;
+                    .map_err(
+                        |error| SendFrontendMessageToIpmiConsoleError::WritingToPty { error },
+                    )?;
             }
             ChannelMsgOrExec::ChannelMsg(ChannelMsg::WindowChange {
                 col_width,
@@ -345,7 +417,7 @@ impl IpmitoolMessageProxy {
         Ok(())
     }
 
-    async fn power_reset(&mut self) -> eyre::Result<()> {
+    async fn power_reset(&mut self) -> Result<(), PowerResetError> {
         let mut command = tokio::process::Command::new("ipmitool");
         command
             .arg("-I")
@@ -369,18 +441,17 @@ impl IpmitoolMessageProxy {
 
         let output = command
             .spawn()
-            .context("error spawning ipmitool for power reset")?
+            .map_err(|error| PowerResetError::Spawning { error })?
             .wait_with_output()
             .await
-            .context("ipmitool error running power reset")?;
+            .map_err(|error| PowerResetError::Waiting { error })?;
 
         if output.status.success() {
             Ok(())
         } else {
-            Err(eyre::eyre!(
-                "power reset failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ))
+            Err(PowerResetError::Failure {
+                output: String::from_utf8_lossy(&output.stderr).to_string(),
+            })
         }
     }
 
