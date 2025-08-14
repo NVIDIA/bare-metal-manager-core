@@ -22,7 +22,7 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
     for i in 0..4 {
-        let (_vpc_id, _vpc) = create_vpc(&env, format!("vpc_{}", i), None, None).await;
+        let (_vpc_id, _vpc) = create_vpc(&env, format!("vpc_{i}"), None, None).await;
     }
 
     // test getting all ids
@@ -92,7 +92,7 @@ async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
 
     let mut vpc3 = rpc::Vpc::default();
     for i in 0..4 {
-        let (_vpc_id, vpc) = create_vpc(&env, format!("vpc_{}", i), None, None).await;
+        let (_vpc_id, vpc) = create_vpc(&env, format!("vpc_{i}"), None, None).await;
         if i == 3 {
             vpc3 = vpc;
         }
@@ -241,15 +241,15 @@ async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
                 network_security_group_id: None,
                 network_virtualization_type: None,
                 metadata: Some(rpc::Metadata {
-                    name: format!("VPC_{}{}{}", i, i, i).to_string(),
-                    description: format!("VPC_{}{}{} have labels", i, i, i).to_string(),
+                    name: format!("VPC_{i}{i}{i}").to_string(),
+                    description: format!("VPC_{i}{i}{i} have labels").to_string(),
                     labels: vec![
                         rpc::Label {
-                            key: format!("key_A_{}{}{}", i, i, i).to_string(),
-                            value: Some(format!("value_A_{}{}{}", i, i, i).to_string()),
+                            key: format!("key_A_{i}{i}{i}").to_string(),
+                            value: Some(format!("value_A_{i}{i}{i}").to_string()),
                         },
                         rpc::Label {
-                            key: format!("key_B_{}{}{}", i, i, i).to_string(),
+                            key: format!("key_B_{i}{i}{i}").to_string(),
                             value: None,
                         },
                     ],

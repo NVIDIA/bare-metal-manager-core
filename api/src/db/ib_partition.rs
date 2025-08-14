@@ -576,8 +576,7 @@ pub async fn allocate_port_guid(
                 for ib_status in ib_interfaces_status.ib_interfaces.iter() {
                     if *guid == ib_status.guid && ib_status.lid == 0xffff_u16 {
                         return Err(CarbideError::InvalidArgument(format!(
-                            "UFM detected inactive state for GUID: {}",
-                            guid
+                            "UFM detected inactive state for GUID: {guid}"
                         )));
                     }
                 }

@@ -49,7 +49,7 @@ impl From<forgerpc::NetworkDevice> for NetworkDeviceDisplay {
                 remote_port: device
                     .remote_port
                     .split('=')
-                    .last()
+                    .next_back()
                     .unwrap_or_default()
                     .to_string(),
             });

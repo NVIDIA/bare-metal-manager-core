@@ -236,8 +236,7 @@ impl InstanceNetworkConfig {
 
             if !used_segment_ids.insert(network_segment_id) {
                 return Err(ConfigValidationError::InvalidValue(format!(
-                    "Multiple network interfaces use the same network segment {}",
-                    network_segment_id
+                    "Multiple network interfaces use the same network segment {network_segment_id}"
                 )));
             }
 
@@ -652,8 +651,7 @@ pub fn validate_interface_function_ids<
         if let InterfaceFunctionId::Virtual { id } = function_id {
             if !(INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX).contains(id) {
                 return Err(format!(
-                    "Invalid interface virtual function ID {} for network interface at index {}",
-                    id, idx
+                    "Invalid interface virtual function ID {id} for network interface at index {idx}"
                 ));
             }
         }

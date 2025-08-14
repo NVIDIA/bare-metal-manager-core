@@ -27,7 +27,7 @@ async fn test_find_ib_partition_ids(pool: sqlx::PgPool) {
             tenant_org_id = "tenant_org_2";
         }
         let (_id, _partition) =
-            create_ib_partition(&env, format!("partition_{}", i), tenant_org_id.to_string()).await;
+            create_ib_partition(&env, format!("partition_{i}"), tenant_org_id.to_string()).await;
     }
 
     // test getting all ids
@@ -108,7 +108,7 @@ async fn test_find_ib_partitions_by_ids(pool: sqlx::PgPool) {
             tenant_org_id = "tenant_org_2";
         }
         let (_id, partition) =
-            create_ib_partition(&env, format!("partition_{}", i), tenant_org_id.to_string()).await;
+            create_ib_partition(&env, format!("partition_{i}"), tenant_org_id.to_string()).await;
         if i == 3 {
             partition3 = partition;
         }

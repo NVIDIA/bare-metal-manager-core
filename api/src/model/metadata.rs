@@ -68,8 +68,7 @@ impl TryFrom<rpc::Metadata> for Metadata {
 
             if labels.contains_key(&key) {
                 return Err(RpcDataConversionError::InvalidLabel(format!(
-                    "Duplicate key found: {}",
-                    key
+                    "Duplicate key found: {key}"
                 )));
             }
 

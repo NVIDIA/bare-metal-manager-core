@@ -182,7 +182,7 @@ async fn find_all_interfaces_test_cases(
         let interface = db::machine_interface::create(
             &mut txn,
             &network_segment,
-            MacAddress::from_str(format!("ff:ff:ff:ff:ff:0{}", i).as_str())
+            MacAddress::from_str(format!("ff:ff:ff:ff:ff:0{i}").as_str())
                 .as_ref()
                 .unwrap(),
             Some(domain_id),

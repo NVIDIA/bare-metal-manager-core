@@ -52,7 +52,7 @@ async fn handle_overlay_segment_creation(
     // For each overlay_segment, create new segment if not exists.
     let vpc = get_or_create_vpc(api_client).await?;
     for network in overlay_networks {
-        let name = format!("devenv_tenant_{}", network);
+        let name = format!("devenv_tenant_{network}");
         let network_segment = api_client
             .get_all_segments(None, Some(name.clone()), 2)
             .await?;
@@ -113,7 +113,7 @@ async fn handle_overlay_vpc_prefix_creation(
 ) -> CarbideCliResult<()> {
     let vpc = get_or_create_vpc(api_client).await?;
     for network in overlay_networks {
-        let vpc_prefix_name = format!("overlay_prefix_{}", network);
+        let vpc_prefix_name = format!("overlay_prefix_{network}");
         let query = VpcPrefixSearchQuery {
             vpc_id: vpc.id.clone(),
             tenant_prefix_id: None,

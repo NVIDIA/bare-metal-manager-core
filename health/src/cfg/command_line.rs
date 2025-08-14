@@ -79,7 +79,7 @@ impl FromStr for ConcurrencyOption {
             "machine_count" => Ok(ConcurrencyOption::MachineCount),
             s => match s.parse::<usize>() {
                 Ok(n) if n > 0 => Ok(ConcurrencyOption::Custom(n)),
-                _ => Err(format!("Invalid concurrency value: {}", s)),
+                _ => Err(format!("Invalid concurrency value: {s}")),
             },
         }
     }

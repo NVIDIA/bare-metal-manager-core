@@ -400,7 +400,7 @@ pub async fn submit_report_promotion(
                         pcr_registers_to_promote += &idx;
                         first_element = false;
                     } else {
-                        pcr_registers_to_promote += &format!(",{}", idx);
+                        pcr_registers_to_promote += &format!(",{idx}");
                     }
                 }
             }
@@ -474,7 +474,7 @@ fn extract_pcr_slot_idx(potential_idx: &str) -> Result<Option<String>, (StatusCo
             Err(err) => {
                 return Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Html(format!("Error parsing PCR index: {}", err)),
+                    Html(format!("Error parsing PCR index: {err}")),
                 ));
             }
         }

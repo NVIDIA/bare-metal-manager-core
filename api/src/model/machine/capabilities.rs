@@ -662,7 +662,7 @@ impl MachineCapabilitiesSet {
                     name: mem_type,
                     vendor: None, // hardware_info doesn't provide this
                     count: 1,     // We roll up all the memory we find
-                    capacity: Some(format!("{} MB", mem_sum_mb)),
+                    capacity: Some(format!("{mem_sum_mb} MB")),
                 })
                 .collect(),
             storage: storage_map.into_values().collect(),

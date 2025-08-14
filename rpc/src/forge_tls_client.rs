@@ -18,7 +18,7 @@ use rustls::{
     ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme, pki_types::CertificateDer,
     pki_types::PrivateKeyDer, pki_types::ServerName, pki_types::UnixTime,
 };
-use tonic::body::BoxBody;
+use tonic::body::Body;
 
 use crate::forge::VersionRequest;
 use crate::forge_resolver;
@@ -35,7 +35,7 @@ use x509_parser::prelude::{FromDer, X509Certificate};
 
 pub type ForgeClientT = ForgeClient<
     BoxCloneService<
-        hyper::Request<BoxBody>,
+        hyper::Request<Body>,
         hyper::Response<Incoming>,
         hyper_util::client::legacy::Error,
     >,
@@ -751,7 +751,7 @@ mod tests {
             .service(http);
 
         // And then create a new hyper HTTP client with the connector.
-        let hyper_client: legacy::Client<HttpsConnector<ForgeHttpConnector>, BoxBody> =
+        let hyper_client: legacy::Client<HttpsConnector<ForgeHttpConnector>, Body> =
             legacy::Client::builder(TokioExecutor::new()).build(connector);
 
         // We're finally here. Fire off an HTTP request. Behind he scenes,

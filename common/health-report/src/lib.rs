@@ -440,7 +440,7 @@ impl HealthProbeAlert {
             self.message += other.message.as_str();
         }
         self.tenant_message = match (&self.tenant_message, &other.tenant_message) {
-            (Some(m1), Some(m2)) => Some(format!("{}\n{}", m1, m2)),
+            (Some(m1), Some(m2)) => Some(format!("{m1}\n{m2}")),
             (Some(m1), None) => Some(m1.clone()),
             (None, Some(m2)) => Some(m2.clone()),
             (None, None) => None,
@@ -640,7 +640,7 @@ mod tests {
     fn print_probe_id() {
         let classification = HealthProbeId("Network".to_string());
         assert_eq!(
-            format!("{:?} {}", classification, classification).as_str(),
+            format!("{classification:?} {classification}").as_str(),
             "\"Network\" Network"
         );
     }
@@ -649,7 +649,7 @@ mod tests {
     fn print_classification() {
         let classification = HealthAlertClassification::prevent_host_state_changes();
         assert_eq!(
-            format!("{:?} {}", classification, classification).as_str(),
+            format!("{classification:?} {classification}").as_str(),
             "\"PreventHostStateChanges\" PreventHostStateChanges"
         );
     }

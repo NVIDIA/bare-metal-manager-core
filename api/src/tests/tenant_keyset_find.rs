@@ -123,7 +123,7 @@ async fn test_find_tenant_keysets_by_ids_over_max(pool: sqlx::PgPool) {
     let keyset_ids: Vec<rpc::TenantKeysetIdentifier> = (1..=end_index)
         .map(|i| rpc::TenantKeysetIdentifier {
             organization_id: "tenant_org_1".to_string(),
-            keyset_id: format!("keyset_id_{}", i),
+            keyset_id: format!("keyset_id_{i}"),
         })
         .collect();
     let include_key_data = false;

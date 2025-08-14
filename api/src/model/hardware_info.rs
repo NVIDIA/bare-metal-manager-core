@@ -924,7 +924,7 @@ mod tests {
 
     #[test]
     fn deserialize_x86_info() {
-        let path = format!("{}/x86_info.json", TEST_DATA_DIR);
+        let path = format!("{TEST_DATA_DIR}/x86_info.json");
         let data = std::fs::read(path).unwrap();
         let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
         assert!(!info.is_dpu());
@@ -932,7 +932,7 @@ mod tests {
 
     #[test]
     fn deserialize_dpu_info() {
-        let path = format!("{}/dpu_info.json", TEST_DATA_DIR);
+        let path = format!("{TEST_DATA_DIR}/dpu_info.json");
         let data = std::fs::read(path).unwrap();
         let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
         assert!(info.is_dpu());
@@ -948,7 +948,7 @@ mod tests {
 
     #[test]
     fn deserialize_dpu_bf3_info() {
-        let path = format!("{}/dpu_bf3_info.json", TEST_DATA_DIR);
+        let path = format!("{TEST_DATA_DIR}/dpu_bf3_info.json");
         let data = std::fs::read(path).unwrap();
         let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
         assert!(info.is_dpu());
@@ -983,7 +983,7 @@ mod tests {
         let cert_data = b"This is not really a certificate".to_vec();
         let encoded = BASE64_STANDARD.encode(&cert_data);
 
-        let json = format!("\"{}\"", encoded);
+        let json = format!("\"{encoded}\"");
         let deserialized: TpmEkCertificate = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.as_bytes(), &cert_data);
 
@@ -993,7 +993,7 @@ mod tests {
             cert: Option<TpmEkCertificate>,
         }
 
-        let json = format!("{{\"cert\":\"{}\"}}", encoded);
+        let json = format!("{{\"cert\":\"{encoded}\"}}");
         let deserialized: OptionalCert = serde_json::from_str(&json).unwrap();
         assert_eq!(
             deserialized.cert.as_ref().map(|cert| cert.as_bytes()),

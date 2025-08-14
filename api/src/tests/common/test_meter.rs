@@ -43,8 +43,7 @@ impl TestMeter {
             0 => None,
             1 => metrics.pop(),
             n => panic!(
-                "Expected to find a single metric with name \"{metric_name}\", but found {n}. Full metrics:\n{:?}",
-                metrics
+                "Expected to find a single metric with name \"{metric_name}\", but found {n}. Full metrics:\n{metrics:?}"
             ),
         }
     }
@@ -83,7 +82,7 @@ impl TestMeter {
             // and "{$attrs} value" if with attributes
             if metric_line.starts_with('{') {
                 let end_idx = metric_line.find("} ").unwrap_or_else(|| {
-                    panic!("Expected to find end of metric line of {}", metric_line)
+                    panic!("Expected to find end of metric line of {metric_line}")
                 });
                 let (attribute, amount) = metric_line.split_at(end_idx + 1);
                 let amount = &amount[1..];

@@ -639,8 +639,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
             .add_expected_machine(tonic::Request::new(expected_machine.clone()))
             .await
             .expect_err(&format!(
-                "Invalid metadata of type should not be accepted: {:?}",
-                invalid_metadata
+                "Invalid metadata of type should not be accepted: {invalid_metadata:?}"
             ));
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
         assert!(
@@ -684,8 +683,7 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
             .update_expected_machine(tonic::Request::new(expected_machine.clone()))
             .await
             .expect_err(&format!(
-                "Invalid metadata of type should not be accepted: {:?}",
-                invalid_metadata
+                "Invalid metadata of type should not be accepted: {invalid_metadata:?}"
             ));
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
         assert!(

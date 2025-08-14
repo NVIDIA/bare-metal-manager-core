@@ -1131,7 +1131,7 @@ impl FromStr for UefiDevicePath {
             UEFI_DEVICE_PATH_REGEX
                 .captures(st)
                 .ok_or_else(|| RedfishError::GenericError {
-                    error: format!("Could not match regex in PCI Device Path {}.", s),
+                    error: format!("Could not match regex in PCI Device Path {s}."),
                 })?;
 
         let mut pci = vec![];
@@ -1146,8 +1146,7 @@ impl FromStr for UefiDevicePath {
                     let hex_int = u32::from_str_radix(&hex.to_lowercase().replace("0x", ""), 16)
                         .map_err(|e| RedfishError::GenericError {
                             error: format!(
-                                "Can't convert pci address to int {}, error: {} for pci: {}",
-                                hex, e, s
+                                "Can't convert pci address to int {hex}, error: {e} for pci: {s}"
                             ),
                         })?;
                     pci.push(hex_int.to_string());
@@ -1676,7 +1675,7 @@ mod tests {
         );
 
         // Check whether the MachineId is equal to what we generate inband
-        let path = format!("{}/dpu_info.json", TEST_DATA_DIR);
+        let path = format!("{TEST_DATA_DIR}/dpu_info.json");
         let data = std::fs::read(path).unwrap();
         let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
         let hardware_info_machine_id = from_hardware_info(&info).unwrap();

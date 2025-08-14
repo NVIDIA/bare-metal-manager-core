@@ -116,7 +116,7 @@ async fn test_max_outstanding_updates(
 
     let config: Arc<CarbideConfig> = Arc::new(
         Figment::new()
-            .merge(Toml::file(format!("{}/full_config.toml", TEST_DATA_DIR)))
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
             .extract()
             .unwrap(),
     );
@@ -206,7 +206,7 @@ fn test_start(pool: sqlx::PgPool) {
 
     let mut config: Arc<CarbideConfig> = Arc::new(
         Figment::new()
-            .merge(Toml::file(format!("{}/full_config.toml", TEST_DATA_DIR)))
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
             .extract()
             .unwrap(),
     );

@@ -2020,8 +2020,7 @@ async fn test_site_explorer_health_report(
     // which prevents site explorer from running
     let mut txn = env.pool.begin().await?;
     let query = format!(
-        "UPDATE network_segments SET network_segment_type='underlay' WHERE id='{}'",
-        segment_id,
+        "UPDATE network_segments SET network_segment_type='underlay' WHERE id='{segment_id}'",
     );
     sqlx::query::<_>(&query).execute(&mut *txn).await.unwrap();
     txn.commit().await.unwrap();
@@ -2944,8 +2943,7 @@ async fn test_delete_explored_endpoint(
     assert_eq!(
         response.message,
         Some(format!(
-            "No explored endpoint found with IP {}",
-            non_existent_ip
+            "No explored endpoint found with IP {non_existent_ip}"
         ))
     );
 
@@ -2982,8 +2980,7 @@ async fn test_delete_explored_endpoint(
     assert_eq!(
         response.message,
         Some(format!(
-            "Successfully deleted explored endpoint with IP {}",
-            standalone_endpoint_ip
+            "Successfully deleted explored endpoint with IP {standalone_endpoint_ip}"
         ))
     );
 
@@ -3026,8 +3023,7 @@ async fn test_delete_explored_endpoint(
     assert_eq!(
         error.message(),
         format!(
-            "Cannot delete endpoint {} because a machine exists for it. Did you mean to force-delete the machine?",
-            host_ip
+            "Cannot delete endpoint {host_ip} because a machine exists for it. Did you mean to force-delete the machine?"
         )
     );
 
@@ -3044,8 +3040,7 @@ async fn test_delete_explored_endpoint(
     assert_eq!(
         error.message(),
         format!(
-            "Cannot delete endpoint {} because a machine exists for it. Did you mean to force-delete the machine?",
-            dpu_ip
+            "Cannot delete endpoint {dpu_ip} because a machine exists for it. Did you mean to force-delete the machine?"
         )
     );
 

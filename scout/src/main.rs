@@ -344,7 +344,7 @@ fn get_log_str() -> eyre::Result<String> {
     let text = std::fs::read_to_string("/var/log/cloud-init-output.log")?;
 
     for line in text.lines().rev() {
-        let line_str = format!("{}\n", line);
+        let line_str = format!("{line}\n");
         ret_str.insert_str(0, &line_str);
         if ret_str.len() > ::rpc::MAX_ERR_MSG_SIZE as usize {
             break;
@@ -536,7 +536,7 @@ async fn check_certs_validity(client_cert_path: &str) -> CarbideClientResult<boo
 
     // create the certificate
     let ca_cert = X509Certificate::from_der(&ca_file_bytes_der)
-        .map_err(|e| CarbideClientError::GenericError(format!("Could not parse CA cert: {0}", e)))?
+        .map_err(|e| CarbideClientError::GenericError(format!("Could not parse CA cert: {e}")))?
         .1;
 
     // if not after timestamp is less than two days away, initiate certs regen
@@ -561,8 +561,7 @@ async fn check_certs_validity(client_cert_path: &str) -> CarbideClientResult<boo
         }
     } else {
         Err(CarbideClientError::GenericError(format!(
-            "Could not parse NotAfter timestamp: {}",
-            not_after
+            "Could not parse NotAfter timestamp: {not_after}"
         )))
     }
 }

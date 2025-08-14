@@ -541,8 +541,7 @@ async fn test_reject_single_dpu_instance_allocation_no_network_config(
     match result {
         Err(e) if e.code() == tonic::Code::InvalidArgument => {}
         _ => panic!(
-            "Creating an instance on a dpu host without specifying a network segment should throw an error, got {:?}",
-            result
+            "Creating an instance on a dpu host without specifying a network segment should throw an error, got {result:?}"
         ),
     };
 
@@ -606,8 +605,7 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
     match result {
         Err(e) if e.code() == tonic::Code::InvalidArgument => {}
         _ => panic!(
-            "Creating an instance on a dpu host while specifying a host_inband network segment should throw an error, got {:?}",
-            result
+            "Creating an instance on a dpu host while specifying a host_inband network segment should throw an error, got {result:?}"
         ),
     };
 
@@ -648,8 +646,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
             |dhcp_result, _| {
                 assert!(
                     dhcp_result.is_ok(),
-                    "DHCP failed on second interface: {:?}",
-                    dhcp_result
+                    "DHCP failed on second interface: {dhcp_result:?}"
                 );
                 Ok(())
             },
@@ -740,8 +737,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
     match result {
         Err(e) if e.code() == tonic::Code::InvalidArgument => {}
         _ => panic!(
-            "Creating an instance on a zero-dpu host that is a member of multiple VPC's should fail, got {:?}",
-            result
+            "Creating an instance on a zero-dpu host that is a member of multiple VPC's should fail, got {result:?}"
         ),
     }
 

@@ -159,7 +159,7 @@ async fn test_multiple_machines_dhcp_with_api(
     let mac_address = "FF:FF:FF:FF:FF:0".to_string();
     const NUM_MACHINES: usize = 6;
     for i in 0..NUM_MACHINES {
-        let mac = format!("{}{}", mac_address, i);
+        let mac = format!("{mac_address}{i}");
         let expected_ip = format!("192.0.2.{}", i + 3); // IP starts with 3.
         let response = env
             .api

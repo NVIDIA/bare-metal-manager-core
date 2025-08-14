@@ -251,7 +251,7 @@ pub async fn show_for_machine(
             .iter()
             .map(|report| {
                 MeasurementReport::try_from(report.clone())
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
             })
             .collect::<CarbideCliResult<Vec<MeasurementReport>>>()?,
     ))
@@ -269,7 +269,7 @@ pub async fn show_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementRepo
             .iter()
             .map(|report| {
                 MeasurementReport::try_from(report.clone())
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
             })
             .collect::<CarbideCliResult<Vec<MeasurementReport>>>()?,
     ))
@@ -291,7 +291,7 @@ pub async fn list_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementRepo
             .iter()
             .map(|report| {
                 MeasurementReportRecord::try_from(report.clone())
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
             })
             .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()?,
     ))
@@ -320,7 +320,7 @@ pub async fn list_machines(
             .iter()
             .map(|report| {
                 MeasurementReportRecord::try_from(report.clone())
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
             })
             .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()?,
     ))
@@ -349,7 +349,7 @@ pub async fn match_values(
             .iter()
             .map(|report| {
                 MeasurementReportRecord::try_from(report.clone())
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
             })
             .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()?,
     ))

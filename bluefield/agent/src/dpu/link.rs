@@ -48,7 +48,7 @@ impl IpLink {
 
             let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
                 .await
-                .wrap_err_with(|| format!("Timeout while running command: {:?}", cmd_str))??;
+                .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
 
             let fout = String::from_utf8_lossy(&output.stdout).to_string();
             Ok(fout)

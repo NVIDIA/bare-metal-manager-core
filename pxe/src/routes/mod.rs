@@ -45,8 +45,7 @@ impl RpcContext {
             .map(|response| response.into_inner().pxe_script)
             .map_err(|error| {
                 format!(
-                    "Error in updating build needed flag for instance for machine {:?}; Error: {}.",
-                    interface_id, error
+                    "Error in updating build needed flag for instance for machine {interface_id:?}; Error: {error}."
                 )
             })
     }

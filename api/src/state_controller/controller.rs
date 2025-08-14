@@ -177,7 +177,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                 controller_span.record("otel.status_code", "error");
                 // Writing this field will set the span status to error
                 // Therefore we only write it on errors
-                controller_span.record("otel.status_message", format!("{:?}", e));
+                controller_span.record("otel.status_message", format!("{e:?}"));
             }
         }
 
@@ -420,7 +420,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                                     .common
                                     .initial_state
                                     .as_ref()
-                                    .map(|state| format!("{:?}", state))
+                                    .map(|state| format!("{state:?}"))
                                     .unwrap_or_default(),
                             }),
                         };

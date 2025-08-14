@@ -58,7 +58,7 @@ pub async fn handle_create_measurement_report(
         &PcrRegisterValue::from_pb_vec(&req.pcr_values),
     )
     .await
-    .map_err(|e| Status::internal(format!("report creation failed: {}", e)))?;
+    .map_err(|e| Status::internal(format!("report creation failed: {e}")))?;
 
     commit_txn(txn).await?;
     Ok(CreateMeasurementReportResponse {
@@ -78,7 +78,7 @@ pub async fn handle_delete_measurement_report(
         MeasurementReportId::from_grpc(req.report_id.clone())?,
     )
     .await
-    .map_err(|e| Status::internal(format!("delete failed: {}", e)))?;
+    .map_err(|e| Status::internal(format!("delete failed: {e}")))?;
 
     commit_txn(txn).await?;
     Ok(DeleteMeasurementReportResponse {
@@ -93,26 +93,26 @@ pub async fn handle_promote_measurement_report(
     req: &PromoteMeasurementReportRequest,
 ) -> Result<PromoteMeasurementReportResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let pcr_set: Option<PcrSet> = match !req.pcr_registers.is_empty() {
-        true => Some(parse_pcr_index_input(&req.pcr_registers).map_err(|e| {
-            Status::invalid_argument(format!("pcr_register parsing failed: {}", e))
-        })?),
-        false => None,
-    };
+    let pcr_set: Option<PcrSet> =
+        match !req.pcr_registers.is_empty() {
+            true => Some(parse_pcr_index_input(&req.pcr_registers).map_err(|e| {
+                Status::invalid_argument(format!("pcr_register parsing failed: {e}"))
+            })?),
+            false => None,
+        };
 
     let report = db::report::from_id_with_txn(
         &mut txn,
         MeasurementReportId::from_grpc(req.report_id.clone())?,
     )
     .await
-    .map_err(|e| Status::internal(format!("promotion failed fetching report: {}", e)))?;
+    .map_err(|e| Status::internal(format!("promotion failed fetching report: {e}")))?;
 
     let bundle = db::report::create_active_bundle_with_txn(&mut txn, &report, &pcr_set)
         .await
         .map_err(|e| {
             Status::internal(format!(
-                "promotion failed promoting into active bundle: {}",
-                e
+                "promotion failed promoting into active bundle: {e}"
             ))
         })?;
 
@@ -129,26 +129,26 @@ pub async fn handle_revoke_measurement_report(
     req: &RevokeMeasurementReportRequest,
 ) -> Result<RevokeMeasurementReportResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let pcr_set: Option<PcrSet> = match &req.pcr_registers.len() {
-        n if n < &1 => None,
-        _ => Some(parse_pcr_index_input(&req.pcr_registers).map_err(|e| {
-            Status::invalid_argument(format!("pcr_register parsing failed: {}", e))
-        })?),
-    };
+    let pcr_set: Option<PcrSet> =
+        match &req.pcr_registers.len() {
+            n if n < &1 => None,
+            _ => Some(parse_pcr_index_input(&req.pcr_registers).map_err(|e| {
+                Status::invalid_argument(format!("pcr_register parsing failed: {e}"))
+            })?),
+        };
 
     let report = db::report::from_id_with_txn(
         &mut txn,
         MeasurementReportId::from_grpc(req.report_id.clone())?,
     )
     .await
-    .map_err(|e| Status::internal(format!("promotion failed fetching report: {}", e)))?;
+    .map_err(|e| Status::internal(format!("promotion failed fetching report: {e}")))?;
 
     let bundle = db::report::create_revoked_bundle_with_txn(&mut txn, &report, &pcr_set)
         .await
         .map_err(|e| {
             Status::internal(format!(
-                "promotion failed promoting into revoked bundle: {}",
-                e
+                "promotion failed promoting into revoked bundle: {e}"
             ))
         })?;
 
@@ -172,7 +172,7 @@ pub async fn handle_show_measurement_report_for_id(
                 MeasurementReportId::from_grpc(req.report_id.clone())?,
             )
             .await
-            .map_err(|e| Status::internal(format!("{}", e)))?
+            .map_err(|e| Status::internal(format!("{e}")))?
             .into(),
         ),
     })
@@ -195,7 +195,7 @@ pub async fn handle_show_measurement_reports_for_machine(
             })?,
         )
         .await
-        .map_err(|e| Status::internal(format!("{}", e)))?
+        .map_err(|e| Status::internal(format!("{e}")))?
         .drain(..)
         .map(|report| report.into())
         .collect(),
@@ -212,7 +212,7 @@ pub async fn handle_show_measurement_reports(
     Ok(ShowMeasurementReportsResponse {
         reports: db::report::get_all(&mut txn)
             .await
-            .map_err(|e| Status::internal(format!("{}", e)))?
+            .map_err(|e| Status::internal(format!("{e}")))?
             .drain(..)
             .map(|report| report.into())
             .collect(),
@@ -235,14 +235,14 @@ pub async fn handle_list_measurement_report(
                 })?,
             )
             .await
-            .map_err(|e| Status::internal(format!("failed loading report records: {}", e)))?
+            .map_err(|e| Status::internal(format!("failed loading report records: {e}")))?
             .iter()
             .map(|report| report.clone().into())
             .collect()
         }
         None => get_all_measurement_report_records(&mut txn)
             .await
-            .map_err(|e| Status::internal(format!("failed loading report records: {}", e)))?
+            .map_err(|e| Status::internal(format!("failed loading report records: {e}")))?
             .iter()
             .map(|report| report.clone().into())
             .collect(),
@@ -260,7 +260,7 @@ pub async fn handle_match_measurement_report(
     let mut reports =
         match_latest_reports(&mut txn, &PcrRegisterValue::from_pb_vec(&req.pcr_values))
             .await
-            .map_err(|e| Status::internal(format!("failure during report matching: {}", e)))?;
+            .map_err(|e| Status::internal(format!("failure during report matching: {e}")))?;
 
     reports.sort_by(|a, b| a.ts.cmp(&b.ts));
 

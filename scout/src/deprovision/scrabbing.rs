@@ -31,8 +31,7 @@ fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
         Ok(o) => o,
         Err(e) => {
             return Err(CarbideClientError::GenericError(format!(
-                "Can not build EFI variable name: {}",
-                e
+                "Can not build EFI variable name: {e}"
             )));
         }
     };
@@ -49,8 +48,7 @@ fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
             )))
         }
         Err(e) => Err(CarbideClientError::GenericError(format!(
-            "Failed to read MemoryOverwriteRequestControl efivar: {}",
-            e
+            "Failed to read MemoryOverwriteRequestControl efivar: {e}"
         ))),
     }
 }
@@ -87,13 +85,12 @@ struct NvmeParams {
 
 fn get_nvme_params(nvmename: &String) -> Result<NvmeParams, CarbideClientError> {
     let nvme_params_lines =
-        cmdrun::run_prog(format!("{} id-ctrl {} -o json", NVME_CLI_PROG, nvmename))?;
+        cmdrun::run_prog(format!("{NVME_CLI_PROG} id-ctrl {nvmename} -o json"))?;
     let nvme_drive_params = match serde_json::from_str(&nvme_params_lines) {
         Ok(o) => o,
         Err(e) => {
             return Err(CarbideClientError::GenericError(format!(
-                "nvme id-ctrl parse error: {}",
-                e
+                "nvme id-ctrl parse error: {e}"
             )));
         }
     };
@@ -120,16 +117,16 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
     );
 
     if nvme_drive_params.mn.trim() == "M.2 NVMe 2-Bay RAID Kit" {
-        let vd_out = cmdrun::run_prog(format!("{} info -o vd -i 0", LENOVO_NVMI_CLI_PROG))?;
+        let vd_out = cmdrun::run_prog(format!("{LENOVO_NVMI_CLI_PROG} info -o vd -i 0"))?;
 
         // Some of the legacy raid kits were built with raid1. We need to remove the raid1
         // and the raid kit will replace it with two raid0's next reboot.
         if vd_out.contains("RAID1") {
-            cmdrun::run_prog(format!("{} vd -a delete -i 0", LENOVO_NVMI_CLI_PROG))?;
+            cmdrun::run_prog(format!("{LENOVO_NVMI_CLI_PROG} vd -a delete -i 0"))?;
         } else if vd_out.contains("RAID0") {
             // assume it is two raid 0s created by the RAID kit if we see a single raid0 output
-            cmdrun::run_prog(format!("{} vd -a delete -i 0", LENOVO_NVMI_CLI_PROG))?;
-            cmdrun::run_prog(format!("{} vd -a delete -i 1", LENOVO_NVMI_CLI_PROG))?;
+            cmdrun::run_prog(format!("{LENOVO_NVMI_CLI_PROG} vd -a delete -i 0"))?;
+            cmdrun::run_prog(format!("{LENOVO_NVMI_CLI_PROG} vd -a delete -i 1"))?;
         } else {
             return Err(CarbideClientError::GenericError(
                 "Could not find a RAID0 or RAID1 on the raid kit".to_string(),
@@ -138,16 +135,14 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
 
         // Clean the disks
         cmdrun::run_prog(format!(
-            "{} passthru -i 0 -o 0x80 -n 0xffffffff --cdw10=0x200 -r none",
-            LENOVO_NVMI_CLI_PROG
+            "{LENOVO_NVMI_CLI_PROG} passthru -i 0 -o 0x80 -n 0xffffffff --cdw10=0x200 -r none"
         ))?;
         cmdrun::run_prog(format!(
-            "{} passthru -i 1 -o 0x80 -n 0xffffffff --cdw10=0x200 -r none",
-            LENOVO_NVMI_CLI_PROG
+            "{LENOVO_NVMI_CLI_PROG} passthru -i 1 -o 0x80 -n 0xffffffff --cdw10=0x200 -r none"
         ))?;
     } else {
         // list all namespaces
-        let nvmens_output = cmdrun::run_prog(format!("{} list-ns {} -a", NVME_CLI_PROG, nvmename))?;
+        let nvmens_output = cmdrun::run_prog(format!("{NVME_CLI_PROG} list-ns {nvmename} -a"))?;
 
         // iterate over namespaces
         for nsline in nvmens_output.lines() {
@@ -160,8 +155,7 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
 
             // format with "-s2" is secure erase
             match cmdrun::run_prog(format!(
-                "{} format {} -s2 -f -n {}",
-                NVME_CLI_PROG, nvmename, nsid
+                "{NVME_CLI_PROG} format {nvmename} -s2 -f -n {nsid}"
             )) {
                 Ok(_) => (),
                 Err(e) => {
@@ -175,10 +169,7 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             }
             if namespaces_supported {
                 // delete namespace
-                cmdrun::run_prog(format!(
-                    "{} delete-ns {} -n {}",
-                    NVME_CLI_PROG, nvmename, nsid
-                ))?;
+                cmdrun::run_prog(format!("{NVME_CLI_PROG} delete-ns {nvmename} -n {nsid}"))?;
             }
         }
 
@@ -187,15 +178,13 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             // creating new namespace with all available sectors
             tracing::debug!("Creating namespace on {}", nvmename);
             let line_created_ns_id = cmdrun::run_prog(format!(
-                "{} create-ns {} --nsze={} --ncap={} --flbas 0 --dps=0",
-                NVME_CLI_PROG, nvmename, sectors, sectors
+                "{NVME_CLI_PROG} create-ns {nvmename} --nsze={sectors} --ncap={sectors} --flbas 0 --dps=0"
             ))?;
             let nsid = match NVME_NSID_RE.captures(&line_created_ns_id) {
                 Some(o) => o.get(1).map_or("", |m| m.as_str()),
                 None => {
                     return Err(CarbideClientError::GenericError(format!(
-                        "nvme cant get nsid after create-ns {}",
-                        line_created_ns_id
+                        "nvme cant get nsid after create-ns {line_created_ns_id}"
                     )));
                 }
             };
@@ -360,7 +349,7 @@ fn reset_ib_devices() -> Result<(), CarbideClientError> {
             for ib in ibs {
                 if let Some(p) = ib.pci_properties {
                     let slot = p.slot.unwrap();
-                    match cmdrun::run_prog(format!("mstconfig -y -d {} reset", slot)) {
+                    match cmdrun::run_prog(format!("mstconfig -y -d {slot} reset")) {
                         Ok(_) => {
                             tracing::info!("reset IB device {} successfully.", slot);
                         }
@@ -375,8 +364,7 @@ fn reset_ib_devices() -> Result<(), CarbideClientError> {
         Err(e) => {
             tracing::error!("{}", e);
             return Err(CarbideClientError::GenericError(format!(
-                "Failed to get ibs: {}",
-                e
+                "Failed to get ibs: {e}"
             )));
         }
     }

@@ -29,6 +29,10 @@ clap = { version = "4.5.40", features = ["color", "derive", "env"] }
 russh = "0.52.1"
 http = { version = "1.3.1" }
 tonic = { workspace = true, features = ["default"] }
+tonic-prost="0.14"
+tonic-prost-build = "0.14"
+prost = "0.14.1"
+prost-types = "0.14.1"
 ringbuf = "0.4.8"
 nix = { version = "0.30.1", features = ["process", "term", "fs"] }
 libc = "0.2.174"

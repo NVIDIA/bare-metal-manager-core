@@ -165,7 +165,7 @@ pub fn cli_output<T: Serialize + ToTable>(
             let mut file = File::create(path)?;
             file.write_all(output.as_bytes())?
         }
-        Destination::Stdout() => println!("{}", output),
+        Destination::Stdout() => println!("{output}"),
     }
 
     Ok(())

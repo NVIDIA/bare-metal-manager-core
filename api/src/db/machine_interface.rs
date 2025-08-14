@@ -581,8 +581,7 @@ fn address_to_hostname(address: &IpAddr) -> CarbideResult<String> {
     match domain::base::Name::<octseq::array::Array<255>>::from_str(hostname.as_str()).is_ok() {
         true => Ok(hostname),
         false => Err(CarbideError::internal(format!(
-            "invalid address to hostname: {}",
-            hostname
+            "invalid address to hostname: {hostname}"
         ))),
     }
 }
@@ -618,10 +617,7 @@ pub async fn get_machine_interface_primary(
         .collect::<Vec<MachineInterfaceSnapshot>>()
         .pop()
         .ok_or_else(|| {
-            CarbideError::internal(format!(
-                "Couldn't find primary interface for {}.",
-                machine_id
-            ))
+            CarbideError::internal(format!("Couldn't find primary interface for {machine_id}."))
         })
 }
 
@@ -733,7 +729,7 @@ pub async fn create_host_machine_dpu_interface_proactively(
         .prefixes
         .iter()
         .filter(|x| x.prefix.is_ipv4())
-        .last()
+        .next_back()
         .ok_or(CarbideError::AdminNetworkNotConfigured)?;
 
     let Some(gateway) = prefix.gateway else {
@@ -903,10 +899,7 @@ WHERE network_segments.id = $1::uuid";
                     file!(),
                     line!(),
                     "machine_interface.used_prefixes",
-                    sqlx::Error::Io(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e.to_string(),
-                    )),
+                    sqlx::Error::Io(std::io::Error::other(e.to_string())),
                 )
             })?;
             ip_networks.push(network);

@@ -61,9 +61,9 @@ impl Machine {
                         discovery_info: discovery,
                         vendor_class,
                     })
-                    .map_err(|error| format!("unable to discover machine via Carbide: {:?}", error))
+                    .map_err(|error| format!("unable to discover machine via Carbide: {error:?}"))
             }
-            Err(err) => Err(format!("unable to connect to Carbide API: {:?}", err)),
+            Err(err) => Err(format!("unable to connect to Carbide API: {err:?}")),
         }
     }
 
@@ -206,14 +206,8 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
         };
 
         match arch {
-            EfiX64 => format!(
-                "http://{}:8080/public/blobs/internal/x86_64/ipxe.efi",
-                base_url
-            ),
-            Arm64 => format!(
-                "http://{}:8080/public/blobs/internal/aarch64/ipxe.efi",
-                base_url
-            ),
+            EfiX64 => format!("http://{base_url}:8080/public/blobs/internal/x86_64/ipxe.efi"),
+            Arm64 => format!("http://{base_url}:8080/public/blobs/internal/aarch64/ipxe.efi"),
             BiosX86 => {
                 log::error!(
                     "Matched an HTTP client on a Legacy BIOS client, cannot provide HTTP boot URL {:?}",

@@ -30,7 +30,7 @@ pub fn load_topology_json(path: &str) -> HardwareInfo {
         "/src/measured_boot/tests/test_data"
     );
 
-    let path = format!("{}/{}", TEST_DATA_DIR, path);
+    let path = format!("{TEST_DATA_DIR}/{path}");
     let data = std::fs::read(path).unwrap();
     serde_json::from_slice::<HardwareInfo>(&data).unwrap()
 }

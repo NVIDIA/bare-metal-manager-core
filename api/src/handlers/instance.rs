@@ -784,8 +784,7 @@ pub(crate) async fn invoke_power(
     })?;
     if snapshot.instance.is_none() {
         return Err(Status::invalid_argument(format!(
-            "Supplied machine ID does not match an instance: {}",
-            machine_id
+            "Supplied machine ID does not match an instance: {machine_id}"
         )));
     }
     let bmc_ip =
@@ -830,8 +829,7 @@ pub(crate) async fn invoke_power(
 
             if rr.started_at.is_some() {
                 return Err(CarbideError::DpuReprovisioningInProgress(format!(
-                    "Can't reboot host: {}",
-                    machine_id
+                    "Can't reboot host: {machine_id}"
                 ))
                 .into());
             }
@@ -920,9 +918,7 @@ pub(crate) async fn invoke_power(
     client
         .power(libredfish::SystemPowerControl::ForceRestart)
         .await
-        .map_err(|e| {
-            CarbideError::internal(format!("Failed redfish ForceRestart subtask: {}", e))
-        })?;
+        .map_err(|e| CarbideError::internal(format!("Failed redfish ForceRestart subtask: {e}")))?;
 
     Ok(Response::new(rpc::InstancePowerResult {}))
 }
@@ -1020,7 +1016,7 @@ pub(crate) async fn update_instance_config(
         Some(metadata) => metadata.try_into().map_err(CarbideError::from)?,
     };
     metadata.validate(true).map_err(|e| {
-        CarbideError::InvalidArgument(format!("Instance metadata is not valid: {}", e))
+        CarbideError::InvalidArgument(format!("Instance metadata is not valid: {e}"))
     })?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -1214,8 +1210,7 @@ fn snapshot_to_instance(
         .map_err(CarbideError::from)?
         .ok_or_else(|| {
             CarbideError::internal(format!(
-                "Instance on Machine {} can be converted from snapshot",
-                machine_id
+                "Instance on Machine {machine_id} can be converted from snapshot"
             ))
         })
 }
@@ -1231,7 +1226,7 @@ pub async fn force_delete_instance(
         .await
         .map_err(CarbideError::from)?
         .ok_or_else(|| {
-            CarbideError::internal(format!("Could not find an instance for {}", instance_id))
+            CarbideError::internal(format!("Could not find an instance for {instance_id}"))
         })?
         .to_owned();
 

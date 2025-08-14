@@ -214,8 +214,7 @@ pub fn run_combined_mock<T: AsRef<OsStr>>(
                 Ok(false) => Path::new("/opt/carbide"),
                 Err(error) => {
                     return Err(BmcMockError::Config(format!(
-                        "Could not determine if CARGO_MANIFEST_DIR exists: {}",
-                        error
+                        "Could not determine if CARGO_MANIFEST_DIR exists: {error}"
                     )));
                 }
             }

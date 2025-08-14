@@ -831,7 +831,7 @@ async fn main() -> color_eyre::Result<()> {
             }
             HostAction::GenerateHostUefiPassword => {
                 let password = Credentials::generate_password_no_special_char();
-                println!("Generated Bios Admin Password: {}", password);
+                println!("Generated Bios Admin Password: {password}");
             }
             HostAction::Reprovision(reprovision) => match reprovision {
                 HostReprovision::Set(data) => {
@@ -1956,7 +1956,7 @@ async fn main() -> color_eyre::Result<()> {
                 )
                 .await?;
 
-                println!("OBMC Console Log:\n{}", log);
+                println!("OBMC Console Log:\n{log}");
             }
         },
     }

@@ -467,7 +467,7 @@ fn serialize_uri<S>(u: &http::Uri, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    serializer.serialize_str(&format!("{}", u))
+    serializer.serialize_str(&format!("{u}"))
 }
 
 fn deserialize_uri<'de, D>(deserializer: D) -> Result<http::Uri, D::Error>

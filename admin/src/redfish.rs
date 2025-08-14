@@ -44,7 +44,7 @@ pub async fn handle_browse_command(api_client: &ApiClient, uri: &str) -> color_e
     let text = match serde_json::from_str(&data.text) {
         Ok(text) => text,
         Err(_) => {
-            println!("{:?}", data);
+            println!("{data:?}");
             return Ok(());
         }
     };
@@ -146,7 +146,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             } else {
                 let all = redfish.get_boot_options().await?;
                 for b in all.members {
-                    let id = b.odata_id.split('/').last().unwrap();
+                    let id = b.odata_id.split('/').next_back().unwrap();
                     println!("{:?}", redfish.get_boot_option(id).await?)
                 }
             }
@@ -261,7 +261,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         }
         Pending => {
             let pending = redfish.pending().await?;
-            println!("{:#?}", pending);
+            println!("{pending:#?}");
         }
         PowerMetrics => {
             println!("{:?}", redfish.get_power_metrics().await?);
@@ -362,7 +362,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                         redfish.update_firmware(file).await?;
                         println!("Track update progress using firmware status");
                     } else if let Err(err) = file_result {
-                        eprintln!("Error opening file: {}", err);
+                        eprintln!("Error opening file: {err}");
                     }
                 }
                 FwCommand::Show(fw) => {
@@ -387,7 +387,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         }
         GetManager => {
             let manager = redfish.get_manager().await?;
-            println!("{:#?}", manager);
+            println!("{manager:#?}");
         }
         UpdateFirmwareMultipart(details) => {
             let component_type = match details.component_type {
@@ -584,7 +584,7 @@ pub async fn handle_fw_status(redfish: Box<dyn Redfish>) -> Result<(), RedfishEr
         if let Ok(t) = redfish.get_task(task).await {
             tasks_info.push(t);
         } else {
-            println!("Task {} not found.", task);
+            println!("Task {task} not found.");
         }
     }
     convert_tasks_to_nice_table(tasks_info).printstd();
@@ -610,7 +610,7 @@ pub async fn handle_fw_show(redfish: Box<dyn Redfish>, args: ShowFw) -> Result<(
                 Ok(())
             }
             Err(e) => {
-                eprintln!("Error displaying firmware information: {}", e);
+                eprintln!("Error displaying firmware information: {e}");
                 Err(e)
             }
         }
@@ -643,7 +643,7 @@ async fn show_all_fws(redfish: Box<dyn Redfish>, f: FwFilter) -> Result<(), Redf
         if let Ok(firmware) = redfish.get_firmware(fw).await {
             fws_info.push(firmware);
         } else {
-            println!("Firmware {} not found.", fw);
+            println!("Firmware {fw} not found.");
         }
     }
 
@@ -958,7 +958,7 @@ pub async fn handle_get_chassis(
         match redfish.get_chassis(c).await {
             Ok(chassis) => {
                 if *c == chassis_id {
-                    println!("{:?}", chassis);
+                    println!("{chassis:?}");
                     return Ok(());
                 }
             }

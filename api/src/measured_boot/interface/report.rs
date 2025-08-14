@@ -72,7 +72,7 @@ pub async fn match_latest_reports(
                 on measurement_reports.report_id=measurement_reports_values.report_id
         join
             (select distinct on (machine_id) * from measurement_reports order by machine_id,ts desc) as latest_reports
-                on measurement_reports_values.report_id=latest_reports.report_id ", columns=columns));
+                on measurement_reports_values.report_id=latest_reports.report_id "));
     where_pcr_pairs(&mut query, values);
 
     query.push("group by measurement_reports.report_id ");

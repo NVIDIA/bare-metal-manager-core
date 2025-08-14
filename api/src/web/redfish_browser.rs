@@ -206,7 +206,7 @@ pub async fn query(
     {
         Ok(response) => response,
         Err(e) => {
-            browser.error = format!("Error sending request:\n{:?}", e);
+            browser.error = format!("Error sending request:\n{e:?}");
             if let Some(status) = e.status() {
                 browser.status_code = status.as_u16();
                 browser.status_string = status.canonical_reason().unwrap_or_default().to_string();
@@ -232,7 +232,7 @@ pub async fn query(
             browser.response = response;
         }
         Err(e) => {
-            browser.error = format!("Error reading response body:\n{:?}", e);
+            browser.error = format!("Error reading response body:\n{e:?}");
         }
     };
 

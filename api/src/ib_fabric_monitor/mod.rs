@@ -173,7 +173,7 @@ impl IbFabricMonitor {
                     check_ib_fabrics_span.record("otel.status_code", "error");
                     // Writing this field will set the span status to error
                     // Therefore we only write it on errors
-                    check_ib_fabrics_span.record("otel.status_message", format!("{:?}", e));
+                    check_ib_fabrics_span.record("otel.status_message", format!("{e:?}"));
                 }
             }
 
@@ -442,7 +442,7 @@ async fn get_ports_information(
     let mut ports_by_guid = HashMap::new();
     for port in ports.into_iter() {
         let state = match port.state.as_ref() {
-            Some(state) => format!("{:?}", state),
+            Some(state) => format!("{state:?}"),
             None => "unknown".to_string(),
         };
         *ports_by_state.entry(state).or_default() += 1;

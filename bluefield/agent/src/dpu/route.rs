@@ -118,14 +118,14 @@ impl Route {
             })
         } else {
             let mut cmd = tokio::process::Command::new("bash");
-            cmd.args(vec!["-c", &format!("ip -j route show dev {}", interface)]);
+            cmd.args(vec!["-c", &format!("ip -j route show dev {interface}")]);
             cmd.kill_on_drop(true);
 
             let cmd_str = pretty_cmd(cmd.as_std());
 
             let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
                 .await
-                .wrap_err_with(|| format!("Timeout while running command: {:?}", cmd_str))??;
+                .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
 
             let fout = String::from_utf8_lossy(&output.stdout).to_string();
             Ok(fout)
@@ -141,15 +141,15 @@ impl Route {
         let mut cmdargs = format!("ip route add {}/{}", net.network(), net.prefix());
 
         if let Some(dev) = device {
-            cmdargs.push_str(&format!(" dev {}", dev));
+            cmdargs.push_str(&format!(" dev {dev}"));
         }
 
         if let Some(gateway_ip) = gateway_ip {
-            cmdargs.push_str(&format!(" via {}", gateway_ip));
+            cmdargs.push_str(&format!(" via {gateway_ip}"));
         }
 
         if let Some(source_ip) = source_ip {
-            cmdargs.push_str(&format!(" src {}", source_ip));
+            cmdargs.push_str(&format!(" src {source_ip}"));
         }
 
         let mut cmd = tokio::process::Command::new("bash");
@@ -161,7 +161,7 @@ impl Route {
 
         let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {:?}", cmd_str))??;
+            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
 
         let fout = String::from_utf8_lossy(&output.stdout).to_string();
         if output.status.success() {
@@ -180,15 +180,15 @@ impl Route {
         let mut cmdargs = format!("ip route del {}/{}", net.network(), net.prefix(),);
 
         if let Some(dev) = device {
-            cmdargs.push_str(&format!(" dev {}", dev));
+            cmdargs.push_str(&format!(" dev {dev}"));
         }
 
         if let Some(gateway_ip) = gateway_ip {
-            cmdargs.push_str(&format!(" via {}", gateway_ip));
+            cmdargs.push_str(&format!(" via {gateway_ip}"));
         }
 
         if let Some(source_ip) = source_ip {
-            cmdargs.push_str(&format!(" src {}", source_ip));
+            cmdargs.push_str(&format!(" src {source_ip}"));
         }
 
         let mut cmd = tokio::process::Command::new("bash");
@@ -200,7 +200,7 @@ impl Route {
 
         let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {:?}", cmd_str))??;
+            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
 
         let fout = String::from_utf8_lossy(&output.stdout).to_string();
         if output.status == ExitStatus::from_raw(0) {

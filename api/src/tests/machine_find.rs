@@ -212,7 +212,7 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
     assert_eq!(&machine.interfaces[0].hostname, hostname);
 
     // We shouldn't find a machine that doesn't exist
-    let hostname2 = format!("a{}", hostname);
+    let hostname2 = format!("a{hostname}");
     assert!(
         db::machine::find_by_query(&mut txn, &hostname2)
             .await
@@ -255,7 +255,7 @@ async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
     );
 
     // We shouldn't find a machine that doesn't exist
-    let fqdn2 = format!("a{}", fqdn);
+    let fqdn2 = format!("a{fqdn}");
     let machines = env
         .api
         .find_machines(Request::new(rpc::forge::MachineSearchQuery {
@@ -533,8 +533,7 @@ async fn test_attached_dpu_machine_ids_multi_dpu(pool: sqlx::PgPool) {
     for ref dpu_id in dpu_ids.iter() {
         assert!(
             dpu_ids.contains(dpu_id),
-            "host machine has an unexpected associated_dpu_machine_id {}",
-            dpu_id
+            "host machine has an unexpected associated_dpu_machine_id {dpu_id}"
         );
     }
 

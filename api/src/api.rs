@@ -364,7 +364,9 @@ impl Forge for Api {
         &self,
         request: Request<rpc::NetworkSegmentDeletionRequest>,
     ) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status> {
-        crate::handlers::network_segment::delete(self, request).await
+        crate::handlers::network_segment::delete(self, request)
+            .await
+            .map_err(|e| *e)
     }
 
     async fn network_segments_for_vpc(
@@ -676,7 +678,7 @@ impl Forge for Api {
         // Generate a stable Machine ID based on the hardware information
         let stable_machine_id = from_hardware_info(&hardware_info).map_err(|e| {
             CarbideError::InvalidArgument(
-                format!("Insufficient HardwareInfo to derive a Stable Machine ID for Machine on InterfaceId {:?}: {e}", interface_id),
+                format!("Insufficient HardwareInfo to derive a Stable Machine ID for Machine on InterfaceId {interface_id:?}: {e}"),
             )
         })?;
         log_machine_id(&stable_machine_id);
@@ -701,8 +703,7 @@ impl Forge for Api {
             && self.runtime_config.tpm_required
         {
             return Err(CarbideError::InvalidArgument(format!(
-                "Ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {:?}",
-                interface_id
+                "Ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {interface_id:?}"
             ))
             .into());
         } else if !hardware_info.is_dpu() && hardware_info.tpm_ek_certificate.is_some() {
@@ -2761,8 +2762,7 @@ impl Forge for Api {
         let desired_power_state = desired_power_state.into();
         if desired_power_state == current_power_options.desired_power_state {
             return Err(tonic::Status::invalid_argument(format!(
-                "Power State is already set as {:?}. No change is performed.",
-                desired_power_state
+                "Power State is already set as {desired_power_state:?}. No change is performed."
             )));
         }
 
@@ -3473,8 +3473,7 @@ impl Forge for Api {
             .map_err(|e| {
                 tracing::error!("unable to create redfish client: {}", e);
                 tonic::Status::internal(format!(
-                    "Could not create connection to Redfish API to {}, check logs",
-                    machine_id
+                    "Could not create connection to Redfish API to {machine_id}, check logs"
                 ))
             })?;
 
@@ -3532,8 +3531,7 @@ impl Forge for Api {
             .map_err(|e| {
                 tracing::error!("unable to create redfish client: {}", e);
                 tonic::Status::internal(format!(
-                    "Could not create connection to Redfish API to {}, check logs",
-                    machine_id
+                    "Could not create connection to Redfish API to {machine_id}, check logs"
                 ))
             })?;
 
@@ -3547,7 +3545,7 @@ impl Forge for Api {
             .await
             .map_err(|e| {
                 tracing::error!("Failed to update bios_password_set_time: {}", e);
-                tonic::Status::internal(format!("Failed to update BIOS password timestamp: {}", e))
+                tonic::Status::internal(format!("Failed to update BIOS password timestamp: {e}"))
             })?;
 
         txn.commit().await.map_err(|e| {
@@ -3772,15 +3770,15 @@ impl Forge for Api {
             };
 
         let ak_pub = TssPublic::unmarshall(ak_pub_bytes.as_slice()).map_err(|e| {
-            CarbideError::AttestQuoteError(format!("Could not unmarshal AK Pub: {0}", e))
+            CarbideError::AttestQuoteError(format!("Could not unmarshal AK Pub: {e}"))
         })?;
 
         let attest = Attest::unmarshall(&request.get_ref().attestation).map_err(|e| {
-            CarbideError::AttestQuoteError(format!("Could not unmarshall Attest struct: {0}", e))
+            CarbideError::AttestQuoteError(format!("Could not unmarshall Attest struct: {e}"))
         })?;
 
         let signature = Signature::unmarshall(&request.get_ref().signature).map_err(|e| {
-            CarbideError::AttestQuoteError(format!("Could not unmarshall Signature struct: {0}", e))
+            CarbideError::AttestQuoteError(format!("Could not unmarshall Signature struct: {e}"))
         })?;
 
         // Make sure sure the signature can at least be verified

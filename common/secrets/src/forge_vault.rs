@@ -32,7 +32,7 @@ pub struct ForgeVaultAuthentication {
 }
 
 pub enum ForgeVaultAuthenticationStatus {
-    Authenticated(ForgeVaultAuthentication, VaultClient),
+    Authenticated(ForgeVaultAuthentication, Box<VaultClient>),
     Initialized,
 }
 
@@ -211,7 +211,7 @@ where
                     expiry: Instant::now() + Duration::from_secs(vault_token_expiry_secs),
                     token: vault_token,
                 },
-                vault_client,
+                Box::new(vault_client),
             );
         }
         Ok(())

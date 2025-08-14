@@ -581,7 +581,7 @@ impl fmt::Display for ConnectError {
         f.write_str(&self.msg)?;
 
         if let Some(ref cause) = self.cause {
-            write!(f, ": {}", cause)?;
+            write!(f, ": {cause}")?;
         }
 
         Ok(())

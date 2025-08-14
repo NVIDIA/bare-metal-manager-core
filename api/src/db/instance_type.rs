@@ -53,7 +53,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for InstanceType {
 ///
 /// * `txn`               - A reference to an active DB transaction
 /// * `new_instance_type` - A reference to a NewInstanceType struct with the
-///                         details of the InstanceType to create
+///   details of the InstanceType to create
 pub async fn create(
     txn: &mut PgConnection,
     id: &InstanceTypeId,
@@ -154,7 +154,7 @@ pub(crate) async fn find_by_ids(
 ///
 /// * `txn`                  - A reference to an active DB transaction
 /// * `update_instance_type` - A reference to an UpdateInstanceType struct
-///                            with the details of the InstanceType to update
+///   with the details of the InstanceType to update
 pub(crate) async fn update(
     txn: &mut PgConnection,
     id: &InstanceTypeId,

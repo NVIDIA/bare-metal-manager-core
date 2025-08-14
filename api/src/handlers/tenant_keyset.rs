@@ -249,7 +249,7 @@ pub(crate) async fn delete(
     {
         return Err(CarbideError::NotFoundError {
             kind: "keyset",
-            id: format!("{:?}", keyset_identifier),
+            id: format!("{keyset_identifier:?}"),
         }
         .into());
     }

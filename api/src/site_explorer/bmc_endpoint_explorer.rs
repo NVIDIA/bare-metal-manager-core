@@ -192,8 +192,7 @@ impl BmcEndpointExplorer {
                     return Err(EndpointExplorationError::MissingCredentials {
                         key: "expected_machine".to_owned(),
                         cause: format!(
-                            "The expected machine credentials do not exist for {} machine {}/{} ",
-                            vendor, bmc_ip_address, bmc_mac_address
+                            "The expected machine credentials do not exist for {vendor} machine {bmc_ip_address}/{bmc_mac_address} "
                         ),
                     });
                 }
@@ -419,8 +418,7 @@ impl BmcEndpointExplorer {
         if fs::metadata(UNIFIED_PREINGESTION_BFB_PATH).await.is_err() {
             tracing::info!("Writing {UNIFIED_PREINGESTION_BFB_PATH}");
             let bf_cfg_contents = format!(
-                "BMC_USER=\"{}\"\nBMC_PASSWORD=\"{}\"\nBMC_REBOOT=\"yes\"\nCEC_REBOOT=\"yes\"\n",
-                username, password
+                "BMC_USER=\"{username}\"\nBMC_PASSWORD=\"{password}\"\nBMC_REBOOT=\"yes\"\nCEC_REBOOT=\"yes\"\n"
             );
 
             let mut preingestion_bfb = File::open(PREINGESTION_BFB_PATH).await.map_err(|err| {

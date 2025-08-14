@@ -50,11 +50,11 @@ pub fn main_sync(
 // Write "machine.id=<value>" to a file so the OpenTelemetry collector can apply it as a resource
 // attribute.
 pub fn build_otel_machine_id_file(machine_id: &str) -> String {
-    format!("machine.id={}\n", machine_id)
+    format!("machine.id={machine_id}\n")
 }
 
 // Write "host.machine.id=<value>" to a file so the OpenTelemetry collector can apply it as a
 // resource attribute.
 pub fn build_otel_host_machine_id_file(host_machine_id: &str) -> String {
-    format!("host.machine.id={}\n", host_machine_id)
+    format!("host.machine.id={host_machine_id}\n")
 }

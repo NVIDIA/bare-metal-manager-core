@@ -99,7 +99,7 @@ impl TryFrom<Option<::rpc::common::Uuid>> for DomainId {
 impl DomainId {
     pub fn from_grpc(msg: Option<::rpc::common::Uuid>) -> Result<Self, Status> {
         Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad grpc domain ID: {}", e)))
+            .map_err(|e| Status::invalid_argument(format!("bad grpc domain ID: {e}")))
     }
 }
 

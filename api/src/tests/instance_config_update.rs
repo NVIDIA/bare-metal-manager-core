@@ -604,8 +604,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
             ))
             .await
             .expect_err(&format!(
-                "Invalid metadata of type should not be accepted: {:?}",
-                invalid_metadata
+                "Invalid metadata of type should not be accepted: {invalid_metadata:?}"
             ));
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
         assert!(

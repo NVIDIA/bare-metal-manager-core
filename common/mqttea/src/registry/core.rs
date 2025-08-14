@@ -202,8 +202,7 @@ impl MqttRegistry {
                 // is wrong with registry management logic.
                 let type_id = std::any::type_name::<T>();
                 Err(MqtteaClientError::UnregisteredType(format!(
-                    "Failed to downcast {} after deserialization",
-                    type_id
+                    "Failed to downcast {type_id} after deserialization"
                 )))
             }
         } else {

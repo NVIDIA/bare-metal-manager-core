@@ -53,7 +53,7 @@ fn convert_domain_to_nice_format(domain: &forgerpc::Domain) -> CarbideCliResult<
         ("DELETED", domain_deleted.as_str()),
     ];
     for (key, value) in data {
-        writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+        writeln!(&mut lines, "{key:<width$}: {value}")?;
     }
 
     Ok(lines)

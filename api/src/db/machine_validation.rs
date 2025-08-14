@@ -106,7 +106,7 @@ impl MachineValidation {
                 .map_err(|e| DatabaseError::new(file!(), line!(), "MachineValidation All", e))?,
             ObjectFilter::One(id) => {
                 let query = base_query
-                    .replace("{where}", &format!("WHERE result.{column}='{}'", id))
+                    .replace("{where}", &format!("WHERE result.{column}='{id}'"))
                     .replace("{column}", column);
                 sqlx::query_as(&query)
                     .fetch_all(txn)
@@ -128,10 +128,7 @@ impl MachineValidation {
                     columns.push('\'');
                 }
                 let query = base_query
-                    .replace(
-                        "{where}",
-                        &format!("WHERE result.{column} IN ({})", columns),
-                    )
+                    .replace("{where}", &format!("WHERE result.{column} IN ({columns})"))
                     .replace("{column}", column);
 
                 sqlx::query_as(&query).fetch_all(txn).await.map_err(|e| {
@@ -215,11 +212,11 @@ impl MachineValidation {
         };
         let _ = sqlx::query(query)
             .bind(id)
-            .bind(format!("Test_{}", machine_id))
+            .bind(format!("Test_{machine_id}"))
             .bind(machine_id)
             .bind(sqlx::types::Json(filter))
             .bind(context.clone())
-            .bind(format!("Running validation on {}", machine_id))
+            .bind(format!("Running validation on {machine_id}"))
             .bind(status.state.to_string())
             .execute(&mut *txn)
             .await
@@ -310,8 +307,7 @@ impl MachineValidation {
             }
         }
         Err(CarbideError::InvalidArgument(format!(
-            "Not active machine validation in  {:?} ",
-            machine_id
+            "Not active machine validation in  {machine_id:?} "
         )))
     }
 
@@ -325,8 +321,7 @@ impl MachineValidation {
             return Ok(machine_validation[0].clone());
         }
         Err(CarbideError::InvalidArgument(format!(
-            "Validaion Id not found  {:?} ",
-            validation_id
+            "Validaion Id not found  {validation_id:?} "
         )))
     }
 
@@ -595,7 +590,7 @@ impl MachineValidationResult {
                 })?,
             ObjectFilter::One(id) => {
                 let query = base_query
-                    .replace("{where}", &format!("WHERE result.{column}='{}'", id))
+                    .replace("{where}", &format!("WHERE result.{column}='{id}'"))
                     .replace("{column}", column);
                 sqlx::query_as(&query).fetch_all(txn).await.map_err(|e| {
                     DatabaseError::new(file!(), line!(), "machine_validation_results One", e)
@@ -616,10 +611,7 @@ impl MachineValidationResult {
                     columns.push('\'');
                 }
                 let query = base_query
-                    .replace(
-                        "{where}",
-                        &format!("WHERE result.{column} IN ({})", columns),
-                    )
+                    .replace("{where}", &format!("WHERE result.{column} IN ({columns})"))
                     .replace("{column}", column);
 
                 sqlx::query_as(&query).fetch_all(txn).await.map_err(|e| {

@@ -492,7 +492,7 @@ pub mod tests {
                 AttestBindKeyError(d) => {
                     assert_eq!(d, "Could not unmarshall EK: response code not recognized")
                 }
-                _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
+                _another_error => panic!("Failed: incorrect error type: {_another_error:?}"),
             },
         }
     }
@@ -516,7 +516,7 @@ pub mod tests {
                 AttestBindKeyError(d) => {
                     assert_eq!(d, "EK Pub is not in RSA format")
                 }
-                _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
+                _another_error => panic!("Failed: incorrect error type: {_another_error:?}"),
             },
         }
     }
@@ -570,7 +570,7 @@ pub mod tests {
                         "Could not create RsaPublicKey from TPM's EK Pub: invalid modulus"
                     )
                 }
-                _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
+                _another_error => panic!("Failed: incorrect error type: {_another_error:?}"),
             },
         }
     }
@@ -599,7 +599,7 @@ pub mod tests {
                         "Could not unmarshall EK Cert: Parsing Error: NomError(Eof)"
                     )
                 }
-                _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
+                _another_error => panic!("Failed: incorrect error type: {_another_error:?}"),
             },
         }
     }
@@ -719,7 +719,7 @@ pub mod tests {
                 AttestQuoteError(d) => {
                     assert_eq!(d, "AK Pub is not an RSA key")
                 }
-                _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
+                _another_error => panic!("Failed: incorrect error type: {_another_error:?}"),
             },
         }
     }
@@ -767,7 +767,7 @@ pub mod tests {
                 AttestQuoteError(d) => {
                     assert_eq!(d, "Could not create RsaPublicKey: invalid modulus")
                 }
-                _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
+                _another_error => panic!("Failed: incorrect error type: {_another_error:?}"),
             },
         }
     }
@@ -798,7 +798,7 @@ pub mod tests {
                 AttestQuoteError(d) => {
                     assert_eq!(d, "unknown signature type")
                 }
-                _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
+                _another_error => panic!("Failed: incorrect error type: {_another_error:?}"),
             },
         }
     }

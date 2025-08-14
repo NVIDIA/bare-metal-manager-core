@@ -138,11 +138,10 @@ mod tests {
             expected_type: MachineType,
         ) {
             let serialized = machine_id.to_string();
-            println!("Serialized: {}", serialized);
+            println!("Serialized: {serialized}");
             assert!(
                 DOMAIN_NAME_RE.is_match(&serialized),
-                "{} is not a valid DNS name",
-                serialized
+                "{serialized} is not a valid DNS name"
             );
 
             let expected_prefix = format!(
@@ -202,7 +201,7 @@ mod tests {
 
     #[test]
     fn derive_host_machine_id() {
-        let path = format!("{}/x86_info.json", TEST_DATA_DIR);
+        let path = format!("{TEST_DATA_DIR}/x86_info.json");
         let data = std::fs::read(path).unwrap();
         let mut fingerprint = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
 
@@ -211,7 +210,7 @@ mod tests {
 
     #[test]
     fn derive_dpu_machine_id() {
-        let path = format!("{}/dpu_info.json", TEST_DATA_DIR);
+        let path = format!("{TEST_DATA_DIR}/dpu_info.json");
         let data = std::fs::read(path).unwrap();
         let mut fingerprint = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
 
@@ -220,7 +219,7 @@ mod tests {
 
     #[test]
     fn derive_host_machine_id_from_dpu_fingerprint() {
-        let path = format!("{}/dpu_info.json", TEST_DATA_DIR);
+        let path = format!("{TEST_DATA_DIR}/dpu_info.json");
         let data = std::fs::read(path).unwrap();
         let mut fingerprint = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
 

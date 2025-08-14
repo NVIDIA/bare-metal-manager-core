@@ -59,8 +59,7 @@ pub(crate) async fn create_credential(
                 .await
                 .map_err(|e| {
                     CarbideError::internal(format!(
-                        "Error setting Site Wide BMC Root credentials: {:?} ",
-                        e
+                        "Error setting Site Wide BMC Root credentials: {e:?} "
                     ))
                 })?;
         }
@@ -116,10 +115,7 @@ pub(crate) async fn create_credential(
                 )
                 .await
                 .map_err(|e| {
-                    CarbideError::internal(format!(
-                        "Error setting credential for DPU UEFI: {:?} ",
-                        e
-                    ))
+                    CarbideError::internal(format!("Error setting credential for DPU UEFI: {e:?} "))
                 })?
         }
         rpc::CredentialType::HostUefi => {
@@ -204,8 +200,7 @@ pub(crate) async fn create_credential(
                 .await
                 .map_err(|e| {
                     CarbideError::internal(format!(
-                        "Error setting Site Wide BMC Root credentials: {:?} ",
-                        e
+                        "Error setting Site Wide BMC Root credentials: {e:?} "
                     ))
                 })?;
         }
@@ -386,9 +381,9 @@ pub(crate) async fn get_dpu_ssh_credential(
                     id: machine_id.to_string(),
                 }
             }
-            Ok(ce) => CarbideError::internal(format!("Vault error: {}", ce)),
+            Ok(ce) => CarbideError::internal(format!("Vault error: {ce}")),
             Err(err) => {
-                CarbideError::internal(format!("Error getting SSH credentials for DPU: {:?}", err))
+                CarbideError::internal(format!("Error getting SSH credentials for DPU: {err:?}"))
             }
         })?;
 
@@ -463,7 +458,7 @@ async fn set_bmc_credentials(
     api.credential_provider
         .set_credentials(credential_key, credentials)
         .await
-        .map_err(|e| CarbideError::internal(format!("Error setting credential for BMC: {:?} ", e)))
+        .map_err(|e| CarbideError::internal(format!("Error setting credential for BMC: {e:?} ")))
 }
 
 pub async fn write_ufm_certs(api: &Api, fabric: String) -> Result<(), CarbideError> {
@@ -485,42 +480,39 @@ pub async fn write_ufm_certs(api: &Api, fabric: String) -> Result<(), CarbideErr
         .await
         .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?;
 
-    let mut cert_filename = format!("{}/{}-ufm-ca-intermediate.crt", CERT_PATH, fabric);
+    let mut cert_filename = format!("{CERT_PATH}/{fabric}-ufm-ca-intermediate.crt");
     let mut cert_file = File::create(cert_filename.clone()).map_err(|e| {
-        CarbideError::internal(format!("Could not create: {} err: {:?}", cert_filename, e))
+        CarbideError::internal(format!("Could not create: {cert_filename} err: {e:?}"))
     })?;
     cert_file
         .write_all(certificate.issuing_ca.as_slice())
         .map_err(|e| {
             CarbideError::internal(format!(
-                "Failed to write certificate to: {} error: {:?}",
-                cert_filename, e
+                "Failed to write certificate to: {cert_filename} error: {e:?}"
             ))
         })?;
 
-    cert_filename = format!("{}/{}-ufm-server.key", CERT_PATH, fabric);
+    cert_filename = format!("{CERT_PATH}/{fabric}-ufm-server.key");
     cert_file = File::create(cert_filename.clone()).map_err(|e| {
-        CarbideError::internal(format!("Could not create: {} err: {:?}", cert_filename, e))
+        CarbideError::internal(format!("Could not create: {cert_filename} err: {e:?}"))
     })?;
     cert_file
         .write_all(certificate.private_key.as_slice())
         .map_err(|e| {
             CarbideError::internal(format!(
-                "Failed to write certificate to: {} error: {:?}",
-                cert_filename, e
+                "Failed to write certificate to: {cert_filename} error: {e:?}"
             ))
         })?;
 
-    cert_filename = format!("{}/{}-ufm-server.crt", CERT_PATH, fabric);
+    cert_filename = format!("{CERT_PATH}/{fabric}-ufm-server.crt");
     cert_file = File::create(cert_filename.clone()).map_err(|e| {
-        CarbideError::internal(format!("Could not create: {} err: {:?}", cert_filename, e))
+        CarbideError::internal(format!("Could not create: {cert_filename} err: {e:?}"))
     })?;
     cert_file
         .write_all(certificate.public_key.as_slice())
         .map_err(|e| {
             CarbideError::internal(format!(
-                "Failed to write certificate to: {} error: {:?}",
-                cert_filename, e
+                "Failed to write certificate to: {cert_filename} error: {e:?}"
             ))
         })?;
 

@@ -58,7 +58,7 @@ pub async fn start(addr: SocketAddr) -> Result<Vault, eyre::Report> {
                 }
             }
             // there's no logger so can't use tracing
-            println!("{}", line);
+            println!("{line}");
         }
         Ok::<(), eyre::Error>(())
     });
@@ -67,7 +67,7 @@ pub async fn start(addr: SocketAddr) -> Result<Vault, eyre::Report> {
         let mut lines = stderr.lines();
         while let Some(line) = lines.next_line().await? {
             // there's no logger so can't use tracing
-            eprintln!("{}", line);
+            eprintln!("{line}");
         }
         Ok::<(), eyre::Error>(())
     });

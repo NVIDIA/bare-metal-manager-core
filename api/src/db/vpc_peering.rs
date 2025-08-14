@@ -71,7 +71,7 @@ impl VpcPeering {
             Ok(vpc_peering) => Ok(vpc_peering),
             Err(sqlx::Error::RowNotFound) => Err(CarbideError::AlreadyFoundError {
                 kind: "VpcPeering",
-                id: format!("{} and {}", vpc_id_1, vpc_id_2),
+                id: format!("{vpc_id_1} and {vpc_id_2}"),
             }),
 
             Err(e) => Err(CarbideError::from(DatabaseError::new(

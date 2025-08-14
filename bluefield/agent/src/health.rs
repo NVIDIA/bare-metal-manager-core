@@ -275,7 +275,7 @@ async fn check_dhcp_server(hr: &mut health_report::HealthReport, container_id: &
             hr,
             probe_ids::DhcpServer.clone(),
             None,
-            format!("Dhcp-server is not running. Status: {}", x),
+            format!("Dhcp-server is not running. Status: {x}"),
         );
     }
 }

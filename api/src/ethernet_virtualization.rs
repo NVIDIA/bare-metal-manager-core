@@ -177,8 +177,7 @@ pub async fn admin_network(
         )
         .map_err(|e| {
             Status::internal(format!(
-                "failed to configure FlatInterfaceConfig.svi_ip: {}",
-                e
+                "failed to configure FlatInterfaceConfig.svi_ip: {e}"
             ))
         })?
         .map(|ip| ip.to_string())
@@ -306,8 +305,7 @@ pub async fn tenant_network(
     // InstanceInterfaceConfigs stored contain the prefix.
     let default_prefix = IpNetwork::new(*address, 32).map_err(|e| {
         Status::internal(format!(
-            "failed to build default interface_prefix for {}/32: {}",
-            address, e
+            "failed to build default interface_prefix for {address}/32: {e}"
         ))
     })?;
 
@@ -415,8 +413,7 @@ pub async fn tenant_network(
     )
     .map_err(|e| {
         Status::internal(format!(
-            "failed to configure FlatInterfaceConfig.svi_ip: {}",
-            e
+            "failed to configure FlatInterfaceConfig.svi_ip: {e}"
         ))
     })?
     .map(|ip| ip.to_string());
@@ -482,8 +479,7 @@ pub async fn tenant_network(
             .transpose()
             .map_err(|e: CarbideError| {
                 Status::internal(format!(
-                    "failed to configure FlatInterfaceConfig.network_security_group: {}",
-                    e
+                    "failed to configure FlatInterfaceConfig.network_security_group: {e}"
                 ))
             })?,
         internal_uuid: Some(iface.internal_uuid.into()),

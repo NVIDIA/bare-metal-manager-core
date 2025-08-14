@@ -66,13 +66,12 @@ impl ApiClient {
     ) -> ClientApiResult<rpc::forge::DhcpRecord> {
         let json_path = format!("{}/{}", &template_dir, "dhcp_discovery.json");
         let dhcp_string = std::fs::read_to_string(&json_path).map_err(|e| {
-            ClientApiError::ConfigError(format!("Unable to read {}: {}", json_path, e,))
+            ClientApiError::ConfigError(format!("Unable to read {json_path}: {e}",))
         })?;
         let default_data: rpc::forge::DhcpDiscovery =
             serde_json::from_str(&dhcp_string).map_err(|e| {
                 ClientApiError::ConfigError(format!(
-                    "{}/dhcp_discovery.json does not have correct format: {}",
-                    template_dir, e
+                    "{template_dir}/dhcp_discovery.json does not have correct format: {e}"
                 ))
             })?;
 
@@ -124,18 +123,16 @@ impl ApiClient {
             dpu_nic_version,
         } = discovery_data;
         let json_path = if machine_type == MachineType::Dpu {
-            format!("{}/dpu_discovery_info.json", template_dir)
+            format!("{template_dir}/dpu_discovery_info.json")
         } else {
-            format!("{}/host_discovery_info.json", template_dir)
+            format!("{template_dir}/host_discovery_info.json")
         };
-        let dhcp_string = std::fs::read_to_string(&json_path).map_err(|e| {
-            ClientApiError::ConfigError(format!("Unable to read {}: {}", json_path, e))
-        })?;
+        let dhcp_string = std::fs::read_to_string(&json_path)
+            .map_err(|e| ClientApiError::ConfigError(format!("Unable to read {json_path}: {e}")))?;
         let mut discovery_data: rpc::machine_discovery::DiscoveryInfo =
             serde_json::from_str(&dhcp_string).map_err(|e| {
                 ClientApiError::ConfigError(format!(
-                    "{} does not have correct format: {}",
-                    json_path, e
+                    "{json_path} does not have correct format: {e}"
                 ))
             })?;
 
@@ -196,6 +193,7 @@ impl ApiClient {
             .discover_machine(mdi)
             .await
             .map_err(ClientApiError::InvocationError)?;
+
         Ok(out)
     }
 
@@ -286,15 +284,13 @@ impl ApiClient {
             .await
             .map_err(|e| {
                 ClientApiError::ConfigError(format!(
-                    "network segment: {} retrieval error {}",
-                    network_segment_name, e
+                    "network segment: {network_segment_name} retrieval error {e}"
                 ))
             })?;
 
         if network_segment_ids.network_segments_ids.is_empty() {
             return Err(ClientApiError::ConfigError(format!(
-                "network segment: {} not found.",
-                network_segment_name
+                "network segment: {network_segment_name} not found."
             )));
         } else if network_segment_ids.network_segments_ids.len() >= 2 {
             tracing::warn!(
@@ -403,12 +399,12 @@ impl ApiClient {
                     .create_network_segment(rpc::forge::NetworkSegmentCreationRequest {
                         id: None,
                         vpc_id: vpc_id_list.vpc_ids.first().cloned(),
-                        name: format!("subnet_{}", subnet_count),
+                        name: format!("subnet_{subnet_count}"),
                         segment_type: rpc::forge::NetworkSegmentType::Tenant.into(),
                         prefixes: vec![rpc::forge::NetworkPrefix {
                             id: None,
-                            prefix: format!("192.5.{}.12/24", subnet_count),
-                            gateway: Some(format!("192.5.{}.13", subnet_count)),
+                            prefix: format!("192.5.{subnet_count}.12/24"),
+                            gateway: Some(format!("192.5.{subnet_count}.13")),
                             reserve_first: 1,
                             state: None,
                             events: vec![],
@@ -439,7 +435,7 @@ impl ApiClient {
                 network_security_group_id: None,
                 network_virtualization_type: None,
                 metadata: Some(rpc::forge::Metadata {
-                    name: format!("vpc_{}", vpc_count),
+                    name: format!("vpc_{vpc_count}"),
                     description: "".to_string(),
                     labels: vec![rpc::forge::Label {
                         key: "Forge-simulation-vpc".to_string(),

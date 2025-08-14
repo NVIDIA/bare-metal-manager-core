@@ -591,7 +591,7 @@ async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Repo
 
     for prefix in &[31, 32] {
         let mut request = request.clone();
-        request.prefixes[0].prefix = format!("192.0.2.21/{}", prefix);
+        request.prefixes[0].prefix = format!("192.0.2.21/{prefix}");
         match env.api.create_network_segment(Request::new(request)).await {
             Ok(_) => {
                 return Err(eyre::format_err!(
@@ -666,8 +666,7 @@ async fn test_network_segment_metrics(
     );
 
     let avail_str = format!(
-        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 253",
-        test_type
+        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{test_type}\"}} 253"
     );
 
     // We don't return stats for tenant network segments
@@ -688,8 +687,7 @@ async fn test_network_segment_metrics(
     }
 
     let total_str = format!(
-        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 256",
-        test_type
+        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{test_type}\"}} 256"
     );
 
     if matches!(test_type, MetricsTestType::Tenant) {
@@ -708,8 +706,7 @@ async fn test_network_segment_metrics(
     }
 
     let reserved_str = format!(
-        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 1",
-        test_type
+        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{test_type}\"}} 1"
     );
 
     if matches!(test_type, MetricsTestType::Tenant) {
@@ -747,8 +744,7 @@ async fn test_network_segment_metrics(
     // Check to make sure we are returning stats even when the network segment
     // is not in the Ready state.
     let avail_str = format!(
-        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 253",
-        test_type
+        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{test_type}\"}} 253"
     );
 
     if matches!(test_type, MetricsTestType::Tenant) {
@@ -767,8 +763,7 @@ async fn test_network_segment_metrics(
     }
 
     let total_str = format!(
-        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 256",
-        test_type
+        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{test_type}\"}} 256"
     );
 
     if matches!(test_type, MetricsTestType::Tenant) {
@@ -787,8 +782,7 @@ async fn test_network_segment_metrics(
     }
 
     let reserved_str = format!(
-        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{}\"}} 1",
-        test_type
+        "{{fresh=\"true\",name=\"TEST_SEGMENT\",prefix=\"192.0.2.0/24\",type=\"{test_type}\"}} 1"
     );
 
     if matches!(test_type, MetricsTestType::Tenant) {

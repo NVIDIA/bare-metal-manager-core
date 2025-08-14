@@ -58,10 +58,7 @@ impl MeasurementReport {
             ))
             .and_then(|pb| {
                 Self::try_from(pb.clone()).map_err(|e| {
-                    crate::Error::RpcConversion(format!(
-                        "report failed pb->model conversion: {}",
-                        e
-                    ))
+                    crate::Error::RpcConversion(format!("report failed pb->model conversion: {e}"))
                 })
             })
     }
@@ -96,8 +93,7 @@ impl TryFrom<MeasurementReportPb> for MeasurementReport {
                 |value| match MeasurementReportValueRecord::try_from(value.clone()) {
                     Ok(worked) => Ok(worked),
                     Err(failed) => Err(crate::Error::RpcConversion(format!(
-                        "attr conversion failed: {}",
-                        failed
+                        "attr conversion failed: {failed}"
                     ))),
                 },
             )

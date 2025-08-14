@@ -282,8 +282,7 @@ impl InstanceType {
     /// requirements of an InstanceType
     ///
     /// * `txn`          - A reference to an active DB transaction
-    /// * `machine_caps` - A reference to a MachineCapabilitiesSet struct with the
-    ///                    capabilities to check
+    /// * `machine_caps` - A reference to a MachineCapabilitiesSet struct with the capabilities to check
     pub fn matches_capability_set(&self, machine_caps: &MachineCapabilitiesSet) -> bool {
         for cap in self.desired_capabilities.iter() {
             match cap.capability_type {

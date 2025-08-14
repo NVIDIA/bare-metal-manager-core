@@ -17,7 +17,8 @@ fn get_endpoints_for_managed_host<'a>(
         .map(|x| x.bmc_ip.clone())
         .collect::<Vec<String>>();
     wanted_ips.push(managedhost.host_bmc_ip.clone());
-    let endpoints = exploration_report
+
+    exploration_report
         .endpoints
         .iter()
         .filter_map(|x| {
@@ -27,9 +28,7 @@ fn get_endpoints_for_managed_host<'a>(
                 None
             }
         })
-        .collect::<HashMap<String, &ExploredEndpoint>>();
-
-    endpoints
+        .collect::<HashMap<String, &ExploredEndpoint>>()
 }
 
 fn convert_managed_host_to_nice_table(

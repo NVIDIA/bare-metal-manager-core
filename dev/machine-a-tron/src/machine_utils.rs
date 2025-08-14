@@ -188,7 +188,7 @@ pub async fn add_address_to_interface(
         .await?;
 
     if !output.status.success() {
-        return Err(AddressConfigError::CommandFailure(cmd, output));
+        return Err(AddressConfigError::CommandFailure(Box::new(cmd), output));
     }
 
     Ok(())
@@ -210,7 +210,7 @@ async fn interface_has_address(interface: &str, address: &str) -> Result<bool, A
         .await?;
 
     if !output.status.success() {
-        return Err(AddressConfigError::CommandFailure(cmd, output));
+        return Err(AddressConfigError::CommandFailure(Box::new(cmd), output));
     }
     if output.stdout.is_empty() {
         Ok(false)

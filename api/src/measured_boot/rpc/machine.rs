@@ -47,7 +47,7 @@ pub async fn handle_attest_candidate_machine(
         &PcrRegisterValue::from_pb_vec(&req.pcr_values),
     )
     .await
-    .map_err(|e| Status::internal(format!("failed saving measurements: {}", e)))?;
+    .map_err(|e| Status::internal(format!("failed saving measurements: {e}")))?;
 
     commit_txn(txn).await?;
     Ok(AttestCandidateMachineResponse {
@@ -73,7 +73,7 @@ pub async fn handle_show_candidate_machine(
                 })?,
             )
             .await
-            .map_err(|e| Status::internal(format!("{}", e)))?
+            .map_err(|e| Status::internal(format!("{e}")))?
         }
         // Show all system profiles.
         None => return Err(Status::invalid_argument("selector required")),
@@ -93,7 +93,7 @@ pub async fn handle_show_candidate_machines(
     Ok(ShowCandidateMachinesResponse {
         machines: db::machine::get_all(&mut txn)
             .await
-            .map_err(|e| Status::internal(format!("{}", e)))?
+            .map_err(|e| Status::internal(format!("{e}")))?
             .drain(..)
             .map(|machine| machine.into())
             .collect(),
@@ -109,7 +109,7 @@ pub async fn handle_list_candidate_machines(
     Ok(ListCandidateMachinesResponse {
         machines: get_candidate_machine_records(&mut txn)
             .await
-            .map_err(|e| Status::internal(format!("failed to read records: {}", e)))?
+            .map_err(|e| Status::internal(format!("failed to read records: {e}")))?
             .iter()
             .map(|record| record.clone().into())
             .collect(),

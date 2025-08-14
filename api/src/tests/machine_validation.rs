@@ -73,7 +73,7 @@ async fn test_machine_validation_complete_with_error(
             assert_eq!(source, &FailureSource::Scout);
         }
         s => {
-            panic!("Incorrect state: {}", s);
+            panic!("Incorrect state: {s}");
         }
     }
 
@@ -157,7 +157,7 @@ async fn test_machine_validation_with_error(
             assert_eq!(*retry_count, 0);
         }
         s => {
-            panic!("Incorrect state: {}", s);
+            panic!("Incorrect state: {s}");
         }
     }
 
@@ -270,7 +270,7 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     match machine.current_state() {
         ManagedHostState::Ready => {}
         s => {
-            panic!("Incorrect state: {}", s);
+            panic!("Incorrect state: {s}");
         }
     }
 
@@ -537,7 +537,7 @@ async fn test_machine_validation_test_on_demand_filter(
     match machine.current_state() {
         ManagedHostState::Ready => {}
         s => {
-            panic!("Incorrect state: {}", s);
+            panic!("Incorrect state: {s}");
         }
     }
 
@@ -1115,7 +1115,7 @@ async fn test_on_demant_un_verified_machine_validation(
     match machine.current_state() {
         ManagedHostState::Ready => {}
         s => {
-            panic!("Incorrect state: {}", s);
+            panic!("Incorrect state: {s}");
         }
     }
 
@@ -1286,7 +1286,7 @@ async fn test_on_demant_machine_validation_all_contexts(
     match machine.current_state() {
         ManagedHostState::Ready => {}
         s => {
-            panic!("Incorrect state: {}", s);
+            panic!("Incorrect state: {s}");
         }
     }
 

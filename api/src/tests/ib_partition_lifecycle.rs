@@ -247,8 +247,7 @@ async fn test_create_ib_partition_over_max_limit(
         .to_string();
     assert!(
         error.contains("Maximum Limit of Infiniband partitions had been reached"),
-        "Error message should contain 'Maximum Limit of Infiniband partitions had been reached', but is {}",
-        error
+        "Error message should contain 'Maximum Limit of Infiniband partitions had been reached', but is {error}"
     );
 
     Ok(())

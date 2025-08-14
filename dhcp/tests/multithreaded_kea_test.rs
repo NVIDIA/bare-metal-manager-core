@@ -118,7 +118,7 @@ fn test_real_kea_multithreaded() -> Result<(), eyre::Report> {
                 match chan_map.get(&idx) {
                     Some(handle) => _ = handle.send(()),
                     None => {
-                        println!("idx:{idx} missing in thread handle map for {}", msg);
+                        println!("idx:{idx} missing in thread handle map for {msg}");
                     }
                 }
             }

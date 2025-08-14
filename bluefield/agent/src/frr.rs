@@ -138,8 +138,8 @@ mod tests {
                 if g.trim() != e.trim() {
                     has_error = true;
                     println!("Line differs:");
-                    println!("GOT: {}", g);
-                    println!("EXP: {}", e);
+                    println!("GOT: {g}");
+                    println!("EXP: {e}");
                 }
             }
         }

@@ -189,7 +189,7 @@ fn get_bmc_info(
             .clone();
 
         bmc_element.insert(
-            format!("{}-bmc", hostname),
+            format!("{hostname}-bmc"),
             BmcInfo {
                 ansible_host: bmc_ip.clone(),
                 host_bmc_ip: managed_host_map.get(&bmc_ip).cloned(),
@@ -325,7 +325,7 @@ pub async fn print_inventory(
         fs::write(filename, output)
             .map_err(|e| CarbideCliError::GenericError(format!("File write error: {e}")))?;
     } else {
-        println!("{}", output);
+        println!("{output}");
     }
     Ok(())
 }

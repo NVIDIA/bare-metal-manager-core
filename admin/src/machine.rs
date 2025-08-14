@@ -83,7 +83,7 @@ fn convert_machine_to_nice_format(
         + 1;
 
     for (key, value) in data {
-        writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+        writeln!(&mut lines, "{key:<width$}: {value}")?;
     }
 
     let metadata = machine.metadata.unwrap_or_default();
@@ -100,7 +100,7 @@ fn convert_machine_to_nice_format(
         )?;
     }
 
-    writeln!(&mut lines, "STATE HISTORY: (Latest {} only)", history_count)?;
+    writeln!(&mut lines, "STATE HISTORY: (Latest {history_count} only)")?;
     if machine.events.is_empty() {
         writeln!(&mut lines, "\tEMPTY")?;
     } else {
@@ -125,7 +125,7 @@ fn convert_machine_to_nice_format(
         for _ in 0..header.len() + 27 {
             div.push('-')
         }
-        writeln!(&mut lines, "\t{}", div)?;
+        writeln!(&mut lines, "\t{div}")?;
         for x in machine
             .events
             .iter()
@@ -191,7 +191,7 @@ fn convert_machine_to_nice_format(
             ];
 
             for (key, value) in data {
-                writeln!(&mut lines, "\t{:<width$}: {}", key, value)?;
+                writeln!(&mut lines, "\t{key:<width$}: {value}")?;
             }
             writeln!(
                 &mut lines,
@@ -297,7 +297,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             .map(|label| {
                 let key = &label.key;
                 let value = label.value.clone().unwrap_or_default();
-                format!("\"{}:{}\"", key, value)
+                format!("\"{key}:{value}\"")
             })
             .collect::<Vec<_>>();
 
@@ -674,10 +674,7 @@ pub async fn force_delete(
             // since the site controller can't look up the DPU by host machine ID anymore.
             // To also clean up the DPU, we modify our query and continue to delete
             if !dpu_machine_id.is_empty() && query.machine != dpu_machine_id {
-                println!(
-                    "Starting to delete potentially stale DPU machine {}",
-                    dpu_machine_id
-                );
+                println!("Starting to delete potentially stale DPU machine {dpu_machine_id}");
                 query.machine = dpu_machine_id.clone();
             } else {
                 // No DPU to delete

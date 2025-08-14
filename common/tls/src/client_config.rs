@@ -91,8 +91,8 @@ pub fn get_client_cert_info(
     // and this is the location for developers executing from within carbide's repo
     if let Ok(project_root) = env::var("REPO_ROOT") {
         //TODO: actually fix this cert and give it one that's valid for like 10 years.
-        let cert_path = format!("{}/dev/certs/server_identity.pem", project_root);
-        let key_path = format!("{}/dev/certs/server_identity.key", project_root);
+        let cert_path = format!("{project_root}/dev/certs/server_identity.pem");
+        let key_path = format!("{project_root}/dev/certs/server_identity.key");
         if Path::new(cert_path.as_str()).exists() && Path::new(key_path.as_str()).exists() {
             return ClientCert {
                 cert_path,
@@ -143,7 +143,7 @@ pub fn get_forge_root_ca_path(
 
     // and this is the location for developers executing from within carbide's repo
     if let Ok(project_root) = env::var("REPO_ROOT") {
-        let path = format!("{}/dev/certs/localhost/ca.crt", project_root);
+        let path = format!("{project_root}/dev/certs/localhost/ca.crt");
         if Path::new(path.as_str()).exists() {
             return path;
         }

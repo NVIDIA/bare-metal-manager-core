@@ -104,13 +104,12 @@ pub async fn boot(contents: MachineInterface, state: State<AppState>) -> impl In
             )
             .await
             .unwrap_or_else(|err| {
-                eprintln!("{}", err);
+                eprintln!("{err}");
                 format!(
                     r#"
-echo Failed to fetch custom_ipxe: {} ||
+echo Failed to fetch custom_ipxe: {err} ||
 exit 101 ||
-"#,
-                    err
+"#
                 )
             })
             .replace("[api_url]", &state.runtime_config.client_facing_api_url);

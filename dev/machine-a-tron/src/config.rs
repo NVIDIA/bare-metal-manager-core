@@ -270,7 +270,7 @@ impl MachineATronConfig {
 
         for (config_section, persisted_machines) in persisted_machines_by_section {
             std::fs::write(
-                machines_persist_dir.join(format!("{}.json", config_section)),
+                machines_persist_dir.join(format!("{config_section}.json")),
                 serde_json::to_vec(&persisted_machines)?,
             )?;
         }

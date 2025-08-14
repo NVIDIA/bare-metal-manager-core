@@ -318,7 +318,7 @@ mod tests {
             .u64_observable_gauge("mygauge")
             .with_callback(move |observer| {
                 let count = counter.fetch_add(1, Ordering::SeqCst);
-                println!("Collection {}", count);
+                println!("Collection {count}");
                 if count % 2 == 0 {
                     observer.observe(1, &p1);
                 } else {

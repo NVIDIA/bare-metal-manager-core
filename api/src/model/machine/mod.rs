@@ -1112,7 +1112,7 @@ pub enum ValidationState {
 
 impl std::fmt::Display for ValidationState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -1236,13 +1236,11 @@ impl ReprovisionState {
                 }
 
                 _ => Err(StateHandlerError::InvalidState(format!(
-                    "Invalid State {:?} passed to Reprovision::Assigned::next_state_with_all_dpus.",
-                    current_state
+                    "Invalid State {current_state:?} passed to Reprovision::Assigned::next_state_with_all_dpus."
                 ))),
             },
             _ => Err(StateHandlerError::InvalidState(format!(
-                "Invalid State {:?} passed to Reprovision::next_state_with_all_dpus.",
-                current_state
+                "Invalid State {current_state:?} passed to Reprovision::next_state_with_all_dpus."
             ))),
         }
     }
@@ -1973,7 +1971,7 @@ impl Display for ManagedHostState {
                 write!(f, "DPUInitializing/{dpu_lowest_state}")
             }
             ManagedHostState::HostInit { machine_state } => {
-                write!(f, "HostInitializing/{}", machine_state)
+                write!(f, "HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => write!(f, "Ready"),
             ManagedHostState::Assigned { instance_state, .. } => match instance_state {
@@ -1987,11 +1985,11 @@ impl Display for ManagedHostState {
                     write!(f, "Assigned/Reprovision/{dpu_lowest_state}")
                 }
                 _ => {
-                    write!(f, "Assigned/{}", instance_state)
+                    write!(f, "Assigned/{instance_state}")
                 }
             },
             ManagedHostState::WaitingForCleanup { cleanup_state } => {
-                write!(f, "WaitingForCleanup/{}", cleanup_state)
+                write!(f, "WaitingForCleanup/{cleanup_state}")
             }
             ManagedHostState::ForceDeletion => write!(f, "ForceDeletion"),
             ManagedHostState::Failed { details, .. } => {
@@ -2007,22 +2005,22 @@ impl Display for ManagedHostState {
                 write!(f, "Reprovisioning/{dpu_lowest_state}")
             }
             ManagedHostState::HostReprovision { reprovision_state } => {
-                write!(f, "HostReprovisioning/{}", reprovision_state)
+                write!(f, "HostReprovisioning/{reprovision_state}")
             }
             ManagedHostState::Measuring { measuring_state } => {
-                write!(f, "Measuring/{}", measuring_state)
+                write!(f, "Measuring/{measuring_state}")
             }
             ManagedHostState::PostAssignedMeasuring { measuring_state } => {
-                write!(f, "PostAssignedMeasuring/{}", measuring_state)
+                write!(f, "PostAssignedMeasuring/{measuring_state}")
             }
             ManagedHostState::Created => write!(f, "Created"),
             ManagedHostState::BomValidating {
                 bom_validating_state,
             } => {
-                write!(f, "BomValidating/{:?}", bom_validating_state)
+                write!(f, "BomValidating/{bom_validating_state:?}")
             }
             ManagedHostState::Validation { validation_state } => {
-                write!(f, "{}", validation_state)
+                write!(f, "{validation_state}")
             }
         }
     }
@@ -2045,7 +2043,7 @@ impl ManagedHostState {
                     .unwrap_or("Unknown DPU".to_string())
             ),
             ManagedHostState::HostInit { machine_state } => {
-                format!("HostInitializing/{}", machine_state)
+                format!("HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => "Ready".to_string(),
             ManagedHostState::Assigned { instance_state } => match instance_state {
@@ -2059,10 +2057,10 @@ impl ManagedHostState {
                             .unwrap_or("Unknown DPU".to_string())
                     )
                 }
-                _ => format!("Assigned/{}", instance_state),
+                _ => format!("Assigned/{instance_state}"),
             },
             ManagedHostState::WaitingForCleanup { cleanup_state } => {
-                format!("WaitingForCleanup/{}", cleanup_state)
+                format!("WaitingForCleanup/{cleanup_state}")
             }
             ManagedHostState::ForceDeletion => "ForceDeletion".to_string(),
             ManagedHostState::Failed { details, .. } => {
@@ -2079,20 +2077,20 @@ impl ManagedHostState {
                 )
             }
             ManagedHostState::HostReprovision { reprovision_state } => {
-                format!("HostReprovisioning/{}", reprovision_state)
+                format!("HostReprovisioning/{reprovision_state}")
             }
             ManagedHostState::Measuring { measuring_state } => {
-                format!("Measuring/{}", measuring_state)
+                format!("Measuring/{measuring_state}")
             }
             ManagedHostState::PostAssignedMeasuring { measuring_state } => {
-                format!("PostAssignedMeasuring/{}", measuring_state)
+                format!("PostAssignedMeasuring/{measuring_state}")
             }
             ManagedHostState::Created => "Created".to_string(),
             ManagedHostState::BomValidating {
                 bom_validating_state,
-            } => format!("BomValidating/{:?}", bom_validating_state),
+            } => format!("BomValidating/{bom_validating_state:?}"),
             ManagedHostState::Validation { validation_state } => {
-                format!("{}", validation_state)
+                format!("{validation_state}")
             }
         }
     }
@@ -2262,8 +2260,7 @@ pub trait NextState {
                     all_machine_ids,
                 ),
             _ => Err(StateHandlerError::InvalidState(format!(
-                "Unhandled {} state for all dpu handling.",
-                current_reprovision_state
+                "Unhandled {current_reprovision_state} state for all dpu handling."
             ))),
         }
     }
@@ -2287,8 +2284,7 @@ impl NextState for MachineNextStateResolver {
                 },
             }),
             _ => Err(StateHandlerError::InvalidState(format!(
-                "Unhandled {} state for Non-Instance handling.",
-                reprovision_state
+                "Unhandled {reprovision_state} state for Non-Instance handling."
             ))),
         }
     }
@@ -2303,8 +2299,7 @@ impl NextState for MachineNextStateResolver {
             ManagedHostState::DPUReprovision { dpu_states } => dpu_states.states.clone(),
             _ => {
                 return Err(StateHandlerError::InvalidState(format!(
-                    "Unhandled {} state for Non-Instance handling.",
-                    current_state
+                    "Unhandled {current_state} state for Non-Instance handling."
                 )));
             }
         };
@@ -2356,8 +2351,7 @@ impl NextState for InstanceNextStateResolver {
                 }
             }
             _ => Err(StateHandlerError::InvalidState(format!(
-                "Unhandled {} state for Instance handling.",
-                reprovision_state
+                "Unhandled {reprovision_state} state for Instance handling."
             ))),
         }
     }
@@ -2374,8 +2368,7 @@ impl NextState for InstanceNextStateResolver {
             } => dpu_states.states.clone(),
             _ => {
                 return Err(StateHandlerError::InvalidState(format!(
-                    "Unhandled {} state for Instance handling.",
-                    current_state
+                    "Unhandled {current_state} state for Instance handling."
                 )));
             }
         };

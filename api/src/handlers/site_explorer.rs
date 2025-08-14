@@ -381,7 +381,7 @@ pub(crate) async fn delete_explored_endpoint(
     if endpoints.is_empty() {
         return Ok(Response::new(rpc::DeleteExploredEndpointResponse {
             deleted: false,
-            message: Some(format!("No explored endpoint found with IP {}", bmc_ip)),
+            message: Some(format!("No explored endpoint found with IP {bmc_ip}")),
         }));
     }
 
@@ -392,8 +392,7 @@ pub(crate) async fn delete_explored_endpoint(
 
     if in_managed_host {
         return Err(CarbideError::InvalidArgument(format!(
-            "Cannot delete endpoint {} because a machine exists for it. Did you mean to force-delete the machine?",
-            bmc_ip
+            "Cannot delete endpoint {bmc_ip} because a machine exists for it. Did you mean to force-delete the machine?"
         ))
         .into());
     }
@@ -415,8 +414,7 @@ pub(crate) async fn delete_explored_endpoint(
     Ok(Response::new(rpc::DeleteExploredEndpointResponse {
         deleted: true,
         message: Some(format!(
-            "Successfully deleted explored endpoint with IP {}",
-            bmc_ip
+            "Successfully deleted explored endpoint with IP {bmc_ip}"
         )),
     }))
 }

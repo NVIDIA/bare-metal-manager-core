@@ -59,7 +59,7 @@ pub async fn handle_create_measurement_bundle(
         Some(MeasurementBundleState::from(req.state())),
     )
     .await
-    .map_err(|e| Status::internal(format!("failed to create new bundle: {}", e)))?;
+    .map_err(|e| Status::internal(format!("failed to create new bundle: {e}")))?;
 
     commit_txn(txn).await?;
     Ok(CreateMeasurementBundleResponse {
@@ -83,14 +83,14 @@ pub async fn handle_delete_measurement_bundle(
                 false,
             )
             .await
-            .map_err(|e| Status::internal(format!("deletion failed: {}", e)))?
+            .map_err(|e| Status::internal(format!("deletion failed: {e}")))?
         }
 
         // Delete for the given bundle name.
         Some(delete_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
             db::bundle::delete_for_name(&mut txn, bundle_name.clone(), false)
                 .await
-                .map_err(|e| Status::internal(format!("deletion failed: {}", e)))?
+                .map_err(|e| Status::internal(format!("deletion failed: {e}")))?
         }
 
         // ID or name is needed.
@@ -121,14 +121,14 @@ pub async fn handle_rename_measurement_bundle(
                 req.new_bundle_name.clone(),
             )
             .await
-            .map_err(|e| Status::internal(format!("rename failed: {}", e)))?
+            .map_err(|e| Status::internal(format!("rename failed: {e}")))?
         }
 
         // Rename for the given bundle name.
         Some(rename_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
             db::bundle::rename_for_name(&mut txn, bundle_name.clone(), req.new_bundle_name.clone())
                 .await
-                .map_err(|e| Status::internal(format!("rename failed: {}", e)))?
+                .map_err(|e| Status::internal(format!("rename failed: {e}")))?
         }
 
         // ID or name is needed.
@@ -159,7 +159,7 @@ pub async fn handle_update_measurement_bundle(
         Some(update_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
             db::bundle::from_name_with_txn(&mut txn, bundle_name.clone())
                 .await
-                .map_err(|e| Status::internal(format!("deletion failed: {}", e)))?
+                .map_err(|e| Status::internal(format!("deletion failed: {e}")))?
                 .bundle_id
         }
         // ID or name is needed.
@@ -171,7 +171,7 @@ pub async fn handle_update_measurement_bundle(
     // And then set it in the database.
     let bundle = db::bundle::set_state_for_id(&mut txn, bundle_id, req.state().into())
         .await
-        .map_err(|e| Status::internal(format!("failed to update bundle: {}", e)))?;
+        .map_err(|e| Status::internal(format!("failed to update bundle: {e}")))?;
 
     commit_txn(txn).await?;
     Ok(UpdateMeasurementBundleResponse {
@@ -193,12 +193,12 @@ pub async fn handle_show_measurement_bundle(
                 MeasurementBundleId::from_grpc(Some(bundle_uuid.clone()))?,
             )
             .await
-            .map_err(|e| Status::internal(format!("{}", e)))?
+            .map_err(|e| Status::internal(format!("{e}")))?
         }
         Some(show_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
             db::bundle::from_name_with_txn(&mut txn, bundle_name.clone())
                 .await
-                .map_err(|e| Status::internal(format!("{}", e)))?
+                .map_err(|e| Status::internal(format!("{e}")))?
         }
         None => return Err(Status::invalid_argument("selector must be provided")),
     };
@@ -218,7 +218,7 @@ pub async fn handle_show_measurement_bundles(
     Ok(ShowMeasurementBundlesResponse {
         bundles: db::bundle::get_all(&mut txn)
             .await
-            .map_err(|e| Status::internal(format!("{}", e)))?
+            .map_err(|e| Status::internal(format!("{e}")))?
             .drain(..)
             .map(|bundle| bundle.into())
             .collect(),
@@ -234,7 +234,7 @@ pub async fn handle_list_measurement_bundles(
     let mut txn = begin_txn(db_conn).await?;
     let bundles: Vec<MeasurementBundleRecordPb> = get_measurement_bundle_records_with_txn(&mut txn)
         .await
-        .map_err(|e| Status::internal(format!("{}", e)))?
+        .map_err(|e| Status::internal(format!("{e}")))?
         .drain(..)
         .map(|record| record.into())
         .collect();
@@ -257,7 +257,7 @@ pub async fn handle_list_measurement_bundle_machines(
                 MeasurementBundleId::from_grpc(Some(bundle_uuid.clone()))?,
             )
             .await
-            .map_err(|e| Status::internal(format!("{}", e)))?
+            .map_err(|e| Status::internal(format!("{e}")))?
             .drain(..)
             .map(|machine_id| machine_id.to_string())
             .collect()
@@ -266,7 +266,7 @@ pub async fn handle_list_measurement_bundle_machines(
         Some(list_measurement_bundle_machines_request::Selector::BundleName(bundle_name)) => {
             get_machines_for_bundle_name(&mut txn, bundle_name.clone())
                 .await
-                .map_err(|e| Status::internal(format!("{}", e)))?
+                .map_err(|e| Status::internal(format!("{e}")))?
                 .drain(..)
                 .map(|machine_id| machine_id.to_string())
                 .collect()
@@ -288,7 +288,7 @@ pub async fn handle_find_closest_match(
 
     let report = db::report::from_id_with_txn(&mut txn, report_id)
         .await
-        .map_err(|e| Status::internal(format!("{}", e)))?;
+        .map_err(|e| Status::internal(format!("{e}")))?;
 
     // get profile
     let journal = db::journal::get_journal_for_report_id(&mut txn, report_id).await?;

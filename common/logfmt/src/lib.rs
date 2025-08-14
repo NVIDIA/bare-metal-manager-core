@@ -262,7 +262,7 @@ where
         );
         let end_time = chrono::Utc::now();
         data.attributes
-            .insert("timing_end_time".to_string(), format!("{:?}", end_time));
+            .insert("timing_end_time".to_string(), format!("{end_time:?}"));
         let elapsed = end_time.signed_duration_since(data.timing.start_time);
         data.attributes.insert(
             "timing_elapsed_us".to_string(),
@@ -417,7 +417,7 @@ impl field::Visit for SpanAttributeVisitor<'_> {
     }
 
     fn record_debug(&mut self, field: &field::Field, value: &dyn std::fmt::Debug) {
-        let value = format!("{:?}", value);
+        let value = format!("{value:?}");
         self.data.update_attribute(field, value);
     }
 
@@ -438,10 +438,10 @@ impl Visit for FieldVisitor {
     }
     fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
         if field.name() == "message" {
-            self.message = Some(format!("{:?}", value));
+            self.message = Some(format!("{value:?}"));
             return;
         }
-        self.record_str(field, &format!("{:?}", value));
+        self.record_str(field, &format!("{value:?}"));
     }
     fn record_f64(&mut self, field: &Field, value: f64) {
         self.fields

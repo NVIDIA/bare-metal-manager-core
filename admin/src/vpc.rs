@@ -136,7 +136,7 @@ fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
                 .map(|label| {
                     let key = &label.key;
                     let value = label.value.clone().unwrap_or_default();
-                    format!("\"{}:{}\"", key, value)
+                    format!("\"{key}:{value}\"")
                 })
                 .collect::<Vec<_>>()
                 .join(", "),
@@ -185,7 +185,7 @@ fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
     ];
 
     for (key, value) in data {
-        writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+        writeln!(&mut lines, "{key:<width$}: {value}")?;
     }
 
     Ok(lines)

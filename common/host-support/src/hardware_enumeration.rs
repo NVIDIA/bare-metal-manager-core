@@ -177,8 +177,7 @@ fn convert_sysattr_to_string<'a>(
         None => Ok(""),
         Some(p) => p.to_str().map(|s| s.trim()).ok_or_else(|| {
             HardwareEnumerationError::GenericError(format!(
-                "Could not transform os string to string for attribute {}",
-                name
+                "Could not transform os string to string for attribute {name}"
             ))
         }),
     }
@@ -212,8 +211,7 @@ fn get_numa_node_from_syspath(syspath: Option<&Path>) -> Result<i32, HardwareEnu
 
     numa_node_value.trim().parse::<i32>().map_err(|e| {
         HardwareEnumerationError::GenericError(format!(
-            "Failed to parse NUMA node value to i32: {}",
-            e
+            "Failed to parse NUMA node value to i32: {e}"
         ))
     })
 }
@@ -671,7 +669,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
 
                 let mem_type = match i.memory_type() {
                     Some(smbioslib::MemoryDeviceTypeData { value, .. }) => {
-                        Some(format!("{:?}", value).to_uppercase())
+                        Some(format!("{value:?}").to_uppercase())
                     }
                     _ => backup_ram_type.clone(),
                 };

@@ -90,7 +90,7 @@ pub fn state_sla(state: &NetworkSegmentControllerState, state_version: &ConfigVe
             StateSla::no_sla()
         }
         NetworkSegmentControllerState::Deleting {
-            deletion_state: NetworkSegmentDeletionState::DBDelete { .. },
+            deletion_state: NetworkSegmentDeletionState::DBDelete,
         } => StateSla::with_sla(
             std::time::Duration::from_secs(slas::DELETING_DBDELETE),
             time_in_state,

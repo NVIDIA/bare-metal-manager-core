@@ -132,8 +132,8 @@ pub fn tar_router(
 
     Ok(Router::new()
         .route("/history", get(get_history_macs))
-        .route("/history/:mac", get(get_history))
-        .route("/*path", get(get_from_tar).patch(set_any).post(set_any))
+        .route("/history/{mac}", get(get_history))
+        .route("/{*path}", get(get_from_tar).patch(set_any).post(set_any))
         .fallback(not_found_handler)
         .with_state(bmc_state))
 }

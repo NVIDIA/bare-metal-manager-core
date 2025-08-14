@@ -67,37 +67,37 @@ pub fn wrap_router_with_mock_machine(
 ) -> Router {
     Router::new()
         .route(
-            rf!("Managers/:manager_id/EthernetInterfaces/:interface_id"),
+            rf!("Managers/{manager_id}/EthernetInterfaces/{interface_id}"),
             get(get_managers_ethernet_interface),
         )
         .route(
-            rf!("Systems/:system_id/EthernetInterfaces/:nic"),
+            rf!("Systems/{system_id}/EthernetInterfaces/{nic}"),
             get(get_systems_ethernet_interface),
         )
-        .route(rf!("Chassis/:chassis_id"), get(get_chassis))
+        .route(rf!("Chassis/{chassis_id}"), get(get_chassis))
         .route(
-            rf!("Chassis/:chassis_id/NetworkAdapters"),
+            rf!("Chassis/{chassis_id}/NetworkAdapters"),
             get(get_chassis_network_adapters),
         )
         .route(
-            rf!("Chassis/:chassis_id/NetworkAdapters/:network_adapter_id"),
+            rf!("Chassis/{chassis_id}/NetworkAdapters/{network_adapter_id}"),
             get(get_chassis_network_adapter),
         )
         .route(
-            rf!("Chassis/:chassis_id/NetworkAdapters/:network_adapter_id/NetworkDeviceFunctions"),
+            rf!("Chassis/{chassis_id}/NetworkAdapters/{network_adapter_id}/NetworkDeviceFunctions"),
             get(get_chassis_network_adapters_network_device_functions_list),
         )
         .route(
-            rf!("Chassis/:chassis_id/NetworkAdapters/:network_adapter_id/NetworkDeviceFunctions/:function_id"),
+            rf!("Chassis/{chassis_id}/NetworkAdapters/{network_adapter_id}/NetworkDeviceFunctions/{function_id}"),
             get(get_chassis_network_adapters_network_device_function),
         )
         .route(
-            rf!("Chassis/:chassis_id/PCIeDevices/:pcie_device_id"),
+            rf!("Chassis/{chassis_id}/PCIeDevices/{pcie_device_id}"),
             get(get_pcie_device),
         )
-        .route(rf!("Systems/:system_id"), get(get_system))
+        .route(rf!("Systems/{system_id}"), get(get_system))
         .route(
-            rf!("Systems/Bluefield/BootOptions/:boot_option_id"),
+            rf!("Systems/Bluefield/BootOptions/{boot_option_id}"),
             get(get_dpu_boot_options),
         )
         .route(
@@ -109,7 +109,7 @@ pub fn wrap_router_with_mock_machine(
             get(get_dpu_bios),
         )
         .route(
-            rf!("Systems/:system_id/Actions/ComputerSystem.Reset"),
+            rf!("Systems/{system_id}/Actions/ComputerSystem.Reset"),
             post(post_reset_system),
         )
         .route(
@@ -132,7 +132,7 @@ pub fn wrap_router_with_mock_machine(
             rf!("Systems/1/Bios/Actions/Bios.ChangePassword"),
             post(post_password_change),
         )
-        .route(rf!("Managers/:manager_id/Oem/Dell/DellJobService/Actions/DellJobService.DeleteJobQueue"),
+        .route(rf!("Managers/{manager_id}/Oem/Dell/DellJobService/Actions/DellJobService.DeleteJobQueue"),
                post(post_delete_job_queue),
         )
         .route(rf!("Systems/Bluefield/Settings"),
@@ -141,9 +141,9 @@ pub fn wrap_router_with_mock_machine(
         .route(rf!("Managers/iDRAC.Embedded.1/Jobs"),
                post(post_dell_create_bios_job),
         )
-        .route(rf!("Managers/iDRAC.Embedded.1/Jobs/:job_id"),get(get_dell_job),
+        .route(rf!("Managers/iDRAC.Embedded.1/Jobs/{job_id}"),get(get_dell_job),
         )
-        .route(rf!("TaskService/Tasks/:task_id"), get(get_task))
+        .route(rf!("TaskService/Tasks/{task_id}"), get(get_task))
         .route(rf!("UpdateService/Actions/UpdateService.SimpleUpdate"), post(update_firmware_simple_update))
         .route(rf!("UpdateService/FirmwareInventory/BMC_Firmware"), get(get_dpu_bmc_firmware))
         .route(rf!("UpdateService/FirmwareInventory/Bluefield_FW_ERoT"), get(get_dpu_erot_firmware))
@@ -560,10 +560,7 @@ async fn get_pcie_device(
 
     let pcie_device = PCIeDevice {
         odata: OData {
-            odata_id: format!(
-                "/redfish/v1/Chassis/{}/PCIeDevices/{}",
-                chassis_id, pcie_device_id
-            ),
+            odata_id: format!("/redfish/v1/Chassis/{chassis_id}/PCIeDevices/{pcie_device_id}"),
             odata_type: "#PCIeDevice.v1_5_0.PCIeDevice".to_string(),
             odata_etag: None,
             odata_context: Some("/redfish/v1/$metadata#PCIeDevice.PCIeDevice".to_string()),
@@ -771,7 +768,7 @@ async fn patch_dell_system(
             .status(StatusCode::OK)
             .header(
                 "location",
-                format!("/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/{}", job_id),
+                format!("/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/{job_id}"),
             )
             .body(Body::from(""))
             .unwrap(),
@@ -808,7 +805,7 @@ async fn post_dell_create_bios_job(
             .status(StatusCode::OK)
             .header(
                 "location",
-                format!("/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/{}", job_id),
+                format!("/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/{job_id}"),
             )
             .body(Body::from(""))
             .unwrap(),

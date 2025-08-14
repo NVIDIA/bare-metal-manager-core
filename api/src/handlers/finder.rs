@@ -234,7 +234,7 @@ async fn search(
                     .map(|ip| rpc::IpAddressMatch {
                         ip_type: rpc::IpType::StaticDataDhcpServer as i32,
                         owner_id: None,
-                        message: format!("{} is a static DHCP server", ip),
+                        message: format!("{ip} is a static DHCP server"),
                     })
             })
             .or_else(|| {
@@ -245,7 +245,7 @@ async fn search(
                     .map(|ip| rpc::IpAddressMatch {
                         ip_type: rpc::IpType::StaticDataRouteServer as i32,
                         owner_id: None,
-                        message: format!("{} is a static route server", ip),
+                        message: format!("{ip} is a static route server"),
                     })
             }),
 

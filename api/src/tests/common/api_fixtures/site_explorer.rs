@@ -916,7 +916,7 @@ impl<'a> MockExploredHost<'a> {
                 match machine.current_state() {
                     ManagedHostState::Failed { .. } => {}
                     s => {
-                        panic!("Incorrect state: {}", s);
+                        panic!("Incorrect state: {s}");
                     }
                 }
 

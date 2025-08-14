@@ -377,10 +377,10 @@ impl RestClient {
 
         let response = match &self.scheme {
             RestScheme::Http => self.http_client.request(req).await.map_err(|e| {
-                RestError::HttpConnectionError(format!("Rest request failure: {:?}", e))
+                RestError::HttpConnectionError(format!("Rest request failure: {e:?}"))
             })?,
             RestScheme::Https => self.https_client.request(req).await.map_err(|e| {
-                RestError::HttpConnectionError(format!("Rest request failure: {:?}", e))
+                RestError::HttpConnectionError(format!("Rest request failure: {e:?}"))
             })?,
         };
 

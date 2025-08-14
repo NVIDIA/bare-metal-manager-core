@@ -139,45 +139,39 @@ impl InstanceMetadataRouterStateImpl {
 
 pub fn get_fmds_router(metadata_router_state: Arc<dyn InstanceMetadataRouterState>) -> Router {
     let user_data_router =
-        Router::new().route(&format!("/{}", USER_DATA_CATEGORY), get(get_userdata));
+        Router::new().route(&format!("/{USER_DATA_CATEGORY}"), get(get_userdata));
 
     // TODO add handling for non-supported URIs
     let ib_router = Router::new()
-        .route(&format!("/{}", DEVICES_CATEGORY), get(get_devices))
+        .route(&format!("/{DEVICES_CATEGORY}"), get(get_devices))
         .route(
-            &format!("/{}/:device", DEVICES_CATEGORY),
+            &format!("/{DEVICES_CATEGORY}/{{device}}"),
             get(get_instances),
         )
         .nest(
-            &format!("/{}/:device", DEVICES_CATEGORY),
+            &format!("/{DEVICES_CATEGORY}/{{device}}"),
             Router::new()
                 .route("/instances", get(get_instances))
-                .route("/instances/:instance", get(get_instance_attributes))
+                .route("/instances/{instance}", get(get_instance_attributes))
                 .route(
-                    "/instances/:instance/:attribute",
+                    "/instances/{instance}/{attribute}",
                     get(get_instance_attribute),
                 ),
         );
 
     let service_router = Router::new()
-        .nest(&format!("/{}", INFINIBAND_CATEGORY), ib_router)
-        .route(&format!("/{}", PHONE_HOME_CATEGORY), post(post_phone_home))
-        .route(&format!("/{}", INSTANCE_ID_CATEGORY), get(get_instance_id))
-        .route(&format!("/{}", MACHINE_ID_CATEGORY), get(get_machine_id))
-        .route("/:category", get(get_metadata_parameter));
+        .nest(&format!("/{INFINIBAND_CATEGORY}"), ib_router)
+        .route(&format!("/{PHONE_HOME_CATEGORY}"), post(post_phone_home))
+        .route(&format!("/{INSTANCE_ID_CATEGORY}"), get(get_instance_id))
+        .route(&format!("/{MACHINE_ID_CATEGORY}"), get(get_machine_id))
+        .route("/{category}", get(get_metadata_parameter));
 
     let metadata_router = Router::new()
         // The additional ending slash is a cloud init issue as found when looking at the cloud init src
         // https://bugs.launchpad.net/cloud-init/+bug/1356855
-        .route(
-            &format!("/{}/", META_DATA_CATEGORY),
-            get(get_metadata_params),
-        )
-        .route(
-            &format!("/{}", META_DATA_CATEGORY),
-            get(get_metadata_params),
-        )
-        .nest(&format!("/{}", META_DATA_CATEGORY), service_router);
+        .route(&format!("/{META_DATA_CATEGORY}/"), get(get_metadata_params))
+        .route(&format!("/{META_DATA_CATEGORY}"), get(get_metadata_params))
+        .nest(&format!("/{META_DATA_CATEGORY}"), service_router);
 
     Router::new()
         .merge(metadata_router)
@@ -216,7 +210,7 @@ fn extract_metadata(
             ASN_CATEGORY => (StatusCode::OK, network_config.asn.to_string()),
             _ => (
                 StatusCode::NOT_FOUND,
-                format!("metadata category not found: {}", category),
+                format!("metadata category not found: {category}"),
             ),
         }
     } else {
@@ -332,7 +326,7 @@ async fn get_instances(
         if devices.len() <= device_index {
             return (
                 StatusCode::NOT_FOUND,
-                format!("no device at index: {}", device_index),
+                format!("no device at index: {device_index}"),
             );
         }
         let dev = &devices[device_index];
@@ -340,7 +334,7 @@ async fn get_instances(
         let mut response = String::new();
         for (index, instance) in dev.instances.iter().enumerate() {
             match &instance.ib_guid {
-                Some(guid) => response.push_str(&format!("{}={}\n", index, guid)),
+                Some(guid) => response.push_str(&format!("{index}={guid}\n")),
                 None => continue,
             }
         }
@@ -371,7 +365,7 @@ async fn get_instance_attributes(
         if devices.len() <= device_index {
             return (
                 StatusCode::NOT_FOUND,
-                format!("no device at index: {}", device_index),
+                format!("no device at index: {device_index}"),
             );
         }
 
@@ -380,7 +374,7 @@ async fn get_instance_attributes(
         if dev.instances.len() <= instance_index {
             return (
                 StatusCode::NOT_FOUND,
-                format!("no instance at index: {}", instance_index),
+                format!("no instance at index: {instance_index}"),
             );
         }
         let inst = &dev.instances[instance_index];
@@ -420,7 +414,7 @@ async fn get_instance_attribute(
         if devices.len() <= device_index {
             return (
                 StatusCode::NOT_FOUND,
-                format!("no device at index: {}", device_index),
+                format!("no device at index: {device_index}"),
             );
         }
         let dev = &devices[device_index];
@@ -428,7 +422,7 @@ async fn get_instance_attribute(
         if dev.instances.len() <= instance_index {
             return (
                 StatusCode::NOT_FOUND,
-                format!("no instance at index: {}", instance_index),
+                format!("no instance at index: {instance_index}"),
             );
         }
         let inst = &dev.instances[instance_index];
@@ -438,14 +432,14 @@ async fn get_instance_attribute(
                 Some(guid) => (StatusCode::OK, guid.clone()),
                 None => (
                     StatusCode::NOT_FOUND,
-                    format!("guid not found at index: {}", instance_index),
+                    format!("guid not found at index: {instance_index}"),
                 ),
             },
             IB_PARTITION => match &inst.ib_partition_id {
                 Some(ib_partition_id) => (StatusCode::OK, ib_partition_id.to_string()),
                 None => (
                     StatusCode::NOT_FOUND,
-                    format!("ib partition not found at index: {}", instance_index),
+                    format!("ib partition not found at index: {instance_index}"),
                 ),
             },
             LID => (StatusCode::OK, inst.lid.to_string()),
@@ -522,7 +516,7 @@ mod tests {
         let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build_http();
         let request: hyper::Request<Full<Bytes>> = hyper::Request::builder()
             .method(hyper::Method::GET)
-            .uri(format!("http://127.0.0.1:{}/{}", port, path))
+            .uri(format!("http://127.0.0.1:{port}/{path}"))
             .body("".into())
             .unwrap();
 

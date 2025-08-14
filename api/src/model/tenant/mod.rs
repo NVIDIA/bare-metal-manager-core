@@ -140,13 +140,13 @@ pub struct TenantKeyset {
 impl Display for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let algo = if let Some(algo) = self.algo.as_ref() {
-            format!("{} ", algo)
+            format!("{algo} ")
         } else {
             "".to_string()
         };
 
         let comment = if let Some(comment) = self.comment.as_ref() {
-            format!(" {}", comment)
+            format!(" {comment}")
         } else {
             "".to_string()
         };
@@ -448,8 +448,8 @@ mod tests {
     #[test]
     fn tenant_org_formatting() {
         let tenant = TenantOrganizationId::try_from("TenantA".to_string()).unwrap();
-        assert_eq!(format!("{}", tenant), "TenantA");
-        assert_eq!(format!("{:?}", tenant), "\"TenantA\"");
+        assert_eq!(format!("{tenant}"), "TenantA");
+        assert_eq!(format!("{tenant:?}"), "\"TenantA\"");
         assert_eq!(serde_json::to_string(&tenant).unwrap(), "\"TenantA\"");
     }
 

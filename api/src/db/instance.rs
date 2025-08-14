@@ -645,10 +645,7 @@ WHERE vpc_id = ",
                 file!(),
                 line!(),
                 "ioerror",
-                sqlx::Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                )),
+                sqlx::Error::Io(std::io::Error::other(e.to_string())),
             )
         })?;
 

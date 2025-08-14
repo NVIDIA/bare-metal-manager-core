@@ -472,7 +472,7 @@ fn test_queue_stats_debug_format() {
     tracker.decrement_pending_increment_processed(100);
 
     let stats = tracker.to_stats();
-    let debug_str = format!("{:?}", stats);
+    let debug_str = format!("{stats:?}");
 
     // Should be able to debug format without panic
     assert!(debug_str.contains("QueueStats"));
@@ -486,7 +486,7 @@ fn test_publish_stats_debug_format() {
     tracker.increment_failed();
 
     let stats = tracker.to_stats();
-    let debug_str = format!("{:?}", stats);
+    let debug_str = format!("{stats:?}");
 
     // Should be able to debug format without panic
     assert!(debug_str.contains("PublishStats"));

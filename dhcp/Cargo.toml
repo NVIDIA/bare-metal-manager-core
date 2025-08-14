@@ -23,7 +23,7 @@ lru = "0.13.0"
 mac_address = "*"
 once_cell = "*"
 opentelemetry = { workspace = true }
-prost = "0.13"
+prost = "0.14.1"
 tokio = { workspace = true }
 tonic = { workspace = true }
 

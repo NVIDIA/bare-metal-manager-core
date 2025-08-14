@@ -74,7 +74,7 @@ fn convert_nsgs_to_table(
             .map(|label| {
                 let key = &label.key;
                 let value = label.value.clone().unwrap_or_default();
-                format!("\"{}:{}\"", key, value)
+                format!("\"{key}:{value}\"")
             })
             .collect::<Vec<_>>();
 
@@ -513,10 +513,7 @@ pub async fn nsg_detach(
             )
             .await?;
 
-        println!(
-            "Network security group successfully detached from instance {}",
-            instance_id
-        );
+        println!("Network security group successfully detached from instance {instance_id}");
     }
 
     // Grab the instance for the ID if requested.
@@ -535,10 +532,7 @@ pub async fn nsg_detach(
             .update_vpc_config(v.clone(), vpc.version, vpc.name, vpc.metadata, None)
             .await?;
 
-        println!(
-            "Network security group successfully detached from VPC {}",
-            v
-        );
+        println!("Network security group successfully detached from VPC {v}");
     }
 
     Ok(())

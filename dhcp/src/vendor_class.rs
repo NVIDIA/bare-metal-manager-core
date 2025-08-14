@@ -94,7 +94,7 @@ impl FromStr for VendorClass {
     type Err = VendorClassParseError;
 
     fn from_str(vendor_class: &str) -> Result<Self, Self::Err> {
-        let out = match vendor_class {
+        match vendor_class {
             // this is the UEFI version
             colon if colon.contains(':') => {
                 let parts: Vec<&str> = vendor_class.split(':').collect();
@@ -104,7 +104,7 @@ impl FromStr for VendorClass {
                         arch: parts[2].parse()?,
                     }),
                     _ => Ok(VendorClass {
-                        id: format!("unknown: '{}'", colon),
+                        id: format!("unknown: '{colon}'"),
                         arch: MachineArchitecture::Unknown,
                     }),
                 }
@@ -118,7 +118,7 @@ impl FromStr for VendorClass {
                         arch: parts[1].parse()?,
                     }),
                     _ => Ok(VendorClass {
-                        id: format!("unknown: '{}'", space),
+                        id: format!("unknown: '{space}'"),
                         arch: MachineArchitecture::Unknown,
                     }),
                 }
@@ -136,11 +136,10 @@ impl FromStr for VendorClass {
                 arch: MachineArchitecture::EfiX64,
             }),
             vc => Ok(VendorClass {
-                id: format!("unknown: '{}'", vc),
+                id: format!("unknown: '{vc}'"),
                 arch: MachineArchitecture::Unknown,
             }),
-        };
-        out
+        }
     }
 }
 

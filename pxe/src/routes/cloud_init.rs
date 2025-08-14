@@ -111,13 +111,11 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
                         user_data_handler(machine_interface_id, interface, domain, state.clone())
                     }
                     None => print_and_generate_generic_error(format!(
-                        "The interface ID should not be null: {:?}",
-                        interface
+                        "The interface ID should not be null: {interface:?}"
                     )),
                 },
                 (d, i) => print_and_generate_generic_error(format!(
-                    "The interface and domain were not found: {:?}, {:?}",
-                    i, d
+                    "The interface and domain were not found: {i:?}, {d:?}"
                 )),
             }
         }
@@ -138,8 +136,7 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
 pub async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
     let (template_key, template_data) = match machine.instructions.metadata {
         None => print_and_generate_generic_error(format!(
-            "No metadata was found for machine {:?}",
-            machine
+            "No metadata was found for machine {machine:?}"
         )),
         Some(metadata) => {
             let template_data = HashMap::from([
@@ -222,8 +219,7 @@ mod tests {
         // supposed to look like. Obviously as various new fields
         // get added to AgentConfig, then our test config will also
         // need to be updated accordingly, but that should be ok.
-        let test_config =
-            fs::read_to_string(format!("{}/agent_config.toml", TEST_DATA_DIR)).unwrap();
+        let test_config = fs::read_to_string(format!("{TEST_DATA_DIR}/agent_config.toml")).unwrap();
         assert_eq!(config, test_config);
 
         let data: toml::Value = config.parse().unwrap();

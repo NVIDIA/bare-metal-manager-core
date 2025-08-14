@@ -93,10 +93,7 @@ impl Kea {
         } else {
             // If `cargo build` has not been run yet (after a `cargo clean`), the `build.rs` script won't have
             // generated libdhcp.so. So we do it ourselves.
-            println!(
-                "Could not find Kea hooks dynamic library at '{}'. Building.",
-                hook_lib_d
-            );
+            println!("Could not find Kea hooks dynamic library at '{hook_lib_d}'. Building.");
             test_cdylib::build_current_project();
             hook_lib_d
         };

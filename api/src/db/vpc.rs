@@ -369,7 +369,7 @@ impl TryFrom<rpc::VpcCreationRequest> for NewVpc {
         }
 
         metadata.validate(true).map_err(|e| {
-            CarbideError::InvalidArgument(format!("VPC metadata is not valid: {}", e))
+            CarbideError::InvalidArgument(format!("VPC metadata is not valid: {e}"))
         })?;
 
         Ok(NewVpc {
@@ -415,7 +415,7 @@ impl TryFrom<rpc::VpcUpdateRequest> for UpdateVpc {
         }
 
         metadata.validate(true).map_err(|e| {
-            CarbideError::InvalidArgument(format!("VPC metadata is not valid: {}", e))
+            CarbideError::InvalidArgument(format!("VPC metadata is not valid: {e}"))
         })?;
 
         Ok(UpdateVpc {

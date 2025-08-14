@@ -942,7 +942,7 @@ async fn create_pool(current_pool: sqlx::PgPool) -> sqlx::PgPool {
         .get_database()
         .expect("No database is set initially.");
 
-    let db_url = format!("{}/{}", db_url, db);
+    let db_url = format!("{db_url}/{db}");
 
     use sqlx::ConnectOptions;
     let connect_options = PgConnectOptions::from_str(&db_url)
@@ -1034,7 +1034,7 @@ pub async fn create_test_env_with_overrides(
         .unwrap_or(&TEST_SITE_PREFIXES)
         .to_vec();
     let site_fabric_count = site_fabric_networks.len() as u8;
-    println!("Fabric Prefix: {:?}", site_fabric_networks);
+    println!("Fabric Prefix: {site_fabric_networks:?}");
     let site_fabric_prefixes = { SiteFabricPrefixList::from_ipnetwork_vec(site_fabric_networks) };
 
     let eth_virt_data = EthVirtData {
@@ -1224,7 +1224,7 @@ pub async fn create_test_env_with_overrides(
         }];
 
         let metadata = Metadata {
-            name: format!("the best type {}", uid),
+            name: format!("the best type {uid}"),
             description: "".to_string(),
             labels: HashMap::new(),
         };

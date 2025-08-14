@@ -404,7 +404,7 @@ pub async fn update_nvue(
         "NVUE",
         nc.use_admin_network && path.0.exists() && path.0.metadata()?.len() > MAX_EXPECTED_SIZE,
     )
-    .wrap_err(format!("NVUE config at {}", path))?
+    .wrap_err(format!("NVUE config at {path}"))?
     {
         // config didn't change OR we are switching to the admin network.
         return Ok(false);
@@ -1388,9 +1388,8 @@ fn read_limited<P: AsRef<Path>>(path: P) -> io::Result<String> {
     let f = File::open(path)?;
     let l = f.metadata()?.len();
     if l > MAX_EXPECTED_SIZE {
-        return Err(io::Error::new(
+        return Err(io::Error::other(
             // ErrorKind::FileTooLarge but it's nightly only
-            io::ErrorKind::Other,
             format!("{l} > {MAX_EXPECTED_SIZE} bytes"),
         ));
     }
@@ -1934,10 +1933,10 @@ mod tests {
         };
         assert_eq!(admin_interface.svi_ip, None);
 
-        let interface_prefix_1: IpNetwork = format!("10.217.5.170/{}", interface_prefix_length)
+        let interface_prefix_1: IpNetwork = format!("10.217.5.170/{interface_prefix_length}")
             .parse()
             .unwrap();
-        let interface_prefix_2: IpNetwork = format!("10.217.5.162/{}", interface_prefix_length)
+        let interface_prefix_2: IpNetwork = format!("10.217.5.162/{interface_prefix_length}")
             .parse()
             .unwrap();
 
@@ -2317,7 +2316,7 @@ mod tests {
             site_fabric_prefixes: vec!["10.217.4.128/26".to_string()],
             stateful_acls_enabled: true,
             ct_port_configs: networks,
-            ct_vrf_name: format!("vpc_{}", vpc_vni),
+            ct_vrf_name: format!("vpc_{vpc_vni}"),
             ct_access_vlans: vec![nvue::VlanConfig {
                 vlan_id: 123,
                 network: "10.217.4.70/32".to_string(),
@@ -2374,8 +2373,8 @@ mod tests {
                 if g != e {
                     has_error = true;
                     println!("Line differs:");
-                    println!("GOT: {}", g);
-                    println!("EXP: {}", e);
+                    println!("GOT: {g}");
+                    println!("EXP: {e}");
                 }
             }
         }

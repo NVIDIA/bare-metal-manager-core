@@ -176,7 +176,7 @@ fn convert_ib_partition_to_nice_format(
     ];
 
     for (key, value) in data {
-        writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+        writeln!(&mut lines, "{key:<width$}: {value}")?;
     }
 
     Ok(lines)

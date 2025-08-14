@@ -137,9 +137,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let count = machine_handler.count.load(Ordering::SeqCst) as f64;
     assert!(
         count >= 0.65 * expected_total_count && count <= 1.25 * expected_total_count,
-        "Expected count of {}, but got {}",
-        expected_total_count,
-        count
+        "Expected count of {expected_total_count}, but got {count}"
     );
 
     for machine_id in machine_ids {
@@ -151,10 +149,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
 
         assert!(
             count >= 0.65 * expected_iterations && count <= 1.25 * expected_iterations,
-            "Expected individual count of {}, but got {} for {}",
-            expected_iterations,
-            count,
-            machine_id
+            "Expected individual count of {expected_iterations}, but got {count} for {machine_id}"
         );
     }
 

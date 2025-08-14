@@ -357,15 +357,13 @@ fn filter_ports(
             .collect(),
     };
 
-    let ports = match state {
+    match state {
         None => ports,
         Some(state) => ports
             .into_iter()
             .filter(|v| v.state.as_ref() == Some(&state))
             .collect(),
-    };
-
-    ports
+    }
 }
 
 const DEFAULT_PARTITION_KEY: u16 = 0x7fff;

@@ -10,9 +10,11 @@ forge-version = { path = "../../common/version" }
 api-test-helper = { path = "../../common/api-test-helper" }
 forge-uuid = { path = "../../common/uuid" }
 
-tonic = { version = "0.13.1", features = ["tls-ring"] }
-prost = "0.13.5"
-prost-types = "0.13.5"
+tonic = { version = "0.14", features = ["tls-ring"] }
+tonic-prost="0.14"
+tonic-prost-build = "0.14"
+prost = "0.14.1"
+prost-types = "0.14.1"
 tokio = { version = "1.45.1", features = ["macros"] }
 tracing = "0.1.41"
 uuid = "1.17.0"
@@ -22,4 +24,4 @@ rustls-pemfile = "2.2.0"
 
 [build-dependencies]
 forge-version = { path = "../../common/version" }
-tonic-build = { version = "0.13.1" }
+tonic-prost-build = "0.14"

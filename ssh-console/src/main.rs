@@ -46,6 +46,7 @@ struct Cli {
 }
 
 #[derive(clap::Parser, Debug)]
+#[allow(clippy::large_enum_variant)] // Clippy does not like having enums with significantly different sizes, but Clap does not recognize boxes
 enum Command {
     Run(RunCommand),
     #[clap(about = "Output a default TOML config file for use with run -c")]

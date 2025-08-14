@@ -80,7 +80,7 @@ pub async fn get_metrics(addr: SocketAddr) -> eyre::Result<String> {
     String::from_utf8_lossy(
         hyper_util::client::legacy::Builder::new(TokioExecutor::new())
             .build_http::<Full<Bytes>>()
-            .get(format!("http://{}/metrics", addr).try_into().unwrap())
+            .get(format!("http://{addr}/metrics").try_into().unwrap())
             .await
             .context("Error fetching metrics")?
             .into_body()

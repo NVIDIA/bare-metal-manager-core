@@ -159,8 +159,7 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
             ))
             .await
             .expect_err(&format!(
-                "Invalid metadata of type should not be accepted: {:?}",
-                invalid_metadata
+                "Invalid metadata of type should not be accepted: {invalid_metadata:?}"
             ));
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
         assert!(

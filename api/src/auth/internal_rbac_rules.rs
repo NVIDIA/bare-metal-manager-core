@@ -686,7 +686,7 @@ mod rbac_rule_tests {
             }
         }
         if !missing.is_empty() {
-            panic!("GRPC messages missing RBAC permissions: {:?}", missing);
+            panic!("GRPC messages missing RBAC permissions: {missing:?}");
         }
         Ok(())
     }

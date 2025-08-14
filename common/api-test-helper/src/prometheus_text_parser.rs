@@ -249,7 +249,7 @@ impl MetricKind {
         match self {
             MetricKind::Histogram(histogram) => {
                 let hist_def = line
-                    .strip_prefix(&format!("{}_", metric_name))
+                    .strip_prefix(&format!("{metric_name}_"))
                     .ok_or(MetricsParsingError::DefLineMismatch(line.to_string()))?;
                 if let Some(bucket_def) = hist_def.strip_prefix("bucket") {
                     histogram.parse_bucket_def(bucket_def)?

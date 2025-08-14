@@ -174,19 +174,16 @@ impl InstanceStatus {
         let mut instance_config_synced = SyncState::Synced;
 
         for network_obs in observations.network.values() {
-            match network_obs.instance_config_version {
-                Some(version_obs) => {
-                    if instance_config.version != version_obs {
-                        instance_config_synced = SyncState::Pending;
-                        break;
-                    }
+            if let Some(version_obs) = network_obs.instance_config_version {
+                if instance_config.version != version_obs {
+                    instance_config_synced = SyncState::Pending;
+                    break;
                 }
-                // TODO(bcavanagh): Switch to SyncState::Pending or
-                //                  return Err(RpcDataConversionError::InvalidConfigVersion)
-                //                  after all dpu-agents have been updated to support/report the field.
-                // If observations.network.instance_config_version was None, then "ignore"
-                _ => {}
             }
+            // TODO(bcavanagh): Switch to SyncState::Pending or
+            //                  return Err(RpcDataConversionError::InvalidConfigVersion)
+            //                  after all dpu-agents have been updated to support/report the field.
+            // If observations.network.instance_config_version was None, then "ignore"
         }
 
         let network = network::InstanceNetworkStatus::from_config_and_observations(

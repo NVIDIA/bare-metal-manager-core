@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, ForgeTlsClient};
-use axum::async_trait;
 use chrono::Utc;
 use clap::ValueEnum;
 use eyre::{Context, Result};
@@ -21,6 +20,7 @@ use surge_ping::{Client, Config, PingIdentifier, PingSequence};
 use tokio::sync::{mpsc, watch};
 use tokio::task;
 use tokio::time::{self, Duration, Instant};
+use tonic::async_trait;
 
 use crate::hbn;
 use crate::instrumentation::NetworkMonitorMetricsState;
@@ -193,7 +193,7 @@ impl NetworkMonitor {
 
     /// Adjust loop period based on check duration, cap to next multiple of 30 seconds
     pub fn set_loop_interval(&self, elapsed_time: &Duration) -> Duration {
-        Duration::from_secs(max(((elapsed_time.as_secs() + 29) / 30) * 30, 30))
+        Duration::from_secs(max(elapsed_time.as_secs().div_ceil(30) * 30, 30))
     }
 
     /// Handle one time network check request from commandline
@@ -308,7 +308,7 @@ impl NetworkMonitor {
         });
 
         match serde_json::to_string_pretty(&final_result) {
-            Ok(json) => println!("{}", json),
+            Ok(json) => println!("{json}"),
             Err(e) => tracing::error!("Failed to serialize results to JSON: {}", e),
         }
     }
@@ -471,7 +471,7 @@ impl Ping for OobNetBindPinger {
         let interface = "oob_net0";
         let config = Config::builder().interface(interface).build();
         let client = Client::new(&config).map_err(|e| {
-            let error_message = format!("Unable to build pinger with interface {interface}: {}", e);
+            let error_message = format!("Unable to build pinger with interface {interface}: {e}");
             (
                 NetworkMonitorError::PingInterfaceError,
                 eyre::eyre!(error_message),

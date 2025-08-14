@@ -160,7 +160,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     bmc_mock_registry.clone(),
                     certs_dir,
                     Some(ListenerOrAddress::Address(
-                        format!("0.0.0.0:{}", bmc_mock_port).parse().unwrap(),
+                        format!("0.0.0.0:{bmc_mock_port}").parse().unwrap(),
                     )),
                 )?;
 
@@ -216,7 +216,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             _ = tui.run().await.inspect_err(|e| {
                 let estr = format!("Error running TUI: {e}");
                 tracing::error!(estr);
-                eprintln!("{}", estr); // dump it to stderr in case logs are getting redirected
+                eprintln!("{estr}"); // dump it to stderr in case logs are getting redirected
             })
         }));
         (tui_handle, Some(ui_tx), Some(quit_tx))

@@ -259,9 +259,9 @@ async fn test_bidirectional_communication() {
                     };
 
                     // Send the response (this tests that the client reference works)
-                    let response_topic = format!("{}/response", topic);
+                    let response_topic = format!("{topic}/response");
                     if let Err(e) = client.send_message(&response_topic, &response).await {
-                        eprintln!("Failed to send response: {}", e);
+                        eprintln!("Failed to send response: {e}");
                     }
                 }
             },

@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         match std::fs::create_dir_all(static_path) {
             Ok(_) => println!("Directory {}, created", &static_path.display()),
-            Err(e) => eprintln!("Could not create directory: {}", e),
+            Err(e) => eprintln!("Could not create directory: {e}"),
         }
     }
 
@@ -110,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(socket_addr)
         .await
         .map_err(|err| {
-            eprintln!("unable to bind to tcp listener with error: {}", err);
+            eprintln!("unable to bind to tcp listener with error: {err}");
             err
         })?;
 

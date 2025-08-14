@@ -51,7 +51,7 @@ fn convert_instance_to_nice_format(
                 .as_ref()
                 .and_then(|status| status.tenant.as_ref())
                 .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
-                .map(|state| format!("{:?}", state))
+                .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
         ),
         (
@@ -73,7 +73,7 @@ fn convert_instance_to_nice_format(
                 .status
                 .as_ref()
                 .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
-                .map(|state| format!("{:?}", state))
+                .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
         ),
         ("CONFIG VERSION", instance.config_version.clone()),
@@ -84,7 +84,7 @@ fn convert_instance_to_nice_format(
                 .as_ref()
                 .and_then(|status| status.network.as_ref())
                 .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
-                .map(|state| format!("{:?}", state))
+                .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
         ),
         (
@@ -139,7 +139,7 @@ fn convert_instance_to_nice_format(
     }
 
     for (key, value) in data {
-        writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+        writeln!(&mut lines, "{key:<width$}: {value}")?;
     }
 
     let width = 25;
@@ -169,7 +169,7 @@ fn convert_instance_to_nice_format(
                     "FUNCTION_TYPE",
                     forgerpc::InterfaceFunctionType::try_from(interface.function_type)
                         .ok()
-                        .map(|ty| format!("{:?}", ty))
+                        .map(|ty| format!("{ty:?}"))
                         .unwrap_or_else(|| "INVALID".to_string()),
                 ),
                 (
@@ -204,7 +204,7 @@ fn convert_instance_to_nice_format(
             ];
 
             for (key, value) in data {
-                writeln!(&mut lines, "\t{:<width$}: {}", key, value)?;
+                writeln!(&mut lines, "\t{key:<width$}: {value}")?;
             }
             writeln!(
                 &mut lines,
@@ -234,7 +234,7 @@ fn convert_instance_to_nice_format(
                         "FUNCTION_TYPE",
                         forgerpc::InterfaceFunctionType::try_from(interface.function_type)
                             .ok()
-                            .map(|ty| format!("{:?}", ty))
+                            .map(|ty| format!("{ty:?}"))
                             .unwrap_or_else(|| "INVALID".to_string()),
                     ),
                     ("VENDOR", interface.vendor.clone().unwrap_or_default()),
@@ -261,7 +261,7 @@ fn convert_instance_to_nice_format(
                 ];
 
                 for (key, value) in data {
-                    writeln!(&mut lines, "\t{:<width$}: {}", key, value)?;
+                    writeln!(&mut lines, "\t{key:<width$}: {value}")?;
                 }
                 writeln!(
                     &mut lines,
@@ -272,7 +272,7 @@ fn convert_instance_to_nice_format(
     }
 
     if let Some(nsg_id) = instance.config.clone().unwrap().network_security_group_id {
-        writeln!(&mut lines, "NETWORK SECURITY GROUP ID: {}", nsg_id)?;
+        writeln!(&mut lines, "NETWORK SECURITY GROUP ID: {nsg_id}")?;
     }
 
     if let Some(metadata) = instance.metadata.clone() {
@@ -323,7 +323,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
             .map(|label| {
                 let key = &label.key;
                 let value = label.value.clone().unwrap_or_default();
-                format!("\"{}:{}\"", key, value)
+                format!("\"{key}:{value}\"")
             })
             .collect::<Vec<_>>();
 
@@ -332,14 +332,14 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
             .as_ref()
             .and_then(|status| status.tenant.as_ref())
             .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
-            .map(|state| format!("{:?}", state))
+            .map(|state| format!("{state:?}"))
             .unwrap_or_default();
 
         let configs_synced = instance
             .status
             .as_ref()
             .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
-            .map(|state| format!("{:?}", state))
+            .map(|state| format!("{state:?}"))
             .unwrap_or_default();
 
         let instance_addresses: Vec<&str> = instance
@@ -447,14 +447,14 @@ pub async fn handle_show(
                     .as_ref()
                     .and_then(|status| status.tenant.as_ref())
                     .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
-                    .map(|state| format!("{:?}", state))
+                    .map(|state| format!("{state:?}"))
                     .unwrap_or_default();
                 let tenant_status2 = i2
                     .status
                     .as_ref()
                     .and_then(|status| status.tenant.as_ref())
                     .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
-                    .map(|state| format!("{:?}", state))
+                    .map(|state| format!("{state:?}"))
                     .unwrap_or_default();
                 tenant_status1.cmp(&tenant_status2)
             }),

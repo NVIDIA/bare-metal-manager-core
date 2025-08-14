@@ -79,7 +79,7 @@ impl fmt::Display for TrustedMachineId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
             Self::Any => write!(f, "*"),
-            Self::MachineId(machine_id) => write!(f, "{}", machine_id),
+            Self::MachineId(machine_id) => write!(f, "{machine_id}"),
         }
     }
 }
@@ -130,7 +130,7 @@ pub struct MeasurementSystemProfileId(pub uuid::Uuid);
 impl MeasurementSystemProfileId {
     pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
         Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input system profile ID: {}", e)))
+            .map_err(|e| Status::invalid_argument(format!("bad input system profile ID: {e}")))
     }
 }
 
@@ -203,7 +203,7 @@ pub struct MeasurementSystemProfileAttrId(pub uuid::Uuid);
 impl MeasurementSystemProfileAttrId {
     pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
         Self::try_from(msg).map_err(|e| {
-            Status::invalid_argument(format!("bad input system profile attribute ID: {}", e))
+            Status::invalid_argument(format!("bad input system profile attribute ID: {e}"))
         })
     }
 }
@@ -273,7 +273,7 @@ pub struct MeasurementBundleId(pub uuid::Uuid);
 impl MeasurementBundleId {
     pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
         Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input bundle ID: {}", e)))
+            .map_err(|e| Status::invalid_argument(format!("bad input bundle ID: {e}")))
     }
 }
 
@@ -346,7 +346,7 @@ pub struct MeasurementBundleValueId(pub uuid::Uuid);
 impl MeasurementBundleValueId {
     pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
         Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input bundle value ID: {}", e)))
+            .map_err(|e| Status::invalid_argument(format!("bad input bundle value ID: {e}")))
     }
 }
 
@@ -415,7 +415,7 @@ pub struct MeasurementReportId(pub uuid::Uuid);
 impl MeasurementReportId {
     pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
         Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input report ID: {}", e)))
+            .map_err(|e| Status::invalid_argument(format!("bad input report ID: {e}")))
     }
 }
 
@@ -488,7 +488,7 @@ pub struct MeasurementReportValueId(pub uuid::Uuid);
 impl MeasurementReportValueId {
     pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
         Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input report value ID: {}", e)))
+            .map_err(|e| Status::invalid_argument(format!("bad input report value ID: {e}")))
     }
 }
 
@@ -557,7 +557,7 @@ pub struct MeasurementJournalId(pub uuid::Uuid);
 impl MeasurementJournalId {
     pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
         Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input journal ID: {}", e)))
+            .map_err(|e| Status::invalid_argument(format!("bad input journal ID: {e}")))
     }
 }
 
@@ -633,7 +633,7 @@ pub struct MeasurementApprovedMachineId(pub uuid::Uuid);
 impl MeasurementApprovedMachineId {
     pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
         Self::try_from(msg).map_err(|e| {
-            Status::invalid_argument(format!("bad input trusted machine approval ID: {}", e))
+            Status::invalid_argument(format!("bad input trusted machine approval ID: {e}"))
         })
     }
 }
@@ -710,7 +710,7 @@ pub struct MeasurementApprovedProfileId(pub uuid::Uuid);
 impl MeasurementApprovedProfileId {
     pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
         Self::try_from(msg).map_err(|e| {
-            Status::invalid_argument(format!("bad input trusted profile approval ID: {}", e))
+            Status::invalid_argument(format!("bad input trusted profile approval ID: {e}"))
         })
     }
 }

@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // so that different builds get a different binary file and concurrent builds don't collide
     let reflection = out_dir.join("forge.bin");
 
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .file_descriptor_set_path(reflection)
         .type_attribute(
             ".google.protobuf.Timestamp",
@@ -93,7 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute(
             "forge.Label",
-            "#[derive(serde::Serialize, serde::Deserialize, Eq)]",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .type_attribute(
             "forge.InstancePhoneHomeLastContactRequest",
@@ -271,7 +271,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute(
             "common.UUID",
-            "#[derive(Eq, Ord, PartialOrd, serde::Deserialize, serde::Serialize)]",
+            "#[derive(Ord, PartialOrd, serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute(
             "forge.MachineDiscoveryInfo.discovery_data",
@@ -557,7 +557,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute(
             "common.MachineId",
-            "#[derive(Eq, Ord, PartialOrd)]",
+            "#[derive(Ord, PartialOrd)]",
         )
         .type_attribute(
             "forge.InstanceAllocationRequest",

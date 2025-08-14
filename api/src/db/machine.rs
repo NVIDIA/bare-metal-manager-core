@@ -446,7 +446,7 @@ pub async fn advance(
 /// * `txn`           - A reference to a currently open database transaction
 /// * `filter`        - An ObjectFilter to control the size of the response set
 /// * `search_config` - A MachineSearchConfig with search options to control the
-///                     records selected
+///   records selected
 pub async fn find(
     txn: &mut PgConnection,
     filter: ObjectFilter<'_, MachineId>,
@@ -1165,11 +1165,10 @@ pub async fn insert_health_report_override(
         format!(
             "UPDATE machines SET {column_name} = jsonb_set(
                 coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb),
-                '{{{}}}',
+                '{{{path}}}',
                 $1::jsonb
             ) WHERE id = $2
-            RETURNING id",
-            path
+            RETURNING id"
         )
     };
 
@@ -1191,13 +1190,12 @@ pub async fn remove_health_report_override(
 ) -> Result<(), DatabaseError> {
     let column_name = "health_report_overrides";
     let path = match mode {
-        OverrideMode::Merge => format!("merges,{}", source),
+        OverrideMode::Merge => format!("merges,{source}"),
         OverrideMode::Replace => "replace".to_string(),
     };
     let query = format!(
-        "UPDATE machines SET {column_name} = ({column_name} #- '{{{}}}') WHERE id = $1
-            RETURNING id",
-        path
+        "UPDATE machines SET {column_name} = ({column_name} #- '{{{path}}}') WHERE id = $1
+            RETURNING id"
     );
 
     let _id: (MachineId,) = sqlx::query_as(&query)

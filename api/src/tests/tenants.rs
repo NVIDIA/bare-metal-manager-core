@@ -208,7 +208,7 @@ async fn test_find_tenant_ids(pool: sqlx::PgPool) {
             .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
                 organization_id: format!("fh{x}{x}abcdw"),
                 metadata: Some(rpc::forge::Metadata {
-                    name: format!("tenant_{}", x),
+                    name: format!("tenant_{x}"),
                     description: "".to_string(),
                     labels: vec![],
                 }),

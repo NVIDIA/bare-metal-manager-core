@@ -56,14 +56,14 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             .as_ref()
             .and_then(|status| status.tenant.as_ref())
             .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
-            .map(|state| format!("{:?}", state))
+            .map(|state| format!("{state:?}"))
             .unwrap_or_default();
 
         let configs_synced = instance
             .status
             .as_ref()
             .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
-            .map(|state| format!("{:?}", state))
+            .map(|state| format!("{state:?}"))
             .unwrap_or_default();
 
         let instance_addresses: Vec<&str> = instance
@@ -269,7 +269,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
                         interface.function_type,
                     )
                     .ok()
-                    .map(|ty| format!("{:?}", ty))
+                    .map(|ty| format!("{ty:?}"))
                     .unwrap_or_else(|| "INVALID".to_string()),
                     vf_id: status
                         .virtual_function_id
@@ -309,7 +309,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
                     device_instance: config.device_instance,
                     function_type: forgerpc::InterfaceFunctionType::try_from(config.function_type)
                         .ok()
-                        .map(|ty| format!("{:?}", ty))
+                        .map(|ty| format!("{ty:?}"))
                         .unwrap_or_else(|| "INVALID".to_string()),
                     vf_id: config
                         .virtual_function_id
@@ -376,7 +376,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
                 .as_ref()
                 .and_then(|status| status.tenant.as_ref())
                 .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
-                .map(|state| format!("{:?}", state))
+                .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
             tenant_state_details: instance
                 .status
@@ -388,14 +388,14 @@ impl From<forgerpc::Instance> for InstanceDetail {
                 .status
                 .as_ref()
                 .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
-                .map(|state| format!("{:?}", state))
+                .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
             network_config_synced: instance
                 .status
                 .as_ref()
                 .and_then(|status| status.network.as_ref())
                 .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
-                .map(|state| format!("{:?}", state))
+                .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
             metadata: instance.metadata.unwrap_or_default(),
             network_config_version: instance.network_config_version,

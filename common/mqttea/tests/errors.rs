@@ -244,7 +244,7 @@ fn test_error_categorization_registry() {
 #[test]
 fn test_error_display_connection() {
     let error = MqtteaClientError::ConnectionError(create_test_connection_error());
-    let display = format!("{}", error);
+    let display = format!("{error}");
 
     assert!(display.contains("MQTT connection error"));
     // Note: Specific error message depends on rumqttc internals
@@ -253,7 +253,7 @@ fn test_error_display_connection() {
 #[test]
 fn test_error_display_unknown_message_type() {
     let error = MqtteaClientError::unknown_message_type("/pets/parrot/songs");
-    let display = format!("{}", error);
+    let display = format!("{error}");
 
     assert!(display.contains("Unknown message type"));
     assert!(display.contains("/pets/parrot/songs"));
@@ -262,7 +262,7 @@ fn test_error_display_unknown_message_type() {
 #[test]
 fn test_error_display_topic_parsing() {
     let error = MqtteaClientError::topic_parsing_error("Topic must start with /");
-    let display = format!("{}", error);
+    let display = format!("{error}");
 
     assert!(display.contains("Topic parsing error"));
     assert!(display.contains("Topic must start with /"));
@@ -271,7 +271,7 @@ fn test_error_display_topic_parsing() {
 #[test]
 fn test_error_display_raw_message() {
     let error = MqtteaClientError::raw_message_error("Failed to decode turtle sensor data");
-    let display = format!("{}", error);
+    let display = format!("{error}");
 
     assert!(display.contains("Raw message error"));
     assert!(display.contains("turtle sensor data"));
@@ -280,7 +280,7 @@ fn test_error_display_raw_message() {
 #[test]
 fn test_error_display_unregistered_type() {
     let error = MqtteaClientError::unregistered_type("FishMessage");
-    let display = format!("{}", error);
+    let display = format!("{error}");
 
     assert!(display.contains("Type not registered"));
     assert!(display.contains("FishMessage"));
@@ -289,7 +289,7 @@ fn test_error_display_unregistered_type() {
 #[test]
 fn test_error_display_invalid_utf8() {
     let error = MqtteaClientError::invalid_utf8("Contains invalid UTF-8 bytes");
-    let display = format!("{}", error);
+    let display = format!("{error}");
 
     assert!(display.contains("Invalid UTF-8"));
     assert!(display.contains("invalid UTF-8 bytes"));
@@ -298,7 +298,7 @@ fn test_error_display_invalid_utf8() {
 #[test]
 fn test_error_display_pattern_compilation() {
     let error = MqtteaClientError::pattern_compilation_error("Missing closing bracket in regex");
-    let display = format!("{}", error);
+    let display = format!("{error}");
 
     assert!(display.contains("Pattern compilation error"));
     assert!(display.contains("closing bracket"));
@@ -308,7 +308,7 @@ fn test_error_display_pattern_compilation() {
 #[test]
 fn test_error_debug_format() {
     let error = MqtteaClientError::unknown_message_type("/debug/test");
-    let debug = format!("{:?}", error);
+    let debug = format!("{error:?}");
 
     assert!(debug.contains("UnknownMessageType"));
     assert!(debug.contains("/debug/test"));
@@ -402,7 +402,7 @@ fn test_error_display_with_owned_values() {
     let error = MqtteaClientError::unknown_message_type("/pets/fluffy/unknown-data");
 
     // Test that we can format the error without borrowing issues
-    let display = format!("{}", error);
+    let display = format!("{error}");
     assert!(display.contains("Unknown message type"));
     assert!(display.contains("/pets/fluffy/unknown-data"));
 
@@ -429,7 +429,7 @@ fn test_json_deserialization_error_creation() {
     // Verify properties
     assert!(mqtt_error.is_deserialization_error());
 
-    let display = format!("{}", mqtt_error);
+    let display = format!("{mqtt_error}");
     assert!(display.contains("JSON deserialization error"));
 }
 
@@ -447,7 +447,7 @@ fn test_yaml_deserialization_error_creation() {
     // Verify properties
     assert!(mqtt_error.is_deserialization_error());
 
-    let display = format!("{}", mqtt_error);
+    let display = format!("{mqtt_error}");
     assert!(display.contains("YAML deserialization error"));
 }
 
@@ -458,7 +458,7 @@ fn test_error_creation_performance() {
 
     // Create many errors quickly
     for i in 0..10_000 {
-        let _error = MqtteaClientError::unknown_message_type(format!("/pets/animal-{}/data", i));
+        let _error = MqtteaClientError::unknown_message_type(format!("/pets/animal-{i}/data"));
     }
 
     let elapsed = start.elapsed();
@@ -483,7 +483,7 @@ fn test_error_with_long_message() {
     }
 
     // Should be able to display even very long errors
-    let display = format!("{}", error);
+    let display = format!("{error}");
     assert!(display.len() > 1000);
 }
 
@@ -493,7 +493,7 @@ fn test_error_with_special_characters() {
     let special_topic = "/pets/🐱/data/emoji-test";
     let error = MqtteaClientError::unknown_message_type(special_topic);
 
-    let display = format!("{}", error);
+    let display = format!("{error}");
     assert!(display.contains("🐱"));
     assert!(display.contains("emoji-test"));
 }

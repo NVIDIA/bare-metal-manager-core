@@ -149,7 +149,7 @@ pub async fn show(
                 tracing::error!(%err, "fetch_nsgs");
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Error loading network security groups: {}", err),
+                    format!("Error loading network security groups: {err}"),
                 )
                     .into_response();
             }
@@ -259,7 +259,7 @@ pub async fn show_detail(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Unable to retrieve network security group: {}", e),
+                format!("Unable to retrieve network security group: {e}"),
             )
                 .into_response();
         }
@@ -287,7 +287,7 @@ pub async fn show_detail(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to serialize network security group rules: {}", e),
+                format!("Failed to serialize network security group rules: {e}"),
             )
                 .into_response();
         }
@@ -299,7 +299,7 @@ pub async fn show_detail(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to serialize network security group labels: {}", e),
+                format!("Failed to serialize network security group labels: {e}"),
             )
                 .into_response();
         }
@@ -319,10 +319,7 @@ pub async fn show_detail(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!(
-                    "Unable to retrieve network security group attachment details: {}",
-                    e
-                ),
+                format!("Unable to retrieve network security group attachment details: {e}"),
             )
                 .into_response();
         }
@@ -353,10 +350,7 @@ pub async fn show_detail(
             Err(e) => {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!(
-                        "Unable to retrieve network security group attachment details: {}",
-                        e
-                    ),
+                    format!("Unable to retrieve network security group attachment details: {e}"),
                 )
                     .into_response();
             }
@@ -439,7 +433,7 @@ pub async fn create(
                 Err(e) => {
                     return (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Failed to deserialize rules: {}", e),
+                        format!("Failed to deserialize rules: {e}"),
                     )
                         .into_response();
                 }
@@ -460,7 +454,7 @@ pub async fn create(
                         Err(e) => {
                             return (
                                 StatusCode::INTERNAL_SERVER_ERROR,
-                                format!("Failed to deserialize labels: {}", e),
+                                format!("Failed to deserialize labels: {e}"),
                             )
                                 .into_response();
                         }
@@ -476,7 +470,7 @@ pub async fn create(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Unable to retrieve network security group: {}", e),
+                format!("Unable to retrieve network security group: {e}"),
             )
                 .into_response();
         }
@@ -526,7 +520,7 @@ pub async fn update(
                 Err(e) => {
                     return (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Failed to deserialize rules: {}", e),
+                        format!("Failed to deserialize rules: {e}"),
                     )
                         .into_response();
                 }
@@ -548,7 +542,7 @@ pub async fn update(
                         Err(e) => {
                             return (
                                 StatusCode::INTERNAL_SERVER_ERROR,
-                                format!("Failed to deserialize labels: {}", e),
+                                format!("Failed to deserialize labels: {e}"),
                             )
                                 .into_response();
                         }
@@ -564,7 +558,7 @@ pub async fn update(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Unable to retrieve network security group: {}", e),
+                format!("Unable to retrieve network security group: {e}"),
             )
                 .into_response();
         }
@@ -606,7 +600,7 @@ pub async fn delete(
     {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Unable to delete network security group: {}", e),
+            format!("Unable to delete network security group: {e}"),
         )
             .into_response();
     };

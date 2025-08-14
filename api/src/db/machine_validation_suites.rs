@@ -169,9 +169,9 @@ impl MachineValidationTest {
         for (key, value) in json_object {
             if !value.is_null() {
                 match value {
-                    serde_json::Value::String(s) => updates.push(format!("{} = '{}'", key, s)),
-                    serde_json::Value::Number(n) => updates.push(format!("{} = {}", key, n)),
-                    serde_json::Value::Bool(b) => updates.push(format!("{} = {}", key, b)),
+                    serde_json::Value::String(s) => updates.push(format!("{key} = '{s}'")),
+                    serde_json::Value::Number(n) => updates.push(format!("{key} = {n}")),
+                    serde_json::Value::Bool(b) => updates.push(format!("{key} = {b}")),
                     serde_json::Value::Array(v) => {
                         let mut vector = match serde_json::to_string(&v) {
                             Ok(msg) => msg,
@@ -179,7 +179,7 @@ impl MachineValidationTest {
                         };
                         if vector != "[]" {
                             vector = vector.replace("\"", "\'");
-                            updates.push(format!("{} = ARRAY{}", key, vector));
+                            updates.push(format!("{key} = ARRAY{vector}"));
                         }
                     }
                     _ => {}
@@ -197,12 +197,11 @@ impl MachineValidationTest {
             updates.push(format!("verified = '{}'", false));
         }
         // updates.push(format!("version = '{}'", version));
-        updates.push(format!("modified_by = '{}'", modified_by));
-        let mut query: String = format!("UPDATE {} SET ", table);
+        updates.push(format!("modified_by = '{modified_by}'"));
+        let mut query: String = format!("UPDATE {table} SET ");
         query.push_str(&updates.join(", "));
         query.push_str(&format!(
-            " WHERE test_id = '{}' AND version = '{}' RETURNING test_id",
-            test_id, version
+            " WHERE test_id = '{test_id}' AND version = '{version}' RETURNING test_id"
         ));
 
         Ok(query)
@@ -235,9 +234,9 @@ impl MachineValidationTest {
             if !value.is_null() {
                 columns.push(key.clone());
                 match value {
-                    serde_json::Value::String(s) => values.push(format!("'{}'", s)), // wrap strings in quotes
-                    serde_json::Value::Number(n) => values.push(format!("{}", n)),
-                    serde_json::Value::Bool(b) => values.push(format!("{}", b)),
+                    serde_json::Value::String(s) => values.push(format!("'{s}'")), // wrap strings in quotes
+                    serde_json::Value::Number(n) => values.push(format!("{n}")),
+                    serde_json::Value::Bool(b) => values.push(format!("{b}")),
                     serde_json::Value::Array(v) => {
                         let mut vector = match serde_json::to_string(&v) {
                             Ok(msg) => msg,
@@ -248,7 +247,7 @@ impl MachineValidationTest {
                             columns.pop();
                         } else {
                             vector = vector.replace("\"", "\'");
-                            values.push(format!("ARRAY{}", vector));
+                            values.push(format!("ARRAY{vector}"));
                         }
                     }
                     _ => {}
@@ -261,13 +260,13 @@ impl MachineValidationTest {
             ));
         }
         columns.push("version".to_string());
-        values.push(format!("'{}'", version));
+        values.push(format!("'{version}'"));
 
         columns.push("test_id".to_string());
-        values.push(format!("'{}'", test_id));
+        values.push(format!("'{test_id}'"));
 
         columns.push("modified_by".to_string());
-        values.push(format!("'{}'", modified_by));
+        values.push(format!("'{modified_by}'"));
 
         // Build the final query
         let query = format!(
@@ -301,9 +300,9 @@ impl MachineValidationTest {
         for (key, value) in json_object {
             if !value.is_null() {
                 match value {
-                    serde_json::Value::String(s) => wheres.push(format!("{}='{}'", key, s)),
-                    serde_json::Value::Number(n) => wheres.push(format!("{}={}", key, n)),
-                    serde_json::Value::Bool(b) => wheres.push(format!("{}={}", key, b)),
+                    serde_json::Value::String(s) => wheres.push(format!("{key}='{s}'")),
+                    serde_json::Value::Number(n) => wheres.push(format!("{key}={n}")),
+                    serde_json::Value::Bool(b) => wheres.push(format!("{key}={b}")),
                     serde_json::Value::Array(v) => {
                         let mut vector = match serde_json::to_string(&v) {
                             Ok(msg) => msg,
@@ -313,7 +312,7 @@ impl MachineValidationTest {
                             continue;
                         } else {
                             vector = vector.replace("\"", "\'");
-                            wheres.push(format!("{}&&ARRAY{}", key, vector));
+                            wheres.push(format!("{key}&&ARRAY{vector}"));
                         }
                     }
                     _ => {}
@@ -342,7 +341,7 @@ impl MachineValidationTest {
         Ok(ret)
     }
     pub fn generate_test_id(name: &str) -> String {
-        format!("forge_{}", name)
+        format!("forge_{name}")
     }
     pub async fn save(
         txn: &mut PgConnection,

@@ -1153,8 +1153,7 @@ impl ApiClient {
 
                 Err(e) => {
                     return Err(CarbideCliError::GenericError(format!(
-                        "network segment: {} retrieval error {}",
-                        network_segment_name, e
+                        "network segment: {network_segment_name} retrieval error {e}"
                     )));
                 }
             }

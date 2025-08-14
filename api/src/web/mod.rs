@@ -18,12 +18,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use askama::Template;
 use axum::{
     Extension,
-    extract::{Host, Path as AxumPath, State as AxumState},
+    extract::{Path as AxumPath, State as AxumState},
     middleware::Next,
     response::{Html, IntoResponse, Redirect, Response},
     routing::{Router, get, post},
 };
-use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
+use axum_extra::extract::{
+    Host,
+    cookie::{Cookie, Key, PrivateCookieJar},
+};
 use base64::prelude::*;
 use http::header::{CONTENT_TYPE, WWW_AUTHENTICATE};
 use http::{HeaderMap, Request, StatusCode};
@@ -151,8 +154,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 env::var(CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY_ENV)
                     .map_err(|e| {
                         CarbideError::internal(format!(
-                            "{}: {}",
-                            CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY_ENV, e
+                            "{CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY_ENV}: {e}"
                         ))
                     })?
                     .as_bytes(),
@@ -177,7 +179,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             ))
             .set_client_secret(ClientSecret::new(
                 env::var(OAUTH2_CLIENT_SECRET_ENV).map_err(|e| {
-                    CarbideError::internal(format!("{}: {}", OAUTH2_CLIENT_SECRET_ENV, e))
+                    CarbideError::internal(format!("{OAUTH2_CLIENT_SECRET_ENV}: {e}"))
                 })?,
             ))
             .set_auth_uri(AuthUrl::new(
@@ -218,7 +220,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
     Ok(NormalizePath::trim_trailing_slash(
         Router::new()
             .route("/", get(root))
-            .route("/static/:filename", get(static_data))
+            .route("/static/{filename}", get(static_data))
             .route("/domain", get(domain::show_html))
             .route("/domain.json", get(domain::show_all_json))
             .route("/dpu", get(machine::show_dpus_html))
@@ -238,102 +240,105 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 get(explored_endpoint::show_html_unpaired),
             )
             .route(
-                "/explored-endpoint/:endpoint_ip",
+                "/explored-endpoint/{endpoint_ip}",
                 get(explored_endpoint::detail),
             )
             .route(
-                "/explored-endpoint/:endpoint_ip/reexplore",
+                "/explored-endpoint/{endpoint_ip}/reexplore",
                 post(explored_endpoint::re_explore),
             )
             .route(
-                "/explored-endpoint/:endpoint_ip/power-control",
+                "/explored-endpoint/{endpoint_ip}/power-control",
                 post(explored_endpoint::power_control),
             )
             .route(
-                "/explored-endpoint/:endpoint_ip/bmc-reset",
+                "/explored-endpoint/{endpoint_ip}/bmc-reset",
                 post(explored_endpoint::bmc_reset),
             )
             .route(
-                "/explored-endpoint/:endpoint_ip/clear-last-error",
+                "/explored-endpoint/{endpoint_ip}/clear-last-error",
                 post(explored_endpoint::clear_last_exploration_error),
             )
             .route(
-                "/explored-endpoint/:endpoint_ip/forge-setup",
+                "/explored-endpoint/{endpoint_ip}/forge-setup",
                 post(explored_endpoint::forge_setup),
             )
             .route(
-                "/explored-endpoint/:endpoint_ip/set-dpu-first-boot-order",
+                "/explored-endpoint/{endpoint_ip}/set-dpu-first-boot-order",
                 post(explored_endpoint::set_dpu_first_boot_order),
             )
             .route(
-                "/explored-endpoint/:endpoint_ip/clear-credentials",
+                "/explored-endpoint/{endpoint_ip}/clear-credentials",
                 post(explored_endpoint::clear_bmc_credentials),
             )
             .route(
-                "/explored-endpoint/:endpoint_ip/delete",
+                "/explored-endpoint/{endpoint_ip}/delete",
                 post(explored_endpoint::delete_endpoint),
             )
             .route(
-                "/explored-endpoint/:endpoint_ip/disable-secure-boot",
+                "/explored-endpoint/{endpoint_ip}/disable-secure-boot",
                 post(explored_endpoint::disable_secure_boot),
             )
             .route("/host", get(machine::show_hosts_html))
             .route("/host.json", get(machine::show_hosts_json))
             .route("/ib-partition", get(ib_partition::show_html))
             .route("/ib-partition.json", get(ib_partition::show_all_json))
-            .route("/ib-partition/:partition_id", get(ib_partition::detail))
+            .route("/ib-partition/{partition_id}", get(ib_partition::detail))
             .route("/ib-fabric", get(ib_fabric::show_html))
             .route("/ib-fabric.json", get(ib_fabric::show_all_json))
             .route("/instance", get(instance::show_html))
             .route("/instance.json", get(instance::show_all_json))
-            .route("/instance/:instance_id", get(instance::detail))
+            .route("/instance/{instance_id}", get(instance::detail))
             .route("/instance-type", get(instance_type::show))
             .route(
-                "/instance-type/:instance_type_id",
+                "/instance-type/{instance_type_id}",
                 get(instance_type::show_detail),
             )
             .route("/interface", get(interface::show_html))
             .route("/interface.json", get(interface::show_all_json))
-            .route("/interface/:interface_id", get(interface::detail))
+            .route("/interface/{interface_id}", get(interface::detail))
             .route("/machine", get(machine::show_all_html))
             .route("/machine.json", get(machine::show_all_json))
-            .route("/machine/:machine_id", get(machine::detail))
+            .route("/machine/{machine_id}", get(machine::detail))
             .route(
-                "/machine/:machine_id/maintenance",
+                "/machine/{machine_id}/maintenance",
                 post(machine::maintenance),
             )
-            .route("/machine/:machine_id/quarantine", post(machine::quarantine))
             .route(
-                "/machine/:machine_id/set-dpu-first-boot-order",
+                "/machine/{machine_id}/quarantine",
+                post(machine::quarantine),
+            )
+            .route(
+                "/machine/{machine_id}/set-dpu-first-boot-order",
                 post(machine::set_dpu_first_boot_order),
             )
-            .route("/machine/:machine_id/health", get(health::health))
+            .route("/machine/{machine_id}/health", get(health::health))
             .route(
-                "/machine/:machine_id/health-history",
+                "/machine/{machine_id}/health-history",
                 get(health_history::show_health_history),
             )
             .route(
-                "/machine/:machine_id/health-history.json",
+                "/machine/{machine_id}/health-history.json",
                 get(health_history::show_health_history_json),
             )
             .route(
-                "/machine/:machine_id/state-history",
+                "/machine/{machine_id}/state-history",
                 get(machine_state_history::show_state_history),
             )
             .route(
-                "/machine/:machine_id/state-history.json",
+                "/machine/{machine_id}/state-history.json",
                 get(machine_state_history::show_state_history_json),
             )
             .route(
-                "/machine/:machine_id/health/override/add",
+                "/machine/{machine_id}/health/override/add",
                 post(health::add_override),
             )
             .route(
-                "/machine/:machine_id/health/override/remove",
+                "/machine/{machine_id}/health/override/remove",
                 post(health::remove_override),
             )
             .route(
-                "/machine/:machine_id/attestation-results",
+                "/machine/{machine_id}/attestation-results",
                 get(attestation::show_attestation_results),
             )
             .route(
@@ -341,12 +346,12 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 get(attestation::show_attestation_summary),
             )
             .route(
-                "/machine/:machine_id/attestation-submit-report-promotion",
+                "/machine/{machine_id}/attestation-submit-report-promotion",
                 get(attestation::submit_report_promotion),
             )
             .route("/managed-host", get(managed_host::show_html))
             .route("/managed-host.json", get(managed_host::show_all_json))
-            .route("/managed-host/:machine_id", get(managed_host::detail))
+            .route("/managed-host/{machine_id}", get(managed_host::detail))
             .route("/expected-machine", get(expected_machine::show_all_html))
             .route(
                 "/expected-machine-definition.json",
@@ -360,48 +365,51 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 post(network_security_group::create),
             )
             .route(
-                "/network-security-group/:network_security_group_id",
+                "/network-security-group/{network_security_group_id}",
                 get(network_security_group::show_detail),
             )
             .route(
-                "/network-security-group/:network_security_group_id",
+                "/network-security-group/{network_security_group_id}",
                 post(network_security_group::update),
             )
             .route(
-                "/network-security-group/:network_security_group_id/delete",
+                "/network-security-group/{network_security_group_id}/delete",
                 post(network_security_group::delete),
             )
             .route("/network-segment", get(network_segment::show_html))
             .route("/network-segment.json", get(network_segment::show_all_json))
-            .route("/network-segment/:segment_id", get(network_segment::detail))
+            .route(
+                "/network-segment/{segment_id}",
+                get(network_segment::detail),
+            )
             .route("/network-status", get(network_status::show_html))
             .route("/network-status.json", get(network_status::show_all_json))
             .route("/resource-pool", get(resource_pool::show_html))
             .route("/resource-pool.json", get(resource_pool::show_all_json))
             .route("/vpc", get(vpc::show_html))
             .route("/vpc.json", get(vpc::show_all_json))
-            .route("/vpc/:vpc_id", get(vpc::detail))
+            .route("/vpc/{vpc_id}", get(vpc::detail))
             .route("/redfish-browser", get(redfish_browser::query))
             .route("/search", get(search::find))
             .route("/sku", get(sku::show_html))
             .route("/sku.json", get(sku::show_all_json))
-            .route("/sku/:sku_id", get(sku::detail))
+            .route("/sku/{sku_id}", get(sku::detail))
             .route("/tenant", get(tenant::show_html))
             .route("/tenant.json", get(tenant::show_all_json))
-            .route("/tenant/:organization_id", get(tenant::detail))
+            .route("/tenant/{organization_id}", get(tenant::detail))
             .route("/tenant_keyset", get(tenant_keyset::show_html))
             .route("/tenant_keyset.json", get(tenant_keyset::show_all_json))
             .route(
-                "/tenant_keyset/:organization_id/:keyset_id",
+                "/tenant_keyset/{organization_id}/{keyset_id}",
                 get(tenant_keyset::detail),
             )
             .route(&format!("/{AUTH_CALLBACK_ROOT}"), get(auth::callback))
             .route(
-                "/machinevalidation/runs/:validation_id",
+                "/machinevalidation/runs/{validation_id}",
                 get(machine_validation::results),
             )
             .route(
-                "/machinevalidation/resultdetails/:validation_id/:test_id",
+                "/machinevalidation/resultdetails/{validation_id}/{test_id}",
                 get(machine_validation::result_details),
             )
             .route(
@@ -410,7 +418,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             )
             .route("/machinevalidation", get(machine_validation::runs))
             .route(
-                "/machinevalidation/tests/:test_id",
+                "/machinevalidation/tests/{test_id}",
                 get(machine_validation::show_tests_details_html),
             )
             .route(

@@ -42,7 +42,7 @@ impl Display for UserRoles {
             UserRoles::Noaccess => "noaccess",
         };
 
-        write!(f, "{}", string)
+        write!(f, "{string}")
     }
 }
 
@@ -77,7 +77,7 @@ impl FromStr for UserRoles {
             "administrator" => Ok(UserRoles::Administrator),
             "operator" => Ok(UserRoles::Operator),
             "noaccess" => Ok(UserRoles::Noaccess),
-            x => Err(CarbideError::internal(format!("Unknown role found: {}", x))),
+            x => Err(CarbideError::internal(format!("Unknown role found: {x}"))),
         }
     }
 }
@@ -89,8 +89,7 @@ pub async fn update_bmc_network_into_topologies(
 ) -> CarbideResult<()> {
     if bmc_info.mac.is_none() {
         return Err(CarbideError::internal(format!(
-            "BMC Info in machine_topologies does not have a MAC address for machine {}",
-            machine_id
+            "BMC Info in machine_topologies does not have a MAC address for machine {machine_id}"
         )));
     }
     tracing::info!("put bmc_info: {:?}", bmc_info);
@@ -123,8 +122,7 @@ pub async fn enrich_mac_address(
 ) -> CarbideResult<()> {
     if bmc_info.ip.is_none() {
         return Err(CarbideError::internal(format!(
-            "{} cannot enrich BMC Info without a valid BMC IP address for machine {}: {:#?}",
-            caller, machine_id, bmc_info
+            "{caller} cannot enrich BMC Info without a valid BMC IP address for machine {machine_id}: {bmc_info:#?}"
         )));
     }
 

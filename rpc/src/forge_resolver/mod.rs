@@ -10,13 +10,10 @@ pub fn read_resolv_conf<P: AsRef<Path>>(path: P) -> Result<resolv_conf::Config, 
     let mut data = String::new();
     let mut file = File::open(&path)
         .map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                eyre::eyre!(
-                    "Unable to read resolv.conf at {:?}",
-                    path.as_ref().file_name()
-                ),
-            )
+            io::Error::other(eyre::eyre!(
+                "Unable to read resolv.conf at {:?}",
+                path.as_ref().file_name()
+            ))
         })
         .map_err(|e| ResolverError::CouldNotReadResolvConf {
             path: path.as_ref().to_path_buf(),

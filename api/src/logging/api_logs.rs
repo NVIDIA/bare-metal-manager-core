@@ -303,7 +303,7 @@ where
                             .map(|code| {
                                 // Debug format is required
                                 // Using code.to_string() will not yield the expected result
-                                format!("{:?}", code)
+                                format!("{code:?}")
                             })
                             .unwrap_or_else(|| "Unknown".to_string()),
                     ),

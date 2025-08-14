@@ -597,7 +597,7 @@ async fn fetch_ethernet_interfaces(
         let mac_address = if let Some(iface_mac_address) = iface.mac_address {
             match deserialize_input_mac_to_address(&iface_mac_address).map_err(|e| {
                 RedfishError::GenericError {
-                    error: format!("MAC address not valid: {} (err: {})", iface_mac_address, e),
+                    error: format!("MAC address not valid: {iface_mac_address} (err: {e})"),
                 }
             }) {
                 Ok(mac) => Ok(Some(mac)),
@@ -663,7 +663,7 @@ async fn get_oob_interface(
 
     for option in boot_options.members.iter() {
         // odata_id: "/redfish/v1/Systems/Bluefield/BootOptions/Boot0001"
-        let option_id = option.odata_id.split('/').last().unwrap();
+        let option_id = option.odata_id.split('/').next_back().unwrap();
         let boot_option = client.get_boot_option(option_id).await?;
         // display_name: "NET-OOB-IPV4"
         if boot_option.display_name.contains("OOB") {
@@ -689,10 +689,7 @@ async fn get_oob_interface(
                 let mac_addr =
                     deserialize_input_mac_to_address(&mac_addr_builder).map_err(|e| {
                         RedfishError::GenericError {
-                            error: format!(
-                                "MAC address not valid: {} (err: {})",
-                                mac_addr_builder, e
-                            ),
+                            error: format!("MAC address not valid: {mac_addr_builder} (err: {e})"),
                         }
                     })?;
 
@@ -982,20 +979,19 @@ pub(crate) fn map_redfish_client_creation_error(
         RedfishClientCreationError::RedfishError(e) => map_redfish_error(e),
         RedfishClientCreationError::InvalidHeader(original_error) => {
             EndpointExplorationError::Other {
-                details: format!("RedfishClientError::InvalidHeader: {}", original_error),
+                details: format!("RedfishClientError::InvalidHeader: {original_error}"),
             }
         }
         RedfishClientCreationError::MissingBmcEndpoint(argument)
         | RedfishClientCreationError::MissingArgument(argument) => {
             EndpointExplorationError::Other {
-                details: format!("Missing argument to RedFish client: {0}", argument),
+                details: format!("Missing argument to RedFish client: {argument}"),
             }
         }
         RedfishClientCreationError::MachineInterfaceLoadError(db_error) => {
             EndpointExplorationError::Other {
                 details: format!(
-                    "Database error loading the machine interface for the redfish client: {0}",
-                    db_error
+                    "Database error loading the machine interface for the redfish client: {db_error}"
                 ),
             }
         }

@@ -914,7 +914,7 @@ fn forge_setup_status_to_string(status: Option<&ForgeSetupStatus>) -> String {
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("Mismatch: {}", diffs_string)
+            format!("Mismatch: {diffs_string}")
         }
     }
 }

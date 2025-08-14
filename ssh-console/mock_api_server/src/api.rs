@@ -109,8 +109,7 @@ impl Forge for MockApiServer {
             .find(|mock_host| mock_host.machine_id == machine_id)
         else {
             return Err(Status::not_found(format!(
-                "No machine found with ID {}",
-                machine_id
+                "No machine found with ID {machine_id}"
             )));
         };
 

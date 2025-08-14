@@ -70,7 +70,7 @@ fn convert_itypes_to_table(
             .map(|label| {
                 let key = &label.key;
                 let value = label.value.clone().unwrap_or_default();
-                format!("\"{}:{}\"", key, value)
+                format!("\"{key}:{value}\"")
             })
             .collect::<Vec<_>>();
 

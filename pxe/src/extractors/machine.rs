@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use axum::{extract::FromRequestParts, http::request::Parts};
-use axum_client_ip::InsecureClientIp;
+use axum_client_ip::ClientIp;
 use forge_tls::client_config::ClientCert;
 use rpc::{
     forge::CloudInitInstructionsRequest,
@@ -23,7 +23,6 @@ use crate::{
     rpc_error::PxeRequestError,
 };
 
-#[axum::async_trait]
 impl FromRequestParts<AppState> for Machine {
     type Rejection = PxeRequestError;
 
@@ -52,7 +51,7 @@ impl FromRequestParts<AppState> for Machine {
 
         // the implementation defaults to a proxied XFF header with the correct IP,
         // and falls back to client IP from socket if not
-        let client_ip = InsecureClientIp::from_request_parts(parts, state)
+        let client_ip = ClientIp::from_request_parts(parts, state)
             .await
             .ok()
             .map(|insecure_client_ip| insecure_client_ip.0)
