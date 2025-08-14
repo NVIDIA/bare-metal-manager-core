@@ -159,7 +159,7 @@ async fn get_container_images() -> eyre::Result<String> {
         let test_data_dir = PathBuf::from(TEST_DATA_DIR);
 
         std::fs::read_to_string(test_data_dir.join("container_images.json")).map_err(|e| {
-            error!("Could not read container_images.json: {}", e);
+            error!("Could not read container_images.json: {e}");
             eyre::eyre!("Could not read container_images.json: {}", e)
         })
     } else {
@@ -168,7 +168,7 @@ async fn get_container_images() -> eyre::Result<String> {
             .run()
             .await
             .map_err(|e| {
-                error!("Could not read container_images.json: {}", e);
+                error!("Could not read container_images.json: {e}");
                 eyre::eyre!("Could not read container_images.json: {}", e)
             })?;
         Ok(result)
@@ -183,7 +183,7 @@ async fn get_containers() -> eyre::Result<String> {
         println!("Path: {}", test_data_dir.join("containers.json").display());
 
         std::fs::read_to_string(test_data_dir.join("containers.json")).map_err(|e| {
-            error!("Could not read containers.json: {}", e);
+            error!("Could not read containers.json: {e}");
             eyre::eyre!("Could not read containers.json: {}", e)
         })
     } else {
@@ -192,7 +192,7 @@ async fn get_containers() -> eyre::Result<String> {
             .run()
             .await
             .map_err(|e| {
-                error!("Could not read containers.json: {}", e);
+                error!("Could not read containers.json: {e}");
                 eyre::eyre!("Could not read containers.json: {}", e)
             })?;
         Ok(result)

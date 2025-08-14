@@ -104,17 +104,11 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
         Ok(gateway) => match gateway {
             IpAddr::V4(gateway) => return u32::from_be_bytes(gateway.octets()),
             IpAddr::V6(gateway) => {
-                log::error!(
-                    "Gateway ({}) is an IPv6 address, which is not supported.",
-                    gateway
-                );
+                log::error!("Gateway ({gateway}) is an IPv6 address, which is not supported.");
             }
         },
         Err(error) => {
-            log::error!(
-                "Gateway value in deserialized protobuf is not an IP Network: {0}",
-                error
-            );
+            log::error!("Gateway value in deserialized protobuf is not an IP Network: {error}");
         }
     };
 
@@ -138,17 +132,11 @@ pub extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32 {
         Ok(address) => match address {
             IpAddr::V4(address) => return u32::from_be_bytes(address.octets()),
             IpAddr::V6(address) => {
-                log::error!(
-                    "Address ({}) is an IPv6 address, which is not supported.",
-                    address
-                );
+                log::error!("Address ({address}) is an IPv6 address, which is not supported.");
             }
         },
         Err(error) => {
-            log::error!(
-                "Address value in deserialized protobuf is not an IP Network: {0}",
-                error
-            );
+            log::error!("Address value in deserialized protobuf is not an IP Network: {error}");
         }
     };
 
@@ -254,7 +242,7 @@ pub extern "C" fn machine_get_nameservers(ctx: *mut Machine) -> *mut libc::c_cha
     assert!(!ctx.is_null());
 
     let nameservers = CString::new(CONFIG.read().unwrap().nameservers.clone()).unwrap();
-    log::debug!("Nameservers are {:?}", nameservers);
+    log::debug!("Nameservers are {nameservers:?}");
 
     nameservers.into_raw()
 }
@@ -264,7 +252,7 @@ pub extern "C" fn machine_get_ntpservers(ctx: *mut Machine) -> *mut libc::c_char
     assert!(!ctx.is_null());
 
     let ntpservers = CString::new(CONFIG.read().unwrap().ntpservers.clone()).unwrap();
-    log::debug!("Ntp servers are {:?}", ntpservers);
+    log::debug!("Ntp servers are {ntpservers:?}");
 
     ntpservers.into_raw()
 }
@@ -275,7 +263,7 @@ pub extern "C" fn machine_get_mqtt_server(ctx: *mut Machine) -> *mut libc::c_cha
 
     match CONFIG.read().unwrap().mqtt_server.clone() {
         Some(mqtt_server) => {
-            log::debug!("MQTT server is {:?}", mqtt_server);
+            log::debug!("MQTT server is {mqtt_server:?}");
             CString::new(mqtt_server).unwrap().into_raw()
         }
         None => {
@@ -325,17 +313,11 @@ pub extern "C" fn machine_get_broadcast_address(ctx: *mut Machine) -> u32 {
         Ok(prefix) => match prefix {
             IpNetwork::V4(prefix) => return u32::from_be_bytes(prefix.broadcast().octets()),
             IpNetwork::V6(prefix) => {
-                log::error!(
-                    "Prefix ({}) is an IPv6 network, which is not supported.",
-                    prefix
-                );
+                log::error!("Prefix ({prefix}) is an IPv6 network, which is not supported.");
             }
         },
         Err(error) => {
-            log::error!(
-                "prefix value in deserialized protobuf is not an IP Network: {0}",
-                error
-            );
+            log::error!("prefix value in deserialized protobuf is not an IP Network: {error}");
         }
     };
 
@@ -426,17 +408,11 @@ pub extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) -> u32 {
         Ok(prefix) => match prefix {
             IpNetwork::V4(prefix) => return u32::from_be_bytes(prefix.mask().octets()),
             IpNetwork::V6(prefix) => {
-                log::error!(
-                    "Prefix ({}) is an IPv6 network, which is not supported.",
-                    prefix
-                );
+                log::error!("Prefix ({prefix}) is an IPv6 network, which is not supported.");
             }
         },
         Err(error) => {
-            log::error!(
-                "prefix value in deserialized protobuf is not an IP Network: {0}",
-                error
-            );
+            log::error!("prefix value in deserialized protobuf is not an IP Network: {error}");
         }
     };
 

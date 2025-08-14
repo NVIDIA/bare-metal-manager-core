@@ -195,20 +195,12 @@ impl ForgeClientConfig {
 
         let use_mgmt_vrf = match ignore_mgmt_vrf {
             true => {
-                log::debug!(
-                    "ignore_mgmt_vrf is {} not using mgmt vrf: {}",
-                    ignore_mgmt_vrf,
-                    VRF_NAME
-                );
+                log::debug!("ignore_mgmt_vrf is {ignore_mgmt_vrf} not using mgmt vrf: {VRF_NAME}");
                 false
             }
 
             false => {
-                log::debug!(
-                    "ignore_mgmt_vrf is {} using mgmt vrf: {}",
-                    ignore_mgmt_vrf,
-                    VRF_NAME
-                );
+                log::debug!("ignore_mgmt_vrf is {ignore_mgmt_vrf} using mgmt vrf: {VRF_NAME}");
                 true
             }
         };
@@ -223,7 +215,7 @@ impl ForgeClientConfig {
             ..self
         };
 
-        log::debug!("ForgeClientConfig {:?}", res);
+        log::debug!("ForgeClientConfig {res:?}");
 
         Ok(res)
     }

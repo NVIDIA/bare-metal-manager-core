@@ -182,7 +182,7 @@ pub unsafe extern "C" fn carbide_set_config_metrics_endpoint(endpoint: *const c_
         let config_metrics_endpoint = CStr::from_ptr(endpoint).to_str().unwrap().to_owned();
         match config_metrics_endpoint.parse::<SocketAddr>() {
             Ok(metrics_endpoint) => {
-                log::info!("metrics endpoint: {}", config_metrics_endpoint);
+                log::info!("metrics endpoint: {config_metrics_endpoint}");
                 CONFIG.write().unwrap().metrics_endpoint = Some(metrics_endpoint);
                 // this will initiate metrics server
                 CarbideDhcpContext::get_tokio_runtime();

@@ -1072,7 +1072,7 @@ async fn hack_dpu_os_to_load_atf_uefi_with_specific_versions() -> eyre::Result<(
         let test_data_dir = PathBuf::from(crate::dpu::ARMOS_TEST_DATA_DIR);
 
         std::fs::read_to_string(test_data_dir.join("bfvcheck.out")).map_err(|e| {
-            error!("Could not read bfvcheck.out: {}", e);
+            error!("Could not read bfvcheck.out: {e}");
             eyre::eyre!("Could not read bfvcheck.out: {}", e)
         })?
     } else {
