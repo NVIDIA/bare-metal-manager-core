@@ -107,6 +107,12 @@ pub async fn handle_show_version(
         r!(table, config, machine_validation_enabled);
         r!(table, config, bom_validation_enabled);
         r!(table, config, bom_validation_ignore_unassigned_machines);
+        r!(table, config, bom_validation_auto_generate_missing_sku);
+        r!(
+            table,
+            config,
+            bom_validation_auto_generate_missing_sku_interval
+        );
         r!(table, config, spx_enabled);
         r!(table, config, mqtt_endpoint);
 

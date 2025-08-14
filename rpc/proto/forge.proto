@@ -698,6 +698,9 @@ message RuntimeConfig {
   string mqtt_endpoint = 39;
 
   optional string sitename = 40;
+
+  bool bom_validation_auto_generate_missing_sku = 41;
+  uint64 bom_validation_auto_generate_missing_sku_interval = 42;
 }
 
 message EchoRequest {
@@ -4717,6 +4720,7 @@ message SkuIdList {
 message SkuStatus {
   optional google.protobuf.Timestamp verify_request_time = 1;
   optional google.protobuf.Timestamp last_match_attempt = 2;
+  optional google.protobuf.Timestamp last_generate_attempt = 3;
 }
 
 message SkusByIdsRequest {

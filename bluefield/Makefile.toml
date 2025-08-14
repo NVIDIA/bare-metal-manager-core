@@ -164,7 +164,7 @@ script = '''
   TARFILE=go${GO_VERSION}.linux-${PLATFORM}.tar.gz
   OTEL=${REPO_ROOT}/bluefield/otel
   URL=https://golang.org/dl/${TARFILE}
-  wget -q $URL --directory-prefix=${OTEL} --tries=5 --continue --timeout=30
+  wget -q $URL --directory-prefix=${OTEL} --tries=5 --continue --timeout=300
   tar -C ${OTEL} -xzf ${OTEL}/${TARFILE}
   rm ${OTEL}/${TARFILE}
 '''
@@ -252,7 +252,7 @@ script = '''
   URL=$(sed -e "s/\${VERSION}/${VERSION}/g" url.txt)
   TARFILE=$(basename ${URL})
   NODE_EXTRACT_DIR=${TARFILE%.tar.gz}
-  wget -q $URL --directory-prefix=${NODE} --tries=5 --continue --timeout=30
+  wget -q $URL --directory-prefix=${NODE} --tries=5 --continue --timeout=300
   tar xvfz ${TARFILE}
   rm -f ${TARFILE}
   export vers=${DPU_AGENT_PKG_VERSION}
@@ -291,7 +291,7 @@ script = '''
   URL=$(sed -e "s/\${VERSION}/${VERSION}/g" url.txt)
   TARFILE=$(basename ${URL})
   EXTRACT_DIR=${TARFILE%.tar.gz}
-  wget -q $URL --directory-prefix=${TRANSCEIVER} --tries=5 --continue --timeout=30
+  wget -q $URL --directory-prefix=${TRANSCEIVER} --tries=5 --continue --timeout=300
   mkdir -p ${TRANSCEIVER}/${EXTRACT_DIR}
   tar xvfz ${TARFILE} -C ${TRANSCEIVER}/${EXTRACT_DIR}
   rm -f ${TARFILE}

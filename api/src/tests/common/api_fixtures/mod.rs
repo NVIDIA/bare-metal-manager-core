@@ -373,13 +373,11 @@ impl TestEnv {
         &self,
         host_machine_id: &MachineId,
         max_iterations: u32,
-        txn: &mut PgConnection,
         expected_state: ManagedHostState,
     ) {
         self.run_machine_state_controller_iteration_until_state_condition(
             host_machine_id,
             max_iterations,
-            txn,
             |machine| {
                 let fixed_expected_state = self.fill_machine_information(&expected_state, machine);
                 machine.current_state() == &fixed_expected_state
@@ -395,7 +393,6 @@ impl TestEnv {
         &self,
         host_machine_id: &MachineId,
         max_iterations: u32,
-        txn: &mut PgConnection,
         state_check: impl Fn(&Machine) -> bool,
     ) -> ManagedHostState {
         for _ in 0..max_iterations {
@@ -405,8 +402,10 @@ impl TestEnv {
                 .run_single_iteration()
                 .await;
 
+            let mut txn: sqlx::Transaction<'static, sqlx::Postgres> =
+                self.pool.begin().await.unwrap();
             let machine = db::machine::find_one(
-                txn,
+                &mut txn,
                 host_machine_id,
                 crate::db::machine::MachineSearchConfig::default(),
             )
@@ -418,8 +417,9 @@ impl TestEnv {
                 return machine.state.value;
             }
         }
+        let mut txn = self.pool.begin().await.unwrap();
         let machine = db::machine::find_one(
-            txn,
+            &mut txn,
             host_machine_id,
             crate::db::machine::MachineSearchConfig::default(),
         )

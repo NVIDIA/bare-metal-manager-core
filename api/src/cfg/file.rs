@@ -2002,6 +2002,13 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             dpu_nic_firmware_update_versions: value.dpu_config.dpu_nic_firmware_update_versions,
             spx_enabled: value.spx_config.clone().unwrap_or_default().enabled,
             mqtt_endpoint: value.spx_config.unwrap_or_default().mqtt_endpoint,
+            bom_validation_auto_generate_missing_sku: value
+                .bom_validation
+                .auto_generate_missing_sku,
+            bom_validation_auto_generate_missing_sku_interval: value
+                .bom_validation
+                .auto_generate_missing_sku_interval
+                .as_secs(),
         }
     }
 }
@@ -2064,16 +2071,30 @@ pub struct BomValidationConfig {
     #[serde(default)]
     pub ignore_unassigned_machines: bool,
 
+    /// The interval since the last time the state machine attempted
+    /// to find an existing SKU that matches the machine.
     #[serde(
-        default = "BomValidationConfig::default_find_match_interval",
+        default = "BomValidationConfig::default_bom_validation_interval",
         deserialize_with = "deserialize_duration",
         serialize_with = "as_std_duration"
     )]
     pub find_match_interval: std::time::Duration,
+
+    /// When a SKU is assigned to a machine, but doesn't exist
+    /// attempt to create a SKU for the machine.  This only
+    /// applies to SKUs assigned via expected machines.
+    pub auto_generate_missing_sku: bool,
+    /// The inteveral between attempting to generate a SKU from amachine
+    #[serde(
+        default = "BomValidationConfig::default_bom_validation_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub auto_generate_missing_sku_interval: std::time::Duration,
 }
 
 impl BomValidationConfig {
-    const fn default_find_match_interval() -> std::time::Duration {
+    const fn default_bom_validation_interval() -> std::time::Duration {
         std::time::Duration::from_secs(300)
     }
 }

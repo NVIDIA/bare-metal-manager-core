@@ -196,7 +196,6 @@ async fn test_machine_validation_with_error(
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         3,
-        &mut txn,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
@@ -214,7 +213,6 @@ async fn test_machine_validation_with_error(
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         1,
-        &mut txn,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
                 skip_reboot_wait: !env.config.machine_validation_config.enabled,
@@ -266,6 +264,7 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     .await
     .unwrap()
     .unwrap();
+    txn.commit().await.unwrap();
 
     match machine.current_state() {
         ManagedHostState::Ready => {}
@@ -293,7 +292,6 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         3,
-        &mut txn,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
@@ -311,7 +309,6 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         3,
-        &mut txn,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
                 skip_reboot_wait: !env.config.machine_validation_config.enabled,
@@ -319,7 +316,6 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         },
     )
     .await;
-    txn.commit().await.unwrap();
     Ok(())
 }
 
@@ -533,6 +529,7 @@ async fn test_machine_validation_test_on_demand_filter(
     .await
     .unwrap()
     .unwrap();
+    txn.commit().await.unwrap();
 
     match machine.current_state() {
         ManagedHostState::Ready => {}
@@ -563,7 +560,6 @@ async fn test_machine_validation_test_on_demand_filter(
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         1,
-        &mut txn,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::RebootHost { validation_id },
@@ -575,7 +571,6 @@ async fn test_machine_validation_test_on_demand_filter(
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         1,
-        &mut txn,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
@@ -608,7 +603,6 @@ async fn test_machine_validation_test_on_demand_filter(
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         3,
-        &mut txn,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
                 skip_reboot_wait: !env.config.machine_validation_config.enabled,
@@ -616,7 +610,6 @@ async fn test_machine_validation_test_on_demand_filter(
         },
     )
     .await;
-    txn.commit().await.unwrap();
     Ok(())
 }
 
@@ -663,11 +656,9 @@ async fn test_machine_validation_disabled(
         Vec::new(),
     )
     .await;
-    let mut txn = env.pool.begin().await?;
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         3,
-        &mut txn,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
@@ -681,7 +672,6 @@ async fn test_machine_validation_disabled(
         },
     )
     .await;
-    txn.commit().await.unwrap();
     let _ = reboot_completed(&env, host_machine_id.clone()).await;
 
     let runs = get_machine_validation_runs(&env, host_machine_id.clone(), true).await;
@@ -704,16 +694,13 @@ async fn test_machine_validation_disabled(
         }
     }
     assert!(status_asserted);
-    let mut txn = env.pool.begin().await?;
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         3,
-        &mut txn,
         ManagedHostState::Ready,
     )
     .await;
-    txn.commit().await.unwrap();
 
     status_asserted = false;
     let runs = get_machine_validation_runs(&env, host_machine_id.clone(), true).await;
@@ -1140,7 +1127,6 @@ async fn test_on_demant_un_verified_machine_validation(
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         1,
-        &mut txn,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::RebootHost { validation_id },
@@ -1153,7 +1139,6 @@ async fn test_on_demant_un_verified_machine_validation(
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         1,
-        &mut txn,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
@@ -1335,7 +1320,6 @@ async fn test_on_demant_machine_validation_all_contexts(
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         1,
-        &mut txn,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::RebootHost { validation_id },
@@ -1347,7 +1331,6 @@ async fn test_on_demant_machine_validation_all_contexts(
     env.run_machine_state_controller_iteration_until_state_matches(
         &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
         1,
-        &mut txn,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {

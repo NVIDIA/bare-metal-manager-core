@@ -594,11 +594,9 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         rpc::TenantState::Terminating
     );
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         1,
-        &mut txn,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::BootingWithDiscoveryImage {
                 retry: crate::model::machine::RetryInfo { count: 0 },
@@ -606,7 +604,6 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         },
     )
     .await;
-    txn.commit().await.unwrap();
 
     // handle_delete_post_bootingwithdiscoveryimage()
 
@@ -630,33 +627,27 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     // Run state machine twice.
     // First DeletingManagedResource updates use_admin_network, transitions to WaitingForNetworkReconfig
     // Second to discover we are now in WaitingForNetworkReconfig
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         2,
-        &mut txn,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::WaitingForNetworkReconfig,
         },
     )
     .await;
-    txn.commit().await.unwrap();
 
     // Apply switching back to admin network
     network_configured(&env, &vec![dpu_machine_id]).await;
 
     // now we should be in waiting for measurument state
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         2,
-        &mut txn,
         ManagedHostState::PostAssignedMeasuring {
             measuring_state: MeasuringState::WaitingForMeasurements,
         },
     )
     .await;
-    txn.commit().await.unwrap();
 
     // remove ca cert and inject measurements, now we should go to failed ca
     // validation state
@@ -702,11 +693,9 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .await
         .expect("Failed to add CA cert");
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         3,
-        &mut txn,
         ManagedHostState::WaitingForCleanup {
             cleanup_state: CleanupState::HostCleanup {
                 boss_controller_id: None,
@@ -714,7 +703,6 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         },
     )
     .await;
-    txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
     let machine = db::machine::find_one(
@@ -736,11 +724,9 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .unwrap();
     txn.commit().await.unwrap();
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         3,
-        &mut txn,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
@@ -754,7 +740,6 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         },
     )
     .await;
-    txn.commit().await.unwrap();
 
     let mut machine_validation_result = rpc::forge::MachineValidationResult {
         validation_id: None,
@@ -791,11 +776,9 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .unwrap();
     txn.commit().await.unwrap();
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         3,
-        &mut txn,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
                 skip_reboot_wait: false,
@@ -803,7 +786,6 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         },
     )
     .await;
-    txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
     let machine = db::machine::find_one(
@@ -822,15 +804,12 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .unwrap();
     txn.commit().await.unwrap();
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         3,
-        &mut txn,
         ManagedHostState::Ready,
     )
     .await;
-    txn.commit().await.unwrap();
 
     // end of handle_delete_post_bootingwithdiscoveryimage()
 
@@ -2408,11 +2387,9 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         .await
         .expect("Delete instance failed.");
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         1,
-        &mut txn,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::BootingWithDiscoveryImage {
                 retry: crate::model::machine::RetryInfo { count: 0 },
@@ -2420,7 +2397,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         },
     )
     .await;
-    txn.commit().await.unwrap();
+
     assert!(
         env.test_meter
             .formatted_metric("forge_reboot_attempts_in_booting_with_discovery_image_count")
@@ -2438,11 +2415,9 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
     txn.commit().await.unwrap();
 
     update_time_params(&env.pool, &host, 1, None).await;
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         1,
-        &mut txn,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::BootingWithDiscoveryImage {
                 retry: crate::model::machine::RetryInfo { count: 1 },
@@ -2450,7 +2425,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         },
     )
     .await;
-    txn.commit().await.unwrap();
+
     assert!(
         env.test_meter
             .formatted_metric("forge_reboot_attempts_in_booting_with_discovery_image_count")

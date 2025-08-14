@@ -562,11 +562,9 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     // We use forge_dpu_agent's health reporting as a signal that
     // DPU has rebooted.
     network_configured(&env, &vec![dpu_machine_id]).await;
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         3,
-        &mut txn,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
@@ -580,15 +578,12 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         },
     )
     .await;
-    txn.commit().await.unwrap();
 
     machine_validation_completed(&env, host_rpc_machine_id.clone(), None).await;
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         3,
-        &mut txn,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
                 skip_reboot_wait: false,
@@ -596,7 +591,6 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         },
     )
     .await;
-    txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await.unwrap();
     let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
@@ -611,15 +605,12 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
     let response = forge_agent_control(&env, host_rpc_machine_id.clone()).await;
     assert_eq!(response.action, Action::Noop as i32);
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         1,
-        &mut txn,
         ManagedHostState::Ready,
     )
     .await;
-    txn.commit().await.unwrap();
 }
 
 /// Check whether metrics that describe hardware/software versions of discovered machines
@@ -1274,13 +1265,13 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         ))
         .await
         .unwrap();
+    txn.commit().await.unwrap();
 
     // ---------
     // after the measurements are in, we should proceed to ready state
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         4,
-        &mut txn,
         ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForDiscovery,
         },
@@ -1295,8 +1286,6 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         .await
         .expect("Failed to add hardware health report to newly created machine");
 
-    txn.commit().await.unwrap();
-
     let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
     assert_eq!(response.action, Action::Discovery as i32);
 
@@ -1304,11 +1293,9 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     host_uefi_setup(env, &host_machine_id, host_rpc_machine_id.clone()).await;
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         2,
-        &mut txn,
         ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForLockdown {
                 lockdown_info: LockdownInfo {
@@ -1319,17 +1306,14 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         },
     )
     .await;
-    txn.commit().await.unwrap();
 
     // We use forge_dpu_agent's health reporting as a signal that
     // DPU has rebooted.
     network_configured(env, &vec![*dpu_machine_id]).await;
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         3,
-        &mut txn,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
@@ -1343,15 +1327,12 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         },
     )
     .await;
-    txn.commit().await.unwrap();
 
     machine_validation_completed(env, host_rpc_machine_id.clone(), None).await;
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         3,
-        &mut txn,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
                 skip_reboot_wait: false,
@@ -1359,21 +1340,17 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         },
     )
     .await;
-    txn.commit().await.unwrap();
 
     // This is what simulates a reboot being completed.
     let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
     assert_eq!(response.action, Action::Noop as i32);
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         1,
-        &mut txn,
         ManagedHostState::Ready,
     )
     .await;
-    txn.commit().await.unwrap();
 }
 
 #[crate::sqlx_test]

@@ -2102,7 +2102,6 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
     let (dpu_machine_id, host_machine_id) =
         create_dpu_machine_in_waiting_for_network_install(&env, &host_sim.config).await;
     let dpu_rpc_machine_id: rpc::MachineId = dpu_machine_id.to_string().into();
-    let mut txn = env.pool.begin().await.unwrap();
 
     let agent_control_response = forge_agent_control(&env, dpu_rpc_machine_id.clone()).await;
     assert_eq!(
@@ -2113,7 +2112,6 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         4,
-        &mut txn,
         ManagedHostState::DPUInit {
             dpu_states: crate::model::machine::DpuInitStates {
                 states: HashMap::from([(dpu_machine_id, DpuInitState::WaitingForNetworkConfig)]),
@@ -2121,7 +2119,6 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
         },
     )
     .await;
-    txn.commit().await.unwrap();
 }
 
 #[crate::sqlx_test]
