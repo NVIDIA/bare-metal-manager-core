@@ -90,7 +90,7 @@ impl SiteModel {
             ))
             .and_then(|pb| {
                 Self::from_pb(pb).map_err(|e| {
-                    crate::Error::RpcConversion(format!("site failed pb->model conversion: {}", e))
+                    crate::Error::RpcConversion(format!("site failed pb->model conversion: {e}"))
                 })
             })
     }
@@ -194,8 +194,7 @@ impl MachineAttestationSummaryList {
                 machine_id: MachineId::try_from(rpc::MachineId { id: pb.machine_id.clone() }).map_err(
                     |err| {
                         crate::Error::RpcConversion(format!(
-                            "Could not deserialize ListAttestationSummaryResponse(machine_id): {}",
-                            err
+                            "Could not deserialize ListAttestationSummaryResponse(machine_id): {err}"
                         ))
                     },
                 )?,
@@ -206,8 +205,7 @@ impl MachineAttestationSummaryList {
                         MeasurementBundleId::from_str(&pb.bundle_id.as_ref().unwrap().value).map_err(
                             |err| {
                                 crate::Error::RpcConversion(format!(
-                                    "Could not deserialize ListAttestationSummaryResponse(bundle_id): {}",
-                                    err
+                                    "Could not deserialize ListAttestationSummaryResponse(bundle_id): {err}"
                                 ))
                             },
                         )?,
@@ -220,8 +218,7 @@ impl MachineAttestationSummaryList {
                     chrono::DateTime::<Utc>::try_from(pb.ts.unwrap()).map_err(
                         |err| {
                             crate::Error::RpcConversion(format!(
-                                "Could not deserialize ListAttestationSummaryResponse(timestamp): {}",
-                                err
+                                "Could not deserialize ListAttestationSummaryResponse(timestamp): {err}"
                             ))
                         },
                     )?

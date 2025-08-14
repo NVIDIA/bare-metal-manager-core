@@ -166,7 +166,7 @@ async fn show_skus_table(
             );
 
             let table: Table = skus.into();
-            async_writeln!(output_file, "{}", table)?;
+            async_writeln!(output_file, "{table}")?;
         }
         OutputFormat::Yaml => todo!(),
     }

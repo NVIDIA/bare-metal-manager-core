@@ -266,7 +266,7 @@ pub(crate) async fn update(
         // CarbideError::FindOneReturnedManyResultsError expects a uuid,
         // and we've said we want to move away from uuid::Uuid
         return Err(CarbideError::Internal {
-            message: format!("multiple InstanceType records found for '{}'", id),
+            message: format!("multiple InstanceType records found for '{id}'"),
         }
         .into());
     }
@@ -313,8 +313,7 @@ pub(crate) async fn update(
         && !existing_associated_machines.is_empty()
     {
         return Err(CarbideError::FailedPrecondition(format!(
-            "InstanceType {} is associated with active machines",
-            id
+            "InstanceType {id} is associated with active machines"
         ))
         .into());
     }
@@ -398,8 +397,7 @@ pub(crate) async fn delete(
 
     if !instances.is_empty() {
         return Err(CarbideError::FailedPrecondition(format!(
-            "InstanceType {} is associated with machines that have active instances",
-            id
+            "InstanceType {id} is associated with machines that have active instances"
         ))
         .into());
     }
@@ -501,7 +499,7 @@ pub(crate) async fn associate_machines(
                     false => m_id,
                     true => {
                         return Err(
-                            CarbideError::InvalidArgument(format!("{} is a DPU", m_id)).into()
+                            CarbideError::InvalidArgument(format!("{m_id} is a DPU")).into()
                         );
                     }
                 },
@@ -522,10 +520,7 @@ pub(crate) async fn associate_machines(
 
     if instance_types.len() > 1 {
         return Err(CarbideError::Internal {
-            message: format!(
-                "multiple InstanceType records found for '{}'",
-                instance_type_id
-            ),
+            message: format!("multiple InstanceType records found for '{instance_type_id}'"),
         }
         .into());
     }

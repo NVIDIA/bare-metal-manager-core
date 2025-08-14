@@ -233,8 +233,7 @@ pub async fn detach_volume_from_client(
 
     if !volume.status.attached || !volume.dpu_machine_id.contains(dpu_machine_id) {
         return Err(StorageError::NotFound(format!(
-            "dpu {} for volume {}",
-            dpu_machine_id, volume_id
+            "dpu {dpu_machine_id} for volume {volume_id}"
         )));
     }
     nvmesh_api

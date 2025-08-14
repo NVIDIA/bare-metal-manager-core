@@ -924,7 +924,8 @@ impl MachineStateMachine {
         self.app_context
             .forge_api_client
             .discovery_completed(machine_id.clone())
-            .await?;
+            .await
+            .map_err(ClientApiError::InvocationError)?;
         tracing::trace!("discovery_complete took {}ms", start.elapsed().as_millis());
         Ok(())
     }
@@ -1088,7 +1089,7 @@ impl Display for MaybeOsImage {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.0 {
             None => f.write_str("<None>"),
-            Some(os_image) => write!(f, "{}", os_image),
+            Some(os_image) => write!(f, "{os_image}"),
         }
     }
 }
@@ -1120,19 +1121,17 @@ pub enum MachineStateError {
     #[error("{0}")]
     WrongOsForMachine(String),
 }
-
 impl From<tonic::Status> for MachineStateError {
     fn from(err: tonic::Status) -> Self {
-        MachineStateError::ClientApi(ClientApiError::from(err))
+        MachineStateError::ClientApi(ClientApiError::InvocationError(err))
     }
 }
-
 #[derive(thiserror::Error, Debug)]
 pub enum AddressConfigError {
     #[error("Error running ip command: {0}")]
     Io(#[from] std::io::Error),
     #[error("Error running ip command: {0:?}, output: {1:?}")]
-    CommandFailure(tokio::process::Command, std::process::Output),
+    CommandFailure(Box<tokio::process::Command>, std::process::Output),
 }
 
 fn rpc_machine_type(machine_info: &MachineInfo) -> MachineType {

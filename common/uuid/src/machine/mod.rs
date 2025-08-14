@@ -105,7 +105,7 @@ impl TryFrom<Option<::rpc::common::Uuid>> for MachineInterfaceId {
 impl MachineInterfaceId {
     pub fn from_grpc(msg: Option<::rpc::common::Uuid>) -> Result<Self, Status> {
         Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad grpc interface ID: {}", e)))
+            .map_err(|e| Status::invalid_argument(format!("bad grpc interface ID: {e}")))
     }
 }
 

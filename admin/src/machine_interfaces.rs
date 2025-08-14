@@ -215,7 +215,7 @@ fn convert_machine_to_nice_format(
     let mut lines = String::new();
 
     for (key, value) in data {
-        writeln!(&mut lines, "\t{:<width$}: {}", key, value)?;
+        writeln!(&mut lines, "\t{key:<width$}: {value}")?;
     }
     Ok(lines)
 }

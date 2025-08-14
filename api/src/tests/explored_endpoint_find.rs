@@ -28,7 +28,7 @@ async fn test_find_explored_endpoint_ids(
     for i in 1..6 {
         common::endpoint::insert_endpoint_version(
             &mut txn,
-            format!("141.219.24.{}", i).as_str(),
+            format!("141.219.24.{i}").as_str(),
             "1.0",
         )
         .await?;
@@ -58,7 +58,7 @@ async fn test_find_explored_endpoints_by_ids(
     for i in 1..6 {
         common::endpoint::insert_endpoint_version(
             &mut txn,
-            format!("141.219.24.{}", i).as_str(),
+            format!("141.219.24.{i}").as_str(),
             "1.0",
         )
         .await?;
@@ -105,9 +105,7 @@ async fn test_find_explored_endpoints_by_ids_over_max(pool: sqlx::PgPool) {
     // create vector of IDs with more than max allowed
     // it does not matter if these are real or not, since we are testing an error back for passing more than max
     let end_index: u32 = env.config.max_find_by_ids + 1;
-    let endpoint_ids: Vec<String> = (1..=end_index)
-        .map(|i| format!("141.219.24.{}", i))
-        .collect();
+    let endpoint_ids: Vec<String> = (1..=end_index).map(|i| format!("141.219.24.{i}")).collect();
 
     let request =
         tonic::Request::new(::rpc::site_explorer::ExploredEndpointsByIdsRequest { endpoint_ids });

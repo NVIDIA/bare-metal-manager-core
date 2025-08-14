@@ -188,7 +188,7 @@ impl DnsServer {
                 info!("Carbide-dns is stopping");
             }
             Err(e) => {
-                let error_msg = format!("Carbide-dns has encountered and error: {}", e);
+                let error_msg = format!("Carbide-dns has encountered and error: {e}");
                 error!("{}", error_msg);
                 panic!("{}", error_msg);
             }

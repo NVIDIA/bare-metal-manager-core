@@ -47,7 +47,7 @@ impl DhcpMode for Controller {
 
         let vendor_class = if let Some(vendor_string) = &discovery_request.vendor_string {
             Some(VendorClass::from_str(vendor_string).map_err(|e| {
-                DhcpError::VendorClassParseError(format!("Vendor string parse error: {:?}", e))
+                DhcpError::VendorClassParseError(format!("Vendor string parse error: {e:?}"))
             })?)
         } else {
             None

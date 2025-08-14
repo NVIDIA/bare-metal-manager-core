@@ -47,7 +47,7 @@ impl IbGuidPool {
 
         let mut u64_guid = u64::from_be_bytes(self.config.start);
         u64_guid += offset as u64;
-        format!("{:016x}", u64_guid)
+        format!("{u64_guid:016x}")
     }
 }
 

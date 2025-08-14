@@ -53,10 +53,7 @@ impl MeasurementSystemProfile {
             ))
             .and_then(|pb| {
                 Self::try_from(pb.clone()).map_err(|e| {
-                    crate::Error::RpcConversion(format!(
-                        "profile failed pb->model conversion: {}",
-                        e
-                    ))
+                    crate::Error::RpcConversion(format!("profile failed pb->model conversion: {e}"))
                 })
             })
     }
@@ -84,8 +81,7 @@ impl TryFrom<MeasurementSystemProfilePb> for MeasurementSystemProfile {
                 |attr| match MeasurementSystemProfileAttrRecord::try_from(attr.clone()) {
                     Ok(worked) => Ok(worked),
                     Err(failed) => Err(crate::Error::RpcConversion(format!(
-                        "attr conversion failed: {}",
-                        failed
+                        "attr conversion failed: {failed}"
                     ))),
                 },
             )

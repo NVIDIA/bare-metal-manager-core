@@ -170,7 +170,7 @@ async fn api_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         .expect("Could not load custom boot")
         .unwrap();
 
-    println!("{:?}", machine_boot_override);
+    println!("{machine_boot_override:?}");
     assert_eq!(machine_boot_override.custom_pxe, expected_pxe);
     assert_eq!(machine_boot_override.custom_user_data, expected_user_data);
     Ok(())

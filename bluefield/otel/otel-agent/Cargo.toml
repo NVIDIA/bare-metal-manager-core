@@ -31,7 +31,7 @@ rpc = { path = "../../../rpc" }
 [dev-dependencies]
 ctor = "0.2"
 tempfile = "3"
-prost = "0.13"
+prost = "0.14.1"
 reqwest = { version = "*", default-features = false, features = [
     "rustls-tls",
     "stream",

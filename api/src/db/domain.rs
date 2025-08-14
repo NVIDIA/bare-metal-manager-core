@@ -120,8 +120,8 @@ impl Soa {
 
     pub fn new(domain_name: &str) -> Soa {
         Soa {
-            primary_ns: format!("ns1.{}", domain_name),
-            contact: format!("hostmaster.{}", domain_name),
+            primary_ns: format!("ns1.{domain_name}"),
+            contact: format!("hostmaster.{domain_name}"),
             serial: Self::generate_new_serial(),
             refresh: 3600,
             retry: 3600,

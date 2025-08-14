@@ -121,8 +121,7 @@ pub fn parse_pcr_index_input(arg: &str) -> crate::Result<PcrSet> {
         } else {
             index_set.insert(group.parse::<i16>().map_err(|e| {
                 crate::Error::Parse(format!(
-                    "parse_pcr_index_input group parse failed: {}, {}",
-                    group, e
+                    "parse_pcr_index_input group parse failed: {group}, {e}"
                 ))
             })?);
         }
@@ -138,7 +137,7 @@ pub fn parse_range(arg: &str) -> crate::Result<PcrRange> {
         .split('-')
         .map(|s| {
             s.parse::<usize>()
-                .map_err(|_| crate::Error::Parse(format!("parse_range failed on {}", arg)))
+                .map_err(|_| crate::Error::Parse(format!("parse_range failed on {arg}")))
         })
         .collect::<crate::Result<Vec<usize>>>()?;
 

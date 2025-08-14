@@ -134,7 +134,7 @@ async fn convert_and_print_into_nice_table(
             .map(|label| {
                 let key = &label.key;
                 let value = label.value.clone().unwrap_or_default();
-                format!("\"{}:{}\"", key, value)
+                format!("\"{key}:{value}\"")
             })
             .collect::<Vec<_>>();
 

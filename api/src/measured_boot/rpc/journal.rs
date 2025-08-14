@@ -46,7 +46,7 @@ pub async fn handle_delete_measurement_journal(
         MeasurementJournalId::from_grpc(req.journal_id.clone())?,
     )
     .await
-    .map_err(|e| Status::internal(format!("failed to delete journal: {}", e)))?
+    .map_err(|e| Status::internal(format!("failed to delete journal: {e}")))?
     .ok_or(Status::not_found("no journal found with that ID"))?;
 
     commit_txn(txn).await?;
@@ -70,17 +70,17 @@ pub async fn handle_show_measurement_journal(
                     MeasurementJournalId::from_grpc(Some(journal_uuid.clone()))?,
                 )
                 .await
-                .map_err(|e| Status::internal(format!("{}", e)))?
+                .map_err(|e| Status::internal(format!("{e}")))?
             }
             show_measurement_journal_request::Selector::LatestForMachineId(machine_id) => {
                 match db::journal::get_latest_journal_for_id(
                     &mut txn,
                     MachineId::from_str(machine_id).map_err(|e| {
-                        Status::invalid_argument(format!("Could not parse MachineId: {}", e))
+                        Status::invalid_argument(format!("Could not parse MachineId: {e}"))
                     })?,
                 )
                 .await
-                .map_err(|e| Status::internal(format!("{}", e)))?
+                .map_err(|e| Status::internal(format!("{e}")))?
                 {
                     Some(journal) => journal,
                     None => {
@@ -108,7 +108,7 @@ pub async fn handle_show_measurement_journals(
     Ok(ShowMeasurementJournalsResponse {
         journals: db::journal::get_all(&mut txn)
             .await
-            .map_err(|e| Status::internal(format!("failed to fetch journals: {}", e)))?
+            .map_err(|e| Status::internal(format!("failed to fetch journals: {e}")))?
             .drain(..)
             .map(|journal| journal.into())
             .collect(),
@@ -126,13 +126,13 @@ pub async fn handle_list_measurement_journal(
     let journals: Vec<MeasurementJournalRecordPb> = match &req.selector {
         Some(list_measurement_journal_request::Selector::MachineId(machine_id)) => {
             let machine_id = MachineId::from_str(machine_id).map_err(|e| {
-                Status::internal(format!("failed to fetch journals for machine: {}", e))
+                Status::internal(format!("failed to fetch journals for machine: {e}"))
             })?;
 
             get_measurement_journal_records_for_machine_id(&mut txn, machine_id)
                 .await
                 .map_err(|e| {
-                    Status::internal(format!("failed to fetch journals for machine: {}", e))
+                    Status::internal(format!("failed to fetch journals for machine: {e}"))
                 })?
                 .drain(..)
                 .map(|journal| journal.into())
@@ -140,7 +140,7 @@ pub async fn handle_list_measurement_journal(
         }
         None => get_measurement_journal_records(&mut txn)
             .await
-            .map_err(|e| Status::internal(format!("failed to fetch journals: {}", e)))?
+            .map_err(|e| Status::internal(format!("failed to fetch journals: {e}")))?
             .drain(..)
             .map(|journal| journal.into())
             .collect(),

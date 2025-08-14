@@ -1077,7 +1077,7 @@ async fn hack_dpu_os_to_load_atf_uefi_with_specific_versions() -> eyre::Result<(
         // bfvcheck is taking around 11 seconds.
         let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT * 2, cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {:?}", cmd_str))??;
+            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
 
         String::from_utf8_lossy(&output.stdout).to_string()
     };
@@ -1122,11 +1122,11 @@ ATF: v2.2(release):4.9.3-")
         // This is not a typo, we have to run it twice as per NBU
         tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {:?}", cmd_str))??;
+            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
         // This is not a typo, we have to run it twice as per NBU
         tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {:?}", cmd_str))??;
+            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
 
         let mut cmd = tokio::process::Command::new("bash");
         cmd.args(vec!["-c", "sync"]);
@@ -1135,7 +1135,7 @@ ATF: v2.2(release):4.9.3-")
         let cmd_str = pretty_cmd(cmd.as_std());
         tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {:?}", cmd_str))??;
+            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
 
         // And now for the pièce de résistance, a reboot inline on the dpu OS, and this command
         // takes a LONG time so we will put an egregiously large reboot time
@@ -1146,7 +1146,7 @@ ATF: v2.2(release):4.9.3-")
         let cmd_str = pretty_cmd(cmd.as_std());
         tokio::time::timeout(Duration::from_secs(60 * 10), cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {:?}", cmd_str))??;
+            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
     }
 
     // This method will either reboot a card or just return ok.

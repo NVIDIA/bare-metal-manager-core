@@ -169,8 +169,7 @@ pub fn config_version<T: std::fmt::Display>(version: T) -> ::askama::Result<Stri
     let utc_time = version.timestamp();
     let formatted_utc_time = utc_time.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true);
     Ok(format!(
-        "{string_version}<br><small>[<span title=\"{}\" onmouseover=\"setTitleToLocalizedTime(this)\">{}</span>]</small>",
-        formatted_utc_time, formatted_utc_time
+        "{string_version}<br><small>[<span title=\"{formatted_utc_time}\" onmouseover=\"setTitleToLocalizedTime(this)\">{formatted_utc_time}</span>]</small>"
     ))
 }
 

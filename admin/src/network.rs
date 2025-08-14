@@ -77,7 +77,7 @@ async fn convert_network_to_nice_format(
         ),
     ];
     for (key, value) in data {
-        writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+        writeln!(&mut lines, "{key:<width$}: {value}")?;
     }
 
     writeln!(&mut lines, "{:<width$}: ", "PREFIXES")?;
@@ -107,7 +107,7 @@ async fn convert_network_to_nice_format(
             ];
 
             for (key, value) in data {
-                writeln!(&mut lines, "\t{:<width$}: {}", key, value)?;
+                writeln!(&mut lines, "\t{key:<width$}: {value}")?;
             }
             writeln!(
                 &mut lines,

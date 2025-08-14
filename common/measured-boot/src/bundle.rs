@@ -95,10 +95,7 @@ impl MeasurementBundle {
             )))
             .and_then(|pb| {
                 Self::try_from(pb.clone()).map_err(|e| {
-                    crate::Error::RpcConversion(format!(
-                        "bundle failed pb->model conversion: {}",
-                        e
-                    ))
+                    crate::Error::RpcConversion(format!("bundle failed pb->model conversion: {e}"))
                 })
             })
     }
@@ -116,8 +113,7 @@ impl TryFrom<MeasurementBundlePb> for MeasurementBundle {
                 |attr| match MeasurementBundleValueRecord::try_from(attr.clone()) {
                     Ok(worked) => Ok(worked),
                     Err(failed) => Err(crate::Error::RpcConversion(format!(
-                        "attr conversion failed: {}",
-                        failed
+                        "attr conversion failed: {failed}"
                     ))),
                 },
             )

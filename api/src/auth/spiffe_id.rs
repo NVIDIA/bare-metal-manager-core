@@ -144,7 +144,7 @@ impl SpiffeId {
         let mut path = String::new();
         for p in segments {
             validate_path(p)?;
-            path = format!("{}/{}", path, p);
+            path = format!("{path}/{p}");
         }
 
         Ok(SpiffeId { trust_domain, path })
@@ -540,8 +540,8 @@ mod spiffe_id_tests {
                 continue;
             }
 
-            let path = format!("/path{}", c);
-            let id = format!("spiffe://trustdomain{}", path);
+            let path = format!("/path{c}");
+            let id = format!("spiffe://trustdomain{path}");
 
             if PATH_CHARS.contains(&c) {
                 let spiffe_id = SpiffeId::new(&id).unwrap();
@@ -553,7 +553,7 @@ mod spiffe_id_tests {
                 );
             }
 
-            let td = format!("spiffe://trustdomain{}", c);
+            let td = format!("spiffe://trustdomain{c}");
 
             if TD_CHARS.contains(&c) {
                 let spiffe_id = SpiffeId::new(&td).unwrap();
@@ -573,14 +573,14 @@ mod spiffe_id_tests {
         for i in 0..=255_u8 {
             let c = i as char;
 
-            let path = format!("path{}", c);
+            let path = format!("path{c}");
             let trust_domain = TrustDomain::new("trustdomain").unwrap();
 
             if PATH_CHARS.contains(&c) {
                 let spiffe_id = SpiffeId::from_segments(trust_domain, &[path.as_str()]).unwrap();
                 assert_eq!(
                     spiffe_id.to_string(),
-                    format!("spiffe://trustdomain/{}", path)
+                    format!("spiffe://trustdomain/{path}")
                 )
             } else if c == '/' {
                 assert_eq!(
@@ -689,7 +689,7 @@ mod trust_domain_tests {
         // Go all the way through 255, which ensures we reject UTF-8 appropriately
         for i in 0..=255_u8 {
             let c = i as char;
-            let td = format!("trustdomain{}", c);
+            let td = format!("trustdomain{c}");
 
             if TD_CHARS.contains(&c) {
                 let trust_domain = TrustDomain::new(&td).unwrap();

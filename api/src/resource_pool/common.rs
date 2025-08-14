@@ -133,11 +133,7 @@ impl CommonPools {
                 })
                 .collect(),
         );
-        pool_names.extend(
-            pkey_pools
-                .iter()
-                .map(|(_fabric_id, pool)| pool.name().to_string()),
-        );
+        pool_names.extend(pkey_pools.values().map(|pool| pool.name().to_string()));
 
         // Gather resource pool stats. A different thread sends them to Prometheus.
         let (stop_sender, mut stop_receiver) = oneshot::channel();

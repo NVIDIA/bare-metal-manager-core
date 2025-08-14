@@ -18,11 +18,14 @@ use crate::api::Api;
 use crate::web::Oauth2Layer;
 use axum::{
     Extension,
-    extract::{Host, Query, State as AxumState},
+    extract::{Query, State as AxumState},
     http::{HeaderValue, Method, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
 };
-use axum_extra::extract::cookie::{Cookie, PrivateCookieJar};
+use axum_extra::extract::{
+    Host,
+    cookie::{Cookie, PrivateCookieJar},
+};
 use base64::Engine;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use http::HeaderMap;
@@ -86,7 +89,7 @@ pub async fn callback(
             .client
             .set_client_secret(ClientSecret::new(client_secret.to_string()))
             .exchange_client_credentials()
-            .add_scope(Scope::new(format!("{}/.default", client_id)))
+            .add_scope(Scope::new(format!("{client_id}/.default")))
             .request_async(&AsyncRequestHandlerWithTimeouts::new(
                 &oauth2_layer.http_client,
             ))
@@ -96,7 +99,7 @@ pub async fn callback(
             Err(e) => {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("bad token response from external auth service: {}", e),
+                    format!("bad token response from external auth service: {e}"),
                 )
                     .into_response();
             }
@@ -104,7 +107,7 @@ pub async fn callback(
 
         let now_seconds = match SystemTime::now().duration_since(UNIX_EPOCH) {
             Ok(n) => n.as_secs(),
-            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{}", e)).into_response(),
+            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
         };
 
         let cookie = Cookie::build((
@@ -190,7 +193,7 @@ pub async fn callback(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("bad token response from external auth service: {}", e),
+                format!("bad token response from external auth service: {e}"),
             )
                 .into_response();
         }
@@ -220,7 +223,7 @@ pub async fn callback(
 
     let now_seconds = match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(n) => n.as_secs(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{}", e)).into_response(),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     };
 
     // The token we got back from MS is a JWT.  We can ignore the header
@@ -245,10 +248,7 @@ pub async fn callback(
                 Err(e) => {
                     return (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!(
-                            "invalid payload claims portion in oauth2 response token:  {}",
-                            e
-                        ),
+                        format!("invalid payload claims portion in oauth2 response token:  {e}"),
                     )
                         .into_response();
                 }
@@ -259,10 +259,7 @@ pub async fn callback(
                 Err(e) => {
                     return (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!(
-                            "failed to parse payload claims in oauth2 response token: {}",
-                            e
-                        ),
+                        format!("failed to parse payload claims in oauth2 response token: {e}"),
                     )
                         .into_response();
                 }
@@ -279,7 +276,7 @@ pub async fn callback(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to parse group query uri: {}", e),
+                format!("failed to parse group query uri: {e}"),
             )
                 .into_response();
         }
@@ -315,7 +312,7 @@ pub async fn callback(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("unable to create request to grab group details: {}", e),
+                format!("unable to create request to grab group details: {e}"),
             )
                 .into_response();
         }
@@ -331,7 +328,7 @@ pub async fn callback(
             Err(e) => {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("failed to parse oauth2 user groups response: {}", e),
+                    format!("failed to parse oauth2 user groups response: {e}"),
                 )
                     .into_response();
             }
@@ -339,7 +336,7 @@ pub async fn callback(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to get oauth2 user groups: {}", e),
+                format!("failed to get oauth2 user groups: {e}"),
             )
                 .into_response();
         }

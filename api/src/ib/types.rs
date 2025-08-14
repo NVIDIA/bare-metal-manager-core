@@ -114,8 +114,7 @@ impl TryFrom<String> for IBPortState {
             "initialize" => Ok(IBPortState::Initialize),
             "armed" => Ok(IBPortState::Armed),
             _ => Err(CarbideError::InvalidArgument(format!(
-                "{0} is an invalid IBPortState",
-                state
+                "{state} is an invalid IBPortState"
             ))),
         }
     }
@@ -142,8 +141,7 @@ impl TryFrom<i32> for IBMtu {
         match mtu {
             2 | 4 => Ok(Self(mtu)),
             _ => Err(CarbideError::InvalidArgument(format!(
-                "{0} is an invalid MTU",
-                mtu
+                "{mtu} is an invalid MTU"
             ))),
         }
     }
@@ -172,8 +170,7 @@ impl TryFrom<i32> for IBRateLimit {
             // It is special case for SDR as 2.5
             2 => Ok(Self(rate_limit)),
             _ => Err(CarbideError::InvalidArgument(format!(
-                "{0} is an invalid rate limit",
-                rate_limit
+                "{rate_limit} is an invalid rate limit"
             ))),
         }
     }
@@ -200,8 +197,7 @@ impl TryFrom<i32> for IBServiceLevel {
             0..=15 => Ok(Self(service_level)),
 
             _ => Err(CarbideError::InvalidArgument(format!(
-                "{0} is an invalid service level",
-                service_level
+                "{service_level} is an invalid service level"
             ))),
         }
     }

@@ -54,7 +54,7 @@ pub fn build_diff(src: &str, dst: &str) -> String {
             ChangeTag::Insert => "+",
             ChangeTag::Equal => " ",
         };
-        diff_output.push_str(&format!("{}{}", sign, change));
+        diff_output.push_str(&format!("{sign}{change}"));
     }
     diff_output.trim_end().to_string()
 }

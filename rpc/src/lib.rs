@@ -86,7 +86,7 @@ impl Ord for Timestamp {
 
 /// A wrapper around the prost timestamp which allows for serde serialization
 /// and has helper methods to convert from and into std::time::SystemTime and DateTime
-#[derive(Clone, PartialEq, Copy, Eq, Default, Debug)]
+#[derive(Clone, PartialEq, Copy, Eq, Default, Debug, Hash)]
 pub struct Timestamp(prost_types::Timestamp);
 
 impl PartialOrd for Timestamp {
@@ -212,7 +212,7 @@ impl prost::Message for Timestamp {
 
 /// A wrapper around the prost Duration which allows for serde serialization
 /// and has helper methods to convert from and into std::time::Duration
-#[derive(Clone, PartialEq, Copy, Default, Debug)]
+#[derive(Clone, PartialEq, Copy, Default, Debug, Eq, Hash)]
 pub struct Duration(prost_types::Duration);
 
 impl std::fmt::Display for Duration {
@@ -354,8 +354,8 @@ impl TryFrom<&common::Uuid> for uuid::Uuid {
 impl Display for common::Uuid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match uuid::Uuid::try_from(self) {
-            Ok(uuid) => write!(f, "{}", uuid),
-            Err(err) => write!(f, "<uuid error: {}>", err),
+            Ok(uuid) => write!(f, "{uuid}"),
+            Err(err) => write!(f, "<uuid error: {err}>"),
         }
     }
 }

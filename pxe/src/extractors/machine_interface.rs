@@ -54,7 +54,7 @@ impl TryFrom<MaybeMachineInterface> for MachineInterface {
         })
     }
 }
-#[axum::async_trait]
+
 impl<S> FromRequestParts<S> for MachineInterface
 where
     S: Send + Sync,

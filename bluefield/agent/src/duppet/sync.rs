@@ -340,7 +340,7 @@ pub fn maybe_update_file_ownership(
         let gid = desired_gid
             .map(Gid::from_raw)
             .unwrap_or(Gid::from_raw(current_gid));
-        chown(path, Some(uid), Some(gid)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        chown(path, Some(uid), Some(gid)).map_err(io::Error::other)?;
     }
 
     Ok(true)

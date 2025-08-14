@@ -61,14 +61,18 @@ fn show_network_devices_info(data: &rpc::forge::NetworkTopologyData) -> CarbideC
                 "\t\t{} | {:8} | {}",
                 device.id.clone().unwrap_or_default(),
                 device.local_port,
-                device.remote_port.split('=').last().unwrap_or_default()
+                device
+                    .remote_port
+                    .split('=')
+                    .next_back()
+                    .unwrap_or_default()
             )?;
         }
         writeln!(&mut lines, "{}", "-".repeat(95))?;
     }
     writeln!(&mut lines)?;
 
-    println!("{}", lines);
+    println!("{lines}");
 
     Ok(())
 }

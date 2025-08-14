@@ -28,7 +28,7 @@ pub(crate) async fn get(
 
     let request = request.into_inner();
     let machine_interface_id = MachineInterfaceId::try_from(request.clone())
-        .map_err(|_e| Status::invalid_argument(format!("bad input uuid: {}", request)))?;
+        .map_err(|_e| Status::invalid_argument(format!("bad input uuid: {request}")))?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -113,7 +113,7 @@ pub(crate) async fn clear(
 
     let request = request.into_inner();
     let machine_interface_id = MachineInterfaceId::try_from(request.clone())
-        .map_err(|_e| Status::invalid_argument(format!("bad input uuid: {}", request)))?;
+        .map_err(|_e| Status::invalid_argument(format!("bad input uuid: {request}")))?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(

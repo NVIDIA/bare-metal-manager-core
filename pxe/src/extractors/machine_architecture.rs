@@ -34,8 +34,7 @@ impl TryFrom<&str> for MachineArchitecture {
                 Ok(MachineArchitecture::X86)
             }
             _ => Err(PxeRequestError::MalformedBuildArch(format!(
-                "Not a valid architecture identifier: {}",
-                value
+                "Not a valid architecture identifier: {value}"
             ))),
         }
     }

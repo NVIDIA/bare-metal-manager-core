@@ -96,7 +96,7 @@ fn convert_external_config_to_nice_format(
         ];
 
         for (key, value) in details {
-            writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+            writeln!(&mut lines, "{key:<width$}: {value}")?;
         }
         writeln!(
             &mut lines,
@@ -325,7 +325,7 @@ fn convert_to_nice_format(
         ("CONTEXT", first.context.clone()),
     ];
     for (key, value) in data {
-        writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+        writeln!(&mut lines, "{key:<width$}: {value}")?;
     }
     // data.clear();
     for result in results.results {
@@ -349,7 +349,7 @@ fn convert_to_nice_format(
         ];
 
         for (key, value) in details {
-            writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+            writeln!(&mut lines, "{key:<width$}: {value}")?;
         }
         writeln!(
             &mut lines,
@@ -516,7 +516,7 @@ fn convert_tests_to_nice_format(
         ];
 
         for (key, value) in details {
-            writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+            writeln!(&mut lines, "{key:<width$}: {value}")?;
         }
         writeln!(
             &mut lines,

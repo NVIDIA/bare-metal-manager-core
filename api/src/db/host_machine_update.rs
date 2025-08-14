@@ -52,13 +52,12 @@ impl HostMachineUpdate {
         INNER JOIN desired_firmware
             ON explored_endpoints.exploration_report->>'Vendor' = desired_firmware.vendor AND explored_endpoints.exploration_report->>'Model' = desired_firmware.model
         WHERE machines.id LIKE 'fm100h%'
-            {}
+            {ready_only}
             AND machines.host_reprovisioning_requested IS NULL
             AND desired_firmware.versions->>'Versions' != explored_endpoints.exploration_report->>'Versions'
-            AND (machines.firmware_autoupdate = TRUE{})
+            AND (machines.firmware_autoupdate = TRUE{from_global})
         ORDER BY machines.controller_state->>'state' != 'ready'
         ;"#,
-            ready_only, from_global,
         );
         sqlx::query_as(query.as_str())
             .fetch_all(txn)

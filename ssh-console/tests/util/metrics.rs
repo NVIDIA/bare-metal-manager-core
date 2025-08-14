@@ -164,7 +164,7 @@ pub async fn assert_metrics(metrics_str: String, mock_hosts: &[MockHost]) -> eyr
                 expected_observation.attribute_key_value
             {
                 // Actual metric values have "'s around them, so emulate that
-                let attribute_value = format!("{:?}", attribute_value);
+                let attribute_value = format!("{attribute_value:?}");
                 observations.iter().find(|o| o.attributes.0.get(attribute_key).is_some_and(|v| v.eq(&attribute_value)))
                     .unwrap_or_else(|| panic!("no observation for metric {expected_metric_name} with key={attribute_key} and value={attribute_value}: {observations:?}"))
             } else {

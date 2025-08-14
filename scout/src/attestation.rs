@@ -411,7 +411,7 @@ pub fn get_tpm_description(ctx: &mut Context) -> Option<TpmDescription> {
     let vendor = vendor_1.clone() + &vendor_2;
     tracing::debug!("vendor is {0}", vendor);
 
-    let firmware_version = format!("0x{:x}.0x{:x}", firmware_version_1, firmware_version_2);
+    let firmware_version = format!("0x{firmware_version_1:x}.0x{firmware_version_2:x}");
 
     tracing::debug!("firmware version is {0}", firmware_version);
 

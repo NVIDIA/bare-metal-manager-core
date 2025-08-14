@@ -49,7 +49,7 @@ pub(crate) async fn get_pxe_instructions(
             return Err(Status::invalid_argument("Interface ID is missing."));
         }
         Some(interface_id) => MachineInterfaceId::try_from(interface_id)
-            .map_err(|e| Status::invalid_argument(format!("Interface ID is invalid: {}", e)))?,
+            .map_err(|e| Status::invalid_argument(format!("Interface ID is invalid: {e}")))?,
     };
 
     let arch = rpc::MachineArchitecture::try_from(request.arch)
@@ -121,7 +121,7 @@ pub(crate) async fn get_cloud_init_instructions(
             .map_err(CarbideError::from)?
             .first()
             .ok_or_else(|| {
-                CarbideError::internal(format!("Could not find a domain for {}", domain_id))
+                CarbideError::internal(format!("Could not find a domain for {domain_id}"))
             })?
             .to_owned();
 

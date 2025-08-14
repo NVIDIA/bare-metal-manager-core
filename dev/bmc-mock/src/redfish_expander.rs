@@ -18,7 +18,7 @@ https://www.dmtf.org/sites/default/files/standards/documents/DSP0268_2024.2.pdf
 */
 pub fn wrap_router_with_redfish_expander(router: Router) -> Router {
     Router::new()
-        .route("/*all", get(redfish_expand).fallback(fallback))
+        .route("/{*all}", get(redfish_expand).fallback(fallback))
         .with_state(State { inner: router })
 }
 
@@ -255,7 +255,7 @@ mod tests {
         };
 
         let Some(Value::Array(network_adapters)) = response_object.get("Members") else {
-            panic!("No Members array in {:?}", response_object)
+            panic!("No Members array in {response_object:?}")
         };
 
         // Make sure each network adapter deserializes into what we expect, and that it matches what is held in the upstream router.

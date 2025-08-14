@@ -351,7 +351,7 @@ pub(crate) async fn update(
         // CarbideError::FindOneReturnedManyResultsError expects a uuid,
         // and we've said we want to move away from uuid::Uuid
         return Err(CarbideError::Internal {
-            message: format!("multiple NetworkSecurityGroup records found for '{}'", id),
+            message: format!("multiple NetworkSecurityGroup records found for '{id}'"),
         }
         .into());
     }
@@ -502,8 +502,7 @@ pub(crate) async fn delete(
                 .unwrap_or_default()
             {
                 return Err(CarbideError::FailedPrecondition(format!(
-                    "NetworkSecurityGroup {} is associated with active objects",
-                    id
+                    "NetworkSecurityGroup {id} is associated with active objects"
                 ))
                 .into());
             }

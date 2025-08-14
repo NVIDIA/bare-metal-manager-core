@@ -86,7 +86,7 @@ pub fn build() {
             "Git HEAD not found at {git_head}. Adjust location to avoid double compilation"
         );
 
-        println!("cargo:rerun-if-changed={}", git_head);
+        println!("cargo:rerun-if-changed={git_head}");
     }
 }
 

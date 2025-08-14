@@ -61,7 +61,7 @@ pub async fn cluster_show(
         );
     } else {
         // there's usually only one storage cluster on a site
-        println!("{:?}", clusters);
+        println!("{clusters:?}");
     }
     Ok(())
 }
@@ -147,7 +147,7 @@ pub async fn pool_show(
         );
     } else {
         // todo: pretty print in table form
-        println!("{:?}", pools);
+        println!("{pools:?}");
     }
     Ok(())
 }
@@ -247,7 +247,7 @@ pub async fn volume_show(
         );
     } else {
         // todo: pretty print in table form
-        println!("{:?}", volumes);
+        println!("{volumes:?}");
     }
     Ok(())
 }
@@ -348,7 +348,7 @@ pub async fn os_image_show(
         );
     } else {
         // todo: pretty print in table form
-        println!("{:?}", images);
+        println!("{images:?}");
     }
     Ok(())
 }

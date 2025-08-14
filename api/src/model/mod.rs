@@ -185,7 +185,7 @@ impl<'de> Deserialize<'de> for SerializableMacAddress {
         let str_value = String::deserialize(deserializer)?;
         let mac: MacAddress = str_value
             .parse()
-            .map_err(|_| Error::custom(format!("Invalid MAC address: {}", str_value)))?;
+            .map_err(|_| Error::custom(format!("Invalid MAC address: {str_value}")))?;
         Ok(SerializableMacAddress(mac))
     }
 }

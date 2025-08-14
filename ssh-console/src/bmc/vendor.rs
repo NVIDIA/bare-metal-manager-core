@@ -145,7 +145,7 @@ impl<'de> Deserialize<'de> for BmcVendor {
 
         let str_value = String::deserialize(deserializer)?;
         let Some(bmc_vendor) = Self::from_config_string(&str_value) else {
-            return Err(Error::custom(format!("Invalid BMC vendor: {}", str_value)));
+            return Err(Error::custom(format!("Invalid BMC vendor: {str_value}")));
         };
         Ok(bmc_vendor)
     }

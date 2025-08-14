@@ -132,10 +132,9 @@ impl InstanceNetworkStatus {
             let device_locator = config_iface.device_locator.as_ref();
 
             let dpu_machine_id = device_locator.and_then(|dl| {
-                let dpu_id = dpu_id_to_device_map
+                dpu_id_to_device_map
                     .get(&dl.device)
-                    .and_then(|id_vec| id_vec.get(dl.device_instance));
-                dpu_id
+                    .and_then(|id_vec| id_vec.get(dl.device_instance))
             });
             match dpu_machine_id {
                 Some(dpu_machine_id) => match observations.get(dpu_machine_id) {
@@ -625,7 +624,7 @@ mod tests {
     #[test]
     fn deserialize_old_network_status_observation() {
         let timestamp: DateTime<Utc> = Utc::now();
-        let serialized_timestamp = format!("{:?}", timestamp);
+        let serialized_timestamp = format!("{timestamp:?}");
         let version = ConfigVersion::initial();
 
         let observation = InstanceNetworkStatusObservation {
@@ -638,8 +637,7 @@ mod tests {
         // Let's make sure the one without the instance_config_version
         // doesn't cause an issue.
         let serialized = format!(
-            "{{\"config_version\":\"{}\",\"interfaces\":[],\"observed_at\":\"{}\"}}",
-            version, serialized_timestamp
+            "{{\"config_version\":\"{version}\",\"interfaces\":[],\"observed_at\":\"{serialized_timestamp}\"}}"
         );
 
         assert_eq!(
@@ -651,7 +649,7 @@ mod tests {
     #[test]
     fn serialize_network_status_observation() {
         let timestamp: DateTime<Utc> = Utc::now();
-        let serialized_timestamp = format!("{:?}", timestamp);
+        let serialized_timestamp = format!("{timestamp:?}");
         let version = ConfigVersion::initial();
         let instance_version = version;
 
@@ -718,8 +716,7 @@ mod tests {
         write!(&mut expected, r#"{{"function_id":{{"type":"virtual","id":1}},"mac_address":"01:02:03:04:05:06","addresses":["127.1.2.3"],"prefixes":["127.1.2.3/32"],"gateways":["127.1.2.1/32"],"network_security_group":{{"id":"c7c056c8-daa5-11ef-b221-c76a97b6c2ec","version":"V1-T1","source":"INSTANCE"}},"internal_uuid":null}}"#).unwrap();
         write!(
             &mut expected,
-            r#"],"observed_at":"{}"}}"#,
-            serialized_timestamp
+            r#"],"observed_at":"{serialized_timestamp}"}}"#
         )
         .unwrap();
         assert_eq!(serialized, expected);

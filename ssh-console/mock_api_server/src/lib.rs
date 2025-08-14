@@ -93,7 +93,7 @@ impl MockApiServer {
                 .expect("No socket available")
         };
 
-        println!("Mock gRPC server listening on {}", addr);
+        println!("Mock gRPC server listening on {addr}");
 
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 

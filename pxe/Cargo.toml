@@ -19,7 +19,7 @@ rpc = { path = "../rpc" }
 # [end-local-dependencies]
 
 axum = { workspace = true }
-axum-response-cache = "0.2"
+axum-response-cache = "0.4"
 axum-client-ip = { workspace = true }
 axum-template = { workspace = true, features = ["tera"] }
 base64 = "0.22.1"

@@ -469,7 +469,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
         panic!("Not in HostReprovision");
     };
-    let HostReprovisionState::CheckingFirmwareRepeat { .. } = reprovision_state else {
+    let HostReprovisionState::CheckingFirmwareRepeat = reprovision_state else {
         panic!("Not in reset {reprovision_state:?}");
     };
     txn.commit().await.unwrap();
@@ -1426,7 +1426,7 @@ async fn test_instance_upgrading_actual_part_2(
     let InstanceState::HostReprovision { reprovision_state } = instance_state else {
         panic!("Unexpected state {:?}", host.state)
     };
-    let HostReprovisionState::CheckingFirmwareRepeat { .. } = reprovision_state else {
+    let HostReprovisionState::CheckingFirmwareRepeat = reprovision_state else {
         panic!("Not in reset {reprovision_state:?}");
     };
 
@@ -1852,7 +1852,7 @@ exit 0
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
         panic!("Not in HostReprovision");
     };
-    let HostReprovisionState::CheckingFirmwareRepeat { .. } = reprovision_state else {
+    let HostReprovisionState::CheckingFirmwareRepeat = reprovision_state else {
         panic!("Not in CheckingFirmwareRepeat");
     };
     txn.commit().await.unwrap();

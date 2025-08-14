@@ -46,7 +46,7 @@ impl RawMessageType for StringMessage {
     fn from_bytes(bytes: Vec<u8>) -> Self {
         let content = String::from_utf8(bytes).unwrap_or_else(|e| {
             // If invalid UTF-8, include the error info in the content
-            format!("Invalid UTF-8 data: {}", e)
+            format!("Invalid UTF-8 data: {e}")
         });
         Self { content }
     }

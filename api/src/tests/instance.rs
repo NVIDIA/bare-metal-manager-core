@@ -1014,8 +1014,7 @@ async fn test_allocate_instance_with_invalid_metadata(_: PgPoolOptions, options:
             .await;
 
         let err = result.expect_err(&format!(
-            "Invalid metadata of type should not be accepted: {:?}",
-            invalid_metadata
+            "Invalid metadata of type should not be accepted: {invalid_metadata:?}"
         ));
 
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
@@ -1221,15 +1220,15 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
         let (_instance_id, _instance) = TestInstance::new(&env)
             .single_interface_network_config(segment_id)
             .metadata(rpc::forge::Metadata {
-                name: format!("instance_{}{}{}", i, i, i).to_string(),
-                description: format!("instance_{}{}{} have labels", i, i, i).to_string(),
+                name: format!("instance_{i}{i}{i}").to_string(),
+                description: format!("instance_{i}{i}{i} have labels").to_string(),
                 labels: vec![
                     rpc::forge::Label {
-                        key: format!("key_A_{}{}{}", i, i, i).to_string(),
-                        value: Some(format!("value_A_{}{}{}", i, i, i).to_string()),
+                        key: format!("key_A_{i}{i}{i}").to_string(),
+                        value: Some(format!("value_A_{i}{i}{i}").to_string()),
                     },
                     rpc::forge::Label {
-                        key: format!("key_B_{}{}{}", i, i, i).to_string(),
+                        key: format!("key_B_{i}{i}{i}").to_string(),
                         value: None,
                     },
                 ],
@@ -1489,7 +1488,7 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
                 is_repair_tenant: None,
             }))
             .await
-            .unwrap_or_else(|_| panic!("Delete instance failed failed on attempt {}.", i));
+            .unwrap_or_else(|_| panic!("Delete instance failed failed on attempt {i}."));
         let instance = env
             .find_instances(Some(instance_id.into()))
             .await
@@ -2042,8 +2041,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
     let error = result.expect_err("expected allocation to fail").to_string();
     assert!(
         error.contains("is of type Dpu and can not be converted into an instance"),
-        "Error message should contain 'is of type Dpu and can not be converted into an instance', but is {}",
-        error
+        "Error message should contain 'is of type Dpu and can not be converted into an instance', but is {error}"
     );
 }
 
@@ -4729,7 +4727,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
             .unwrap()
             .unwrap();
     let current_state = current_state.current_state();
-    println!("Current State: {}", current_state);
+    println!("Current State: {current_state}");
     assert!(matches!(
         current_state,
         ManagedHostState::Assigned {
@@ -4974,7 +4972,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
             .unwrap()
             .unwrap();
     let current_state = current_state.current_state();
-    println!("Current State: {}", current_state);
+    println!("Current State: {current_state}");
     assert!(matches!(
         current_state,
         ManagedHostState::Assigned {

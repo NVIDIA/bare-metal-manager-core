@@ -31,7 +31,7 @@ impl fmt::Debug for Credentials {
 
 impl fmt::Display for Credentials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 

@@ -291,8 +291,7 @@ pub async fn fetch_machine(
     {
         Ok(m) if m.machines.is_empty() => {
             return Err(super::not_found_response(format!(
-                "{}\n<a href=\"/admin/machine/{}/state-history\">View State history for Machine</a>",
-                machine_id, machine_id
+                "{machine_id}\n<a href=\"/admin/machine/{machine_id}/state-history\">View State history for Machine</a>"
             )));
         }
         Ok(m) if m.machines.len() != 1 => {

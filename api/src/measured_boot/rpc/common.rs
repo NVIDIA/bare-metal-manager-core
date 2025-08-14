@@ -24,7 +24,7 @@ pub async fn begin_txn(db_conn: &Pool<Postgres>) -> Result<Transaction<'_, Postg
     db_conn
         .begin()
         .await
-        .map_err(|e| Status::internal(format!("failed to begin db txn: {}", e)))
+        .map_err(|e| Status::internal(format!("failed to begin db txn: {e}")))
 }
 
 /// commit_txn exists to attempt to commit a transaction, returning
@@ -33,5 +33,5 @@ pub async fn begin_txn(db_conn: &Pool<Postgres>) -> Result<Transaction<'_, Postg
 pub async fn commit_txn(txn: Transaction<'_, Postgres>) -> Result<(), Status> {
     txn.commit()
         .await
-        .map_err(|e| Status::internal(format!("failed to begin db txn: {}", e)))
+        .map_err(|e| Status::internal(format!("failed to begin db txn: {e}")))
 }

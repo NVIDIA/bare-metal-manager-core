@@ -181,8 +181,7 @@ impl FromStr for NetworkSegmentType {
             "host_inband" => NetworkSegmentType::HostInband,
             _ => {
                 return Err(CarbideError::DatabaseTypeConversionError(format!(
-                    "Invalid segment type {} reveived from Database.",
-                    s
+                    "Invalid segment type {s} reveived from Database."
                 )));
             }
         })
@@ -730,10 +729,7 @@ impl NetworkSegment {
                     file!(),
                     line!(),
                     "IpAllocator.new error",
-                    sqlx::Error::Io(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e.to_string(),
-                    )),
+                    sqlx::Error::Io(std::io::Error::other(e.to_string())),
                 )
             })?;
 
@@ -742,10 +738,7 @@ impl NetworkSegment {
                     file!(),
                     line!(),
                     "IpAllocator.num_free error",
-                    sqlx::Error::Io(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e.to_string(),
-                    )),
+                    sqlx::Error::Io(std::io::Error::other(e.to_string())),
                 )
             })?;
 

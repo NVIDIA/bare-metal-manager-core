@@ -81,7 +81,7 @@ impl CodeGenerator {
                 error,
             })?;
 
-        let proto_fds = tonic_build::Config::new()
+        let proto_fds = tonic_prost_build::Config::new()
             .protoc_arg("--experimental_allow_proto3_optional")
             .load_fds(
                 config.proto_files.as_slice(),

@@ -121,8 +121,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             .await?
             .ok_or_else(|| {
                 RedfishClientCreationError::MissingArgument(format!(
-                    "Machine Interface for IP address: {}",
-                    ip
+                    "Machine Interface for IP address: {ip}"
                 ))
             })
             .map(|machine_interface| {
@@ -498,11 +497,11 @@ pub async fn host_power_control(
             let machine_id = &machine.id;
 
             let maybe_ip = machine.bmc_info.ip.as_ref().ok_or_else(|| {
-                CarbideError::internal(format!("IP address is missing for {}", machine_id))
+                CarbideError::internal(format!("IP address is missing for {machine_id}"))
             })?;
 
             let ip = maybe_ip.parse().map_err(|_| {
-                CarbideError::internal(format!("Invalid IP address for {}", machine_id))
+                CarbideError::internal(format!("Invalid IP address for {machine_id}"))
             })?;
 
             let machine_interface_target = db::machine_interface::find_by_ip(txn, ip)
@@ -522,7 +521,7 @@ pub async fn host_power_control(
                 .restart(&machine.id, ip, false, credential_key)
                 .await
                 .map_err(|e: eyre::ErrReport| {
-                    CarbideError::internal(format!("Failed to restart machine: {}", e))
+                    CarbideError::internal(format!("Failed to restart machine: {e}"))
                 })?;
         }
 
@@ -582,7 +581,7 @@ pub async fn set_host_uefi_password(
         .await
         .map_err(|e| {
             tracing::error!(%e, "Failed to run uefi_setup call");
-            CarbideError::internal(format!("Failed redfish uefi_setup subtask: {}", e))
+            CarbideError::internal(format!("Failed redfish uefi_setup subtask: {e}"))
         })
 }
 
@@ -596,8 +595,7 @@ pub async fn clear_host_uefi_password(
         .map_err(|e| {
             tracing::error!(%e, "Failed to run clear_host_uefi_password call");
             CarbideError::internal(format!(
-                "Failed redfish clear_host_uefi_password subtask: {}",
-                e
+                "Failed redfish clear_host_uefi_password subtask: {e}"
             ))
         })
 }
@@ -638,7 +636,7 @@ pub async fn redfish_browse(
     let uri: http::Uri = match request.uri.clone().parse() {
         Ok(uri) => uri,
         Err(err) => {
-            return Err(CarbideError::internal(format!("Parsing uri failed: {}", err)).into());
+            return Err(CarbideError::internal(format!("Parsing uri failed: {err}")).into());
         }
     };
 
@@ -668,9 +666,7 @@ pub async fn redfish_browse(
             Ok(client) => client,
             Err(err) => {
                 tracing::error!(%err, "build_http_client");
-                return Err(
-                    CarbideError::internal(format!("Http building failed: {}", err)).into(),
-                );
+                return Err(CarbideError::internal(format!("Http building failed: {err}")).into());
             }
         }
     };
@@ -683,7 +679,7 @@ pub async fn redfish_browse(
     {
         Ok(response) => response,
         Err(e) => {
-            return Err(CarbideError::internal(format!("Http request failed: {:?}", e)).into());
+            return Err(CarbideError::internal(format!("Http request failed: {e:?}")).into());
         }
     };
 
@@ -701,8 +697,7 @@ pub async fn redfish_browse(
     let status = response.status();
     let text = response.text().await.map_err(|e| {
         CarbideError::internal(format!(
-            "Error reading response body: {}, Status: {}",
-            e, status
+            "Error reading response body: {e}, Status: {status}"
         ))
     })?;
 

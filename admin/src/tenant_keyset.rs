@@ -148,7 +148,7 @@ fn convert_keyset_to_nice_format(keyset: &forgerpc::TenantKeyset) -> CarbideCliR
     ];
 
     for (key, value) in data {
-        writeln!(&mut lines, "{:<width$}: {}", key, value)?;
+        writeln!(&mut lines, "{key:<width$}: {value}")?;
     }
 
     writeln!(&mut lines, "{:<width$}: ", "KEYS")?;
@@ -164,7 +164,7 @@ fn convert_keyset_to_nice_format(keyset: &forgerpc::TenantKeyset) -> CarbideCliR
             ];
 
             for (key, value) in data {
-                writeln!(&mut lines, "\t{:<width$}: {}", key, value)?;
+                writeln!(&mut lines, "\t{key:<width$}: {value}")?;
             }
             writeln!(
                 &mut lines,

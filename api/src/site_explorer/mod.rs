@@ -268,7 +268,7 @@ impl SiteExplorer {
                     explore_site_span.record("otel.status_code", "error");
                     // Writing this field will set the span status to error
                     // Therefore we only write it on errors
-                    explore_site_span.record("otel.status_message", format!("{:?}", e));
+                    explore_site_span.record("otel.status_message", format!("{e:?}"));
                 }
             }
 
@@ -647,8 +647,7 @@ impl SiteExplorer {
             .clone()
             .machine_id
             .ok_or(CarbideError::internal(format!(
-                "Failed to get machine ID for host: {:#?}",
-                managed_host
+                "Failed to get machine ID for host: {managed_host:#?}"
             )))?;
 
         db::machine::update_state(
@@ -1310,7 +1309,7 @@ impl SiteExplorer {
                         )
                         .await
                         {
-                            Ok(state) if !state.is_empty() => format!(" (state: {})", state),
+                            Ok(state) if !state.is_empty() => format!(" (state: {state})"),
                             _ => String::new(),
                         };
                         tracing::info!(%error, "Failed to explore {}: {}{}", bmc_target_addr, error, machine_state);
@@ -1778,8 +1777,7 @@ impl SiteExplorer {
             .machine_id
             .as_ref()
             .ok_or(CarbideError::internal(format!(
-                "Failed to set machine ID for host: {:#?}",
-                explored_host
+                "Failed to set machine ID for host: {explored_host:#?}"
             )))?;
 
         db::machine_interface::associate_interface_with_machine(
@@ -2724,8 +2722,7 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
     // and return a sanitized MA:CA:DD:RE:SS as a MacAddress.
     sanitized_mac(&source_mac).map_err(|e| {
         format!(
-            "Failed to build sanitized MAC from {} MAC: {} (source_mac: {})",
-            source_type, e, source_mac
+            "Failed to build sanitized MAC from {source_type} MAC: {e} (source_mac: {source_mac})"
         )
     })
 }

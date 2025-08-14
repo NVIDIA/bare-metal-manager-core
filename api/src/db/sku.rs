@@ -326,7 +326,7 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
     );
     let num_ib_devices = ib_components.iter().map(|c| c.count).sum::<u32>();
     if num_ib_devices != 0 {
-        write!(&mut description, "; {}xIB", num_ib_devices).unwrap();
+        write!(&mut description, "; {num_ib_devices}xIB").unwrap();
     }
 
     let storage = if schema_version >= 1 {
@@ -479,7 +479,7 @@ pub async fn generate_sku_from_machine_at_version_2(
     );
     let num_ib_devices = infiniband_devices.iter().map(|c| c.count).sum::<u32>();
     if num_ib_devices != 0 {
-        write!(&mut description, "; {}xIB", num_ib_devices).unwrap();
+        write!(&mut description, "; {num_ib_devices}xIB").unwrap();
     }
 
     // Storage cannot be pulled from capabilities (yet).  The block device hardware inventory has duplicate entries

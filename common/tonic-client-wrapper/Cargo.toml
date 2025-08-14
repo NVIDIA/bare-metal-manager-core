@@ -7,19 +7,19 @@ authors.workspace = true
 
 [features]
 default = ["codegen"]
-codegen = ["dep:proc-macro2", "dep:tonic-build", "dep:quote", "dep:syn", "dep:prettyplease", "dep:heck", "dep:prost-types", "dep:lazy_static"]
+codegen = ["dep:proc-macro2", "dep:tonic-prost-build", "dep:quote", "dep:syn", "dep:prettyplease", "dep:heck", "dep:prost-types", "dep:lazy_static"]
 
 [dependencies]
 thiserror = "2.0.12"
-tonic = { version = "0.12.3" }
+tonic = { version = "0.14" }
 async-trait = "0.1.88"
 proc-macro2 = { version = "1.0.94", optional = true }
-tonic-build = { version = "0.12.3", optional = true }
+tonic-prost-build = { version = "0.14", optional = true }
 quote = { version = "1.0.40", optional = true }
 syn = { version = "2.0.100", optional = true }
 prettyplease = { version = "0.2.30", optional = true }
 heck = { version = "0.5.0", optional = true }
-prost-types = { version = "0.13.5", optional = true }
+prost-types = { version = "0.14.1", optional = true }
 lazy_static = { version = "1.5.0", optional = true }
 
 [dev-dependencies]

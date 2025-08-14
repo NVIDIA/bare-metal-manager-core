@@ -8,11 +8,11 @@ use crate::network_monitor::{DpuInfo, DpuPingResult, NetworkMonitor, NetworkMoni
 use crate::tests::common;
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::ForgeClientConfig;
+use axum::Router;
 use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
-use axum::{Router, async_trait};
 use eyre::{Context, Result};
 use forge_host_support::agent_config::AgentConfig;
 use forge_tls::client_config::ClientCert;
@@ -21,6 +21,7 @@ use opentelemetry_sdk::metrics;
 use prometheus::{Encoder, TextEncoder};
 use tokio::sync::{Mutex, watch};
 use tokio::time::sleep;
+use tonic::async_trait;
 use tracing::info;
 
 // DPU machine ids for testing purposes
@@ -162,13 +163,10 @@ async fn handler(uri: Uri) -> impl IntoResponse {
 }
 
 fn verify_metrics(test_meter: &TestMeter) {
-    let attribute = format!(
-        "{{dest_dpu_id=\"{}\",source_dpu_id=\"{}\"}}",
-        DEST_DPU_ID, DPU_ID
-    );
+    let attribute = format!("{{dest_dpu_id=\"{DEST_DPU_ID}\",source_dpu_id=\"{DPU_ID}\"}}");
 
-    let expected_network_latency_count = format!("{} 1", attribute);
-    let expected_network_loss_percentage_sum = format!("{} 0.8", attribute);
+    let expected_network_latency_count = format!("{attribute} 1");
+    let expected_network_loss_percentage_sum = format!("{attribute} 0.8");
 
     // Verify network_latency_count
     match test_meter.formatted_metric("forge_dpu_agent_network_latency_milliseconds_count") {
@@ -220,8 +218,7 @@ impl TestMeter {
             0 => None,
             1 => metrics.pop(),
             n => panic!(
-                "Expected to find a single metric with name \"{metric_name}\", but found {n}. Full metrics:\n{:?}",
-                metrics
+                "Expected to find a single metric with name \"{metric_name}\", but found {n}. Full metrics:\n{metrics:?}"
             ),
         }
     }

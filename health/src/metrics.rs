@@ -811,7 +811,7 @@ async fn export_health_report(
                     id: HealthCheck::PoweredOff.to_stable_id(),
                     target: None,
                     in_alert_since: None,
-                    message: format!("System power state is {}", power_state),
+                    message: format!("System power state is {power_state}"),
                     tenant_message: None,
                     classifications: vec![HealthAlertClassification::from_str("Hardware").unwrap()],
                 })

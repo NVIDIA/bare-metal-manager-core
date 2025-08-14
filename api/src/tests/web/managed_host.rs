@@ -88,10 +88,7 @@ async fn test_multi_dpu(pool: sqlx::PgPool) {
                 .unwrap_or(false)
         })
         .unwrap_or_else(|| {
-            panic!(
-                "Could not find expected host {} in managed_hosts output",
-                managed_host_id
-            )
+            panic!("Could not find expected host {managed_host_id} in managed_hosts output")
         });
     assert!(host.hostname.is_some(), "Hostname should be set");
     assert_eq!(host.dpus.len(), 2, "Host should have 2 dpus");

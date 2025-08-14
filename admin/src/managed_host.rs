@@ -363,7 +363,7 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
 
     for (key, value) in data {
         if matches!(&value, Some(x) if x.is_empty()) {
-            writeln!(&mut lines, "{:<width$}", key)?;
+            writeln!(&mut lines, "{key:<width$}")?;
         } else {
             writeln!(
                 &mut lines,
@@ -377,8 +377,7 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
     for (i, dpu) in m.dpus.iter().enumerate() {
         writeln!(
             &mut lines,
-            "\nDPU{}:\n----------------------------------------",
-            i
+            "\nDPU{i}:\n----------------------------------------"
         )?;
         let data = vec![
             ("  ID", dpu.machine_id.clone()),
@@ -422,7 +421,7 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
 
         for (key, value) in data {
             if matches!(&value, Some(x) if x.is_empty()) {
-                writeln!(&mut lines, "{:<width$}", key)?;
+                writeln!(&mut lines, "{key:<width$}")?;
             } else {
                 writeln!(
                     &mut lines,
@@ -434,7 +433,7 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
         }
     }
 
-    println!("{}", lines);
+    println!("{lines}");
 
     Ok(())
 }
@@ -575,8 +574,7 @@ pub async fn handle_power_options_show(
             .await?;
         if power_options.len() != 1 {
             return Err(CarbideCliError::GenericError(format!(
-                "More than one entry is received for id: {machine_id}; Data: {:?}",
-                power_options
+                "More than one entry is received for id: {machine_id}; Data: {power_options:?}"
             )));
         }
 
@@ -688,7 +686,7 @@ pub async fn handle_power_options_show_one(
             .unwrap_or_default(),
     )?;
 
-    print!("{}", lines);
+    print!("{lines}");
     Ok(())
 }
 

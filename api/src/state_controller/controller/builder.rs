@@ -299,8 +299,5 @@ impl<IO: StateControllerIO> Builder<IO> {
 /// Note that there is no real relation between the table and the query
 /// We just use it to get an object identifier
 fn create_lock_query(db_lock_name: &str) -> String {
-    format!(
-        "SELECT pg_try_advisory_xact_lock((SELECT '{}'::regclass::oid)::integer);",
-        db_lock_name
-    )
+    format!("SELECT pg_try_advisory_xact_lock((SELECT '{db_lock_name}'::regclass::oid)::integer);")
 }

@@ -44,15 +44,14 @@ pub async fn run(
         set_tpm_max_auth_fail()?;
 
         // create tss context
-        let mut tss_ctx = attest::create_context_from_path(tpm_path).map_err(|e| {
-            CarbideClientError::TpmError(format!("Could not create context: {0}", e))
-        })?;
+        let mut tss_ctx = attest::create_context_from_path(tpm_path)
+            .map_err(|e| CarbideClientError::TpmError(format!("Could not create context: {e}")))?;
 
         // CHANGETO - supply context externally
         hardware_info.tpm_description = attest::get_tpm_description(&mut tss_ctx);
 
         let result = attest::create_attest_key_info(&mut tss_ctx).map_err(|e| {
-            CarbideClientError::TpmError(format!("Could not create AttestKeyInfo: {0}", e))
+            CarbideClientError::TpmError(format!("Could not create AttestKeyInfo: {e}"))
         })?;
 
         hardware_info.attest_key_info = Some(result.0);
@@ -120,13 +119,13 @@ pub async fn run(
                 &ak_handle,
             )
             .map_err(|e| {
-                CarbideClientError::TpmError(format!("Could not activate credential: {0}", e))
+                CarbideClientError::TpmError(format!("Could not activate credential: {e}"))
             })?;
 
             // obtain signed attestation (a hash of pcr values) and actual pcr values
             let (attest, signature, pcr_values) = attest::get_pcr_quote(&mut tss_ctx, &ak_handle)
                 .map_err(|e| {
-                CarbideClientError::TpmError(format!("Could not get PCR Quote: {0}", e))
+                CarbideClientError::TpmError(format!("Could not get PCR Quote: {e}"))
             })?;
 
             tracing::info!("Obtained PCR quote");
@@ -143,7 +142,7 @@ pub async fn run(
                 &tpm_eventlog,
             )
             .map_err(|e| {
-                CarbideClientError::TpmError(format!("Could not create quote request: {0}", e))
+                CarbideClientError::TpmError(format!("Could not create quote request: {e}"))
             })?;
             // send to server
             if !registration::attest_quote(forge_api, root_ca, false, retry.clone(), &quote_request)
@@ -165,7 +164,7 @@ fn set_tpm_max_auth_fail() -> Result<(), CarbideClientError> {
         .arg("--clear-lockout")
         .output()
         .map_err(|e| {
-            CarbideClientError::TpmError(format!("tpm2_dictionarylockout call failed: {0}", e))
+            CarbideClientError::TpmError(format!("tpm2_dictionarylockout call failed: {e}"))
         })?;
     info!(
         "Tried setting TPM_PT_MAX_AUTH_FAIL to 256. Return code is: {0}",

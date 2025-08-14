@@ -59,11 +59,11 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
             let (_instance_id, _instance) = TestInstance::new(&env)
                 .single_interface_network_config(segment_id)
                 .metadata(rpc::Metadata {
-                    name: format!("instance_{}{}{}", i, i, i).to_string(),
-                    description: format!("instance_{}{}{} with label", i, i, i).to_string(),
+                    name: format!("instance_{i}{i}{i}").to_string(),
+                    description: format!("instance_{i}{i}{i} with label").to_string(),
                     labels: vec![rpc::Label {
                         key: "label_test_key".to_string(),
-                        value: Some(format!("label_value_{}", i).to_string()),
+                        value: Some(format!("label_value_{i}").to_string()),
                     }],
                 })
                 .create(&[dpu_machine_id], &host_machine_id)
@@ -283,8 +283,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 .instance_ids
                 .len(),
             expected,
-            "assertion failed during test loop: {}",
-            name,
+            "assertion failed during test loop: {name}",
         );
     }
 }
@@ -305,11 +304,11 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
             let (_instance_id, _instance) = TestInstance::new(&env)
                 .single_interface_network_config(segment_id)
                 .metadata(rpc::Metadata {
-                    name: format!("instance_{}{}{}", i, i, i).to_string(),
-                    description: format!("instance_{}{}{} with label", i, i, i).to_string(),
+                    name: format!("instance_{i}{i}{i}").to_string(),
+                    description: format!("instance_{i}{i}{i} with label").to_string(),
                     labels: vec![rpc::Label {
                         key: "label_test_key".to_string(),
-                        value: Some(format!("label_value_{}", i).to_string()),
+                        value: Some(format!("label_value_{i}").to_string()),
                     }],
                 })
                 .create(&[dpu_machine_id], &host_machine_id)

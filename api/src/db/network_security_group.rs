@@ -101,15 +101,15 @@ impl<'r> sqlx::FromRow<'r, PgRow> for NetworkSecurityGroup {
 ///
 /// * `txn`                    - A reference to an active DB transaction
 /// * `id`                     - A reference to a NetworkSecurityGroupId to be set as
-///                              the id for the new NetworkSecurityGroup
+///   the id for the new NetworkSecurityGroup
 /// * `tenant_organization_id` - A reference to a TenantOrganizationId containing the
-///                              tenant org that owns this NetworkSecurityGroup
+///   tenant org that owns this NetworkSecurityGroup
 /// * `created_by`             - Optional String containing an ID to track the user who
-///                              created the NetworkSecurityGroup
+///   created the NetworkSecurityGroup
 /// * `metadata`               - A reference to a Metadata struct containing extra
-///                              details about the NetworkSecurityGroup
+///   details about the NetworkSecurityGroup
 /// * `rules`                  - A slice of NetworkSecurityGroupRule containing the ACLs
-///                              of the NetworkSecurityGroup
+///   of the NetworkSecurityGroup
 ///
 pub async fn create(
     txn: &mut PgConnection,
@@ -159,11 +159,11 @@ pub async fn create(
 ///
 /// * `txn`                    - A reference to an active DB transaction
 /// * `name`                   - Optional String containing the name of a desired
-///                              NetworkSecurityGroup
+///   NetworkSecurityGroup
 /// * `tenant_organization_id` - Optional TenantOrganizationId containing the tenant
-///                              org to match against NetworkSecurityGroup records.
+///   org to match against NetworkSecurityGroup records.
 /// * `for_update`             - A boolean flag to acquire DB locks for
-///                              synchronization
+///   synchronization
 ///
 pub(crate) async fn find_ids(
     txn: &mut PgConnection,
@@ -200,9 +200,9 @@ pub(crate) async fn find_ids(
 ///
 /// * `txn`                        - A reference to an active DB transaction
 /// * `network_security_group_ids` - A list of NetworkSecurityGroupId values to use for
-///                                  querying the Db for active NetworkSecurityGroup records
+///   querying the Db for active NetworkSecurityGroup records
 /// * `tenant_organization_id`     - Optional reference to TenantOrganizationId containing the
-///                                  tenant org to match against NetworkSecurityGroup records.
+///   tenant org to match against NetworkSecurityGroup records.
 /// * `for_update`                 - A boolean flag to acquire DB locks for synchronization
 pub(crate) async fn find_by_ids(
     txn: &mut PgConnection,
@@ -237,9 +237,9 @@ pub(crate) async fn find_by_ids(
 ///
 /// * `txn`                        - A reference to an active DB transaction
 /// * `network_security_group_ids` - A list of NetworkSecurityGroupId values to use for
-///                                  querying the Db for active NetworkSecurityGroup records
+///   querying the Db for active NetworkSecurityGroup records
 /// * `tenant_organization_id`     - Optional TenantOrganizationId containing the tenant org to
-///                                  match against NetworkSecurityGroup records.
+///   match against NetworkSecurityGroup records.
 ///
 /// ***NOTE:  No locking is guaranteed.***
 /// The caller is responsible for coordination, most likely with row-level locks on
@@ -289,9 +289,9 @@ pub(crate) async fn find_objects_with_attachments(
 ///
 /// * `txn`                        - A reference to an active DB transaction
 /// * `network_security_group_ids` - A list of NetworkSecurityGroupId values to use for
-///                                  querying the Db for active NetworkSecurityGroup records
+///   querying the Db for active NetworkSecurityGroup records
 /// * `tenant_organization_id`     - Optional reference to a TenantOrganizationId for the
-///                                  tenant org to match against NetworkSecurityGroup records.
+///   tenant org to match against NetworkSecurityGroup records.
 /// * `vpc_ids`                    - Optional list of VpcId to query for propagation status
 /// * `instance_ids`               - Optional list of InstanceId to query for propagation status
 ///          
@@ -462,23 +462,23 @@ pub(crate) async fn get_propagation_status(
 ///
 /// * `txn`                    - A reference to an active DB transaction
 /// * `id`                     - A reference to a NetworkSecurityGroupId to be set as the id
-///                              for the new NetworkSecurityGroup
+///   for the new NetworkSecurityGroup
 /// * `tenant_organization_id` - A reference to a TenantOrganizationId for the tenant org that owns
-///                              this NetworkSecurityGroup.  The update will will be ignored if
-///                              this ID does not match that of the requested record.
-///                              ***Callers are expected to verify the relationship prior to
-///                                 calling this function.***
+///   this NetworkSecurityGroup.  The update will will be ignored if
+///   this ID does not match that of the requested record.
+///   ***Callers are expected to verify the relationship prior to
+///   calling this function.***
 /// * `metadata`               - A reference to a Metadata struct containing extra details about
-///                              the NetworkSecurityGroup
+///   the NetworkSecurityGroup
 /// * `rules`                  - A slice of NetworkSecurityGroupRule containing the ACLs of the
-///                              NetworkSecurityGroup
+///   NetworkSecurityGroup
 /// * `expected_version`       - The version the record is expected to have prior to the update.
-///                              This will be auto-incremented. If this version passed in does not
-///                              match the reality of the record, the update will be rejected, but
-///                              ***callers are expected to have verified this version matches the record
-///                              in advance.***
+///   This will be auto-incremented. If this version passed in does not
+///   match the reality of the record, the update will be rejected, but
+///   ***callers are expected to have verified this version matches the record
+///   in advance.***
 /// * `updated_by`             - Optional String containing an ID to track the user who updated the
-///                              NetworkSecurityGroup
+///   NetworkSecurityGroup
 ///
 pub(crate) async fn update(
     txn: &mut PgConnection,
@@ -549,11 +549,11 @@ pub(crate) async fn update(
 ///
 /// * `txn`                       - A reference to an active DB transaction
 /// * `network_security_group_id` - An NetworkSecurityGroupId for the NetworkSecurityGroup to be
-///                                 soft-deleted.
+///   soft-deleted.
 /// * `tenant_organization_id`    - A reference to a TenantOrganizationId of the tenant organization
-///                                 that owns the NetworkSecurityGroup.  The delete
-///                                 will be ignored if this ID does not match that of the requested record.
-///                                 ***Callers are expected to verify the relationship prior to calling this function.***
+///   that owns the NetworkSecurityGroup.  The delete
+///   will be ignored if this ID does not match that of the requested record.
+///   ***Callers are expected to verify the relationship prior to calling this function.***
 ///
 pub(crate) async fn soft_delete(
     txn: &mut PgConnection,

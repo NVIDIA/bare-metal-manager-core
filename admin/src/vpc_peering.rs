@@ -91,7 +91,7 @@ pub async fn handle_delete(
         .delete_vpc_peering(Some(rpc::Uuid { value: args.id }))
         .await?;
 
-    println!("Deleted VPC peering {} successfully", id);
+    println!("Deleted VPC peering {id} successfully");
 
     Ok(())
 }

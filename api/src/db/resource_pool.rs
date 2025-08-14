@@ -319,10 +319,7 @@ impl FromStr for OwnerType {
             "network_segment" => Ok(Self::NetworkSegment),
             "ib_partition" => Ok(Self::IBPartition),
             "vpc" => Ok(Self::Vpc),
-            x => Err(CarbideError::internal(format!(
-                "Unknown owner_type '{}'",
-                x
-            ))),
+            x => Err(CarbideError::internal(format!("Unknown owner_type '{x}'"))),
         }
     }
 }

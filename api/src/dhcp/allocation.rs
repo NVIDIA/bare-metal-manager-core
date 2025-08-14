@@ -171,7 +171,7 @@ impl IpAllocator {
 
         let allocated_ips = self
             .get_allocated(segment_prefix)
-            .map_err(|e| CarbideError::internal(format!("failed to get_allocated: {}", e)))?;
+            .map_err(|e| CarbideError::internal(format!("failed to get_allocated: {e}")))?;
 
         let total_allocated: u32 =
             allocated_ips
@@ -489,7 +489,7 @@ mod tests {
         assert_eq!(nfree, 253);
 
         let result = allocator.next().unwrap();
-        let expected: IpNetwork = format!("10.1.1.2/{}", prefix_length).parse().unwrap();
+        let expected: IpNetwork = format!("10.1.1.2/{prefix_length}").parse().unwrap();
         assert_eq!(result.0, prefix_id);
         assert_eq!(result.1.unwrap(), expected);
         assert!(allocator.next().is_none());
@@ -551,7 +551,7 @@ mod tests {
             prefix_length,
         };
         let result = allocator.next().unwrap();
-        let expected: IpNetwork = format!("10.1.1.2/{}", prefix_length).parse().unwrap();
+        let expected: IpNetwork = format!("10.1.1.2/{prefix_length}").parse().unwrap();
         assert_eq!(result.0, prefix_id1);
         assert_eq!(result.1.unwrap(), expected);
 
@@ -613,7 +613,7 @@ mod tests {
             prefix_length,
         };
         let result = allocator.map(|x| x.1.unwrap()).collect::<Vec<IpNetwork>>()[0];
-        let expected: IpNetwork = format!("10.217.4.162/{}", prefix_length).parse().unwrap();
+        let expected: IpNetwork = format!("10.217.4.162/{prefix_length}").parse().unwrap();
         assert_eq!(result, expected);
     }
     #[test]
@@ -644,7 +644,7 @@ mod tests {
         assert_eq!(nfree, 11);
 
         let result = allocator.map(|x| x.1.unwrap()).collect::<Vec<IpNetwork>>()[0];
-        let expected: IpNetwork = format!("10.217.4.164/{}", prefix_length).parse().unwrap();
+        let expected: IpNetwork = format!("10.217.4.164/{prefix_length}").parse().unwrap();
         assert_eq!(result, expected);
     }
 
@@ -691,7 +691,7 @@ mod tests {
         assert_eq!(250, nfree);
 
         let result = allocator.map(|x| x.1.unwrap()).collect::<Vec<IpNetwork>>()[0];
-        let expected: IpNetwork = format!("10.217.4.8/{}", prefix_length).parse().unwrap();
+        let expected: IpNetwork = format!("10.217.4.8/{prefix_length}").parse().unwrap();
         assert_eq!(result, expected);
     }
 
@@ -735,7 +735,7 @@ mod tests {
         assert_eq!(241, nfree);
 
         let result = allocator.map(|x| x.1.unwrap()).collect::<Vec<IpNetwork>>()[0];
-        let expected: IpNetwork = format!("10.217.4.16/{}", prefix_length).parse().unwrap();
+        let expected: IpNetwork = format!("10.217.4.16/{prefix_length}").parse().unwrap();
         assert_eq!(result, expected);
     }
 

@@ -633,7 +633,7 @@ async fn main() -> Result<(), anyhow::Error> {
                     );
                 }
                 Err(e) => {
-                    eprintln!("{}", e);
+                    eprintln!("{e}");
                 }
             }
             for log in &config.logs {
@@ -672,14 +672,14 @@ async fn main() -> Result<(), anyhow::Error> {
             match scan_files(config, set_offset).await {
                 Ok(_) => {}
                 Err(e) => {
-                    eprintln!("{}", e);
+                    eprintln!("{e}");
                 }
             }
             for log in &config.logs {
                 match send_health_alerts(&mut forge_client, &log.events, &config.pipeline).await {
                     Ok(_) => {}
                     Err(e) => {
-                        eprintln!("{}", e);
+                        eprintln!("{e}");
                         let now: DateTime<Utc> = Utc::now();
                         if first_grpc_error_stamp == 0 {
                             first_grpc_error_stamp = now.timestamp();

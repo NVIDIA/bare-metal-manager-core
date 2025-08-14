@@ -111,8 +111,7 @@ where
     let input_value = String::deserialize(deserializer)?;
     let mac_address = deserialize_input_mac_to_address(&input_value).map_err(|e| {
         serde::de::Error::custom(format!(
-            "failed to parse input mac_address({}): {}",
-            input_value, e
+            "failed to parse input mac_address({input_value}): {e}"
         ))
     })?;
 
@@ -129,8 +128,7 @@ where
         Some(input_value) => {
             let mac_address = deserialize_input_mac_to_address(&input_value).map_err(|e| {
                 serde::de::Error::custom(format!(
-                    "failed to parse input mac_address({}): {}",
-                    input_value, e
+                    "failed to parse input mac_address({input_value}): {e}"
                 ))
             })?;
             Some(mac_address)

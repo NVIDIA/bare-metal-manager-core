@@ -414,7 +414,7 @@ fn attr_map_to_string(attr_map: &HashMap<String, String>) -> String {
     attr_tuples.sort_by_key(|&(key, _)| key);
     attr_tuples
         .into_iter()
-        .map(|(key, val)| format!("{}:{}", key, val))
+        .map(|(key, val)| format!("{key}:{val}"))
         .collect::<Vec<_>>()
         .join(",")
 }

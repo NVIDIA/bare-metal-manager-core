@@ -56,7 +56,7 @@ impl From<forgerpc::IbPartition> for IbPartitionRowDisplay {
                 .status
                 .as_ref()
                 .and_then(|status| forgerpc::TenantState::try_from(status.state).ok())
-                .map(|state| format!("{:?}", state))
+                .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
             time_in_state_above_sla: partition
                 .status
@@ -196,7 +196,7 @@ impl From<forgerpc::IbPartition> for IbPartitionDetail {
                 .status
                 .as_ref()
                 .and_then(|status| forgerpc::TenantState::try_from(status.state).ok())
-                .map(|state| format!("{:?}", state))
+                .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
             state_sla: partition
                 .status

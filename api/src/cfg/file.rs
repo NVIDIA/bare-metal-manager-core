@@ -354,7 +354,7 @@ impl CarbideConfig {
         let mut config = self.clone();
         if let Some(host_index) = config.database_url.find('@') {
             let host = config.database_url.split_at(host_index).1;
-            config.database_url = format!("postgres://redacted{}", host);
+            config.database_url = format!("postgres://redacted{host}");
         }
         config
     }
@@ -404,7 +404,7 @@ impl MaxConcurrentUpdates {
             }
             let percent = percent as usize;
             // Round up, so if someone specified 10% with 9 hosts they'll get 1.
-            let mut count = ((percent * out_of as usize) + 99) / 100;
+            let mut count = (percent * out_of as usize).div_ceil(100);
             count = count.saturating_sub(unhealthy as usize);
             if let Some(absolute) = self.absolute {
                 count = count.min(absolute as usize);
@@ -1494,7 +1494,7 @@ where
 
 impl fmt::Display for DpuModel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", format!("{:?}", self).to_lowercase())
+        write!(f, "{}", format!("{self:?}").to_lowercase())
     }
 }
 
@@ -2013,12 +2013,7 @@ fn subdirectories_sorted_by_modification_date(topdir: &PathBuf) -> Vec<fs::DirEn
     };
 
     // We sort in ascending modification time so that we will use the newest made firmware metadata
-    let mut dirs: Vec<fs::DirEntry> = dirs
-        .filter_map(|x| match x {
-            Ok(x) => Some(x),
-            Err(_) => None,
-        })
-        .collect();
+    let mut dirs: Vec<fs::DirEntry> = dirs.filter_map(|x| x.ok()).collect();
     dirs.sort_unstable_by(|x, y| {
         let x_time = match x.metadata() {
             Err(_) => SystemTime::now(),
@@ -2250,7 +2245,7 @@ mod tests {
     #[test]
     fn test_redact_config() {
         let mut config: CarbideConfig = Figment::new()
-            .merge(Toml::file(format!("{}/min_config.toml", TEST_DATA_DIR)))
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
             .extract()
             .unwrap();
         let redacted = config.redacted();
@@ -2266,7 +2261,7 @@ mod tests {
     #[test]
     fn deserialize_min_config() {
         let config: CarbideConfig = Figment::new()
-            .merge(Toml::file(format!("{}/min_config.toml", TEST_DATA_DIR)))
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
             .extract()
             .unwrap();
         assert_eq!(config.listen, "[::]:1081".parse().unwrap());
@@ -2318,8 +2313,8 @@ mod tests {
     #[test]
     fn deserialize_patched_min_config() {
         let config: CarbideConfig = Figment::new()
-            .merge(Toml::file(format!("{}/min_config.toml", TEST_DATA_DIR)))
-            .merge(Toml::file(format!("{}/site_config.toml", TEST_DATA_DIR)))
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/site_config.toml")))
             .extract()
             .unwrap();
         assert_eq!(config.listen, "[::]:1081".parse().unwrap());
@@ -2437,7 +2432,7 @@ mod tests {
     #[test]
     fn deserialize_full_config() {
         let config: CarbideConfig = Figment::new()
-            .merge(Toml::file(format!("{}/full_config.toml", TEST_DATA_DIR)))
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
             .extract()
             .unwrap();
         assert_eq!(config.listen, "[::]:1081".parse().unwrap());
@@ -2666,8 +2661,8 @@ mod tests {
     #[test]
     fn deserialize_patched_full_config() {
         let config: CarbideConfig = Figment::new()
-            .merge(Toml::file(format!("{}/full_config.toml", TEST_DATA_DIR)))
-            .merge(Toml::file(format!("{}/site_config.toml", TEST_DATA_DIR)))
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/site_config.toml")))
             .extract()
             .unwrap();
         assert_eq!(config.listen, "[::]:1081".parse().unwrap());
@@ -2835,7 +2830,7 @@ mod tests {
             );
 
             let config: CarbideConfig = Figment::new()
-                .merge(Toml::file(format!("{}/full_config.toml", TEST_DATA_DIR)))
+                .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
                 .merge(Env::prefixed("CARBIDE_API_"))
                 .extract()
                 .unwrap();
@@ -2961,7 +2956,7 @@ max_partition_per_tenant = 3
         let ib_fabric_config: IBFabricConfig =
             Figment::new().merge(Toml::string(toml)).extract().unwrap();
 
-        println!("{:?}", ib_fabric_config);
+        println!("{ib_fabric_config:?}");
 
         assert_eq!(
             <IBMtu as std::convert::Into<i32>>::into(ib_fabric_config.mtu),
@@ -3102,7 +3097,7 @@ next_try_duration_on_success = "3m"
         let power_config: PowerManagerOptions =
             Figment::new().merge(Toml::string(toml)).extract().unwrap();
 
-        println!("{:?}", power_config);
+        println!("{power_config:?}");
         assert!(power_config.enabled);
         assert_eq!(
             Duration::minutes(3),

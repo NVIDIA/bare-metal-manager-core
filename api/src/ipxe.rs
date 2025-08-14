@@ -69,7 +69,7 @@ impl PxeInstructions {
                 if machine_type == MachineType::Host || machine_type == MachineType::PredictedHost {
                     InstructionGenerator {
                         kernel: "${base-url}/internal/aarch64/scout.efi".to_string(),
-                        command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off iommu=off cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),
+                        command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off iommu=off cli_cmd=auto-detect machine_id={machine_interface_id} server_uri=[api_url] "),
                         initrd: None,
                     }
                 }
@@ -77,7 +77,7 @@ impl PxeInstructions {
                      // For the DPUs, bfks => BlueField Kick Start script
                      InstructionGenerator {
                         kernel: "${base-url}/internal/aarch64/carbide.efi".to_string(),
-                        command_line: format!("console=tty0 console=ttyS0,115200 console=ttyAMA0 console=hvc0 ip=dhcp cli_cmd=auto-detect bfnet=oob_net0:dhcp bfks=${{cloudinit-url}}/user-data machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),
+                        command_line: format!("console=tty0 console=ttyS0,115200 console=ttyAMA0 console=hvc0 ip=dhcp cli_cmd=auto-detect bfnet=oob_net0:dhcp bfks=${{cloudinit-url}}/user-data machine_id={machine_interface_id} server_uri=[api_url] "),
                         initrd: Some("${base-url}/internal/aarch64/carbide.root".to_string()),
                     }
                 }
@@ -85,7 +85,7 @@ impl PxeInstructions {
             rpc::MachineArchitecture::X86 => {
                 InstructionGenerator {
                     kernel: "${base-url}/internal/x86_64/scout.efi".to_string(),
-                    command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off iommu=off cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),
+                    command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off iommu=off cli_cmd=auto-detect machine_id={machine_interface_id} server_uri=[api_url] "),
                     initrd: None,
                 }
             }
@@ -100,22 +100,20 @@ impl PxeInstructions {
         let error_instructions = |x: &ManagedHostState| -> String {
             format!(
                 r#"
-echo Current state: {}. Could not continue boot due to invalid state ||
+echo Current state: {x}. Could not continue boot due to invalid state ||
 sleep 5 ||
 exit ||
-"#,
-                x
+"#
             )
         };
 
         let exit_instructions = |x: &ManagedHostState| -> String {
             format!(
                 r#"
-echo Current state: {}. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. To re-run iPXE instructions and OS installation, trigger a reboot request with flag rebootWithCustomIpxe/boot_with_custom_ipxe set. ||
+echo Current state: {x}. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. To re-run iPXE instructions and OS installation, trigger a reboot request with flag rebootWithCustomIpxe/boot_with_custom_ipxe set. ||
 sleep 5 ||
 exit ||
-"#,
-                x
+"#
             )
         };
 
@@ -181,9 +179,7 @@ exit ||
 
         let machine = db::machine::find_one(txn, &machine_id, MachineSearchConfig::default())
             .await
-            .map_err(|e| {
-                CarbideError::InvalidArgument(format!("Get machine failed, Error: {}", e))
-            })?
+            .map_err(|e| CarbideError::InvalidArgument(format!("Get machine failed, Error: {e}")))?
             .ok_or(CarbideError::InvalidArgument(
                 "Invalid machine id. Not found in db.".to_string(),
             ))?;

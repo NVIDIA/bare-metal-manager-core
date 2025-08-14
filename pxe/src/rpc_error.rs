@@ -46,8 +46,7 @@ impl Display for PxeRequestError {
             f,
             "{}",
             match self {
-                Self::CarbideApiError(err) =>
-                    format!("Error making a carbide API request: {}", err),
+                Self::CarbideApiError(err) => format!("Error making a carbide API request: {err}"),
                 Self::MissingClientConfig =>
                     "Missing client configuration from server config (should not reach this case)"
                         .to_string(),
@@ -55,8 +54,8 @@ impl Display for PxeRequestError {
                     "Missing Machine Identifier (UUID) specified in URI parameter uuid".to_string(),
                 Self::InvalidBuildArch =>
                     "Invalid build arch specified in URI parameter buildarch".to_string(),
-                Self::MalformedMachineId(err) => format!("Malformed Machine UUID: {}", err),
-                Self::MalformedBuildArch(err) => format!("Malformed build arch: {}", err),
+                Self::MalformedMachineId(err) => format!("Malformed Machine UUID: {err}"),
+                Self::MalformedBuildArch(err) => format!("Malformed build arch: {err}"),
             }
         )
     }

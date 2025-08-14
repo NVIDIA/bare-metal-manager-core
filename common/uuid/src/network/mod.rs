@@ -97,9 +97,12 @@ impl TryFrom<Option<::rpc::common::Uuid>> for NetworkSegmentId {
 }
 
 impl NetworkSegmentId {
-    pub fn from_grpc(msg: Option<::rpc::common::Uuid>) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad grpc network segment ID: {}", e)))
+    pub fn from_grpc(msg: Option<::rpc::common::Uuid>) -> Result<Self, Box<Status>> {
+        Self::try_from(msg).map_err(|e| {
+            Box::new(Status::invalid_argument(format!(
+                "bad grpc network segment ID: {e}"
+            )))
+        })
     }
 }
 

@@ -196,13 +196,12 @@ impl MachineValidation {
     ) -> Result<String, MachineValidationError> {
         tracing::info!(image_name);
         let url: String = format!(
-            "{}://{}{}{}.tar",
-            SCHME, MACHINE_VALIDATION_SERVER, MACHINE_VALIDATION_IMAGE_PATH, image_name
+            "{SCHME}://{MACHINE_VALIDATION_SERVER}{MACHINE_VALIDATION_IMAGE_PATH}{image_name}.tar"
         );
         tracing::info!(url);
         MachineValidationManager::download_file(&url, MACHINE_VALIDATION_IMAGE_FILE).await?;
 
-        let command_string = format!(" ctr images import {}", MACHINE_VALIDATION_IMAGE_FILE);
+        let command_string = format!(" ctr images import {MACHINE_VALIDATION_IMAGE_FILE}");
         info!("Executing command '{}'", command_string);
         TokioCmd::new("sh")
             .args(vec!["-c".to_string(), command_string])
@@ -211,14 +210,13 @@ impl MachineValidation {
             .await
             .map_err(|e| MachineValidationError::Generic(e.to_string()))?;
         Ok(format!(
-            "{}{}:{}",
-            MACHINE_VALIDATION_RUNNER_BASE_PATH, image_name, image_tag
+            "{MACHINE_VALIDATION_RUNNER_BASE_PATH}{image_name}:{image_tag}"
         ))
     }
 
     pub async fn pull_container(image_name: &str) {
         tracing::info!(image_name);
-        let command_string = format!(" nerdctl -n default pull {}", image_name);
+        let command_string = format!(" nerdctl -n default pull {image_name}");
         tracing::info!(command_string);
         match TokioCmd::new("sh")
             .args(vec!["-c".to_string(), command_string])
@@ -254,8 +252,8 @@ impl MachineValidation {
                 Err(e) => {
                     mc_result.start_time = Some(Utc::now().into());
                     mc_result.end_time = Some(Utc::now().into());
-                    mc_result.std_err = format!("Error {}", e);
-                    mc_result.std_out = format!("Skipped: Error {}", e);
+                    mc_result.std_err = format!("Error {e}");
+                    mc_result.std_out = format!("Skipped: Error {e}");
                     mc_result.exit_code = 0;
                     return Some(mc_result);
                 }
@@ -299,7 +297,7 @@ impl MachineValidation {
         if test.img_name.is_some() {
             if test.execute_in_host.unwrap_or(false) {
                 // Execute command in host
-                command_string = format!("chroot /host /bin/bash -c \"{}\"", command_string);
+                command_string = format!("chroot /host /bin/bash -c \"{command_string}\"");
             }
             Self::pull_container(&test.img_name.clone().unwrap_or_default()).await;
             let ctr_arg = test.container_arg.clone().unwrap_or("".to_string());
@@ -323,7 +321,7 @@ impl MachineValidation {
                 envs.insert("MACHINE_ID".to_owned(), machine_id.to_string());
                 let env_vars = envs
                     .iter()
-                    .map(|(key, value)| format!("{}={}", key, value))
+                    .map(|(key, value)| format!("{key}={value}"))
                     .collect::<Vec<String>>()
                     .join("\n");
                 file.write_all(env_vars.as_bytes()).expect("write failed");

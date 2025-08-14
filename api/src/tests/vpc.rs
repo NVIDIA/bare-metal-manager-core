@@ -104,8 +104,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
             .await;
 
         let err = invalid_updated_vpc.expect_err(&format!(
-            "Invalid metadata of type should not be accepted: {:?}",
-            invalid_metadata
+            "Invalid metadata of type should not be accepted: {invalid_metadata:?}"
         ));
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
         assert!(
@@ -407,8 +406,7 @@ async fn create_vpc_with_invalid_metadata(
             .await;
 
         let err = result.expect_err(&format!(
-            "Invalid metadata of type should not be accepted: {:?}",
-            invalid_metadata
+            "Invalid metadata of type should not be accepted: {invalid_metadata:?}"
         ));
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
         assert!(

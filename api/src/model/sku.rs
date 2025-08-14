@@ -419,8 +419,7 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
 
     if expected_cpu_count != actual_cpu_count {
         diffs.push(format!(
-            "Number of CPUs ({}) does not match expected ({})",
-            actual_cpu_count, expected_cpu_count
+            "Number of CPUs ({actual_cpu_count}) does not match expected ({expected_cpu_count})"
         ));
     }
 
@@ -439,8 +438,7 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
 
     if expected_thread_count != actual_thread_count {
         diffs.push(format!(
-            "Number of CPU threads ({}) does not match expected ({})",
-            actual_thread_count, expected_thread_count
+            "Number of CPU threads ({actual_thread_count}) does not match expected ({expected_thread_count})"
         ));
     }
 
@@ -453,7 +451,7 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
 
     for actual_gpu in actual_sku.components.gpus.iter() {
         match expected_gpus.remove(&(actual_gpu.model.as_str(), actual_gpu.total_memory.as_str())) {
-            None => diffs.push(format!("Unexpected GPU config ({}) found", actual_gpu)),
+            None => diffs.push(format!("Unexpected GPU config ({actual_gpu}) found")),
             Some(expected_gpu) => {
                 if actual_gpu.count != expected_gpu.count {
                     diffs.push(format!(
@@ -466,7 +464,7 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
     }
 
     for missing_gpu in expected_gpus.values() {
-        diffs.push(format!("Missing GPU config: {}", missing_gpu));
+        diffs.push(format!("Missing GPU config: {missing_gpu}"));
     }
 
     let mut expected_ib_device_by_name: HashMap<
@@ -534,8 +532,7 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
 
     if expected_total_memory != actual_total_memory {
         diffs.push(format!(
-            "Actual memory ({}) differs from expected ({})",
-            expected_total_memory, actual_total_memory
+            "Actual memory ({expected_total_memory}) differs from expected ({actual_total_memory})"
         ));
     }
 
@@ -555,11 +552,11 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
                 ));
             }
         } else {
-            diffs.push(format!("Missing storage config: {}", es));
+            diffs.push(format!("Missing storage config: {es}"));
         };
     }
     for s in actual_storage.values() {
-        diffs.push(format!("Found unexpected storage config: {}", s));
+        diffs.push(format!("Found unexpected storage config: {s}"));
     }
 
     diffs

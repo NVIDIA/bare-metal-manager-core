@@ -226,7 +226,7 @@ pub(crate) async fn create(
 
             let vpc = vpcs
                 .first()
-                .ok_or_else(|| CarbideError::internal(format!("VPC ID: {} not found.", vpc_id)))?;
+                .ok_or_else(|| CarbideError::internal(format!("VPC ID: {vpc_id} not found.")))?;
 
             vpc.network_virtualization_type == VpcVirtualizationType::Fnn
         } else {
@@ -253,16 +253,19 @@ pub(crate) async fn create(
 pub(crate) async fn delete(
     api: &Api,
     request: Request<rpc::NetworkSegmentDeletionRequest>,
-) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status> {
+) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Box<Status>> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin delete_network_segment",
-            e,
-        ))
+        Box::new(
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin delete_network_segment",
+                e,
+            ))
+            .into(),
+        )
     })?;
 
     let rpc::NetworkSegmentDeletionRequest { id, .. } = request.into_inner();
@@ -275,16 +278,18 @@ pub(crate) async fn delete(
         NetworkSegmentSearchConfig::default(),
     )
     .await
-    .map_err(CarbideError::from)?;
+    .map_err(|e| Box::new(CarbideError::from(e).into()))?;
 
     let segment = match segments.len() {
         1 => segments.remove(0),
         _ => {
-            return Err(CarbideError::NotFoundError {
-                kind: "network segment",
-                id: segment_id.to_string(),
-            }
-            .into());
+            return Err(Box::new(
+                CarbideError::NotFoundError {
+                    kind: "network segment",
+                    id: segment_id.to_string(),
+                }
+                .into(),
+            ));
         }
     };
 
@@ -292,15 +297,19 @@ pub(crate) async fn delete(
         .mark_as_deleted(&mut txn)
         .await
         .map(|_| rpc::NetworkSegmentDeletionResult {})
-        .map(Response::new)?);
+        .map(Response::new)
+        .map_err(|e| Box::new(e.into()))?);
 
     txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit delete_network_segment",
-            e,
-        ))
+        Box::new(
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit delete_network_segment",
+                e,
+            ))
+            .into(),
+        )
     })?;
 
     response

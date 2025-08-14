@@ -482,10 +482,8 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
                         if let Some(site_host_bmc_ip) = managed_host_map.get(dpu_bmc_ip) {
                             if host_bmc_ip != site_host_bmc_ip {
                                 // If somehow these both ips are different, display error.
-                                managed_host_output.host_bmc_ip = Some(format!(
-                                    "Error: M-{}/S-{}",
-                                    host_bmc_ip, site_host_bmc_ip
-                                ));
+                                managed_host_output.host_bmc_ip =
+                                    Some(format!("Error: M-{host_bmc_ip}/S-{site_host_bmc_ip}"));
                             }
                         }
                     } else {

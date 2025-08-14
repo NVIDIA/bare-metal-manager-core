@@ -121,27 +121,24 @@ pub fn cli_make_cred(
     session_key: &[u8],
 ) -> Result<(Vec<u8>, Vec<u8>), CarbideError> {
     // now construct the temp directory
-    let tmp_dir = TempDir::with_prefix("make_cred").map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not create TempDir: {0}", e))
-    })?;
+    let tmp_dir = TempDir::with_prefix("make_cred")
+        .map_err(|e| CarbideError::AttestBindKeyError(format!("Could not create TempDir: {e}")))?;
     let tmp_dir_path = tmp_dir.path();
 
     // create a file to write the EK key to
     let ek_file_path = tmp_dir_path.join("ek.dat");
-    let mut ek_file = File::create(ek_file_path.clone()).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not create EK file: {0}", e))
-    })?;
+    let mut ek_file = File::create(ek_file_path.clone())
+        .map_err(|e| CarbideError::AttestBindKeyError(format!("Could not create EK file: {e}")))?;
 
     // serialize the public key to a PEM format and write it to the file
     let pem_pub_key = pub_key.to_pkcs1_pem(LineEnding::default()).map_err(|e| {
         CarbideError::AttestBindKeyError(format!(
-            "Could not convert EK RsaPublicKey to PEM format: {0}",
-            e
+            "Could not convert EK RsaPublicKey to PEM format: {e}"
         ))
     })?;
 
     ek_file.write_all(pem_pub_key.as_bytes()).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not write EK Pub to PEM file: {0}", e))
+        CarbideError::AttestBindKeyError(format!("Could not write EK Pub to PEM file: {e}"))
     })?;
 
     // now write AK name to the file in hexadecimal format
@@ -156,10 +153,10 @@ pub fn cli_make_cred(
             ))?;
 
     let mut session_key_file = File::create(session_key_path.clone()).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not create file for session key: {0}", e))
+        CarbideError::AttestBindKeyError(format!("Could not create file for session key: {e}"))
     })?;
     session_key_file.write_all(session_key).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not write session key to file: {0}", e))
+        CarbideError::AttestBindKeyError(format!("Could not write session key to file: {e}"))
     })?;
 
     // construct the command to execute make_credential
@@ -188,8 +185,7 @@ pub fn cli_make_cred(
         .output()
         .map_err(|e| {
             CarbideError::AttestBindKeyError(format!(
-                "Could not execute makecredential command: {0}",
-                e
+                "Could not execute makecredential command: {e}"
             ))
         })?;
 
@@ -201,7 +197,7 @@ pub fn cli_make_cred(
     }
 
     let creds = fs::read(cred_out_path).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not create creds file: {0}", e))
+        CarbideError::AttestBindKeyError(format!("Could not create creds file: {e}"))
     })?;
 
     let (cred_blob, encr_secret) = extract_cred_secret(&creds)?;
@@ -233,7 +229,7 @@ pub fn verify_signature(
     let exponent: BigUint = BigUint::from(RSA_PUBKEY_EXPONENT);
 
     let pub_key = RsaPublicKey::new(modulus, exponent).map_err(|e| {
-        CarbideError::AttestQuoteError(format!("Could not create RsaPublicKey: {0}", e))
+        CarbideError::AttestQuoteError(format!("Could not create RsaPublicKey: {e}"))
     })?;
 
     let rsa_signature = match signature {
@@ -350,12 +346,12 @@ pub fn do_compare_pub_key_against_cert(
 
     let cert = X509Certificate::from_der(tpm_ek_cert.as_bytes())
         .map_err(|e| {
-            CarbideError::AttestBindKeyError(format!("Could not unmarshall EK Cert: {0}", e))
+            CarbideError::AttestBindKeyError(format!("Could not unmarshall EK Cert: {e}"))
         })?
         .1;
 
     let pub_key_cert_data = cert.public_key().parsed().map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not get EK Cert Data: {0}", e))
+        CarbideError::AttestBindKeyError(format!("Could not get EK Cert Data: {e}"))
     })?;
 
     let ek_cert_modulus = match pub_key_cert_data {
@@ -374,15 +370,11 @@ pub fn do_compare_pub_key_against_cert(
     // pub_key_cert has a different type from pub_key_cert_data, even though their type names
     // actually do coincide!
     let pub_key_cert = RsaPublicKey::new(modulus, exponent).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!(
-            "Could not create RsaPublicKey from EK Cert: {0}",
-            e
-        ))
+        CarbideError::AttestBindKeyError(format!("Could not create RsaPublicKey from EK Cert: {e}"))
     })?;
     // construct the Public structure and extract the PublicKeyRsa from it, which is really just the modulus
-    let ek_pub = Public::unmarshall(ek_pub.as_slice()).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not unmarshall EK: {0}", e))
-    })?;
+    let ek_pub = Public::unmarshall(ek_pub.as_slice())
+        .map_err(|e| CarbideError::AttestBindKeyError(format!("Could not unmarshall EK: {e}")))?;
 
     let unique = match ek_pub {
         Public::Rsa { unique, .. } => unique,
@@ -399,8 +391,7 @@ pub fn do_compare_pub_key_against_cert(
 
     let pub_key_ek = RsaPublicKey::new(modulus, exponent).map_err(|e| {
         CarbideError::AttestBindKeyError(format!(
-            "Could not create RsaPublicKey from TPM's EK Pub: {0}",
-            e
+            "Could not create RsaPublicKey from TPM's EK Pub: {e}"
         ))
     })?;
 

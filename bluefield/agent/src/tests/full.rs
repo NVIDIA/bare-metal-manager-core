@@ -150,8 +150,7 @@ async fn test_nvue_generic(
     eprint!("Diff output:\n{}", r.report());
     assert!(
         r.is_identical(),
-        "generated startup_yaml does not match expected startup_yaml for {}",
-        virtualization_type
+        "generated startup_yaml does not match expected startup_yaml for {virtualization_type}"
     );
 
     Ok(())

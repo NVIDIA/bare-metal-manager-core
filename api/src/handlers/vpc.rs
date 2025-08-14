@@ -379,8 +379,7 @@ pub(crate) async fn find(
                 Ok(uuid) => ObjectColumnFilter::One(vpc::IdColumn, binding.insert(uuid)),
                 Err(err) => {
                     return Err(Status::invalid_argument(format!(
-                        "Supplied invalid UUID: {}",
-                        err
+                        "Supplied invalid UUID: {err}"
                     )));
                 }
             };

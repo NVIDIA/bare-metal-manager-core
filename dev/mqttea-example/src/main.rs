@@ -103,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Lets gooooo.
     println!("Starting up");
     println!("  Broker: {}:{}", cli.host, cli.port);
-    println!("  Client ID: {}", client_id);
+    println!("  Client ID: {client_id}");
     println!("  Namespace: {}", cli.namespace);
     println!("  Device ID: {}", cli.device_id);
 
@@ -193,7 +193,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Register RawMessage handler for unmapped topics.
         client
             .on_message(|_client, message: RawMessage, topic| async move {
-                println!("FYI: Received message on unmapped topic: '{}'", topic);
+                println!("FYI: Received message on unmapped topic: '{topic}'");
                 match String::from_utf8(message.payload.clone()) {
                     Ok(text) => info!("RawMessage on {}: '{}'", topic, text),
                     Err(_) => info!(
@@ -249,7 +249,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let topic = format!("{}/{}/cat-fancy", cli.namespace, status.name);
         client.send_message(&topic, &status).await?;
-        println!("Sent CatStatus to {}", topic);
+        println!("Sent CatStatus to {topic}");
 
         // Send a HelloWorld message (protobuf).
         println!("Next, sending HelloWorld message...");
@@ -261,7 +261,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let topic = format!("{}/{}/hello-world", cli.namespace, cli.device_id);
         client.send_message(&topic, &hello).await?;
-        println!("Sent HelloWorld to {}", topic);
+        println!("Sent HelloWorld to {topic}");
 
         // Send a raw message (to be picked up by the listener
         // side as RawMessage via its unmapped handler).

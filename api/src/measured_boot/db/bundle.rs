@@ -494,13 +494,11 @@ pub async fn set_state_for_bundle_id(
             Some(existing_bundle) => {
                 if existing_bundle.state == MeasurementBundleState::Revoked {
                     Err(CarbideError::internal(format!(
-                        "bundle cannot be moved from revoked state: {}",
-                        bundle_id
+                        "bundle cannot be moved from revoked state: {bundle_id}"
                     )))
                 } else {
                     Err(CarbideError::internal(format!(
-                        "totally unknown reason why this happened for bundle: {}",
-                        bundle_id
+                        "totally unknown reason why this happened for bundle: {bundle_id}"
                     )))
                 }
             }
@@ -566,8 +564,7 @@ async fn find_closest_bundle(
             acc + " " + bundle.bundle_id.to_string().as_str()
         });
         return Err(CarbideError::InvalidArgument(format!(
-            "Fully matching bundle(s) found: {0}",
-            matching_bundle_ids
+            "Fully matching bundle(s) found: {matching_bundle_ids}"
         )));
     }
 

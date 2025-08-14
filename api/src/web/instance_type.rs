@@ -202,7 +202,7 @@ pub async fn show(
             tracing::error!(%err, "fetch_itypes");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Error loading instance types: {}", err),
+                format!("Error loading instance types: {err}"),
             )
                 .into_response();
         }
@@ -303,7 +303,7 @@ pub async fn show_detail(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Unable to retrieve instance type: {}", e),
+                format!("Unable to retrieve instance type: {e}"),
             )
                 .into_response();
         }
@@ -334,8 +334,7 @@ pub async fn show_detail(
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!(
-                    "Unable to retrieve associated Machine ID for instance type ID {}: {}",
-                    instance_type_id, e
+                    "Unable to retrieve associated Machine ID for instance type ID {instance_type_id}: {e}"
                 ),
             )
                 .into_response();

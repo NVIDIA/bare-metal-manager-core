@@ -27,9 +27,9 @@ async fn test_find_explored_managed_host_ids(
     let mut txn = env.pool.begin().await?;
     let mut managed_hosts: Vec<ExploredManagedHost> = Vec::new();
     for i in 1..6 {
-        let host_bmc_ip = IpAddr::from_str(format!("141.219.24.{}", i).as_str())?;
-        let bmc_ip = IpAddr::from_str(format!("10.231.11.{}", i).as_str())?;
-        let mac_address = MacAddress::from_str(format!("94:6D:AE:5F:09:C{}", i).as_str())?;
+        let host_bmc_ip = IpAddr::from_str(format!("141.219.24.{i}").as_str())?;
+        let bmc_ip = IpAddr::from_str(format!("10.231.11.{i}").as_str())?;
+        let mac_address = MacAddress::from_str(format!("94:6D:AE:5F:09:C{i}").as_str())?;
         managed_hosts.push(ExploredManagedHost {
             host_bmc_ip,
             dpus: vec![ExploredDpu {
@@ -64,9 +64,9 @@ async fn test_find_explored_managed_hosts_by_ids(
     let mut txn = env.pool.begin().await?;
     let mut managed_hosts: Vec<ExploredManagedHost> = Vec::new();
     for i in 1..6 {
-        let host_bmc_ip = IpAddr::from_str(format!("141.219.24.{}", i).as_str())?;
-        let bmc_ip = IpAddr::from_str(format!("10.231.11.{}", i).as_str())?;
-        let mac_address = MacAddress::from_str(format!("94:6D:AE:5F:09:C{}", i).as_str())?;
+        let host_bmc_ip = IpAddr::from_str(format!("141.219.24.{i}").as_str())?;
+        let bmc_ip = IpAddr::from_str(format!("10.231.11.{i}").as_str())?;
+        let mac_address = MacAddress::from_str(format!("94:6D:AE:5F:09:C{i}").as_str())?;
         managed_hosts.push(ExploredManagedHost {
             host_bmc_ip,
             dpus: vec![ExploredDpu {
@@ -119,9 +119,7 @@ async fn test_find_explored_managed_hosts_by_ids_over_max(pool: sqlx::PgPool) {
     // create vector of IDs with more than max allowed
     // it does not matter if these are real or not, since we are testing an error back for passing more than max
     let end_index: u32 = env.config.max_find_by_ids + 1;
-    let host_ids: Vec<String> = (1..=end_index)
-        .map(|i| format!("141.219.24.{}", i))
-        .collect();
+    let host_ids: Vec<String> = (1..=end_index).map(|i| format!("141.219.24.{i}")).collect();
 
     let request =
         tonic::Request::new(::rpc::site_explorer::ExploredManagedHostsByIdsRequest { host_ids });

@@ -28,14 +28,14 @@ async fn test_find_network_segment_ids(pool: sqlx::PgPool) {
         }
         let (vpc_id, _vpc) = create_vpc(
             &env,
-            format!("vpc_{}", i),
+            format!("vpc_{i}"),
             Some(tenant_org_id.to_string()),
             None,
         )
         .await;
         create_network_segment(
             &env.api,
-            format!("segment_{}", i).as_str(),
+            format!("segment_{i}").as_str(),
             format!("192.0.{}.0/24", i + 1).as_str(),
             format!("192.0.{}.1", i + 1).as_str(),
             rpc::NetworkSegmentType::Underlay,
@@ -115,14 +115,14 @@ async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
         }
         let (vpc_id, _vpc) = create_vpc(
             &env,
-            format!("vpc_{}", i),
+            format!("vpc_{i}"),
             Some(tenant_org_id.to_string()),
             None,
         )
         .await;
         create_network_segment(
             &env.api,
-            format!("segment_{}", i).as_str(),
+            format!("segment_{i}").as_str(),
             format!("192.0.{}.0/24", i + 1).as_str(),
             format!("192.0.{}.1", i + 1).as_str(),
             rpc::NetworkSegmentType::Underlay,

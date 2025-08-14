@@ -324,7 +324,7 @@ pub async fn show_all(
             .iter()
             .map(|bundle| {
                 MeasurementBundle::try_from(bundle.clone())
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
             })
             .collect::<CarbideCliResult<Vec<MeasurementBundle>>>()?,
     ))
@@ -342,7 +342,7 @@ pub async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementBundleRe
             .iter()
             .map(|rec| {
                 MeasurementBundleRecord::try_from(rec.clone())
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
             })
             .collect::<CarbideCliResult<Vec<MeasurementBundleRecord>>>()?,
     ))
@@ -394,7 +394,7 @@ pub async fn list_machines(
             .iter()
             .map(|rec| {
                 MachineId::from_str(rec)
-                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {}", e)))
+                    .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
             })
             .collect::<CarbideCliResult<Vec<MachineId>>>()?,
     ))

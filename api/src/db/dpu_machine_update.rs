@@ -30,8 +30,8 @@ impl DpuMachineUpdate {
     /// 5. If all DPUs need upgrade, put all in queue. State machine supports upgrading multiple
     ///    DPUs of a managedhost.
     /// 6. If some of the DPUs for a managed host need upgrade, put them in queue.
-    ///     6.1. Make sure none of the DPU is under reprovisioning while queuing a new DPU for a
-    ///       managedhost. This is done by confirming that Host is not marked for updates
+    ///    6.1. Make sure none of the DPU is under reprovisioning while queuing a new DPU for a
+    ///    managedhost. This is done by confirming that Host is not marked for updates
     ///
     pub async fn find_available_outdated_dpus(
         limit: Option<i32>,

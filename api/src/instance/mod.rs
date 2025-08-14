@@ -216,8 +216,7 @@ pub async fn allocate_network(
                             (vpc.vpc_id, prefix, last_used_prefix)
                         } else {
                             return Err(CarbideError::internal(format!(
-                                "Unknown VPC prefix id: {}",
-                                vpc_prefix_id
+                                "Unknown VPC prefix id: {vpc_prefix_id}"
                             )));
                         }
                     };
@@ -356,8 +355,7 @@ pub async fn allocate_instance(
                 )));
             } else {
                 return Err(CarbideError::internal(format!(
-                    "Failed to get OS image error: {}",
-                    e
+                    "Failed to get OS image error: {e}"
                 )));
             }
         }
@@ -421,13 +419,11 @@ pub async fn allocate_instance(
         tracing::error!(%machine_id, "Host can not be used as instance due to reason: {}", e);
         return Err(match e {
             NotAllocatableReason::InvalidState(s) => CarbideError::InvalidArgument(format!(
-                "Could not create instance on machine {} given machine state {:?}",
-                machine_id, s
+                "Could not create instance on machine {machine_id} given machine state {s:?}"
             )),
             NotAllocatableReason::PendingInstanceCreation => {
                 CarbideError::InvalidArgument(format!(
-                    "Could not create instance on machine {}. Machine is already used by another Instance creation request.",
-                    machine_id,
+                    "Could not create instance on machine {machine_id}. Machine is already used by another Instance creation request.",
                 ))
             }
             NotAllocatableReason::NoDpuSnapshots => {

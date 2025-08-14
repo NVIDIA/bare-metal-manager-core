@@ -198,7 +198,7 @@ impl fmt::Display for OsImageStatus {
             OsImageStatus::Ready => "ready",
             OsImageStatus::Disabled => "disabled",
         };
-        write!(f, "{}", string)
+        write!(f, "{string}")
     }
 }
 

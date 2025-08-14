@@ -146,7 +146,7 @@ pub async fn add_ca_cert_bulk(
                 add_ca_cert_individual(dir_entry.path().as_path(), false, api_client).await
             {
                 // we log the error but continue the iteration
-                eprintln!("Could not add ca cert {:?}: {e}", dir_entry);
+                eprintln!("Could not add ca cert {dir_entry:?}: {e}");
             }
         }
         if dir_entry.path().with_extension("pem").is_file() {
@@ -154,7 +154,7 @@ pub async fn add_ca_cert_bulk(
                 add_ca_cert_individual(dir_entry.path().as_path(), true, api_client).await
             {
                 // we log the error but continue the iteration
-                eprintln!("Could not add ca cert {:?}: {e}", dir_entry);
+                eprintln!("Could not add ca cert {dir_entry:?}: {e}");
             }
         }
     }

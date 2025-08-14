@@ -194,7 +194,7 @@ pub mod containerd {
         socket_path: &'static str,
         // We lazily connect the channel so that a consumer of this API can
         // construct the client without having to do error handling.
-        connection_channel: OnceCell<tonic::transport::Channel>,
+        connection_channel: OnceCell<containerd_client::tonic::transport::Channel>,
     }
 
     impl ContainerdClient {
@@ -208,7 +208,10 @@ pub mod containerd {
 
         async fn get_connection_channel(
             &self,
-        ) -> Result<tonic::transport::Channel, tonic::transport::Error> {
+        ) -> Result<
+            containerd_client::tonic::transport::Channel,
+            containerd_client::tonic::transport::Error,
+        > {
             self.connection_channel
                 .get_or_try_init(async || containerd_client::connect(self.socket_path).await)
                 .await
@@ -227,7 +230,7 @@ pub mod containerd {
             let request = {
                 // with_namespace is a poorly-written macro and we have to import
                 // this on its behalf.
-                use tonic::Request;
+                use containerd_client::tonic::Request;
                 with_namespace!(request, CONTAINERD_K8S_HEADER_VALUE)
             };
             let response = images_client

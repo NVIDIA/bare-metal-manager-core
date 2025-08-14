@@ -260,9 +260,7 @@ pub async fn get_measurement_profile_id_by_attrs(
         SELECT {join_id}
         FROM (
             SELECT {join_id}, COUNT(DISTINCT key) AS key_count, COUNT(DISTINCT value) AS value_count
-            FROM {t1} ",
-        t1 = t1,
-        join_id = join_id
+            FROM {t1} "
     ));
     where_attr_pairs(&mut query, attrs);
 
@@ -270,7 +268,6 @@ pub async fn get_measurement_profile_id_by_attrs(
         "
             GROUP BY {join_id}
         ) AS possible_ids ",
-        join_id = join_id,
     ));
 
     query.push("WHERE key_count = ");
@@ -280,10 +277,7 @@ pub async fn get_measurement_profile_id_by_attrs(
     query.push(format!(
         ") AS {t2} ON {t1}.{join_id} = {t2}.{join_id}
     GROUP BY {t1}.{join_id}
-    HAVING COUNT(*) = ",
-        t1 = t1,
-        t2 = t2,
-        join_id = join_id
+    HAVING COUNT(*) = "
     ));
     query.push_bind(attrs_len);
 

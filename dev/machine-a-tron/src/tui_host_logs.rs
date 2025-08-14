@@ -200,9 +200,9 @@ struct HostEventInfo {
 impl field::Visit for HostEventInfo {
     fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
         match field.name() {
-            "mat_host_id" => self.host_id = Some(format!("{:?}", value)),
-            "message" => self.message = Some(format!("{:?}", value)),
-            "dpu_index" => self.dpu_index = Some(format!("{:?}", value)),
+            "mat_host_id" => self.host_id = Some(format!("{value:?}")),
+            "message" => self.message = Some(format!("{value:?}")),
+            "dpu_index" => self.dpu_index = Some(format!("{value:?}")),
             _ => self.fields.push(format!("{}={:?}", field.name(), value)),
         }
     }
@@ -211,7 +211,7 @@ impl field::Visit for HostEventInfo {
 impl Display for HostEventInfo {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if let Some(dpu_index) = self.dpu_index.as_ref() {
-            write!(f, "DPU {}: ", dpu_index)?;
+            write!(f, "DPU {dpu_index}: ")?;
         }
         if let Some(message) = self.message.as_ref() {
             f.write_str(message)?;

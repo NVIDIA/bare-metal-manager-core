@@ -27,14 +27,14 @@ fn main() {
         .with_config(cbindgen::Config::from_file("cbindgen.toml").expect("Config file missing"))
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file(format!("{}/carbide_rust.h", kea_shim_root));
+        .write_to_file(format!("{kea_shim_root}/carbide_rust.h"));
 
     cc::Build::new()
         .cpp(true)
-        .file(format!("{}/logger.cc", kea_shim_root))
-        .file(format!("{}/loader.cc", kea_shim_root))
-        .file(format!("{}/callouts.cc", kea_shim_root))
-        .file(format!("{}/carbide_logger.cc", kea_shim_root))
+        .file(format!("{kea_shim_root}/logger.cc"))
+        .file(format!("{kea_shim_root}/loader.cc"))
+        .file(format!("{kea_shim_root}/callouts.cc"))
+        .file(format!("{kea_shim_root}/carbide_logger.cc"))
         .include(kea_include_path)
         .shared_flag(false)
         .static_flag(false)
@@ -48,7 +48,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/kea/carbide_logger.cc");
     println!("cargo:rerun-if-changed=src/kea/carbide_logger.h");
 
-    println!("cargo:rustc-link-search={}", kea_lib_path);
+    println!("cargo:rustc-link-search={kea_lib_path}");
     println!("cargo:rustc-link-lib=keashim");
     println!("cargo:rustc-link-lib=stdc++");
     println!("cargo:rustc-link-lib=kea-asiolink");

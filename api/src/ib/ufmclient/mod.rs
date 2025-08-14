@@ -296,8 +296,7 @@ pub fn connect(conf: UFMConfig) -> Result<Ufm, UFMError> {
     let addr = Url::parse(&conf.address)
         .map_err(|_| UFMError::InvalidConfig(format!("invalid UFM url: {}", conf.address)))?;
     let address = addr.host_str().ok_or(UFMError::InvalidConfig(format!(
-        "invalid UFM host; url: {}",
-        addr
+        "invalid UFM host; url: {addr}"
     )))?;
 
     let (base_path, auth_info) = match &conf.token {
@@ -323,7 +322,7 @@ pub fn connect(conf: UFMConfig) -> Result<Ufm, UFMError> {
 
             (
                 "/ufmRest".to_string(),
-                BASE64_STANDARD.encode(format!("{}:{}", username, password)),
+                BASE64_STANDARD.encode(format!("{username}:{password}")),
             )
         }
         Some(t) => ("/ufmRestV3".to_string(), t.to_string()),
@@ -568,7 +567,7 @@ impl Ufm {
                 .collect(),
         };
 
-        let ports = match logical_state {
+        match logical_state {
             None => ports,
             Some(logical_state) => {
                 let logical_state = logical_state.to_lowercase();
@@ -578,9 +577,7 @@ impl Ufm {
                     .filter(|p| p.logical_state.to_lowercase().as_str().trim() == logical_state)
                     .collect()
             }
-        };
-
-        ports
+        }
     }
 
     pub async fn version(&self) -> Result<String, UFMError> {

@@ -69,8 +69,7 @@ impl DecodedPacketTrait<String> for DecodedPacket {
                     }
                 }
                 _ => Err(DhcpError::GenericError(format!(
-                    "option is not matched, got: {:?}.",
-                    value
+                    "option is not matched, got: {value:?}."
                 ))),
             }
         } else {
@@ -89,8 +88,7 @@ impl DecodedPacketTrait<MessageType> for DecodedPacket {
             match value {
                 DhcpOption::MessageType(x) => Ok(*x),
                 _ => Err(DhcpError::GenericError(format!(
-                    "Message type is not matched, got: {:?}.",
-                    value,
+                    "Message type is not matched, got: {value:?}.",
                 ))),
             }
         } else {
@@ -315,7 +313,7 @@ fn create_dhcp_reply_packet(
                 src.packet
                     .chaddr()
                     .iter()
-                    .map(|x| format!("{:x}", x))
+                    .map(|x| format!("{x:x}"))
                     .collect::<Vec<String>>()
                     .join(":"),
             ));
@@ -331,15 +329,13 @@ fn create_dhcp_reply_packet(
             IpNetwork::V4(prefix) => (prefix.mask(), prefix.broadcast()),
             IpNetwork::V6(prefix) => {
                 return Err(DhcpError::GenericError(format!(
-                    "Prefix ({}) is an IPv6 network, which is not supported.",
-                    prefix
+                    "Prefix ({prefix}) is an IPv6 network, which is not supported."
                 )));
             }
         },
         Err(error) => {
             return Err(DhcpError::GenericError(format!(
-                "prefix value in deserialized protobuf is not an IP Network: {0}",
-                error
+                "prefix value in deserialized protobuf is not an IP Network: {error}"
             )));
         }
     };
@@ -348,7 +344,7 @@ fn create_dhcp_reply_packet(
 
     let vendor_class = if let Some(vendor_string) = vendor_string {
         Some(VendorClass::from_str(vendor_string.as_str()).map_err(|e| {
-            DhcpError::VendorClassParseError(format!("Vendor string parse failed: {:?}", e))
+            DhcpError::VendorClassParseError(format!("Vendor string parse failed: {e:?}"))
         })?)
     } else {
         None

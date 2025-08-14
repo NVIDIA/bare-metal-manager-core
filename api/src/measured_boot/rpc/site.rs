@@ -68,7 +68,7 @@ pub async fn handle_import_site_measurements(
     // make sure its good).
     let site_model = match &req.model {
         Some(site_model_pb) => SiteModel::from_pb(site_model_pb).map_err(|e| {
-            Status::invalid_argument(format!("input site model failed translation: {}", e))
+            Status::invalid_argument(format!("input site model failed translation: {e}"))
         })?,
         None => return Err(Status::invalid_argument("site model cannot be empty")),
     };
@@ -76,7 +76,7 @@ pub async fn handle_import_site_measurements(
     // And now import it!
     let result = db::site::import(&mut txn, &site_model)
         .await
-        .map_err(|e| Status::internal(format!("site import failed: {}", e)))
+        .map_err(|e| Status::internal(format!("site import failed: {e}")))
         .map(|_| ImportSiteMeasurementsResponse {
             result: ImportSiteResult::Success.into(),
         });
@@ -94,12 +94,12 @@ pub async fn handle_export_site_measurements(
     let mut txn = begin_txn(db_conn).await?;
     let site_model = db::site::export(&mut txn)
         .await
-        .map_err(|e| Status::internal(format!("export failed: {}", e)))?;
+        .map_err(|e| Status::internal(format!("export failed: {e}")))?;
 
     Ok(ExportSiteMeasurementsResponse {
         model: Some(
             SiteModel::to_pb(&site_model)
-                .map_err(|e| Status::internal(format!("model to pb failed: {}", e)))?,
+                .map_err(|e| Status::internal(format!("model to pb failed: {e}")))?,
         ),
     })
 }
@@ -123,7 +123,7 @@ pub async fn handle_add_measurement_trusted_machine(
         Some(req.comments.clone()),
     )
     .await
-    .map_err(|e| Status::internal(format!("failed to insert trusted machine approval: {}", e)))?;
+    .map_err(|e| Status::internal(format!("failed to insert trusted machine approval: {e}")))?;
 
     commit_txn(txn).await?;
     Ok(AddMeasurementTrustedMachineResponse {
@@ -147,7 +147,7 @@ pub async fn handle_remove_measurement_trusted_machine(
                 MeasurementApprovedMachineId::from_grpc(Some(approval_uuid.clone()))?,
             )
             .await
-            .map_err(|e| Status::internal(format!("removal failed: {}", e)))?
+            .map_err(|e| Status::internal(format!("removal failed: {e}")))?
         }
         // Remove by machine ID.
         Some(remove_measurement_trusted_machine_request::Selector::MachineId(machine_id)) => {
@@ -158,7 +158,7 @@ pub async fn handle_remove_measurement_trusted_machine(
                 })?,
             )
             .await
-            .map_err(|e| Status::internal(format!("removal failed: {}", e)))?
+            .map_err(|e| Status::internal(format!("removal failed: {e}")))?
         }
         // Oops, forgot to set a selector.
         None => {
@@ -183,7 +183,7 @@ pub async fn handle_list_measurement_trusted_machines(
     let mut txn = begin_txn(db_conn).await?;
     let approval_records: Vec<MeasurementApprovedMachineRecordPb> = get_approved_machines(&mut txn)
         .await
-        .map_err(|e| Status::internal(format!("failed to fetch machine approvals: {}", e)))?
+        .map_err(|e| Status::internal(format!("failed to fetch machine approvals: {e}")))?
         .into_iter()
         .map(|record| record.into())
         .collect();
@@ -206,7 +206,7 @@ pub async fn handle_add_measurement_trusted_profile(
         req.comments.as_ref().cloned(),
     )
     .await
-    .map_err(|e| Status::internal(format!("failed to insert trusted profile approval: {}", e)))?;
+    .map_err(|e| Status::internal(format!("failed to insert trusted profile approval: {e}")))?;
 
     commit_txn(txn).await?;
     Ok(AddMeasurementTrustedProfileResponse {
@@ -229,7 +229,7 @@ pub async fn handle_remove_measurement_trusted_profile(
                 MeasurementApprovedProfileId::from_grpc(Some(approval_uuid.clone()))?,
             )
             .await
-            .map_err(|e| Status::internal(format!("removal failed: {}", e)))?
+            .map_err(|e| Status::internal(format!("removal failed: {e}")))?
         }
         // Remove by profile ID.
         Some(remove_measurement_trusted_profile_request::Selector::ProfileId(profile_id)) => {
@@ -238,7 +238,7 @@ pub async fn handle_remove_measurement_trusted_profile(
                 MeasurementSystemProfileId::from_grpc(Some(profile_id.clone()))?,
             )
             .await
-            .map_err(|e| Status::internal(format!("removal failed: {}", e)))?
+            .map_err(|e| Status::internal(format!("removal failed: {e}")))?
         }
         // Oops, forgot to set a selector.
         None => {
@@ -263,7 +263,7 @@ pub async fn handle_list_measurement_trusted_profiles(
     let mut txn = begin_txn(db_conn).await?;
     let approval_records: Vec<MeasurementApprovedProfileRecordPb> = get_approved_profiles(&mut txn)
         .await
-        .map_err(|e| Status::internal(format!("failed to fetch profile approvals: {}", e)))?
+        .map_err(|e| Status::internal(format!("failed to fetch profile approvals: {e}")))?
         .into_iter()
         .map(|record| record.into())
         .collect();
@@ -278,7 +278,7 @@ pub async fn handle_list_attestation_summary(
     let mut txn = begin_txn(db_conn).await?;
     let attestation_summary = list_attestation_summary(&mut txn)
         .await
-        .map_err(|e| Status::internal(format!("failed to fetch attestation summary: {}", e)))?;
+        .map_err(|e| Status::internal(format!("failed to fetch attestation summary: {e}")))?;
 
     Ok(MachineAttestationSummaryList::to_grpc(&attestation_summary))
 }

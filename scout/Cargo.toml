@@ -34,7 +34,7 @@ reqwest = { version = "*", default-features = false, features = [
     "stream",
 ] }
 futures-util = "0.3"
-prost-types = "0.13"
+prost-types = "0.14.1"
 x509-parser = "0.17.0"
 
 # [local-dependencies]

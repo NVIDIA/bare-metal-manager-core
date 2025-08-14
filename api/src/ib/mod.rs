@@ -158,14 +158,12 @@ impl IBFabricManager for IBFabricManagerImpl {
                     .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
                         Ok(vaultrs::error::ClientError::APIError { code: 404, .. }) => {
                             CarbideError::internal(format!(
-                                "Vault key not found: ufm/{}/token",
-                                fabric_name
+                                "Vault key not found: ufm/{fabric_name}/token"
                             ))
                         }
-                        Ok(ce) => CarbideError::internal(format!("Vault error: {}", ce)),
+                        Ok(ce) => CarbideError::internal(format!("Vault error: {ce}")),
                         Err(err) => CarbideError::IBFabricError(format!(
-                            "Error getting credentials for Ufm: {:?}",
-                            err
+                            "Error getting credentials for Ufm: {err:?}"
                         )),
                     })?;
 

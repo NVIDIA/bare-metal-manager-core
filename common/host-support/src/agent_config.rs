@@ -73,7 +73,7 @@ impl AgentConfig {
         toml::from_str(&data).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("Invalid AgentConfig toml data: {}", e),
+                format!("Invalid AgentConfig toml data: {e}"),
             )
         })
     }
@@ -288,14 +288,14 @@ mod tests {
     // the expected output config).
     fn test_load_forge_agent_config_defaults() {
         let input_config: AgentConfig = toml::from_str(
-            fs::read_to_string(format!("{}/min_agent_config/input.toml", TEST_DATA_DIR))
+            fs::read_to_string(format!("{TEST_DATA_DIR}/min_agent_config/input.toml"))
                 .unwrap()
                 .as_str(),
         )
         .unwrap();
         let observed_output = toml::to_string(&input_config).unwrap();
         let expected_output =
-            fs::read_to_string(format!("{}/min_agent_config/output.toml", TEST_DATA_DIR)).unwrap();
+            fs::read_to_string(format!("{TEST_DATA_DIR}/min_agent_config/output.toml")).unwrap();
         assert_eq!(observed_output, expected_output);
     }
 

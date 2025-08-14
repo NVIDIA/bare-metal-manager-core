@@ -147,7 +147,7 @@ async fn drop_pg_database_with_retry_if_exists(db_url: &str) -> eyre::Result<()>
     if !sqlx::Postgres::database_exists(db_url).await? {
         return Ok(());
     }
-    let Some(database) = db_url.split('/').last() else {
+    let Some(database) = db_url.split('/').next_back() else {
         panic!("Invalid DATABASE_URL: {db_url}");
     };
 
@@ -253,7 +253,7 @@ pub async fn start_api_server(
             })
             .await
             .inspect_err(|e| {
-                eprintln!("Failed to start API server: {:#}", e);
+                eprintln!("Failed to start API server: {e:#}");
             })
         }
     });

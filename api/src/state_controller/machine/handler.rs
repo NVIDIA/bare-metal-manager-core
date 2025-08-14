@@ -2623,7 +2623,7 @@ async fn check_fw_component_version(
         };
 
         if inventory.version.is_none() {
-            let msg = format!("Unknown {:?} version", component_name);
+            let msg = format!("Unknown {component_name:?} version");
             tracing::error!(msg);
             return Err(StateHandlerError::FirmwareUpdateError(eyre!(msg)));
         };
@@ -2642,7 +2642,7 @@ async fn check_fw_component_version(
                     .known_firmware
                     .iter()
                     .filter(|fw_entry| !fw_entry.preingestion_exclusive_config)
-                    .last()
+                    .next_back()
                     .cloned()
             })
             .map(|f| f.version)
@@ -3679,8 +3679,7 @@ pub async fn trigger_reboot_if_needed(
                 let action = SystemPowerControl::ForceOff;
                 handler_host_power_control(state, services, action, txn).await?;
                 format!(
-                    "Has not come up after {} minutes, trying ForceOff, cycle: {cycle}",
-                    time_elapsed_since_state_change,
+                    "Has not come up after {time_elapsed_since_state_change} minutes, trying ForceOff, cycle: {cycle}",
                 )
             } else {
                 // Reboot
@@ -3695,8 +3694,7 @@ pub async fn trigger_reboot_if_needed(
                     handler_host_power_control(state, services, power_control_action, txn).await?;
                 }
                 format!(
-                    "Has not come up after {} minutes. Rebooting again, cycle: {cycle}.",
-                    time_elapsed_since_state_change
+                    "Has not come up after {time_elapsed_since_state_change} minutes. Rebooting again, cycle: {cycle}."
                 )
             };
 

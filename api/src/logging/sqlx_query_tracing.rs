@@ -35,11 +35,10 @@ where
 {
     SqlxQueryTracingLayer::default().with_filter(tracing_subscriber::filter::filter_fn(
         |metadata| {
-            let enabled = metadata.is_span()
+            metadata.is_span()
                 || metadata.is_event()
                     && (metadata.target() == "sqlx::query"
-                        || metadata.target() == "sqlx::extract_query_data");
-            enabled
+                        || metadata.target() == "sqlx::extract_query_data")
         },
     ))
 }
@@ -128,7 +127,7 @@ impl field::Visit for SqlxQueryDataExtractor {
             "elapsed" => {
                 // TODO: This would be so much easier if sqlx would give us not a Debug object
                 // but just some value
-                let mut elapsed_str = format!("{:?}", value);
+                let mut elapsed_str = format!("{value:?}");
                 if elapsed_str.ends_with("ns") {
                     elapsed_str.truncate(elapsed_str.len() - 2);
                     self.elapsed = std::time::Duration::from_nanos(
@@ -155,10 +154,10 @@ impl field::Visit for SqlxQueryDataExtractor {
                 }
             }
             "rows_affected" => {
-                self.rows_affected = format!("{:?}", value).parse::<usize>().unwrap_or_default()
+                self.rows_affected = format!("{value:?}").parse::<usize>().unwrap_or_default()
             }
             "rows_returned" => {
-                self.rows_returned = format!("{:?}", value).parse::<usize>().unwrap_or_default()
+                self.rows_returned = format!("{value:?}").parse::<usize>().unwrap_or_default()
             }
             _ => {}
         }

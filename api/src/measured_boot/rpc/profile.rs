@@ -88,7 +88,7 @@ pub async fn handle_rename_measurement_system_profile(
             req.new_profile_name.clone(),
         )
         .await
-        .map_err(|e| Status::internal(format!("rename failed: {}", e)))?,
+        .map_err(|e| Status::internal(format!("rename failed: {e}")))?,
 
         // Rename for the given system_profile name.
         Some(rename_measurement_system_profile_request::Selector::ProfileName(
@@ -99,7 +99,7 @@ pub async fn handle_rename_measurement_system_profile(
             req.new_profile_name.clone(),
         )
         .await
-        .map_err(|e| Status::internal(format!("rename failed: {}", e)))?,
+        .map_err(|e| Status::internal(format!("rename failed: {e}")))?,
 
         // ID or name is needed.
         None => {
@@ -158,13 +158,13 @@ pub async fn handle_show_measurement_system_profile(
                 MeasurementSystemProfileId::from_grpc(Some(profile_uuid.clone()))?,
             )
             .await
-            .map_err(|e| Status::internal(format!("{}", e)))?
+            .map_err(|e| Status::internal(format!("{e}")))?
         }
         // Show a system profile with the given profile name.
         Some(show_measurement_system_profile_request::Selector::ProfileName(profile_name)) => {
             db::profile::load_from_name(&mut txn, profile_name.clone())
                 .await
-                .map_err(|e| Status::internal(format!("{}", e)))?
+                .map_err(|e| Status::internal(format!("{e}")))?
         }
         // Show all system profiles.
         None => return Err(Status::invalid_argument("selector required")),
@@ -185,7 +185,7 @@ pub async fn handle_show_measurement_system_profiles(
     Ok(ShowMeasurementSystemProfilesResponse {
         system_profiles: db::profile::get_all(&mut txn)
             .await
-            .map_err(|e| Status::internal(format!("{}", e)))?
+            .map_err(|e| Status::internal(format!("{e}")))?
             .drain(..)
             .map(|profile| profile.into())
             .collect(),
@@ -202,7 +202,7 @@ pub async fn handle_list_measurement_system_profiles(
     let system_profiles: Vec<MeasurementSystemProfileRecordPb> =
         export_measurement_profile_records(&mut txn)
             .await
-            .map_err(|e| Status::internal(format!("{}", e)))?
+            .map_err(|e| Status::internal(format!("{e}")))?
             .drain(..)
             .map(|record| record.into())
             .collect();
@@ -226,7 +226,7 @@ pub async fn handle_list_measurement_system_profile_bundles(
             MeasurementSystemProfileId::from_grpc(Some(profile_uuid.clone()))?,
         )
         .await
-        .map_err(|e| Status::internal(format!("{}", e)))?
+        .map_err(|e| Status::internal(format!("{e}")))?
         .drain(..)
         .map(|bundle_id| bundle_id.into())
         .collect(),
@@ -236,7 +236,7 @@ pub async fn handle_list_measurement_system_profile_bundles(
             profile_name,
         )) => get_bundles_for_profile_name(&mut txn, profile_name.clone())
             .await
-            .map_err(|e| Status::internal(format!("{}", e)))?
+            .map_err(|e| Status::internal(format!("{e}")))?
             .drain(..)
             .map(|bundle_id| bundle_id.into())
             .collect(),
@@ -263,7 +263,7 @@ pub async fn handle_list_measurement_system_profile_machines(
                 MeasurementSystemProfileId::from_grpc(Some(profile_id.clone()))?,
             )
             .await
-            .map_err(|e| Status::internal(format!("{}", e)))?
+            .map_err(|e| Status::internal(format!("{e}")))?
             .drain(..)
             .map(|machine_id| machine_id.to_string())
             .collect()
@@ -273,7 +273,7 @@ pub async fn handle_list_measurement_system_profile_machines(
             profile_name,
         )) => get_machines_for_profile_name(&mut txn, profile_name.clone())
             .await
-            .map_err(|e| Status::internal(format!("{}", e)))?
+            .map_err(|e| Status::internal(format!("{e}")))?
             .drain(..)
             .map(|machine_id| machine_id.to_string())
             .collect(),
@@ -293,11 +293,10 @@ async fn delete_for_uuid(
     match MeasurementSystemProfileId::try_from(profile_uuid) {
         Ok(profile_id) => match db::profile::delete_for_id(txn, profile_id).await {
             Ok(optional_profile) => Ok(optional_profile),
-            Err(e) => Err(Status::internal(format!("error deleting profile: {}", e))),
+            Err(e) => Err(Status::internal(format!("error deleting profile: {e}"))),
         },
         Err(e) => Err(Status::invalid_argument(format!(
-            "input profile UUID failed translation: {}",
-            e
+            "input profile UUID failed translation: {e}"
         ))),
     }
 }
@@ -310,6 +309,6 @@ async fn delete_for_name(
 ) -> Result<Option<MeasurementSystemProfile>, Status> {
     match db::profile::delete_for_name(txn, profile_name).await {
         Ok(optional_profile) => Ok(optional_profile),
-        Err(e) => Err(Status::internal(format!("error deleting profile: {}", e))),
+        Err(e) => Err(Status::internal(format!("error deleting profile: {e}"))),
     }
 }

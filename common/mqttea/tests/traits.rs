@@ -397,16 +397,16 @@ async fn test_multiple_cat_messages() {
 
     for i in 0..5 {
         let cat_msg = CatMessage {
-            name: format!("Cat-{}", i),
+            name: format!("Cat-{i}"),
             mood: "testing".to_string(),
-            payload: format!("test-{}", i).into_bytes(),
+            payload: format!("test-{i}").into_bytes(),
         };
 
         handler
             .handle(
                 test_client.clone(),
                 cat_msg,
-                format!("/cats/test-{}/status", i),
+                format!("/cats/test-{i}/status"),
             )
             .await;
     }
@@ -417,14 +417,10 @@ async fn test_multiple_cat_messages() {
     assert_eq!(messages.len(), 5, "Should have 5 received messages");
 
     for (i, (msg, topic)) in messages.iter().enumerate() {
-        assert_eq!(
-            msg.name,
-            format!("Cat-{}", i),
-            "Cat name should match index"
-        );
+        assert_eq!(msg.name, format!("Cat-{i}"), "Cat name should match index");
         assert_eq!(
             *topic,
-            format!("/cats/test-{}/status", i),
+            format!("/cats/test-{i}/status"),
             "Topic should match index"
         );
     }
@@ -453,7 +449,7 @@ async fn test_multiple_dog_energy_levels() {
             .handle(
                 test_client.clone(),
                 dog,
-                format!("/dogs/test-{}/status", energy),
+                format!("/dogs/test-{energy}/status"),
             )
             .await;
     }
@@ -491,16 +487,16 @@ async fn test_concurrent_message_handling() {
 
         let handle = tokio::spawn(async move {
             let cat_msg = CatMessage {
-                name: format!("ConcurrentCat-{}", i),
+                name: format!("ConcurrentCat-{i}"),
                 mood: "concurrent".to_string(),
-                payload: format!("concurrent-{}", i).into_bytes(),
+                payload: format!("concurrent-{i}").into_bytes(),
             };
 
             handler_clone
                 .handle(
                     client_clone,
                     cat_msg.clone(),
-                    format!("/cats/cat-{}/status", i),
+                    format!("/cats/cat-{i}/status"),
                 )
                 .await;
         });
@@ -641,7 +637,7 @@ async fn test_high_volume_message_processing() {
             };
 
             handler_clone
-                .handle(client_clone, dog, format!("/dogs/test-{}/status", i))
+                .handle(client_clone, dog, format!("/dogs/test-{i}/status"))
                 .await;
         });
 

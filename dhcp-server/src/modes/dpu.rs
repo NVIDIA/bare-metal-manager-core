@@ -66,7 +66,7 @@ impl DhcpMode for Dpu {
             .host_ip_addresses
             .get(&circuit_id)
             .ok_or_else(|| {
-                DhcpError::MissingArgument(format!("Could not find IP details for {}", circuit_id))
+                DhcpError::MissingArgument(format!("Could not find IP details for {circuit_id}"))
             })?;
 
         let Some(host_config) = &config.host_config else {

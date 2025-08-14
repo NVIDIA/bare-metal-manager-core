@@ -120,7 +120,7 @@ pub struct MeasurementSystemProfileRecord {
 impl MeasurementSystemProfileRecord {
     pub fn from_grpc(msg: MeasurementSystemProfileRecordPb) -> crate::Result<Self> {
         Self::try_from(msg).map_err(|e| {
-            crate::Error::RpcConversion(format!("bad input system profile record: {}", e))
+            crate::Error::RpcConversion(format!("bad input system profile record: {e}"))
         })
     }
 
@@ -129,8 +129,7 @@ impl MeasurementSystemProfileRecord {
             .map(|record| {
                 Self::try_from(record.clone()).map_err(|e| {
                     crate::Error::RpcConversion(format!(
-                        "failed system profile record conversion: {}",
-                        e
+                        "failed system profile record conversion: {e}"
                     ))
                 })
             })
@@ -211,7 +210,7 @@ pub struct MeasurementSystemProfileAttrRecord {
 impl MeasurementSystemProfileAttrRecord {
     pub fn from_grpc(msg: MeasurementSystemProfileAttrRecordPb) -> crate::Result<Self> {
         Self::try_from(msg).map_err(|e| {
-            crate::Error::RpcConversion(format!("bad input system profile attr record: {}", e))
+            crate::Error::RpcConversion(format!("bad input system profile attr record: {e}"))
         })
     }
 
@@ -220,8 +219,7 @@ impl MeasurementSystemProfileAttrRecord {
             .map(|record| {
                 Self::try_from(record.clone()).map_err(|e| {
                     crate::Error::RpcConversion(format!(
-                        "failed system profile record attr conversion: {}",
-                        e
+                        "failed system profile record attr conversion: {e}"
                     ))
                 })
             })
@@ -331,7 +329,7 @@ impl FromStr for MeasurementBundleState {
 
 impl fmt::Display for MeasurementBundleState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -404,7 +402,7 @@ pub struct MeasurementBundleRecord {
 impl MeasurementBundleRecord {
     pub fn from_grpc(msg: MeasurementBundleRecordPb) -> crate::Result<Self> {
         Self::try_from(msg)
-            .map_err(|e| crate::Error::RpcConversion(format!("bad input bundle record: {}", e)))
+            .map_err(|e| crate::Error::RpcConversion(format!("bad input bundle record: {e}")))
     }
 
     pub fn from_pb_vec(pbs: &[MeasurementBundleRecordPb]) -> crate::Result<Vec<Self>> {
@@ -412,8 +410,7 @@ impl MeasurementBundleRecord {
             .map(|record| {
                 Self::try_from(record.clone()).map_err(|e| {
                     crate::Error::RpcConversion(format!(
-                        "failed bundle record attr conversion: {}",
-                        e
+                        "failed bundle record attr conversion: {e}"
                     ))
                 })
             })
@@ -499,9 +496,8 @@ pub struct MeasurementBundleValueRecord {
 
 impl MeasurementBundleValueRecord {
     pub fn from_grpc(msg: MeasurementBundleValueRecordPb) -> crate::Result<Self> {
-        Self::try_from(msg).map_err(|e| {
-            crate::Error::RpcConversion(format!("bad input bundle value record: {}", e))
-        })
+        Self::try_from(msg)
+            .map_err(|e| crate::Error::RpcConversion(format!("bad input bundle value record: {e}")))
     }
 
     pub fn from_pb_vec(pbs: &[MeasurementBundleValueRecordPb]) -> crate::Result<Vec<Self>> {
@@ -509,8 +505,7 @@ impl MeasurementBundleValueRecord {
             .map(|record| {
                 Self::try_from(record.clone()).map_err(|e| {
                     crate::Error::RpcConversion(format!(
-                        "failed bundle value record attr conversion: {}",
-                        e
+                        "failed bundle value record attr conversion: {e}"
                     ))
                 })
             })
@@ -584,7 +579,7 @@ pub struct MeasurementReportRecord {
 impl MeasurementReportRecord {
     pub fn from_grpc(msg: MeasurementReportRecordPb) -> Result<Self, Status> {
         Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input report record: {}", e)))
+            .map_err(|e| Status::invalid_argument(format!("bad input report record: {e}")))
     }
 }
 
@@ -664,7 +659,7 @@ pub struct MeasurementReportValueRecord {
 impl MeasurementReportValueRecord {
     pub fn from_grpc(msg: MeasurementReportValueRecordPb) -> Result<Self, Status> {
         Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input report value record: {}", e)))
+            .map_err(|e| Status::invalid_argument(format!("bad input report value record: {e}")))
     }
 }
 
@@ -766,7 +761,7 @@ pub struct MeasurementJournalRecord {
 impl MeasurementJournalRecord {
     pub fn from_grpc(msg: MeasurementJournalRecordPb) -> Result<Self, Status> {
         Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input journal record: {}", e)))
+            .map_err(|e| Status::invalid_argument(format!("bad input journal record: {e}")))
     }
 }
 
@@ -853,7 +848,7 @@ impl FromStr for MeasurementMachineState {
 
 impl fmt::Display for MeasurementMachineState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -891,7 +886,7 @@ pub struct CandidateMachineSummary {
 impl CandidateMachineSummary {
     pub fn from_grpc(msg: CandidateMachineSummaryPb) -> Result<Self, Status> {
         Self::try_from(msg).map_err(|e| {
-            Status::invalid_argument(format!("bad input candidate machine record: {}", e))
+            Status::invalid_argument(format!("bad input candidate machine record: {e}"))
         })
     }
 }
@@ -961,7 +956,7 @@ impl FromStr for MeasurementApprovedType {
 
 impl fmt::Display for MeasurementApprovedType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -1036,10 +1031,7 @@ impl MeasurementApprovedMachineRecord {
     pub fn from_grpc(msg: Option<&MeasurementApprovedMachineRecordPb>) -> Result<Self, Status> {
         match msg {
             Some(pb) => Self::try_from(pb.clone()).map_err(|e| {
-                Status::invalid_argument(format!(
-                    "bad input trusted machine approval record: {}",
-                    e
-                ))
+                Status::invalid_argument(format!("bad input trusted machine approval record: {e}"))
             }),
             None => Err(Status::invalid_argument("record unexpectedly empty")),
         }
@@ -1154,10 +1146,7 @@ impl MeasurementApprovedProfileRecord {
     pub fn from_grpc(msg: Option<&MeasurementApprovedProfileRecordPb>) -> Result<Self, Status> {
         match msg {
             Some(pb) => Self::try_from(pb.clone()).map_err(|e| {
-                Status::invalid_argument(format!(
-                    "bad input trusted profile approval record: {}",
-                    e
-                ))
+                Status::invalid_argument(format!("bad input trusted profile approval record: {e}"))
             }),
             None => Err(Status::invalid_argument("record unexpectedly empty")),
         }

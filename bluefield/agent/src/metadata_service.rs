@@ -59,7 +59,7 @@ fn start_server(address: String, router: Router) -> Result<(), Box<dyn std::erro
 
     tokio::spawn(async move {
         if let Err(err) = server.serve(router.into_make_service()).await {
-            eprintln!("Error while serving: {}", err);
+            eprintln!("Error while serving: {err}");
         }
     });
 

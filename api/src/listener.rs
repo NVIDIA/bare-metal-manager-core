@@ -63,8 +63,8 @@ fn get_tls_acceptor(tls_config: &ApiTlsConfig) -> Option<TlsAcceptor> {
         .ok()
         .and_then(|fd| {
             let mut buf = std::io::BufReader::new(&fd);
-            let key = rustls_pemfile::ec_private_keys(&mut buf).next();
-            key
+
+            rustls_pemfile::ec_private_keys(&mut buf).next()
         })
         .and_then(|keys| {
             keys.inspect_err(|error| {
@@ -226,11 +226,11 @@ pub async fn listen_and_serve(
     let router = axum::Router::new()
         .route("/", axum::routing::get(root_url))
         .route_service(
-            "/forge.Forge/*rpc",
+            "/forge.Forge/{*rpc}",
             rpc::forge_server::ForgeServer::from_arc(api_service.clone()),
         )
         .route_service(
-            "/grpc.reflection.v1alpha.ServerReflection/*r",
+            "/grpc.reflection.v1alpha.ServerReflection/{*r}",
             api_reflection_service,
         )
         .nest_service("/admin", crate::web::routes(api_service.clone())?);

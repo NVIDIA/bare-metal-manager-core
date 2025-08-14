@@ -75,11 +75,11 @@ impl MachineValidationManager {
                 &url
             )))?;
         let _ = std::fs::remove_file(output_file).or(Err(MachineValidationError::Generic(
-            format!("Failed to delete file '{}'", output_file),
+            format!("Failed to delete file '{output_file}'"),
         )));
 
         let mut file = std::fs::File::create(output_file).or(Err(
-            MachineValidationError::Generic(format!("Failed to create file '{}'", output_file)),
+            MachineValidationError::Generic(format!("Failed to create file '{output_file}'")),
         ))?;
         let mut buffer: u64 = 0;
         let mut stream = res.bytes_stream();
@@ -99,7 +99,7 @@ impl MachineValidationManager {
     }
     pub async fn get_config_file(platform_name: String) -> Result<String, MachineValidationError> {
         tracing::info!(platform_name);
-        let path: String = format!("/tmp/config/{}.yaml", platform_name);
+        let path: String = format!("/tmp/config/{platform_name}.yaml");
         if std::fs::metadata(path.clone()).is_err() {
             return Ok("/tmp/config/default.yaml".to_string());
         }

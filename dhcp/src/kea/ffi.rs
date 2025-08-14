@@ -28,7 +28,7 @@ pub unsafe extern "C" fn load(a: *mut libc::c_void) -> libc::c_int {
     match log::set_logger(&crate::LOGGER).map(|()| log::set_max_level(LevelFilter::Trace)) {
         Ok(_) => log::info!("Initialized Logger"),
         Err(err) => {
-            eprintln!("Unable to initialize logger: {}", err);
+            eprintln!("Unable to initialize logger: {err}");
             return 1;
         }
     };

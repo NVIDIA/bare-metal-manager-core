@@ -138,10 +138,7 @@ pub(crate) async fn handle_measuring_state(
         return Ok(MeasuringOutcome::Unsuccessful((
             FailureDetails {
                 cause: FailureCause::MeasurementsCAValidationFailed {
-                    err: format!(
-                        "The EK for MachineId {} has not been CA verified",
-                        machine_id
-                    ),
+                    err: format!("The EK for MachineId {machine_id} has not been CA verified"),
                 },
                 failed_at: chrono::Utc::now(),
                 source: FailureSource::StateMachineArea(StateMachineArea::Default),

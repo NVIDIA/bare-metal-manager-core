@@ -53,10 +53,7 @@ impl CandidateMachine {
             ))
             .and_then(|pb| {
                 Self::try_from(pb.clone()).map_err(|e| {
-                    crate::Error::RpcConversion(format!(
-                        "machine failed pb->model conversion: {}",
-                        e
-                    ))
+                    crate::Error::RpcConversion(format!("machine failed pb->model conversion: {e}"))
                 })
             })
     }

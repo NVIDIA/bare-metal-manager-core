@@ -105,7 +105,7 @@ async fn test_dns(pool: sqlx::PgPool) {
         let topology = &topologies.get(machine_id).unwrap()[0];
         let bmc_record = api
             .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-                q_name: Some(format!("{}.{}.", machine_id, DNS_BMC_SUBDOMAIN)),
+                q_name: Some(format!("{machine_id}.{DNS_BMC_SUBDOMAIN}.")),
                 q_type: Some(1),
                 q_class: Some(1),
             }))
@@ -126,7 +126,7 @@ async fn test_dns(pool: sqlx::PgPool) {
                 .unwrap();
         let adm_record = api
             .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-                q_name: Some(format!("{}.{}.", machine_id, DNS_ADM_SUBDOMAIN)),
+                q_name: Some(format!("{machine_id}.{DNS_ADM_SUBDOMAIN}.")),
                 q_type: Some(1),
                 q_class: Some(1),
             }))
@@ -184,7 +184,7 @@ async fn test_dns(pool: sqlx::PgPool) {
     // Querying for something unknown should return a NotFound status code
     for name in [
         "unknown".to_string(),
-        format!("unknown.{}.", DNS_BMC_SUBDOMAIN),
+        format!("unknown.{DNS_BMC_SUBDOMAIN}."),
     ] {
         let status = api
             .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
@@ -195,7 +195,7 @@ async fn test_dns(pool: sqlx::PgPool) {
             .await
             .expect_err("Query should return an error");
         assert_eq!(status.code(), tonic::Code::NotFound);
-        assert_eq!(status.message(), format!("dns_record not found: {}", name));
+        assert_eq!(status.message(), format!("dns_record not found: {name}"));
     }
 }
 

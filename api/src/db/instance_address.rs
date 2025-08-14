@@ -616,7 +616,7 @@ mod tests {
         let network_segments: Vec<NetworkSegment> = InterfaceFunctionId::iter_all()
             .enumerate()
             .map(|(idx, _function_id)| {
-                let id = format!("91609f10-c91d-470d-a260-6293ea0c00{:02}", idx);
+                let id = format!("91609f10-c91d-470d-a260-6293ea0c00{idx:02}");
                 let version = ConfigVersion::initial();
                 NetworkSegment {
                     id: NetworkSegmentId::from_str(&id).unwrap(),

@@ -72,7 +72,7 @@ async fn test_find_network_devices_by_device_ids_multiple_ids(pool: sqlx::PgPool
     for (index, expected_id) in expected_ids.iter().enumerate() {
         let found_device = network_devices
             .get(index)
-            .unwrap_or_else(|| panic!("No network_device at index {}", index));
+            .unwrap_or_else(|| panic!("No network_device at index {index}"));
         assert_eq!(
             &found_device.id, expected_id,
             "Returned device at index {} should have id {}, got {}",

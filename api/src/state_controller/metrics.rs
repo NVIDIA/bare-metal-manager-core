@@ -302,18 +302,17 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
         shared_metrics_holder: SharedMetricsHolder<Self::IterationMetrics>,
     ) -> Self {
         let controller_iteration_latency = meter
-            .f64_histogram(format!("{}_iteration_latency", object_type))
+            .f64_histogram(format!("{object_type}_iteration_latency"))
             .with_description(format!(
-                "The overall time it took to handle state for all {} in the system",
-                object_type
+                "The overall time it took to handle state for all {object_type} in the system"
             ))
             .with_unit("ms")
             .build();
         {
             let metrics = shared_metrics_holder.clone();
             meter
-                .u64_observable_gauge(format!("{}_total", object_type))
-                .with_description(format!("The total number of {} in the system", object_type))
+                .u64_observable_gauge(format!("{object_type}_total"))
+                .with_description(format!("The total number of {object_type} in the system"))
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         let num_objects = metrics
@@ -330,10 +329,9 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
         {
             let metrics = shared_metrics_holder.clone();
             meter
-                .u64_observable_gauge(format!("{}_per_state", object_type))
+                .u64_observable_gauge(format!("{object_type}_per_state"))
                 .with_description(format!(
-                    "The number of {} in the system with a given state",
-                    object_type
+                    "The number of {object_type} in the system with a given state"
                 ))
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -358,10 +356,9 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
         {
             let metrics = shared_metrics_holder.clone();
             meter
-                .u64_observable_gauge(format!("{}_per_state_above_sla", object_type))
+                .u64_observable_gauge(format!("{object_type}_per_state_above_sla"))
                 .with_description(format!(
-                    "The number of {} in the system which had been longer in a state than allowed per SLA",
-                    object_type
+                    "The number of {object_type} in the system which had been longer in a state than allowed per SLA"
                 ))
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -387,12 +384,10 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
             let metrics = shared_metrics_holder;
             meter
                 .u64_observable_gauge(format!(
-                    "{}_with_state_handling_errors_per_state",
-                    object_type
+                    "{object_type}_with_state_handling_errors_per_state"
                 ))
                 .with_description(format!(
-                    "The number of {} in the system with a given state that failed state handling",
-                    object_type
+                    "The number of {object_type} in the system with a given state that failed state handling"
                 ))
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -433,32 +428,28 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
         };
 
         let state_entered_counter = meter
-            .u64_counter(format!("{}_state_entered", object_type))
+            .u64_counter(format!("{object_type}_state_entered"))
             .with_description(format!(
-                "The amount of types that objects of type {} have entered a certain state",
-                object_type
+                "The amount of types that objects of type {object_type} have entered a certain state"
             ))
             .build();
         let state_exited_counter = meter
-            .u64_counter(format!("{}_state_exited", object_type))
+            .u64_counter(format!("{object_type}_state_exited"))
             .with_description(format!(
-                "The amount of types that objects of type {} have exited a certain state",
-                object_type
+                "The amount of types that objects of type {object_type} have exited a certain state"
             ))
             .build();
         let time_in_state_histogram = meter
-            .f64_histogram(format!("{}_time_in_state", object_type))
+            .f64_histogram(format!("{object_type}_time_in_state"))
             .with_description(format!(
-                "The amount of time objects of type {} have spent in a certain state",
-                object_type
+                "The amount of time objects of type {object_type} have spent in a certain state"
             ))
             .with_unit("s")
             .build();
         let handler_latency_in_state_histogram = meter
-            .f64_histogram(format!("{}_handler_latency_in_state", object_type))
+            .f64_histogram(format!("{object_type}_handler_latency_in_state"))
             .with_description(format!(
-                "The amount of time it took to invoke the state handler for objects of type {} in a certain state",
-                object_type
+                "The amount of time it took to invoke the state handler for objects of type {object_type} in a certain state"
             ))
             .with_unit("ms")
             .build();
@@ -542,7 +533,7 @@ impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
             total_objects += m.num_objects;
 
             let state_name = if !substate.is_empty() {
-                format!("{}.{}", state, substate)
+                format!("{state}.{substate}")
             } else {
                 state.to_string()
             };

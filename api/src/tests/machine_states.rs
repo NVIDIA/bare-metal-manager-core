@@ -679,9 +679,7 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
     ] {
         assert!(
             health_status_metrics.iter().any(|m| m.as_str() == expected),
-            "Expected to find {}. Got {:?}",
-            expected,
-            health_status_metrics
+            "Expected to find {expected}. Got {health_status_metrics:?}"
         );
     }
 
@@ -696,7 +694,7 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
         env.test_meter
             .formatted_metric("forge_dpu_agent_version_count")
             .unwrap(),
-        format!(r#"{{fresh="true",version="{}"}} 2"#, TEST_DPU_AGENT_VERSION)
+        format!(r#"{{fresh="true",version="{TEST_DPU_AGENT_VERSION}"}} 2"#)
     );
 
     let mut inventory_metrics = env
@@ -705,22 +703,16 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
     inventory_metrics.sort();
 
     for expected in &[
+        format!(r#"{{fresh="true",name="doca-hbn",version="{TEST_DOCA_HBN_VERSION}"}} 2"#),
         format!(
-            r#"{{fresh="true",name="doca-hbn",version="{}"}} 2"#,
-            TEST_DOCA_HBN_VERSION
-        ),
-        format!(
-            r#"{{fresh="true",name="doca-telemetry",version="{}"}} 2"#,
-            TEST_DOCA_TELEMETRY_VERSION
+            r#"{{fresh="true",name="doca-telemetry",version="{TEST_DOCA_TELEMETRY_VERSION}"}} 2"#
         ),
     ] {
         assert!(
             inventory_metrics
                 .iter()
                 .any(|m| m.as_str() == expected.as_str()),
-            "Expected to find {}. Got {:?}",
-            expected,
-            inventory_metrics
+            "Expected to find {expected}. Got {inventory_metrics:?}"
         );
     }
 

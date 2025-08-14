@@ -335,8 +335,7 @@ async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPoo
     let error = result.expect_err("expected allocation to fail").to_string();
     assert!(
         error.contains("not enough ib device"),
-        "Error message should contain 'not enough ib device', but is {}",
-        error
+        "Error message should contain 'not enough ib device', but is {error}"
     );
 }
 
@@ -381,8 +380,7 @@ async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
     let error = result.expect_err("expected allocation to fail").to_string();
     assert!(
         error.contains("no ib device"),
-        "Error message should contain 'no ib device', but is {}",
-        error
+        "Error message should contain 'no ib device', but is {error}"
     );
 }
 
@@ -437,8 +435,7 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
     let error = result.expect_err("expected allocation to fail").to_string();
     assert!(
         error.contains("is reused"),
-        "Error message should contain 'is reused', but is {}",
-        error
+        "Error message should contain 'is reused', but is {error}"
     );
 }
 
@@ -493,8 +490,7 @@ async fn test_can_not_create_instance_with_inconsistent_tenant(pool: sqlx::PgPoo
     let error = result.expect_err("expected allocation to fail").to_string();
     assert!(
         error.contains("instance inconsistent with the tenant"),
-        "Error message should contain 'instance inconsistent with the tenant', but is {}",
-        error
+        "Error message should contain 'instance inconsistent with the tenant', but is {error}"
     );
 }
 
@@ -593,9 +589,7 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
     let error = result.expect_err("expected allocation to fail").to_string();
     assert!(
         error.contains(&expected_err),
-        "Error message should contain '{}', but is '{}'",
-        expected_err,
-        error
+        "Error message should contain '{expected_err}', but is '{error}'"
     );
 }
 

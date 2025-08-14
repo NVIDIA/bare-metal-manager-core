@@ -50,9 +50,9 @@ pub async fn connect(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, Carbid
         (
             None,
             Some(UFMCert {
-                ca_crt: format!("{}/ca.crt", auth),
-                tls_key: format!("{}/tls.key", auth),
-                tls_crt: format!("{}/tls.crt", auth),
+                ca_crt: format!("{auth}/ca.crt"),
+                tls_key: format!("{auth}/tls.key"),
+                tls_crt: format!("{auth}/tls.crt"),
             }),
         )
     } else {
@@ -303,7 +303,7 @@ impl TryFrom<Filter> for ufmclient::Filter {
                 .pkey
                 .map(ufmclient::PartitionKey::try_from)
                 .transpose()?,
-            logical_state: filter.state.map(|state| format!("{:?}", state)),
+            logical_state: filter.state.map(|state| format!("{state:?}")),
         })
     }
 }

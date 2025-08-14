@@ -57,8 +57,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         Some(dpu_snapshot) => dpu_snapshot,
         None => {
             return Err(Status::failed_precondition(format!(
-                "DPU {} needs discovery.  DPU snapshot not found for managed host",
-                dpu_machine_id
+                "DPU {dpu_machine_id} needs discovery.  DPU snapshot not found for managed host"
             )));
         }
     };
@@ -83,8 +82,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         Some(ip) => ip,
         None => {
             return Err(Status::failed_precondition(format!(
-                "DPU {} needs discovery. Does not have a loopback IP yet.",
-                dpu_machine_id
+                "DPU {dpu_machine_id} needs discovery. Does not have a loopback IP yet."
             )));
         }
     };
@@ -271,8 +269,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
             let Some(segment) = segment_details.get(&network_segment_id) else {
                 return Err(Status::internal(format!(
-                    "Tenant segment id {} is not found in db.",
-                    network_segment_id
+                    "Tenant segment id {network_segment_id} is not found in db."
                 )));
             };
 
@@ -294,14 +291,14 @@ pub(crate) async fn get_managed_host_network_config_inner(
             let instance_hostname = &instance.config.tenant.hostname;
             let fqdn: String;
             if let Some(hostname) = instance_hostname.clone() {
-                fqdn = format!("{}.{}", hostname, domain);
+                fqdn = format!("{hostname}.{domain}");
             } else {
                 let dashed_ip: String = physical_ip
                     .to_string()
                     .split('.')
                     .collect::<Vec<&str>>()
                     .join("-");
-                fqdn = format!("{}.{}", dashed_ip, domain);
+                fqdn = format!("{dashed_ip}.{domain}");
             }
 
             let tenant_loopback_ip = if VpcVirtualizationType::Fnn == network_virtualization_type {
@@ -329,15 +326,13 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 // This can not happen as validated during instance creation.
                 let Some(iface_segment) = iface.network_segment_id else {
                     return Err(Status::internal(format!(
-                        "Tenant segment is not assigned for iface: {:?}.",
-                        iface
+                        "Tenant segment is not assigned for iface: {iface:?}."
                     )));
                 };
 
                 let Some(segment) = segment_details.get(&iface_segment) else {
                     return Err(Status::internal(format!(
-                        "Tenant segment id {} is not found in db. Can not fetch the details.",
-                        iface_segment
+                        "Tenant segment id {iface_segment} is not found in db. Can not fetch the details."
                     )));
                 };
 
