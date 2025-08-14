@@ -2920,6 +2920,8 @@ pub enum Sku {
     Verify { machine_id: String },
     #[clap(about = "Update the metadata of a SKU")]
     UpdateMetadata(UpdateSkuMetadata),
+    #[clap(about = "Replace the component list of a SKU")]
+    ReplaceComponents(ReplaceSkuComponents),
 }
 
 #[derive(Parser, Debug)]
@@ -3038,4 +3040,14 @@ impl From<UpdateSkuMetadata> for ::rpc::forge::SkuUpdateMetadataRequest {
             device_type: value.device_type,
         }
     }
+}
+
+#[derive(Parser, Debug)]
+pub struct ReplaceSkuComponents {
+    #[clap(
+        help = "The filename of the SKU data (A full SKU file may be used, but some details will be ignored)"
+    )]
+    pub filename: String,
+    #[clap(help = "override the ID of the SKU", long)]
+    pub id: Option<String>,
 }

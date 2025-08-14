@@ -7,7 +7,7 @@ use rpc::forge::SkuIdList;
 use tokio::io::AsyncWriteExt;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
-use crate::cfg::cli_options::{CreateSku, GenerateSku, Sku};
+use crate::cfg::cli_options::{CreateSku, GenerateSku, ReplaceSkuComponents, Sku};
 use crate::rpc::ApiClient;
 use crate::{async_write_table_as_csv, async_writeln};
 
@@ -409,6 +409,20 @@ pub async fn handle_sku_command(
         }
         Sku::UpdateMetadata(update_request) => {
             api_client.0.update_sku_metadata(update_request).await?;
+        }
+        Sku::ReplaceComponents(ReplaceSkuComponents { filename, id }) => {
+            let file_data = std::fs::read_to_string(filename)?;
+            let sku: rpc::forge::Sku = serde_json::de::from_str(&file_data)?;
+            let sku_id = id.unwrap_or(sku.id);
+
+            let updated_sku = api_client
+                .0
+                .replace_sku_components(rpc::forge::SkuReplaceComponentsRequest {
+                    id: sku_id,
+                    components: sku.components,
+                })
+                .await?;
+            show_skus_table(output, output_format, vec![updated_sku]).await?;
         }
     }
     Ok(())

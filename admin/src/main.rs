@@ -1851,8 +1851,6 @@ async fn main() -> color_eyre::Result<()> {
             }
         },
         CliCommand::Sku(sku_command) => {
-            let mut output_file = get_output_file_or_stdout(config.output.as_deref()).await?;
-
             sku::handle_sku_command(
                 &api_client,
                 &mut output_file,

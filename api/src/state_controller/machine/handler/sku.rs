@@ -172,6 +172,7 @@ pub(crate) async fn handle_bom_validation_requested(
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
     if !host_handler_params.bom_validation.enabled {
+        tracing::info!("BOM validation disabled");
         return Ok(None);
     }
 
@@ -189,6 +190,7 @@ pub(crate) async fn handle_bom_validation_requested(
                 .await
                 .map(Some);
         }
+        tracing::info!("ignoring unassigned machine");
         return Ok(None);
     }
 
@@ -200,6 +202,23 @@ pub(crate) async fn handle_bom_validation_requested(
             .await
             .map(Some);
     };
+
+    if let Some(verify_request_time) = mh_snapshot
+        .host_snapshot
+        .hw_sku_status
+        .as_ref()
+        .and_then(|ss| ss.verify_request_time)
+    {
+        if verify_request_time > mh_snapshot.host_snapshot.state.version.timestamp() {
+            tracing::info!(machine_id=%mh_snapshot.host_snapshot.id, sku_id=mh_snapshot.host_snapshot.hw_sku, "Verify SKU requested, attempting verification");
+
+            return advance_to_updating_inventory(txn, mh_snapshot)
+                .await
+                .map(Some);
+        } else {
+            tracing::info!(machine_id=%mh_snapshot.host_snapshot.id, sku_id=mh_snapshot.host_snapshot.hw_sku, "Verify SKU not requested");
+        }
+    }
 
     // if there is a request for verification pending
     if mh_snapshot

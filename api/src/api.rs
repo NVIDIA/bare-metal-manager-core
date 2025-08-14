@@ -5072,6 +5072,15 @@ impl Forge for Api {
             .map_err(|e| e.into())
     }
 
+    async fn replace_sku_components(
+        &self,
+        request: Request<rpc::SkuReplaceComponentsRequest>,
+    ) -> Result<Response<rpc::Sku>, Status> {
+        crate::handlers::sku::replace_sku_components(self, request)
+            .await
+            .map_err(|e| e.into())
+    }
+
     async fn set_managed_host_quarantine_state(
         &self,
         request: tonic::Request<rpc::SetManagedHostQuarantineStateRequest>,
