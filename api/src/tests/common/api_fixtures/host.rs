@@ -114,11 +114,9 @@ pub async fn host_uefi_setup(
             continue;
         }
 
-        let mut txn = env.pool.begin().await.unwrap();
         env.run_machine_state_controller_iteration_until_state_matches(
             host_machine_id,
             1,
-            &mut txn,
             ManagedHostState::HostInit {
                 machine_state: UefiSetup {
                     uefi_setup_info: UefiSetupInfo {
@@ -129,7 +127,6 @@ pub async fn host_uefi_setup(
             },
         )
         .await;
-        txn.commit().await.unwrap();
 
         let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
         assert_eq!(response.action, Action::Noop as i32);

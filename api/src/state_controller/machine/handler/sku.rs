@@ -81,6 +81,91 @@ async fn match_sku_for_machine(
     }
 }
 
+async fn generate_missing_sku_for_machine(
+    txn: &mut PgConnection,
+    host_handler_params: &HostHandlerParams,
+    mh_snapshot: &ManagedHostStateSnapshot,
+) -> bool {
+    if !host_handler_params.bom_validation.auto_generate_missing_sku {
+        return false;
+    }
+    let Some(sku_id) = mh_snapshot.host_snapshot.hw_sku.as_ref() else {
+        tracing::debug!(
+            "No SKU assigned to machine {}",
+            mh_snapshot.host_snapshot.id
+        );
+        return false;
+    };
+
+    // its unlikely we got here without a bmc mac
+    let Some(bmc_mac_address) = mh_snapshot.host_snapshot.bmc_info.mac else {
+        tracing::debug!("No bmc mac for machine {}", mh_snapshot.host_snapshot.id);
+        return false;
+    };
+
+    // if there's no expected machine, no SKU in it, or the SKU doesn't match what's assigned to the machine, don't generate a SKU
+    if db::expected_machine::ExpectedMachine::find_by_bmc_mac_address(txn, bmc_mac_address)
+        .await
+        .ok()
+        .flatten()
+        .is_none_or(|em| em.sku_id.as_ref().is_none_or(|id| id != sku_id))
+    {
+        tracing::debug!("No expected machine for bmc {}", bmc_mac_address);
+        return false;
+    }
+
+    let sku_status = mh_snapshot.host_snapshot.hw_sku_status.as_ref();
+    if sku_status.is_some_and(|ss| {
+        ss.last_generate_attempt.is_some_and(|t| {
+            t > (Utc::now()
+                - host_handler_params
+                    .bom_validation
+                    .auto_generate_missing_sku_interval)
+        })
+    }) {
+        tracing::info!(machine_id=%mh_snapshot.host_snapshot.id, "Last generation attempt is too recent");
+        return false;
+    }
+
+    if let Err(e) = crate::db::machine::update_sku_status_last_generate_attempt(
+        txn,
+        &mh_snapshot.host_snapshot.id,
+    )
+    .await
+    {
+        tracing::error!(
+            machine_id=%mh_snapshot.host_snapshot.id,
+            error=%e,
+            "Failed to get SKU status for machine",
+        );
+    } else {
+        let generated_sku =
+            match db::sku::generate_sku_from_machine(txn, &mh_snapshot.host_snapshot.id).await {
+                Ok(mut sku) => {
+                    sku.id = sku_id.clone();
+                    sku
+                }
+                Err(e) => {
+                    tracing::error!(
+                        machine_id=%mh_snapshot.host_snapshot.id,
+                        error=%e,
+                        "Failed to generate SKU for machine",
+                    );
+                    return false;
+                }
+            };
+        // Create checks for the existance of a duplicate SKU with a different name under a lock.
+        if let Err(e) = db::sku::create(txn, &generated_sku).await {
+            tracing::error!(
+                machine_id=%mh_snapshot.host_snapshot.id,
+                error=%e,
+                "Failed to create generated SKU for machine",
+            );
+        }
+    }
+    true
+}
+
 pub(crate) async fn handle_bom_validation_requested(
     txn: &mut PgConnection,
     host_handler_params: &HostHandlerParams,
@@ -392,7 +477,9 @@ pub(crate) async fn handle_bom_validation_state(
         }
         BomValidating::SkuMissing(_) => {
             let outcome = if let Some(sku_id) = mh_snapshot.host_snapshot.hw_sku.clone() {
-                if crate::db::sku::find(txn, &[sku_id]).await?.pop().is_some() {
+                if crate::db::sku::find(txn, &[sku_id]).await?.pop().is_some()
+                    || generate_missing_sku_for_machine(txn, host_handler_params, mh_snapshot).await
+                {
                     advance_to_updating_inventory(txn, mh_snapshot).await
                 } else {
                     Ok(wait!(

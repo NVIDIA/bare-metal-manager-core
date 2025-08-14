@@ -263,18 +263,14 @@ pub async fn advance_created_instance_into_ready_state(
     .await;
 
     // - third run: state controller runs again, advances state to Ready
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
         10,
-        &mut txn,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::Ready,
         },
     )
     .await;
-
-    txn.commit().await.unwrap();
 
     // get the updated info with proper network config info added after the instance state is ready
     env.api
@@ -322,11 +318,9 @@ pub async fn delete_instance(
         rpc::TenantState::Terminating
     );
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
         1,
-        &mut txn,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::BootingWithDiscoveryImage {
                 retry: crate::model::machine::RetryInfo { count: 0 },
@@ -334,7 +328,6 @@ pub async fn delete_instance(
         },
     )
     .await;
-    txn.commit().await.unwrap();
     handle_delete_post_bootingwithdiscoveryimage(env, dpu_machine_ids, host_machine_id).await;
 
     assert!(
@@ -376,17 +369,14 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     // Run state machine twice.
     // First DeletingManagedResource updates use_admin_network, transitions to WaitingForNetworkReconfig
     // Second to discover we are now in WaitingForNetworkReconfig
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
         2,
-        &mut txn,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::WaitingForNetworkReconfig,
         },
     )
     .await;
-    txn.commit().await.unwrap();
 
     // Apply switching back to admin network
     super::network_configured(env, dpu_machine_ids).await;
@@ -395,11 +385,9 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         inject_machine_measurements(env, (*host_machine_id).into()).await;
     }
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
         3,
-        &mut txn,
         ManagedHostState::WaitingForCleanup {
             cleanup_state: CleanupState::HostCleanup {
                 boss_controller_id: None,
@@ -407,7 +395,6 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         },
     )
     .await;
-    txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
     let machine = db::machine::find_one(
@@ -429,11 +416,9 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         .unwrap();
     txn.commit().await.unwrap();
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
         3,
-        &mut txn,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
@@ -447,7 +432,6 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         },
     )
     .await;
-    txn.commit().await.unwrap();
 
     let mut machine_validation_result = rpc::forge::MachineValidationResult {
         validation_id: None,
@@ -484,11 +468,9 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         .unwrap();
     txn.commit().await.unwrap();
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
         3,
-        &mut txn,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
                 skip_reboot_wait: false,
@@ -496,7 +478,6 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         },
     )
     .await;
-    txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
     let machine = db::machine::find_one(
@@ -515,15 +496,12 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         .unwrap();
     txn.commit().await.unwrap();
 
-    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
         3,
-        &mut txn,
         ManagedHostState::Ready,
     )
     .await;
-    txn.commit().await.unwrap();
 }
 
 pub async fn update_instance_network_status_observation(

@@ -2151,6 +2151,22 @@ pub async fn update_sku_status_last_match_attempt(
     Ok(())
 }
 
+pub async fn update_sku_status_last_generate_attempt(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines SET hw_sku_status=jsonb_set(coalesce(hw_sku_status, '{}'), '{last_generate_attempt}', $1) WHERE id=$2 RETURNING id";
+
+    let _: () = sqlx::query_as(query)
+        .bind(sqlx::types::Json(Utc::now()))
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "update sku last match attempt", e))?;
+
+    Ok(())
+}
+
 pub async fn update_sku_status_verify_request_time(
     txn: &mut PgConnection,
     machine_id: &MachineId,

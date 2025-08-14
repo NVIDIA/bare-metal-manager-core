@@ -356,6 +356,13 @@ pub struct SkuStatus {
     // None means no attempt has been made.  This value is not valid
     // if the machine has a SKU assigned.
     pub last_match_attempt: Option<DateTime<Utc>>,
+    // If the a SKU is assinged in expected machines but is missing,
+    // the state machine will attempt to create it from generated
+    // machine data.  This marks the last time an attempt was made.
+    // None means no attempt has been made.  This value is not valid
+    // if the assigned SKU exists or the assigned SKU is not from the
+    // expected machine.
+    pub last_generate_attempt: Option<DateTime<Utc>>,
 }
 
 impl From<rpc::forge::SkuStatus> for SkuStatus {
@@ -366,10 +373,14 @@ impl From<rpc::forge::SkuStatus> for SkuStatus {
         let last_match_attempt = value
             .last_match_attempt
             .map(|t| DateTime::<Utc>::try_from(t).unwrap_or_default());
+        let last_generate_attempt = value
+            .last_generate_attempt
+            .map(|t| DateTime::<Utc>::try_from(t).unwrap_or_default());
 
         SkuStatus {
             verify_request_time,
             last_match_attempt,
+            last_generate_attempt,
         }
     }
 }
@@ -379,6 +390,7 @@ impl From<SkuStatus> for rpc::forge::SkuStatus {
         rpc::forge::SkuStatus {
             verify_request_time: value.verify_request_time.map(|t| t.into()),
             last_match_attempt: value.last_match_attempt.map(|t| t.into()),
+            last_generate_attempt: value.last_generate_attempt.map(|t| t.into()),
         }
     }
 }

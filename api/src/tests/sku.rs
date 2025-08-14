@@ -142,6 +142,33 @@ pub mod tests {
   "schema_version": 2
 }"#;
 
+    pub async fn handle_inventory_update(
+        pool: &sqlx::PgPool,
+        env: &TestEnv,
+        machine_id: &MachineId,
+    ) {
+        env.run_machine_state_controller_iteration_until_state_condition(
+            machine_id,
+            3,
+            |machine| {
+                tracing::info!("waiting for inventory update: {}", machine.current_state());
+                matches!(
+                    machine.current_state(),
+                    ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::UpdatingInventory { .. }
+                    }
+                )
+            },
+        )
+        .await;
+
+        let mut txn = pool.begin().await.unwrap();
+        crate::db::machine::update_discovery_time(machine_id, &mut txn)
+            .await
+            .unwrap();
+        txn.commit().await.unwrap();
+    }
+
     #[crate::sqlx_test]
     pub async fn test_sku_create(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let mut txn = pool.begin().await?;
@@ -283,11 +310,15 @@ pub mod tests {
         db_pool: sqlx::PgPool,
         ignore_unassigned_machines: bool,
         find_match_interval: Option<Duration>,
+        auto_gen_sku_enabled: bool,
     ) -> TestEnv {
         let mut overrides = TestEnvOverrides::default();
         let mut config = get_config();
         config.bom_validation.enabled = true;
         config.bom_validation.ignore_unassigned_machines = ignore_unassigned_machines;
+        config.bom_validation.auto_generate_missing_sku = auto_gen_sku_enabled;
+        config.bom_validation.auto_generate_missing_sku_interval = Duration::from_secs(2);
+
         if let Some(find_match_interval) = find_match_interval {
             config.bom_validation.find_match_interval = find_match_interval;
         }
@@ -304,7 +335,7 @@ pub mod tests {
     async fn test_machine_is_ignored_when_not_assigned(
         pool: sqlx::PgPool,
     ) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), true, None).await;
+        let env = create_test_env_for_sku(pool.clone(), true, None, false).await;
 
         let (_machine_id, _dpu_id) = create_managed_host(&env).await;
 
@@ -315,7 +346,7 @@ pub mod tests {
     async fn test_stays_in_waiting_state_when_not_assigned(
         pool: sqlx::PgPool,
     ) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false, None).await;
+        let env = create_test_env_for_sku(pool.clone(), false, None, false).await;
         let managed_host_config =
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
@@ -354,7 +385,7 @@ pub mod tests {
 
     #[crate::sqlx_test]
     async fn test_leave_waiting_when_assigned(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false, None).await;
+        let env = create_test_env_for_sku(pool.clone(), false, None, false).await;
         let managed_host_config =
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
@@ -416,40 +447,11 @@ pub mod tests {
         Ok(machine.current_state().clone())
     }
 
-    pub async fn handle_inventory_update(
-        pool: &sqlx::PgPool,
-        env: &TestEnv,
-        machine_id: &MachineId,
-    ) {
-        let mut txn = pool.begin().await.unwrap();
-        env.run_machine_state_controller_iteration_until_state_condition(
-            machine_id,
-            3,
-            &mut txn,
-            |machine| {
-                matches!(
-                    machine.current_state(),
-                    ManagedHostState::BomValidating {
-                        bom_validating_state: BomValidating::UpdatingInventory { .. }
-                    }
-                )
-            },
-        )
-        .await;
-
-        txn.commit().await.unwrap();
-        let mut txn = pool.begin().await.unwrap();
-        crate::db::machine::update_discovery_time(machine_id, &mut txn)
-            .await
-            .unwrap();
-        txn.commit().await.unwrap();
-    }
-
     #[crate::sqlx_test]
     async fn test_discovery_moves_to_machine_validation_state(
         pool: sqlx::PgPool,
     ) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false, None).await;
+        let env = create_test_env_for_sku(pool.clone(), false, None, false).await;
         let managed_host_config =
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
@@ -511,7 +513,7 @@ pub mod tests {
     async fn test_manual_verify_skips_machine_validation(
         pool: sqlx::PgPool,
     ) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false, None).await;
+        let env = create_test_env_for_sku(pool.clone(), false, None, false).await;
 
         let (machine_id, _dpu_id) = create_managed_host(&env).await;
 
@@ -574,7 +576,7 @@ pub mod tests {
     async fn test_manual_verify_to_failed_to_passed_skips_machine_validation(
         pool: sqlx::PgPool,
     ) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false, None).await;
+        let env = create_test_env_for_sku(pool.clone(), false, None, false).await;
 
         let (machine_id, _dpu_id) = create_managed_host(&env).await;
 
@@ -617,11 +619,9 @@ pub mod tests {
 
         handle_inventory_update(&pool, &env, &machine_id).await;
 
-        let mut txn = pool.begin().await?;
         env.run_machine_state_controller_iteration_until_state_condition(
             &machine_id,
             3,
-            &mut txn,
             |machine| {
                 assert!(!matches!(
                     machine.current_state(),
@@ -643,7 +643,6 @@ pub mod tests {
         )
         .await;
 
-        txn.commit().await?;
         let mut txn = pool.begin().await?;
 
         db::machine::unassign_sku(&mut txn, &machine_id).await?;
@@ -654,11 +653,9 @@ pub mod tests {
 
         handle_inventory_update(&pool, &env, &machine_id).await;
 
-        let mut txn = pool.begin().await?;
         env.run_machine_state_controller_iteration_until_state_condition(
             &machine_id,
             3,
-            &mut txn,
             |machine| {
                 assert!(!matches!(
                     machine.current_state(),
@@ -677,7 +674,6 @@ pub mod tests {
             },
         )
         .await;
-        txn.commit().await?;
         let _response =
             crate::tests::common::api_fixtures::forge_agent_control(&env, machine_id.into()).await;
 
@@ -705,7 +701,7 @@ pub mod tests {
 
     #[crate::sqlx_test]
     async fn test_auto_match_sku(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false, None).await;
+        let env = create_test_env_for_sku(pool.clone(), false, None, false).await;
         let managed_host_config =
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
@@ -785,7 +781,8 @@ pub mod tests {
 
     #[crate::sqlx_test]
     async fn test_auto_match_sku_with_ignore(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), true, Some(Duration::from_secs(10))).await;
+        let env =
+            create_test_env_for_sku(pool.clone(), true, Some(Duration::from_secs(10)), false).await;
 
         let (machine_id, _dpu_id) = create_managed_host(&env).await;
 
@@ -830,15 +827,12 @@ pub mod tests {
         crate::db::machine::unassign_sku(&mut txn, &machine_id).await?;
         txn.commit().await?;
 
-        let mut txn = pool.begin().await?;
         env.run_machine_state_controller_iteration_until_state_condition(
             &machine_id,
             10,
-            &mut txn,
             |machine| machine.current_state() != &ManagedHostState::Ready,
         )
         .await;
-        txn.commit().await?;
 
         let mut txn = pool.begin().await.unwrap();
         crate::db::machine::update_discovery_time(&machine_id, &mut txn)
@@ -846,15 +840,12 @@ pub mod tests {
             .unwrap();
         txn.commit().await.unwrap();
 
-        let mut txn = pool.begin().await?;
         env.run_machine_state_controller_iteration_until_state_condition(
             &machine_id,
             10,
-            &mut txn,
             |machine| machine.current_state() == &ManagedHostState::Ready,
         )
         .await;
-        txn.commit().await?;
 
         let mut txn = pool.begin().await?;
         let machine = db::machine::find(
@@ -874,7 +865,7 @@ pub mod tests {
 
     #[crate::sqlx_test]
     async fn test_match_sku_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false, None).await;
+        let env = create_test_env_for_sku(pool.clone(), false, None, false).await;
 
         let (machine_id, _dpu_id) = create_managed_host(&env).await;
 
@@ -948,7 +939,7 @@ pub mod tests {
     async fn test_stays_in_missing_state_when_assigned_sku_is_missing(
         pool: sqlx::PgPool,
     ) -> Result<(), eyre::Error> {
-        let env = create_test_env_for_sku(pool.clone(), false, None).await;
+        let env = create_test_env_for_sku(pool.clone(), false, None, false).await;
 
         let managed_host_config =
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
@@ -1001,42 +992,13 @@ pub mod tests {
         db::sku::create(&mut txn, &sku).await?;
 
         txn.commit().await?;
-        let mut txn = pool.begin().await?;
 
-        // run until UpdatingInventory
-        env.run_machine_state_controller_iteration_until_state_condition(
-            &machine_id,
-            10,
-            &mut txn,
-            |m| {
-                matches!(
-                    m.current_state(),
-                    ManagedHostState::BomValidating {
-                        bom_validating_state: BomValidating::UpdatingInventory(_)
-                    }
-                )
-            },
-        )
+        handle_inventory_update(&pool, &env, &machine_id).await;
+
+        env.run_machine_state_controller_iteration_until_state_condition(&machine_id, 10, |m| {
+            matches!(m.current_state(), ManagedHostState::Validation { .. })
+        })
         .await;
-
-        txn.commit().await?;
-        let mut txn = pool.begin().await?;
-
-        // fake an update to the inventory
-        crate::db::machine::update_discovery_time(&machine_id, &mut txn)
-            .await
-            .unwrap();
-        txn.commit().await?;
-        let mut txn = pool.begin().await?;
-
-        env.run_machine_state_controller_iteration_until_state_condition(
-            &machine_id,
-            10,
-            &mut txn,
-            |m| matches!(m.current_state(), ManagedHostState::Validation { .. }),
-        )
-        .await;
-        txn.commit().await?;
 
         reboot_completed(&env, machine_id.into()).await;
         env.run_machine_state_controller_iteration().await;
@@ -1044,12 +1006,91 @@ pub mod tests {
         env.run_machine_state_controller_iteration().await;
         reboot_completed(&env, machine_id.into()).await;
 
-        let mut txn = pool.begin().await?;
         // run until ready
         env.run_machine_state_controller_iteration_until_state_matches(
             &machine_id,
             20,
+            ManagedHostState::Ready,
+        )
+        .await;
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_generate_sku_when_assigned_sku_is_missing(
+        pool: sqlx::PgPool,
+    ) -> Result<(), eyre::Error> {
+        let env = create_test_env_for_sku(pool.clone(), false, None, true).await;
+
+        let managed_host_config =
+            ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
+                bom_validating_state: BomValidating::SkuMissing(BomValidatingContext {
+                    machine_validation_context: Some("Discovery".to_string()),
+                }),
+            });
+
+        tracing::info!("{}", line!());
+        let mut txn = pool.begin().await?;
+        ExpectedMachine::create(
             &mut txn,
+            managed_host_config.bmc_mac_address,
+            "admin".to_string(),
+            "password".to_string(),
+            "1234567890".to_string(),
+            vec![],
+            Metadata::new_with_default_name(),
+            Some("no-sku".to_string()),
+        )
+        .await?;
+        txn.commit().await?;
+
+        tracing::info!("{}", line!());
+        let (machine_id, _dpu_id) =
+            create_managed_host_with_config(&env, managed_host_config).await;
+
+        tracing::info!("{}", line!());
+        let mut txn = pool.begin().await?;
+        let machine = db::machine::find(
+            &mut txn,
+            ObjectFilter::One(machine_id),
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .pop()
+        .unwrap();
+
+        tracing::info!("{}", line!());
+        assert!(matches!(
+            machine.current_state(),
+            ManagedHostState::BomValidating {
+                bom_validating_state: BomValidating::SkuMissing(_)
+            }
+        ));
+        txn.commit().await?;
+
+        tracing::info!("{}", line!());
+
+        // when auto-gen-sku is enabled, the state machine will create the sku and
+        // re-verify the machine (requiring an inventory update)
+        handle_inventory_update(&pool, &env, &machine_id).await;
+
+        env.run_machine_state_controller_iteration_until_state_condition(&machine_id, 10, |m| {
+            matches!(m.current_state(), ManagedHostState::Validation { .. })
+        })
+        .await;
+        tracing::info!("{}", line!());
+
+        reboot_completed(&env, machine_id.into()).await;
+        env.run_machine_state_controller_iteration().await;
+        machine_validation_completed(&env, machine_id.into(), None).await;
+        env.run_machine_state_controller_iteration().await;
+        reboot_completed(&env, machine_id.into()).await;
+
+        // run until ready
+        env.run_machine_state_controller_iteration_until_state_matches(
+            &machine_id,
+            20,
             ManagedHostState::Ready,
         )
         .await;

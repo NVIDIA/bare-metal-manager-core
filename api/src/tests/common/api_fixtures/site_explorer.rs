@@ -339,7 +339,6 @@ impl<'a> MockExploredHost<'a> {
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
                 10 + (10 * self.dpu_machine_ids.len() as u32),
-                &mut txn,
                 ManagedHostState::DPUInit {
                     dpu_states: crate::model::machine::DpuInitStates {
                         states: self
@@ -389,7 +388,6 @@ impl<'a> MockExploredHost<'a> {
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
                 20,
-                &mut txn,
                 ManagedHostState::DPUInit {
                     dpu_states: crate::model::machine::DpuInitStates {
                         states: self
@@ -411,18 +409,15 @@ impl<'a> MockExploredHost<'a> {
         )
         .await;
 
-        let mut txn = self.test_env.pool.begin().await.unwrap();
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
                 4,
-                &mut txn,
                 ManagedHostState::HostInit {
                     machine_state: MachineState::EnableIpmiOverLan,
                 },
             )
             .await;
-        txn.commit().await.unwrap();
 
         self
     }
@@ -449,7 +444,6 @@ impl<'a> MockExploredHost<'a> {
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
                 20,
-                &mut txn,
                 ManagedHostState::DPUInit {
                     dpu_states: crate::model::machine::DpuInitStates {
                         states: self
@@ -493,7 +487,6 @@ impl<'a> MockExploredHost<'a> {
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
                 20,
-                &mut txn,
                 ManagedHostState::DPUInit {
                     dpu_states: crate::model::machine::DpuInitStates {
                         states: self
@@ -513,7 +506,6 @@ impl<'a> MockExploredHost<'a> {
     }
 
     pub async fn host_state_controller_iterations(self) -> Self {
-        let mut txn = self.test_env.pool.begin().await.unwrap();
         let rpc_host_machine_id = self
             .machine_discovery_response
             .as_ref()
@@ -526,13 +518,11 @@ impl<'a> MockExploredHost<'a> {
         let expected_state = self.managed_host.expected_state.clone();
 
         if self.test_env.attestation_enabled {
-            let mut txn = self.test_env.pool.begin().await.unwrap();
             let stop_state = self
                 .test_env
                 .run_machine_state_controller_iteration_until_state_condition(
                     &host_machine_id,
                     6,
-                    &mut txn,
                     |machine| {
                         machine.current_state() == &expected_state
                             || matches!(
@@ -546,7 +536,6 @@ impl<'a> MockExploredHost<'a> {
                     },
                 )
                 .await;
-            txn.commit().await.unwrap();
 
             // if we hit the requested state before the measuring state, return early
             if stop_state == expected_state {
@@ -560,7 +549,6 @@ impl<'a> MockExploredHost<'a> {
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
                 6,
-                &mut txn,
                 ManagedHostState::HostInit {
                     machine_state: MachineState::WaitingForDiscovery,
                 },
@@ -576,19 +564,15 @@ impl<'a> MockExploredHost<'a> {
             .await
             .expect("Failed to add hardware health report to newly created machine");
 
-        txn.commit().await.unwrap();
-
         discovery_completed(self.test_env, host_machine_id.into()).await;
         self.test_env.run_ib_fabric_monitor_iteration().await;
         host_uefi_setup(self.test_env, &host_machine_id, host_machine_id.into()).await;
 
-        let mut txn = self.test_env.pool.begin().await.unwrap();
         let stop_state = self
             .test_env
             .run_machine_state_controller_iteration_until_state_condition(
                 &host_machine_id,
                 2,
-                &mut txn,
                 |machine| {
                     machine.current_state() == &expected_state
                         || matches!(
@@ -605,7 +589,6 @@ impl<'a> MockExploredHost<'a> {
                 },
             )
             .await;
-        txn.commit().await.unwrap();
 
         if stop_state == expected_state {
             return self;
@@ -627,13 +610,11 @@ impl<'a> MockExploredHost<'a> {
                 .ignore_unassigned_machines
         {
             tracing::info!("bom validation enabled");
-            let mut txn = self.test_env.pool.begin().await.unwrap();
             let stop_state = self
                 .test_env
                 .run_machine_state_controller_iteration_until_state_condition(
                     &host_machine_id,
                     20,
-                    &mut txn,
                     |machine| {
                         machine.current_state() == &expected_state
                             || machine.hw_sku.is_none()
@@ -651,7 +632,6 @@ impl<'a> MockExploredHost<'a> {
                 )
                 .await;
 
-            txn.commit().await.unwrap();
             // if we hit the requested state before the BomValidating state, return early
             if stop_state == expected_state {
                 return self;
@@ -664,13 +644,11 @@ impl<'a> MockExploredHost<'a> {
                 return self;
             }
         }
-        let mut txn = self.test_env.pool.begin().await.unwrap();
         let stop_state =
             self.test_env
                 .run_machine_state_controller_iteration_until_state_condition(
                     &host_machine_id,
                     10,
-                    &mut txn,
                     |machine| {
                         machine.current_state() == &expected_state
                             || matches!(
@@ -685,7 +663,6 @@ impl<'a> MockExploredHost<'a> {
                     },
                 )
                 .await;
-        txn.commit().await.unwrap();
 
         if stop_state == expected_state {
             return self;
@@ -693,13 +670,11 @@ impl<'a> MockExploredHost<'a> {
 
         machine_validation_completed(self.test_env, host_machine_id.into(), None).await;
 
-        let mut txn = self.test_env.pool.begin().await.unwrap();
         let stop_state = self
             .test_env
             .run_machine_state_controller_iteration_until_state_condition(
                 &host_machine_id,
                 3,
-                &mut txn,
                 |machine| {
                     machine.current_state() == &expected_state
                         || matches!(
@@ -711,7 +686,6 @@ impl<'a> MockExploredHost<'a> {
                 },
             )
             .await;
-        txn.commit().await.unwrap();
 
         if stop_state == expected_state {
             return self;
@@ -723,12 +697,10 @@ impl<'a> MockExploredHost<'a> {
             rpc::forge_agent_control_response::Action::Noop as i32
         );
 
-        let mut txn = self.test_env.pool.begin().await.unwrap();
         self.test_env
             .run_machine_state_controller_iteration_until_state_condition(
                 &host_machine_id,
                 1,
-                &mut txn,
                 |machine| {
                     let fixed_expected_state = self
                         .test_env
@@ -737,8 +709,6 @@ impl<'a> MockExploredHost<'a> {
                 },
             )
             .await;
-
-        txn.commit().await.unwrap();
 
         self
     }
@@ -763,7 +733,6 @@ impl<'a> MockExploredHost<'a> {
         machine_validation_result_data: Option<rpc::forge::MachineValidationResult>,
         error: Option<String>,
     ) -> Self {
-        let mut txn = self.test_env.pool.begin().await.unwrap();
         let rpc_host_machine_id = self
             .machine_discovery_response
             .as_ref()
@@ -777,7 +746,6 @@ impl<'a> MockExploredHost<'a> {
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
                 7,
-                &mut txn,
                 ManagedHostState::HostInit {
                     machine_state: MachineState::WaitingForDiscovery,
                 },
@@ -793,18 +761,14 @@ impl<'a> MockExploredHost<'a> {
             .await
             .expect("Failed to add hardware health report to newly created machine");
 
-        txn.commit().await.unwrap();
-
         discovery_completed(self.test_env, host_machine_id.into()).await;
         self.test_env.run_ib_fabric_monitor_iteration().await;
         host_uefi_setup(self.test_env, &host_machine_id, host_machine_id.into()).await;
 
-        let mut txn = self.test_env.pool.begin().await.unwrap();
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
                 2,
-                &mut txn,
                 ManagedHostState::HostInit {
                     machine_state: MachineState::WaitingForLockdown {
                         lockdown_info: LockdownInfo {
@@ -815,7 +779,6 @@ impl<'a> MockExploredHost<'a> {
                 },
             )
             .await;
-        txn.commit().await.unwrap();
 
         // We use forge_dpu_agent's health reporting as a signal that
         // DPU has rebooted.
@@ -825,12 +788,10 @@ impl<'a> MockExploredHost<'a> {
         )
         .await;
 
-        let mut txn = self.test_env.pool.begin().await.unwrap();
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
                 3,
-                &mut txn,
                 ManagedHostState::Validation {
                     validation_state: ValidationState::MachineValidation {
                         machine_validation: MachineValidatingState::MachineValidating {
@@ -844,7 +805,6 @@ impl<'a> MockExploredHost<'a> {
                 },
             )
             .await;
-        txn.commit().await.unwrap();
 
         let response = forge_agent_control(self.test_env, host_machine_id.into()).await;
         if self.test_env.config.machine_validation_config.enabled {
@@ -924,12 +884,10 @@ impl<'a> MockExploredHost<'a> {
             } else if machine_validation_result.exit_code == 0 {
                 let _ = forge_agent_control(self.test_env, host_machine_id.into()).await;
 
-                let mut txn = self.test_env.pool.begin().await.unwrap();
                 self.test_env
                     .run_machine_state_controller_iteration_until_state_matches(
                         &host_machine_id,
                         3,
-                        &mut txn,
                         ManagedHostState::HostInit {
                             machine_state: MachineState::Discovered {
                                 skip_reboot_wait: false,
@@ -937,27 +895,21 @@ impl<'a> MockExploredHost<'a> {
                         },
                     )
                     .await;
-                txn.commit().await.unwrap();
 
                 let response = forge_agent_control(self.test_env, host_machine_id.into()).await;
                 assert_eq!(response.action, Action::Noop as i32);
-                let mut txn = self.test_env.pool.begin().await.unwrap();
                 self.test_env
                     .run_machine_state_controller_iteration_until_state_matches(
                         &host_machine_id,
                         1,
-                        &mut txn,
                         ManagedHostState::Ready,
                     )
                     .await;
-                txn.commit().await.unwrap();
             } else {
-                let mut txn = self.test_env.pool.begin().await.unwrap();
                 self.test_env
                     .run_machine_state_controller_iteration_until_state_matches(
                         &host_machine_id,
                         1,
-                        &mut txn,
                         ManagedHostState::Failed {
                             details: FailureDetails {
                                 cause: FailureCause::MachineValidation {
@@ -971,16 +923,12 @@ impl<'a> MockExploredHost<'a> {
                         },
                     )
                     .await;
-                txn.commit().await.unwrap();
             }
         } else {
-            let mut txn = self.test_env.pool.begin().await.unwrap();
-
             self.test_env
                 .run_machine_state_controller_iteration_until_state_matches(
                     &host_machine_id,
                     3,
-                    &mut txn,
                     ManagedHostState::HostInit {
                         machine_state: MachineState::Discovered {
                             skip_reboot_wait: true,
@@ -989,21 +937,16 @@ impl<'a> MockExploredHost<'a> {
                 )
                 .await;
 
-            txn.commit().await.unwrap();
-
             // Note: no forge_agent_control/reboot_completed call happens here, since we're skipping
             // machine validation and thus not doing an extra reboot.
 
-            let mut txn = self.test_env.pool.begin().await.unwrap();
             self.test_env
                 .run_machine_state_controller_iteration_until_state_matches(
                     &host_machine_id,
                     1,
-                    &mut txn,
                     ManagedHostState::Ready,
                 )
                 .await;
-            txn.commit().await.unwrap();
         }
 
         self
@@ -1054,13 +997,11 @@ impl<'a> MockExploredHost<'a> {
                 .await
                 .unwrap();
             txn.commit().await.unwrap();
-            let mut txn = self.test_env.pool.begin().await.unwrap();
             let stop_state = self
                 .test_env
                 .run_machine_state_controller_iteration_until_state_condition(
                     host_machine_id,
                     3,
-                    &mut txn,
                     |machine| {
                         machine.current_state() == expected_state
                             || matches!(
@@ -1074,7 +1015,6 @@ impl<'a> MockExploredHost<'a> {
                     },
                 )
                 .await;
-            txn.commit().await.unwrap();
             // if we hit the requested state before the BomValidating state, return early
             if &stop_state == expected_state {
                 return stop_state;
