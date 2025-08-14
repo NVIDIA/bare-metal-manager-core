@@ -60,7 +60,7 @@ where
     let vec: Vec<String> = Vec::deserialize(deserializer)?;
     let initial: Vec<ImageNameComponent> = Vec::new();
 
-    trace!("Container name component: {:?}", vec);
+    trace!("Container name component: {vec:?}");
     vec.iter().try_fold(initial, |mut accum, value| {
         let re = Regex::new(r#"(.+)\/(.+):(.+)"#).unwrap();
         re.captures(value.as_str())

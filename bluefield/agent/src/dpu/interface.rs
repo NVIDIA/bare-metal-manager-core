@@ -142,7 +142,7 @@ impl Interface {
             let test_data_dir = PathBuf::from(crate::dpu::ARMOS_TEST_DATA_DIR);
 
             std::fs::read_to_string(test_data_dir.join("ipaddr.json")).map_err(|e| {
-                error!("Could not read ipaddr.json: {}", e);
+                error!("Could not read ipaddr.json: {e}");
                 eyre::eyre!("Could not read ipaddr.json: {}", e)
             })
         } else {

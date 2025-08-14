@@ -151,7 +151,7 @@ pub unsafe extern "C" fn discovery_set_vendor_class(
         let vendor_class = match CStr::from_ptr(vendor_class).to_str() {
             Ok(string) => string.to_owned(),
             Err(error) => {
-                log::error!("Invalid UTF-8 byte string for vendor_class: {}", error);
+                log::error!("Invalid UTF-8 byte string for vendor_class: {error}");
                 return DiscoveryBuilderResult::InvalidVendorClass;
             }
         };
@@ -199,7 +199,7 @@ pub unsafe extern "C" fn discovery_set_circuit_id(
         let circuit_id = match CStr::from_ptr(circuit_id).to_str() {
             Ok(string) => string.to_owned(),
             Err(error) => {
-                log::error!("Invalid UTF-8 byte string for circuit_id: {}", error);
+                log::error!("Invalid UTF-8 byte string for circuit_id: {error}");
                 return DiscoveryBuilderResult::InvalidCircuitId;
             }
         };
@@ -227,7 +227,7 @@ pub unsafe extern "C" fn discovery_set_remote_id(
         let remote_id = match CStr::from_ptr(remote_id).to_str() {
             Ok(string) => string.to_owned(),
             Err(error) => {
-                log::error!("Invalid UTF-8 byte string for remote_id: {}", error);
+                log::error!("Invalid UTF-8 byte string for remote_id: {error}");
                 return DiscoveryBuilderResult::InvalidCircuitId;
             }
         };
@@ -331,7 +331,7 @@ unsafe fn discovery_fetch_machine_at(
             let discovery = match builder.build() {
                 Ok(discovery) => discovery,
                 Err(err) => {
-                    log::info!("Error compiling the discovery builder object: {}", err);
+                    log::info!("Error compiling the discovery builder object: {err}");
                     return DiscoveryBuilderResult::BuilderError;
                 }
             };
@@ -350,7 +350,7 @@ unsafe fn discovery_fetch_machine_at(
                 Some(ref vendor_class) => match vendor_class.parse::<VendorClass>() {
                     Ok(vc) => Some(vc),
                     Err(err) => {
-                        log::warn!("error parsing vendor class: {} {:?}", vendor_class, err);
+                        log::warn!("error parsing vendor class: {vendor_class} {err:?}");
                         return DiscoveryBuilderResult::InvalidVendorClass;
                     }
                 },
@@ -445,11 +445,7 @@ unsafe fn discovery_fetch_machine_at(
                 }
                 Err(e_str) => {
                     log::error!(
-                        "Error getting info back from the machine discovery: mac={} addr={} err={} api_url={}",
-                        mac_address,
-                        addr_for_dhcp,
-                        e_str,
-                        url
+                        "Error getting info back from the machine discovery: mac={mac_address} addr={addr_for_dhcp} err={e_str} api_url={url}"
                     );
                     cache::put(
                         mac_address,

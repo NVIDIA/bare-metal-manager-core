@@ -113,7 +113,7 @@ impl Route {
             let test_data_dir = PathBuf::from(crate::dpu::ARMOS_TEST_DATA_DIR);
 
             std::fs::read_to_string(test_data_dir.join("iproute.json")).map_err(|e| {
-                error!("Could not read iproute.json: {}", e);
+                error!("Could not read iproute.json: {e}");
                 eyre::eyre!("Could not read iproute.json: {}", e)
             })
         } else {

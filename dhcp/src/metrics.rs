@@ -104,7 +104,7 @@ pub fn metrics_server() {
                     })
                     .await
                     {
-                        log::error!("Metrics endpoint failed with error: {}", e);
+                        log::error!("Metrics endpoint failed with error: {e}");
                     }
                 });
             }

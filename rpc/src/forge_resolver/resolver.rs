@@ -57,8 +57,7 @@ impl ForgeResolveConf {
     }
 
     pub fn parsed_configuration(self) -> resolv_conf::Config {
-        self.parsed_configuration
-            .unwrap_or_else(resolv_conf::Config::new)
+        self.parsed_configuration.unwrap_or_default()
     }
 }
 
