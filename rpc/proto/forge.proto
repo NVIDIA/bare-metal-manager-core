@@ -508,6 +508,7 @@ service Forge {
   rpc GetAllSkuIds(google.protobuf.Empty) returns (SkuIdList);
   rpc FindSkusByIds(SkusByIdsRequest) returns (SkuList);
   rpc UpdateSkuMetadata(SkuUpdateMetadataRequest) returns (google.protobuf.Empty);
+  rpc ReplaceSkuComponents(SkuReplaceComponentsRequest) returns (Sku);
 
   // get/set/clear quarantine state on machines
   rpc GetManagedHostQuarantineState(GetManagedHostQuarantineStateRequest) returns (GetManagedHostQuarantineStateResponse);
@@ -4734,6 +4735,11 @@ message SkuUpdateMetadataRequest {
   string sku_id = 1;
   optional string description = 2;
   optional string device_type = 3;
+}
+
+message SkuReplaceComponentsRequest {
+  string id = 1;
+  SkuComponents components = 4;
 }
 
 message PowerOptionRequest {

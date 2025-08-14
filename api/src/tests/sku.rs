@@ -1169,41 +1169,153 @@ pub mod tests {
 
         Ok(())
     }
-}
 
-#[crate::sqlx_test(fixtures("create_sku"))]
-pub fn test_sku_metadata_update_device_type(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
+    #[crate::sqlx_test(fixtures("create_sku"))]
+    pub fn test_sku_metadata_update_device_type(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
 
-    crate::db::sku::update_metadata(
-        &mut txn,
-        "sku1".to_string(),
-        None,
-        Some("new device type".to_string()),
-    )
-    .await?;
+        crate::db::sku::update_metadata(
+            &mut txn,
+            "sku1".to_string(),
+            None,
+            Some("new device type".to_string()),
+        )
+        .await?;
 
-    let sku = crate::db::sku::find(&mut txn, &["sku1".to_string()])
+        let sku = crate::db::sku::find(&mut txn, &["sku1".to_string()])
+            .await?
+            .pop()
+            .unwrap();
+
+        assert_eq!(&sku.description, "test description");
+        assert_eq!(&sku.device_type.unwrap(), "new device type");
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test(fixtures("create_sku"))]
+    pub fn test_sku_metadata_update_invalid(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+
+        let result =
+            crate::db::sku::update_metadata(&mut txn, "sku1".to_string(), None, None).await;
+
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[crate::sqlx_test(fixtures("create_sku"))]
+    pub fn test_sku_replace_componenets(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let sku_id = "sku1".to_string();
+        let original_sku = crate::db::sku::find(&mut txn, &[sku_id.clone()])
+            .await?
+            .remove(0);
+        let original_sku_json = serde_json::ser::to_string_pretty(&original_sku)?;
+        tracing::info!(original_sku_json, "original");
+
+        let rpc_sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+        let replacement_sku: Sku = rpc_sku.into();
+        let replacement_sku_json = serde_json::ser::to_string_pretty(&replacement_sku)?;
+        tracing::info!(replacement_sku_json, "replacment");
+
+        let expected_sku = Sku {
+            components: replacement_sku.components,
+            ..original_sku
+        };
+        let expected_sku_json = serde_json::ser::to_string_pretty(&expected_sku)?;
+
+        let returned_sku =
+            crate::db::sku::replace_components(&mut txn, &sku_id, expected_sku.components).await?;
+
+        let returned_sku_json = serde_json::ser::to_string_pretty(&returned_sku)?;
+
+        let mut actual_sku = crate::db::sku::find(&mut txn, &[sku_id]).await?.remove(0);
+
+        // cheat the created timestamp
+        actual_sku.created = expected_sku.created;
+
+        let actual_sku_json = serde_json::ser::to_string_pretty(&actual_sku)?;
+
+        assert_eq!(actual_sku_json, returned_sku_json);
+        assert_eq!(actual_sku_json, expected_sku_json);
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_replace_components_triggers_verify(
+        pool: sqlx::PgPool,
+    ) -> Result<(), eyre::Error> {
+        let env = create_test_env_for_sku(pool.clone(), true, None, false).await;
+        let (machine_id, _dpu_id) = create_managed_host(&env).await;
+        let mut txn = pool.begin().await?;
+
+        let actual_sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
+        crate::db::sku::create(&mut txn, &actual_sku).await?;
+        let actual_sku = crate::db::sku::find(&mut txn, &[actual_sku.id])
+            .await?
+            .remove(0);
+
+        crate::db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
+
+        let machine = db::machine::find(
+            &mut txn,
+            ObjectFilter::One(machine_id),
+            MachineSearchConfig::default(),
+        )
         .await?
         .pop()
         .unwrap();
 
-    assert_eq!(&sku.description, "test description");
-    assert_eq!(&sku.device_type.unwrap(), "new device type");
+        let original_verify_time = machine.hw_sku_status.map(|s| s.verify_request_time);
+        assert_eq!(machine.hw_sku.unwrap(), actual_sku.id);
 
-    Ok(())
-}
+        txn.commit().await?;
+        let mut txn = pool.begin().await?;
 
-#[crate::sqlx_test(fixtures("create_sku"))]
-pub fn test_sku_metadata_update_invalid(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
+        crate::db::sku::replace_components(&mut txn, &actual_sku.id, actual_sku.components.clone())
+            .await?;
 
-    let result = crate::db::sku::update_metadata(&mut txn, "sku1".to_string(), None, None).await;
+        txn.commit().await?;
+        let mut txn = pool.begin().await?;
 
-    assert!(result.is_err());
-    Ok(())
+        let machine = db::machine::find(
+            &mut txn,
+            ObjectFilter::One(machine_id),
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .pop()
+        .unwrap();
+
+        let replace_verify_time = machine.hw_sku_status.map(|s| s.verify_request_time);
+
+        assert_ne!(original_verify_time, replace_verify_time);
+
+        env.run_machine_state_controller_iteration().await;
+
+        let mut txn = pool.begin().await?;
+        let machine = db::machine::find(
+            &mut txn,
+            ObjectFilter::One(machine_id),
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .pop()
+        .unwrap();
+
+        assert!(matches!(
+            machine.current_state(),
+            ManagedHostState::BomValidating { .. }
+        ));
+
+        Ok(())
+    }
 }

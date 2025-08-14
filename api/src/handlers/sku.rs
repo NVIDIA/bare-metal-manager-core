@@ -390,3 +390,37 @@ pub(crate) async fn update_sku_metadata(
 
     Ok(Response::new(()))
 }
+
+pub(crate) async fn replace_sku_components(
+    api: &Api,
+    request: Request<::rpc::forge::SkuReplaceComponentsRequest>,
+) -> CarbideResult<Response<rpc::forge::Sku>> {
+    let request = request.into_inner();
+    let Some(components) = request.components else {
+        return Err(CarbideError::InvalidArgument(
+            "Components is required".to_string(),
+        ));
+    };
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin find_skus_by_ids",
+            e,
+        ))
+    })?;
+
+    let sku = crate::db::sku::replace_components(&mut txn, &request.id, components.into()).await?;
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "remove sku association",
+            e,
+        ))
+    })?;
+
+    Ok(Response::new(sku.into()))
+}

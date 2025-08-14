@@ -2183,6 +2183,23 @@ pub async fn update_sku_status_verify_request_time(
     Ok(())
 }
 
+pub async fn update_sku_status_verify_request_time_for_sku(
+    txn: &mut PgConnection,
+    sku_id: &str,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines SET hw_sku_status=jsonb_set(coalesce(hw_sku_status, '{}'), '{verify_request_time}', $1) WHERE hw_sku=$2 RETURNING id";
+
+    let ids: Vec<MachineId> = sqlx::query_as(query)
+        .bind(sqlx::types::Json(Utc::now()))
+        .bind(sku_id)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "update sku status", e))?;
+
+    tracing::info!(machine_ids=?ids, "SKU updated, requesting verify for affected machines");
+    Ok(())
+}
+
 pub async fn find_machine_ids_by_sku_id(
     txn: &mut PgConnection,
     sku_id: &String,

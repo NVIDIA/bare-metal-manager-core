@@ -179,6 +179,23 @@ pub async fn update_metadata(
     Ok(())
 }
 
+pub async fn replace_components(
+    txn: &mut PgConnection,
+    sku_id: &str,
+    components: SkuComponents,
+) -> Result<Sku, DatabaseError> {
+    let query = "UPDATE machine_skus SET components = $1 WHERE id= $2 RETURNING *";
+    let sku = sqlx::query_as(query)
+        .bind(sqlx::types::Json(&components))
+        .bind(sku_id)
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|err| DatabaseError::new(file!(), line!(), query, err))?;
+
+    crate::db::machine::update_sku_status_verify_request_time_for_sku(txn, sku_id).await?;
+    Ok(sku)
+}
+
 pub async fn generate_sku_from_machine(
     txn: &mut PgConnection,
     machine_id: &MachineId,
