@@ -450,7 +450,7 @@ async fn handle_instance_release_from_repair_tenant(
     );
 
     if repair_status.as_deref() == Some("Completed") {
-        // Repair completed successfully
+        // Repair completed successfully - Good to remove the RequestRepair override.
         remove_health_override(
             txn,
             machine_id,
@@ -459,9 +459,9 @@ async fn handle_instance_release_from_repair_tenant(
         )
         .await?;
 
-        // If the Repair tenant reports new issues after repair completion cycle, apply TenantReportedIssue
-        // to route the machine back to manual intervention by the Forge team (prevents auto-repair cycles).
-        // The instance is already getting returned by the RepairSystem.
+        // Repair completed successfully - Apply TenantReportedIssue override if new
+        // issues reported, else remove it to make machine available in ready pool.
+        // Skipped applying RequestRepair override to avoid infinite loops.
         if let Some(issue) = issue {
             tracing::info!(
                 machine_id = %machine_id,
@@ -475,13 +475,22 @@ async fn handle_instance_release_from_repair_tenant(
                 txn,
                 machine_id,
                 &override_report,
-                "TenantReportedIssue for repair tenant new issues (no auto-repair to prevent cycles)",
-            ).await?;
+                "TenantReportedIssue updated for repair tenant (no auto-repair to prevent cycles)",
+            )
+            .await?;
+        } else {
+            // No new issues - Remove TenantReportedIssue override to make machine available in ready pool
+            remove_health_override(
+                txn,
+                machine_id,
+                "tenant-reported-issue",
+                "TenantReportedIssue removed - repair completed successfully",
+            )
+            .await?;
         }
     } else {
-        // Repair was not completed successfully. Remove the existing RequestRepair health override
-        // and replace it with TenantReportedIssue to route the machine back to manual intervention
-        // by the Forge team (prevents auto-repair cycles).
+        // Repair failed - Remove the existing RequestRepair override and set TenantReportedIssue
+        // to send the machine for Forge team intervention, preventing auto-repair loops.
         remove_health_override(
             txn,
             machine_id,
