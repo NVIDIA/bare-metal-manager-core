@@ -290,6 +290,7 @@ pub async fn setup_and_run(
         client_cert_renewer,
         hbn_device_names,
         is_hbn_up: false,
+        hbn_file_configs: hbn::HBNContainerFileConfigs::default(),
         seen_blank: false,
         has_logged_stable: false,
         version_check_time: std::time::Instant::now(),
@@ -321,6 +322,7 @@ struct MainLoop {
     client_cert_renewer: ClientCertRenewer,
     hbn_device_names: HBNDeviceNames,
     is_hbn_up: bool,
+    hbn_file_configs: hbn::HBNContainerFileConfigs,
     seen_blank: bool,
     has_logged_stable: bool,
     started_at: std::time::Instant,
@@ -466,6 +468,12 @@ impl MainLoop {
                             "Hacking the container platform config."
                         );
                     };
+
+                    if let Err(e) = self.hbn_file_configs.ensure_configs().await {
+                        tracing::error!(
+                            "Error from HBNContainerFileConfigs::ensure_configs(): {e}"
+                        );
+                    }
 
                     tracing::trace!("Desired network config is {conf:?}");
                     // Generate the fmds interface plan from the config. This does not apply the plan.

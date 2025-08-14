@@ -170,6 +170,88 @@ struct Container {
     id: String,
 }
 
+/// This is used to track the state of some one-time changes that need to be made
+/// inside the HBN container.
+#[derive(Default)]
+pub struct HBNContainerFileConfigs {
+    // A Some(container_id) indicates we've previously seen and modified that
+    // container, and no further action is needed unless we see a different
+    // container ID appear.
+    last_fixed_container_id: Option<String>,
+}
+
+impl HBNContainerFileConfigs {
+    /// This takes care of a couple of file-based configurations that are
+    /// currently not supported in NVUE (like ifupdown2 policy and neighmgrd
+    /// configuration).
+    pub async fn ensure_configs(&mut self) -> eyre::Result<()> {
+        let current_container_id = get_hbn_container_id().await?;
+
+        match self.last_fixed_container_id.as_ref() {
+            // We've seen and fixed this container before, nothing to do.
+            Some(last_container_id) if last_container_id.as_str() == current_container_id => Ok(()),
+
+            // We haven't seen the container before, either because we (the
+            // agent process) just started, or because the HBN container was
+            // replaced.
+            l => {
+                tracing::info!(
+                    "HBN container ID {c} is new to us, updating its neighbor \
+                    learning config (previous container ID was {l})",
+                    c = current_container_id.as_str(),
+                    l = l.map_or("None", |s| s.as_str())
+                );
+                set_strict_neighbor_learning(current_container_id.as_str())
+                    .await
+                    .inspect(|_| {
+                        self.last_fixed_container_id.replace(current_container_id);
+                    })
+            }
+        }
+    }
+}
+
+async fn set_strict_neighbor_learning(container_id: &str) -> eyre::Result<()> {
+    // let container_id = get_hbn_container_id().await?;
+
+    write_hbn_ifupdown2_arp_policy(container_id).await?;
+    set_neighmgr_subnet_checks(container_id).await?;
+
+    Ok(())
+}
+
+async fn write_hbn_ifupdown2_arp_policy(container_id: &str) -> eyre::Result<()> {
+    const IFUPDOWN2_POLICY_DIR: &str = "/etc/network/ifupdown2/policy.d";
+    const POLICY_FILE_NAME: &str = "forge-arp-accept.json";
+    const POLICY_FILE_CONTENTS: &str =
+        r#"{"address":{"module_globals":{"l3_intf_arp_accept":"0"}}}"#;
+    // If there are currently tenant vlan interfaces present, we'll need to
+    // reload their config to apply the new policy.
+    const RELOAD_COMMAND: &str = "ifreload -a";
+
+    let bash_command = format!(
+        "mkdir -p {IFUPDOWN2_POLICY_DIR} && echo '{POLICY_FILE_CONTENTS}' > {IFUPDOWN2_POLICY_DIR}/{POLICY_FILE_NAME} && {RELOAD_COMMAND}"
+    );
+    run_in_container(container_id, &["bash", "-c", bash_command.as_str()], true)
+        .await
+        .map(|_stdout| ())
+}
+
+async fn set_neighmgr_subnet_checks(container_id: &str) -> eyre::Result<()> {
+    const NEIGHMGR_CONFIG_PATH: &str = "/etc/cumulus/neighmgr.conf";
+    // These contents must be rendered through the shell's printf builtin
+    const NEIGHMGR_CONFIG_CONTENTS: &str = "[snooper]\nsubnet_checks=1\n";
+    const NEIGHMGR_SERVICE_RESTART_COMMAND: &str = "supervisorctl restart neighmgr";
+
+    let bash_command = format!(
+        "printf '{NEIGHMGR_CONFIG_CONTENTS}' > {NEIGHMGR_CONFIG_PATH} && {NEIGHMGR_SERVICE_RESTART_COMMAND}"
+    );
+
+    run_in_container(container_id, &["bash", "-c", bash_command.as_str()], true)
+        .await
+        .map(|_stdout| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::parse_container_id;
