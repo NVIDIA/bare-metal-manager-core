@@ -58,6 +58,7 @@ pub async fn spawn(carbide_port: u16) -> eyre::Result<NewSshConsoleHandle> {
         successful_connection_minimum_duration: Duration::ZERO,
         log_rotate_max_rotated_files: 3,
         log_rotate_max_size: Size::from_kib(10),
+        hosts: true,
     };
 
     let spawn_handle = ssh_console::spawn(config).await?;
