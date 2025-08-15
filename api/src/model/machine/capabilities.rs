@@ -10,10 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::{HashMap, HashSet},
-    fmt,
-};
+use std::{collections::HashMap, fmt};
 
 use ::rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
@@ -23,7 +20,7 @@ use crate::model::machine::RpcDataConversionError;
 use crate::{
     CarbideError,
     model::{
-        hardware_info::InfinibandInterface,
+        hardware_info::{CpuInfo, InfinibandInterface},
         machine::{HardwareInfo, MachineInterfaceSnapshot},
     },
 };
@@ -105,12 +102,28 @@ impl TryFrom<rpc::MachineCapabilityType> for MachineCapabilityType {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MachineCapabilityCpu {
+    /// CPU model name
     pub name: String,
+    /// number of sockets
     pub count: u32,
+    /// CPU vendor name
     pub vendor: Option<String>,
-    pub frequency: Option<String>,
+    /// cores per socket
     pub cores: Option<u32>,
+    /// threads per socket
     pub threads: Option<u32>,
+}
+
+impl From<&CpuInfo> for MachineCapabilityCpu {
+    fn from(src: &CpuInfo) -> Self {
+        MachineCapabilityCpu {
+            name: src.model.clone(),
+            count: src.sockets,
+            vendor: Some(src.vendor.clone()),
+            cores: Some(src.cores),
+            threads: Some(src.threads),
+        }
+    }
 }
 
 impl From<MachineCapabilityCpu> for rpc::MachineCapabilityAttributesCpu {
@@ -118,7 +131,6 @@ impl From<MachineCapabilityCpu> for rpc::MachineCapabilityAttributesCpu {
         rpc::MachineCapabilityAttributesCpu {
             name: cap.name,
             count: cap.count,
-            frequency: cap.frequency,
             vendor: cap.vendor,
             cores: cap.cores,
             threads: cap.threads,
@@ -435,58 +447,6 @@ impl MachineCapabilitiesSet {
         machine_interfaces: Vec<MachineInterfaceSnapshot>,
     ) -> Self {
         //
-        //  Process CPU data
-        //
-
-        // Number of unique sockets is cpu count.
-        // Highest core number + 1 is the number of cores.
-        // Highest Number + 1 is total thread count, which
-        // we'll divide by cpu count later.
-
-        let mut cpu_map = HashMap::<String, MachineCapabilityCpu>::new();
-        let mut cpu_socket_set = HashSet::<(String, u32)>::new();
-        // Go through the CPUs listed in the hardware info
-        // and accumulate the details into a machine capability.
-        for cpu_info in hardware_info.cpus.into_iter() {
-            match cpu_map.get_mut(&cpu_info.model) {
-                None => {
-                    // Insert into the socket map so we don't keep incrementing cpu count
-                    // as we look for threads and cores.
-                    cpu_socket_set.insert((cpu_info.model.clone(), cpu_info.socket));
-
-                    cpu_map.insert(
-                        cpu_info.model.clone(),
-                        MachineCapabilityCpu {
-                            name: cpu_info.model,
-                            count: 1,
-                            vendor: Some(cpu_info.vendor),
-                            frequency: Some(cpu_info.frequency),
-                            cores: Some(cpu_info.core + 1),
-                            threads: Some(cpu_info.number + 1),
-                        },
-                    );
-                }
-                Some(cpu_cap) => {
-                    // If the socket hasn't been seen yet (i.e., if it's new to the set),
-                    // increment the cpu count.
-                    if cpu_socket_set.insert((cpu_info.model, cpu_info.socket)) {
-                        cpu_cap.count += 1;
-                    }
-
-                    let core_count = cpu_info.core + 1;
-                    if core_count > cpu_cap.cores.unwrap_or(0) {
-                        cpu_cap.cores = Some(core_count);
-                    }
-
-                    let thread_count = cpu_info.number + 1;
-                    if thread_count > cpu_cap.threads.unwrap_or(0) {
-                        cpu_cap.threads = Some(thread_count);
-                    }
-                }
-            };
-        }
-
-        //
         //  Process GPU data
         //
 
@@ -643,17 +603,10 @@ impl MachineCapabilitiesSet {
         );
 
         MachineCapabilitiesSet {
-            cpu: cpu_map
-                .into_values()
-                .map(|mut c| {
-                    // Divide the total number of threads by the cpu count.
-                    if let Some(cnt) = c.threads {
-                        // This _should_ always divide evenly, but it doesn't
-                        // hurt to be safe.
-                        c.threads = Some(cnt.saturating_div(c.count));
-                    }
-                    c
-                })
+            cpu: hardware_info
+                .cpu_info
+                .iter()
+                .map(MachineCapabilityCpu::from)
                 .collect(),
             gpu: gpu_map.into_values().collect(),
             memory: mem_map
@@ -721,7 +674,6 @@ mod tests {
         let req_type = rpc::MachineCapabilityAttributesCpu {
             name: "pentium 4 HT".to_string(),
             count: 1,
-            frequency: Some("1.3 GHz".to_string()),
             vendor: Some("intel".to_string()),
             cores: Some(1),
             threads: Some(2),
@@ -730,7 +682,6 @@ mod tests {
         let machine_cap = MachineCapabilityCpu {
             name: "pentium 4 HT".to_string(),
             count: 1,
-            frequency: Some("1.3 GHz".to_string()),
             vendor: Some("intel".to_string()),
             cores: Some(1),
             threads: Some(2),
@@ -884,7 +835,6 @@ mod tests {
             cpu: vec![rpc::MachineCapabilityAttributesCpu {
                 name: "xeon".to_string(),
                 count: 2,
-                frequency: Some("3 GHZ".to_string()),
                 vendor: Some("intel".to_string()),
                 cores: Some(24),
                 threads: Some(48),
@@ -941,7 +891,6 @@ mod tests {
             cpu: vec![MachineCapabilityCpu {
                 name: "xeon".to_string(),
                 count: 2,
-                frequency: Some("3 GHZ".to_string()),
                 vendor: Some("intel".to_string()),
                 cores: Some(24),
                 threads: Some(48),
@@ -1004,7 +953,6 @@ mod tests {
                 name: "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz".to_string(),
                 count: 1,
                 vendor: Some("GenuineIntel".to_string()),
-                frequency: Some("800.191".to_string()),
                 cores: Some(18),
                 threads: Some(72),
             }],

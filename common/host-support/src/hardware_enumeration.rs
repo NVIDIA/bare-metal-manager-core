@@ -18,10 +18,12 @@ use procfs::{CpuInfo, FromRead};
 use rpc::machine_discovery::MemoryDevice;
 use std::fs::File;
 use std::{
+    collections::{HashMap, HashSet},
     fmt::Write,
     fs,
     io::{BufRead, BufReader},
     path::Path,
+    process::Command,
     str::Utf8Error,
 };
 use tracing::{error, warn};
@@ -59,6 +61,15 @@ pub enum HardwareEnumerationError {
 }
 
 pub type HardwareEnumerationResult<T> = Result<T, HardwareEnumerationError>;
+
+// Same as rpc_discovery::CpuInfo but with total thread count before computing threads per socket
+struct CpuAccumulator {
+    model: String,
+    vendor: String,
+    sockets: u32,
+    cores: u32,
+    threads: u32,
+}
 
 pub const LINK_TYPE_P1: &str = "LINK_TYPE_P1";
 
@@ -271,6 +282,176 @@ pub fn discovery_ibs() -> HardwareEnumerationResult<Vec<rpc_discovery::Infiniban
     Ok(ibs)
 }
 
+impl From<&CpuAccumulator> for rpc_discovery::CpuInfo {
+    fn from(src: &CpuAccumulator) -> Self {
+        let threads_per_socket = src.threads.checked_div(src.sockets).unwrap_or(0);
+
+        rpc_discovery::CpuInfo {
+            model: src.model.clone(),
+            vendor: src.vendor.clone(),
+            sockets: src.sockets,
+            cores: src.cores,
+            threads: threads_per_socket,
+        }
+    }
+}
+
+pub fn aggregate_cpus(cpus: &[rpc_discovery::Cpu]) -> Vec<rpc_discovery::CpuInfo> {
+    //
+    //  Process CPU data
+    //
+
+    // This logic is ported from forge-cloud/cloud-backend. The handling of multiple CPU models on
+    // a single machine is possibly misleading, but possibly it handles some future build, and it
+    // accumulates all the info in any case. This function should return a vector with only one
+    // CpuInfo.
+    //
+    // Number of unique sockets is cpu count.
+    // Highest core number + 1 is the number of cores per socket.
+    // Highest Number + 1 is total thread count, which
+    // we'll divide by number of sockets later.
+
+    let mut cpu_map = HashMap::<String, CpuAccumulator>::new();
+    let mut cpu_socket_set = HashSet::<(String, u32)>::new();
+    // Go through the CPUs listed in the hardware info and accumulate the details.
+    for cpu in cpus.iter() {
+        match cpu_map.get_mut(&cpu.model) {
+            None => {
+                // Insert into the socket map so we don't keep incrementing cpu count
+                // as we look for threads and cores.
+                cpu_socket_set.insert((cpu.model.clone(), cpu.socket));
+
+                cpu_map.insert(
+                    cpu.model.clone(),
+                    CpuAccumulator {
+                        model: cpu.model.clone(),
+                        vendor: cpu.vendor.clone(),
+                        sockets: 1,
+                        cores: cpu.core + 1,
+                        threads: cpu.number + 1,
+                    },
+                );
+            }
+            Some(accumulator) => {
+                // If the socket hasn't been seen yet (i.e., if it's new to the set),
+                // increment the cpu count.
+                if cpu_socket_set.insert((cpu.model.clone(), cpu.socket)) {
+                    accumulator.sockets += 1;
+                }
+
+                let core_count = cpu.core + 1;
+                if core_count > accumulator.cores {
+                    accumulator.cores = core_count;
+                }
+
+                let thread_count = cpu.number + 1;
+                if thread_count > accumulator.threads {
+                    accumulator.threads = thread_count;
+                }
+            }
+        };
+    }
+
+    let mut values: Vec<&CpuAccumulator> = cpu_map.values().collect();
+    values.sort_by_key(|v| &v.model);
+    values
+        .into_iter()
+        .map(rpc_discovery::CpuInfo::from)
+        .collect()
+}
+
+// `lscpu` fields in exact case-sensitive form
+// if present, these fields can be assumed to have these standard names
+const LSCPU_VENDOR: &str = "Vendor ID";
+const LSCPU_MODEL: &str = "Model name";
+const LSCPU_SOCKETS: &str = "Socket(s)";
+const LSCPU_CORES_PER_SOCKET: &str = "Core(s) per socket";
+const LSCPU_THREADS_PER_CORE: &str = "Thread(s) per core";
+
+fn get_lscpu_info() -> HashMap<&'static str, String> {
+    let keys = [
+        LSCPU_VENDOR,
+        LSCPU_MODEL,
+        LSCPU_SOCKETS,
+        LSCPU_CORES_PER_SOCKET,
+        LSCPU_THREADS_PER_CORE,
+    ];
+
+    let mut lscpu_info: HashMap<&'static str, String> = HashMap::new();
+    let output = Command::new("lscpu").output();
+
+    if let Ok(out) = output {
+        if let Ok(text) = std::str::from_utf8(&out.stdout) {
+            for line in text.lines() {
+                // `lscpu` output format is "  <key>:   <value>" with
+                // various levels of indentation before <key>
+                if let Some((k, v)) = line.split_once(':') {
+                    let trimmed_key = k.trim();
+                    if let Some(key) = keys.iter().find(|&&s| s == trimmed_key).copied() {
+                        lscpu_info.insert(key, v.trim().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    lscpu_info
+}
+
+fn can_parse_int(s: &str) -> bool {
+    if let Some(hex) = s.strip_prefix("0x") {
+        i32::from_str_radix(hex, 16).is_ok()
+    } else {
+        s.parse::<i32>().is_ok()
+    }
+}
+
+fn get_cpu_info(
+    lscpu_info: &HashMap<&'static str, String>,
+    proc_cpu_info: rpc_discovery::CpuInfo,
+) -> rpc_discovery::CpuInfo {
+    // Prefer vendor from `lscpu` only if the value from procfs is an
+    // unmapped integer.
+    let preferred_vendor = if can_parse_int(&proc_cpu_info.vendor) {
+        lscpu_info.get(LSCPU_VENDOR).cloned()
+    } else {
+        None
+    };
+
+    // Prefer model from `lscpu` only if the value from procfs is an
+    // unmapped integer.
+    let preferred_model = if can_parse_int(&proc_cpu_info.model) {
+        lscpu_info.get(LSCPU_MODEL).cloned()
+    } else {
+        None
+    };
+
+    // Prefer topology from `lscpu` only if it completely specifies sockets,
+    // cores, and threads (all or nothing).
+    let (preferred_sockets, preferred_cores, preferred_threads) = match (
+        lscpu_info
+            .get(LSCPU_SOCKETS)
+            .and_then(|s| s.parse::<u32>().ok()),
+        lscpu_info
+            .get(LSCPU_CORES_PER_SOCKET)
+            .and_then(|s| s.parse::<u32>().ok()),
+        lscpu_info
+            .get(LSCPU_THREADS_PER_CORE)
+            .and_then(|s| s.parse::<u32>().ok()),
+    ) {
+        (Some(s), Some(c), Some(t)) => (Some(s), Some(c), Some(c * t)),
+        _ => (None, None, None),
+    };
+
+    rpc_discovery::CpuInfo {
+        vendor: preferred_vendor.unwrap_or(proc_cpu_info.vendor),
+        model: preferred_model.unwrap_or(proc_cpu_info.model),
+        sockets: preferred_sockets.unwrap_or(proc_cpu_info.sockets),
+        cores: preferred_cores.unwrap_or(proc_cpu_info.cores),
+        threads: preferred_threads.unwrap_or(proc_cpu_info.threads),
+    }
+}
+
 pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnumerationError> {
     let context = libudev::Context::new()?;
 
@@ -460,6 +641,15 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
                 );
             }
         }
+    }
+
+    let mut cpu_aggregation = aggregate_cpus(&cpus);
+    if let CpuArchitecture::Aarch64 = arch {
+        let lscpu_info = get_lscpu_info();
+        cpu_aggregation = cpu_aggregation
+            .into_iter()
+            .map(|elem| get_cpu_info(&lscpu_info, elem))
+            .collect();
     }
 
     // disks
@@ -723,7 +913,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     Ok(rpc_discovery::DiscoveryInfo {
         network_interfaces: nics,
         infiniband_interfaces: ibs,
-        cpus,
+        cpu_info: cpu_aggregation,
         block_devices: disks,
         nvme_devices: nvmes,
         dmi_data: Some(dmi),
@@ -735,5 +925,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         memory_devices,
         tpm_description: None,
         attest_key_info: None,
+        // TODO: Remove when there's no longer a need to handle the old topology format
+        ..Default::default()
     })
 }

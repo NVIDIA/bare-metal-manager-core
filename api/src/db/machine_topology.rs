@@ -25,6 +25,9 @@ use crate::model::hardware_info::HardwareInfo;
 use crate::{CarbideError, CarbideResult};
 use forge_uuid::machine::MachineId;
 
+#[cfg(test)]
+use crate::model::hardware_info::HardwareInfoV1;
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MachineTopology {
     machine_id: MachineId,
@@ -63,6 +66,18 @@ pub struct DiscoveryData {
     pub info: HardwareInfo,
 }
 
+// TODO: Remove when there's no longer a need to handle the old topology format
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiscoveryDataV1 {
+    /// Stores the hardware information that was fetched during discovery
+    /// **Note that this field is renamed to uppercase because
+    /// that is how the originally utilized protobuf message looked in serialized
+    /// format**
+    #[serde(rename = "Info")]
+    pub info: HardwareInfoV1,
+}
+
 /// Describes the data format we store in the `topology` field of the `machine_topologies` table
 ///
 /// Note that we don't need most of the fields here - they are just an artifact
@@ -72,6 +87,19 @@ pub struct DiscoveryData {
 pub struct TopologyData {
     /// Stores the hardware information that was fetched during discovery
     pub discovery_data: DiscoveryData,
+    /// The BMC information of the machine
+    /// Note that this field is currently side-injected via the
+    /// `crate::crate::db::ipmi::BmcMetaDataUpdateRequest::update_bmc_meta_data`
+    /// Therefore no `write` function can be found here.
+    pub bmc_info: BmcInfo,
+}
+
+// TODO: Remove when there's no longer a need to handle the old topology format
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopologyDataV1 {
+    /// Stores the hardware information that was fetched during discovery
+    pub discovery_data: DiscoveryDataV1,
     /// The BMC information of the machine
     /// Note that this field is currently side-injected via the
     /// `crate::crate::db::ipmi::BmcMetaDataUpdateRequest::update_bmc_meta_data`
@@ -360,5 +388,92 @@ impl MachineTopology {
     #[cfg(test)] // currently only used by tests
     pub fn topology_update_needed(&self) -> bool {
         self.topology_update_needed
+    }
+}
+
+// TODO: Remove when there's no longer a need to handle the old topology format
+#[cfg(test)]
+pub trait MachineTopologyTestHelpers {
+    async fn update_v1(
+        txn: &mut PgConnection,
+        machine_id: &MachineId,
+        hardware_info: &HardwareInfoV1,
+    ) -> CarbideResult<MachineTopology>;
+    async fn create_or_update_v1(
+        txn: &mut PgConnection,
+        machine_id: &MachineId,
+        hardware_info: &HardwareInfoV1,
+    ) -> CarbideResult<MachineTopology>;
+}
+
+// TODO: Remove when there's no longer a need to handle the old topology format
+#[cfg(test)]
+impl MachineTopologyTestHelpers for MachineTopology {
+    async fn update_v1(
+        txn: &mut PgConnection,
+        machine_id: &MachineId,
+        hardware_info: &HardwareInfoV1,
+    ) -> CarbideResult<Self> {
+        let discovery_data = DiscoveryDataV1 {
+            info: hardware_info.clone(),
+        };
+
+        tracing::info!(
+            %machine_id,
+            "Discovery data for machine already exists. Updating now.",
+        );
+        let query = "UPDATE machine_topologies SET topology=jsonb_set(topology, '{discovery_data}', $2::jsonb), topology_update_needed=false, updated=NOW() WHERE machine_id=$1 RETURNING *";
+        let res = sqlx::query_as(query)
+            .bind(machine_id.to_string())
+            .bind(sqlx::types::Json(&discovery_data))
+            .fetch_one(txn)
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+
+        Ok(res)
+    }
+
+    async fn create_or_update_v1(
+        txn: &mut PgConnection,
+        machine_id: &MachineId,
+        hardware_info: &HardwareInfoV1,
+    ) -> CarbideResult<Self> {
+        let topology_data = Self::find_latest_by_machine_ids(txn, &[*machine_id]).await?;
+        let topology_data = topology_data.get(machine_id);
+
+        if let Some(topology) = topology_data {
+            if topology.topology_update_needed {
+                return Self::update_v1(txn, machine_id, hardware_info).await;
+            }
+            return Ok(topology.clone());
+        }
+
+        let topology_data = TopologyDataV1 {
+            discovery_data: DiscoveryDataV1 {
+                info: hardware_info.clone(),
+            },
+            bmc_info: BmcInfo {
+                ip: None,
+                port: None,
+                mac: None,
+                version: None,
+                firmware_version: None,
+            },
+        };
+
+        tracing::info!(
+            %machine_id,
+            "Discovery data for machine did not exist. Creating now.",
+        );
+
+        let query = "INSERT INTO machine_topologies VALUES ($1, $2::json) RETURNING *";
+        let res = sqlx::query_as(query)
+            .bind(machine_id.to_string())
+            .bind(sqlx::types::Json(&topology_data))
+            .fetch_one(txn)
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+
+        Ok(res)
     }
 }

@@ -53,8 +53,10 @@ pub const TEST_DOCA_HBN_VERSION: &str = "1.5.0-doca2.2.0";
 /// The version of doca-telemetry reported in unit-tests
 pub const TEST_DOCA_TELEMETRY_VERSION: &str = "1.14.2-doca2.2.0";
 
-const DPU_INFO_JSON: &[u8] =
+pub const DPU_INFO_JSON: &[u8] =
     include_bytes!("../../../../src/model/hardware_info/test_data/dpu_info.json");
+pub const DPU_BF3_INFO_JSON: &[u8] =
+    include_bytes!("../../../../src/model/hardware_info/test_data/dpu_bf3_info.json");
 
 static NEXT_DPU_SERIAL: AtomicU32 = AtomicU32::new(1);
 

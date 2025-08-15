@@ -66,10 +66,6 @@ impl InstanceTypeMachineCapabilityFilter {
             (None, _) => true,
             (Some(_), None) => false,
             (Some(c), Some(mc)) => c == mc,
-        }) && (match (&self.frequency, &mac_cap.frequency) {
-            (None, _) => true,
-            (Some(_), None) => false,
-            (Some(c), Some(mc)) => c == mc,
         })
     }
 
@@ -656,7 +652,6 @@ mod tests {
         let machine_cap_set = MachineCapabilitiesSet {
             cpu: vec![capabilities::MachineCapabilityCpu {
                 name: "pentium 4 HT".to_string(),
-                frequency: Some("1.3 GHz".to_string()),
                 vendor: Some("intel".to_string()),
                 count: 1,
                 cores: Some(1),
@@ -706,7 +701,6 @@ mod tests {
         let machine_cap_set = MachineCapabilitiesSet {
             cpu: vec![capabilities::MachineCapabilityCpu {
                 name: "pentium 4 HT".to_string(),
-                frequency: Some("1.3 GHz".to_string()),
                 vendor: Some("intel".to_string()),
                 count: 1,
                 cores: Some(1),
@@ -732,7 +726,6 @@ mod tests {
         let machine_cap_set = MachineCapabilitiesSet {
             cpu: vec![capabilities::MachineCapabilityCpu {
                 name: "pentium 4 HT".to_string(),
-                frequency: Some("1.3 GHz".to_string()),
                 vendor: Some("intel".to_string()),
                 count: 1,
                 cores: Some(1),

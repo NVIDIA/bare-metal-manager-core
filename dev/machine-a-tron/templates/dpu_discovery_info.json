@@ -1,15 +1,14 @@
 {
-  "cpus": [
+  "cpu_info": [
     {
-      "core": 0,
-      "node": 2,
       "model": "0x1",
-      "number": 7,
-      "socket": 0,
       "vendor": "0x41",
-      "frequency": "400.00"
+      "sockets": 1,
+      "cores": 8,
+      "threads": 8
     }
   ],
+  "cpus": [],
   "gpus": [],
   "machine_type": "aarch64",
   "machine_arch": 0,
