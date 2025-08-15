@@ -25,7 +25,7 @@ use libredfish::model::power::{PowerControl, PowerSupply, Voltages};
 use libredfish::model::sel::LogEntry;
 use libredfish::model::sensor::{GPUSensors, ReadingType};
 use libredfish::model::storage::Drives;
-use libredfish::model::thermal::{Fan, Temperature};
+use libredfish::model::thermal::{Fan, LeakDetector, Temperature};
 use libredfish::model::{ResourceHealth, ResourceState};
 use libredfish::model::{power::Power, software_inventory::SoftwareInventory, thermal::Thermal};
 use libredfish::{PowerState, Redfish, RedfishClientPool, RedfishError};
@@ -172,6 +172,40 @@ fn export_temperatures(
                 KeyValue::new("hw.host.id", machine_id.to_string()),
             ],
         )
+    }
+    Ok(())
+}
+
+fn export_leak_sensors(
+    meter: Meter,
+    leak_detectors: Vec<LeakDetector>,
+    machine_id: &str,
+    machine_serial: Option<String>,
+) -> Result<(), HealthError> {
+    let leak_detector_gauge = meter
+        .i64_gauge("hw.leak_detector")
+        .with_description("Leak Detector sensors for this hardware")
+        .with_unit("Moisture")
+        .build();
+    for detector in leak_detectors.iter() {
+        let value: i64 = match detector.detector_state.as_deref() {
+            Some("OK") => 0,
+            Some("Warning") => 1,
+            Some("Critical") => 2,
+            _ => -1,
+        };
+        let sensor_name = detector.name.clone().as_str().replace(' ', "_");
+
+        let mut attributes = vec![
+            KeyValue::new("hw.id", sensor_name),
+            KeyValue::new("hw.host.id", machine_id.to_string()),
+        ];
+
+        if let Some(ref serial) = machine_serial {
+            attributes.push(KeyValue::new("hw.host.serial", serial.clone()));
+        }
+
+        leak_detector_gauge.record(value, &attributes);
     }
     Ok(())
 }
@@ -579,6 +613,7 @@ pub struct ExportedHealthMetrics<'a> {
     pub last_recorded_ts: i64,
     pub description: &'a String,
     pub machine_id: &'a str,
+    pub machine_serial: Option<String>,
 }
 
 // the attribute keys and values are specified in
@@ -593,6 +628,7 @@ pub async fn export_metrics(
     metrics: ExportedHealthMetrics<'_>,
 ) -> Result<(String, usize, i64, i64, bool, bool), HealthError> {
     let machine_id = metrics.machine_id;
+    let machine_serial = metrics.machine_serial;
     // build or get meter for each machine
     let meter = provider.meter(get_static_machine_id_str(machine_id));
     let now: DateTime<Utc> = Utc::now();
@@ -600,6 +636,9 @@ pub async fn export_metrics(
     let mut recorded_ts: i64 = 0;
     if let Ok(thermal) = metrics.health.thermal {
         export_temperatures(meter.clone(), thermal.temperatures, machine_id, false)?;
+        if let Some(leak_detectors) = thermal.leak_detectors {
+            export_leak_sensors(meter.clone(), leak_detectors, machine_id, machine_serial)?;
+        }
         export_fans(meter.clone(), thermal.fans, machine_id)?;
     }
     if let (Ok(power), Ok(localstorage), Ok(power_state)) = (
@@ -665,6 +704,7 @@ pub async fn scrape_machine_health(
     provider: SdkMeterProvider,
     logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
     machine_id: &str,
+    machine_serial: Option<String>,
     health_data: &MutexGuard<'_, HealthHashData>,
 ) -> Result<(String, usize, i64, i64, bool, bool), HealthError> {
     let pool = RedfishClientPool::builder().build()?;
@@ -747,6 +787,7 @@ pub async fn scrape_machine_health(
             last_recorded_ts: health_data.last_recorded_ts,
             description: &health_data.description,
             machine_id,
+            machine_serial,
         },
     )
     .await
