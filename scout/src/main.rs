@@ -437,7 +437,12 @@ async fn query_api_with_retries(
     // similar set of control_retry_* flags in the CLI, we can do
     // that (but trying to limit the number of flags if possible).
     let retry_config = RetryFutureConfig::new(config.discovery_retries_max)
-        .fixed_backoff(Duration::from_secs(config.discovery_retry_secs));
+        .fixed_backoff(Duration::from_secs(config.discovery_retry_secs))
+        .on_retry(|_attempt, _next_delay, error: &CarbideClientError| {
+            // We can't move the error, but CarbideClientError contains some results that are not clonable, so just do the format here
+            let error = format!("{error}");
+            async move { tracing::info!("ForgeAgentControlRequest failed: {error}") }
+        });
 
     // State machine handler needs 1-2 cycles to update host_adminIP to leaf.
     // In case by the time, host comes up and IP is still not updated, let's wait.

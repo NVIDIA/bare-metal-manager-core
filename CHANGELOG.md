@@ -35,6 +35,7 @@
   stricter ARP/neighbor learning on tenant networks. Note that this could be a
   breaking change if a tenant workload relies on being able to inject neighbor
   entries (via GARP or otherwise) that are outside of a subnet prefix.
+- [FORGE-4766](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4443): Scout now logs errors when query_api fails.
 
 ### Fixed
 
