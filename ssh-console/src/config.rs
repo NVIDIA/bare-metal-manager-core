@@ -19,6 +19,7 @@ use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use russh::keys::ssh_key::Fingerprint;
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use size::Size;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -86,6 +87,10 @@ pub struct Config {
         deserialize_with = "deserialize_duration"
     )]
     pub successful_connection_minimum_duration: Duration,
+    #[serde(default = "Defaults::log_rotate_max_size")]
+    pub log_rotate_max_size: Size,
+    #[serde(default = "Defaults::log_rotate_max_rotated_files")]
+    pub log_rotate_max_rotated_files: usize,
 }
 
 impl Config {
@@ -146,6 +151,8 @@ impl Config {
             console_logging_enabled,
             override_bmc_ssh_host: _,
             successful_connection_minimum_duration,
+            log_rotate_max_size,
+            log_rotate_max_rotated_files,
         } = self;
         let api_poll_interval = format!("{}s", api_poll_interval.as_secs());
         let successful_connection_minimum_duration =
@@ -157,6 +164,11 @@ impl Config {
         let carbide_uri = carbide_uri.to_string();
         let listen_address = listen_address.to_string();
         let metrics_address = metrics_address.to_string();
+        let log_rotate_max_size = log_rotate_max_size
+            .format()
+            .with_base(size::Base::Base2)
+            .with_style(size::Style::Abbreviated)
+            .to_string();
 
         format!(
             r#"
@@ -231,6 +243,12 @@ console_logs_path = {console_logs_path:?}
 ## and the exponential backoff timer is reset to zero. (This can be set to zero for integration
 ## tests where we intentionally test failure scenarios and want to quickly retry.)
 successful_connection_minimum_duration = {successful_connection_minimum_duration:?}
+
+## When rotating console logs, how big should we let it get before we rotate
+log_rotate_max_size = {log_rotate_max_size:?}
+
+## When rotating console logs, how many old logs should we keep? (e.g. 3 means we keep .log, .log.0, .log.1, and .log.2)
+log_rotate_max_rotated_files = {log_rotate_max_rotated_files}
 
 ## Optional: For development mode, you can hardcode a list of BMC's to talk to.
 # [[bmcs]]
@@ -326,6 +344,8 @@ impl Default for Config {
             console_logging_enabled: Defaults::console_logging_enabled(),
             successful_connection_minimum_duration:
                 Defaults::successful_connection_minimum_duration(),
+            log_rotate_max_size: Defaults::log_rotate_max_size(),
+            log_rotate_max_rotated_files: Defaults::log_rotate_max_rotated_files(),
             dpus: Defaults::dpus(),
             override_bmc_ssh_port: None,
             override_ipmi_port: None,
@@ -426,6 +446,14 @@ impl Defaults {
 
     pub fn successful_connection_minimum_duration() -> Duration {
         Duration::from_secs(60)
+    }
+
+    pub fn log_rotate_max_size() -> Size {
+        Size::from_mebibytes(10)
+    }
+
+    pub fn log_rotate_max_rotated_files() -> usize {
+        4
     }
 }
 

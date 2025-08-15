@@ -104,7 +104,7 @@ impl BmcClient {
                 machine_id,
                 self.connection_details.addr(),
                 self.broadcast_to_frontend_tx.subscribe(),
-                self.config.as_ref(),
+                self.config.clone(),
             ))
         } else {
             None

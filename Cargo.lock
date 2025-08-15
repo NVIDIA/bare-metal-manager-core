@@ -4261,7 +4261,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_with",
- "thiserror 1.0.69",
+ "thiserror 2.0.14",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -7489,6 +7489,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
 
 [[package]]
+name = "size"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b6709c7b6754dca1311b3c73e79fcce40dd414c782c66d88e8823030093b02b"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "sketches-ddsketch"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7867,6 +7876,7 @@ dependencies = [
  "rpc",
  "russh",
  "serde",
+ "size",
  "ssh_console_mock_api_server",
  "strip-ansi-escapes",
  "temp-dir",

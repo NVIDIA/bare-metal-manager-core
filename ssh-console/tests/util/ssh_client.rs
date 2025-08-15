@@ -20,6 +20,7 @@ use ssh_console::POWER_RESET_COMMAND;
 use std::net::SocketAddr;
 use std::ops::Add;
 use std::sync::Arc;
+use tokio::sync::oneshot;
 
 // The BMC prompt we get from mock_ssh_server (we shouldn't see this when SSH'ing in.)
 static BMC_PROMPT: &[u8] = b"racadm>>";
@@ -234,6 +235,96 @@ pub async fn assert_connection_works(
     }
 
     result
+}
+
+pub async fn fill_logs(
+    ConnectionConfig {
+        connection_name: _,
+        user,
+        private_key_path,
+        addr,
+        expected_prompt: _,
+    }: &ConnectionConfig<'_>,
+    bytes: usize,
+) -> eyre::Result<()> {
+    // Connect to the server and authenticate
+    let session = {
+        let mut session = russh::client::connect(
+            Arc::new(russh::client::Config {
+                ..Default::default()
+            }),
+            addr,
+            PermissiveSshClient,
+        )
+        .await?;
+
+        session
+            .authenticate_publickey(
+                *user,
+                PrivateKeyWithHashAlg::new(
+                    Arc::new(
+                        russh::keys::load_secret_key(private_key_path, None)
+                            .context("error loading ssh private key")?,
+                    ),
+                    None,
+                ),
+            )
+            .await
+            .context("Error authenticating with public key")?;
+
+        Ok::<_, eyre::Error>(session)
+    }?;
+
+    // Open a session channel
+    let channel = session
+        .channel_open_session()
+        .await
+        .context("Error opening session")?;
+
+    // Request PTY
+    channel
+        .request_pty(false, "xterm", 80, 24, 0, 0, &[])
+        .await
+        .context("Error requesting PTY")?;
+
+    // Request Shell
+    channel.request_shell(false).await?;
+    let (mut channel_rx, channel_tx) = channel.split();
+
+    let (done_tx, mut done_rx) = oneshot::channel::<()>();
+
+    // Read until we've seen `bytes` bytes
+    tokio::spawn(async move {
+        let mut bytes_read = 0;
+        while let Some(msg) = channel_rx.wait().await {
+            if let ChannelMsg::Data { data } = msg {
+                bytes_read += data.len();
+                if bytes_read >= bytes {
+                    break;
+                }
+            }
+        }
+        done_tx.send(()).ok();
+    });
+
+    // Write until we're done reading
+    let mut write_interval = tokio::time::interval(Duration::from_millis(1));
+    loop {
+        tokio::select! {
+            _ = write_interval.tick() => {
+                channel_tx
+                    .data(b"fakedatafakedatafakedata\n".as_slice())
+                    .await
+                    .context("error writing data")?;
+            }
+            _ = &mut done_rx => break,
+        }
+    }
+
+    channel_tx.eof().await.ok();
+    channel_tx.close().await.ok();
+
+    Ok(())
 }
 
 pub async fn assert_reboot_behavior(
