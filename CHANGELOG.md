@@ -28,12 +28,13 @@
   * machine state machine has a new state `BomValidation/SkuMissing` to handle the situation when the sku specified in the expected machine does not exist.
   * new metrics are emitted for the number of machines associated with a sku and/or device_type
 
+
+### Changed
+
 - [MR-4433](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4433): Enforce
   stricter ARP/neighbor learning on tenant networks. Note that this could be a
   breaking change if a tenant workload relies on being able to inject neighbor
   entries (via GARP or otherwise) that are outside of a subnet prefix.
-
-### Changed
 
 ### Fixed
 
