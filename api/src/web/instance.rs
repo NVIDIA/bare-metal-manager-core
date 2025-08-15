@@ -204,6 +204,8 @@ struct InstanceDetail {
     configs_synced: String,
     network_config_synced: String,
     network_config_version: String,
+    ib_config_synced: String,
+    ib_config_version: String,
     config_version: String,
     interfaces: Vec<InstanceInterface>,
     ib_interfaces: Vec<InstanceIbInterface>,
@@ -397,9 +399,17 @@ impl From<forgerpc::Instance> for InstanceDetail {
                 .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
                 .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
+            ib_config_synced: instance
+                .status
+                .as_ref()
+                .and_then(|status| status.infiniband.as_ref())
+                .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
+                .map(|state| format!("{state:?}"))
+                .unwrap_or_default(),
             metadata: instance.metadata.unwrap_or_default(),
             network_config_version: instance.network_config_version,
             config_version: instance.config_version,
+            ib_config_version: instance.ib_config_version,
             os,
             interfaces,
             ib_interfaces,
