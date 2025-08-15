@@ -7,8 +7,9 @@ message DiscoveryInfo {
   // Enumerates discovered network interfaces on the host
   repeated NetworkInterface network_interfaces = 1;
 
+  // Replaced with option 16: cpu_info, an aggregation of cpus per model
   // Enumerates CPUs on the host
-  repeated Cpu cpus = 2;
+  repeated Cpu cpus = 2 [deprecated = true];
 
   // Enumerates discovered block devices on the host
   repeated BlockDevice block_devices = 3;
@@ -22,6 +23,7 @@ message DiscoveryInfo {
   // Replaced with option 8: A single field with DmiData
   // // Enumerates dmi devices on the host
   // repeated DmiDevice dmi_devices = 6;
+  reserved 6;
 
   // The machines TPM Endorsement Key certificate in base64 format
   // An absent values means the endorsement key could not be read
@@ -48,6 +50,9 @@ message DiscoveryInfo {
   optional CpuArchitecture machine_arch = 14;
 
   AttestKeyInfo attest_key_info = 15;
+
+  // CPU info on the host per model (even though only one model is expected)
+  repeated CpuInfo cpu_info = 16;
 }
 
 // protolint:disable FIELD_NAMES_LOWER_SNAKE_CASE
@@ -86,6 +91,14 @@ message Cpu {
   uint32 core = 5;
   int32 node = 6;
   uint32 socket = 7;
+}
+
+message CpuInfo {
+  string model = 1;
+  string vendor = 2;
+  uint32 sockets = 3;
+  uint32 cores = 4;
+  uint32 threads = 5;
 }
 
 message BlockDevice {

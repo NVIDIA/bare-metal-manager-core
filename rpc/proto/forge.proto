@@ -4181,7 +4181,7 @@ message MachineCapabilityAttributesCpu {
   string name               = 1;
   uint32 count              = 2;
   optional string vendor    = 3;
-  optional string frequency = 4;
+  reserved 4; // Was: frequency
   optional uint32 cores     = 5;
   optional uint32 threads   = 6;
 }

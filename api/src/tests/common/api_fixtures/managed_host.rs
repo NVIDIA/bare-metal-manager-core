@@ -32,14 +32,15 @@ use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
 
 use super::create_random_self_signed_cert;
-use crate::tests::common::{api_fixtures::dpu::DpuConfig, mac_address_pool};
+use crate::tests::common::{
+    api_fixtures::{dpu::DpuConfig, host::X86_INFO_JSON},
+    mac_address_pool,
+};
 
 static NEXT_HOST_SERIAL: AtomicU32 = AtomicU32::new(1);
+const REQUIRED_IB_GUIDS: usize = 6;
 
-const X86_INFO_JSON: &[u8] =
-    include_bytes!("../../../../src/model/hardware_info/test_data/x86_info.json");
-
-/// Describes the a Managed Host
+/// Describes a Managed Host
 #[derive(Debug, Clone)]
 pub struct ManagedHostConfig {
     pub serial: String,
@@ -146,10 +147,10 @@ impl From<&ManagedHostConfig> for HardwareInfo {
         // For the moment this only supports hosts with a fixed amount of 6 interfaces
         assert_eq!(
             config.ib_guids.len(),
-            config.ib_guids.len(),
+            REQUIRED_IB_GUIDS,
             "The amount of {} IB GUIDs passed to the config does not match the {} GUIDs required by the test_data template",
             config.ib_guids.len(),
-            config.ib_guids.len()
+            REQUIRED_IB_GUIDS
         );
         for (ib_interface, guid) in info
             .infiniband_interfaces

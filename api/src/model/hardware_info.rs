@@ -18,6 +18,7 @@ use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
+use forge_host_support::hardware_enumeration::aggregate_cpus;
 use forge_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
 use mac_address::{MacAddress, MacParseError};
 use serde::{Deserialize, Serialize};
@@ -26,14 +27,72 @@ use utils::models::arch::CpuArchitecture;
 use crate::model::machine::machine_id::MissingHardwareInfo;
 use crate::model::try_convert_vec;
 
+// TODO: Remove when there's no longer a need to handle the old topology format
+#[cfg(test)]
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HardwareInfo {
+pub struct HardwareInfoV1 {
     #[serde(default)]
     pub network_interfaces: Vec<NetworkInterface>,
     #[serde(default)]
     pub infiniband_interfaces: Vec<InfinibandInterface>,
     #[serde(default)]
     pub cpus: Vec<Cpu>,
+    #[serde(default)]
+    pub block_devices: Vec<BlockDevice>,
+    // This should be called machine_arch, but it's serialized directly in/out of a JSONB field in
+    // the DB, so renaming it requires a migration or custom Serialize impl.
+    pub machine_type: CpuArchitecture,
+    #[serde(default)]
+    pub nvme_devices: Vec<NvmeDevice>,
+    #[serde(default)]
+    pub dmi_data: Option<DmiData>,
+    pub tpm_ek_certificate: Option<TpmEkCertificate>,
+    #[serde(default)]
+    pub dpu_info: Option<DpuData>,
+    #[serde(default)]
+    pub gpus: Vec<Gpu>,
+    #[serde(default)]
+    pub memory_devices: Vec<MemoryDevice>,
+}
+
+// TODO: Remove when there's no longer a need to handle the old topology format
+#[derive(Deserialize)]
+struct HardwareInfoDeserialized {
+    #[serde(default)]
+    network_interfaces: Vec<NetworkInterface>,
+    #[serde(default)]
+    infiniband_interfaces: Vec<InfinibandInterface>,
+    #[serde(default)]
+    cpu_info: Vec<CpuInfo>,
+    #[serde(default)]
+    block_devices: Vec<BlockDevice>,
+    // This should be called machine_arch, but it's serialized directly in/out of a JSONB field in
+    // the DB, so renaming it requires a migration or custom Serialize impl.
+    machine_type: CpuArchitecture,
+    #[serde(default)]
+    nvme_devices: Vec<NvmeDevice>,
+    #[serde(default)]
+    dmi_data: Option<DmiData>,
+    tpm_ek_certificate: Option<TpmEkCertificate>,
+    #[serde(default)]
+    dpu_info: Option<DpuData>,
+    #[serde(default)]
+    gpus: Vec<Gpu>,
+    #[serde(default)]
+    memory_devices: Vec<MemoryDevice>,
+    #[serde(default)]
+    cpus: Vec<Cpu>, // Deprecated in favor of `cpu_info`
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "HardwareInfoDeserialized")]
+pub struct HardwareInfo {
+    #[serde(default)]
+    pub network_interfaces: Vec<NetworkInterface>,
+    #[serde(default)]
+    pub infiniband_interfaces: Vec<InfinibandInterface>,
+    #[serde(default)]
+    pub cpu_info: Vec<CpuInfo>,
     #[serde(default)]
     pub block_devices: Vec<BlockDevice>,
     // This should be called machine_arch, but it's serialized directly in/out of a JSONB field in
@@ -68,6 +127,7 @@ pub struct InfinibandInterface {
     pub pci_properties: Option<PciDeviceProperties>,
 }
 
+// TODO: Remove when there's no longer a need to handle the old topology format
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cpu {
     #[serde(default)]
@@ -84,6 +144,20 @@ pub struct Cpu {
     pub node: i32,
     #[serde(default)]
     pub socket: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CpuInfo {
+    #[serde(default)]
+    pub model: String, // CPU model name
+    #[serde(default)]
+    pub vendor: String, // CPU vendor name
+    #[serde(default)]
+    pub sockets: u32, // number of sockets
+    #[serde(default)]
+    pub cores: u32, // cores per socket
+    #[serde(default)]
+    pub threads: u32, // threads per socket
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -250,15 +324,22 @@ impl<'de> Deserialize<'de> for TpmEkCertificate {
 // polluting the internal data model with API concerns, but since this is a
 // separate crate we can't have it there (unless we also make the model a
 // separate crate).
+//
 
-impl TryFrom<rpc::machine_discovery::Cpu> for Cpu {
+// The reverse, rpc::machine_discovery::Cpu -> Cpu, isn't needed going forward because
+// rpc::machine_discovery::Cpu instances parsed from /proc/cpuinfo are now aggregated directly into
+// CpuInfo rather than converted to Cpu. Only when reading the old format back from the
+// machine_topologies table in the database do we need this conversion to leverage that same
+// aggregation logic as if parsing from /proc/cpuinfo.
+// TODO: Remove when there's no longer a need to handle the old topology format
+impl TryFrom<&Cpu> for rpc::machine_discovery::Cpu {
     type Error = RpcDataConversionError;
 
-    fn try_from(cpu: rpc::machine_discovery::Cpu) -> Result<Self, Self::Error> {
+    fn try_from(cpu: &Cpu) -> Result<Self, Self::Error> {
         Ok(Self {
-            vendor: cpu.vendor,
-            model: cpu.model,
-            frequency: cpu.frequency,
+            vendor: cpu.vendor.clone(),
+            model: cpu.model.clone(),
+            frequency: cpu.frequency.clone(),
             number: cpu.number,
             core: cpu.core,
             node: cpu.node,
@@ -267,18 +348,30 @@ impl TryFrom<rpc::machine_discovery::Cpu> for Cpu {
     }
 }
 
-impl TryFrom<Cpu> for rpc::machine_discovery::Cpu {
+impl TryFrom<rpc::machine_discovery::CpuInfo> for CpuInfo {
     type Error = RpcDataConversionError;
 
-    fn try_from(cpu: Cpu) -> Result<Self, Self::Error> {
+    fn try_from(cpu_info: rpc::machine_discovery::CpuInfo) -> Result<Self, Self::Error> {
         Ok(Self {
-            vendor: cpu.vendor,
-            model: cpu.model,
-            frequency: cpu.frequency,
-            number: cpu.number,
-            core: cpu.core,
-            node: cpu.node,
-            socket: cpu.socket,
+            model: cpu_info.model,
+            vendor: cpu_info.vendor,
+            sockets: cpu_info.sockets,
+            cores: cpu_info.cores,
+            threads: cpu_info.threads,
+        })
+    }
+}
+
+impl TryFrom<CpuInfo> for rpc::machine_discovery::CpuInfo {
+    type Error = RpcDataConversionError;
+
+    fn try_from(cpu_info: CpuInfo) -> Result<Self, Self::Error> {
+        Ok(Self {
+            model: cpu_info.model,
+            vendor: cpu_info.vendor,
+            sockets: cpu_info.sockets,
+            cores: cpu_info.cores,
+            threads: cpu_info.threads,
         })
     }
 }
@@ -594,9 +687,46 @@ impl From<MemoryDevice> for rpc::machine_discovery::MemoryDevice {
     }
 }
 
+// TODO: Remove when there's no longer a need to handle the old topology format
+impl TryFrom<HardwareInfoDeserialized> for HardwareInfo {
+    type Error = RpcDataConversionError;
+
+    fn try_from(info: HardwareInfoDeserialized) -> Result<Self, Self::Error> {
+        let cpu_info: Vec<CpuInfo> = if info.cpu_info.is_empty() {
+            // Convert V1 -> V2 format
+            let cpus: Vec<rpc::machine_discovery::Cpu> = info
+                .cpus
+                .iter()
+                .map(rpc::machine_discovery::Cpu::try_from)
+                .collect::<Result<Vec<_>, _>>()?;
+            aggregate_cpus(&cpus)
+                .into_iter()
+                .map(CpuInfo::try_from)
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            info.cpu_info
+        };
+
+        Ok(HardwareInfo {
+            network_interfaces: info.network_interfaces,
+            infiniband_interfaces: info.infiniband_interfaces,
+            cpu_info,
+            block_devices: info.block_devices,
+            machine_type: info.machine_type,
+            nvme_devices: info.nvme_devices,
+            dmi_data: info.dmi_data,
+            tpm_ek_certificate: info.tpm_ek_certificate,
+            dpu_info: info.dpu_info,
+            gpus: info.gpus,
+            memory_devices: info.memory_devices,
+        })
+    }
+}
+
 impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
     type Error = RpcDataConversionError;
 
+    #[allow(deprecated)]
     fn try_from(info: rpc::machine_discovery::DiscoveryInfo) -> Result<Self, Self::Error> {
         let tpm_ek_certificate = info
             .tpm_ek_certificate
@@ -621,10 +751,23 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             }
         };
 
+        // TODO: Remove "cpus" when there's no longer a need to handle the old topology format
+        let cpu_info: Vec<CpuInfo> = if info.cpu_info.is_empty() {
+            match try_convert_vec(info.cpus) {
+                Ok(v1_cpus) => aggregate_cpus(&v1_cpus)
+                    .into_iter()
+                    .map(CpuInfo::try_from)
+                    .collect::<Result<Vec<_>, _>>()?,
+                Err(_) => Vec::new(),
+            }
+        } else {
+            try_convert_vec(info.cpu_info)?
+        };
+
         Ok(Self {
             network_interfaces: try_convert_vec(info.network_interfaces)?,
             infiniband_interfaces: try_convert_vec(info.infiniband_interfaces)?,
-            cpus: try_convert_vec(info.cpus)?,
+            cpu_info,
             block_devices: try_convert_vec(info.block_devices)?,
             machine_type: machine_arch,
             nvme_devices: try_convert_vec(info.nvme_devices)?,
@@ -644,11 +787,13 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
 impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
     type Error = RpcDataConversionError;
 
+    // TODO: Remove this directive when there's no longer a need to handle the old topology format
+    #[allow(deprecated)]
     fn try_from(info: HardwareInfo) -> Result<Self, Self::Error> {
         Ok(Self {
             network_interfaces: try_convert_vec(info.network_interfaces)?,
             infiniband_interfaces: try_convert_vec(info.infiniband_interfaces)?,
-            cpus: try_convert_vec(info.cpus)?,
+            cpu_info: try_convert_vec(info.cpu_info)?,
             block_devices: try_convert_vec(info.block_devices)?,
             machine_type: info.machine_type.to_string(),
             machine_arch: Some(info.machine_type.into()),
@@ -676,6 +821,8 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
                 .collect(),
             tpm_description: None,
             attest_key_info: None,
+            // TODO: Remove cpus when there's no longer a need to handle the old topology format
+            cpus: vec![],
         })
     }
 }
@@ -793,11 +940,11 @@ impl From<MachineInventory> for rpc::forge::MachineInventory {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const TEST_DATA_DIR: &str = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/model/hardware_info/test_data"
-    );
+    use crate::tests::common::api_fixtures::{
+        dpu::{DPU_BF3_INFO_JSON, DPU_INFO_JSON},
+        host::{X86_INFO_JSON, X86_V1_CPU_INFO_JSON},
+    };
+    use prost::Message;
 
     #[test]
     fn test_machine_inventory_json_representation() {
@@ -854,37 +1001,36 @@ mod tests {
     }
 
     #[test]
-    fn serialize_cpu() {
-        let cpu: Cpu = serde_json::from_str("{}").unwrap();
+    fn serialize_cpu_info() {
+        let cpu_info: CpuInfo = serde_json::from_str("{}").unwrap();
         assert_eq!(
-            cpu,
-            Cpu {
-                vendor: "".to_string(),
+            cpu_info,
+            CpuInfo {
                 model: "".to_string(),
-                frequency: "".to_string(),
-                number: 0,
-                core: 0,
-                node: 0,
-                socket: 0,
+                vendor: "".to_string(),
+                sockets: 0,
+                cores: 0,
+                threads: 0,
             }
         );
 
-        let cpu1 = Cpu {
-            vendor: "v1".to_string(),
+        let cpu_info1 = CpuInfo {
             model: "m1".to_string(),
-            frequency: "f1".to_string(),
-            number: 1,
-            core: 2,
-            node: 3,
-            socket: 4,
+            vendor: "v1".to_string(),
+            sockets: 2,
+            cores: 32,
+            threads: 64,
         };
 
-        let serialized = serde_json::to_string(&cpu1).unwrap();
+        let serialized = serde_json::to_string(&cpu_info1).unwrap();
         assert_eq!(
             serialized,
-            "{\"vendor\":\"v1\",\"model\":\"m1\",\"frequency\":\"f1\",\"number\":1,\"core\":2,\"node\":3,\"socket\":4}"
+            "{\"model\":\"m1\",\"vendor\":\"v1\",\"sockets\":2,\"cores\":32,\"threads\":64}"
         );
-        assert_eq!(serde_json::from_str::<Cpu>(&serialized).unwrap(), cpu1);
+        assert_eq!(
+            serde_json::from_str::<CpuInfo>(&serialized).unwrap(),
+            cpu_info1
+        );
     }
 
     #[test]
@@ -924,17 +1070,13 @@ mod tests {
 
     #[test]
     fn deserialize_x86_info() {
-        let path = format!("{TEST_DATA_DIR}/x86_info.json");
-        let data = std::fs::read(path).unwrap();
-        let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
+        let info = serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap();
         assert!(!info.is_dpu());
     }
 
     #[test]
     fn deserialize_dpu_info() {
-        let path = format!("{TEST_DATA_DIR}/dpu_info.json");
-        let data = std::fs::read(path).unwrap();
-        let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
+        let info = serde_json::from_slice::<HardwareInfo>(DPU_INFO_JSON).unwrap();
         assert!(info.is_dpu());
 
         // Make sure deserialize_ch_64 works as expected, where
@@ -948,9 +1090,7 @@ mod tests {
 
     #[test]
     fn deserialize_dpu_bf3_info() {
-        let path = format!("{TEST_DATA_DIR}/dpu_bf3_info.json");
-        let data = std::fs::read(path).unwrap();
-        let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
+        let info = serde_json::from_slice::<HardwareInfo>(DPU_BF3_INFO_JSON).unwrap();
         assert!(info.is_dpu());
     }
 
@@ -999,5 +1139,27 @@ mod tests {
             deserialized.cert.as_ref().map(|cert| cert.as_bytes()),
             Some(cert_data.as_slice())
         );
+    }
+
+    // TODO: Remove this test when there's no longer a need to handle the old topology format
+    #[test]
+    #[allow(deprecated)]
+    fn test_v1_discovery_info_decode() -> Result<(), Box<dyn std::error::Error>> {
+        let hardware_info = serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap();
+        let mut info =
+            rpc::machine_discovery::DiscoveryInfo::try_from(hardware_info.clone()).unwrap();
+        info.cpus = serde_json::from_slice::<Vec<Cpu>>(X86_V1_CPU_INFO_JSON)
+            .unwrap()
+            .iter()
+            .map(rpc::machine_discovery::Cpu::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+        info.cpu_info = Vec::new();
+
+        let bytes = info.encode_to_vec();
+        let decoded = rpc::machine_discovery::DiscoveryInfo::decode(&*bytes).unwrap();
+        let decoded_hardware_info = HardwareInfo::try_from(decoded).unwrap();
+
+        assert_eq!(decoded_hardware_info, hardware_info);
+        Ok(())
     }
 }

@@ -269,25 +269,6 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
         architecture: hardware_info.machine_type.to_string(),
     };
 
-    let mut cpus_per_slot: BTreeMap<u32, SkuComponentCpu> = BTreeMap::default();
-    for cpu in &hardware_info.cpus {
-        cpus_per_slot
-            .entry(cpu.socket)
-            .and_modify(|entry| entry.thread_count += 1)
-            .or_insert(SkuComponentCpu {
-                vendor: cpu.vendor.clone(),
-                model: cpu.model.clone(),
-                thread_count: 1,
-                count: 1,
-            });
-    }
-    let mut cpus: BTreeMap<String, SkuComponentCpu> = BTreeMap::default();
-    for cpu in cpus_per_slot {
-        cpus.entry(cpu.1.model.clone())
-            .and_modify(|entry| entry.count += 1)
-            .or_insert(cpu.1);
-    }
-
     let mut gpu_components: BTreeMap<(String, String), SkuComponentGpu> = BTreeMap::default();
     for gpu in &hardware_info.gpus {
         let vendor = "NVIDIA".to_string();
@@ -337,7 +318,11 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
     let mut description = format!(
         "{}; {}xCPU; {}xGPU; {}",
         chassis.model,
-        cpus.values().map(|v| v.count).sum::<u32>(),
+        hardware_info
+            .cpu_info
+            .iter()
+            .map(|v| v.sockets)
+            .sum::<u32>(),
         gpu_components.values().map(|v| v.count).sum::<u32>(),
         ::utils::sku::capacity_string(total_mem)
     );
@@ -369,7 +354,11 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
         created,
         components: SkuComponents {
             chassis,
-            cpus: cpus.into_values().collect(),
+            cpus: hardware_info
+                .cpu_info
+                .iter()
+                .map(SkuComponentCpu::from)
+                .collect(),
             gpus: gpu_components.into_values().collect(),
             memory: mem_components.into_values().collect(),
             infiniband_devices: ib_components,

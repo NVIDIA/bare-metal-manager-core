@@ -11,17 +11,20 @@
  */
 use crate::{
     db::{
-        self, machine::MachineSearchConfig,
-        machine_interface::associate_interface_with_dpu_machine, machine_topology::MachineTopology,
+        self,
+        machine::MachineSearchConfig,
+        machine_interface::associate_interface_with_dpu_machine,
+        machine_topology::{MachineTopology, MachineTopologyTestHelpers, TopologyDataV1},
         network_segment::NetworkSegment,
     },
-    model::hardware_info::HardwareInfo,
+    model::hardware_info::{Cpu, CpuInfo, HardwareInfo, HardwareInfoV1},
     model::machine::machine_id::{from_hardware_info, try_parse_machine_id},
 };
 use forge_uuid::machine::MachineId;
 
 use crate::db::{ObjectColumnFilter, network_segment};
 use crate::tests::common;
+use common::api_fixtures::host::X86_V1_CPU_INFO_JSON;
 use common::api_fixtures::{create_managed_host, create_test_env, dpu::create_dpu_machine};
 use rpc::forge::forge_server::Forge;
 use std::str::FromStr;
@@ -127,7 +130,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut txn = env.pool.begin().await?;
 
     let mut new_info = hardware_info.clone();
-    new_info.cpus[0].model = "SnailSpeedCpu".to_string();
+    new_info.cpu_info[0].model = "SnailSpeedCpu".to_string();
 
     let topology = MachineTopology::create_or_update(&mut txn, &machine.id, &new_info)
         .await
@@ -136,7 +139,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // Value should NOT be updated.
     assert_ne!(
         "SnailSpeedCpu".to_string(),
-        topology.topology().discovery_data.info.cpus[0].model
+        topology.topology().discovery_data.info.cpu_info[0].model
     );
 
     MachineTopology::set_topology_update_needed(&mut txn, &machine.id, true)
@@ -149,7 +152,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // Value should be updated.
     assert_eq!(
         "SnailSpeedCpu".to_string(),
-        topology.topology().discovery_data.info.cpus[0].model
+        topology.topology().discovery_data.info.cpu_info[0].model
     );
 
     assert!(!topology.topology_update_needed());
@@ -170,6 +173,191 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let retrieved_hw_info = HardwareInfo::try_from(discovery_info).unwrap();
 
     assert_eq!(retrieved_hw_info, new_info);
+
+    Ok(())
+}
+
+// TODO: Remove when there's no longer a need to handle the old topology format
+#[crate::sqlx_test]
+async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    // We can't use the fixture created Machine here, since it already has a topology attached
+    // therefore we create a new one
+    let env = create_test_env(pool).await;
+    let host_sim = env.start_managed_host_sim();
+    let dpu = host_sim.config.get_and_assert_single_dpu();
+
+    let mut txn = env.pool.begin().await?;
+
+    let dpu_machine_id = create_dpu_machine(&env, &host_sim.config).await;
+    let host_machine_id = ::rpc::MachineId {
+        id: dpu_machine_id.id.replace("fm100d", "fm100p"),
+    };
+    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
+    let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
+
+    let iface = db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
+        .await
+        .unwrap();
+
+    let iface = iface.get(&host_machine_id);
+    let iface = iface.unwrap().clone().remove(0);
+    db::machine_interface::delete(&iface.id, &mut txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await?;
+    let segment = NetworkSegment::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
+        crate::db::network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .remove(0);
+
+    let iface = db::machine_interface::create(
+        &mut txn,
+        &segment,
+        &dpu.host_mac_address,
+        Some(env.domain.into()),
+        true,
+        crate::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
+    )
+    .await
+    .unwrap();
+
+    let hardware_info = HardwareInfo::from(&host_sim.config);
+    let machine_id = from_hardware_info(&hardware_info).unwrap();
+    let machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
+        .await
+        .unwrap();
+
+    associate_interface_with_dpu_machine(&iface.id, &dpu_machine_id, &mut txn)
+        .await
+        .unwrap();
+    txn.commit().await?;
+
+    let mut txn = env.pool.begin().await?;
+
+    let cpus = serde_json::from_slice::<Vec<Cpu>>(X86_V1_CPU_INFO_JSON).unwrap();
+    let hardware_info_v1 = HardwareInfoV1 {
+        network_interfaces: hardware_info.network_interfaces,
+        infiniband_interfaces: hardware_info.infiniband_interfaces,
+        cpus,
+        block_devices: hardware_info.block_devices,
+        machine_type: hardware_info.machine_type,
+        nvme_devices: hardware_info.nvme_devices,
+        dmi_data: hardware_info.dmi_data,
+        tpm_ek_certificate: hardware_info.tpm_ek_certificate,
+        dpu_info: hardware_info.dpu_info,
+        gpus: hardware_info.gpus,
+        memory_devices: hardware_info.memory_devices,
+    };
+
+    MachineTopology::create_or_update_v1(&mut txn, &machine.id, &hardware_info_v1).await?;
+
+    txn.commit().await?;
+
+    // Confirm that the raw JSON of the inserted v1 topology still matches the pre-inserted v1
+    // value after reading it back from the database.
+    let inserted_topology_json: (serde_json::Value,) =
+        sqlx::query_as("SELECT topology FROM machine_topologies WHERE machine_id = $1")
+            .bind(machine.id)
+            .fetch_one(&env.pool)
+            .await
+            .unwrap();
+    let inserted_topology: TopologyDataV1 =
+        serde_json::from_value(inserted_topology_json.0).unwrap();
+    assert_eq!(
+        inserted_topology.discovery_data.info.cpus,
+        hardware_info_v1.cpus,
+    );
+
+    let mut txn = env.pool.begin().await?;
+
+    let topos = MachineTopology::find_by_machine_ids(&mut txn, &[machine.id])
+        .await
+        .unwrap();
+    assert_eq!(topos.len(), 1);
+    let topo = topos.get(&machine.id).unwrap();
+    assert_eq!(topo.len(), 1);
+
+    // Verify that v1 topology is deserialized into v2 topology when the inserted row is read back
+    // from the database.
+    let returned_hw_info = topo[0].topology().discovery_data.info.clone();
+    let expected_cpu_info = CpuInfo {
+        model: "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz".to_string(),
+        vendor: "GenuineIntel".to_string(),
+        sockets: 1,
+        cores: 18,
+        threads: 72,
+    };
+    assert_eq!(returned_hw_info.cpu_info, vec![expected_cpu_info]);
+    txn.commit().await?;
+
+    // V1 format parses successfully even if "cpus" is missing, by defaulting to empty array.
+    // Verify that behavior is unchanged and that reading the topology back from the database
+    // automatically converts the V1 format into the expected V2 format.
+    // Start with raw JSON having no cpu data.
+    let mut txn = env.pool.begin().await?;
+    let mut raw_json_topology: serde_json::Value =
+        serde_json::to_value(topo[0].topology()).unwrap();
+
+    if let Some(discovery_data) = raw_json_topology
+        .get_mut("discovery_data")
+        .and_then(|v| v.as_object_mut())
+    {
+        if let Some(info) = discovery_data
+            .get_mut("Info")
+            .and_then(|v| v.as_object_mut())
+        {
+            info.remove("cpus");
+            info.remove("cpu_info");
+        }
+    }
+
+    // Insert the topology with missing cpu data into the machine_topologies table.
+    let sql = r#"
+    INSERT INTO machine_topologies (machine_id, topology)
+    VALUES ($1, $2::json)
+    ON CONFLICT (machine_id)
+    DO UPDATE SET topology = EXCLUDED.topology
+    "#;
+
+    sqlx::query(sql)
+        .bind(machine.id.to_string())
+        .bind(sqlx::types::Json(&raw_json_topology))
+        .execute(&mut *txn)
+        .await?;
+
+    txn.commit().await?;
+
+    // Confirm that the raw JSON read back from the table still matches the pre-inserted v1
+    // topology by not including any cpu data.
+    let inserted_topology_json: (serde_json::Value,) =
+        sqlx::query_as("SELECT topology FROM machine_topologies WHERE machine_id = $1")
+            .bind(machine.id)
+            .fetch_one(&env.pool)
+            .await
+            .unwrap();
+    assert!(inserted_topology_json.0["discovery_data"]["Info"]["cpu_info"].is_null());
+    assert!(inserted_topology_json.0["discovery_data"]["Info"]["cpus"].is_null());
+
+    // Read the topology back from the database as the expected type.
+    let mut txn = env.pool.begin().await?;
+    let topos = MachineTopology::find_by_machine_ids(&mut txn, &[machine.id])
+        .await
+        .unwrap();
+    assert_eq!(topos.len(), 1);
+    let topo = topos.get(&machine.id).unwrap();
+    assert_eq!(topo.len(), 1);
+
+    // Verify that v1 topology is deserialized into v2 topology when read back from the database,
+    // despite empty cpu data.
+    let returned_hw_info = topo[0].topology().discovery_data.info.clone();
+    assert_eq!(returned_hw_info.cpu_info, vec![]);
+    txn.commit().await?;
 
     Ok(())
 }

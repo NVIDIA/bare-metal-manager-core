@@ -108,6 +108,7 @@ ansi-to-html = { workspace = true }
 # [local-dependencies]
 bmc-vendor = { path = "../common/bmc-vendor" }
 config-version = { path = "../common/config-version", features = ["sqlx"] }
+forge-host-support = { path = "../common/host-support" }
 forge-network = { path = "../common/network", features = ["sqlx"] }
 forge-uuid = { path = "../common/uuid", features = ["sqlx"] }
 forge_secrets = { path = "../common/secrets" }
@@ -133,6 +134,7 @@ machine-a-tron = { path = "../dev/machine-a-tron" }
 bmc-mock = { path = "../dev/bmc-mock" }
 api-test-helper = { path = "../common/api-test-helper" }
 sqlx-testing = { path = "../common/sqlx-testing" }
+prost = "0.14"
 
 [lints]
 workspace = true

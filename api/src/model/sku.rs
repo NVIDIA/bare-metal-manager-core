@@ -7,6 +7,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row, postgres::PgRow};
 
+use super::hardware_info::CpuInfo;
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Sku {
     pub schema_version: u32,
@@ -202,6 +204,17 @@ impl From<SkuComponentCpu> for rpc::forge::SkuComponentCpu {
             model: value.model,
             count: value.count,
             thread_count: value.thread_count,
+        }
+    }
+}
+
+impl From<&CpuInfo> for SkuComponentCpu {
+    fn from(value: &CpuInfo) -> Self {
+        SkuComponentCpu {
+            vendor: value.vendor.clone(),
+            model: value.model.clone(),
+            count: value.sockets,
+            thread_count: value.threads,
         }
     }
 }

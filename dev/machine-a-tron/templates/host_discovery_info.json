@@ -1,15 +1,14 @@
 {
-  "cpus": [
+  "cpu_info": [
     {
-      "core": 0,
-      "node": 2,
-      "model": "0x1",
-      "number": 7,
-      "socket": 0,
-      "vendor": "0x41",
-      "frequency": "400.00"
+      "model": "INTEL(R) XEON(R) GOLD 6542Y",
+      "vendor": "GenuineIntel",
+      "sockets": 2,
+      "cores": 24,
+      "threads": 48 
     }
   ],
+  "cpus": [],
   "gpus": [
     {
       "name": "NVIDIA H100 PCIe",
