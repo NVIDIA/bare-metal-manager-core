@@ -5324,10 +5324,7 @@ async fn test_instance_release_repair_tenant(_: PgPoolOptions, options: PgConnec
     let segment_id = env.create_vpc_and_tenant_segment().await;
 
     for (is_repair_tenant, test_name, description) in test_scenarios {
-        println!(
-            "Testing repair tenant scenario: is_repair_tenant={}",
-            is_repair_tenant
-        );
+        println!("Testing repair tenant scenario: is_repair_tenant={is_repair_tenant}");
 
         let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
@@ -5424,8 +5421,7 @@ async fn test_instance_release_repair_tenant(_: PgPoolOptions, options: PgConnec
         }
 
         println!(
-            "Host machine state after repair tenant release (is_repair_tenant={}): {:?}",
-            is_repair_tenant,
+            "Host machine state after repair tenant release (is_repair_tenant={is_repair_tenant}): {:?}",
             host_machine.current_state()
         );
 
