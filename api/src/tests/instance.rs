@@ -5396,8 +5396,7 @@ async fn test_instance_release_repair_tenant(_: PgPoolOptions, options: PgConnec
         }
 
         println!(
-            "Host machine state after repair tenant release (is_repair_tenant={}): {:?}",
-            is_repair_tenant,
+            "Host machine state after repair tenant release (is_repair_tenant={is_repair_tenant}): {:?}",
             host_machine.current_state()
         );
 
