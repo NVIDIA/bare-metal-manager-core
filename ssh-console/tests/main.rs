@@ -201,6 +201,93 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn test_new_ssh_console_log_rotation() -> eyre::Result<()> {
+    if std::env::var("REPO_ROOT").is_err() {
+        tracing::info!("Skipping running ssh-console integration tests, as REPO_ROOT is not set");
+        return Ok(());
+    }
+    let Some(env) =
+        run_baseline_test_environment(vec![MockBmcType::Ipmi, MockBmcType::Ssh]).await?
+    else {
+        return Ok(());
+    };
+
+    // Run new ssh-console
+    let handle = new_ssh_console::spawn(env.mock_api_server.addr.port()).await?;
+
+    // Run the same assertions we do with legacy ssh-console
+    env.run_baseline_assertions(
+        handle.addr,
+        "new-ssh-console",
+        // 50 kilobytes should be enough to show log rotation behavior
+        &[BaselineTestAssertion::FillLogsAsMachineId(50 * 1024)],
+        || None,
+        false,
+    )
+    .await?;
+
+    // Shut down ssh-console now so we can assert on log rotation
+    handle.spawn_handle.shutdown_and_wait().await;
+
+    let logs_path = handle.logs_dir.path();
+
+    assert!(
+        logs_path.exists(),
+        "logs were not created for new ssh-console"
+    );
+
+    for mock_host in env.mock_hosts.iter() {
+        let log_path = logs_path.join(format!("{}_{}.log", mock_host.machine_id, mock_host.bmc_ip));
+        let log_path_0 = logs_path.join(format!(
+            "{}_{}.log.0",
+            mock_host.machine_id, mock_host.bmc_ip
+        ));
+        let log_path_1 = logs_path.join(format!(
+            "{}_{}.log.1",
+            mock_host.machine_id, mock_host.bmc_ip
+        ));
+        let log_path_2 = logs_path.join(format!(
+            "{}_{}.log.2",
+            mock_host.machine_id, mock_host.bmc_ip
+        ));
+        // This one shouldn't exist
+        let log_path_3 = logs_path.join(format!(
+            "{}_{}.log.3",
+            mock_host.machine_id, mock_host.bmc_ip
+        ));
+
+        for path in &[&log_path, &log_path_0, &log_path_1, &log_path_2] {
+            assert!(path.exists(), "did not see any logs at {}", path.display());
+            let size = path.metadata()?.len();
+            assert!(
+                size < 1024 * 10,
+                "logs at {} exceeded configured size: {} > 10 KiB",
+                path.display(),
+                size
+            );
+        }
+
+        assert!(
+            !log_path_3.exists(),
+            "logs exist at {}, but that's more than configured log rotation",
+            log_path_3.display()
+        );
+
+        for path in &[&log_path_0, &log_path_1, &log_path_2] {
+            let size = path.metadata()?.len();
+            assert!(
+                size > 1024 * 10 - 100,
+                "rotated log at {} was rotated while too-small, {} < (10KiB - 100 bytes)",
+                path.display(),
+                size
+            );
+        }
+    }
+
+    Ok(())
+}
+
 #[ctor::ctor]
 fn setup_test_logging() {
     api_test_helper::setup_logging()

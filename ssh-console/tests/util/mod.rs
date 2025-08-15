@@ -320,6 +320,17 @@ impl BaselineTestEnvironment {
                             })?;
                         }
                     }
+                    BaselineTestAssertion::FillLogsAsMachineId(bytes) => {
+                        let connection_config = ConnectionConfig {
+                            connection_name: &format!("{connection_name} to host").to_string(),
+                            user: &mock_host.machine_id.to_string(),
+                            private_key_path: &ADMIN_SSH_KEY_PATH,
+                            addr,
+                            expected_prompt: &expected_prompt,
+                        };
+
+                        ssh_client::fill_logs(&connection_config, *bytes).await?;
+                    }
                 }
             }
         }
@@ -339,4 +350,5 @@ impl BaselineTestEnvironment {
 pub enum BaselineTestAssertion {
     ConnectAsMachineId,
     ConnectAsInstanceId,
+    FillLogsAsMachineId(usize),
 }
