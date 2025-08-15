@@ -47,6 +47,8 @@ pub struct Config {
     pub host_key_path: PathBuf,
     #[serde(default = "Defaults::dpus")]
     pub dpus: bool,
+    #[serde(default = "Defaults::hosts")]
+    pub hosts: bool,
     #[serde(default)]
     pub insecure: bool,
     #[serde(default)]
@@ -136,6 +138,7 @@ impl Config {
             override_bmcs: _,
             host_key_path,
             dpus,
+            hosts,
             insecure,
             carbide_uri,
             override_bmc_ssh_port: _,
@@ -201,6 +204,9 @@ host_key = {host_key_path:?}
 
 ## Allow SSH'ing to DPU consoles
 dpus = {dpus}
+
+## Allow SSH'ing to host consoles (setting to false can be useful for dpu-only setups)
+hosts = {hosts}
 
 ## Disable client SSH auth enforcement. This must NEVER be set in production: It forces all incoming
 ## client connections to succeed.
@@ -347,6 +353,7 @@ impl Default for Config {
             log_rotate_max_size: Defaults::log_rotate_max_size(),
             log_rotate_max_rotated_files: Defaults::log_rotate_max_rotated_files(),
             dpus: Defaults::dpus(),
+            hosts: Defaults::hosts(),
             override_bmc_ssh_port: None,
             override_ipmi_port: None,
             authorized_keys_path: None,
@@ -399,6 +406,10 @@ impl Defaults {
     }
 
     pub fn dpus() -> bool {
+        true
+    }
+
+    pub fn hosts() -> bool {
         true
     }
 

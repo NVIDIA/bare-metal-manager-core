@@ -351,6 +351,7 @@ impl BmcPool {
                 None => {
                     self.forge_api_client
                         .find_machine_ids(forge::MachineSearchConfig {
+                            exclude_hosts: !self.config.hosts,
                             include_dpus: self.config.dpus,
                             ..Default::default()
                         })
