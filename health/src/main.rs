@@ -278,6 +278,12 @@ pub async fn scrape_single_machine(
     };
     let machine_id = id.id.as_str();
 
+    let machine_serial = machine
+        .discovery_info
+        .as_ref()
+        .and_then(|d| d.dmi_data.as_ref())
+        .map(|dmi| dmi.chassis_serial.clone());
+
     let mut scrape_machine = true;
     // check if a host had errors and back off querying appropriately
     if health_data.host_error_count > 0 {
@@ -396,6 +402,7 @@ pub async fn scrape_single_machine(
         provider.clone(),
         logger,
         machine_id,
+        machine_serial,
         &health_data,
     )
     .await
