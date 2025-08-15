@@ -97,7 +97,7 @@
     A_Ready --> NetworkUpdate: On NetworkUpdate Request
 
     state NetworkUpdate {
-      [*] --> NW_WaitingForNetworkSegmentToBeReady:
+      [*] --> NW_WaitingForNetworkSegmentToBeReady
       NW_WaitingForNetworkSegmentToBeReady --> NW_WaitingForConfigSynced: Network segment created for vpc_prefixes are ready.
       NW_WaitingForConfigSynced --> NW_ReleaseOldResources: DPU Agent responded with network ready with latest config
     }
