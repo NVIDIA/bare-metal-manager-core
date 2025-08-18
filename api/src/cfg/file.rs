@@ -2083,6 +2083,7 @@ pub struct BomValidationConfig {
     /// When a SKU is assigned to a machine, but doesn't exist
     /// attempt to create a SKU for the machine.  This only
     /// applies to SKUs assigned via expected machines.
+    #[serde(default)]
     pub auto_generate_missing_sku: bool,
     /// The inteveral between attempting to generate a SKU from amachine
     #[serde(
