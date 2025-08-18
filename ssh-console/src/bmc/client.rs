@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use crate::bmc::client_pool::BmcPoolMetrics;
 use crate::bmc::connection::{self, AtomicConnectionState, ConnectionDetails};
 use crate::bmc::message_proxy::{ChannelMsgOrExec, ExecReply};
@@ -21,10 +20,15 @@ use forge_uuid::machine::MachineId;
 use futures_util::FutureExt;
 use opentelemetry::KeyValue;
 use russh::ChannelMsg;
+use std::io;
+use std::net::SocketAddr;
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::net::TcpStream;
 use tokio::sync::{MutexGuard, broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
+use tokio::time::MissedTickBehavior;
 
 /// Retry interval the first time we see a failure
 static RETRY_BASE_DURATION: Duration = Duration::from_secs(10);
@@ -120,8 +124,13 @@ impl BmcClient {
             bmc_msg_tx_placeholder.clone(),
         );
 
-        // Connect and reconnect, in a loop, until the client is shut down
-        let mut retry_time = Duration::ZERO;
+        // Keep track of the instant we do the next retry, and not the duration to wait: This helps
+        // it so that if we wait a long time for a host to be up, we don't wait longer than we need
+        // to. (e.g. if retry time is 1 minute, and the machine takes 5 minutes to be up, we don't
+        // want to wait 6 minutes.)
+        let mut next_retry = Instant::now();
+
+        // Connect and reconnect, in a loop, until the client is shut down.
         let mut retries = 0;
         'retry: loop {
             self.metrics
@@ -135,10 +144,36 @@ impl BmcClient {
             }
             retries += 1;
 
+            // Wait for the host to be up, so we avoid long backoff times when the BMC is just down.
+            // This way, the moment it comes back up, we can start trying again straight away.
+            if let Err(error) = wait_until_host_is_up(
+                self.connection_details.addr(),
+                self.connection_details.kind(),
+                self.connection_details.machine_id(),
+                &mut self.shutdown_rx,
+            )
+            .await
+            {
+                tracing::error!(%machine_id, %error, "error checking BMC port");
+                continue 'retry;
+            }
+
+            // Only sleep for the remaining retry time after we did the TCP halfopen check.
+            let sleep_duration = {
+                let now = Instant::now();
+                if next_retry > now {
+                    next_retry - now
+                } else {
+                    Duration::ZERO
+                }
+            };
+
+            tokio::time::sleep(sleep_duration).await;
+
             // Subsequent retries should sleep for RETRY_BASE_DURATION and double from there
             // until we successfully connect.
-            tokio::time::sleep(retry_time).await;
-            retry_time = next_retry_backoff(retry_time);
+            next_retry = Instant::now() + next_retry_backoff(sleep_duration);
+
             let try_start_time = Instant::now();
 
             // Spawn a single connection to this BMC.
@@ -156,7 +191,7 @@ impl BmcClient {
                         %error,
                         %machine_id,
                         "error spawning BMC connection, will retry in {}s",
-                        retry_time.as_secs()
+                        next_retry.checked_duration_since(Instant::now()).unwrap_or_default().as_secs()
                     );
                     continue 'retry;
                 }
@@ -197,10 +232,15 @@ impl BmcClient {
                     let connection_time = try_start_time.elapsed();
                     if connection_time > self.config.successful_connection_minimum_duration {
                         tracing::debug!(%machine_id, "last connection lasted {}s, resetting backoff to 0s", connection_time.as_secs());
-                        retry_time = Duration::ZERO;
+                        next_retry = Instant::now();
                     }
                     let error_string = res.err().map(|e| format!("{:?}", e.as_ref())).unwrap_or("<none>".to_string());
-                    tracing::warn!(%machine_id, error = error_string, "connection to BMC closed, will retry in {}s", retry_time.as_secs());
+                    tracing::warn!(
+                        %machine_id,
+                        error = error_string,
+                        "connection to BMC closed, will retry in {}s",
+                        next_retry.checked_duration_since(Instant::now()).unwrap_or_default().as_secs(),
+                    );
                 }
             }
         }
@@ -209,6 +249,58 @@ impl BmcClient {
         bmc_message_relay.shutdown_and_wait().await;
         if let Some(logger_handle) = logger_handle {
             logger_handle.shutdown_and_wait().await;
+        }
+    }
+}
+
+/// Wait for an address to be "up". For SSH consoles, do a a TCP half-open connection request. For
+/// IPMI machines, just ping it. For each probe, wait for 2 seconds for a reply, and retry every 5
+/// seconds until we get a connection.
+async fn wait_until_host_is_up(
+    addr: SocketAddr,
+    kind: connection::Kind,
+    machine_id: MachineId,
+    mut shutdown_rx: &mut oneshot::Receiver<()>,
+) -> io::Result<()> {
+    let mut interval = tokio::time::interval(Duration::from_secs(5));
+    interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut do_log = true;
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                match kind {
+                    connection::Kind::Ssh => {
+                        if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_secs(2), TcpStream::connect(addr)).await {
+                            break Ok(());
+                        }
+                    }
+                    connection::Kind::Ipmi => {
+                        let status = tokio::process::Command::new("ping")
+                            .arg("-c")
+                            .arg("1")
+                            .arg("-W")
+                            .arg("2")
+                            .arg(addr.ip().to_string())
+                            .stdin(Stdio::null())
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::null())
+                            .spawn()?
+                            .wait()
+                            .await?;
+                        if status.success() {
+                            break Ok(())
+                        }
+                    }
+                }
+            }
+            _ = &mut shutdown_rx => {
+                break Ok(());
+            }
+        }
+
+        if do_log {
+            do_log = false;
+            tracing::info!(%machine_id, %addr, "BMC is not listening on {addr}. Will wait until the port is open before attempting to connect.")
         }
     }
 }
