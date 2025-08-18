@@ -168,8 +168,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.IBPartitionConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.IBPartitionStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.IBPartition", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.IBPartitionIdList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.IBPartitionList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.PkeyList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.PowerOptionResponse",
             "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute("forge.PowerOptions",
@@ -559,6 +559,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "common.MachineId",
             "#[derive(Ord, PartialOrd)]",
         )
+        .type_attribute("common.StringList", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.InstanceAllocationRequest",
             "#[derive(serde::Serialize)]",

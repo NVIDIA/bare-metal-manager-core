@@ -13,6 +13,7 @@
 use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
+use forge_uuid::infiniband::IBPartitionId;
 use serde::{Deserialize, Serialize};
 
 use crate::model::ib_partition::PartitionKey;
@@ -44,6 +45,12 @@ pub struct MachineIbInterfaceStatusObservation {
     /// Partition keys currently associated with the interface at UFM
     /// None means the associated pkeys could not be determined
     pub associated_pkeys: Option<HashSet<PartitionKey>>,
+    /// Partition IDs currently associated with the interface at UFM
+    /// None means the associated pkeys could not be determined.
+    /// The amount of IDs can be different than the amount of `associated_pkeys`
+    /// in case a pkey that is associated with the port does not map to any
+    /// partition ID.
+    pub associated_partition_ids: Option<HashSet<IBPartitionId>>,
 }
 
 impl From<MachineInfinibandStatusObservation> for rpc::forge::InfinibandStatusObservation {
@@ -74,8 +81,13 @@ impl From<MachineIbInterfaceStatusObservation> for rpc::forge::MachineIbInterfac
                 false => Some(machine_ib_interface.fabric_id),
             },
             associated_pkeys: machine_ib_interface.associated_pkeys.map(|pkeys| {
-                rpc::forge::PkeyList {
-                    pkeys: pkeys.into_iter().map(|key| key.to_string()).collect(),
+                rpc::common::StringList {
+                    items: pkeys.into_iter().map(|key| key.to_string()).collect(),
+                }
+            }),
+            associated_partition_ids: machine_ib_interface.associated_partition_ids.map(|ids| {
+                rpc::common::StringList {
+                    items: ids.into_iter().map(|id| id.0.into()).collect(),
                 }
             }),
         }
@@ -105,13 +117,18 @@ mod tests {
                 lid: 0x10,
                 fabric_id: "default".to_string(),
                 associated_pkeys: Some([0x13.try_into().unwrap()].into_iter().collect()),
+                associated_partition_ids: Some(
+                    [uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into()]
+                        .into_iter()
+                        .collect(),
+                ),
             }],
             observed_at: "2025-06-06T19:47:16.597282585Z".parse().unwrap(),
         };
         let serialized = serde_json::to_string(&obs).unwrap();
         assert_eq!(
             serialized,
-            r#"{"ib_interfaces":[{"guid":"Aguid","lid":16,"fabric_id":"default","associated_pkeys":["0x13"]}],"observed_at":"2025-06-06T19:47:16.597282585Z"}"#
+            r#"{"ib_interfaces":[{"guid":"Aguid","lid":16,"fabric_id":"default","associated_pkeys":["0x13"],"associated_partition_ids":["91609f10-c91d-470d-a260-6293ea0c1200"]}],"observed_at":"2025-06-06T19:47:16.597282585Z"}"#
         );
         let deserialized = serde_json::from_str(&serialized).unwrap();
         assert_eq!(obs, deserialized);

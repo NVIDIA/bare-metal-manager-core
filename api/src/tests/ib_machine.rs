@@ -15,8 +15,10 @@ use std::collections::{HashMap, HashSet};
 use crate::cfg::file::IBFabricConfig;
 use crate::ib::types::{IBNetwork, IBQosConf};
 use crate::ib::{GetPartitionOptions, IBFabric, IBMtu, IBRateLimit, IBServiceLevel};
+use crate::model::ib_partition::PartitionKey;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
+use crate::tests::common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};
 use common::api_fixtures::create_managed_host;
 use forge_uuid::machine::MachineId;
 
@@ -105,6 +107,12 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
             .unwrap(),
         "0"
     );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_unknown_pkeys_count")
+            .unwrap(),
+        "0"
+    );
 
     // Down the first and third interface of host_machine_1 and check
     // whether this gets reflected in the observed status
@@ -116,9 +124,26 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
     ib_manager.set_port_state(&guid1, false);
     ib_manager.set_port_state(&guid3, false);
 
-    // Also bind the 2nd GUID with a partition behind the scenes
+    // Also bind the 2nd GUID and 4th GUID with a partition behind the scenes
+    // Partition 2 has no representation in Forge
+    let (ib_partition_id1, ib_partition1) = create_ib_partition(
+        &env,
+        "test_ib_partition".to_string(),
+        DEFAULT_TENANT.to_string(),
+    )
+    .await;
+    let pkey1: PartitionKey = ib_partition1
+        .status
+        .as_ref()
+        .unwrap()
+        .pkey()
+        .parse()
+        .unwrap();
+    // Increment pkey1 by 1 to get a second partition key
+    let pkey2: PartitionKey = (u16::from(pkey1) + 1).try_into().unwrap();
+
     let partition1 = IBNetwork {
-        pkey: 0x42,
+        pkey: pkey1.into(),
         name: "x".to_string(),
         qos_conf: Some(IBQosConf {
             mtu: IBMtu::default(),
@@ -133,7 +158,7 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
         // index0: false,
     };
     let mut partition2 = partition1.clone();
-    partition2.pkey = 0x43;
+    partition2.pkey = pkey2.into();
     ib_manager
         .bind_ib_ports(partition1, vec![guid2.clone(), guid4.clone()])
         .await
@@ -145,7 +170,7 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
     // Double check that the setting is applied
     let p1 = ib_manager
         .get_ib_network(
-            0x42,
+            pkey1.into(),
             GetPartitionOptions {
                 include_guids_data: true,
                 include_qos_conf: true,
@@ -159,7 +184,7 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
     );
     let p2 = ib_manager
         .get_ib_network(
-            0x43,
+            pkey2.into(),
             GetPartitionOptions {
                 include_guids_data: true,
                 include_qos_conf: true,
@@ -215,6 +240,12 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
             .unwrap(),
         "1"
     );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_unknown_pkeys_count")
+            .unwrap(),
+        "1"
+    );
 
     active_lids.clear();
     for host_machine_id in host_machines.iter().copied() {
@@ -258,16 +289,30 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
                 .associated_pkeys
                 .clone()
                 .expect("Associated pkeys should be available");
-            associated_pkeys.pkeys.sort();
+            associated_pkeys.items.sort();
             match &ib_iface.guid {
-                guid if guid == &guid2 => assert_eq!(
-                    associated_pkeys.pkeys,
-                    vec!["0x42".to_string(), "0x43".to_string()]
-                ),
-                guid if guid == &guid4 => {
-                    assert_eq!(associated_pkeys.pkeys, vec!["0x42".to_string()])
+                guid if guid == &guid2 => {
+                    let mut expected_pkeys = vec![pkey1.to_string(), pkey2.to_string()];
+                    expected_pkeys.sort();
+                    assert_eq!(associated_pkeys.items, expected_pkeys)
                 }
-                _ => assert!(associated_pkeys.pkeys.is_empty()),
+                guid if guid == &guid4 => {
+                    assert_eq!(associated_pkeys.items, vec![pkey1.to_string()])
+                }
+                _ => assert!(associated_pkeys.items.is_empty()),
+            }
+
+            let mut associated_partition_ids = iface_status
+                .associated_partition_ids
+                .clone()
+                .expect("Associated partition IDs should be available");
+            associated_partition_ids.items.sort();
+            match &ib_iface.guid {
+                guid if guid == &guid2 || guid == &guid4 => assert_eq!(
+                    associated_partition_ids.items,
+                    vec![ib_partition_id1.to_string()]
+                ),
+                _ => assert!(associated_partition_ids.items.is_empty()),
             }
         }
 
