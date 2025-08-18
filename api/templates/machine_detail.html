@@ -316,7 +316,7 @@ Missing BMC Data
 			{% when Some with (associated_pkeys) %}
 			<td>
 				{% for p in associated_pkeys %}
-				{% if !loop.first %}, {% endif %}
+				{% if !loop.first %}<br>{% endif %}
 				{{ p }}
 				{% endfor %}
 			</td>
