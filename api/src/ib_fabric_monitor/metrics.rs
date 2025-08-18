@@ -43,6 +43,9 @@ pub struct IbFabricMonitorMetrics {
     /// The amount of machines where at least one port is assigned to an unexpected
     /// pkey on UFM
     pub num_machines_with_unexpected_pkeys: usize,
+    /// The amount of machines where at least one port is assigned to a pkey value
+    /// that is not associated with any partition ID
+    pub num_machines_with_unknown_pkeys: usize,
 }
 
 /// Metrics collected for a single fabric
@@ -87,6 +90,7 @@ impl IbFabricMonitorMetrics {
             num_machines_by_ports_with_partitions: HashMap::new(),
             num_machines_with_missing_pkeys: 0,
             num_machines_with_unexpected_pkeys: 0,
+            num_machines_with_unknown_pkeys: 0,
         }
     }
 }
@@ -210,6 +214,21 @@ impl IbFabricMonitorInstruments {
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
                         o.observe(metrics.num_machines_with_unexpected_pkeys as u64, attrs);
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("forge_ib_monitor_machines_with_unknown_pkeys_count")
+                .with_description(
+                    "The amount of machines where at least one port is assigned to a pkey value that is not associated with any partition ID",
+                )
+                .with_callback(move |o| {
+                    metrics.if_available(|metrics, attrs| {
+                        o.observe(metrics.num_machines_with_unknown_pkeys as u64, attrs);
                     })
                 })
                 .build();

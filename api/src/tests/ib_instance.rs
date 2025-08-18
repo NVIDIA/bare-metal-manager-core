@@ -176,6 +176,12 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
             .unwrap(),
         "0"
     );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_unknown_pkeys_count")
+            .unwrap(),
+        "0"
+    );
 
     let check_instance = env
         .find_instances(Some(instance_id.into()))

@@ -295,6 +295,7 @@ Missing BMC Data
 			<th>Visible on IB Fabric</th>
 			<th>LID</th>
 			<th>Associated pkeys</th>
+			<th>Associated partitions</th>
 			<th>Last changed at</th>
 		</tr>
 	</thead>
@@ -311,11 +312,28 @@ Missing BMC Data
 			<td>{{ interface.fabric_id }}</td>
 			{% endif %}
 			<td>{{ interface.lid }}</td>
-			{% if interface.associated_pkeys == "unknown" %}
-			<td class="cell-warning">unknown</td>
+			{% match interface.associated_pkeys %}
+			{% when Some with (associated_pkeys) %}
+			<td>
+				{% for p in associated_pkeys %}
+				{% if !loop.first %}, {% endif %}
+				{{ p }}
+				{% endfor %}
+			</td>
 			{% else %}
-			<td>{{ interface.associated_pkeys }}</td>
-			{% endif %}
+			<td class="cell-warning">unknown</td>
+			{% endmatch %}
+			{% match interface.associated_partitions %}
+			{% when Some with (associated_partitions) %}
+			<td>
+				{% for p in associated_partitions %}
+				{% if !loop.first %}<br>{% endif %}
+				<a href="/admin/ib-partition/{{ p }}">{{ p }}</a>
+				{% endfor %}
+			</td>
+			{% else %}
+			<td class="cell-warning">unknown</td>
+			{% endmatch %}
 			<td>{{ interface.observed_at }}</td>
 		</tr>
 	{% endfor %}

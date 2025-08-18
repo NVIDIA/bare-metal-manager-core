@@ -233,6 +233,16 @@ impl IbFabricMonitor {
         };
         drop(conn); // Don't reuse the postgres connection later on. It might be stale
 
+        // Create a reverse mapping from pkeys to partition IDs
+        // That makes the lookup of which partition ID is associated with GUIDs
+        // more efficient
+        let mut partition_ids_by_pkey = HashMap::new();
+        for (id, partition) in tenant_partitions.iter() {
+            if let Some(pkey) = partition.config.pkey {
+                partition_ids_by_pkey.insert(pkey, *id);
+            }
+        }
+
         let mut fabric_data: HashMap<String, FabricData> = HashMap::new();
         for (fabric, fabric_definition) in self.fabrics.iter() {
             let fabric_data = fabric_data.entry(fabric.to_string()).or_default();
@@ -298,6 +308,7 @@ impl IbFabricMonitor {
                 &self.db_pool,
                 &mut snapshot,
                 &tenant_partitions,
+                &partition_ids_by_pkey,
                 &fabric_data,
                 metrics,
             )
@@ -534,6 +545,7 @@ async fn record_machine_infiniband_status_observation(
     db_pool: &PgPool,
     mh_snapshot: &mut ManagedHostStateSnapshot,
     tenant_partitions: &HashMap<IBPartitionId, IBPartition>,
+    tenant_partition_ids_by_pkey: &HashMap<PartitionKey, IBPartitionId>,
     data_by_fabric: &HashMap<String, FabricData>,
     metrics: &mut IbFabricMonitorMetrics,
 ) -> Result<(), CarbideError> {
@@ -601,6 +613,7 @@ async fn record_machine_infiniband_status_observation(
     // These are the GUID/Pkey combinations where changes are required
     let mut missing_guid_pkeys = Vec::new();
     let mut unexpected_guid_pkeys = Vec::new();
+    let mut unknown_guid_pkeys = Vec::new();
 
     for guid in guids.iter() {
         // Search for the GUID in all fabrics. Record the fabric where we found it, plus the actual data
@@ -617,7 +630,7 @@ async fn record_machine_infiniband_status_observation(
             }
         }
 
-        let (fabric_id, lid, associated_pkeys) = match found_port_data {
+        let (fabric_id, lid, associated_pkeys, associated_partition_ids) = match found_port_data {
             Some((fabric_id, fabric_data, port_data)) => {
                 // Port was found. Now try to look up associated pkeys
                 // If there's no associated pkeys found, don't return any potentially invalid or empty
@@ -638,12 +651,26 @@ async fn record_machine_infiniband_status_observation(
                     None => None,
                 };
 
-                match associated_pkeys.as_ref() {
+                let associated_partition_ids = match associated_pkeys.as_ref() {
                     Some(pkeys) => {
                         if !pkeys.is_empty() {
                             ports_with_partitions += 1;
                         }
 
+                        // Translate associated_pkeys into associated_partition_ids
+                        let mut associated_partition_ids = HashSet::new();
+                        for pkey in pkeys {
+                            match tenant_partition_ids_by_pkey.get(pkey) {
+                                Some(partition_id) => {
+                                    associated_partition_ids.insert(*partition_id);
+                                }
+                                None => {
+                                    unknown_guid_pkeys.push((guid.to_string(), *pkey));
+                                }
+                            }
+                        }
+
+                        // Determine which keys need to get added or removed
                         match expected_pkeys.get(guid) {
                             Some(expected_pkey) => {
                                 // GUID should be associated with `expected_pkey`
@@ -664,12 +691,15 @@ async fn record_machine_infiniband_status_observation(
                                 }
                             }
                         }
+
+                        Some(associated_partition_ids)
                     }
                     None => {
                         // We don't know what is associated, therefore we can't make
                         // a great decision about whether pkeys are missing or unexpected
+                        None
                     }
-                }
+                };
 
                 (
                     fabric_id,
@@ -680,6 +710,7 @@ async fn record_machine_infiniband_status_observation(
                         0xffff_u16
                     },
                     associated_pkeys,
+                    associated_partition_ids,
                 )
             }
             None => {
@@ -688,7 +719,7 @@ async fn record_machine_infiniband_status_observation(
 
                 // TODO: We should differentiate between "Can not communicate with fabric"
                 // and "UFM definitely did not know about this GUID".
-                (&String::new(), 0xffff_u16, None)
+                (&String::new(), 0xffff_u16, None, None)
             }
         };
 
@@ -697,6 +728,7 @@ async fn record_machine_infiniband_status_observation(
             lid,
             fabric_id: fabric_id.to_string(),
             associated_pkeys,
+            associated_partition_ids,
         });
     }
 
@@ -724,6 +756,18 @@ async fn record_machine_infiniband_status_observation(
         metrics.num_machines_with_unexpected_pkeys += 1;
         let mut msg = "Machine has unexpected registered pkeys on UFM: ".to_string();
         for (idx, (guid, pkey)) in unexpected_guid_pkeys.iter().enumerate() {
+            if idx != 0 {
+                msg.push(',');
+            }
+            write!(&mut msg, "(guid: {guid}, pkey: {pkey})").unwrap();
+        }
+        tracing::warn!(machine_id = %machine_id, msg);
+    }
+    if !unknown_guid_pkeys.is_empty() {
+        metrics.num_machines_with_unknown_pkeys += 1;
+        let mut msg =
+            "Machine has registered pkeys on UFM that do not map to IB PartitionIDs: ".to_string();
+        for (idx, (guid, pkey)) in unknown_guid_pkeys.iter().enumerate() {
             if idx != 0 {
                 msg.push(',');
             }

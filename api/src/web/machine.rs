@@ -463,7 +463,8 @@ struct MachineIbInterfaceDisplay {
     slot: String,
     lid: String,
     fabric_id: String,
-    associated_pkeys: String,
+    associated_pkeys: Option<Vec<String>>,
+    associated_partitions: Option<Vec<String>>,
     observed_at: String,
 }
 
@@ -572,12 +573,11 @@ impl From<forgerpc::Machine> for MachineDetail {
                                 format!("0x{:x}", iter_status.lid.unwrap_or_default());
 
                             iface_display.associated_pkeys =
-                                match iter_status.associated_pkeys.as_ref() {
-                                    None => "unknown".to_string(), // Status unknown
-                                    Some(pkeys) => {
-                                        serde_json::to_string(&pkeys.pkeys).unwrap_or_default()
-                                    }
-                                };
+                                iter_status.associated_pkeys.clone().map(|list| list.items);
+                            iface_display.associated_partitions = iter_status
+                                .associated_partition_ids
+                                .clone()
+                                .map(|ids| ids.items);
                             break;
                         }
                     }

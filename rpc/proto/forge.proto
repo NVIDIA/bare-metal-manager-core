@@ -2218,15 +2218,19 @@ message MachineIbInterface {
   // This is empty if the GUID hasn't been observed on any fabric
   optional string fabric_id = 3;
 
+  reserved 4; // used for associated_pkeys in a different format in a previous release
+
   // Partition keys currently associated with the interface at UFM
   // The value of this field is null in case the associated_pkeys could not be determined
   // The value is an empty list in case there are no pkeys associated with the interface
-  optional PkeyList associated_pkeys = 4;
-}
+  optional common.StringList associated_pkeys = 5;
 
-// A nullable list of partition keys
-message PkeyList {
-  repeated string pkeys = 1;
+  // Partition IDs currently associated with the interface at UFM
+  // None means the associated pkeys could not be determined.
+  // The amount of IDs can be different than the amount of `associated_pkeys`
+  // in case a pkey that is associated with the port does not map to any
+  // partition ID.
+  optional common.StringList associated_partition_ids = 6;
 }
 
 message DhcpDiscovery {
