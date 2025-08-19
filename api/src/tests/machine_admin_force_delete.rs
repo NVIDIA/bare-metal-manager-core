@@ -526,44 +526,15 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     ));
     txn.commit().await.unwrap();
 
-    let check_instance = env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .remove(0);
-    assert_eq!(
-        check_instance.machine_id.clone().unwrap().id,
-        host_machine_id.to_string()
-    );
-    assert_eq!(
-        check_instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::TenantState::Ready
-    );
-    assert_eq!(instance, check_instance);
+    let check_instance = env.one_instance(instance_id).await;
+    assert_eq!(check_instance.machine_id(), host_machine_id);
+    assert_eq!(check_instance.status().tenant(), rpc::TenantState::Ready);
+    assert_eq!(&instance, check_instance.inner());
 
-    let ib_config = check_instance
-        .config
-        .as_ref()
-        .unwrap()
-        .infiniband
-        .as_ref()
-        .unwrap();
+    let ib_config = check_instance.config().infiniband();
     assert_eq!(ib_config.ib_interfaces.len(), 1);
 
-    let ib_status = check_instance
-        .status
-        .as_ref()
-        .unwrap()
-        .infiniband
-        .clone()
-        .unwrap();
+    let ib_status = check_instance.status().infiniband();
     assert_eq!(ib_status.ib_interfaces.len(), 1);
 
     // one ib port in UFM

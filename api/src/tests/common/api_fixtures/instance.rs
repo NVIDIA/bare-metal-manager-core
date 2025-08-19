@@ -301,22 +301,8 @@ pub async fn delete_instance(
         .expect("Delete instance failed.");
 
     // The instance should show up immediatly as terminating - even if the state handler didn't yet run
-    let instance = env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .remove(0);
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::TenantState::Terminating
-    );
+    let instance = env.one_instance(instance_id).await;
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,

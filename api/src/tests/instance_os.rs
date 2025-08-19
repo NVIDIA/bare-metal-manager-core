@@ -74,27 +74,15 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         .create(&[dpu_machine_id], &host_machine_id)
         .await;
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::forge::TenantState::Ready
-    );
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
-    let tenant_config = instance.config.as_ref().unwrap().tenant.as_ref().unwrap();
-    let os = instance.config.as_ref().unwrap().os.as_ref().unwrap();
+    let tenant_config = instance.config().tenant();
+    let os = instance.config().os();
     assert_eq!(os, &initial_os);
     verify_os_in_tenant_config(tenant_config, &initial_os);
-    let initial_config_version = instance.config_version.parse::<ConfigVersion>().unwrap();
+    let initial_config_version = instance.config_version();
     assert_eq!(initial_config_version.version_nr(), 1);
 
     let updated_os_1 = rpc::forge::OperatingSystem {
@@ -278,24 +266,12 @@ async fn test_instance_creation_with_os_in_tenantconfig(
         .create(&[dpu_machine_id], &host_machine_id)
         .await;
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::forge::TenantState::Ready
-    );
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
-    let actual_tenant_config = instance.config.as_ref().unwrap().tenant.as_ref().unwrap();
-    let actual_os = instance.config.as_ref().unwrap().os.as_ref().unwrap();
+    let actual_tenant_config = instance.config().tenant();
+    let actual_os = instance.config().os();
     assert_eq!(actual_os, &os_config);
     assert_eq!(actual_tenant_config, &tenant_config);
 }

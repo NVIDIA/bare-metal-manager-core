@@ -117,30 +117,18 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         .create(&[dpu_machine_id], &host_machine_id)
         .await;
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
     assert_eq!(
-        instance.status.as_ref().unwrap().configs_synced(),
+        instance.status().configs_synced(),
         rpc::forge::SyncState::Synced
     );
 
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::forge::TenantState::Ready
-    );
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
-    assert_config_equals(instance.config.as_ref().unwrap(), &initial_config);
-    assert_metadata_equals(instance.metadata.as_ref().unwrap(), &initial_metadata);
-    let initial_config_version = instance.config_version.parse::<ConfigVersion>().unwrap();
+    assert_config_equals(instance.config().inner(), &initial_config);
+    assert_metadata_equals(instance.metadata(), &initial_metadata);
+    let initial_config_version = instance.config_version();
     assert_eq!(initial_config_version.version_nr(), 1);
 
     let updated_os_1 = rpc::forge::OperatingSystem {
@@ -215,26 +203,17 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
 
     // Find our instance details again, which should now
     // be updated.
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
     // Post-phone-home, sync should still be pending, but state Configuring.
     assert_eq!(
-        instance.status.as_ref().unwrap().configs_synced(),
+        instance.status().configs_synced(),
         rpc::forge::SyncState::Pending
     );
 
     // And we should be ready from the tenant's perspective.
     assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
+        instance.status().tenant(),
         rpc::forge::TenantState::Configuring
     );
 
@@ -243,28 +222,16 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
 
     // Find our instance details again, which should now
     // be updated.
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
     // Post-configure, we should now be synced.
     assert_eq!(
-        instance.status.as_ref().unwrap().configs_synced(),
+        instance.status().configs_synced(),
         rpc::forge::SyncState::Synced
     );
 
     // And we should be ready from the tenant's perspective.
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::forge::TenantState::Ready
-    );
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
     let updated_os_2 = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
@@ -680,30 +647,18 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
         .create(&[dpu_machine_id], &host_machine_id)
         .await;
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
     assert_eq!(
-        instance.status.as_ref().unwrap().configs_synced(),
+        instance.status().configs_synced(),
         rpc::forge::SyncState::Synced
     );
 
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::forge::TenantState::Ready
-    );
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
-    assert_config_equals(instance.config.as_ref().unwrap(), &initial_config);
-    assert_metadata_equals(instance.metadata.as_ref().unwrap(), &initial_metadata);
-    let initial_config_version = instance.config_version.parse::<ConfigVersion>().unwrap();
+    assert_config_equals(instance.config().inner(), &initial_config);
+    assert_metadata_equals(instance.metadata(), &initial_metadata);
+    let initial_config_version = instance.config_version();
     assert_eq!(initial_config_version.version_nr(), 1);
 
     let mut updated_config_1 = initial_config.clone();
@@ -742,19 +697,10 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
     );
 
     // SyncState::Synced means network config update is not applicable.
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
     assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .network
-            .as_ref()
-            .unwrap()
-            .configs_synced(),
+        instance.status().network().configs_synced(),
         rpc::forge::SyncState::Synced
     );
 }
@@ -828,30 +774,18 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         .create(&[dpu_machine_id], &host_machine_id)
         .await;
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
     assert_eq!(
-        instance.status.as_ref().unwrap().configs_synced(),
+        instance.status().configs_synced(),
         rpc::forge::SyncState::Synced
     );
 
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::forge::TenantState::Ready
-    );
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
-    assert_config_equals(instance.config.as_ref().unwrap(), &initial_config);
-    assert_metadata_equals(instance.metadata.as_ref().unwrap(), &initial_metadata);
-    let initial_config_version = instance.config_version.parse::<ConfigVersion>().unwrap();
+    assert_config_equals(instance.config().inner(), &initial_config);
+    assert_metadata_equals(instance.metadata(), &initial_metadata);
+    let initial_config_version = instance.config_version();
     assert_eq!(initial_config_version.version_nr(), 1);
 
     let network = rpc::InstanceNetworkConfig {
@@ -909,19 +843,10 @@ async fn test_update_instance_config_vpc_prefix_network_update(
     );
 
     // SyncState::Synced means network config update is not applicable.
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
     assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .network
-            .as_ref()
-            .unwrap()
-            .configs_synced(),
+        instance.status().network().configs_synced(),
         rpc::forge::SyncState::Pending
     );
 
@@ -1030,26 +955,14 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
         .create(&[dpu_machine_id], &host_machine_id)
         .await;
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
     assert_eq!(
-        instance.status.as_ref().unwrap().configs_synced(),
+        instance.status().configs_synced(),
         rpc::forge::SyncState::Synced
     );
 
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::forge::TenantState::Ready
-    );
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
     // Trigger instance deletion.
     env.api
