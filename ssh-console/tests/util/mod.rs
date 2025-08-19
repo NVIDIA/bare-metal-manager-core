@@ -15,10 +15,10 @@ use crate::util::ssh_client::ConnectionConfig;
 use crate::{ADMIN_SSH_KEY_PATH, TENANT_SSH_KEY_PATH, TENANT_SSH_PUBKEY};
 use bmc_mock::HostnameQuerying;
 use eyre::Context;
-use forge_uuid::machine::{MachineIdSource, MachineType};
+use forge_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use futures::future::join_all;
 use futures_util::future::BoxFuture;
-use machine_a_tron::MockSshServerHandle;
+use machine_a_tron::{MockSshServerHandle, PromptBehavior};
 use ssh_console_mock_api_server::{MockApiServerHandle, MockHost};
 use std::borrow::Cow;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -105,39 +105,45 @@ pub fn log_stdout_and_stderr(process: &mut tokio::process::Child, prefix: &str) 
 pub async fn run_baseline_test_environment(
     machines: Vec<MockBmcType>,
 ) -> eyre::Result<Option<BaselineTestEnvironment>> {
-    // Generate random machine ID's for each mocked host
-    let machine_ids = machines
-        .iter()
-        .map(|_| {
-            forge_uuid::machine::MachineId::new(
+    let mock_bmc_handles: Vec<(MockBmcHandle, MachineId)> =
+        join_all(machines.iter().map(|bmc_type| {
+            // Generate random machine ID's for each mocked host
+            let machine_id = forge_uuid::machine::MachineId::new(
                 MachineIdSource::Tpm,
                 rand::random(),
-                MachineType::Host,
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let mock_bmc_handles: Vec<MockBmcHandle> =
-        join_all(machines.iter().enumerate().map(|(i, bmc_type)| {
-            let machine_id = machine_ids[i];
-            async move {
                 match bmc_type {
-                    MockBmcType::Ssh => Ok::<MockBmcHandle, eyre::Error>(MockBmcHandle::Ssh(
-                        machine_a_tron::spawn_mock_ssh_server(
-                            IpAddr::from_str("127.0.0.1").unwrap(),
-                            None,
-                            Arc::new(KnownHostname(machine_id.to_string())),
-                            Some(machine_a_tron::MockSshCredentials {
-                                user: "root".to_string(),
-                                password: "password".to_string(),
-                            }),
-                        )
-                        .await?,
-                    )),
+                    MockBmcType::Ssh | MockBmcType::Ipmi => MachineType::Host,
+                    MockBmcType::DpuSsh => MachineType::Dpu,
+                },
+            );
+
+            async move {
+                let bmc_handle = match bmc_type {
+                    ssh_type @ MockBmcType::Ssh | ssh_type @ MockBmcType::DpuSsh => {
+                        Ok::<MockBmcHandle, eyre::Error>(MockBmcHandle::Ssh(
+                            machine_a_tron::spawn_mock_ssh_server(
+                                IpAddr::from_str("127.0.0.1").unwrap(),
+                                None,
+                                Arc::new(KnownHostname(machine_id.to_string())),
+                                Some(machine_a_tron::MockSshCredentials {
+                                    user: "root".to_string(),
+                                    password: "password".to_string(),
+                                }),
+                                match ssh_type {
+                                    MockBmcType::Ssh => PromptBehavior::Dell,
+                                    MockBmcType::DpuSsh => PromptBehavior::Dpu,
+                                    MockBmcType::Ipmi => unreachable!(),
+                                },
+                            )
+                            .await?,
+                        ))
+                    }
                     MockBmcType::Ipmi => Ok(MockBmcHandle::Ipmi(
                         ipmi_sim::run(format!("root@{machine_id} # ")).await?,
                     )),
-                }
+                }?;
+
+                Ok::<_, eyre::Error>((bmc_handle, machine_id))
             }
         }))
         .await
@@ -148,9 +154,8 @@ pub async fn run_baseline_test_environment(
     let mock_hosts: Arc<Vec<MockHost>> = Arc::new(
         mock_bmc_handles
             .iter()
-            .zip(machine_ids.iter().copied())
             .map(|(bmc_handle, machine_id)| MockHost {
-                machine_id,
+                machine_id: *machine_id,
                 instance_id: Uuid::new_v4(),
                 tenant_public_key: TENANT_SSH_PUBKEY.to_string(),
                 sys_vendor: match &bmc_handle {
@@ -183,7 +188,10 @@ pub async fn run_baseline_test_environment(
 
     Ok(Some(BaselineTestEnvironment {
         mock_api_server: api_server_handle,
-        mock_bmc_handles,
+        mock_bmc_handles: mock_bmc_handles
+            .into_iter()
+            .map(|(handle, _machine_id)| handle)
+            .collect(),
         mock_hosts,
     }))
 }
@@ -191,6 +199,7 @@ pub async fn run_baseline_test_environment(
 #[derive(Debug, Clone, Copy)]
 pub enum MockBmcType {
     Ssh,
+    DpuSsh,
     Ipmi,
 }
 
