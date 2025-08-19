@@ -911,6 +911,7 @@ pub fn get_config() -> CarbideConfig {
             dpu_nic_firmware_reprovision_update_enabled: true,
             dpu_models: dpu_fw_example(),
             dpu_nic_firmware_update_versions: vec!["24.42.1000".to_string()],
+            dpu_enable_secure_boot: true,
         },
         host_models: host_firmware_example(),
         firmware_global: FirmwareGlobal::test_default(),
@@ -1126,6 +1127,7 @@ pub async fn create_test_env_with_overrides(
                 .reachability_params(reachability_params)
                 .attestation_enabled(attestation_enabled)
                 .common_pools(common_pools.clone())
+                .dpu_enable_secure_boot(config.dpu_config.dpu_enable_secure_boot)
                 .machine_validation_config(MachineValidationConfig {
                     enabled: config.machine_validation_config.enabled,
                     run_interval: config.machine_validation_config.run_interval,

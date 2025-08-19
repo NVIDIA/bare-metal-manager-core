@@ -1261,6 +1261,7 @@ async fn test_site_explorer_creates_managed_host(
         .hardware_models(env.config.get_firmware_config())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
+        .dpu_enable_secure_boot(env.config.dpu_config.dpu_enable_secure_boot)
         .build();
     env.override_machine_state_controller_handler(handler).await;
     env.run_machine_state_controller_iteration().await;

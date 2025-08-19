@@ -138,6 +138,7 @@ pub struct MachineStateHandler {
     reachability_params: ReachabilityParams,
     host_upgrade: Arc<HostUpgradeState>,
     power_options_config: PowerOptionConfig,
+    enable_secure_boot: bool,
 }
 
 pub struct MachineStateHandlerBuilder {
@@ -157,6 +158,7 @@ pub struct MachineStateHandlerBuilder {
     instance_autoreboot_period: Option<TimePeriod>,
     credential_provider: Option<Arc<dyn CredentialProvider>>,
     power_options_config: PowerOptionConfig,
+    enable_secure_boot: bool,
 }
 
 impl MachineStateHandlerBuilder {
@@ -189,6 +191,7 @@ impl MachineStateHandlerBuilder {
                 next_try_duration_on_failure: chrono::Duration::minutes(0),
                 wait_duration_until_host_reboot: chrono::Duration::minutes(0),
             },
+            enable_secure_boot: false,
         }
     }
 
@@ -227,6 +230,11 @@ impl MachineStateHandlerBuilder {
 
     pub fn dpu_wait_time(mut self, dpu_wait_time: chrono::Duration) -> Self {
         self.reachability_params.dpu_wait_time = dpu_wait_time;
+        self
+    }
+
+    pub fn dpu_enable_secure_boot(mut self, dpu_enable_secure_boot: bool) -> Self {
+        self.enable_secure_boot = dpu_enable_secure_boot;
         self
     }
 
@@ -327,6 +335,7 @@ impl MachineStateHandler {
                 builder.dpu_nic_firmware_initial_update_enabled,
                 builder.hardware_models.clone().unwrap_or_default(),
                 builder.reachability_params,
+                builder.enable_secure_boot,
             ),
             instance_handler: InstanceStateHandler::new(
                 builder.attestation_enabled,
@@ -338,6 +347,7 @@ impl MachineStateHandler {
             reachability_params: builder.reachability_params,
             host_upgrade,
             power_options_config: builder.power_options_config,
+            enable_secure_boot: builder.enable_secure_boot,
         }
     }
 
@@ -671,8 +681,10 @@ impl MachineStateHandler {
                     )
                     .await?;
 
-                    let reprov_state =
-                        ReprovisionState::next_substate_based_on_bfb_support(&dpus_for_reprov);
+                    let reprov_state = ReprovisionState::next_substate_based_on_bfb_support(
+                        self.enable_secure_boot,
+                        &dpus_for_reprov,
+                    );
 
                     let next_state = reprov_state.next_state_with_all_dpus_updated(
                         &mh_state,
@@ -1391,7 +1403,10 @@ impl MachineStateHandler {
         }
         set_managed_host_topology_update_needed(txn, &state.host_snapshot, dpus_for_reprov).await?;
 
-        let reprov_state = ReprovisionState::next_substate_based_on_bfb_support(dpus_for_reprov);
+        let reprov_state = ReprovisionState::next_substate_based_on_bfb_support(
+            self.enable_secure_boot,
+            dpus_for_reprov,
+        );
         Ok(Some(reprov_state.next_state_with_all_dpus_updated(
             &state.managed_state,
             &state.dpu_snapshots,
@@ -2045,10 +2060,12 @@ async fn handle_bfb_install_state(
                         percent_complete
                     )))
                 }
-                _ => {
+                task_state => {
                     let msg = format!(
-                        "BFB install task {} unknow state: {}",
+                        "BFB install task {} on {:#?} failed ({:#?}): {}",
                         task_id,
+                        dpu_snapshot.bmc_addr(),
+                        task_state,
                         task.messages.iter().map(|t| t.message.clone()).join("\n")
                     );
                     tracing::error!(msg);
@@ -2756,6 +2773,7 @@ pub struct DpuMachineStateHandler {
     dpu_nic_firmware_initial_update_enabled: bool,
     hardware_models: FirmwareConfig,
     reachability_params: ReachabilityParams,
+    enable_secure_boot: bool,
 }
 
 impl DpuMachineStateHandler {
@@ -2763,11 +2781,13 @@ impl DpuMachineStateHandler {
         dpu_nic_firmware_initial_update_enabled: bool,
         hardware_models: FirmwareConfig,
         reachability_params: ReachabilityParams,
+        enable_secure_boot: bool,
     ) -> Self {
         DpuMachineStateHandler {
             dpu_nic_firmware_initial_update_enabled,
             hardware_models,
             reachability_params,
+            enable_secure_boot,
         }
     }
 
@@ -2861,7 +2881,10 @@ impl DpuMachineStateHandler {
 
                 let dpu_states = state.dpu_snapshots.iter().collect::<Vec<&Machine>>();
                 let next_dpu_discovering_state =
-                    DpuDiscoveringState::next_substate_based_on_bfb_support(&dpu_states);
+                    DpuDiscoveringState::next_substate_based_on_bfb_support(
+                        self.enable_secure_boot,
+                        &dpu_states,
+                    );
 
                 tracing::info!(
                     "DPU {dpu_machine_id} (BMC FW version: {}); next_state: {}.",

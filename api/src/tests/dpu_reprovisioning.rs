@@ -1923,6 +1923,7 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
         .dpu_nic_firmware_initial_update_enabled(true)
         .dpu_nic_firmware_reprovision_update_enabled(true)
         .reachability_params(env.reachability_params)
+        .dpu_enable_secure_boot(true)
         .attestation_enabled(env.attestation_enabled)
         .build();
     env.override_machine_state_controller_handler(handler).await;
