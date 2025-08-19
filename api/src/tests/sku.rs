@@ -6,7 +6,8 @@ pub mod tests {
 
     use crate::{
         db::{
-            self, DatabaseError, ObjectFilter, expected_machine::ExpectedMachine,
+            self, DatabaseError, ObjectFilter,
+            expected_machine::{ExpectedMachine, ExpectedMachineData},
             machine::MachineSearchConfig,
         },
         model::{
@@ -952,12 +953,14 @@ pub mod tests {
         ExpectedMachine::create(
             &mut txn,
             managed_host_config.bmc_mac_address,
-            "admin".to_string(),
-            "password".to_string(),
-            "1234567890".to_string(),
-            vec![],
-            Metadata::new_with_default_name(),
-            Some("no-sku".to_string()),
+            ExpectedMachineData {
+                bmc_username: "admin".to_string(),
+                bmc_password: "password".to_string(),
+                serial_number: "1234567890".to_string(),
+                fallback_dpu_serial_numbers: vec![],
+                metadata: Metadata::new_with_default_name(),
+                sku_id: Some("no-sku".to_string()),
+            },
         )
         .await?;
         txn.commit().await?;
@@ -1035,12 +1038,14 @@ pub mod tests {
         ExpectedMachine::create(
             &mut txn,
             managed_host_config.bmc_mac_address,
-            "admin".to_string(),
-            "password".to_string(),
-            "1234567890".to_string(),
-            vec![],
-            Metadata::new_with_default_name(),
-            Some("no-sku".to_string()),
+            ExpectedMachineData {
+                bmc_username: "admin".to_string(),
+                bmc_password: "password".to_string(),
+                serial_number: "1234567890".to_string(),
+                fallback_dpu_serial_numbers: vec![],
+                metadata: Metadata::new_with_default_name(),
+                sku_id: Some("no-sku".to_string()),
+            },
         )
         .await?;
         txn.commit().await?;

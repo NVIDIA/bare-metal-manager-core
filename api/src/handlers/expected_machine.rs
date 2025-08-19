@@ -19,7 +19,7 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::db::DatabaseError;
 use crate::db::expected_machine::ExpectedMachine;
-use crate::model::metadata::Metadata;
+use crate::db::expected_machine::ExpectedMachineData;
 
 pub(crate) async fn get(
     api: &Api,
@@ -81,7 +81,7 @@ pub(crate) async fn add(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
-    let metadata = metadata_from_request(request.metadata)?;
+    let db_data = request.try_into()?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -92,17 +92,7 @@ pub(crate) async fn add(
         ))
     })?;
 
-    ExpectedMachine::create(
-        &mut txn,
-        parsed_mac,
-        request.bmc_username,
-        request.bmc_password,
-        request.chassis_serial_number,
-        request.fallback_dpu_serial_numbers,
-        metadata,
-        request.sku_id,
-    )
-    .await?;
+    ExpectedMachine::create(&mut txn, parsed_mac, db_data).await?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -170,16 +160,11 @@ pub(crate) async fn update(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
-    let metadata = metadata_from_request(request.metadata)?;
+    let data: ExpectedMachineData = request.try_into()?;
 
     let mut expected_machine = ExpectedMachine {
         bmc_mac_address: parsed_mac,
-        bmc_username: request.bmc_username.clone(),
-        serial_number: request.chassis_serial_number.clone(),
-        bmc_password: request.bmc_password.clone(),
-        fallback_dpu_serial_numbers: request.fallback_dpu_serial_numbers.clone(),
-        metadata: metadata.clone(),
-        sku_id: request.sku_id.clone(),
+        data: data.clone(),
     };
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -191,17 +176,7 @@ pub(crate) async fn update(
         ))
     })?;
 
-    expected_machine
-        .update(
-            &mut txn,
-            request.bmc_username,
-            request.bmc_password,
-            request.chassis_serial_number,
-            request.fallback_dpu_serial_numbers,
-            metadata,
-            request.sku_id,
-        )
-        .await?;
+    expected_machine.update(&mut txn, data).await?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -347,25 +322,4 @@ pub(crate) async fn query(
     })?;
 
     Ok(expected.remove(&mac))
-}
-
-/// If Metadata is retrieved as part of the ExpectedMachine creation, validate and use the Metadata
-/// Otherwise assume empty Metadata
-fn metadata_from_request(
-    opt_metadata: Option<::rpc::forge::Metadata>,
-) -> Result<Metadata, CarbideError> {
-    Ok(match opt_metadata {
-        None => Metadata {
-            name: "".to_string(),
-            description: "".to_string(),
-            labels: Default::default(),
-        },
-        Some(m) => {
-            // Note that this is unvalidated Metadata. It can contain non-ASCII names
-            // and
-            let m: Metadata = m.try_into().map_err(CarbideError::from)?;
-            m.validate(false).map_err(CarbideError::from)?;
-            m
-        }
-    })
 }

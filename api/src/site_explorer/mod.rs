@@ -425,7 +425,7 @@ impl SiteExplorer {
             );
 
             if let Some(expected_machine) = expected_machine {
-                let expected_sn = &expected_machine.serial_number;
+                let expected_sn = &expected_machine.data.serial_number;
 
                 // Check expected vs actual serial number
                 // using system serial numbers.
@@ -585,7 +585,7 @@ impl SiteExplorer {
         })?;
 
         let (metadata, sku_id) = match expected_machine {
-            Some(m) => (Some(&m.metadata), m.sku_id.as_ref()),
+            Some(m) => (Some(&m.data.metadata), m.data.sku_id.as_ref()),
             None => (None, None),
         };
 
@@ -887,7 +887,7 @@ impl SiteExplorer {
                 // it has been configured properly (DPU vs NIC mode).
                 let mut dpu_added = false;
                 if let Some(expected_machine) = matched_expected_machines.get(&ep.address) {
-                    for dpu_sn in expected_machine.fallback_dpu_serial_numbers.clone() {
+                    for dpu_sn in expected_machine.data.fallback_dpu_serial_numbers.clone() {
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.get(dpu_sn.as_str()) {
                             // We do not want to attach bluefields that are in NIC mode as DPUs to the host
                             if is_dpu_in_nic_mode(dpu_ep, ep)
