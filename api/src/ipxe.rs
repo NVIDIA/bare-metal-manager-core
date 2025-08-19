@@ -361,6 +361,9 @@ exit ||
                                     if let Some(x) = os_image.attributes.efifs_id {
                                         qcow_imaging_ipxe += format!(" efifs_uuid={x}").as_str();
                                     }
+                                    if instance.config.os.user_data.is_some() {
+                                        qcow_imaging_ipxe += " ds=nocloud-net;s=${cloudinit-url}";
+                                    }
                                     qcow_imaging_ipxe += "\r\nboot";
                                     qcow_imaging_ipxe
                                 }
