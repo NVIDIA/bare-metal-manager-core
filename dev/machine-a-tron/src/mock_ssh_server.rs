@@ -23,17 +23,25 @@ pub struct Credentials {
     pub password: String,
 }
 
+#[derive(Copy, Clone)]
+pub enum PromptBehavior {
+    Dell,
+    Dpu,
+}
+
 pub async fn spawn(
     ip: IpAddr,
     port: Option<u16>,
     prompt_hostname: Arc<dyn HostnameQuerying>,
     require_credentials: Option<Credentials>,
+    prompt_behavior: PromptBehavior,
 ) -> eyre::Result<MockSshServerHandle> {
     let mut rng = OsRng;
     let host_key = russh::keys::PrivateKey::random(&mut rng, russh::keys::Algorithm::Ed25519)?;
     let host_pubkey = host_key.public_key_base64();
     let server = Server {
         prompt_hostname,
+        prompt_behavior,
         require_credentials,
     };
     let listener = if let Some(port) = port {
@@ -69,6 +77,7 @@ pub async fn spawn(
 #[derive(Clone)]
 struct Server {
     prompt_hostname: Arc<dyn HostnameQuerying>,
+    prompt_behavior: PromptBehavior,
     require_credentials: Option<Credentials>,
 }
 
@@ -131,14 +140,15 @@ impl server::Server for Server {
     fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self::Handler {
         MockSshHandler::new(
             self.prompt_hostname.clone(),
+            self.prompt_behavior,
             self.require_credentials.clone(),
         )
     }
 }
 
-#[derive(Debug)]
 struct MockSshHandler {
     prompt_hostname: Arc<dyn HostnameQuerying>,
+    prompt_behavior: PromptBehavior,
     console_state: ConsoleState,
     buffer: Vec<u8>,
     require_credentials: Option<Credentials>,
@@ -147,10 +157,12 @@ struct MockSshHandler {
 impl MockSshHandler {
     fn new(
         prompt_hostname: Arc<dyn HostnameQuerying>,
+        prompt_behavior: PromptBehavior,
         require_credentials: Option<Credentials>,
     ) -> Self {
         Self {
             prompt_hostname,
+            prompt_behavior,
             console_state: ConsoleState::default(),
             buffer: Vec::default(),
             require_credentials,
@@ -163,7 +175,7 @@ impl MockSshHandler {
         channel: ChannelId,
     ) -> StdResult<(), russh::Error> {
         match self.console_state {
-            ConsoleState::System => {
+            ConsoleState::SystemConsole => {
                 session.data(
                     channel,
                     format!("\r\nroot@{} # ", self.prompt_hostname.get_hostname()).into(),
@@ -172,16 +184,20 @@ impl MockSshHandler {
             ConsoleState::Bmc => {
                 session.data(channel, "\nracadm>>".into())?;
             }
+            ConsoleState::NoShell => {
+                // Do nothing
+            }
         }
         Ok(())
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Copy, Clone)]
 enum ConsoleState {
     #[default]
+    NoShell,
     Bmc,
-    System,
+    SystemConsole,
 }
 
 impl server::Handler for MockSshHandler {
@@ -192,6 +208,7 @@ impl server::Handler for MockSshHandler {
         _channel: Channel<Msg>,
         _session: &mut Session,
     ) -> StdResult<bool, Self::Error> {
+        tracing::debug!("channel_open_session");
         Ok(true)
     }
 
@@ -206,8 +223,8 @@ impl server::Handler for MockSshHandler {
         _modes: &[(Pty, u32)],
         session: &mut Session,
     ) -> StdResult<(), Self::Error> {
+        tracing::debug!("pty_request");
         session.channel_success(channel)?;
-        self.print_prompt(session, channel)?;
         Ok(())
     }
 
@@ -216,6 +233,15 @@ impl server::Handler for MockSshHandler {
         channel: ChannelId,
         session: &mut Session,
     ) -> StdResult<(), Self::Error> {
+        tracing::debug!("shell_request");
+        match self.prompt_behavior {
+            PromptBehavior::Dell => {
+                self.console_state = ConsoleState::Bmc;
+            }
+            PromptBehavior::Dpu => {
+                self.console_state = ConsoleState::SystemConsole;
+            }
+        }
         session.channel_success(channel)?;
         Ok(())
     }
@@ -260,38 +286,53 @@ impl server::Handler for MockSshHandler {
             return Err(russh::Error::Disconnect);
         }
 
-        if data == b"\n" || data == b"\r\n" || data == b"\r" {
-            let command = std::mem::take(&mut self.buffer);
-            if command.starts_with(b"connect com2") {
-                tracing::info!("Got `connect com2` in state {:?}", self.console_state);
-                if matches!(self.console_state, ConsoleState::Bmc) {
-                    self.console_state = ConsoleState::System;
-                }
-            } else if command.starts_with(b"backdoor_escape_console") {
-                tracing::info!(
-                    "Got command to simulate escaping console in state {:?}: {}",
-                    self.console_state,
-                    String::from_utf8_lossy(&command),
-                );
-                self.console_state = ConsoleState::Bmc;
-            } else {
-                tracing::info!("Got command in state {:?}: {command:?}", self.console_state,);
+        match self.console_state {
+            ConsoleState::NoShell => {
+                tracing::warn!("data sent without shell request");
             }
-
-            self.print_prompt(session, channel)?;
-        } else {
-            match data {
-                b"\x1c" => {
-                    tracing::info!("Got ctrl+\\ in state {:?}", self.console_state);
-                    // ctrl+\
-                    if matches!(self.console_state, ConsoleState::System) {
-                        self.console_state = ConsoleState::Bmc;
-                        session.data(channel, "\r\nracadm>>".into())?;
+            ConsoleState::Bmc => {
+                if data == b"\n" || data == b"\r\n" || data == b"\r" {
+                    let command = std::mem::take(&mut self.buffer);
+                    if command.starts_with(b"connect com2") {
+                        tracing::info!(
+                            "Got `connect com2` in bmc propmt, simulating system console"
+                        );
+                        self.console_state = ConsoleState::SystemConsole;
                     }
-                }
-                data => {
+                    self.print_prompt(session, channel)?;
+                } else {
                     self.buffer = [&self.buffer, data].concat();
                     session.data(channel, data.into())?;
+                }
+            }
+            ConsoleState::SystemConsole => {
+                if data == b"\n" || data == b"\r\n" || data == b"\r" {
+                    let command = std::mem::take(&mut self.buffer);
+                    if matches!(self.prompt_behavior, PromptBehavior::Dell)
+                        && command.starts_with(b"backdoor_escape_console")
+                    {
+                        tracing::info!(
+                            "Got backdoor command to simulate escaping console, dropping to BMC prompt"
+                        );
+                        self.console_state = ConsoleState::Bmc;
+                    }
+                    self.print_prompt(session, channel)?;
+                } else {
+                    match (data, self.prompt_behavior) {
+                        (b"\x1c", PromptBehavior::Dell) => {
+                            // ssh-console should have prevented this, make it a warning.
+                            tracing::warn!(
+                                "Got ctrl+\\ in system console, dropping to BMC prompt {:?}",
+                                self.console_state
+                            );
+                            // ctrl+\
+                            self.console_state = ConsoleState::Bmc;
+                        }
+                        (data, _) => {
+                            self.buffer = [&self.buffer, data].concat();
+                            session.data(channel, data.into())?;
+                        }
+                    }
                 }
             }
         }

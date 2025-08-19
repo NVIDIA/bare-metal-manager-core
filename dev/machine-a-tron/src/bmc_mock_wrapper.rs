@@ -2,7 +2,7 @@ use crate::config::MachineATronContext;
 use crate::machine_state_machine::MachineStateError;
 use crate::machine_utils::add_address_to_interface;
 use crate::mock_ssh_server;
-use crate::mock_ssh_server::MockSshServerHandle;
+use crate::mock_ssh_server::{MockSshServerHandle, PromptBehavior};
 use axum::Router;
 use bmc_mock::{
     BmcCommand, BmcMockError, BmcMockHandle, HostnameQuerying, ListenerOrAddress, MachineInfo,
@@ -19,6 +19,7 @@ use tokio::sync::{RwLock, mpsc};
 /// machine-a-tron is mocking.
 #[derive(Debug)]
 pub struct BmcMockWrapper {
+    machine_info: MachineInfo,
     app_context: Arc<MachineATronContext>,
     bmc_mock_router: Router,
     hostname: Arc<dyn HostnameQuerying>,
@@ -39,12 +40,13 @@ impl BmcMockWrapper {
 
         let bmc_mock_router = bmc_mock::wrap_router_with_mock_machine(
             tar_router,
-            machine_info,
+            machine_info.clone(),
             Some(command_channel),
             mock_power_state,
         );
 
         BmcMockWrapper {
+            machine_info,
             app_context,
             bmc_mock_router,
             hostname,
@@ -108,6 +110,10 @@ impl BmcMockWrapper {
                         user: "root".to_string(),
                         password: "password".to_string(),
                     }),
+                    match self.machine_info {
+                        MachineInfo::Host(_) => PromptBehavior::Dell,
+                        MachineInfo::Dpu(_) => PromptBehavior::Dpu,
+                    },
                 )
                 .await
                 .map_err(|error| {

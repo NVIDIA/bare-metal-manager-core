@@ -110,8 +110,12 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
         tracing::info!("Skipping running ssh-console integration tests, as REPO_ROOT is not set");
         return Ok(());
     }
-    let Some(env) =
-        run_baseline_test_environment(vec![MockBmcType::Ipmi, MockBmcType::Ssh]).await?
+    let Some(env) = run_baseline_test_environment(vec![
+        MockBmcType::Ipmi,
+        MockBmcType::Ssh,
+        MockBmcType::DpuSsh,
+    ])
+    .await?
     else {
         return Ok(());
     };

@@ -7,7 +7,7 @@ use forge_tls::client_config::{
 };
 use machine_a_tron::{
     AppEvent, BmcMockRegistry, BmcRegistrationMode, MachineATron, MockSshServerHandle,
-    spawn_mock_ssh_server,
+    PromptBehavior, spawn_mock_ssh_server,
 };
 use machine_a_tron::{
     MachineATronArgs, MachineATronConfig, MachineATronContext, Tui, TuiHostLogs, api_throttler,
@@ -178,6 +178,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             // environments today. (Only ssh-console integration tests use
                             // credentials here as of today.)
                             None,
+                            PromptBehavior::Dell,
                         )
                         .await?,
                     )
