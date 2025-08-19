@@ -1016,6 +1016,11 @@ pub struct DpuConfig {
 
     #[serde(default)]
     pub dpu_nic_firmware_update_versions: Vec<String>,
+
+    /// Whether to enable secure boot flow for DPU provisioning (via redfish)
+    /// Default is false.
+    #[serde(default)]
+    pub dpu_enable_secure_boot: bool,
 }
 
 impl DpuConfig {
@@ -1130,6 +1135,7 @@ impl Default for DpuConfig {
                 ),
             ]),
             dpu_nic_firmware_update_versions: vec![BF2_NIC.to_string(), BF3_NIC.to_string()],
+            dpu_enable_secure_boot: false,
         }
     }
 }

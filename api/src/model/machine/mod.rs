@@ -1247,12 +1247,18 @@ impl ReprovisionState {
 }
 
 pub trait NextStateBFBSupport<A> {
-    fn next_substate_based_on_bfb_support(dpu_snapshots: &[&Machine]) -> A;
+    fn next_substate_based_on_bfb_support(
+        enable_secure_boot: bool,
+        dpu_snapshots: &[&Machine],
+    ) -> A;
 }
 
 impl NextStateBFBSupport<DpuDiscoveringState> for DpuDiscoveringState {
-    fn next_substate_based_on_bfb_support(dpu_snapshots: &[&Machine]) -> DpuDiscoveringState {
-        if bfb_install_support(dpu_snapshots) {
+    fn next_substate_based_on_bfb_support(
+        enable_secure_boot: bool,
+        dpu_snapshots: &[&Machine],
+    ) -> DpuDiscoveringState {
+        if enable_secure_boot && bfb_install_support(dpu_snapshots) {
             // Move with a redfish install path
             DpuDiscoveringState::EnableSecureBoot {
                 count: 0,
@@ -1268,8 +1274,11 @@ impl NextStateBFBSupport<DpuDiscoveringState> for DpuDiscoveringState {
 }
 
 impl NextStateBFBSupport<ReprovisionState> for ReprovisionState {
-    fn next_substate_based_on_bfb_support(dpu_snapshots: &[&Machine]) -> ReprovisionState {
-        if bfb_install_support(dpu_snapshots) {
+    fn next_substate_based_on_bfb_support(
+        enable_secure_boot: bool,
+        dpu_snapshots: &[&Machine],
+    ) -> ReprovisionState {
+        if enable_secure_boot && bfb_install_support(dpu_snapshots) {
             tracing::info!("All DPUs support BFB install via Redfish");
             // Move with a redfish install path
             ReprovisionState::InstallDpuOs {
