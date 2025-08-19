@@ -44,14 +44,10 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     let (instance_id, _instance) =
         create_instance(&env, &dpu_machine_id, &host_machine_id, false, segment_id).await;
     assert!(
-        !env.find_instances(Some(instance_id.into()))
+        !env.one_instance(instance_id)
             .await
-            .instances
-            .remove(0)
-            .config
-            .unwrap()
-            .tenant
-            .unwrap()
+            .config()
+            .tenant()
             .always_boot_with_custom_ipxe
     );
 
@@ -111,14 +107,10 @@ async fn test_instance_always_boot_with_custom_ipxe(pool: sqlx::PgPool) {
     let (instance_id, _instance) =
         create_instance(&env, &dpu_machine_id, &host_machine_id, true, segment_id).await;
     assert!(
-        env.find_instances(Some(instance_id.into()))
+        env.one_instance(instance_id)
             .await
-            .instances
-            .remove(0)
-            .config
-            .unwrap()
-            .tenant
-            .unwrap()
+            .config()
+            .tenant()
             .always_boot_with_custom_ipxe
     );
 

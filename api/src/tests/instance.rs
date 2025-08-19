@@ -39,9 +39,8 @@ use crate::{
                 },
                 storage::InstanceStorageConfig,
             },
-            status::{
-                SyncState,
-                network::{InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation},
+            status::network::{
+                InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
             },
         },
         machine::{
@@ -178,25 +177,13 @@ async fn test_allocate_and_release_instance_impl(
         .create(used_dpu_ids, &host_machine_id)
         .await;
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::forge::TenantState::Ready
-    );
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
-    let tenant_config = instance.config.as_ref().unwrap().tenant.as_ref().unwrap();
+    let tenant_config = instance.config().tenant();
     let expected_os = default_os_config();
-    let os = instance.config.as_ref().unwrap().os.as_ref().unwrap();
+    let os = instance.config().os();
     assert_eq!(os, &expected_os);
 
     // For backward compatibilty reasons, the OS details are still signaled
@@ -417,25 +404,13 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .create(&[dpu_machine_id], &host_machine_id)
         .await;
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::forge::TenantState::Ready
-    );
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
-    let tenant_config = instance.config.as_ref().unwrap().tenant.as_ref().unwrap();
+    let tenant_config = instance.config().tenant();
     let expected_os = default_os_config();
-    let os = instance.config.as_ref().unwrap().os.as_ref().unwrap();
+    let os = instance.config().os();
     assert_eq!(os, &expected_os);
 
     // For backward compatibilty reasons, the OS details are still signaled
@@ -577,22 +552,8 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .expect("Delete instance failed.");
 
     // The instance should show up immediatly as terminating - even if the state handler didn't yet run
-    let instance = env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .remove(0);
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::TenantState::Terminating
-    );
+    let instance = env.one_instance(instance_id).await;
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
@@ -882,11 +843,7 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
         .await;
 
     // Test searching based on instance id.
-    let mut instance_matched_by_id = env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .remove(0);
+    let mut instance_matched_by_id = env.one_instance(instance_id).await.into_inner();
 
     instance_matched_by_id.metadata = instance_matched_by_id.metadata.take().map(|mut metadata| {
         metadata.labels.sort_by(|l1, l2| l1.key.cmp(&l2.key));
@@ -1333,12 +1290,8 @@ async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConn
 
     assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
 
-    let instance = env
-        .find_instances(Some(rpc_instance_id.clone()))
-        .await
-        .instances
-        .remove(0);
-    assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
+    let instance = env.one_instance(instance_id.into()).await;
+    assert_eq!(instance.inner().id.as_ref(), Some(&rpc_instance_id));
 }
 
 #[crate::sqlx_test]
@@ -1407,22 +1360,8 @@ async fn test_instance_deletion_before_provisioning_finishes(
         .await
         .expect("Delete instance failed.");
 
-    let instance = env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .remove(0);
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::TenantState::Terminating
-    );
+    let instance = env.one_instance(instance_id).await;
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
     // Advance the instance into the "ready" state. To the tenant it will however
     // still show up as terminating
@@ -1471,22 +1410,8 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
             }))
             .await
             .unwrap_or_else(|_| panic!("Delete instance failed failed on attempt {i}."));
-        let instance = env
-            .find_instances(Some(instance_id.into()))
-            .await
-            .instances
-            .remove(0);
-        assert_eq!(
-            instance
-                .status
-                .as_ref()
-                .unwrap()
-                .tenant
-                .as_ref()
-                .unwrap()
-                .state(),
-            rpc::TenantState::Terminating
-        );
+        let instance = env.one_instance(instance_id).await;
+        assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
     }
 
     // And finally delete the instance
@@ -1723,27 +1648,14 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     );
     txn.commit().await.unwrap();
 
-    let instance = env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .remove(0);
-    let status = instance.status.as_ref().unwrap();
+    let instance = env.one_instance(instance_id).await;
+    let status = instance.status();
     assert_eq!(status.configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(status.network().configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(status.infiniband().configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(status.tenant(), rpc::TenantState::Ready);
     assert_eq!(
-        status.network.as_ref().unwrap().configs_synced(),
-        rpc::SyncState::Synced
-    );
-    assert_eq!(
-        status.infiniband.as_ref().unwrap().configs_synced(),
-        rpc::SyncState::Synced
-    );
-    assert_eq!(
-        status.tenant.as_ref().unwrap().state(),
-        rpc::TenantState::Ready
-    );
-    assert_eq!(
-        status.network.as_ref().unwrap().interfaces,
+        status.network().interfaces,
         vec![rpc::InstanceInterfaceStatus {
             virtual_function_id: None,
             mac_address: None,
@@ -1778,27 +1690,14 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     );
     txn.commit().await.unwrap();
 
-    let instance = env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .remove(0);
-    let status = instance.status.as_ref().unwrap();
+    let instance = env.one_instance(instance_id).await;
+    let status = instance.status();
     assert_eq!(status.configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(status.network().configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(status.infiniband().configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(status.tenant(), rpc::TenantState::Ready);
     assert_eq!(
-        status.network.as_ref().unwrap().configs_synced(),
-        rpc::SyncState::Synced
-    );
-    assert_eq!(
-        status.infiniband.as_ref().unwrap().configs_synced(),
-        rpc::SyncState::Synced
-    );
-    assert_eq!(
-        status.tenant.as_ref().unwrap().state(),
-        rpc::TenantState::Ready
-    );
-    assert_eq!(
-        status.network.as_ref().unwrap().interfaces,
+        status.network().interfaces,
         vec![rpc::InstanceInterfaceStatus {
             virtual_function_id: None,
             mac_address: Some("11:12:13:14:15:16".to_string()),
@@ -1838,28 +1737,15 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     );
     txn.commit().await.unwrap();
 
-    let instance = env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .remove(0);
-    let status = instance.status.as_ref().unwrap();
+    let instance = env.one_instance(instance_id).await;
+    let status = instance.status();
     assert_eq!(status.configs_synced(), rpc::SyncState::Pending);
-    assert_eq!(
-        status.network.as_ref().unwrap().configs_synced(),
-        rpc::SyncState::Pending
-    );
-    assert_eq!(
-        status.infiniband.as_ref().unwrap().configs_synced(),
-        rpc::SyncState::Synced
-    );
+    assert_eq!(status.network().configs_synced(), rpc::SyncState::Pending);
+    assert_eq!(status.infiniband().configs_synced(), rpc::SyncState::Synced);
 
+    assert_eq!(status.tenant(), rpc::TenantState::Configuring);
     assert_eq!(
-        status.tenant.as_ref().unwrap().state(),
-        rpc::TenantState::Configuring
-    );
-    assert_eq!(
-        status.network.as_ref().unwrap().interfaces,
+        status.network().interfaces,
         vec![rpc::InstanceInterfaceStatus {
             virtual_function_id: None,
             mac_address: None,
@@ -1911,27 +1797,14 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     );
     txn.commit().await.unwrap();
 
-    let instance = env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .remove(0);
-    let status = instance.status.as_ref().unwrap();
+    let instance = env.one_instance(instance_id).await;
+    let status = instance.status();
     assert_eq!(status.configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(status.network().configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(status.infiniband().configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(status.tenant(), rpc::TenantState::Ready);
     assert_eq!(
-        status.network.as_ref().unwrap().configs_synced(),
-        rpc::SyncState::Synced
-    );
-    assert_eq!(
-        status.infiniband.as_ref().unwrap().configs_synced(),
-        rpc::SyncState::Synced
-    );
-    assert_eq!(
-        status.tenant.as_ref().unwrap().state(),
-        rpc::TenantState::Ready
-    );
-    assert_eq!(
-        status.network.as_ref().unwrap().interfaces,
+        status.network().interfaces,
         vec![rpc::InstanceInterfaceStatus {
             virtual_function_id: None,
             mac_address: Some("11:12:13:14:15:16".to_string()),
@@ -1964,14 +1837,10 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
 
     txn.commit().await.unwrap();
 
-    let instance = env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .remove(0);
-    let status = instance.status.as_ref().unwrap();
+    let instance = env.one_instance(instance_id).await;
+    let status = instance.status();
     assert_eq!(
-        status.network.as_ref().unwrap().interfaces,
+        status.network().interfaces,
         vec![rpc::InstanceInterfaceStatus {
             virtual_function_id: None,
             mac_address: Some("11:12:13:14:15:16".to_string()),
@@ -2305,11 +2174,7 @@ async fn test_create_instance_with_allow_unhealthy_machine_true(
 
     assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
 
-    let instance = env
-        .find_instances(Some(rpc_instance_id.clone()))
-        .await
-        .instances
-        .remove(0);
+    let instance = env.find_instances(instance.id).await.instances.remove(0);
     assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
 }
 
@@ -2336,15 +2201,10 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
         .create(&[dpu_machine_id], &host_machine_id)
         .await;
 
-    let instance = env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .remove(0);
+    let instance = env.one_instance(instance_id).await;
 
     // Should be in a provisioning state
-    // 0 = PROVISIONING
-    assert_eq!(instance.status.unwrap().tenant.unwrap().state, 0);
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Provisioning);
 
     // Phone home to transition to the ready state
     env.api
@@ -2356,14 +2216,9 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
         .await
         .unwrap();
 
-    let instance = env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .remove(0);
+    let instance = env.one_instance(instance_id).await;
 
-    // Should be in a ready state 1 = READY
-    assert_eq!(instance.status.unwrap().tenant.unwrap().state, 1);
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
 }
 
 #[crate::sqlx_test]
@@ -2614,11 +2469,7 @@ async fn test_allocate_instance_with_old_network_segemnt(
         .await;
 
     // Test searching based on instance id.
-    let mut instance_matched_by_id = env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .remove(0);
+    let mut instance_matched_by_id = env.one_instance(instance_id).await.into_inner();
 
     instance_matched_by_id.metadata = instance_matched_by_id.metadata.take().map(|mut metadata| {
         metadata.labels.sort_by(|l1, l2| l1.key.cmp(&l2.key));
@@ -2845,25 +2696,13 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     assert_eq!(vpc_prefix.total_31_segments, 16);
     assert_eq!(vpc_prefix.available_31_segments, 15);
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::forge::TenantState::Ready
-    );
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
-    let tenant_config = instance.config.as_ref().unwrap().tenant.as_ref().unwrap();
+    let tenant_config = instance.config().tenant();
     let expected_os = default_os_config();
-    let os = instance.config.as_ref().unwrap().os.as_ref().unwrap();
+    let os = instance.config().os();
     assert_eq!(os, &expected_os);
 
     // For backward compatibilty reasons, the OS details are still signaled
@@ -3968,32 +3807,13 @@ async fn test_allocate_and_update_network_config_instance(
         .create(&[dpu_machine_id], &host_machine_id)
         .await;
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
+
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
     assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::forge::TenantState::Ready
-    );
-
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .network
-            .as_ref()
-            .unwrap()
-            .configs_synced,
-        SyncState::Synced as i32
+        instance.status().network().configs_synced(),
+        rpc::SyncState::Synced
     );
 
     let new_network_config = rpc::InstanceNetworkConfig {
@@ -4025,7 +3845,7 @@ async fn test_allocate_and_update_network_config_instance(
                     storage: None,
                     network_security_group_id: None,
                 }),
-                instance_id: instance.id,
+                instance_id: instance.rpc_id(),
                 metadata: Some(rpc::forge::Metadata {
                     name: "newinstance".to_string(),
                     description: "desc".to_string(),
@@ -4036,20 +3856,11 @@ async fn test_allocate_and_update_network_config_instance(
         .await
         .unwrap();
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
     assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .network
-            .as_ref()
-            .unwrap()
-            .configs_synced,
-        SyncState::Pending as i32
+        instance.status().network().configs_synced(),
+        rpc::SyncState::Pending
     );
 
     let mut txn = env
@@ -4057,15 +3868,10 @@ async fn test_allocate_and_update_network_config_instance(
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let instance = crate::db::instance::Instance::find_by_id(
-        &mut txn,
-        uuid::Uuid::from_str(&instance.id.clone().unwrap().value)
-            .unwrap()
-            .into(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let instance = crate::db::instance::Instance::find_by_id(&mut txn, instance.id())
+        .await
+        .unwrap()
+        .unwrap();
 
     txn.rollback().await.unwrap();
 
@@ -4119,50 +3925,26 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
         .create(&[dpu_machine_id], &host_machine_id)
         .await;
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
+
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
     assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::forge::TenantState::Ready
+        instance.status().network().configs_synced(),
+        rpc::SyncState::Synced
     );
 
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .network
-            .as_ref()
-            .unwrap()
-            .configs_synced,
-        SyncState::Synced as i32
-    );
-
-    let instance_id_rpc = instance.id.clone();
+    let instance_id_rpc = instance.rpc_id();
 
     let mut txn = env
         .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let instance = crate::db::instance::Instance::find_by_id(
-        &mut txn,
-        uuid::Uuid::from_str(&instance.id.clone().unwrap().value)
-            .unwrap()
-            .into(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let instance = crate::db::instance::Instance::find_by_id(&mut txn, instance.id())
+        .await
+        .unwrap()
+        .unwrap();
 
     let current_ip = instance.config.network.interfaces[0]
         .ip_addrs
@@ -4228,20 +4010,11 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
         .await
         .unwrap();
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
     assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .network
-            .as_ref()
-            .unwrap()
-            .configs_synced,
-        SyncState::Pending as i32
+        instance.status().network().configs_synced(),
+        rpc::SyncState::Pending
     );
 
     let mut txn = env
@@ -4249,15 +4022,10 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let instance = crate::db::instance::Instance::find_by_id(
-        &mut txn,
-        uuid::Uuid::from_str(&instance.id.clone().unwrap().value)
-            .unwrap()
-            .into(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let instance = crate::db::instance::Instance::find_by_id(&mut txn, instance.id())
+        .await
+        .unwrap()
+        .unwrap();
 
     txn.rollback().await.unwrap();
 
@@ -4401,16 +4169,14 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         .create(&[dpu_machine_id], &host_machine_id)
         .await;
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
     assert_eq!(
-        instance.status.as_ref().unwrap().configs_synced(),
+        instance.status().configs_synced(),
         rpc::forge::SyncState::Synced
     );
 
-    let interfaces_status = instance.clone().status.unwrap().network.unwrap().interfaces;
+    let interfaces_status = instance.status().network().interfaces.clone();
     let old_addresses = interfaces_status
         .iter()
         .filter_map(|x| {
@@ -4428,17 +4194,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         .sorted()
         .collect_vec();
 
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::forge::TenantState::Ready
-    );
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
     let network = rpc::InstanceNetworkConfig {
         interfaces: vec![
@@ -4509,19 +4265,10 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
     );
 
     // SyncState::Synced means network config update is not applicable.
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
     assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .network
-            .as_ref()
-            .unwrap()
-            .configs_synced(),
+        instance.status().network().configs_synced(),
         rpc::forge::SyncState::Pending
     );
 
@@ -4552,11 +4299,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         }
     ));
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
-    let interfaces = instance.config.unwrap().network.unwrap().interfaces;
+    let interfaces = &instance.config().network().interfaces;
     let mut vf_ids = interfaces
         .iter()
         .filter_map(|x| {
@@ -4568,7 +4313,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         })
         .collect_vec();
 
-    let interfaces_status = instance.status.unwrap().network.unwrap().interfaces;
+    let interfaces_status = &instance.status().network().interfaces;
     let addresses = interfaces_status
         .iter()
         .filter_map(|x| x.virtual_function_id.map(|_vf_id| x.addresses.clone()))
@@ -4620,32 +4365,13 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
         .create(&[dpu_machine_id], &host_machine_id)
         .await;
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
+
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
     assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::forge::TenantState::Ready
-    );
-
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .network
-            .as_ref()
-            .unwrap()
-            .configs_synced,
-        SyncState::Synced as i32
+        instance.status().network().configs_synced(),
+        rpc::SyncState::Synced
     );
 
     let new_network_config = rpc::InstanceNetworkConfig {
@@ -4677,7 +4403,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
                     storage: None,
                     network_security_group_id: None,
                 }),
-                instance_id: instance.id,
+                instance_id: instance.rpc_id(),
                 metadata: Some(rpc::forge::Metadata {
                     name: "newinstance".to_string(),
                     description: "desc".to_string(),
@@ -4829,26 +4555,14 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         .create(&[dpu_machine_id], &host_machine_id)
         .await;
 
-    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
-    assert_eq!(instances.len(), 1);
-    let instance = instances.remove(0);
+    let instance = env.one_instance(instance_id).await;
 
     assert_eq!(
-        instance.status.as_ref().unwrap().configs_synced(),
+        instance.status().configs_synced(),
         rpc::forge::SyncState::Synced
     );
 
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::forge::TenantState::Ready
-    );
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
     let network = rpc::InstanceNetworkConfig {
         interfaces: vec![

@@ -93,7 +93,8 @@ use forge_secrets::credentials::{
     CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
 };
 use forge_uuid::{
-    instance_type::InstanceTypeId, machine::MachineId, network::NetworkSegmentId, vpc::VpcId,
+    instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId,
+    network::NetworkSegmentId, vpc::VpcId,
 };
 use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
@@ -105,6 +106,7 @@ use rpc::forge::{
     HealthReportOverride, InsertHealthReportOverrideRequest, RemoveHealthReportOverrideRequest,
     VpcVirtualizationType, forge_server::Forge,
 };
+use rpc_instance::RpcInstance;
 use site_explorer::new_host_with_machine_validation;
 use sqlx::{PgConnection, PgPool, postgres::PgConnectOptions};
 use std::{
@@ -125,6 +127,7 @@ pub mod ib_partition;
 pub mod instance;
 pub mod managed_host;
 pub mod network_segment;
+pub mod rpc_instance;
 pub mod site_explorer;
 pub mod tenant;
 pub mod tpm_attestation;
@@ -506,6 +509,20 @@ impl TestEnv {
             .await
             .unwrap()
             .into_inner()
+    }
+
+    pub async fn one_instance(&self, id: InstanceId) -> RpcInstance {
+        let mut result = self
+            .api
+            .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery {
+                id: Some(id.into()),
+                label: None,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(result.instances.len(), 1);
+        RpcInstance::new(result.instances.remove(0))
     }
 
     pub async fn create_vpc_and_tenant_segment_with_vpc_details(

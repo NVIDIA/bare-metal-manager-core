@@ -183,11 +183,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         "0"
     );
 
-    let check_instance = env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .remove(0);
+    let check_instance = env.one_instance(instance_id).await.into_inner();
     assert_eq!(
         instance.machine_id.clone().unwrap().id,
         host_machine_id.to_string()
