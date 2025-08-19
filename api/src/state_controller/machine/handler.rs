@@ -868,7 +868,7 @@ impl MachineStateHandler {
                                 failure: _,
                                 power_state: _,
                             } => {
-                                handle_bios_job_failure(
+                                handle_boss_job_failure(
                                     redfish_client.as_ref(),
                                     mh_snapshot,
                                     ctx.services,
@@ -1062,7 +1062,7 @@ impl MachineStateHandler {
                                 failure: _,
                                 power_state: _,
                             } => {
-                                handle_bios_job_failure(
+                                handle_boss_job_failure(
                                     redfish_client.as_ref(),
                                     mh_snapshot,
                                     ctx.services,
@@ -6881,7 +6881,7 @@ pub async fn host_power_state(
         })
 }
 
-fn get_next_state_bios_job_failure(
+fn get_next_state_boss_job_failure(
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<(ManagedHostState, PowerState), StateHandlerError> {
     let (next_state, expected_power_state) = match &mh_snapshot.host_snapshot.state.value {
@@ -7210,13 +7210,13 @@ async fn wait_for_boss_controller_job_to_complete(
     }
 }
 
-async fn handle_bios_job_failure(
+async fn handle_boss_job_failure(
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
     services: &StateHandlerServices,
     txn: &mut PgConnection,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    let (next_state, expected_power_state) = get_next_state_bios_job_failure(mh_snapshot)?;
+    let (next_state, expected_power_state) = get_next_state_boss_job_failure(mh_snapshot)?;
 
     let current_power_state =
         redfish_client
@@ -7292,7 +7292,7 @@ async fn handle_bios_job_failure(
             Ok(transition!(next_state))
         }
         _ => Err(StateHandlerError::GenericError(eyre::eyre!(
-            "unexpected expected_power_state while handling a bios job failure: {expected_power_state}"
+            "unexpected expected_power_state while handling a boss job failure: {expected_power_state}"
         ))),
     }
 }
