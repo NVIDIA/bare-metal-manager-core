@@ -115,10 +115,7 @@ impl CommonIterationMetrics {
 
         let state_metrics = self.state_metrics.entry((state, substate)).or_default();
 
-        // The first set of metrics is always related to the intial state
-        state_metrics
-            .time_in_state
-            .push(object_metrics.time_in_state);
+        // The first set of metrics is always related to the initial state
         state_metrics
             .handler_latencies
             .push(object_metrics.handler_latency);
@@ -142,6 +139,11 @@ impl CommonIterationMetrics {
 
         // If a follow-up state is defined, we exited the state and entered the next state
         if let Some(next_state) = object_metrics.next_state.as_ref() {
+            // time_in_state now represents the entire time cost for the machine in a certain state
+            state_metrics
+                .time_in_state
+                .push(object_metrics.time_in_state);
+
             // We exited the initial state
             state_metrics.num_exited += 1;
 

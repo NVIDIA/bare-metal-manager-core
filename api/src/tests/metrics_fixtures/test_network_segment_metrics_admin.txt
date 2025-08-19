@@ -96,24 +96,6 @@ forge_machines_state_entered_total{state="deleting",substate="drainallocatedips"
 forge_machines_state_exited_total{state="ready",substate=""} 1
 # HELP forge_machines_time_in_state_seconds The amount of time objects of type forge_machines have spent in a certain state
 # TYPE forge_machines_time_in_state_seconds histogram
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="0"} 0
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="5"} 1
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="10"} 1
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="25"} 1
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="50"} 1
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="75"} 1
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="100"} 1
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="250"} 1
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="500"} 1
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="750"} 1
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="1000"} 1
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="2500"} 1
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="5000"} 1
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="7500"} 1
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="10000"} 1
-forge_machines_time_in_state_seconds_bucket{state="deleting",substate="drainallocatedips",le="+Inf"} 1
-forge_machines_time_in_state_seconds_sum{state="deleting",substate="drainallocatedips"} 0.007546689
-forge_machines_time_in_state_seconds_count{state="deleting",substate="drainallocatedips"} 1
 forge_machines_time_in_state_seconds_bucket{state="ready",substate="",le="0"} 0
 forge_machines_time_in_state_seconds_bucket{state="ready",substate="",le="5"} 1
 forge_machines_time_in_state_seconds_bucket{state="ready",substate="",le="10"} 1
