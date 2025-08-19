@@ -173,8 +173,8 @@ impl BmcEndpointExplorer {
         if let Some(expected_machine_credentials) = expected_machine {
             tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected machine for this BMC mac address");
             current_bmc_credentials = Credentials::UsernamePassword {
-                username: expected_machine_credentials.bmc_username.clone(),
-                password: expected_machine_credentials.bmc_password.clone(),
+                username: expected_machine_credentials.data.bmc_username.clone(),
+                password: expected_machine_credentials.data.bmc_password.clone(),
             };
         } else {
             tracing::info!(%bmc_ip_address, %bmc_mac_address, %vendor, "No expected machine found, could be a BlueField");

@@ -33,9 +33,12 @@ use crate::{
     CarbideError,
     cfg::file::SiteExplorerConfig,
     db::{
-        self, DatabaseError, ObjectColumnFilter, ObjectFilter, expected_machine::ExpectedMachine,
-        explored_endpoints::DbExploredEndpoint, explored_managed_host::DbExploredManagedHost,
-        machine::MachineSearchConfig, machine_topology::MachineTopology,
+        self, DatabaseError, ObjectColumnFilter, ObjectFilter,
+        expected_machine::{ExpectedMachine, ExpectedMachineData},
+        explored_endpoints::DbExploredEndpoint,
+        explored_managed_host::DbExploredManagedHost,
+        machine::MachineSearchConfig,
+        machine_topology::MachineTopology,
     },
     model::{
         hardware_info::HardwareInfo,
@@ -1870,12 +1873,14 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     let mut host1_expected_machine = ExpectedMachine::create(
         &mut txn,
         HOST1_MAC.to_string().parse().unwrap(),
-        "user1".to_string(),
-        "pw".to_string(),
-        "host1".to_string(),
-        vec![],
-        Metadata::new_with_default_name(),
-        None,
+        ExpectedMachineData {
+            bmc_username: "user1".to_string(),
+            bmc_password: "pw".to_string(),
+            serial_number: "host1".to_string(),
+            fallback_dpu_serial_numbers: vec![],
+            metadata: Metadata::new_with_default_name(),
+            sku_id: None,
+        },
     )
     .await?;
     txn.commit().await?;
@@ -1911,12 +1916,14 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     host1_expected_machine
         .update(
             &mut txn,
-            "user1".to_string(),
-            "pw".to_string(),
-            "host1".to_string(),
-            vec![HOST1_DPU_SERIAL_NUMBER.to_string()],
-            Metadata::new_with_default_name(),
-            None,
+            ExpectedMachineData {
+                bmc_username: "user1".to_string(),
+                bmc_password: "pw".to_string(),
+                serial_number: "host1".to_string(),
+                fallback_dpu_serial_numbers: vec![HOST1_DPU_SERIAL_NUMBER.to_string()],
+                metadata: Metadata::new_with_default_name(),
+                sku_id: None,
+            },
         )
         .await?;
     txn.commit().await?;
@@ -3113,12 +3120,14 @@ async fn test_machine_creation_with_sku(
     ExpectedMachine::create(
         &mut txn,
         HOST1_MAC.to_string().parse().unwrap(),
-        "user1".to_string(),
-        "pw".to_string(),
-        "host1".to_string(),
-        vec![HOST1_DPU_SERIAL_NUMBER.to_string()],
-        Metadata::new_with_default_name(),
-        Some("Some SKU".to_string()),
+        ExpectedMachineData {
+            bmc_username: "user1".to_string(),
+            bmc_password: "pw".to_string(),
+            serial_number: "host1".to_string(),
+            fallback_dpu_serial_numbers: vec![HOST1_DPU_SERIAL_NUMBER.to_string()],
+            metadata: Metadata::new_with_default_name(),
+            sku_id: Some("Some SKU".to_string()),
+        },
     )
     .await?;
     txn.commit().await?;

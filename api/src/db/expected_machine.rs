@@ -29,14 +29,8 @@ const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExpectedMachine {
     pub bmc_mac_address: MacAddress,
-    pub bmc_username: String,
-    pub serial_number: String,
-    pub bmc_password: String,
-    #[serde(default)]
-    pub fallback_dpu_serial_numbers: Vec<String>,
-    #[serde(default)]
-    pub metadata: Metadata,
-    pub sku_id: Option<String>,
+    #[serde(flatten)]
+    pub data: ExpectedMachineData,
 }
 
 impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
@@ -50,12 +44,14 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
 
         Ok(ExpectedMachine {
             bmc_mac_address: row.try_get("bmc_mac_address")?,
-            bmc_username: row.try_get("bmc_username")?,
-            serial_number: row.try_get("serial_number")?,
-            bmc_password: row.try_get("bmc_password")?,
-            fallback_dpu_serial_numbers: row.try_get("fallback_dpu_serial_numbers")?,
-            metadata,
-            sku_id: row.try_get("sku_id")?,
+            data: ExpectedMachineData {
+                bmc_username: row.try_get("bmc_username")?,
+                serial_number: row.try_get("serial_number")?,
+                bmc_password: row.try_get("bmc_password")?,
+                fallback_dpu_serial_numbers: row.try_get("fallback_dpu_serial_numbers")?,
+                metadata,
+                sku_id: row.try_get("sku_id")?,
+            },
         })
     }
 }
@@ -64,12 +60,12 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
     fn from(expected_machine: ExpectedMachine) -> Self {
         rpc::forge::ExpectedMachine {
             bmc_mac_address: expected_machine.bmc_mac_address.to_string(),
-            bmc_username: expected_machine.bmc_username,
-            bmc_password: expected_machine.bmc_password,
-            chassis_serial_number: expected_machine.serial_number,
-            fallback_dpu_serial_numbers: expected_machine.fallback_dpu_serial_numbers,
-            metadata: Some(expected_machine.metadata.into()),
-            sku_id: expected_machine.sku_id,
+            bmc_username: expected_machine.data.bmc_username,
+            bmc_password: expected_machine.data.bmc_password,
+            chassis_serial_number: expected_machine.data.serial_number,
+            fallback_dpu_serial_numbers: expected_machine.data.fallback_dpu_serial_numbers,
+            metadata: Some(expected_machine.data.metadata.into()),
+            sku_id: expected_machine.data.sku_id,
         }
     }
 }
@@ -195,22 +191,16 @@ FROM expected_machines em
                 _ => DatabaseError::new(file!(), line!(), query, err).into(),
             })?;
 
-        self.bmc_username = bmc_username;
-        self.bmc_password = bmc_password;
+        self.data.bmc_username = bmc_username;
+        self.data.bmc_password = bmc_password;
 
         Ok(self)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn create(
         txn: &mut PgConnection,
         bmc_mac_address: MacAddress,
-        bmc_username: String,
-        bmc_password: String,
-        serial_number: String,
-        fallback_dpu_serial_numbers: Vec<String>,
-        metadata: Metadata,
-        sku_id: Option<String>,
+        data: ExpectedMachineData,
     ) -> CarbideResult<Self> {
         let query = "INSERT INTO expected_machines
             (bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id)
@@ -219,14 +209,14 @@ FROM expected_machines em
 
         sqlx::query_as(query)
             .bind(bmc_mac_address)
-            .bind(bmc_username)
-            .bind(bmc_password)
-            .bind(serial_number)
-            .bind(fallback_dpu_serial_numbers)
-            .bind(metadata.name)
-            .bind(metadata.description)
-            .bind(sqlx::types::Json(metadata.labels))
-            .bind(sku_id)
+            .bind(data.bmc_username)
+            .bind(data.bmc_password)
+            .bind(data.serial_number)
+            .bind(data.fallback_dpu_serial_numbers)
+            .bind(data.metadata.name)
+            .bind(data.metadata.description)
+            .bind(sqlx::types::Json(data.metadata.labels))
+            .bind(data.sku_id)
             .fetch_one(txn)
             .await
             .map_err(|err: sqlx::Error| match err {
@@ -266,28 +256,22 @@ FROM expected_machines em
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn update(
         &mut self,
         txn: &mut PgConnection,
-        bmc_username: String,
-        bmc_password: String,
-        serial_number: String,
-        fallback_dpu_serial_numbers: Vec<String>,
-        metadata: Metadata,
-        sku_id: Option<String>,
+        data: ExpectedMachineData,
     ) -> CarbideResult<&Self> {
         let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, sku_id=$8 WHERE bmc_mac_address=$9 RETURNING bmc_mac_address";
 
         let _: () = sqlx::query_as(query)
-            .bind(&bmc_username)
-            .bind(&bmc_password)
-            .bind(&serial_number)
-            .bind(&fallback_dpu_serial_numbers)
-            .bind(&metadata.name)
-            .bind(&metadata.description)
-            .bind(sqlx::types::Json(&metadata.labels))
-            .bind(&sku_id)
+            .bind(&data.bmc_username)
+            .bind(&data.bmc_password)
+            .bind(&data.serial_number)
+            .bind(&data.fallback_dpu_serial_numbers)
+            .bind(&data.metadata.name)
+            .bind(&data.metadata.description)
+            .bind(sqlx::types::Json(&data.metadata.labels))
+            .bind(&data.sku_id)
             .bind(self.bmc_mac_address)
             .fetch_one(txn)
             .await
@@ -299,12 +283,7 @@ FROM expected_machines em
                 _ => DatabaseError::new(file!(), line!(), query, err).into(),
             })?;
 
-        self.serial_number = serial_number;
-        self.bmc_username = bmc_username;
-        self.bmc_password = bmc_password;
-        self.fallback_dpu_serial_numbers = fallback_dpu_serial_numbers;
-        self.metadata = metadata;
-        self.sku_id = sku_id;
+        self.data = data;
         Ok(self)
     }
 
@@ -330,19 +309,58 @@ FROM expected_machines em
             }
 
             let expected_machine = expected_machine.clone();
-            ExpectedMachine::create(
-                txn,
-                expected_machine.bmc_mac_address,
-                expected_machine.bmc_username,
-                expected_machine.bmc_password,
-                expected_machine.serial_number,
-                expected_machine.fallback_dpu_serial_numbers,
-                expected_machine.metadata,
-                expected_machine.sku_id,
-            )
-            .await?;
+            ExpectedMachine::create(txn, expected_machine.bmc_mac_address, expected_machine.data)
+                .await?;
         }
 
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ExpectedMachineData {
+    pub bmc_username: String,
+    pub bmc_password: String,
+    pub serial_number: String,
+    #[serde(default)]
+    pub fallback_dpu_serial_numbers: Vec<String>,
+    pub sku_id: Option<String>,
+    #[serde(default)]
+    pub metadata: Metadata,
+}
+
+impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
+    type Error = CarbideError;
+
+    fn try_from(em: rpc::forge::ExpectedMachine) -> Result<Self, Self::Error> {
+        Ok(Self {
+            bmc_username: em.bmc_username,
+            bmc_password: em.bmc_password,
+            serial_number: em.chassis_serial_number,
+            fallback_dpu_serial_numbers: em.fallback_dpu_serial_numbers,
+            sku_id: em.sku_id,
+            metadata: metadata_from_request(em.metadata)?,
+        })
+    }
+}
+
+/// If Metadata is retrieved as part of the ExpectedMachine creation, validate and use the Metadata
+/// Otherwise assume empty Metadata
+fn metadata_from_request(
+    opt_metadata: Option<::rpc::forge::Metadata>,
+) -> Result<Metadata, CarbideError> {
+    Ok(match opt_metadata {
+        None => Metadata {
+            name: "".to_string(),
+            description: "".to_string(),
+            labels: Default::default(),
+        },
+        Some(m) => {
+            // Note that this is unvalidated Metadata. It can contain non-ASCII names
+            // and
+            let m: Metadata = m.try_into().map_err(CarbideError::from)?;
+            m.validate(false).map_err(CarbideError::from)?;
+            m
+        }
+    })
 }

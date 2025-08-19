@@ -11,7 +11,10 @@
  */
 use crate::{
     CarbideError,
-    db::{expected_machine::ExpectedMachine, explored_endpoints::DbExploredEndpoint},
+    db::{
+        expected_machine::{ExpectedMachine, ExpectedMachineData},
+        explored_endpoints::DbExploredEndpoint,
+    },
     model::{metadata::Metadata, site_explorer::EndpointExplorationReport},
 };
 use common::api_fixtures::create_test_env;
@@ -42,6 +45,7 @@ async fn test_lookup_by_mac(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         get_expected_machine_1(&mut txn)
             .await
             .expect("Expected machine not found")
+            .data
             .serial_number,
         "VVG121GG"
     );
@@ -62,12 +66,14 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let new_machine = ExpectedMachine::create(
         &mut txn,
         machine.bmc_mac_address,
-        "ADMIN3".into(),
-        "hmm".into(),
-        "JFAKLJF".into(),
-        vec![],
-        Metadata::new_with_default_name(),
-        None,
+        ExpectedMachineData {
+            bmc_username: "ADMIN3".into(),
+            bmc_password: "hmm".into(),
+            serial_number: "JFAKLJF".into(),
+            fallback_dpu_serial_numbers: vec![],
+            metadata: Metadata::new_with_default_name(),
+            sku_id: None,
+        },
     )
     .await;
 
@@ -89,7 +95,7 @@ async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn s
         .await
         .expect("Expected machine not found");
 
-    assert_eq!(machine.serial_number, "VVG121GG");
+    assert_eq!(machine.data.serial_number, "VVG121GG");
 
     machine
         .update_bmc_credentials(&mut txn, "ADMIN2".to_string(), "wysiwyg".to_string())
@@ -107,8 +113,8 @@ async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn s
         .await
         .expect("Expected machine not found");
 
-    assert_eq!(machine.bmc_username, "ADMIN2");
-    assert_eq!(machine.bmc_password, "wysiwyg");
+    assert_eq!(machine.data.bmc_username, "ADMIN2");
+    assert_eq!(machine.data.bmc_password, "wysiwyg");
 
     Ok(())
 }
@@ -123,7 +129,7 @@ async fn test_delete(pool: sqlx::PgPool) -> () {
         .await
         .expect("Expected machine not found");
 
-    assert_eq!(machine.serial_number, "VVG121GG");
+    assert_eq!(machine.data.serial_number, "VVG121GG");
 
     ExpectedMachine::delete(machine.bmc_mac_address, &mut txn)
         .await
@@ -713,13 +719,13 @@ async fn test_with_dpu_serial_numbers(
         .await
         .unwrap()
         .expect("Expected machine not found");
-    assert!(em0.fallback_dpu_serial_numbers.is_empty());
+    assert!(em0.data.fallback_dpu_serial_numbers.is_empty());
 
     let em3 = ExpectedMachine::find_by_bmc_mac_address(&mut txn, fixture_mac_address_3)
         .await
         .unwrap()
         .expect("Expected machine not found");
-    assert_eq!(em3.fallback_dpu_serial_numbers, vec!["dpu_serial1"]);
+    assert_eq!(em3.data.fallback_dpu_serial_numbers, vec!["dpu_serial1"]);
 
     let em4 = ExpectedMachine::find_by_bmc_mac_address(&mut txn, fixture_mac_address_4)
         .await
@@ -727,7 +733,7 @@ async fn test_with_dpu_serial_numbers(
         .expect("Expected machine not found");
 
     assert_eq!(
-        em4.fallback_dpu_serial_numbers,
+        em4.data.fallback_dpu_serial_numbers,
         vec!["dpu_serial2", "dpu_serial3"]
     );
 

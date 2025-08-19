@@ -487,7 +487,10 @@ async fn by_mac(
 
     let expected = ExpectedMachine::find_by_bmc_mac_address(&mut txn, mac).await?;
     if let Some(em) = expected {
-        return Ok(Some((em.serial_number, rpc::MacOwner::ExpectedMachine)));
+        return Ok(Some((
+            em.data.serial_number,
+            rpc::MacOwner::ExpectedMachine,
+        )));
     }
 
     // Any other MAC addresses to search?

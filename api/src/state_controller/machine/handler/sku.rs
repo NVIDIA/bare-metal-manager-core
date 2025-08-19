@@ -108,7 +108,7 @@ async fn generate_missing_sku_for_machine(
         .await
         .ok()
         .flatten()
-        .is_none_or(|em| em.sku_id.as_ref().is_none_or(|id| id != sku_id))
+        .is_none_or(|em| em.data.sku_id.as_ref().is_none_or(|id| id != sku_id))
     {
         tracing::debug!("No expected machine for bmc {}", bmc_mac_address);
         return false;
