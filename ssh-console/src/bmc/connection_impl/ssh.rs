@@ -377,16 +377,6 @@ async fn trigger_and_await_sol_console(
     ssh_client_channel: &mut Channel<russh::client::Msg>,
     bmc_vendor: SshBmcVendor,
 ) -> Result<(), ConsoleActivateError> {
-    let Some(bmc_prompt) = bmc_vendor.bmc_prompt() else {
-        // This vendor lets us get a console directly by SSH'ing in (e.g. a DPU.)
-        return Ok(());
-    };
-    let Some(activate_command) = bmc_vendor.serial_activate_command() else {
-        // All vendors in bmc_vendor.rs must either return Some for both bmc_prompt() and
-        // serial_activate_command(), or None for both of them.
-        panic!("BUG: vendor has a BMC prompt but not a serial_activate_command")
-    };
-
     // BMC activation sequence:
     // - Send PTY and shell requests to establish terminal
     // - Send vendor-specific activation command
@@ -407,6 +397,17 @@ async fn trigger_and_await_sol_console(
             phase: "sending shell request to BMC",
             error,
         })?;
+
+    let Some(bmc_prompt) = bmc_vendor.bmc_prompt() else {
+        // This vendor lets us get a console directly by SSH'ing in (e.g. a DPU.)
+        return Ok(());
+    };
+    let Some(activate_command) = bmc_vendor.serial_activate_command() else {
+        // All vendors in bmc_vendor.rs must either return Some for both bmc_prompt() and
+        // serial_activate_command(), or None for both of them.
+        panic!("BUG: vendor has a BMC prompt but not a serial_activate_command")
+    };
+
     ssh_client_channel
         .data(b"\n".as_slice())
         .await
