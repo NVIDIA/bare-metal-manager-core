@@ -29,7 +29,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Create a machine
     let (host_id, _dpu_machine_id) = create_managed_host(&env).await;
     let (_host_id_2, _dpu_machine_id_2) = create_managed_host(&env).await;
-    let rpc_host_id: rpc::MachineId = host_id.to_string().into();
+    let rpc_host_id: rpc::MachineId = host_id.into();
 
     // enable maintenance mode
     let req = rpcf::MaintenanceRequest {
@@ -189,7 +189,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
     let segment_id = env.create_vpc_and_tenant_segment().await;
     // Create a machine
     let (host_id, _) = create_managed_host_multi_dpu(&env, 2).await;
-    let rpc_host_id: rpc::MachineId = host_id.to_string().into();
+    let rpc_host_id: rpc::MachineId = host_id.into();
 
     // enable maintenance mode
     let req = rpcf::MaintenanceRequest {

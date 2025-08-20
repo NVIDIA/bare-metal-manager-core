@@ -717,13 +717,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         test_id: Some("test1".to_string()),
     };
 
-    let response = forge_agent_control(
-        &env,
-        rpc::MachineId {
-            id: host_machine_id.to_string(),
-        },
-    )
-    .await;
+    let response = forge_agent_control(&env, host_machine_id.into()).await;
     let uuid = &response.data.unwrap().pair[1].value;
 
     machine_validation_result.validation_id = Some(rpc::Uuid {
@@ -942,9 +936,7 @@ async fn test_allocate_instance_with_invalid_metadata(_: PgPoolOptions, options:
             .api
             .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
                 instance_id: None,
-                machine_id: Some(rpc::MachineId {
-                    id: host_machine_id.to_string(),
-                }),
+                machine_id: host_machine_id.into(),
                 instance_type_id: None,
                 config: Some(config),
                 metadata: Some(invalid_metadata.clone()),
@@ -1068,7 +1060,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
         .api
         .get_managed_host_network_config(tonic::Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+                dpu_machine_id: dpu_machine_id.into(),
             },
         ))
         .await
@@ -1124,7 +1116,7 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
         .api
         .get_managed_host_network_config(tonic::Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+                dpu_machine_id: dpu_machine_id.into(),
             },
         ))
         .await
@@ -1272,9 +1264,7 @@ async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConn
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: Some(rpc_instance_id.clone()),
-            machine_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
+            machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
@@ -1318,9 +1308,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
+            machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
@@ -1461,9 +1449,7 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: Some(rpc_instance_id.clone()),
-            machine_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
+            machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(config.clone()),
             metadata: Some(rpc::Metadata {
@@ -1482,9 +1468,7 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: Some(rpc_instance_id.clone()),
-            machine_id: Some(rpc::MachineId {
-                id: host_machine_id_2.to_string(),
-            }),
+            machine_id: host_machine_id_2.into(),
             instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
@@ -2013,7 +1997,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         .api
         .get_managed_host_network_config(tonic::Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+                dpu_machine_id: dpu_machine_id.into(),
             },
         ))
         .await
@@ -2075,9 +2059,7 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
+            machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(rpc::InstanceConfig {
                 os: Some(default_os_config()),
@@ -2149,9 +2131,7 @@ async fn test_create_instance_with_allow_unhealthy_machine_true(
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: Some(rpc_instance_id.clone()),
-            machine_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
+            machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(rpc::InstanceConfig {
                 os: Some(default_os_config()),
@@ -2345,9 +2325,7 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: Some(rpc_instance_id.clone()),
-            machine_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
+            machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
@@ -2407,9 +2385,7 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: Some(rpc_instance_id.clone()),
-            machine_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
+            machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
@@ -3190,9 +3166,7 @@ async fn test_allocate_with_instance_type_id(
     let _ = env
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: Some(rpc::MachineId {
-                id: mh.host_snapshot.id.to_string(),
-            }),
+            machine_id: mh.host_snapshot.id.into(),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 network_security_group_id: None,
@@ -3218,9 +3192,7 @@ async fn test_allocate_with_instance_type_id(
     let instance = env
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: Some(rpc::MachineId {
-                id: mh.host_snapshot.id.to_string(),
-            }),
+            machine_id: mh.host_snapshot.id.into(),
             config: Some(rpc::InstanceConfig {
                 network_security_group_id: None,
                 tenant: Some(default_tenant_config()),
@@ -3265,9 +3237,7 @@ async fn test_allocate_with_instance_type_id(
     let instance = env
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: Some(rpc::MachineId {
-                id: mh2.host_snapshot.id.to_string(),
-            }),
+            machine_id: mh2.host_snapshot.id.into(),
             config: Some(rpc::InstanceConfig {
                 network_security_group_id: None,
                 tenant: Some(default_tenant_config()),
@@ -3322,9 +3292,7 @@ async fn test_allocate_and_update_with_network_security_group(
     let _ = env
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: Some(rpc::MachineId {
-                id: mh.host_snapshot.id.to_string(),
-            }),
+            machine_id: mh.host_snapshot.id.into(),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
@@ -3350,9 +3318,7 @@ async fn test_allocate_and_update_with_network_security_group(
     let i = env
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: Some(rpc::MachineId {
-                id: mh.host_snapshot.id.to_string(),
-            }),
+            machine_id: mh.host_snapshot.id.into(),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
@@ -3504,9 +3470,7 @@ async fn test_network_details_migration(
     let i = env
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: Some(rpc::MachineId {
-                id: mh_without_network_details.host_snapshot.id.to_string(),
-            }),
+            machine_id: mh_without_network_details.host_snapshot.id.into(),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
@@ -3589,9 +3553,7 @@ async fn test_network_details_migration(
     let i = env
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: Some(rpc::MachineId {
-                id: mh_without_segment_id.host_snapshot.id.to_string(),
-            }),
+            machine_id: mh_without_segment_id.host_snapshot.id.into(),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
@@ -3659,9 +3621,7 @@ async fn test_network_details_migration(
     let i = env
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: Some(rpc::MachineId {
-                id: mh_with_vpc_prefix.host_snapshot.id.to_string(),
-            }),
+            machine_id: mh_with_vpc_prefix.host_snapshot.id.into(),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
@@ -4885,9 +4845,7 @@ async fn test_instance_release_backward_compatibility(_: PgPoolOptions, options:
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
+            machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
@@ -5032,9 +4990,7 @@ async fn test_instance_release_repair_tenant(_: PgPoolOptions, options: PgConnec
             .api
             .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
                 instance_id: None,
-                machine_id: Some(rpc::MachineId {
-                    id: host_machine_id.to_string(),
-                }),
+                machine_id: host_machine_id.into(),
                 instance_type_id: None,
                 config: Some(config),
                 metadata: Some(rpc::Metadata {
@@ -5144,9 +5100,7 @@ async fn test_instance_release_combined_enhancements(_: PgPoolOptions, options: 
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
+            machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
@@ -5258,9 +5212,7 @@ async fn test_instance_release_auto_repair_enabled(_: PgPoolOptions, options: Pg
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
+            machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
@@ -5388,9 +5340,7 @@ async fn test_instance_release_repair_tenant_successful_completion(
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
+            machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(config.clone()),
             metadata: None,

@@ -106,9 +106,7 @@ impl<'a> TestInstance<'a> {
             .api
             .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
                 instance_id: None,
-                machine_id: Some(rpc::MachineId {
-                    id: host_machine_id.to_string(),
-                }),
+                machine_id: host_machine_id.into(),
                 instance_type_id: None,
                 config: Some(self.config),
                 metadata: self.metadata,
@@ -434,13 +432,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         test_id: Some("instance".to_string()),
     };
 
-    let response = forge_agent_control(
-        env,
-        rpc::MachineId {
-            id: host_machine_id.to_string(),
-        },
-    )
-    .await;
+    let response = forge_agent_control(env, host_machine_id.into()).await;
     let uuid = &response.data.unwrap().pair[1].value;
 
     machine_validation_result.validation_id = Some(rpc::Uuid {

@@ -32,7 +32,7 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
     let host_machine = env
-        .find_machines(Some(host_machine_id.to_string().into()), None, true)
+        .find_machines(host_machine_id.into(), None, true)
         .await
         .machines
         .remove(0);

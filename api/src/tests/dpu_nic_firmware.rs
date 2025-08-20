@@ -69,7 +69,7 @@ async fn test_start_updates_with_multidpu(
 
     let (host_machine_id, _) = create_managed_host_multi_dpu(&env, 2).await;
 
-    let rpc_host_id: rpc::MachineId = host_machine_id.to_string().into();
+    let rpc_host_id: rpc::MachineId = host_machine_id.into();
     let host = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {

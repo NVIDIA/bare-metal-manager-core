@@ -261,9 +261,7 @@ pub async fn create_machine_inventory(env: &TestEnv, machine_id: &MachineId) {
     tracing::debug!("Creating machine inventory for {}", machine_id);
     env.api
         .update_agent_reported_inventory(Request::new(rpc::forge::DpuAgentInventoryReport {
-            machine_id: Some(rpc::MachineId {
-                id: machine_id.to_string(),
-            }),
+            machine_id: machine_id.into(),
             inventory: Some(rpc::forge::MachineInventory {
                 components: vec![
                     rpc::forge::MachineInventorySoftwareComponent {

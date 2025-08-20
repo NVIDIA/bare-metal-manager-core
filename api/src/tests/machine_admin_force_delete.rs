@@ -141,7 +141,7 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
 
     let bmc_addrs = vec![
         IpAddr::from_str(
-            env.find_machines(Some(host_machine_id.to_string().into()), None, true)
+            env.find_machines(host_machine_id.into(), None, true)
                 .await
                 .machines
                 .first()
@@ -155,7 +155,7 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
         )
         .unwrap(),
         IpAddr::from_str(
-            env.find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+            env.find_machines(dpu_machine_id.into(), None, true)
                 .await
                 .machines
                 .first()
@@ -205,13 +205,13 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
     validate_delete_response(&response, Some(&host_machine_id), &dpu_machine_id);
 
     assert!(
-        env.find_machines(Some(host_machine_id.to_string().into()), None, true)
+        env.find_machines(host_machine_id.into(), None, true)
             .await
             .machines
             .is_empty()
     );
     assert!(
-        env.find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+        env.find_machines(dpu_machine_id.into(), None, true)
             .await
             .machines
             .is_empty()
@@ -250,10 +250,7 @@ async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::P
         .into_inner();
     assert_eq!(ifaces.interfaces.len(), 1);
     let iface = ifaces.interfaces.remove(0);
-    assert_eq!(
-        iface.attached_dpu_machine_id,
-        Some(dpu_machine_id.to_string().into())
-    );
+    assert_eq!(iface.attached_dpu_machine_id, Some(dpu_machine_id.into()));
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
@@ -356,9 +353,7 @@ async fn validate_machine_deletion(
     bmc_addrs: Option<&Vec<IpAddr>>,
 ) {
     // The machine should be now be gone in the API
-    let response = env
-        .find_machines(Some(machine_id.to_string().into()), None, true)
-        .await;
+    let response = env.find_machines(machine_id.into(), None, true).await;
     assert!(response.machines.is_empty());
 
     // And it should also be gone on the DB layer
@@ -561,13 +556,13 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     assert_eq!(ib_fabric.find_ib_port(Some(filter)).await.unwrap().len(), 0);
 
     assert!(
-        env.find_machines(Some(host_machine_id.to_string().into()), None, true)
+        env.find_machines(host_machine_id.into(), None, true)
             .await
             .machines
             .is_empty()
     );
     assert!(
-        env.find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+        env.find_machines(dpu_machine_id.into(), None, true)
             .await
             .machines
             .is_empty()
@@ -639,7 +634,7 @@ async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgP
     let rpc_dpu_ids = dpu_ids
         .clone()
         .into_iter()
-        .map(|id| id.into())
+        .map(Into::into)
         .collect::<Vec<rpc::MachineId>>();
     assert_eq!(
         dpu_ids.len(),

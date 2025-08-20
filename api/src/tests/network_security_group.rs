@@ -15,6 +15,7 @@ use std::time::SystemTime;
 
 use config_version::ConfigVersion;
 use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
 use rpc::health::HealthReport;
 use tonic::Code;
@@ -38,7 +39,7 @@ async fn update_network_status_observation(
     instance_id: &str,
     good_network_security_group_id: &str,
     security_version: &str,
-    dpu_machine_id: &str,
+    dpu_machine_id: &MachineId,
     source: rpc::forge::NetworkSecurityGroupSource,
     internal_uuid: &rpc::Uuid,
 ) {
@@ -63,9 +64,7 @@ async fn update_network_status_observation(
                 }),
                 internal_uuid: Some(internal_uuid.clone()),
             }],
-            dpu_machine_id: Some(rpc::MachineId {
-                id: dpu_machine_id.to_string(),
-            }),
+            dpu_machine_id: dpu_machine_id.into(),
             network_config_version: Some("V1-T1".to_string()),
             instance_network_config_version: Some("V1-T1".to_string()),
             network_config_error: None,
@@ -898,9 +897,7 @@ async fn test_network_security_group_delete(
     let instance = env
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: Some(rpc::MachineId {
-                id: mh.host_snapshot.id.to_string(),
-            }),
+            machine_id: mh.host_snapshot.id.into(),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
@@ -1201,9 +1198,7 @@ async fn test_network_security_group_propagation_impl(
     let _ = env
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: Some(rpc::MachineId {
-                id: mh.host_snapshot.id.to_string(),
-            }),
+            machine_id: mh.host_snapshot.id.into(),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
@@ -1281,7 +1276,7 @@ async fn test_network_security_group_propagation_impl(
     tracing::info!("updating network obs");
     for (internal_id, dpu_machine_id) in internal_interface_ids
         .iter()
-        .zip(mh.dpu_snapshots.iter().map(|s| s.id.to_string()))
+        .zip(mh.dpu_snapshots.iter().map(|s| s.id))
     {
         update_network_status_observation(
             &env,
@@ -1391,7 +1386,7 @@ async fn test_network_security_group_propagation_impl(
     // the DPU updated and has the NSG with the VPC source
     for (internal_id, dpu_machine_id) in internal_interface_ids
         .iter()
-        .zip(mh.dpu_snapshots.iter().map(|s| s.id.to_string()))
+        .zip(mh.dpu_snapshots.iter().map(|s| s.id))
     {
         update_network_status_observation(
             &env,
@@ -1443,9 +1438,7 @@ async fn test_network_security_group_propagation_impl(
     let _ = env
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: Some(rpc::MachineId {
-                id: mh2.host_snapshot.id.to_string(),
-            }),
+            machine_id: mh2.host_snapshot.id.into(),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
@@ -1528,7 +1521,7 @@ async fn test_network_security_group_propagation_impl(
     // with the VPC source.
     for (internal_id, dpu_machine_id) in internal_interface_ids2
         .iter()
-        .zip(mh2.dpu_snapshots.iter().map(|s| s.id.to_string()))
+        .zip(mh2.dpu_snapshots.iter().map(|s| s.id))
     {
         update_network_status_observation(
             &env,
@@ -1656,7 +1649,7 @@ async fn test_network_security_group_propagation_impl(
     // Now another observation with the new version.
     for (internal_id, dpu_machine_id) in internal_interface_ids
         .iter()
-        .zip(mh.dpu_snapshots.iter().map(|s| s.id.to_string()))
+        .zip(mh.dpu_snapshots.iter().map(|s| s.id))
     {
         update_network_status_observation(
             &env,
@@ -1703,7 +1696,7 @@ async fn test_network_security_group_propagation_impl(
     // Now send an observation update for the second instance
     for (internal_id, dpu_machine_id) in internal_interface_ids2
         .iter()
-        .zip(mh2.dpu_snapshots.iter().map(|s| s.id.to_string()))
+        .zip(mh2.dpu_snapshots.iter().map(|s| s.id))
     {
         update_network_status_observation(
             &env,
@@ -1816,9 +1809,7 @@ async fn test_network_security_group_get_attachments(
     let _ = env
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: Some(rpc::MachineId {
-                id: mh.host_snapshot.id.to_string(),
-            }),
+            machine_id: mh.host_snapshot.id.into(),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),

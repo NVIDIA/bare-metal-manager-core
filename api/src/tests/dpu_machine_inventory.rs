@@ -24,9 +24,7 @@ async fn test_create_inventory(db_pool: sqlx::PgPool) -> Result<(), eyre::Report
 
     let (_, dpu_machine_id) = create_managed_host(&env).await;
 
-    let machine_result = env
-        .find_machines(Some(dpu_machine_id.to_string().into()), None, true)
-        .await;
+    let machine_result = env.find_machines(dpu_machine_id.into(), None, true).await;
 
     assert_eq!(machine_result.machines.len(), 1);
 

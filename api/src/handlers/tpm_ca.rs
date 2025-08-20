@@ -18,7 +18,6 @@ use tonic::{Request, Response};
 use crate::attestation as attest;
 use crate::db::attestation as db_attest;
 use crate::{CarbideError, api::log_request_data, db::DatabaseError};
-use ::rpc::common as rpc_common;
 use ::rpc::forge as rpc;
 
 pub(crate) async fn tpm_add_ca_cert(
@@ -172,9 +171,7 @@ pub(crate) async fn tpm_show_unmatched_ek_certs(
         .iter()
         .map(|entry| rpc::TpmEkCertStatus {
             serial_num: entry.serial_num.clone(),
-            machine_id: Some(rpc_common::MachineId {
-                id: entry.machine_id.to_string(),
-            }),
+            machine_id: entry.machine_id.into(),
             issuer: X509Name::from_der(&entry.issuer)
                 .map(|x| x.1.to_string())
                 .unwrap_or("Could not parse issuer".to_string()),

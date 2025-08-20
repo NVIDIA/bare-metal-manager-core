@@ -235,9 +235,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(rpc::MachineId {
-                id: dpu_machine_id.to_string(),
-            }),
+            dpu_machine_id: dpu_machine_id.into(),
         }))
         .await
         .unwrap()

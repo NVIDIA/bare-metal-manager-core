@@ -1973,12 +1973,12 @@ async fn test_site_explorer_health_report(
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let host_machine = env
-        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .find_machines(host_machine_id.into(), None, false)
         .await
         .machines
         .remove(0);
     let dpu_machine = env
-        .find_machines(Some(dpu_machine_id.to_string().into()), None, false)
+        .find_machines(dpu_machine_id.into(), None, false)
         .await
         .machines
         .remove(0);
@@ -2055,7 +2055,7 @@ async fn test_site_explorer_health_report(
     explorer.run_single_iteration().await.unwrap();
 
     let host_machine = env
-        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .find_machines(host_machine_id.into(), None, false)
         .await
         .machines
         .remove(0);
@@ -2078,7 +2078,7 @@ async fn test_site_explorer_health_report(
     explorer.run_single_iteration().await.unwrap();
 
     let host_machine = env
-        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .find_machines(host_machine_id.into(), None, false)
         .await
         .machines
         .remove(0);
