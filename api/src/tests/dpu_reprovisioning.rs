@@ -761,7 +761,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         TenantState::DpuReprovisioning
     );
 
-    _ = forge_agent_control(&env, instance.machine_id.unwrap()).await;
+    _ = forge_agent_control(&env, instance.machine_id().into()).await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     txn.commit().await.unwrap();

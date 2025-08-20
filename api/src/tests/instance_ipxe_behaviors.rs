@@ -11,6 +11,7 @@
  */
 
 use crate::db::{self};
+use crate::tests::common::api_fixtures::rpc_instance::RpcInstance;
 use common::api_fixtures::{TestEnv, create_test_env};
 use rpc::forge::{PxeInstructions, forge_server::Forge};
 
@@ -168,7 +169,7 @@ pub async fn create_instance(
     host_machine_id: &MachineId,
     run_provisioning_instructions_on_every_boot: bool,
     segment_id: NetworkSegmentId,
-) -> (InstanceId, rpc::Instance) {
+) -> (InstanceId, RpcInstance) {
     let mut os: rpc::forge::OperatingSystem = default_os_config();
     os.run_provisioning_instructions_on_every_boot = run_provisioning_instructions_on_every_boot;
 

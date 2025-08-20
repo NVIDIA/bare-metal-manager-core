@@ -183,40 +183,15 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         "0"
     );
 
-    let check_instance = env.one_instance(instance_id).await.into_inner();
-    assert_eq!(
-        instance.machine_id.clone().unwrap().id,
-        host_machine_id.to_string()
-    );
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::TenantState::Ready
-    );
+    let check_instance = env.one_instance(instance_id).await;
+    assert_eq!(instance.machine_id(), host_machine_id);
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
     assert_eq!(instance, check_instance);
 
-    let ib_config = check_instance
-        .config
-        .as_ref()
-        .unwrap()
-        .infiniband
-        .as_ref()
-        .unwrap();
+    let ib_config = check_instance.config().infiniband();
     assert_eq!(ib_config.ib_interfaces.len(), 2);
 
-    let ib_status = check_instance
-        .status
-        .as_ref()
-        .unwrap()
-        .infiniband
-        .as_ref()
-        .unwrap();
+    let ib_status = check_instance.status().infiniband();
     assert_eq!(ib_status.ib_interfaces.len(), 2);
 
     if let Some(iface) = ib_config.ib_interfaces.first() {

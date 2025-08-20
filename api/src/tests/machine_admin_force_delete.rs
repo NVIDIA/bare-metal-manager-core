@@ -524,7 +524,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     let check_instance = env.one_instance(instance_id).await;
     assert_eq!(check_instance.machine_id(), host_machine_id);
     assert_eq!(check_instance.status().tenant(), rpc::TenantState::Ready);
-    assert_eq!(&instance, check_instance.inner());
+    assert_eq!(instance, check_instance);
 
     let ib_config = check_instance.config().infiniband();
     assert_eq!(ib_config.ib_interfaces.len(), 1);
