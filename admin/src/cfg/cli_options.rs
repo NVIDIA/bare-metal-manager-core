@@ -2913,13 +2913,20 @@ pub enum Sku {
     #[clap(about = "Delete a SKU", visible_alias = "d")]
     Delete { sku_id: String },
     #[clap(about = "Assign a SKU to a machine", visible_alias = "a")]
-    Assign { sku_id: String, machine_id: String },
+    Assign {
+        sku_id: String,
+        machine_id: String,
+        #[clap(long)]
+        force: bool,
+    },
     #[clap(about = "Unassign a SKU from a machine", visible_alias = "u")]
     Unassign { machine_id: String },
     #[clap(about = "Verify a machine against its SKU", visible_alias = "v")]
     Verify { machine_id: String },
     #[clap(about = "Update the metadata of a SKU")]
     UpdateMetadata(UpdateSkuMetadata),
+    #[clap(about = "Update multiple SKU's metadata from a file")]
+    BulkUpdateMetadata(BulkUpdatyeSkuMetadata),
     #[clap(about = "Replace the component list of a SKU")]
     ReplaceComponents(ReplaceSkuComponents),
 }
@@ -3040,6 +3047,12 @@ impl From<UpdateSkuMetadata> for ::rpc::forge::SkuUpdateMetadataRequest {
             device_type: value.device_type,
         }
     }
+}
+
+#[derive(Parser, Debug)]
+pub struct BulkUpdatyeSkuMetadata {
+    #[clap(help = "The CSV file to use to update metadata for multiple skus")]
+    pub filename: String,
 }
 
 #[derive(Parser, Debug)]

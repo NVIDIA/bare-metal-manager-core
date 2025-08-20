@@ -134,20 +134,23 @@ pub(crate) async fn assign_to_machine(
         id: machine_id.to_string(),
     })?;
 
-    match machine.current_state() {
-        ManagedHostState::BomValidating {
-            bom_validating_state: BomValidating::WaitingForSkuAssignment(_),
-        } => {}
-        ManagedHostState::Ready if machine.hw_sku.is_none() => {
-            // if the host is in ready state without a sku, allow the assignment, but force a verification.
-            // this can happen when 'ignore_unassigned_machines' is true
-            crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id)
-                .await?;
+    if !sku_machine_pair.force {
+        if let Some(assigned_sku) = machine.hw_sku {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "The specified machine already has a SKU assigned ({assigned_sku})"
+            )));
         }
-        _ => {
-            return Err(CarbideError::FailedPrecondition(
-                "Specified machine is not in a valid state for assigning a SKU".to_string(),
-            ));
+
+        match machine.current_state() {
+            ManagedHostState::BomValidating {
+                bom_validating_state: BomValidating::WaitingForSkuAssignment(_),
+            }
+            | ManagedHostState::Ready => {}
+            _ => {
+                return Err(CarbideError::FailedPrecondition(
+                    "Specified machine is not in a valid state for assigning a SKU".to_string(),
+                ));
+            }
         }
     }
 
@@ -168,6 +171,8 @@ pub(crate) async fn assign_to_machine(
     crate::db::machine::assign_sku(&mut txn, &machine_id, &sku.id)
         .await
         .map_err(CarbideError::from)?;
+
+    crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(file!(), line!(), "assign to machine", e))
