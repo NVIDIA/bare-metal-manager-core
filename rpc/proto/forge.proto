@@ -4712,6 +4712,7 @@ message Sku {
 message SkuMachinePair {
   string sku_id = 1;
   common.MachineId machine_id = 2;
+  bool force = 3;
 }
 
 message SkuList {

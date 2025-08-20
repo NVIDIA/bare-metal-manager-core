@@ -4,10 +4,12 @@ use std::pin::Pin;
 use ::rpc::forge::SkuList;
 use prettytable::{Row, Table};
 use rpc::forge::SkuIdList;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
-use crate::cfg::cli_options::{CreateSku, GenerateSku, ReplaceSkuComponents, Sku};
+use crate::cfg::cli_options::{
+    BulkUpdatyeSkuMetadata, CreateSku, GenerateSku, ReplaceSkuComponents, Sku, UpdateSkuMetadata,
+};
 use crate::rpc::ApiClient;
 use crate::{async_write_table_as_csv, async_writeln};
 
@@ -392,10 +394,16 @@ pub async fn handle_sku_command(
                 .delete_sku(SkuIdList { ids: vec![sku_id] })
                 .await?;
         }
-        Sku::Assign { sku_id, machine_id } => {
+        Sku::Assign {
+            sku_id,
+            machine_id,
+            force,
+        } => {
             let machine_id = ::rpc::common::MachineId { id: machine_id };
 
-            api_client.assign_sku_to_machine(sku_id, machine_id).await?;
+            api_client
+                .assign_sku_to_machine(sku_id, machine_id, force)
+                .await?;
         }
         Sku::Unassign { machine_id } => {
             let machine_id = ::rpc::common::MachineId { id: machine_id };
@@ -410,6 +418,34 @@ pub async fn handle_sku_command(
         Sku::UpdateMetadata(update_request) => {
             api_client.0.update_sku_metadata(update_request).await?;
         }
+        Sku::BulkUpdateMetadata(BulkUpdatyeSkuMetadata { filename }) => {
+            let mut bulk_data_file = BufReader::new(
+                tokio::fs::OpenOptions::new()
+                    .read(true)
+                    .write(false)
+                    .open(&filename)
+                    .await?,
+            );
+            let mut line = String::new();
+
+            while bulk_data_file.read_line(&mut line).await? > 0 {
+                let trimmed_line = line.trim();
+                if let Some((sku_id, device_type)) =
+                    trimmed_line.split_once(", ".chars().collect::<Vec<char>>().as_slice())
+                {
+                    api_client
+                        .0
+                        .update_sku_metadata(UpdateSkuMetadata {
+                            sku_id: sku_id.to_string(),
+                            description: None,
+                            device_type: Some(device_type.to_string()),
+                        })
+                        .await?;
+                }
+                line.truncate(0);
+            }
+        }
+
         Sku::ReplaceComponents(ReplaceSkuComponents { filename, id }) => {
             let file_data = std::fs::read_to_string(filename)?;
             let sku: rpc::forge::Sku = serde_json::de::from_str(&file_data)?;

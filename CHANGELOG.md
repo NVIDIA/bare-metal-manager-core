@@ -28,6 +28,7 @@
   * machine state machine has a new state `BomValidation/SkuMissing` to handle the situation when the sku specified in the expected machine does not exist.
   * new metrics are emitted for the number of machines associated with a sku and/or device_type
 
+- [FORGE-6728](https://jirasw.nvidia.com/browse/FORGE-6728): new cli command to allow bulk update of sku device type
 
 ### Changed
 
@@ -35,7 +36,10 @@
   stricter ARP/neighbor learning on tenant networks. Note that this could be a
   breaking change if a tenant workload relies on being able to inject neighbor
   entries (via GARP or otherwise) that are outside of a subnet prefix.
+
 - [FORGE-4766](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4443): Scout now logs errors when query_api fails.
+
+- [FORGE-6728](https://jirasw.nvidia.com/browse/FORGE-6728): Allow the cli for force an assignment of a SKU to a machine
 
 ### Fixed
 

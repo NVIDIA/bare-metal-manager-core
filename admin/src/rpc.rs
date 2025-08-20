@@ -1912,10 +1912,12 @@ impl ApiClient {
         &self,
         sku_id: String,
         machine_id: ::rpc::common::MachineId,
+        force: bool,
     ) -> CarbideCliResult<()> {
         let request = ::rpc::forge::SkuMachinePair {
             sku_id,
             machine_id: Some(machine_id),
+            force,
         };
         self.0
             .assign_sku_to_machine(request)

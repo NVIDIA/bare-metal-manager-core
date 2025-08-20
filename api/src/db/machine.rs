@@ -2108,7 +2108,7 @@ pub async fn assign_sku(
     machine_id: &MachineId,
     sku_id: &str,
 ) -> Result<MachineId, DatabaseError> {
-    let query = "UPDATE machines SET hw_sku=$1 WHERE id=$2 and hw_sku is null RETURNING id";
+    let query = "UPDATE machines SET hw_sku=$1 WHERE id=$2 RETURNING id";
 
     let id = sqlx::query_as(query)
         .bind(sku_id)
