@@ -9,6 +9,9 @@ edition = "2021"
 [preprocessor.mermaid]
 command = "mdbook-mermaid"
 
+[preprocessor.plantuml]
+command = "mdbook-plantuml"
+
 [output]
 [output.html]
 additional-js = ["svg-pan-zoom.js", "mermaid.min.js", "mermaid-init.js"]
