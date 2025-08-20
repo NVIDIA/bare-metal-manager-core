@@ -888,7 +888,7 @@ impl From<Machine> for rpc::forge::Machine {
         let associated_dpu_machine_ids: Vec<rpc::MachineId> = machine
             .associated_dpu_machine_ids()
             .iter()
-            .map(|id| id.to_string().into())
+            .map(Into::into)
             .collect();
         let associated_dpu_machine_id = associated_dpu_machine_ids.first().cloned();
         let instance_network_restrictions = Some(machine.instance_network_restrictions());

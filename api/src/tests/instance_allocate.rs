@@ -245,9 +245,7 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
     // the static_vpc_id field to determine where allocation should happen.
     let rpc_machine: forge::Machine = env
         .api
-        .get_machine(tonic::Request::new(::rpc::MachineId::from(
-            zero_dpu_host.host_snapshot.id,
-        )))
+        .get_machine(tonic::Request::new(zero_dpu_host.host_snapshot.id.into()))
         .await?
         .into_inner();
 
@@ -806,7 +804,7 @@ async fn test_single_dpu_instance_allocation(
     let instid = result.id.unwrap();
     let mid = result.machine_id.unwrap();
 
-    let machine = env
+    let mut machine = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
             machine_ids: vec![mid.clone()],
@@ -818,24 +816,12 @@ async fn test_single_dpu_instance_allocation(
         .machines
         .remove(0);
 
-    let mut dpu_ids = if !machine.associated_dpu_machine_ids.is_empty() {
-        machine
-            .associated_dpu_machine_ids
-            .iter()
-            .map(|i| i.to_string())
-            .collect::<Vec<_>>()
-    } else {
-        vec![]
-    };
-
-    let dpu_id = dpu_ids.remove(0);
-
-    let dpu_id = rpc::MachineId { id: dpu_id };
+    let dpu_machine_id = machine.associated_dpu_machine_ids.remove(0).into();
 
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_id),
+            dpu_machine_id,
         }))
         .await
         .unwrap();

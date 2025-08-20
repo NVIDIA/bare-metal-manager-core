@@ -423,6 +423,30 @@ impl From<MachineId> for ::rpc::common::MachineId {
     }
 }
 
+impl From<&MachineId> for ::rpc::common::MachineId {
+    fn from(machine_id: &MachineId) -> Self {
+        Self {
+            id: machine_id.to_string(),
+        }
+    }
+}
+
+impl From<MachineId> for Option<::rpc::common::MachineId> {
+    fn from(machine_id: MachineId) -> Self {
+        Some(::rpc::common::MachineId {
+            id: machine_id.to_string(),
+        })
+    }
+}
+
+impl From<&MachineId> for Option<::rpc::common::MachineId> {
+    fn from(machine_id: &MachineId) -> Self {
+        Some(::rpc::common::MachineId {
+            id: machine_id.to_string(),
+        })
+    }
+}
+
 /// The length that is used for the prefix in Machine IDs
 pub const MACHINE_ID_PREFIX_LENGTH: usize = 7;
 

@@ -238,7 +238,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .into_inner();
 
     assert!(
-        env.find_machines(Some(host_machine_id.to_string().into()), None, true)
+        env.find_machines(host_machine_id.into(), None, true)
             .await
             .machines
             .is_empty()

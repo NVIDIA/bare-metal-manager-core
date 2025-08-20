@@ -537,7 +537,7 @@ async fn test_get_linked_expected_machines_completed(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let host_machine = env
-        .find_machines(Some(host_machine_id.to_string().into()), None, true)
+        .find_machines(host_machine_id.into(), None, true)
         .await
         .machines
         .remove(0);

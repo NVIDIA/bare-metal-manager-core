@@ -370,7 +370,7 @@ async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
 
     // Interface is created. Let's fetch interface id.
     let machine = env
-        .find_machines(Some(dpu_id.to_string().into()), None, true)
+        .find_machines(dpu_id.into(), None, true)
         .await
         .machines
         .remove(0);

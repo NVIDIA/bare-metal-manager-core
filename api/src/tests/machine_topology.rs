@@ -40,9 +40,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut txn = env.pool.begin().await?;
 
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
-    let host_machine_id = ::rpc::MachineId {
-        id: dpu_machine_id.id.replace("fm100d", "fm100p"),
-    };
+    let host_machine_id = dpu_machine_id.id.replace("fm100d", "fm100p").into();
     let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
 
@@ -189,9 +187,7 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     let mut txn = env.pool.begin().await?;
 
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
-    let host_machine_id = ::rpc::MachineId {
-        id: dpu_machine_id.id.replace("fm100d", "fm100p"),
-    };
+    let host_machine_id = dpu_machine_id.id.replace("fm100d", "fm100p").into();
     let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
 
@@ -408,7 +404,7 @@ async fn test_find_machine_ids_by_bmc_ips(db_pool: sqlx::PgPool) -> Result<(), e
     let env = create_test_env(db_pool.clone()).await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
     let host_machine = env
-        .find_machines(Some(host_machine_id.to_string().into()), None, true)
+        .find_machines(host_machine_id.into(), None, true)
         .await
         .machines
         .remove(0);

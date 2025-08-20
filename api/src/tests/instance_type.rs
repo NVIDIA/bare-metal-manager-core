@@ -446,9 +446,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: Some(rpc::MachineId {
-                id: tmp_machine_id.to_string(),
-            }),
+            machine_id: tmp_machine_id.into(),
             instance_type_id: Some(id.to_string()),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
@@ -479,9 +477,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     )
     .await;
 
-    let orig_machine = env
-        .find_machines(Some(tmp_machine_id.into()), None, false)
-        .await;
+    let orig_machine = env.find_machines(tmp_machine_id.into(), None, false).await;
 
     // Try to delete the instance type.  This should fail
     // because there's an instance associated with the machine associated
@@ -509,9 +505,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .unwrap();
 
     // Grab the machine so we can verify that it actually got the update
-    let machine = env
-        .find_machines(Some(tmp_machine_id.into()), None, false)
-        .await;
+    let machine = env.find_machines(tmp_machine_id.into(), None, false).await;
 
     // Check that it has had its instance type id automatically removed.
     assert_eq!(machine.machines[0].instance_type_id, None);
@@ -615,9 +609,7 @@ async fn test_instance_type_associate(
 
     let (tmp_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let orig_machine = env
-        .find_machines(Some(tmp_machine_id.into()), None, false)
-        .await;
+    let orig_machine = env.find_machines(tmp_machine_id.into(), None, false).await;
 
     // Associate the machine with the instance type
     let _ = env
@@ -632,9 +624,7 @@ async fn test_instance_type_associate(
         .unwrap();
 
     // Grab the machine so we can verify that it actually got the update
-    let machine = env
-        .find_machines(Some(tmp_machine_id.into()), None, false)
-        .await;
+    let machine = env.find_machines(tmp_machine_id.into(), None, false).await;
 
     // Check that it has the instance type ID we expect.
     assert_eq!(machine.machines[0].instance_type_id, Some(id.clone()));
@@ -659,9 +649,7 @@ async fn test_instance_type_associate(
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: Some(rpc::MachineId {
-                id: tmp_machine_id.to_string(),
-            }),
+            machine_id: tmp_machine_id.into(),
             instance_type_id: Some("1fcd4e9a-be16-11ef-b892-0fad889bcd2b".to_string()),
             config: Some(rpc::InstanceConfig {
                 network_security_group_id: None,
@@ -685,9 +673,7 @@ async fn test_instance_type_associate(
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: Some(rpc::MachineId {
-                id: tmp_machine_id.to_string(),
-            }),
+            machine_id: tmp_machine_id.into(),
             instance_type_id: machine.machines[0].instance_type_id.clone(),
             config: Some(rpc::InstanceConfig {
                 network_security_group_id: None,
@@ -774,9 +760,7 @@ async fn test_instance_type_associate(
         .unwrap();
 
     // Grab the machine so we can verify that it actually got the update
-    let machine = env
-        .find_machines(Some(tmp_machine_id.into()), None, false)
-        .await;
+    let machine = env.find_machines(tmp_machine_id.into(), None, false).await;
 
     // Check that the machine no longer has the instance type ID
     assert!(machine.machines[0].instance_type_id.is_none());

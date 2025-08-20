@@ -383,7 +383,7 @@ async fn test_machine_validation_get_results(
     assert_eq!(results.results[0].name, "instance".to_owned());
 
     let machine = env
-        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .find_machines(host_machine_id.into(), None, false)
         .await
         .machines
         .remove(0);

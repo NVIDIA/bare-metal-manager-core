@@ -77,7 +77,7 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .unwrap();
 
     let mut host_machine = env
-        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .find_machines(host_machine_id.into(), None, false)
         .await
         .machines
         .remove(0);
@@ -131,7 +131,7 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .unwrap();
 
     let mut host_machine = env
-        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .find_machines(host_machine_id.into(), None, false)
         .await
         .machines
         .remove(0);

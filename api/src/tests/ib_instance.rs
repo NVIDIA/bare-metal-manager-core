@@ -655,9 +655,7 @@ pub async fn try_allocate_instance(
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: Some(rpc::MachineId {
-                id: host_machine_id.to_string(),
-            }),
+            machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::forge::Metadata {

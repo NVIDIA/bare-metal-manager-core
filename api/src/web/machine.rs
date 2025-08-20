@@ -557,13 +557,9 @@ impl From<forgerpc::Machine> for MachineDetail {
                     iface_display.slot = props.slot.clone().unwrap_or_default();
                 }
                 if let Some(ib_status) = m.ib_status.as_ref() {
-                    iface_display.observed_at = to_time(
-                        ib_status.observed_at,
-                        &rpc::MachineId {
-                            id: machine_id.clone(),
-                        },
-                    )
-                    .unwrap_or_default();
+                    iface_display.observed_at =
+                        to_time(ib_status.observed_at, &machine_id.clone().into())
+                            .unwrap_or_default();
 
                     for iter_status in ib_status.ib_interfaces.iter() {
                         if Some(&iface_display.guid) == iter_status.guid.as_ref() {
@@ -617,13 +613,8 @@ impl From<forgerpc::Machine> for MachineDetail {
                 .as_ref()
                 .map(|sla| sla.time_in_state_above_sla)
                 .unwrap_or_default(),
-            last_reboot: to_time(
-                m.last_reboot_time,
-                &rpc::MachineId {
-                    id: machine_id.clone(),
-                },
-            )
-            .unwrap_or("N/A".to_string()),
+            last_reboot: to_time(m.last_reboot_time, &machine_id.clone().into())
+                .unwrap_or("N/A".to_string()),
             state_reason: m.state_reason,
             version: m.version,
             metadata: m.metadata.unwrap_or_default(),

@@ -197,9 +197,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         .unwrap();
 
     let clean_failed_req = tonic::Request::new(rpc::MachineCleanupInfo {
-        machine_id: Some(rpc::MachineId {
-            id: host_machine_id.to_string(),
-        }),
+        machine_id: host_machine_id.into(),
         nvme: Some(
             rpc::protos::forge::machine_cleanup_info::CleanupStepResult {
                 result: rpc::protos::forge::machine_cleanup_info::CleanupResult::Error as i32,
@@ -246,9 +244,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
 
     // Fail again
     let clean_failed_req = tonic::Request::new(rpc::MachineCleanupInfo {
-        machine_id: Some(rpc::MachineId {
-            id: host_machine_id.to_string(),
-        }),
+        machine_id: host_machine_id.into(),
         nvme: Some(
             rpc::protos::forge::machine_cleanup_info::CleanupStepResult {
                 result: rpc::protos::forge::machine_cleanup_info::CleanupResult::Error as i32,
@@ -288,9 +284,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     ));
     // Now the host cleans up successfully.
     let clean_succeeded_req = tonic::Request::new(rpc::MachineCleanupInfo {
-        machine_id: Some(rpc::MachineId {
-            id: host_machine_id.to_string(),
-        }),
+        machine_id: host_machine_id.into(),
         nvme: None,
         ram: None,
         mem_overwrite: None,
@@ -507,7 +501,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     ));
 
     txn.commit().await.unwrap();
-    let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
+    let host_rpc_machine_id: rpc::MachineId = host_machine_id.into();
     let pxe = env
         .api
         .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
@@ -1141,7 +1135,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     let host_machine_id = host_discover_machine(env, &host_config, machine_interface_id).await;
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
-    let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
+    let host_rpc_machine_id: rpc::MachineId = host_machine_id.into();
 
     // ---------------
     // now, since the CA has not been added, we should be stuck in the failed state

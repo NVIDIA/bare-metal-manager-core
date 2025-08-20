@@ -24,7 +24,7 @@ async fn fetch_bmc_credentials(pool: PgPool) {
         create_managed_host_with_config(&env, host_config).await;
 
     let host_machine = env
-        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .find_machines(host_machine_id.into(), None, false)
         .await
         .machines
         .remove(0);
