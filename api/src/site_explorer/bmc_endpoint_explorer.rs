@@ -434,7 +434,7 @@ impl BmcEndpointExplorer {
                         details: format!("failed to create {UNIFIED_PREINGESTION_BFB_PATH}: {err}"),
                     })?;
 
-            let mut buffer = [0; 1024 * 1024]; // 1 MB buffer
+            let mut buffer = vec![0; 1024 * 1024]; // 1 MB buffer
 
             tracing::info!("Writing BFB to {UNIFIED_PREINGESTION_BFB_PATH}");
             loop {

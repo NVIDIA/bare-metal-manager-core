@@ -153,7 +153,7 @@ impl SshClient {
                 .scp_send(Path::new(&remote_path), 0o644, file_size, None)?;
 
         let ip = self.ip_address;
-        let mut buffer = [0; 1024 * 1024]; // 1 MB buffer
+        let mut buffer = vec![0; 1024 * 1024]; // 1 MB buffer
         let mut total_bytes_copied = 0;
         let mut next_progress_marker = 10.0;
 
