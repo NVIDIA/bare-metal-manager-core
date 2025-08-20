@@ -1025,6 +1025,8 @@ pages:
   needs:
     - job: export-docker-json-config
       optional: false
+    - job: build-build-container-x86_64
+      optional: true
   image:
     name: $CONTAINER_BUILD_X86_64
   script:
