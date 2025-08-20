@@ -275,9 +275,9 @@ async fn test_old_machine_state_history(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
     let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
 
     let mut txn = env.pool.begin().await?;
 

@@ -43,10 +43,10 @@ async fn only_one_primary_interface_per_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu = host_sim.config.get_and_assert_single_dpu();
-    let other_host_sim = env.start_managed_host_sim();
-    let other_dpu = other_host_sim.config.get_and_assert_single_dpu();
+    let host_config = env.managed_host_config();
+    let dpu = host_config.get_and_assert_single_dpu();
+    let other_host_config = env.managed_host_config();
+    let other_dpu = other_host_config.get_and_assert_single_dpu();
 
     let mut txn = env.pool.begin().await?;
 
@@ -62,7 +62,7 @@ async fn only_one_primary_interface_per_machine(
     )
     .await?;
 
-    let machine_id = from_hardware_info(&host_sim.config.borrow().into()).unwrap();
+    let machine_id = from_hardware_info(&host_config.borrow().into()).unwrap();
     let new_machine = db::machine::get_or_create(&mut txn, None, &machine_id, &new_interface)
         .await
         .expect("Unable to create machine");
@@ -242,8 +242,8 @@ async fn find_all_interfaces_test_cases(
 #[crate::sqlx_test]
 async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu = host_sim.config.get_and_assert_single_dpu();
+    let host_config = env.managed_host_config();
+    let dpu = host_config.get_and_assert_single_dpu();
 
     let mut txn = env.pool.begin().await?;
 
@@ -477,8 +477,8 @@ async fn test_delete_interface_with_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
-    let host_sim = env.start_managed_host_sim();
-    let rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
+    let host_config = env.managed_host_config();
+    let rpc_machine_id = create_dpu_machine(&env, &host_config).await;
     let dpu_machine_id = try_parse_machine_id(&rpc_machine_id).unwrap();
 
     let mut txn = pool.begin().await?;
@@ -523,8 +523,8 @@ async fn test_delete_bmc_interface_with_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
-    let host_sim = env.start_managed_host_sim();
-    let _rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
+    let host_config = env.managed_host_config();
+    let _rpc_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let mut txn = pool.begin().await?;
     let interfaces = db::machine_interface::find_all(&mut txn).await.unwrap();

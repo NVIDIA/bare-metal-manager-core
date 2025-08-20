@@ -1785,9 +1785,9 @@ async fn test_disable_machine_creation_outside_site_explorer(
         TestEnvOverrides::with_config(config),
     )
     .await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
 
-    let hardware_info = HardwareInfo::from(&host_sim.config);
+    let hardware_info = HardwareInfo::from(&host_config);
     let discovery_info = DiscoveryInfo::try_from(hardware_info.clone()).unwrap();
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
     let response = env

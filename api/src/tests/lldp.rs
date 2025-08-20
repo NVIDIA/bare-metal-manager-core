@@ -11,8 +11,8 @@ use crate::tests::common::api_fixtures::{create_managed_host, dpu::dpu_discover_
 #[crate::sqlx_test]
 async fn test_lldp_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let _dpu_rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
+    let host_config = env.managed_host_config();
+    let _dpu_rpc_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let topology = env
         .api
@@ -109,8 +109,8 @@ async fn test_lldp_topology_force_delete(
 #[crate::sqlx_test]
 async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu_rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
+    let host_config = env.managed_host_config();
+    let dpu_rpc_machine_id = create_dpu_machine(&env, &host_config).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
     let topology = env
@@ -181,7 +181,7 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     let _dpu_rpc_machine_id = dpu_discover_machine(
         &env,
-        host_sim.config.get_and_assert_single_dpu(),
+        host_config.get_and_assert_single_dpu(),
         machine_interface_id.into(),
     )
     .await;

@@ -65,9 +65,9 @@ async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPa
 #[crate::sqlx_test]
 async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
     let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine =
@@ -232,11 +232,11 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
 #[crate::sqlx_test]
 async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
     let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
     let host_machine_interface_id =
-        host_discover_dhcp(&env, &host_sim.config, &dpu_machine_id.clone()).await;
+        host_discover_dhcp(&env, &host_config, &dpu_machine_id.clone()).await;
 
     // The MachineInterface for the host should now exist and be linked to the DPU
     let mut ifaces = env

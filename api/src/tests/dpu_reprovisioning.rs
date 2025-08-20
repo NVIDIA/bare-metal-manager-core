@@ -2097,10 +2097,10 @@ async fn test_clear_maintenance_when_reprov_is_set(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_dpu_reset(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
 
     let (dpu_machine_id, host_machine_id) =
-        create_dpu_machine_in_waiting_for_network_install(&env, &host_sim.config).await;
+        create_dpu_machine_in_waiting_for_network_install(&env, &host_config).await;
     let dpu_rpc_machine_id: rpc::MachineId = dpu_machine_id.to_string().into();
 
     let agent_control_response = forge_agent_control(&env, dpu_rpc_machine_id.clone()).await;

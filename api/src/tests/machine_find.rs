@@ -42,9 +42,9 @@ use rpc::forge::{
 #[crate::sqlx_test]
 async fn test_find_machine_by_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
     let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
     let mut txn = env.pool.begin().await.unwrap();
 
     let machine = db::machine::find_by_query(&mut txn, &dpu_machine_id.to_string())
@@ -73,9 +73,9 @@ async fn test_find_machine_by_id(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
     let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine =
@@ -144,9 +144,9 @@ async fn test_find_machine_with_sku(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
     let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = db::machine::find_one(
@@ -186,9 +186,9 @@ async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
     let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = db::machine::find_one(
@@ -224,9 +224,9 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
     let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine =
         db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -331,11 +331,11 @@ async fn test_find_machine_ids(pool: sqlx::PgPool) {
     };
 
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
     let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
     let host_machine_id = host_id_from_dpu_hardware_info(&HardwareInfo::from(
-        host_sim.config.get_and_assert_single_dpu(),
+        host_config.get_and_assert_single_dpu(),
     ))
     .unwrap();
     let mut txn = env.pool.begin().await.unwrap();
@@ -399,11 +399,11 @@ async fn test_find_dpu_machine_ids(pool: sqlx::PgPool) {
     };
 
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
     let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
     let host_machine_id = host_id_from_dpu_hardware_info(&HardwareInfo::from(
-        host_sim.config.get_and_assert_single_dpu(),
+        host_config.get_and_assert_single_dpu(),
     ))
     .unwrap();
     let mut txn = env.pool.begin().await.unwrap();
@@ -425,11 +425,11 @@ async fn test_find_predicted_host_machine_ids(pool: sqlx::PgPool) {
     };
 
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
     let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
     let host_machine_id = host_id_from_dpu_hardware_info(&HardwareInfo::from(
-        host_sim.config.get_and_assert_single_dpu(),
+        host_config.get_and_assert_single_dpu(),
     ))
     .unwrap();
     let mut txn = env.pool.begin().await.unwrap();
@@ -448,9 +448,9 @@ async fn test_find_host_machine_ids_when_predicted(pool: sqlx::PgPool) {
     let config = crate::db::machine::MachineSearchConfig::default();
 
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
     let _dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
     let mut txn = env.pool.begin().await.unwrap();
 
     let machine_ids = db::machine::find_machine_ids(&mut txn, config)
@@ -487,10 +487,10 @@ async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, _) = create_managed_host(&env).await;
 
-    let host_sim2 = env.start_managed_host_sim();
-    create_dpu_machine(&env, &host_sim2.config).await;
+    let host_config2 = env.managed_host_config();
+    create_dpu_machine(&env, &host_config2).await;
     let predicted_host_machine_id = host_id_from_dpu_hardware_info(&HardwareInfo::from(
-        host_sim2.config.get_and_assert_single_dpu(),
+        host_config2.get_and_assert_single_dpu(),
     ))
     .unwrap();
 

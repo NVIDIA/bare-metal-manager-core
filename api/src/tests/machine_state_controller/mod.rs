@@ -75,11 +75,11 @@ impl StateHandler for TestMachineStateHandler {
 #[crate::sqlx_test]
 async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let env = create_test_env(pool.clone()).await;
-    let hosts: Vec<_> = (0..4).map(|_| env.start_managed_host_sim()).collect();
+    let host_configs: Vec<_> = (0..4).map(|_| env.managed_host_config()).collect();
 
     let mut machine_ids = Vec::new();
-    for host_sim in hosts.iter() {
-        let dpu = host_sim.config.get_and_assert_single_dpu();
+    for host_config in host_configs.iter() {
+        let dpu = host_config.get_and_assert_single_dpu();
         let interface_id = dpu_discover_dhcp(&env, &dpu.oob_mac_address.to_string()).await;
 
         let hardware_info = HardwareInfo::from(dpu);
@@ -104,7 +104,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     const ITERATION_TIME: Duration = Duration::from_millis(100);
     const TEST_TIME: Duration = Duration::from_secs(10);
     let expected_iterations = (TEST_TIME.as_millis() / ITERATION_TIME.as_millis()) as f64;
-    let expected_total_count = expected_iterations * hosts.len() as f64;
+    let expected_total_count = expected_iterations * host_configs.len() as f64;
 
     // We build multiple state controllers. But since only one should act at a time,
     // the count should still not increase

@@ -46,12 +46,12 @@ pub mod tests {
         config.attestation_enabled = true;
         let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
-        let host_sim = env.start_managed_host_sim();
+        let host_config = env.managed_host_config();
         let dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+            try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
 
         let host_machine_interface_id =
-            host_discover_dhcp(&env, &host_sim.config, &dpu_machine_id).await;
+            host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
 
         // ek_pub is corrupted on purpose
         let ek_pub_corrupted = [
@@ -73,8 +73,7 @@ pub mod tests {
             226, 206, 145,
         ];
 
-        let mut discovery_info =
-            DiscoveryInfo::try_from(HardwareInfo::from(&host_sim.config)).unwrap();
+        let mut discovery_info = DiscoveryInfo::try_from(HardwareInfo::from(&host_config)).unwrap();
 
         discovery_info.attest_key_info = Some(AttestKeyInfo {
             ek_pub: ek_pub_corrupted.to_vec(),
@@ -111,12 +110,12 @@ pub mod tests {
         config.attestation_enabled = true;
         let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
-        let host_sim = env.start_managed_host_sim();
+        let host_config = env.managed_host_config();
         let dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+            try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
 
         let host_machine_interface_id =
-            host_discover_dhcp(&env, &host_sim.config, &dpu_machine_id).await;
+            host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
 
         // ek_pub is corrupted on purpose
         let ek_pub_different = [
@@ -139,8 +138,7 @@ pub mod tests {
             231, 204, 186, 242, 24, 202, 209, 210, 121, 23,
         ];
 
-        let mut discovery_info =
-            DiscoveryInfo::try_from(HardwareInfo::from(&host_sim.config)).unwrap();
+        let mut discovery_info = DiscoveryInfo::try_from(HardwareInfo::from(&host_config)).unwrap();
 
         discovery_info.attest_key_info = Some(AttestKeyInfo {
             ek_pub: ek_pub_different.to_vec(),

@@ -198,9 +198,9 @@ async fn test_find_unavailable_outdated_dpus(
 
     let mut txn = env.pool.begin().await?;
 
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
     let (dpu_machine_id, host_machine_id) =
-        create_dpu_machine_in_waiting_for_network_install(&env, &host_sim.config).await;
+        create_dpu_machine_in_waiting_for_network_install(&env, &host_config).await;
     update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
     txn.commit().await.unwrap();
 
