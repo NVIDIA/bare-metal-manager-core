@@ -56,8 +56,8 @@ pub mod tests {
         // We can't use the fixture created Machine here, since it already has a topology attached
         // therefore we create a new one
         let env = create_test_env(pool).await;
-        let host_sim = env.start_managed_host_sim();
-        let dpu = host_sim.config.get_and_assert_single_dpu();
+        let host_config = env.managed_host_config();
+        let dpu = host_config.get_and_assert_single_dpu();
 
         let mut txn = env.pool.begin().await?;
 
@@ -82,7 +82,7 @@ pub mod tests {
         .unwrap();
 
         // hardware_info is never inserted via MachineTopology::create_or_update thus triggering an error
-        let hardware_info = HardwareInfo::from(&host_sim.config);
+        let hardware_info = HardwareInfo::from(&host_config);
         let machine_id = from_hardware_info(&hardware_info).unwrap();
         let _machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
             .await
@@ -107,8 +107,8 @@ pub mod tests {
         // We can't use the fixture created Machine here, since it already has a topology attached
         // therefore we create a new one
         let env = create_test_env(pool).await;
-        let host_sim = env.start_managed_host_sim();
-        let dpu = host_sim.config.get_and_assert_single_dpu();
+        let host_config = env.managed_host_config();
+        let dpu = host_config.get_and_assert_single_dpu();
 
         let mut txn = env.pool.begin().await?;
 
@@ -131,7 +131,7 @@ pub mod tests {
         )
         .await
         .unwrap();
-        let mut hardware_info = HardwareInfo::from(&host_sim.config);
+        let mut hardware_info = HardwareInfo::from(&host_config);
         let machine_id = from_hardware_info(&hardware_info).unwrap();
         let machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
             .await
@@ -973,14 +973,14 @@ pub mod tests {
         // set up - create dpu and hw info
         //          insert ca
         let env = create_test_env(pool).await;
-        let host_sim = env.start_managed_host_sim();
+        let host_config = env.managed_host_config();
         let dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+            try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
 
         let host_machine_interface_id =
-            host_discover_dhcp(&env, &host_sim.config, &dpu_machine_id).await;
+            host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
 
-        let mut hardware_info = HardwareInfo::from(&host_sim.config);
+        let mut hardware_info = HardwareInfo::from(&host_config);
         hardware_info.tpm_ek_certificate =
             Some(TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()));
 
@@ -1027,14 +1027,14 @@ pub mod tests {
     ) -> Result<(), Box<dyn std::error::Error>> {
         // set up - create dpu and hw info
         let env = create_test_env(pool).await;
-        let host_sim = env.start_managed_host_sim();
+        let host_config = env.managed_host_config();
         let dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+            try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
 
         let host_machine_interface_id =
-            host_discover_dhcp(&env, &host_sim.config, &dpu_machine_id).await;
+            host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
 
-        let mut hardware_info = HardwareInfo::from(&host_sim.config);
+        let mut hardware_info = HardwareInfo::from(&host_config);
         hardware_info.tpm_ek_certificate =
             Some(TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()));
 
@@ -1076,14 +1076,14 @@ pub mod tests {
         // set up - create dpu and hw info
         //          insert ca
         let env = create_test_env(pool).await;
-        let host_sim = env.start_managed_host_sim();
+        let host_config = env.managed_host_config();
         let dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+            try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
 
         let host_machine_interface_id =
-            host_discover_dhcp(&env, &host_sim.config, &dpu_machine_id).await;
+            host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
 
-        let mut hardware_info = HardwareInfo::from(&host_sim.config);
+        let mut hardware_info = HardwareInfo::from(&host_config);
         hardware_info.tpm_ek_certificate =
             Some(TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()));
 
@@ -1164,9 +1164,9 @@ pub mod tests {
         ek_cert: &[u8],
         env: &TestEnv,
     ) -> Result<MachineId, Box<dyn std::error::Error>> {
-        let mut host_sim = env.start_managed_host_sim();
-        host_sim.config.tpm_ek_cert = TpmEkCertificate::from(ek_cert.to_vec());
-        let dpu = host_sim.config.get_and_assert_single_dpu();
+        let mut host_config = env.managed_host_config();
+        host_config.tpm_ek_cert = TpmEkCertificate::from(ek_cert.to_vec());
+        let dpu = host_config.get_and_assert_single_dpu();
 
         let mut txn = env.pool.begin().await?;
 
@@ -1189,7 +1189,7 @@ pub mod tests {
         )
         .await
         .unwrap();
-        let hardware_info = HardwareInfo::from(&host_sim.config);
+        let hardware_info = HardwareInfo::from(&host_config);
         let machine_id = from_hardware_info(&hardware_info).unwrap();
         let machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
             .await

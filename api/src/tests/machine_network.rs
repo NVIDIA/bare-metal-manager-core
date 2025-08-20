@@ -26,8 +26,8 @@ use common::api_fixtures::{
 #[crate::sqlx_test]
 async fn test_managed_host_network_config(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id = dpu::create_dpu_machine(&env, &host_sim.config).await;
+    let host_config = env.managed_host_config();
+    let dpu_machine_id = dpu::create_dpu_machine(&env, &host_config).await;
 
     // Fetch a Machines network config
     let response = env

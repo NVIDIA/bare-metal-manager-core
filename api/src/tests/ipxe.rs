@@ -83,11 +83,11 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
     let (dpu_machine_id, _) =
         common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install(
             &env,
-            &host_sim.config,
+            &host_config,
         )
         .await;
 

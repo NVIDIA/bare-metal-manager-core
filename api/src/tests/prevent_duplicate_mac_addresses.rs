@@ -22,8 +22,8 @@ async fn prevent_duplicate_mac_addresses(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu = host_sim.config.get_and_assert_single_dpu();
+    let host_config = env.managed_host_config();
+    let dpu = host_config.get_and_assert_single_dpu();
 
     let mut txn = env.pool.begin().await?;
 

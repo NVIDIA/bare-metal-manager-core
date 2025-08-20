@@ -33,7 +33,7 @@ use common::api_fixtures::{create_managed_host, create_test_env, machine_validat
 use measured_boot::pcr::PcrRegisterValue;
 
 use crate::model::machine::{FailureCause, FailureSource};
-use crate::tests::common::api_fixtures::managed_host::{ManagedHostConfig, ManagedHostSim};
+use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host_with_ek, discovery_completed,
     dpu::{TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION, TEST_DPU_AGENT_VERSION},
@@ -715,10 +715,9 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_state_outcome(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let host_config = &host_sim.config;
+    let host_config = env.managed_host_config();
     let (dpu_machine_id, _host_machine_id) =
-        create_dpu_machine_in_waiting_for_network_install(&env, host_config).await;
+        create_dpu_machine_in_waiting_for_network_install(&env, &host_config).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let host_machine = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
@@ -1127,23 +1126,20 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     // 2. start creating host until ca validation failure is encountered
     // 3. add ca certificate - we should recover from failure and go into Ready state
 
-    let host_sim = ManagedHostSim {
-        config: ManagedHostConfig {
-            tpm_ek_cert: TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()),
-            ..Default::default()
-        },
+    let host_config = ManagedHostConfig {
+        tpm_ek_cert: TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()),
+        ..Default::default()
     };
 
-    let dpu_machine_id = create_dpu_machine(&env, &host_sim.config).await;
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
     let dpu_machine_id = &try_parse_machine_id(&dpu_machine_id).unwrap();
 
     //--------
-    let host_config = &host_sim.config;
     let env = &env;
 
-    let machine_interface_id = host_discover_dhcp(env, host_config, dpu_machine_id).await;
+    let machine_interface_id = host_discover_dhcp(env, &host_config, dpu_machine_id).await;
 
-    let host_machine_id = host_discover_machine(env, host_config, machine_interface_id).await;
+    let host_machine_id = host_discover_machine(env, &host_config, machine_interface_id).await;
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
     let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
 

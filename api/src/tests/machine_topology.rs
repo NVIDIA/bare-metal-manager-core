@@ -34,12 +34,12 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // We can't use the fixture created Machine here, since it already has a topology attached
     // therefore we create a new one
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu = host_sim.config.get_and_assert_single_dpu();
+    let host_config = env.managed_host_config();
+    let dpu = host_config.get_and_assert_single_dpu();
 
     let mut txn = env.pool.begin().await?;
 
-    let dpu_machine_id = create_dpu_machine(&env, &host_sim.config).await;
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
     let host_machine_id = ::rpc::MachineId {
         id: dpu_machine_id.id.replace("fm100d", "fm100p"),
     };
@@ -78,7 +78,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .await
     .unwrap();
 
-    let hardware_info = HardwareInfo::from(&host_sim.config);
+    let hardware_info = HardwareInfo::from(&host_config);
     let machine_id = from_hardware_info(&hardware_info).unwrap();
     let machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
         .await
@@ -183,12 +183,12 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     // We can't use the fixture created Machine here, since it already has a topology attached
     // therefore we create a new one
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu = host_sim.config.get_and_assert_single_dpu();
+    let host_config = env.managed_host_config();
+    let dpu = host_config.get_and_assert_single_dpu();
 
     let mut txn = env.pool.begin().await?;
 
-    let dpu_machine_id = create_dpu_machine(&env, &host_sim.config).await;
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
     let host_machine_id = ::rpc::MachineId {
         id: dpu_machine_id.id.replace("fm100d", "fm100p"),
     };
@@ -227,7 +227,7 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     .await
     .unwrap();
 
-    let hardware_info = HardwareInfo::from(&host_sim.config);
+    let hardware_info = HardwareInfo::from(&host_config);
     let machine_id = from_hardware_info(&hardware_info).unwrap();
     let machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
         .await

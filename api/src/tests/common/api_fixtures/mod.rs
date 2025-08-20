@@ -23,10 +23,7 @@ use crate::tests::common::api_fixtures::network_segment::{
     create_tenant_network_segment, create_underlay_network_segment,
 };
 use crate::tests::common::{
-    api_fixtures::{
-        endpoint_explorer::MockEndpointExplorer,
-        managed_host::{ManagedHostConfig, ManagedHostSim},
-    },
+    api_fixtures::{endpoint_explorer::MockEndpointExplorer, managed_host::ManagedHostConfig},
     test_certificates::TestCertificateProvider,
     test_meter::TestMeter,
 };
@@ -277,14 +274,9 @@ impl TestEnv {
         }
     }
 
-    /// Generates a simulation for Host+DPU pair
-    pub fn start_managed_host_sim(&self) -> ManagedHostSim {
-        self.start_managed_host_sim_with_config(ManagedHostConfig::default())
-    }
-
-    pub fn start_managed_host_sim_with_config(&self, config: ManagedHostConfig) -> ManagedHostSim {
-        // TODO: This will in the future also spin up redfish mocks for these components
-        ManagedHostSim { config }
+    /// Generates a config for Host+DPU pair
+    pub fn managed_host_config(&self) -> ManagedHostConfig {
+        ManagedHostConfig::default()
     }
 
     fn fill_machine_information(
@@ -1780,18 +1772,16 @@ pub async fn create_managed_host(env: &TestEnv) -> (MachineId, MachineId) {
 pub async fn create_managed_host_with_ek(
     env: &TestEnv,
     ek_cert: &[u8],
-) -> (MachineId, MachineId, ManagedHostSim) {
-    let host_sim = ManagedHostSim {
-        config: ManagedHostConfig {
-            tpm_ek_cert: TpmEkCertificate::from(ek_cert.to_vec()),
-            ..Default::default()
-        },
+) -> (MachineId, MachineId, ManagedHostConfig) {
+    let host_config = ManagedHostConfig {
+        tpm_ek_cert: TpmEkCertificate::from(ek_cert.to_vec()),
+        ..Default::default()
     };
 
     let (host_machine_id, dpu_machine_id) =
-        create_managed_host_with_config(env, host_sim.config.clone()).await;
+        create_managed_host_with_config(env, host_config.clone()).await;
 
-    (host_machine_id, dpu_machine_id[0], host_sim)
+    (host_machine_id, dpu_machine_id[0], host_config)
 }
 
 /// Create a managed host with `dpu_count` DPUs (default config)

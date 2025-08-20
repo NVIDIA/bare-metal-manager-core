@@ -1861,8 +1861,8 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id = dpu::create_dpu_machine(&env, &host_sim.config).await;
+    let host_config = env.managed_host_config();
+    let dpu_machine_id = dpu::create_dpu_machine(&env, &host_config).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
     let request = InstanceAllocationRequest {
         instance_id: InstanceId::from(uuid::Uuid::new_v4()),

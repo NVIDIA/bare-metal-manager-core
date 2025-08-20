@@ -102,14 +102,13 @@ async fn test_reject_host_machine_with_disabled_tpm(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
+    let host_config = env.managed_host_config();
     let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
 
-    let host_machine_interface_id =
-        host_discover_dhcp(&env, &host_sim.config, &dpu_machine_id).await;
+    let host_machine_interface_id = host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
 
-    let mut hardware_info = HardwareInfo::from(&host_sim.config);
+    let mut hardware_info = HardwareInfo::from(&host_config);
     hardware_info.tpm_ek_certificate = None;
 
     let response = env
@@ -160,8 +159,8 @@ async fn test_discover_dpu_by_source_ip(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu = host_sim.config.get_and_assert_single_dpu();
+    let host_config = env.managed_host_config();
+    let dpu = host_config.get_and_assert_single_dpu();
 
     let dhcp_response = env
         .api
@@ -198,8 +197,8 @@ async fn test_discover_dpu_not_create_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu = host_sim.config.get_and_assert_single_dpu();
+    let host_config = env.managed_host_config();
+    let dpu = host_config.get_and_assert_single_dpu();
 
     let dhcp_response = env
         .api

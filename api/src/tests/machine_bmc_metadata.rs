@@ -18,10 +18,10 @@ use sqlx::PgPool;
 #[crate::sqlx_test]
 async fn fetch_bmc_credentials(pool: PgPool) {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let host_bmc_mac = host_sim.config.bmc_mac_address;
+    let host_config = env.managed_host_config();
+    let host_bmc_mac = host_config.bmc_mac_address;
     let (host_machine_id, _dpu_machine_id) =
-        create_managed_host_with_config(&env, host_sim.config.clone()).await;
+        create_managed_host_with_config(&env, host_config).await;
 
     let host_machine = env
         .find_machines(Some(host_machine_id.to_string().into()), None, false)

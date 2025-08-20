@@ -52,11 +52,6 @@ pub struct ManagedHostConfig {
     pub ib_guids: Vec<String>,
 }
 
-#[derive(Debug)]
-pub struct ManagedHostSim {
-    pub config: ManagedHostConfig,
-}
-
 impl ManagedHostConfig {
     pub fn with_serial(serial: String) -> Self {
         Self {
