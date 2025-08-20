@@ -705,7 +705,7 @@ async fn test_instance_type_associate(
     .await;
 
     // Check that instance has the InstanceTypeId we expect
-    assert_eq!(instance.instance_type_id, Some(id.clone()));
+    assert_eq!(instance.inner().instance_type_id, Some(id.clone()));
 
     // Try to associate the machine with an instance type again
     // this should fail.

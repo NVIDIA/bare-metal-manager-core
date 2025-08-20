@@ -16,6 +16,7 @@ use forge_uuid::machine::MachineId;
 
 // Represents Instance returned via RPC call.
 // Adds some widely used helpers.
+#[derive(Debug, PartialEq)]
 pub struct RpcInstance(rpc::forge::Instance);
 
 impl RpcInstance {

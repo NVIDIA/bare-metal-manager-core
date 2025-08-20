@@ -1360,17 +1360,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
         instance_id,
     )
     .await;
-    assert_eq!(
-        instance
-            .status
-            .as_ref()
-            .unwrap()
-            .tenant
-            .as_ref()
-            .unwrap()
-            .state(),
-        rpc::TenantState::Terminating
-    );
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
     // Now go through regular deletion
     delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
@@ -1523,7 +1513,7 @@ async fn test_instance_cloud_init_metadata(
         .await;
 
     let request = tonic::Request::new(rpc::forge::CloudInitInstructionsRequest {
-        ip: instance.status.unwrap().network.unwrap().interfaces[0].addresses[0].to_string(),
+        ip: instance.status().network().interfaces[0].addresses[0].to_string(),
     });
 
     let response = env.api.get_cloud_init_instructions(request).await?;

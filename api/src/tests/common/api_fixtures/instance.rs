@@ -22,6 +22,7 @@ use crate::model::instance::status::network::InstanceNetworkStatusObservation;
 use crate::model::machine::{
     CleanupState, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
 };
+use crate::tests::common::api_fixtures::RpcInstance;
 use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
 use rpc::{
     InstanceReleaseRequest, Timestamp,
@@ -97,7 +98,7 @@ impl<'a> TestInstance<'a> {
         mut self,
         dpu_machine_ids: &[MachineId],
         host_machine_id: &MachineId,
-    ) -> (InstanceId, rpc::Instance) {
+    ) -> (InstanceId, RpcInstance) {
         if self.config.tenant.is_none() {
             self.config.tenant = Some(self.tenant);
         }
@@ -141,7 +142,7 @@ pub async fn create_instance_with_ib_config(
     host_machine_id: &MachineId,
     ib_config: rpc::forge::InstanceInfinibandConfig,
     network_segment_id: NetworkSegmentId,
-) -> (InstanceId, rpc::forge::Instance) {
+) -> (InstanceId, RpcInstance) {
     TestInstance::new(env)
         .config(config_for_ib_config(ib_config, network_segment_id))
         .create(&[*dpu_machine_id], host_machine_id)
@@ -240,7 +241,7 @@ pub async fn advance_created_instance_into_ready_state(
     dpu_machine_ids: &Vec<MachineId>,
     host_machine_id: &MachineId,
     instance_id: InstanceId,
-) -> rpc::Instance {
+) -> RpcInstance {
     // Run network state machine handler here.
     env.run_network_segment_controller_iteration().await;
 
@@ -271,16 +272,7 @@ pub async fn advance_created_instance_into_ready_state(
     .await;
 
     // get the updated info with proper network config info added after the instance state is ready
-    env.api
-        .find_instances(tonic::Request::new(rpc::InstanceSearchQuery {
-            id: Some(instance_id.into()),
-            label: None,
-        }))
-        .await
-        .expect("Find instance failed.")
-        .into_inner()
-        .instances
-        .remove(0)
+    env.one_instance(instance_id).await
 }
 
 pub async fn delete_instance(
