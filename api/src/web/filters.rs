@@ -16,17 +16,19 @@
  */
 
 use std::collections::BTreeSet;
+use std::fmt::Display;
 
 use askama_escape::Escaper;
 use std::fmt::Write;
 
 /// Generates HTML links for Machine IDs
-pub fn machine_id_link<T: std::fmt::Display>(id: T) -> ::askama::Result<String> {
-    machine_link(id.to_string(), "machine")
+pub fn machine_id_link(id: impl Display) -> ::askama::Result<String> {
+    machine_link(id, "machine")
 }
 
 /// Generates a formatted link for Machine IDs to a predefined path
-fn machine_link(id: String, path: &str) -> ::askama::Result<String> {
+fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String> {
+    let id = id.to_string();
     let short_id = if id.len() < 25
         || !id.starts_with("fm100")
         || id.chars().any(|c| !c.is_ascii_alphanumeric())
@@ -159,7 +161,7 @@ where
 
 /// Renders version strings including timestamps
 /// Also shows the localized timestamp on Mouseover
-pub fn config_version<T: std::fmt::Display>(version: T) -> ::askama::Result<String> {
+pub fn config_version(version: impl Display) -> ::askama::Result<String> {
     let string_version = version.to_string();
     let version = match string_version.parse::<config_version::ConfigVersion>() {
         Ok(version) => version,
@@ -174,10 +176,7 @@ pub fn config_version<T: std::fmt::Display>(version: T) -> ::askama::Result<Stri
 }
 
 /// Prints the value of the `Option` in case it's `Some(x)`, and otherwise an empty string
-pub fn option_fmt<T>(value: &Option<T>) -> askama::Result<String>
-where
-    T: std::fmt::Display,
-{
+pub fn option_fmt(value: &Option<impl Display>) -> askama::Result<String> {
     Ok(match value {
         Some(value) => value.to_string(),
         None => String::new(),
