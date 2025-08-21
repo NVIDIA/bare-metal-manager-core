@@ -15,11 +15,13 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use axum_client_ip::Rejection;
 
 pub enum PxeRequestError {
     CarbideApiError(tonic::Status),
     MissingClientConfig,
     MissingMachineId,
+    MissingIp(Rejection),
     InvalidBuildArch,
     MalformedMachineId(String),
     MalformedBuildArch(String),
@@ -56,6 +58,7 @@ impl Display for PxeRequestError {
                     "Invalid build arch specified in URI parameter buildarch".to_string(),
                 Self::MalformedMachineId(err) => format!("Malformed Machine UUID: {err}"),
                 Self::MalformedBuildArch(err) => format!("Malformed build arch: {err}"),
+                Self::MissingIp(err) => format!("Source IP is missing. Error: {err:?}"),
             }
         )
     }

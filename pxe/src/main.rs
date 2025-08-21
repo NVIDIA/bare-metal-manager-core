@@ -15,6 +15,7 @@ use axum::{
     Router, ServiceExt,
     middleware::{map_request, map_response},
 };
+use axum_client_ip::ClientIpSource;
 use axum_template::engine::Engine;
 use clap::Parser;
 use common::AppState;
@@ -101,6 +102,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route_layer(axum::middleware::from_fn(middleware::logging::logger))
         .layer(map_response(middleware::fix_content_length_header))
         .layer(middleware::metrics::MetricLayer::default())
+        // This fetches the ClientIP from the SocketAddress.
+        .layer(ClientIpSource::ConnectInfo.into_extension())
         .merge(routes::metrics::get_router("/metrics"))
         .with_state(app_state); // The order of the calls here matters --> we only want to cache the files on disk, nothing else, and we don't want /metrics to be included in our metrics.
 
