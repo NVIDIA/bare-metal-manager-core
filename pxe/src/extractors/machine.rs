@@ -53,9 +53,8 @@ impl FromRequestParts<AppState> for Machine {
         // and falls back to client IP from socket if not
         let client_ip = ClientIp::from_request_parts(parts, state)
             .await
-            .ok()
-            .map(|insecure_client_ip| insecure_client_ip.0)
-            .ok_or(PxeRequestError::MissingMachineId)?;
+            .map_err(PxeRequestError::MissingIp)?
+            .0;
 
         client
             .get_cloud_init_instructions(tonic::Request::new(CloudInitInstructionsRequest {
