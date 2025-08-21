@@ -331,11 +331,12 @@ pub async fn remove_association(
                         if !cloud_unsafe_operation_allowed {
                             return Err(CarbideCliError::GenericError(
                                 r#"A instance is already allocated to this machine, but terminating.
-        Removing instance type will create a mismatch between cloud and carbide. If you are sure, run this command again with --cloud-unsafe-op flag."#.to_string(),
+        Removing instance type will create a mismatch between cloud and carbide. If you are sure, run this command again with --cloud-unsafe-op=<username> flag before `instance-type`."#.to_string(),
         ));
                         }
                         remove_association_api(api_client, disassociate_instance_type.machine_id)
                             .await?;
+                        return Ok(());
                     }
                     _ => {}
                 }
