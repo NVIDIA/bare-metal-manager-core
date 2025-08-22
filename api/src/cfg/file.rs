@@ -1211,6 +1211,7 @@ pub enum FirmwareComponentType {
     Nic,
     HGXBmc,
     CombinedBmcUefi,
+    Gpu,
     #[serde(other)]
     #[default]
     Unknown,
@@ -1224,6 +1225,7 @@ impl fmt::Display for FirmwareComponentType {
             FirmwareComponentType::CombinedBmcUefi => write!(f, "BMC+UEFI"),
             FirmwareComponentType::Nic => write!(f, "NIC"),
             FirmwareComponentType::Cec => write!(f, "CEC"),
+            FirmwareComponentType::Gpu => write!(f, "GPU"),
             FirmwareComponentType::HGXBmc => write!(f, "HGX BMC"),
             FirmwareComponentType::Unknown => write!(f, "Unknown"),
         }
@@ -1240,6 +1242,7 @@ impl From<FirmwareComponentType> for libredfish::model::update_service::Componen
             FirmwareComponentType::Nic => ComponentType::Unknown,
             FirmwareComponentType::HGXBmc => ComponentType::HGXBMC,
             FirmwareComponentType::CombinedBmcUefi => ComponentType::Unknown,
+            FirmwareComponentType::Gpu => ComponentType::Unknown,
             FirmwareComponentType::Unknown => ComponentType::Unknown,
         }
     }
@@ -1439,6 +1442,12 @@ pub struct FirmwareGlobal {
     pub instance_updates_manual_tagging: bool,
     #[serde(default)]
     pub no_reset_retries: bool,
+    #[serde(
+        default = "FirmwareGlobal::hgx_bmc_gpu_reboot_delay_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub hgx_bmc_gpu_reboot_delay: Duration,
 }
 
 impl FirmwareGlobal {
@@ -1456,6 +1465,7 @@ impl FirmwareGlobal {
                 FirmwareGlobal::host_firmware_upgrade_retry_interval_default(),
             instance_updates_manual_tagging: false,
             no_reset_retries: false,
+            hgx_bmc_gpu_reboot_delay: FirmwareGlobal::hgx_bmc_gpu_reboot_delay_default(),
         }
     }
 }
@@ -1523,6 +1533,9 @@ impl FirmwareGlobal {
     pub fn host_firmware_upgrade_retry_interval_default() -> Duration {
         Duration::minutes(60)
     }
+    pub fn hgx_bmc_gpu_reboot_delay_default() -> Duration {
+        Duration::seconds(30)
+    }
 }
 
 impl Default for FirmwareGlobal {
@@ -1539,6 +1552,7 @@ impl Default for FirmwareGlobal {
                 FirmwareGlobal::host_firmware_upgrade_retry_interval_default(),
             instance_updates_manual_tagging: false,
             no_reset_retries: false,
+            hgx_bmc_gpu_reboot_delay: FirmwareGlobal::hgx_bmc_gpu_reboot_delay_default(),
         }
     }
 }

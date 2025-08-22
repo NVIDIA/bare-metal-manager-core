@@ -784,6 +784,10 @@ pub mod test_support {
             Ok(())
         }
 
+        fn ac_powercycle_supported_by_power(&self) -> bool {
+            false
+        }
+
         async fn bmc_reset(&self) -> Result<(), RedfishError> {
             Ok(())
         }
