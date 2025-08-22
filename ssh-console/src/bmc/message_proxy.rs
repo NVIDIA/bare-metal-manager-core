@@ -11,8 +11,9 @@
  */
 
 use crate::shutdown_handle::ShutdownHandle;
-use russh::ChannelMsg;
+use chrono::{DateTime, Utc};
 use russh::server::Msg;
+use russh::{ChannelMsg, CryptoVec};
 use std::sync::Arc;
 use tokio::sync::oneshot::Sender;
 use tokio::sync::{broadcast, oneshot};
@@ -20,7 +21,7 @@ use tokio::task::JoinHandle;
 
 /// Proxy messages from the BMC to the user's connection.
 pub fn spawn(
-    mut from_bmc_rx: broadcast::Receiver<Arc<ChannelMsg>>,
+    mut from_bmc_rx: broadcast::Receiver<ToFrontendMessage>,
     to_frontend_tx: russh::ChannelWriteHalf<Msg>,
     peer_addr: String,
 ) -> Handle {
@@ -30,6 +31,7 @@ pub fn spawn(
             tokio::select! {
                 res = from_bmc_rx.recv() => match res {
                     Ok(msg) => {
+                        let msg = Arc::<ChannelMsg>::from(msg);
                         match proxy_channel_message(msg.as_ref(), &to_frontend_tx).await {
                             Ok(()) => {}
                             Err(error) => {
@@ -69,6 +71,71 @@ pub struct Handle {
 impl ShutdownHandle<()> for Handle {
     fn into_parts(self) -> (Sender<()>, JoinHandle<()>) {
         (self.shutdown_tx, self.join_handle)
+    }
+}
+
+/// Holds messages to be sent to a frontend: Data from the BMC channel, or connection status messages.
+#[derive(Clone)]
+pub enum ToFrontendMessage {
+    /// Data coming from the BMC
+    Channel(Arc<ChannelMsg>),
+    /// An alert that the console was connected or disconnected
+    ConnectionChanged(ConnectionChangeMessage),
+    /// A reply to the user pressing the Enter key when the BMC is disconnected
+    InformDisconnectedSince(Option<DateTime<Utc>>),
+}
+
+#[derive(Clone)]
+pub enum ConnectionChangeMessage {
+    Disconnected,
+    Connected {
+        last_disconnect: Option<DateTime<Utc>>,
+    },
+}
+
+impl From<ToFrontendMessage> for Arc<ChannelMsg> {
+    fn from(msg: ToFrontendMessage) -> Self {
+        match msg {
+            ToFrontendMessage::ConnectionChanged(connection_changed) => connection_changed.into(),
+            ToFrontendMessage::InformDisconnectedSince(Some(disconnected_since)) => {
+                let data: CryptoVec = format!(
+                    "--- Console disconnected since {} ---\r\n",
+                    disconnected_since.to_rfc2822()
+                )
+                .into_bytes()
+                .into();
+                Arc::new(ChannelMsg::Data { data })
+            }
+            ToFrontendMessage::InformDisconnectedSince(None) => {
+                let data: CryptoVec = b"--- Console not connected ---\r\n".to_vec().into();
+                Arc::new(ChannelMsg::Data { data })
+            }
+            ToFrontendMessage::Channel(msg) => msg,
+        }
+    }
+}
+
+impl From<ConnectionChangeMessage> for Arc<ChannelMsg> {
+    fn from(value: ConnectionChangeMessage) -> Self {
+        let data: CryptoVec = match value {
+            ConnectionChangeMessage::Disconnected => {
+                b"\r\n--- Console disconnected! ---\r\n".to_vec().into()
+            }
+            ConnectionChangeMessage::Connected { last_disconnect } => {
+                if let Some(last_disconnect) = last_disconnect {
+                    format!(
+                        "\r\n--- Console connected! Last disconnect: {} ---\r\n",
+                        last_disconnect.to_rfc2822()
+                    )
+                    .into_bytes()
+                    .into()
+                } else {
+                    b"\r\n--- Console connected! ---\r\n".to_vec().into()
+                }
+            }
+        };
+
+        Arc::new(ChannelMsg::Data { data })
     }
 }
 

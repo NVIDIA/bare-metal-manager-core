@@ -11,11 +11,14 @@
  */
 use crate::bmc::client_pool::BmcPoolMetrics;
 use crate::bmc::connection::{self, AtomicConnectionState, ConnectionDetails};
-use crate::bmc::message_proxy::{ChannelMsgOrExec, ExecReply};
+use crate::bmc::message_proxy::{
+    ChannelMsgOrExec, ConnectionChangeMessage, ExecReply, ToFrontendMessage,
+};
 use crate::config::Config;
 use crate::console_logger;
 use crate::shutdown_handle::ShutdownHandle;
 use crate::ssh_server::ServerMetrics;
+use chrono::{DateTime, Utc};
 use forge_uuid::machine::MachineId;
 use futures_util::FutureExt;
 use opentelemetry::KeyValue;
@@ -23,7 +26,7 @@ use russh::ChannelMsg;
 use std::io;
 use std::net::SocketAddr;
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use tokio::sync::{MutexGuard, broadcast, mpsc, oneshot};
@@ -49,7 +52,7 @@ pub fn spawn(
     let (to_bmc_msg_tx, to_bmc_msg_rx) = mpsc::channel::<ChannelMsgOrExec>(1);
     // Channel that broadcasts messages to any subscribed frontends
     let (broadcast_to_frontend_tx, broadcast_to_frontend_rx) =
-        broadcast::channel::<Arc<ChannelMsg>>(4096);
+        broadcast::channel::<ToFrontendMessage>(4096);
 
     // Always consume messages from the frontend broadcast channel, even if there are no frontends.
     dev_null(broadcast_to_frontend_rx);
@@ -92,7 +95,7 @@ struct BmcClient {
     config: Arc<Config>,
     connection_state: Arc<AtomicConnectionState>,
     shutdown_rx: oneshot::Receiver<()>,
-    broadcast_to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
+    broadcast_to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
     to_bmc_msg_rx: mpsc::Receiver<ChannelMsgOrExec>,
     metrics: Arc<BmcPoolMetrics>,
 }
@@ -114,6 +117,9 @@ impl BmcClient {
             None
         };
 
+        // Keep track of when we were last disconnected, for relaying status
+        let last_disconnect_time: Arc<RwLock<Option<DateTime<Utc>>>> = Default::default();
+
         // Spawn a message relay for communicating status to the user if the BMC is
         // disconnected.
         let bmc_msg_tx_placeholder = BmcMessageTxPlaceholder::default();
@@ -122,6 +128,7 @@ impl BmcClient {
             self.connection_state.clone(),
             self.to_bmc_msg_rx,
             bmc_msg_tx_placeholder.clone(),
+            last_disconnect_time.clone(),
         );
 
         // Keep track of the instant we do the next retry, and not the duration to wait: This helps
@@ -129,10 +136,23 @@ impl BmcClient {
         // to. (e.g. if retry time is 1 minute, and the machine takes 5 minutes to be up, we don't
         // want to wait 6 minutes.)
         let mut next_retry = Instant::now();
+        let mut was_disconnected = false;
 
         // Connect and reconnect, in a loop, until the client is shut down.
         let mut retries = 0;
         'retry: loop {
+            // Every retry after the first time, emit a disconnected message
+            if was_disconnected {
+                self.broadcast_to_frontend_tx
+                    .send(ToFrontendMessage::ConnectionChanged(
+                        ConnectionChangeMessage::Disconnected,
+                    ))
+                    .ok();
+                *last_disconnect_time.write().expect("lock poisoned") = Some(Utc::now());
+            } else {
+                was_disconnected = true;
+            }
+
             self.metrics
                 .bmc_recovery_attempts
                 .record(retries, metrics_attrs.as_slice());
@@ -204,6 +224,13 @@ impl BmcClient {
                 .replace(Some(bmc_connection_handle.to_bmc_msg_tx))
                 .await;
             self.connection_state.store(connection::State::Connected);
+            self.broadcast_to_frontend_tx
+                .send(ToFrontendMessage::ConnectionChanged(
+                    ConnectionChangeMessage::Connected {
+                        last_disconnect: *last_disconnect_time.read().expect("lock poisoned"),
+                    },
+                ))
+                .ok();
 
             // Turn the actual BMC connection JoinHandle into a shared future, so we can check
             // the result from multiple select arms.
@@ -312,10 +339,11 @@ async fn wait_until_host_is_up(
 /// - `bmc_msg_tx_placeholder`: A shareable placeholder for a channel to send messages to
 ///   the BMC, once the connection is ready.
 fn relay_input_to_bmc(
-    broadcast_to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
+    broadcast_to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
     connection_state: Arc<AtomicConnectionState>,
     mut to_bmc_msg_rx: mpsc::Receiver<ChannelMsgOrExec>,
     bmc_msg_tx_placeholder: BmcMessageTxPlaceholder,
+    last_disconnect_time: Arc<RwLock<Option<DateTime<Utc>>>>,
 ) -> MessageRelayHandle {
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
 
@@ -346,14 +374,7 @@ fn relay_input_to_bmc(
                                     // is not connected
                                     if data.contains(&b'\r') || data.contains(&b'\n') {
                                         broadcast_to_frontend_tx
-                                            .send(
-                                                ChannelMsg::Data {
-                                                    data: b"--- BMC console not connected ---\r\n"
-                                                        .to_vec()
-                                                        .into(),
-                                                }
-                                                .into(),
-                                            )
+                                            .send(ToFrontendMessage::InformDisconnectedSince(*last_disconnect_time.read().expect("lock poisoned")))
                                             .ok();
                                     }
                                 }
@@ -438,7 +459,7 @@ pub struct ClientHandle {
     to_bmc_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
     // Hold a copy of the tx for broadcasting to frontends, so that we can subscribe to it multiple
     // times.
-    broadcast_to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
+    broadcast_to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
     shutdown_tx: oneshot::Sender<()>,
     join_handle: JoinHandle<()>,
     pub connection_state: Arc<AtomicConnectionState>, // pub for metrics gathering
@@ -473,7 +494,7 @@ impl ClientHandle {
 /// are affected when one is created or dropped.
 pub struct BmcConnectionSubscription {
     pub machine_id: MachineId,
-    pub to_frontend_msg_weak_tx: broadcast::WeakSender<Arc<ChannelMsg>>,
+    pub to_frontend_msg_weak_tx: broadcast::WeakSender<ToFrontendMessage>,
     pub to_bmc_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
     pub kind: connection::Kind,
     // Not pub, to make sure we go through ClientHandle::subscribe() to build, so we get the

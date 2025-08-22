@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use crate::bmc::message_proxy::ToFrontendMessage;
 use crate::config::Config;
 use crate::shutdown_handle::ShutdownHandle;
 use chrono::Utc;
@@ -29,7 +30,7 @@ use tokio::task::JoinHandle;
 pub fn spawn(
     machine_id: MachineId,
     addr: SocketAddr,
-    message_rx: broadcast::Receiver<Arc<ChannelMsg>>,
+    message_rx: broadcast::Receiver<ToFrontendMessage>,
     config: Arc<Config>,
 ) -> ConsoleLoggerHandle {
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -76,7 +77,7 @@ impl ConsoleLogger {
     async fn run(
         self,
         mut shutdown_rx: oneshot::Receiver<()>,
-        mut message_rx: broadcast::Receiver<Arc<ChannelMsg>>,
+        mut message_rx: broadcast::Receiver<ToFrontendMessage>,
     ) {
         let mut log_file = match RotatableLogFile::open(
             self.log_path.clone(),
@@ -95,7 +96,7 @@ impl ConsoleLogger {
         log_file
             .write_all(
                 format!(
-                    "\n--- ssh-console connected at {} ---\n",
+                    "\n--- ssh-console started at {} ---\n",
                     Utc::now().to_rfc3339()
                 )
                 .as_bytes(),
@@ -113,20 +114,23 @@ impl ConsoleLogger {
 
                 // incoming SSH data
                 res = message_rx.recv() => match res {
-                    Ok(msg) => if let ChannelMsg::Data { data } = msg.as_ref() {
-                        // append new bytes to our buffer
-                        buffer.extend_from_slice(data.as_ref());
+                    Ok(msg) => {
+                        let msg = Arc::<ChannelMsg>::from(msg);
+                        if let ChannelMsg::Data { data } = msg.as_ref() {
+                            // append new bytes to our buffer
+                            buffer.extend_from_slice(data.as_ref());
 
-                        // process all complete lines
-                        while let Some(nl) = buffer.iter().position(|&b| b == b'\n') {
-                            // drain through and including the newline
-                            let line_bytes: Vec<u8> = buffer.drain(..=nl).collect();
+                            // process all complete lines
+                            while let Some(nl) = buffer.iter().position(|&b| b == b'\n') {
+                                // drain through and including the newline
+                                let line_bytes: Vec<u8> = buffer.drain(..=nl).collect();
 
-                            // strip ANSI escapes (preserves the newline byte)
-                            let clean = strip_ansi_escapes::strip(&line_bytes);
+                                // strip ANSI escapes (preserves the newline byte)
+                                let clean = strip_ansi_escapes::strip(&line_bytes);
 
-                            // write it out
-                            log_file.write_all(&clean).await.ok();
+                                // write it out
+                                log_file.write_all(&clean).await.ok();
+                            }
                         }
                     }
                     Err(broadcast::error::RecvError::Closed) => {
@@ -145,7 +149,7 @@ impl ConsoleLogger {
         log_file
             .write_all(
                 format!(
-                    "\n--- ssh-console disconnected at {} ---\n",
+                    "\n--- ssh-console shutting down at {} ---\n",
                     Utc::now().to_rfc3339()
                 )
                 .as_bytes(),

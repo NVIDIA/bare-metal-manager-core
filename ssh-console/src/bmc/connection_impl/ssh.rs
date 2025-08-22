@@ -13,7 +13,7 @@
 use crate::POWER_RESET_COMMAND;
 use crate::bmc::client_pool::BmcPoolMetrics;
 use crate::bmc::message_proxy::{
-    ChannelMsgOrExec, ExecReply, MessageProxyError, proxy_channel_message,
+    ChannelMsgOrExec, ExecReply, MessageProxyError, ToFrontendMessage, proxy_channel_message,
 };
 use crate::bmc::vendor::SshBmcVendor;
 use forge_uuid::machine::MachineId;
@@ -39,7 +39,7 @@ static RUSSH_CLIENT_CONFIG: LazyLock<Arc<russh::client::Config>> =
 /// Connect to a BMC one time, returning a [`Handle`]. Will not retry on connection errors.
 pub async fn spawn(
     connection_details: Arc<ConnectionDetails>,
-    to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
+    to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
     metrics: Arc<BmcPoolMetrics>,
 ) -> Result<Handle, SpawnError> {
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
@@ -90,7 +90,7 @@ pub async fn spawn(
                                 }
                             }
                         }
-                        to_frontend_tx.send(Arc::new(msg)).map_err(|_| SpawnError::SendingMsgToFrontend)?;
+                        to_frontend_tx.send(ToFrontendMessage::Channel(Arc::new(msg))).map_err(|_| SpawnError::SendingMsgToFrontend)?;
                     }
                     None => {
                         metrics.bmc_rx_errors_total.add(1, metrics_attrs.as_slice());

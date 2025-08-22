@@ -12,7 +12,7 @@
 
 use crate::POWER_RESET_COMMAND;
 use crate::bmc::client_pool::BmcPoolMetrics;
-use crate::bmc::message_proxy::{ChannelMsgOrExec, ExecReply};
+use crate::bmc::message_proxy::{ChannelMsgOrExec, ExecReply, ToFrontendMessage};
 use crate::bmc::vendor::IPMITOOL_ESCAPE_SEQUENCE;
 use crate::config::Config;
 use crate::io_util::{
@@ -47,7 +47,7 @@ use tokio::task::JoinHandle;
 /// Returns a [`mpsc::Sender<ChannelMsg>`] that the frontend can use to send data to ipmitool.
 pub async fn spawn(
     connection_details: Arc<ConnectionDetails>,
-    to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
+    to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
     config: Arc<Config>,
     metrics: Arc<BmcPoolMetrics>,
 ) -> Result<Handle, SpawnError> {
@@ -254,7 +254,7 @@ struct IpmitoolMessageProxy {
     shutdown_rx: oneshot::Receiver<()>,
     pty_master: AsyncFd<OwnedFd>,
     from_frontend_rx: mpsc::Receiver<ChannelMsgOrExec>,
-    to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
+    to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
     ready_tx: Option<oneshot::Sender<()>>,
     metrics: Arc<BmcPoolMetrics>,
     // Keep track of whether the last byte sent from the client was the first byte of an escape sequence.
@@ -285,9 +285,11 @@ impl IpmitoolMessageProxy {
                             }
                             self.output_buf[n] = b'\0'; // null-terminate in case we need to print it later
                             // We've gotten at least one byte, we're now ready (ipmitool always outputs a message when connected.)
-                            self.ready_tx.take().map(|ch| ch.send(()));
+                            if let Some(ch) = self.ready_tx.take() {
+                                ch.send(()).ok();
+                            }
                             self.metrics.bmc_bytes_received_total.add(n as _, metrics_attrs.as_slice());
-                            self.to_frontend_tx.send(Arc::new(ChannelMsg::Data { data: self.output_buf[0..n].to_vec().into() }))
+                            self.to_frontend_tx.send(ToFrontendMessage::Channel(Arc::new(ChannelMsg::Data { data: self.output_buf[0..n].to_vec().into() })))
                                 .map_err(|_| ProcessLoopError::WritingToFrontendChannel)?;
                             // Note, we're not clearing the ready state, so the fd will stay readable.
                             // The next time through the loop we'll get EWOULDBLOCK and clear the
