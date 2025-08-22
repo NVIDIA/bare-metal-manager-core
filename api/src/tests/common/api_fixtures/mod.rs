@@ -93,6 +93,7 @@ use forge_uuid::{
     instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId,
     network::NetworkSegmentId, vpc::VpcId,
 };
+use futures::FutureExt as _;
 use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
@@ -395,6 +396,7 @@ impl TestEnv {
                 .lock()
                 .await
                 .run_single_iteration()
+                .boxed()
                 .await;
 
             let mut txn: sqlx::Transaction<'static, sqlx::Postgres> =
@@ -434,6 +436,7 @@ impl TestEnv {
             .lock()
             .await
             .run_single_iteration()
+            .boxed()
             .await;
     }
 
@@ -444,6 +447,7 @@ impl TestEnv {
             .lock()
             .await
             .run_single_iteration()
+            .boxed()
             .await;
     }
 
@@ -454,15 +458,24 @@ impl TestEnv {
             .lock()
             .await
             .run_single_iteration()
+            .boxed()
             .await;
     }
 
     pub async fn run_site_explorer_iteration(&self) {
-        self.site_explorer.run_single_iteration().await.unwrap()
+        self.site_explorer
+            .run_single_iteration()
+            .boxed()
+            .await
+            .unwrap()
     }
 
     pub async fn run_ib_fabric_monitor_iteration(&self) {
-        self.ib_fabric_monitor.run_single_iteration().await.unwrap()
+        self.ib_fabric_monitor
+            .run_single_iteration()
+            .boxed()
+            .await
+            .unwrap()
     }
 
     pub async fn override_machine_state_controller_handler(&self, handler: MachineStateHandler) {
