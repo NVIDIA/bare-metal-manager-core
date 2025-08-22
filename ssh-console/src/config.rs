@@ -20,6 +20,7 @@ use russh::keys::ssh_key::Fingerprint;
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use size::Size;
+use std::default::Default;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -83,6 +84,18 @@ pub struct Config {
     pub console_logging_enabled: bool,
     #[serde(default)]
     pub override_bmc_ssh_host: Option<String>,
+    #[serde(
+        default = "Defaults::reconnect_interval_base",
+        serialize_with = "serialize_duration",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub reconnect_interval_base: Duration,
+    #[serde(
+        default = "Defaults::reconnect_interval_max",
+        serialize_with = "serialize_duration",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub reconnect_interval_max: Duration,
     #[serde(
         default = "Defaults::successful_connection_minimum_duration",
         serialize_with = "serialize_duration",
@@ -153,11 +166,15 @@ impl Config {
             console_logs_path,
             console_logging_enabled,
             override_bmc_ssh_host: _,
+            reconnect_interval_base,
+            reconnect_interval_max,
             successful_connection_minimum_duration,
             log_rotate_max_size,
             log_rotate_max_rotated_files,
         } = self;
         let api_poll_interval = format!("{}s", api_poll_interval.as_secs());
+        let reconnect_interval_base = format!("{}s", reconnect_interval_base.as_secs());
+        let reconnect_interval_max = format!("{}s", reconnect_interval_max.as_secs());
         let successful_connection_minimum_duration =
             format!("{}s", successful_connection_minimum_duration.as_secs());
         let openssh_certificate_ca_fingerprints = openssh_certificate_ca_fingerprints
@@ -244,6 +261,15 @@ console_logs_path = {console_logs_path:?}
 ## If set, use this host to override all BMC backends. Useful for machine-a-tron mocks where we use
 ## a single SSH server to mock all BMC SSH connections.
 # override_bmc_ssh_host = <hostname>
+
+## How long to wait to reconnect after the first retry once a BMC disconnects. Upon disconnection, a
+## reconnect will happen immediately, but if that fails, this interval will be used for the next
+## reconnect. It will double every successive reconnect (with random jitter) up to a maximum of
+## `reconnect_interval_max`.
+reconnect_interval_base = {reconnect_interval_base:?}
+
+## The maximum interval to wait to reconnect if a BMC is not responding to reconnects.
+reconnect_interval_max = {reconnect_interval_max:?}
 
 ## How long should a connection to a BMC be up before it's considered a successful connection,
 ## and the exponential backoff timer is reset to zero. (This can be set to zero for integration
@@ -352,6 +378,8 @@ impl Default for Config {
                 Defaults::successful_connection_minimum_duration(),
             log_rotate_max_size: Defaults::log_rotate_max_size(),
             log_rotate_max_rotated_files: Defaults::log_rotate_max_rotated_files(),
+            reconnect_interval_base: Defaults::reconnect_interval_base(),
+            reconnect_interval_max: Defaults::reconnect_interval_max(),
             dpus: Defaults::dpus(),
             hosts: Defaults::hosts(),
             override_bmc_ssh_port: None,
@@ -453,6 +481,14 @@ impl Defaults {
 
     pub fn console_logging_enabled() -> bool {
         true
+    }
+
+    pub fn reconnect_interval_base() -> Duration {
+        Duration::from_secs(10)
+    }
+
+    pub fn reconnect_interval_max() -> Duration {
+        Duration::from_secs(600)
     }
 
     pub fn successful_connection_minimum_duration() -> Duration {

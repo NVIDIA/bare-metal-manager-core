@@ -6,11 +6,22 @@ use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper_util::rt::TokioExecutor;
 use size::Size;
+use ssh_console::config::Defaults;
 use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
 use std::time::Duration;
 use temp_dir::TempDir;
 
-pub async fn spawn(carbide_port: u16) -> eyre::Result<NewSshConsoleHandle> {
+#[derive(Default)]
+pub struct ConfigOverrides {
+    pub reconnect_interval_base: Option<Duration>,
+    pub reconnect_interval_max: Option<Duration>,
+    pub successful_connection_minimum_duration: Option<Duration>,
+}
+
+pub async fn spawn(
+    carbide_port: u16,
+    config_overrides: Option<ConfigOverrides>,
+) -> eyre::Result<NewSshConsoleHandle> {
     let listen_address = {
         // Pick an open port
         let l = TcpListener::bind("127.0.0.1:0")?;
@@ -55,7 +66,18 @@ pub async fn spawn(carbide_port: u16) -> eyre::Result<NewSshConsoleHandle> {
         override_bmc_ssh_host: None,
         // Eagerly retry if the connection was only open a short while (needed for tests to avoid
         // long backoff intervals.)
-        successful_connection_minimum_duration: Duration::ZERO,
+        reconnect_interval_base: config_overrides
+            .as_ref()
+            .and_then(|c| c.reconnect_interval_base)
+            .unwrap_or(Defaults::reconnect_interval_base()),
+        reconnect_interval_max: config_overrides
+            .as_ref()
+            .and_then(|c| c.reconnect_interval_max)
+            .unwrap_or(Defaults::reconnect_interval_max()),
+        successful_connection_minimum_duration: config_overrides
+            .as_ref()
+            .and_then(|c| c.successful_connection_minimum_duration)
+            .unwrap_or(Duration::ZERO),
         log_rotate_max_rotated_files: 3,
         log_rotate_max_size: Size::from_kib(10),
         hosts: true,

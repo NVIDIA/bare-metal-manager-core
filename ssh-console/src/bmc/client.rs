@@ -30,11 +30,6 @@ use tokio::sync::{MutexGuard, broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 
-/// Retry interval the first time we see a failure
-static RETRY_BASE_DURATION: Duration = Duration::from_secs(10);
-/// Max retry interval after subsequent failures
-static RETRY_MAX_DURATION: Duration = Duration::from_secs(600);
-
 /// Spawn a connection to the given BMC in the background, returning a handle. Connections will
 /// be retried indefinitely, with exponential backoff, until a shutdown is signaled (ie. by dropping
 /// the ClientHandle.)
@@ -172,7 +167,7 @@ impl BmcClient {
 
             // Subsequent retries should sleep for RETRY_BASE_DURATION and double from there
             // until we successfully connect.
-            next_retry = Instant::now() + next_retry_backoff(sleep_duration);
+            next_retry = Instant::now() + next_retry_backoff(&self.config, sleep_duration);
 
             let try_start_time = Instant::now();
 
@@ -418,17 +413,20 @@ fn dev_null<T: Clone + Send + 'static>(mut rx: broadcast::Receiver<T>) {
 }
 
 /// Calculate the next exponential backoff duration for retrying connections to a console
-fn next_retry_backoff(prev: Duration) -> Duration {
-    static BASE_F64: f64 = RETRY_BASE_DURATION.as_secs_f64();
-    static MAX_F64: f64 = RETRY_MAX_DURATION.as_secs_f64();
-
-    if prev == Duration::ZERO {
-        return RETRY_BASE_DURATION;
-    }
-
-    // Sleep a random interval between prev and prev * 3
-    let upper = (prev.as_secs_f64() * 3.0).min(MAX_F64);
-    Duration::from_secs_f64(rand::random_range(BASE_F64..upper))
+fn next_retry_backoff(config: &Config, prev: Duration) -> Duration {
+    let duration = if prev == Duration::ZERO {
+        config.reconnect_interval_base
+    } else {
+        // Sleep a random interval between prev and prev * 3
+        let upper = (prev.as_secs_f64() * 3.0).min(config.reconnect_interval_max.as_secs_f64());
+        Duration::from_secs_f64(rand::random_range(prev.as_secs_f64()..upper))
+    };
+    tracing::debug!(
+        "next_retry_backoff, increasing from {}ms to {}ms",
+        prev.as_millis(),
+        duration.as_millis()
+    );
+    duration
 }
 
 pub struct ClientHandle {

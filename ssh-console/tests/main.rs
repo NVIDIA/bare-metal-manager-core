@@ -12,12 +12,17 @@
 use eyre::Context;
 use futures_util::FutureExt;
 use lazy_static::lazy_static;
+use russh::ChannelMsg;
+use russh::keys::PrivateKeyWithHashAlg;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use temp_dir::TempDir;
+use tokio::sync::{mpsc, oneshot};
 
 mod util;
 
+use crate::util::ssh_client::PermissiveSshClient;
 use crate::util::{BaselineTestAssertion, MockBmcType, run_baseline_test_environment};
 use api_test_helper::utils::REPO_ROOT;
 use ssh_console::shutdown_handle::ShutdownHandle;
@@ -121,7 +126,7 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
     };
 
     // Run new ssh-console
-    let handle = new_ssh_console::spawn(env.mock_api_server.addr.port()).await?;
+    let handle = new_ssh_console::spawn(env.mock_api_server.addr.port(), None).await?;
 
     // Run the same assertions we do with legacy ssh-console
     env.run_baseline_assertions(
@@ -206,6 +211,128 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_new_ssh_console_reconnect() -> eyre::Result<()> {
+    if std::env::var("REPO_ROOT").is_err() {
+        tracing::info!("Skipping running ssh-console integration tests, as REPO_ROOT is not set");
+        return Ok(());
+    }
+    let Some(env) = run_baseline_test_environment(vec![MockBmcType::Ssh]).await? else {
+        return Ok(());
+    };
+
+    // Run new ssh-console
+    let handle = new_ssh_console::spawn(
+        env.mock_api_server.addr.port(),
+        // Try to max out the reconnect interval without having to wait too long
+        Some(new_ssh_console::ConfigOverrides {
+            reconnect_interval_base: Some(Duration::from_secs(3)),
+            reconnect_interval_max: None,
+            successful_connection_minimum_duration: Some(Duration::from_secs(60)),
+        }),
+    )
+    .await?;
+
+    // Connect to the server and authenticate
+    let session = {
+        let mut session = russh::client::connect(
+            Arc::new(russh::client::Config {
+                ..Default::default()
+            }),
+            handle.addr,
+            PermissiveSshClient,
+        )
+        .await?;
+
+        session
+            .authenticate_publickey(
+                env.mock_hosts[0].instance_id.to_string(),
+                PrivateKeyWithHashAlg::new(
+                    Arc::new(
+                        russh::keys::load_secret_key(TENANT_SSH_KEY_PATH.as_path(), None)
+                            .context("error loading ssh private key")?,
+                    ),
+                    None,
+                ),
+            )
+            .await
+            .context("Error authenticating with public key")?;
+
+        Ok::<_, eyre::Error>(session)
+    }?;
+
+    // Open a session channel
+    let channel = session
+        .channel_open_session()
+        .await
+        .context("Error opening session")?;
+
+    // Request PTY
+    channel
+        .request_pty(false, "xterm", 80, 24, 0, 0, &[])
+        .await
+        .context("Error requesting PTY")?;
+
+    // Request Shell
+    channel.request_shell(false).await?;
+
+    let (mut channel_rx, channel_tx) = channel.split();
+
+    // Read from the BMC output in the background, sending a message to prompt_seen_tx every time we
+    // see a prompt, until we're done.
+    let (prompt_seen_tx, mut prompt_seen_rx) = mpsc::channel(1);
+    let (done_tx, mut done_rx) = oneshot::channel::<()>();
+    tokio::spawn(async move {
+        let mut buf = Vec::new();
+        loop {
+            tokio::select! {
+                _ = &mut done_rx => {
+                    break;
+                }
+                res = channel_rx.wait() => match res {
+                    Some(ChannelMsg::Data { data }) => {
+                        buf.extend_from_slice(&data);
+                        let prompt = format!("root@{} # ", env.mock_hosts[0].machine_id).into_bytes();
+                        if buf.windows(prompt.len()).any(|w| w == prompt) {
+                            buf.clear();
+                            prompt_seen_tx.send(()).await?;
+                        }
+                    }
+                    Some(_) => {},
+                    None => {
+                        break;
+                    }
+                },
+            }
+        }
+        Ok::<(), eyre::Error>(())
+    });
+
+    // Send ctrl+c (break) 10 times, waiting for reconnection after each time
+    for _ in 0..5 {
+        let mut newline_interval = tokio::time::interval(Duration::from_secs(1));
+        // Send newlines to wait for prompt to appear
+        'wait_for_prompt: loop {
+            tokio::select! {
+                _ = newline_interval.tick() => {
+                    channel_tx.data(b"\n".as_slice()).await?;
+                }
+                res = prompt_seen_rx.recv() => match res {
+                    Some(()) => break 'wait_for_prompt,
+                    None => return Err(eyre::eyre!("Did not see prompt after sending ctrl+C")),
+                }
+            }
+        }
+
+        // Send ctrl+C to cause a disconnect
+        channel_tx.data([3u8].as_slice()).await?;
+    }
+
+    done_tx.send(()).ok();
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_new_ssh_console_log_rotation() -> eyre::Result<()> {
     if std::env::var("REPO_ROOT").is_err() {
         tracing::info!("Skipping running ssh-console integration tests, as REPO_ROOT is not set");
@@ -218,7 +345,7 @@ async fn test_new_ssh_console_log_rotation() -> eyre::Result<()> {
     };
 
     // Run new ssh-console
-    let handle = new_ssh_console::spawn(env.mock_api_server.addr.port()).await?;
+    let handle = new_ssh_console::spawn(env.mock_api_server.addr.port(), None).await?;
 
     // Run the same assertions we do with legacy ssh-console
     env.run_baseline_assertions(
