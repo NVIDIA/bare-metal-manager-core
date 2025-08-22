@@ -17,6 +17,7 @@ use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::logging::log_limiter::LogLimiter;
 use crate::model::machine::MachineValidatingState;
 use crate::model::machine::ValidationState;
+use crate::tests::common::api_fixtures::managed_host::ManagedHost;
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS,
     FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
@@ -1762,11 +1763,15 @@ pub async fn forge_agent_control(
 }
 
 /// Create a managed host with 1 DPU (default config)
-pub async fn create_managed_host(env: &TestEnv) -> (MachineId, MachineId) {
+pub async fn create_managed_host(env: &TestEnv) -> ManagedHost {
     let mh = site_explorer::new_host(env, ManagedHostConfig::default())
         .await
         .expect("Failed to create a new host");
-    (mh.host_snapshot.id, mh.dpu_snapshots[0].id)
+    ManagedHost {
+        id: mh.host_snapshot.id,
+        dpu_ids: mh.dpu_snapshots.iter().map(|dpu| dpu.id).collect(),
+        api: env.api.clone(),
+    }
 }
 
 pub async fn create_managed_host_with_ek(

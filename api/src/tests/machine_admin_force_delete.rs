@@ -111,7 +111,7 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_admin_force_delete_dpu_and_host_by_dpu_machine_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let response = force_delete(&env, &dpu_machine_id).await;
     validate_delete_response(&response, Some(&host_machine_id), &dpu_machine_id);
@@ -137,7 +137,7 @@ async fn is_ek_cert_status_entry_present(txn: &mut PgConnection) -> bool {
 #[crate::sqlx_test]
 async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let bmc_addrs = vec![
         IpAddr::from_str(
@@ -436,7 +436,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     assert!(ib_partition_status.rate_limit.is_none());
     assert!(ib_partition_status.service_level.is_none());
 
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     env.run_machine_state_controller_iteration().await;
 
@@ -447,10 +447,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let machine = mh.host().db_machine(&mut txn).await;
     txn.commit().await.unwrap();
 
     let ib_fabric = env
@@ -494,14 +491,8 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
         }],
     };
 
-    let (instance_id, instance) = create_instance_with_ib_config(
-        &env,
-        &dpu_machine_id,
-        &host_machine_id,
-        ib_config,
-        segment_id,
-    )
-    .await;
+    let (instance_id, instance) =
+        create_instance_with_ib_config(&env, &mh, ib_config, segment_id).await;
 
     let mut txn = env
         .pool
@@ -510,11 +501,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
     assert!(matches!(
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
+        mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Assigned {
             instance_state: InstanceState::Ready
         }
@@ -522,7 +509,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let check_instance = env.one_instance(instance_id).await;
-    assert_eq!(check_instance.machine_id(), host_machine_id);
+    assert_eq!(check_instance.machine_id(), mh.id);
     assert_eq!(check_instance.status().tenant(), rpc::TenantState::Ready);
     assert_eq!(instance, check_instance);
 
@@ -544,8 +531,8 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     };
     assert_eq!(ib_fabric.find_ib_port(Some(filter)).await.unwrap().len(), 1);
 
-    let response = force_delete(&env, &host_machine_id).await;
-    validate_delete_response(&response, Some(&host_machine_id), &dpu_machine_id);
+    let response = force_delete(&env, &mh.id).await;
+    validate_delete_response(&response, Some(&mh.id), mh.dpu().machine_id());
 
     // after host deleted, ib port should be removed from UFM
     let filter = ib::Filter {
@@ -556,13 +543,13 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     assert_eq!(ib_fabric.find_ib_port(Some(filter)).await.unwrap().len(), 0);
 
     assert!(
-        env.find_machines(host_machine_id.into(), None, true)
+        env.find_machines(mh.id.into(), None, true)
             .await
             .machines
             .is_empty()
     );
     assert!(
-        env.find_machines(dpu_machine_id.into(), None, true)
+        env.find_machines(mh.dpu().machine_id().into(), None, true)
             .await
             .machines
             .is_empty()
@@ -572,8 +559,8 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     assert!(response.all_done, "Host and DPU must be deleted");
 
     // Everything should be gone now
-    for id in [host_machine_id, dpu_machine_id] {
-        validate_machine_deletion(&env, &id, None).await;
+    for id in [&mh.id, mh.dpu().machine_id()] {
+        validate_machine_deletion(&env, id, None).await;
     }
 }
 
@@ -669,11 +656,11 @@ async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
     // 1) setup
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let (instance_id, _instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     // 2) mock force-delete
@@ -684,14 +671,7 @@ async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
 
     let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
 
-    let host_machine = db::machine::find_one(
-        &mut txn,
-        &host_machine_id,
-        crate::db::machine::MachineSearchConfig::default(),
-    )
-    .await
-    .expect("Cannot look up the host machine we just created")
-    .unwrap();
+    let host_machine = mh.host().db_machine(&mut txn).await;
 
     db::machine::advance(
         &host_machine,
@@ -739,7 +719,7 @@ async fn test_admin_force_delete_with_instance_type(pool: sqlx::PgPool) {
 
     let instance_type_id = get_instance_type_fixture_id(&env).await;
 
-    let (tmp_machine_id, _) = create_managed_host(&env).await;
+    let (tmp_machine_id, _) = create_managed_host(&env).await.into();
 
     // Associate the machine with the instance type
     let _ = env

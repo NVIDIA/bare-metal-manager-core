@@ -6,8 +6,8 @@ use crate::tests::common;
 #[crate::sqlx_test]
 async fn test_get_dpu_info_list(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (_host_machine_id_1, dpu_machine_id_1) = create_managed_host(&env).await;
-    let (_host_machine_id_2, dpu_machine_id_2) = create_managed_host(&env).await;
+    let dpu_machine_id_1 = create_managed_host(&env).await.into_dpu();
+    let dpu_machine_id_2 = create_managed_host(&env).await.into_dpu();
 
     // Make RPC call to get list of DPU information
     let dpu_list = env

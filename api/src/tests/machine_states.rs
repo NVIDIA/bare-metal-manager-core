@@ -54,7 +54,8 @@ use tonic::Request;
 #[crate::sqlx_test]
 async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (_host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let (_host_machine_id, dpu_machine_id) =
+        common::api_fixtures::create_managed_host(&env).await.into();
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -149,12 +150,9 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_failed_state_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     db::machine::update_failure_details(
         &host,
@@ -175,10 +173,7 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(matches!(
         host.current_state(),
@@ -189,15 +184,12 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     let clean_failed_req = tonic::Request::new(rpc::MachineCleanupInfo {
-        machine_id: host_machine_id.into(),
+        machine_id: mh.id.into(),
         nvme: Some(
             rpc::protos::forge::machine_cleanup_info::CleanupStepResult {
                 result: rpc::protos::forge::machine_cleanup_info::CleanupResult::Error as i32,
@@ -225,10 +217,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     // let state machine check the failure condition.
     env.run_machine_state_controller_iteration().await;
 
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(matches!(
         host.current_state(),
@@ -244,7 +233,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
 
     // Fail again
     let clean_failed_req = tonic::Request::new(rpc::MachineCleanupInfo {
-        machine_id: host_machine_id.into(),
+        machine_id: mh.id.into(),
         nvme: Some(
             rpc::protos::forge::machine_cleanup_info::CleanupStepResult {
                 result: rpc::protos::forge::machine_cleanup_info::CleanupResult::Error as i32,
@@ -266,10 +255,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(matches!(
         host.current_state(),
@@ -284,7 +270,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     ));
     // Now the host cleans up successfully.
     let clean_succeeded_req = tonic::Request::new(rpc::MachineCleanupInfo {
-        machine_id: host_machine_id.into(),
+        machine_id: mh.id.into(),
         nvme: None,
         ram: None,
         mem_overwrite: None,
@@ -302,11 +288,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
 
     // Check that we've moved the machine to the WaitingForCleanup state.
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(
         host.current_state(),
         ManagedHostState::WaitingForCleanup { .. }
@@ -317,7 +299,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let env = create_test_env(pool).await;
-    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
     let mut txn = env.pool.begin().await.unwrap();
 
     // create_dpu_machine runs record_dpu_network_status, so machine should be healthy
@@ -448,12 +430,9 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
 #[crate::sqlx_test]
 async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     db::machine::update_failure_details(
         &host,
@@ -475,10 +454,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(matches!(
         host.current_state(),
@@ -490,10 +466,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(matches!(
         host.current_state(),
@@ -501,7 +474,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     ));
 
     txn.commit().await.unwrap();
-    let host_rpc_machine_id: rpc::MachineId = host_machine_id.into();
+    let host_rpc_machine_id: rpc::MachineId = mh.id.into();
     let pxe = env
         .api
         .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
@@ -537,10 +510,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.last_reboot_requested.is_some());
     let last_reboot_requested_time = host.last_reboot_requested.as_ref().unwrap().time;
@@ -555,9 +525,9 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
     // We use forge_dpu_agent's health reporting as a signal that
     // DPU has rebooted.
-    network_configured(&env, &vec![dpu_machine_id]).await;
+    mh.network_configured(&env).await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        &host_machine_id,
+        &mh.id,
         3,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -576,7 +546,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     machine_validation_completed(&env, host_rpc_machine_id.clone(), None).await;
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        &host_machine_id,
+        &mh.id,
         3,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
@@ -586,10 +556,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     )
     .await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert_ne!(
         last_reboot_requested_time,
@@ -600,7 +567,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     let response = forge_agent_control(&env, host_rpc_machine_id.clone()).await;
     assert_eq!(response.action, Action::Noop as i32);
     env.run_machine_state_controller_iteration_until_state_matches(
-        &host_machine_id,
+        &mh.id,
         1,
         ManagedHostState::Ready,
     )
@@ -613,9 +580,9 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (_host_machine_id_1, _dpu_machine_id_1) =
-        common::api_fixtures::create_managed_host(&env).await;
+        common::api_fixtures::create_managed_host(&env).await.into();
     let (_host_machine_id_2, _dpu_machine_id_2) =
-        common::api_fixtures::create_managed_host(&env).await;
+        common::api_fixtures::create_managed_host(&env).await.into();
 
     assert_eq!(
         env.test_meter
@@ -756,14 +723,10 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_state_sla(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (_dpu_machine_id, host_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     // When the Machine is in Ready state, there is no SLA
-    let machine = env
-        .find_machines(Some(host_machine_id.into()), None, false)
-        .await
-        .machines
-        .remove(0);
+    let machine = mh.host().rpc_machine().await;
     let sla = machine.state_sla.as_ref().unwrap();
     assert!(!sla.time_in_state_above_sla);
     assert!(sla.sla.is_none());
@@ -772,14 +735,14 @@ async fn test_state_sla(pool: sqlx::PgPool) {
     let mut txn = env.pool.begin().await.unwrap();
     db::machine::update_state(
         &mut txn,
-        &host_machine_id,
+        &mh.id,
         &ManagedHostState::Failed {
             details: FailureDetails {
                 cause: FailureCause::NoError,
                 failed_at: chrono::Utc::now(),
                 source: FailureSource::NoError,
             },
-            machine_id: host_machine_id,
+            machine_id: mh.id,
             retry_count: 1,
         },
     )
@@ -787,11 +750,7 @@ async fn test_state_sla(pool: sqlx::PgPool) {
     .unwrap();
     txn.commit().await.unwrap();
 
-    let machine = env
-        .find_machines(Some(host_machine_id.into()), None, false)
-        .await
-        .machines
-        .remove(0);
+    let machine = mh.host().rpc_machine().await;
     let sla = machine.state_sla.as_ref().unwrap();
     assert!(sla.time_in_state_above_sla);
     assert_eq!(sla.sla.unwrap(), std::time::Duration::from_secs(0).into());

@@ -66,7 +66,7 @@ async fn test_lldp_topology_force_delete(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let (dpu_machine_id, _host_machine_id) = create_managed_host(&env).await;
+    let (dpu_machine_id, _host_machine_id) = create_managed_host(&env).await.into();
 
     let topology = env
         .api

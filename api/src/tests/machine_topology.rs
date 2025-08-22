@@ -361,7 +361,8 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
 #[crate::sqlx_test]
 async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) =
+        common::api_fixtures::create_managed_host(&env).await.into();
     let mut txn = env.pool.begin().await.unwrap();
     let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
@@ -402,7 +403,7 @@ async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
 async fn test_find_machine_ids_by_bmc_ips(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
     let host_machine = env
         .find_machines(host_machine_id.into(), None, true)
         .await

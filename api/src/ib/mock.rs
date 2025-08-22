@@ -331,6 +331,12 @@ impl MockIBFabric {
     }
 }
 
+impl Default for MockIBFabric {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn filter_ports(
     ports: Vec<IBPort>,
     pkey_guids: Option<HashSet<String>>,

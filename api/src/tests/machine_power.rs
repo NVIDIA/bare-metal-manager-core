@@ -27,7 +27,7 @@ async fn test_power_manager_create_entry_on_host_creation(
     let mut txn = env.pool.begin().await?;
     let power_entry = PowerOptions::get_all(&mut txn).await?;
     assert!(power_entry.is_empty());
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
     let power_entry = PowerOptions::get_all(&mut txn).await?;
@@ -74,7 +74,7 @@ async fn test_power_manager_update_fail_since_no_maintenance_set(
     let mut txn = env.pool.begin().await?;
     let power_entry = PowerOptions::get_all(&mut txn).await?;
     assert!(power_entry.is_empty());
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
     let power_entry = PowerOptions::get_all(&mut txn).await?;
@@ -121,7 +121,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
     let power_entry = PowerOptions::get_all(&mut txn).await?;

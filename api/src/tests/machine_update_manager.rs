@@ -112,7 +112,7 @@ async fn test_max_outstanding_updates(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     create_managed_host(&env).await;
-    let (_, dpu_machine_id) = create_managed_host(&env).await;
+    let (_, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let config: Arc<CarbideConfig> = Arc::new(
         Figment::new()
@@ -150,7 +150,7 @@ async fn test_remove_machine_update_markers(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     create_managed_host(&env).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let machine_update = DpuMachineUpdate {
         host_machine_id,
@@ -245,8 +245,8 @@ fn test_start(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let (host_machine_id1, dpu_machine_id1) = create_managed_host(&env).await;
-    let (host_machine_id2, _dpu_machine_id2) = create_managed_host(&env).await;
+    let (host_machine_id1, dpu_machine_id1) = create_managed_host(&env).await.into();
+    let (host_machine_id2, _dpu_machine_id2) = create_managed_host(&env).await.into();
 
     let mut txn = env
         .pool

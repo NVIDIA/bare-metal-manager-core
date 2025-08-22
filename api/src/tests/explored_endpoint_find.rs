@@ -145,7 +145,7 @@ async fn test_find_explored_endpoints_by_ids_none(pool: sqlx::PgPool) {
 async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
     let host_machine = env
         .find_machines(host_machine_id.into(), None, true)
         .await

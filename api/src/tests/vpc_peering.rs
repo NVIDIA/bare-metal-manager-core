@@ -265,7 +265,7 @@ async fn create_vpc_peering(
     let vpc_vni = vpc_vni.expect("Expected vpc_vni to be Some, but was None");
     let peer_vpc_vni = peer_vpc_vni.expect("Expected vpc_vni to be Some, but was None");
 
-    let (host_machine_id, dpu_machine_id) = create_managed_host(env).await;
+    let mh = create_managed_host(env).await;
 
     // Creating VPC peering between two VPCs
     let vpc_peering_request = Request::new(VpcPeeringCreationRequest {
@@ -287,10 +287,16 @@ async fn create_vpc_peering(
     };
     let (_instance_id, _instance) = TestInstance::new(env)
         .network(instance_network)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
-    Ok((vpc_id, peer_vpc_id, vpc_vni, peer_vpc_vni, dpu_machine_id))
+    Ok((
+        vpc_id,
+        peer_vpc_id,
+        vpc_vni,
+        peer_vpc_vni,
+        *mh.dpu().machine_id(),
+    ))
 }
 
 #[crate::sqlx_test]

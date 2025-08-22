@@ -23,7 +23,7 @@ use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
 #[crate::sqlx_test]
 async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let dpu_machine_id_string = dpu_machine_id.to_string();
 
