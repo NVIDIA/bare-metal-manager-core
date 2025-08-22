@@ -12,7 +12,8 @@
 
 use crate::POWER_RESET_COMMAND;
 use crate::bmc::client_pool::BmcPoolMetrics;
-use crate::bmc::message_proxy::{ChannelMsgOrExec, ExecReply, ToFrontendMessage};
+use crate::bmc::message_proxy::{ExecReply, ToBmcMessage, ToFrontendMessage};
+use crate::bmc::pending_output_line::PendingOutputLine;
 use crate::bmc::vendor::IPMITOOL_ESCAPE_SEQUENCE;
 use crate::config::Config;
 use crate::io_util::{
@@ -116,7 +117,7 @@ pub async fn spawn(
         .map_err(|error| SpawnError::SpawningIpmitool { error })?;
 
     // Make a channel the frontend can use to send messages to us
-    let (from_frontend_tx, from_frontend_rx) = mpsc::channel::<ChannelMsgOrExec>(1);
+    let (from_frontend_tx, from_frontend_rx) = mpsc::channel::<ToBmcMessage>(1);
 
     let mut ipmitool_proxy = IpmitoolMessageProxy {
         connection_details,
@@ -130,6 +131,7 @@ pub async fn spawn(
         ready_tx,
         metrics,
         escape_was_pending: false,
+        pending_line: PendingOutputLine::with_max_size(1024),
     };
 
     // Send messages to/from ipmitool in the background
@@ -181,7 +183,7 @@ pub async fn spawn(
 
 /// A handle to a BMC connection, which will shut down when dropped.
 pub struct Handle {
-    pub to_bmc_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
+    pub to_bmc_msg_tx: mpsc::Sender<ToBmcMessage>,
     pub shutdown_tx: oneshot::Sender<()>,
     pub join_handle: JoinHandle<Result<(), SpawnError>>,
 }
@@ -253,12 +255,14 @@ struct IpmitoolMessageProxy {
     output_buf: [u8; 4096],
     shutdown_rx: oneshot::Receiver<()>,
     pty_master: AsyncFd<OwnedFd>,
-    from_frontend_rx: mpsc::Receiver<ChannelMsgOrExec>,
+    from_frontend_rx: mpsc::Receiver<ToBmcMessage>,
     to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
     ready_tx: Option<oneshot::Sender<()>>,
     metrics: Arc<BmcPoolMetrics>,
     // Keep track of whether the last byte sent from the client was the first byte of an escape sequence.
     escape_was_pending: bool,
+    // Keep track of the last data we saw after a newline, so that we can replay it when clients join.
+    pending_line: PendingOutputLine,
 }
 
 impl IpmitoolMessageProxy {
@@ -288,8 +292,10 @@ impl IpmitoolMessageProxy {
                             if let Some(ch) = self.ready_tx.take() {
                                 ch.send(()).ok();
                             }
+                            let data = &self.output_buf[0..n];
                             self.metrics.bmc_bytes_received_total.add(n as _, metrics_attrs.as_slice());
-                            self.to_frontend_tx.send(ToFrontendMessage::Channel(Arc::new(ChannelMsg::Data { data: self.output_buf[0..n].to_vec().into() })))
+                            self.pending_line.extend(data);
+                            self.to_frontend_tx.send(ToFrontendMessage::Channel(Arc::new(ChannelMsg::Data { data: data.to_vec().into() })))
                                 .map_err(|_| ProcessLoopError::WritingToFrontendChannel)?;
                             // Note, we're not clearing the ready state, so the fd will stay readable.
                             // The next time through the loop we'll get EWOULDBLOCK and clear the
@@ -337,18 +343,18 @@ impl IpmitoolMessageProxy {
 
     async fn send_frontend_message_to_ipmi_console(
         &mut self,
-        msg: ChannelMsgOrExec,
+        msg: ToBmcMessage,
     ) -> Result<(), SendFrontendMessageToIpmiConsoleError> {
         let machine_id = self.connection_details.machine_id;
         let msg = match msg {
             // Filter out escape sequences
-            ChannelMsgOrExec::ChannelMsg(
+            ToBmcMessage::ChannelMsg(
                 ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, ext: _ },
             ) => {
                 let (data, escape_pending) = IPMITOOL_ESCAPE_SEQUENCE
                     .filter_escape_sequences(data.as_ref(), self.escape_was_pending);
                 self.escape_was_pending = escape_pending;
-                ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data {
+                ToBmcMessage::ChannelMsg(ChannelMsg::Data {
                     data: data.as_ref().into(),
                 })
             }
@@ -356,17 +362,17 @@ impl IpmitoolMessageProxy {
         };
 
         match msg {
-            ChannelMsgOrExec::ChannelMsg(ChannelMsg::Eof | ChannelMsg::Close) => {
+            ToBmcMessage::ChannelMsg(ChannelMsg::Eof | ChannelMsg::Close) => {
                 // multiple clients can come and go, we don't close just because one of them disconnected.
             }
-            ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data { data }) => {
+            ToBmcMessage::ChannelMsg(ChannelMsg::Data { data }) => {
                 write_data_to_async_fd(&data, &self.pty_master)
                     .await
                     .map_err(
                         |error| SendFrontendMessageToIpmiConsoleError::WritingToPty { error },
                     )?;
             }
-            ChannelMsgOrExec::ChannelMsg(ChannelMsg::WindowChange {
+            ToBmcMessage::ChannelMsg(ChannelMsg::WindowChange {
                 col_width,
                 row_height,
                 pix_width,
@@ -384,7 +390,7 @@ impl IpmitoolMessageProxy {
                     libc::ioctl(self.pty_master.as_raw_fd(), libc::TIOCSWINSZ, &winsz);
                 }
             }
-            ChannelMsgOrExec::Exec { command, reply_tx } => match String::from_utf8(command) {
+            ToBmcMessage::Exec { command, reply_tx } => match String::from_utf8(command) {
                 Ok(command) if command == POWER_RESET_COMMAND => match self.power_reset().await {
                     Ok(()) => {
                         reply_tx
@@ -412,6 +418,10 @@ impl IpmitoolMessageProxy {
                         .ok();
                 }
             },
+            ToBmcMessage::GetPendingLine { reply_tx } => {
+                reply_tx.send(self.pending_line.get().to_vec()).ok();
+                return Ok(());
+            }
             other => {
                 tracing::debug!(%machine_id, "Not handling unknown SSH frontend message in ipmitool: {other:?}");
             }

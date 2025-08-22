@@ -260,11 +260,14 @@ pub enum MessageProxyError {
 }
 
 #[derive(Debug)]
-pub enum ChannelMsgOrExec {
+pub enum ToBmcMessage {
     ChannelMsg(ChannelMsg),
     Exec {
         command: Vec<u8>,
         reply_tx: oneshot::Sender<ExecReply>,
+    },
+    GetPendingLine {
+        reply_tx: oneshot::Sender<Vec<u8>>,
     },
 }
 

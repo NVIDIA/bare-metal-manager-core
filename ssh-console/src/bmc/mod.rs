@@ -15,4 +15,5 @@ pub mod client_pool;
 pub mod connection;
 mod connection_impl;
 pub mod message_proxy;
+mod pending_output_line;
 pub mod vendor;
