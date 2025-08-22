@@ -13,8 +13,9 @@
 use crate::POWER_RESET_COMMAND;
 use crate::bmc::client_pool::BmcPoolMetrics;
 use crate::bmc::message_proxy::{
-    ChannelMsgOrExec, ExecReply, MessageProxyError, ToFrontendMessage, proxy_channel_message,
+    ExecReply, MessageProxyError, ToBmcMessage, ToFrontendMessage, proxy_channel_message,
 };
+use crate::bmc::pending_output_line::PendingOutputLine;
 use crate::bmc::vendor::SshBmcVendor;
 use forge_uuid::machine::MachineId;
 use opentelemetry::KeyValue;
@@ -43,7 +44,7 @@ pub async fn spawn(
     metrics: Arc<BmcPoolMetrics>,
 ) -> Result<Handle, SpawnError> {
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
-    let (to_bmc_msg_tx, mut to_bmc_msg_rx) = mpsc::channel::<ChannelMsgOrExec>(1);
+    let (to_bmc_msg_tx, mut to_bmc_msg_rx) = mpsc::channel::<ToBmcMessage>(1);
     let metrics_attrs = vec![KeyValue::new(
         "machine_id",
         connection_details.machine_id.to_string(),
@@ -68,6 +69,7 @@ pub async fn spawn(
 
     let join_handle = tokio::spawn(async move {
         let (mut ssh_client_rx, ssh_client_tx) = ssh_client_channel.split();
+        let mut pending_line = PendingOutputLine::with_max_size(1024);
 
         loop {
             tokio::select! {
@@ -79,6 +81,7 @@ pub async fn spawn(
                     // Data coming from the BMC to the frontend
                     Some(msg) => {
                         if let ChannelMsg::Data { data, .. } = &msg {
+                            pending_line.extend(data);
                             metrics.bmc_bytes_received_total.add(data.len() as _, metrics_attrs.as_slice());
                             output_ringbuf.push_iter_overwrite(data.iter().copied());
                             if let Some(bmc_prompt) = bmc_prompt {
@@ -102,16 +105,16 @@ pub async fn spawn(
                 res = to_bmc_msg_rx.recv() => match res {
                     Some(msg) => {
                         let msg = match msg {
-                            ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, ..}) => {
+                            ToBmcMessage::ChannelMsg(ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, ..}) => {
                                 let (data, escape_pending) = bmc_vendor.filter_escape_sequences(data.as_ref(), prior_escape_pending);
                                 prior_escape_pending = escape_pending;
-                                ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data { data: data.as_ref().into() })
+                                ToBmcMessage::ChannelMsg(ChannelMsg::Data { data: data.as_ref().into() })
                             }
                             msg => msg,
                         };
                         let msg = match msg {
-                            ChannelMsgOrExec::ChannelMsg(msg) => msg,
-                            ChannelMsgOrExec::Exec { command, reply_tx} => {
+                            ToBmcMessage::ChannelMsg(msg) => msg,
+                            ToBmcMessage::Exec { command, reply_tx} => {
                                 let command = String::from_utf8(command);
                                 match command {
                                     Ok(command) if command == POWER_RESET_COMMAND => {
@@ -127,6 +130,10 @@ pub async fn spawn(
                                         }).ok();
                                     }
                                 }
+                                continue;
+                            }
+                            ToBmcMessage::GetPendingLine { reply_tx } => {
+                                reply_tx.send(pending_line.get().to_vec()).ok();
                                 continue;
                             }
                         };
@@ -155,7 +162,7 @@ pub async fn spawn(
 
 /// A handle to a BMC connection, which will shut down when dropped.
 pub struct Handle {
-    pub to_bmc_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
+    pub to_bmc_msg_tx: mpsc::Sender<ToBmcMessage>,
     pub shutdown_tx: oneshot::Sender<()>,
     pub join_handle: JoinHandle<Result<(), SpawnError>>,
 }

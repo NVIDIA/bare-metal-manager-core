@@ -12,7 +12,7 @@
 use crate::bmc::client_pool::BmcPoolMetrics;
 use crate::bmc::connection::{self, AtomicConnectionState, ConnectionDetails};
 use crate::bmc::message_proxy::{
-    ChannelMsgOrExec, ConnectionChangeMessage, ExecReply, ToFrontendMessage,
+    ConnectionChangeMessage, ExecReply, ToBmcMessage, ToFrontendMessage,
 };
 use crate::config::Config;
 use crate::console_logger;
@@ -49,7 +49,7 @@ pub fn spawn(
     // Shutdown handle for the retry loop that is retrying this connection
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     // Channel frontends can use to send messages to the BMC
-    let (to_bmc_msg_tx, to_bmc_msg_rx) = mpsc::channel::<ChannelMsgOrExec>(1);
+    let (to_bmc_msg_tx, to_bmc_msg_rx) = mpsc::channel::<ToBmcMessage>(1);
     // Channel that broadcasts messages to any subscribed frontends
     let (broadcast_to_frontend_tx, broadcast_to_frontend_rx) =
         broadcast::channel::<ToFrontendMessage>(4096);
@@ -96,7 +96,7 @@ struct BmcClient {
     connection_state: Arc<AtomicConnectionState>,
     shutdown_rx: oneshot::Receiver<()>,
     broadcast_to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
-    to_bmc_msg_rx: mpsc::Receiver<ChannelMsgOrExec>,
+    to_bmc_msg_rx: mpsc::Receiver<ToBmcMessage>,
     metrics: Arc<BmcPoolMetrics>,
 }
 
@@ -341,7 +341,7 @@ async fn wait_until_host_is_up(
 fn relay_input_to_bmc(
     broadcast_to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
     connection_state: Arc<AtomicConnectionState>,
-    mut to_bmc_msg_rx: mpsc::Receiver<ChannelMsgOrExec>,
+    mut to_bmc_msg_rx: mpsc::Receiver<ToBmcMessage>,
     bmc_msg_tx_placeholder: BmcMessageTxPlaceholder,
     last_disconnect_time: Arc<RwLock<Option<DateTime<Utc>>>>,
 ) -> MessageRelayHandle {
@@ -368,23 +368,27 @@ fn relay_input_to_bmc(
                         {
                             tx.send(msg).await.ok();
                         } else {
-                            match msg {
-                                ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data { data }) => {
-                                    // Otherwise, when the user types a newline, inform them the BMC
-                                    // is not connected
-                                    if data.contains(&b'\r') || data.contains(&b'\n') {
-                                        broadcast_to_frontend_tx
-                                            .send(ToFrontendMessage::InformDisconnectedSince(*last_disconnect_time.read().expect("lock poisoned")))
-                                            .ok();
-                                    }
+                            // Otherwise, when the user types a newline, inform them the BMC
+                            // is not connected
+                            let inform_disconnected = match msg {
+                                ToBmcMessage::ChannelMsg(ChannelMsg::Data { data }) => {
+                                    data.contains(&b'\r') || data.contains(&b'\n')
                                 }
-                                ChannelMsgOrExec::Exec { reply_tx, .. } => {
+                                ToBmcMessage::GetPendingLine { reply_tx: _ } => true,
+                                ToBmcMessage::Exec { reply_tx, .. } => {
                                     reply_tx.send(ExecReply {
                                         output: b"BMC console not connected\r\n".to_vec(),
                                         exit_status: 1,
                                     }).ok();
+                                    false
                                 }
-                                _ => {}
+                                _ => false,
+                            };
+
+                            if inform_disconnected {
+                                broadcast_to_frontend_tx
+                                    .send(ToFrontendMessage::InformDisconnectedSince(*last_disconnect_time.read().expect("lock poisoned")))
+                                    .ok();
                             }
                         }
                     }
@@ -405,16 +409,16 @@ struct MessageRelayHandle {
 }
 
 #[derive(Default, Clone)]
-struct BmcMessageTxPlaceholder(Arc<tokio::sync::Mutex<Option<mpsc::Sender<ChannelMsgOrExec>>>>);
+struct BmcMessageTxPlaceholder(Arc<tokio::sync::Mutex<Option<mpsc::Sender<ToBmcMessage>>>>);
 
 impl BmcMessageTxPlaceholder {
     #[inline]
-    async fn replace(&self, value: Option<mpsc::Sender<ChannelMsgOrExec>>) {
+    async fn replace(&self, value: Option<mpsc::Sender<ToBmcMessage>>) {
         *self.lock().await = value;
     }
 
     #[inline]
-    async fn lock(&self) -> MutexGuard<'_, Option<mpsc::Sender<ChannelMsgOrExec>>> {
+    async fn lock(&self) -> MutexGuard<'_, Option<mpsc::Sender<ToBmcMessage>>> {
         self.0.lock().await
     }
 }
@@ -456,7 +460,7 @@ pub struct ClientHandle {
     machine_id: MachineId,
     kind: connection::Kind,
     /// Writer to send messages (including data) to BMC
-    to_bmc_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
+    to_bmc_msg_tx: mpsc::Sender<ToBmcMessage>,
     // Hold a copy of the tx for broadcasting to frontends, so that we can subscribe to it multiple
     // times.
     broadcast_to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
@@ -495,7 +499,7 @@ impl ClientHandle {
 pub struct BmcConnectionSubscription {
     pub machine_id: MachineId,
     pub to_frontend_msg_weak_tx: broadcast::WeakSender<ToFrontendMessage>,
-    pub to_bmc_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
+    pub to_bmc_msg_tx: mpsc::Sender<ToBmcMessage>,
     pub kind: connection::Kind,
     // Not pub, to make sure we go through ClientHandle::subscribe() to build, so we get the
     // right metrics

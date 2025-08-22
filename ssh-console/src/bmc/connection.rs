@@ -13,7 +13,7 @@
 use crate::bmc::client_pool::BmcPoolMetrics;
 use crate::bmc::connection_impl;
 use crate::bmc::connection_impl::{ipmi, ssh};
-use crate::bmc::message_proxy::{ChannelMsgOrExec, ToFrontendMessage};
+use crate::bmc::message_proxy::{ToBmcMessage, ToFrontendMessage};
 use crate::bmc::vendor::{BmcVendor, BmcVendorDetectionError, SshBmcVendor};
 use crate::config::{Config, ConfigError};
 use crate::shutdown_handle::ShutdownHandle;
@@ -304,7 +304,7 @@ pub enum LookupError {
 
 /// A handle to a BMC connection, which will shut down when dropped.
 pub struct Handle {
-    pub to_bmc_msg_tx: mpsc::Sender<ChannelMsgOrExec>,
+    pub to_bmc_msg_tx: mpsc::Sender<ToBmcMessage>,
     pub shutdown_tx: oneshot::Sender<()>,
     pub join_handle: JoinHandle<Result<(), SpawnError>>,
 }

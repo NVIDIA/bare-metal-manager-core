@@ -13,7 +13,7 @@ use crate::bmc::client::BmcConnectionSubscription;
 use crate::bmc::client_pool::{BmcConnectionStore, GetConnectionError};
 use crate::bmc::connection::Kind;
 use crate::bmc::message_proxy;
-use crate::bmc::message_proxy::{ChannelMsgOrExec, ExecReply};
+use crate::bmc::message_proxy::{ExecReply, ToBmcMessage};
 use crate::config::Config;
 use crate::shutdown_handle::ShutdownHandle;
 use crate::ssh_server::ServerMetrics;
@@ -341,7 +341,7 @@ impl russh::server::Handler for Handler {
             client_state
                 .bmc_connection
                 .to_bmc_msg_tx
-                .send(ChannelMsgOrExec::ChannelMsg(ChannelMsg::Data {
+                .send(ToBmcMessage::ChannelMsg(ChannelMsg::Data {
                     data: data.to_vec().into(),
                 }))
                 .await
@@ -363,7 +363,7 @@ impl russh::server::Handler for Handler {
             client_state
                 .bmc_connection
                 .to_bmc_msg_tx
-                .send(ChannelMsgOrExec::ChannelMsg(ChannelMsg::ExtendedData {
+                .send(ToBmcMessage::ChannelMsg(ChannelMsg::ExtendedData {
                     data: data.to_vec().into(),
                     ext: code,
                 }))
@@ -391,7 +391,7 @@ impl russh::server::Handler for Handler {
             client_state
                 .bmc_connection
                 .to_bmc_msg_tx
-                .send(ChannelMsgOrExec::ChannelMsg(ChannelMsg::RequestPty {
+                .send(ToBmcMessage::ChannelMsg(ChannelMsg::RequestPty {
                     want_reply: false,
                     term: term.to_string(),
                     col_width,
@@ -448,30 +448,47 @@ impl russh::server::Handler for Handler {
             return Err(HandlerError::BmcDisconnectedBeforeSubscribe { machine_id })?;
         };
 
+        // Output the banner with instructions
+        let banner = match client_state.bmc_connection.kind {
+            Kind::Ssh => BANNER_SSH_BMC.as_bytes(),
+            Kind::Ipmi => BANNER_IPMI_BMC.as_bytes(),
+        };
+        session.data(channel_id, banner.into()).ok();
+
+        // Tell the backend to return any "pending line": data since the last newline
+        let (mut channel_rx, channel_tx) = channel.split();
+        let (pending_line_reply_tx, pending_line_reply_rx) = oneshot::channel();
+        client_state
+            .bmc_connection
+            .to_bmc_msg_tx
+            .send(ToBmcMessage::GetPendingLine {
+                reply_tx: pending_line_reply_tx,
+            })
+            .await
+            .ok();
+        if let Ok(pending_line) = pending_line_reply_rx.await {
+            channel_tx.data(pending_line.as_slice()).await.ok();
+        }
+
         // Proxy messages from the BMC to the user's connection
         // NOTE: We have to go through extra effort to know when to stop proxying messages, because
         // we don't get reliably told when clients disconnect. So we poll for channel_rx here
         // (taking ownership of it) and signal a shutdown of the proxy loop, then when that happens,
         // we finally close the channel. Only then is Self::channel_close() actually sent! (This is
         // IMO a design flaw in russh.)
-        let (mut channel_rx, channel_tx) = channel.split();
         let proxy_handle = message_proxy::spawn(from_bmc_rx, channel_tx, peer_addr);
 
-        // Wait for the channel to close, then stop the proxy loop.
-        tokio::spawn(async move {
-            loop {
-                if channel_rx.wait().await.is_none() {
-                    break;
+        tokio::spawn({
+            async move {
+                loop {
+                    if channel_rx.wait().await.is_none() {
+                        break;
+                    }
                 }
+                proxy_handle.shutdown_and_wait().await;
             }
-            proxy_handle.shutdown_and_wait().await;
         });
 
-        let banner = match client_state.bmc_connection.kind {
-            Kind::Ssh => BANNER_SSH_BMC.as_bytes(),
-            Kind::Ipmi => BANNER_IPMI_BMC.as_bytes(),
-        };
-        session.data(channel_id, banner.into()).ok();
         Ok(())
     }
 
@@ -510,7 +527,7 @@ impl russh::server::Handler for Handler {
         let (reply_tx, reply_rx) = oneshot::channel();
         bmc_connection
             .to_bmc_msg_tx
-            .send(ChannelMsgOrExec::Exec {
+            .send(ToBmcMessage::Exec {
                 command: data.to_vec(),
                 reply_tx,
             })
@@ -565,7 +582,7 @@ impl russh::server::Handler for Handler {
             client_state
                 .bmc_connection
                 .to_bmc_msg_tx
-                .send(ChannelMsgOrExec::ChannelMsg(ChannelMsg::WindowChange {
+                .send(ToBmcMessage::ChannelMsg(ChannelMsg::WindowChange {
                     col_width,
                     row_height,
                     pix_width,
