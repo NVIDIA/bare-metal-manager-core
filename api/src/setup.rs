@@ -636,6 +636,7 @@ pub async fn initialize_and_start_controllers(
         meter.clone(),
         Some(downloader.clone()),
         Some(upload_limiter),
+        Some(api_service.credential_provider.clone()),
     );
     let _preingestion_manager_stop_handle = preingestion_manager.start()?;
 

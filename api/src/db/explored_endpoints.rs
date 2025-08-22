@@ -418,6 +418,23 @@ WHERE address=$4 AND version=$5";
         Ok(())
     }
 
+    pub async fn set_preingestion_script_running(
+        address: IpAddr,
+        txn: &mut PgConnection,
+    ) -> Result<(), DatabaseError> {
+        let state = PreingestionState::ScriptRunning;
+        DbExploredEndpoint::set_preingestion(address, state, txn).await
+    }
+
+    pub async fn set_preingestion_failed(
+        address: IpAddr,
+        reason: String,
+        txn: &mut PgConnection,
+    ) -> Result<(), DatabaseError> {
+        let state = PreingestionState::Failed { reason };
+        DbExploredEndpoint::set_preingestion(address, state, txn).await
+    }
+
     pub async fn insert(
         address: IpAddr,
         exploration_report: &EndpointExplorationReport,

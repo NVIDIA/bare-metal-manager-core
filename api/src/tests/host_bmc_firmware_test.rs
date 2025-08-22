@@ -16,7 +16,10 @@ use crate::tests::common::api_fixtures::{
 };
 use crate::{
     CarbideResult,
-    cfg::file::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry, TimePeriod},
+    cfg::file::{
+        CarbideConfig, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
+        TimePeriod,
+    },
     db,
     db::{
         DatabaseError, explored_endpoints::DbExploredEndpoint,
@@ -67,6 +70,7 @@ async fn test_preingestion_bmc_upgrade(
         env.config.clone(),
         env.redfish_sim.clone(),
         env.test_meter.meter(),
+        None,
         None,
         None,
     );
@@ -240,6 +244,78 @@ async fn test_preingestion_bmc_upgrade(
             .len()
             == 1
     );
+    txn.commit().await?;
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_preingestion_upgrade_script(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (_tmpdir, config) = script_setup();
+    let env =
+        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(config)).await;
+
+    let mgr = PreingestionManager::new(
+        pool.clone(),
+        env.config.clone(),
+        env.redfish_sim.clone(),
+        env.test_meter.meter(),
+        None,
+        None,
+        None,
+    );
+
+    let response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: "b8:3f:d2:90:97:a6".to_string(),
+            relay_address: "192.0.2.1".to_string(),
+            link_address: None,
+            vendor_string: Some("iDRac".to_string()),
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await?
+        .into_inner();
+
+    let addr = response.address.as_str();
+    let mut txn = pool.begin().await.unwrap();
+    DbExploredEndpoint::delete(&mut txn, IpAddr::from_str(addr).unwrap()).await?;
+    insert_endpoint_version(&mut txn, addr, "0", "0", false).await?;
+    txn.commit().await?;
+
+    mgr.run_single_iteration().await?;
+
+    let mut txn = pool.begin().await.unwrap();
+    let endpoints = DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn).await?;
+    assert!(endpoints.len() == 1);
+    let endpoint = endpoints.first().unwrap().clone();
+    match &endpoint.preingestion_state {
+        // We expect it to be waiting for task completion
+        PreingestionState::ScriptRunning => {}
+        _ => {
+            panic!("Bad preingestion state: {endpoint:?}");
+        }
+    }
+    txn.commit().await?;
+
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    mgr.run_single_iteration().await?;
+
+    let mut txn = pool.begin().await.unwrap();
+    let endpoints = DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn).await?;
+    assert!(endpoints.len() == 1);
+    let endpoint = endpoints.first().unwrap().clone();
+    match &endpoint.preingestion_state {
+        // We expect it to be have gone back to rechecking versions, we won't bother testing that here
+        PreingestionState::RecheckVersions => {}
+        _ => {
+            panic!("Bad preingestion state: {endpoint:?}");
+        }
+    }
     txn.commit().await?;
 
     Ok(())
@@ -866,6 +942,7 @@ async fn test_preingestion_preupdate_powercycling(
         env.config.clone(),
         env.redfish_sim.clone(),
         env.test_meter.meter(),
+        None,
         None,
         None,
     );
@@ -1740,8 +1817,7 @@ async fn test_instance_upgrading_actual_part_2(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_script_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
+fn script_setup() -> (TempDir, CarbideConfig) {
     let tmpdir = TempDir::with_prefix("test_script_upgrade").unwrap();
     let mut filename = tmpdir.path().to_path_buf();
     filename.push("testscript_delete_me.sh");
@@ -1752,7 +1828,7 @@ async fn test_script_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
 echo BMC_IP $BMC_IP
 echo BMC_USERNAME $BMC_USERNAME
 echo BMC_PASSWORD $BMC_PASSWORD
-if [ "$BMC_IP" != "192.0.1.4" ]; then
+if ! echo $BMC_IP | grep -q ^192; then
     echo "Wrong BMC IP"
     exit 1
 fi
@@ -1774,7 +1850,7 @@ exit 0
                 FirmwareComponentType::Bmc,
                 FirmwareComponent {
                     current_version_reported_as: Some(Regex::new("^Installed-.*__iDRAC.").unwrap()),
-                    preingest_upgrade_when_below: None,
+                    preingest_upgrade_when_below: Some("1234".to_string()),
                     known_firmware: vec![FirmwareEntry::standard_script(
                         "1234",
                         filename.to_str().unwrap(),
@@ -1784,6 +1860,13 @@ exit 0
             ordering: vec![FirmwareComponentType::Uefi, FirmwareComponentType::Bmc],
         },
     )]);
+
+    (tmpdir, config)
+}
+
+#[crate::sqlx_test]
+async fn test_script_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
+    let (_tmpdir, config) = script_setup();
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
