@@ -287,6 +287,7 @@ impl EndpointExplorationReport {
 pub enum PreingestionState {
     Initial,
     RecheckVersions,
+    ScriptRunning,
     InitialReset {
         phase: InitialResetPhase,
         last_time: DateTime<Utc>,
@@ -311,6 +312,9 @@ pub enum PreingestionState {
         previous_reset_time: Option<i64>,
     },
     RecheckVersionsAfterFailure {
+        reason: String,
+    },
+    Failed {
         reason: String,
     },
     Complete,

@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{default::Default, sync::Arc, time::Duration};
+use std::{collections::HashMap, default::Default, sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
 use libredfish::{
@@ -21,6 +21,7 @@ use opentelemetry::metrics::Meter;
 use sqlx::{PgConnection, PgPool};
 use tokio::{
     fs::File,
+    io::AsyncBufReadExt,
     sync::{Semaphore, oneshot},
     task::JoinSet,
 };
@@ -38,6 +39,9 @@ use crate::{
     },
     preingestion_manager::metrics::PreingestionMetrics,
     redfish::{RedfishClientCreationError, RedfishClientPool},
+};
+use forge_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
 };
 
 mod metrics;
@@ -58,6 +62,8 @@ struct PreingestionManagerStatic {
     downloader: FirmwareDownloader,
     upload_limiter: Arc<Semaphore>,
     concurrency_limit: usize,
+    upgrade_script_state: Arc<UpdateScriptManager>,
+    credential_provider: Option<Arc<dyn CredentialProvider>>,
 }
 
 impl PreingestionManager {
@@ -70,6 +76,7 @@ impl PreingestionManager {
         meter: Meter,
         downloader: Option<FirmwareDownloader>,
         upload_limiter: Option<Arc<Semaphore>>,
+        credential_provider: Option<Arc<dyn CredentialProvider>>,
     ) -> PreingestionManager {
         let hold_period = config
             .firmware_global
@@ -94,6 +101,8 @@ impl PreingestionManager {
                 downloader: downloader.unwrap_or_default(),
                 upload_limiter: upload_limiter.unwrap_or(Arc::new(Semaphore::new(5))),
                 concurrency_limit: config.firmware_global.concurrency_limit,
+                upgrade_script_state: Default::default(),
+                credential_provider,
             }),
             metric_holder,
         }
@@ -321,11 +330,19 @@ async fn one_endpoint(
                 .await?;
             false
         }
+        PreingestionState::ScriptRunning => {
+            static_info.waiting_for_script(&mut txn, &endpoint).await?;
+            false
+        }
         PreingestionState::Complete => {
             // This should have been filtered out by the query that got us this list.
             tracing::warn!(
                 "Endpoint showed complete preingestion and should not have been here: {endpoint:?}"
             );
+            false
+        }
+        PreingestionState::Failed { .. } => {
+            // There was a serious failure, we never automatically leave this state and wait for a force delete
             false
         }
     };
@@ -508,6 +525,10 @@ impl PreingestionManagerStatic {
                     Ok((false, false))
                 }
                 Some(to_install) => {
+                    if to_install.script.is_some() {
+                        self.by_script(endpoint, &to_install, txn).await?;
+                        return Ok((true, false));
+                    }
                     let Ok(_active) = self.upload_limiter.try_acquire() else {
                         tracing::debug!(
                             "Deferring installation of {:?} on {}, too many uploads already active",
@@ -1146,6 +1167,183 @@ impl PreingestionManagerStatic {
                 Ok(())
             }
         }
+    }
+
+    async fn by_script(
+        &self,
+        endpoint: &ExploredEndpoint,
+        to_install: &FirmwareEntry,
+        txn: &mut PgConnection,
+    ) -> Result<(), DatabaseError> {
+        self.upgrade_script_state
+            .started(endpoint.address.to_string())
+            .await;
+
+        let address = endpoint.address.to_string().clone();
+        let script = to_install.script.clone().unwrap_or("/bin/false".into()); // Should always be Some at this point
+        let upgrade_script_state = self.upgrade_script_state.clone();
+        let (username, password) = if let Some(credential_provider) = &self.credential_provider {
+            // We need to backtrack from the IP address to get the MAC address, which is what the credentials database is keyed on
+            let interface = crate::db::machine_interface::find_by_ip(txn, endpoint.address).await?;
+            let Some(interface) = interface else {
+                tracing::warn!(
+                    "Unable to run update script for {address}: MAC address not retrievable"
+                );
+                return Ok(());
+            };
+
+            let key = CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::BmcRoot {
+                    bmc_mac_address: interface.mac_address,
+                },
+            };
+            match credential_provider.get_credentials(key).await {
+                Ok(credentials) => match credentials {
+                    Credentials::UsernamePassword { username, password } => (username, password),
+                },
+                Err(e) => {
+                    tracing::warn!(
+                        "Unable to run update script for {address}: Unable to retrieve credentials: {e}"
+                    );
+                    return Ok(());
+                }
+            }
+        } else {
+            ("Unknown".to_string(), "Unknown".to_string())
+        };
+        let endpoint = endpoint.clone();
+        tokio::spawn(async move {
+            let mut cmd = match tokio::process::Command::new(script)
+                .env("BMC_IP", address.clone())
+                .env("BMC_USERNAME", username)
+                .env("BMC_PASSWORD", password)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+            {
+                Ok(cmd) => cmd,
+                Err(e) => {
+                    tracing::error!("Upgrade script {address} command creation failed: {e}");
+                    upgrade_script_state
+                        .completed(endpoint.address.to_string(), false)
+                        .await;
+                    return;
+                }
+            };
+
+            let Some(stdout) = cmd.stdout.take() else {
+                tracing::error!("Upgrade script {address} STDOUT creation failed");
+                let _ = cmd.kill().await;
+                let _ = cmd.wait().await;
+                upgrade_script_state
+                    .completed(endpoint.address.to_string(), false)
+                    .await;
+                return;
+            };
+            let stdout = tokio::io::BufReader::new(stdout);
+
+            let Some(stderr) = cmd.stderr.take() else {
+                tracing::error!("Upgrade script {address} STDERR creation failed");
+                let _ = cmd.kill().await;
+                let _ = cmd.wait().await;
+                upgrade_script_state
+                    .completed(endpoint.address.to_string(), false)
+                    .await;
+                return;
+            };
+            let stderr = tokio::io::BufReader::new(stderr);
+
+            // Take the stdout and stderr from the script and write them to a log with a searchable prefix
+            let address2 = address.clone();
+            let thread = tokio::spawn(async move {
+                let mut lines = stderr.lines();
+                while let Some(line) = lines.next_line().await.unwrap_or(None) {
+                    tracing::info!("Upgrade script {address2} STDERR {line}");
+                }
+            });
+            let mut lines = stdout.lines();
+            while let Some(line) = lines.next_line().await.unwrap_or(None) {
+                tracing::info!("Upgrade script {address} {line}");
+            }
+            let _ = tokio::join!(thread);
+
+            match cmd.wait().await {
+                Err(e) => {
+                    tracing::info!("Upgrade script {address} FAILED: Wait failure {e}");
+                    upgrade_script_state
+                        .completed(endpoint.address.to_string(), false)
+                        .await;
+                }
+                Ok(errorcode) => {
+                    if errorcode.success() {
+                        tracing::info!("Upgrade script {address} completed successfully");
+                        upgrade_script_state
+                            .completed(endpoint.address.to_string(), true)
+                            .await;
+                    } else {
+                        tracing::warn!("Upgrade script {address} FAILED: Exited with {errorcode}");
+                        upgrade_script_state
+                            .completed(endpoint.address.to_string(), false)
+                            .await;
+                    }
+                }
+            }
+        });
+
+        DbExploredEndpoint::set_preingestion_script_running(endpoint.address, txn).await?;
+        Ok(())
+    }
+
+    async fn waiting_for_script(
+        &self,
+        txn: &mut PgConnection,
+        endpoint: &ExploredEndpoint,
+    ) -> Result<(), DatabaseError> {
+        let address = endpoint.address.to_string();
+        let Some(success) = self.upgrade_script_state.state(&address).await else {
+            // Not yet completed, or we restarted (which specifically needs a manual restart of interrupted scripts)
+            return Ok(());
+        };
+
+        self.upgrade_script_state.clear(&address).await;
+
+        if success {
+            DbExploredEndpoint::set_preingestion_recheck_versions(endpoint.address, txn).await?;
+            Ok(())
+        } else {
+            DbExploredEndpoint::set_preingestion_failed(endpoint.address,format!(
+                    "The upgrade script failed.  Search the log for \"Upgrade script {}\" for script output.  Force delete the explored endpoint to retry.",
+                    endpoint.address
+                ), txn).await?;
+            Ok(())
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct UpdateScriptManager {
+    active: tokio::sync::Mutex<HashMap<String, Option<bool>>>,
+}
+
+impl UpdateScriptManager {
+    async fn started(&self, id: String) {
+        let mut hashmap = self.active.lock().await;
+        hashmap.insert(id, None);
+    }
+
+    async fn completed(&self, id: String, success: bool) {
+        let mut hashmap = self.active.lock().await;
+        hashmap.insert(id, Some(success));
+    }
+
+    async fn clear(&self, id: &String) {
+        let mut hashmap = self.active.lock().await;
+        hashmap.remove(id);
+    }
+
+    async fn state(&self, id: &String) -> Option<bool> {
+        let hashmap = self.active.lock().await;
+        *hashmap.get(id).unwrap_or(&None)
     }
 }
 
