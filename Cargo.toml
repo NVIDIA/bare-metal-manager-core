@@ -103,3 +103,4 @@ overflow-checks = true  # Add some extra assurance during development
 [workspace.lints.clippy]
 cloned_instead_of_copied = "warn"
 redundant_clone  = "warn"
+large_stack_arrays = "warn"

@@ -153,7 +153,7 @@ fn hash_file(p: &Path) -> eyre::Result<String> {
     // blake3 is almost 2x faster than sha2's sha256 in release mode, and 35x faster in debug mode
     let mut hasher = blake3::Hasher::new();
     let mut f = fs::File::open(p).wrap_err_with(|| format!("open {}", p.display()))?;
-    let mut buf = [0; 32768];
+    let mut buf = vec![0; 32768].into_boxed_slice();
     loop {
         match f.read(&mut buf) {
             Ok(0) => {
