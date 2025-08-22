@@ -177,6 +177,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     assert_eq!(ib_config.ib_interfaces.len(), 2);
 
     let ib_status = check_instance.status().infiniband();
+    assert_eq!(ib_status.configs_synced(), rpc::SyncState::Synced);
     assert_eq!(ib_status.ib_interfaces.len(), 2);
 
     if let Some(iface) = ib_config.ib_interfaces.first() {

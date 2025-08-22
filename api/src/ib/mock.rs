@@ -130,6 +130,11 @@ impl IBFabric for MockIBFabric {
         mut ib: IBNetwork,
         ports: Vec<String>,
     ) -> Result<(), CarbideError> {
+        println!(
+            "bind_ib_ports(pkey: 0x{:x}, ports: {})",
+            ib.pkey,
+            ports.join(",")
+        );
         ib.associated_guids = None; // Nothing can be associated by caller
         // The initial QOS config is always coming from UFM. The caller can't specify it
         ib.qos_conf = Some(IBQosConf {
@@ -213,6 +218,11 @@ impl IBFabric for MockIBFabric {
 
     /// Delete IBPort
     async fn unbind_ib_ports(&self, pkey: u16, ids: Vec<String>) -> Result<(), CarbideError> {
+        println!(
+            "bind_ib_ports(pkey: 0x{:x}, ports: {})",
+            pkey,
+            ids.join(",")
+        );
         let mut state = self
             .state
             .lock()

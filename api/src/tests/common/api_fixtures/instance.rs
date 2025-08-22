@@ -25,6 +25,7 @@ use crate::model::machine::{
 use crate::tests::common::api_fixtures::RpcInstance;
 use crate::tests::common::api_fixtures::managed_host::ManagedHost;
 use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
+use futures::FutureExt as _;
 use rpc::{
     InstanceReleaseRequest, Timestamp,
     forge::{forge_server::Forge, instance_interface_config::NetworkDetails},
@@ -253,10 +254,56 @@ pub async fn advance_created_instance_into_ready_state(
     env.run_machine_state_controller_iteration().await;
     // - first run: state controller moves state to WaitingForNetworkConfig
     env.run_machine_state_controller_iteration().await;
-    // - second run: state controller sets use_admin_network to false
+    assert_eq!(
+        env.find_machines(Some(host_machine_id.to_string().into()), None, false)
+            .await
+            .machines
+            .remove(0)
+            .state,
+        "Assigned/WaitingForNetworkConfig".to_string()
+    );
+    // - second run: Run one iteration in WaitingForNetworkConfig
+    // This will request to bind IB ports. We will then observe that these have been bound
     env.run_machine_state_controller_iteration().await;
+    assert_eq!(
+        env.find_machines(Some(host_machine_id.to_string().into()), None, false)
+            .await
+            .machines
+            .remove(0)
+            .state,
+        "Assigned/WaitingForNetworkConfig".to_string()
+    );
+    println!("StateB1");
     // - forge-dpu-agent gets an instance network to configure, reports it configured
-    super::network_configured(env, dpu_machine_ids).await;
+    super::network_configured(env, dpu_machine_ids)
+        .boxed()
+        .await;
+    // If IB is used, another state controller iteration might be required to bind the IB ports
+    // and get actually out of the state
+    // This iteration will call bind_ib_ports
+    env.run_machine_state_controller_iteration().await;
+
+    let state = env
+        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .await
+        .machines
+        .remove(0)
+        .state;
+    if state == "Assigned/WaitingForNetworkConfig" {
+        // Also report that we are no longer on the tenant network for IB
+        // That can require one more state controller iteration after the fabric
+        // monitor supplied the results
+        env.run_ib_fabric_monitor_iteration().await;
+        env.run_machine_state_controller_iteration().await;
+    }
+    assert_eq!(
+        env.find_machines(Some(host_machine_id.to_string().into()), None, false)
+            .await
+            .machines
+            .remove(0)
+            .state,
+        "Assigned/WaitingForStorageConfig".to_string()
+    );
     // - simulate that the host's hardware is reported healthy
     super::simulate_hardware_health_report(
         env,
@@ -360,6 +407,20 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
 
     // Apply switching back to admin network
     super::network_configured(env, dpu_machine_ids).await;
+    env.run_machine_state_controller_iteration().await;
+    let state = env
+        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .await
+        .machines
+        .remove(0)
+        .state;
+    if state == "Assigned/WaitingForNetworkReconfig" {
+        // Also report that we are no longer on the tenant network for IB
+        // That can require one more state controller iteration after the fabric
+        // monitor supplied the results
+        env.run_ib_fabric_monitor_iteration().await;
+        env.run_machine_state_controller_iteration().await;
+    }
 
     if env.attestation_enabled {
         inject_machine_measurements(env, (*host_machine_id).into()).await;

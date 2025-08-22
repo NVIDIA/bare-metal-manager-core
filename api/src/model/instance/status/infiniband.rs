@@ -17,8 +17,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     ib::types::IBPort,
-    model::instance::{config::infiniband::InstanceInfinibandConfig, status::SyncState},
-    model::machine::infiniband::MachineInfinibandStatusObservation,
+    model::{
+        instance::{config::infiniband::InstanceInfinibandConfig, status::SyncState},
+        machine::infiniband::{MachineInfinibandStatusObservation, ib_config_synced},
+    },
 };
 use ::rpc::errors::RpcDataConversionError;
 
@@ -95,6 +97,8 @@ impl InstanceInfinibandStatus {
             };
         }
 
+        let ib_config_sync_state = ib_config_synced(observations, Some(config.value), true);
+
         // Config version check is not used fo Infiniband Instance configuration.
         // There is no asynchronous process. It's actually the state handler itself which checks the
         // desired config, applies it against UFM, and then observes the status reports from UFM.
@@ -144,7 +148,11 @@ impl InstanceInfinibandStatus {
 
         Self {
             ib_interfaces,
-            configs_synced: SyncState::Synced,
+            configs_synced: if ib_config_sync_state.is_ok() {
+                SyncState::Synced
+            } else {
+                SyncState::Pending
+            },
         }
     }
 

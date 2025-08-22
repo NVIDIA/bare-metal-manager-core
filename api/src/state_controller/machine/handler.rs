@@ -47,6 +47,7 @@ use crate::model::instance::config::network::{
     DeviceLocator, InstanceInterfaceConfig, InterfaceFunctionId,
 };
 use crate::model::instance::snapshot::InstanceSnapshot;
+use crate::model::machine::infiniband::ib_config_synced;
 use crate::model::machine::{
     CreateBossVolumeContext, CreateBossVolumeState, NetworkConfigUpdateState, NextStateBFBSupport,
     SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
@@ -4695,6 +4696,21 @@ impl StateHandler for InstanceStateHandler {
                     )
                     .await?;
 
+                    // Check whether the IB config is synced
+                    if let Err(not_synced_reason) = ib_config_synced(
+                        mh_snapshot
+                            .host_snapshot
+                            .infiniband_status_observation
+                            .as_ref(),
+                        Some(&instance.config.infiniband),
+                        true,
+                    ) {
+                        return Ok(wait!(format!(
+                            "Waiting for IB config to be applied: {}",
+                            not_synced_reason.0
+                        )));
+                    }
+
                     Ok(transition!(next_state))
                 }
                 InstanceState::WaitingForStorageConfig => {
@@ -5041,6 +5057,21 @@ impl StateHandler for InstanceStateHandler {
                         instance.config.infiniband.ib_interfaces.clone(),
                     )
                     .await?;
+
+                    // Check whether IB config is removed
+                    if let Err(not_synced_reason) = ib_config_synced(
+                        mh_snapshot
+                            .host_snapshot
+                            .infiniband_status_observation
+                            .as_ref(),
+                        Some(&instance.config.infiniband),
+                        false,
+                    ) {
+                        return Ok(wait!(format!(
+                            "Waiting for IB config to be applied: {}",
+                            not_synced_reason.0
+                        )));
+                    }
 
                     // TODO: TPM cleanup
                     // Reboot host
