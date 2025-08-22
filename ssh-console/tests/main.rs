@@ -160,19 +160,33 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
         let logs = std::fs::read_to_string(&log_path)
             .with_context(|| format!("error reading log file at {}", log_path.display()))?;
 
-        // Find "ssh-console connected" lines
-        let (connection_lines, other_lines) = logs
+        // Find "ssh-console started at" lines
+        let (started_lines, other_lines) = logs
             .lines()
-            .partition::<Vec<_>, _>(|l| l.starts_with("--- ssh-console connected at "));
+            .partition::<Vec<_>, _>(|l| l.starts_with("--- ssh-console started at "));
 
-        // Find the "ssh-console disconnected at" line
-        let (disconnection_lines, other_lines) = other_lines
+        // Find the "ssh-console shutting down at" line
+        let (shutting_down_lines, other_lines) = other_lines
             .into_iter()
-            .partition::<Vec<_>, _>(|l| l.starts_with("--- ssh-console disconnected at "));
+            .partition::<Vec<_>, _>(|l| l.starts_with("--- ssh-console shutting down at "));
 
-        assert!(
-            !connection_lines.is_empty(),
-            "{} does not contain at least one line saying `--- ssh-console connected at`:\n{}",
+        // Find the "Console connected!" line
+        let (console_connected_lines, other_lines) = other_lines
+            .into_iter()
+            .partition::<Vec<_>, _>(|l| l.starts_with("--- Console connected! ---"));
+
+        assert_eq!(
+            started_lines.len(),
+            1,
+            "{} does not contain at least one line saying `--- ssh-console started at`:\n{}",
+            log_path.display(),
+            logs
+        );
+
+        assert_eq!(
+            console_connected_lines.len(),
+            1,
+            "{} does not contain at least one line saying `--- Console connected! ---`:\n{}",
             log_path.display(),
             logs
         );
@@ -185,7 +199,7 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
         );
 
         assert_eq!(
-            disconnection_lines.len(),
+            shutting_down_lines.len(),
             1,
             "{} does not contain expected disconnected line:\n{}",
             log_path.display(),
@@ -195,7 +209,7 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
         assert!(
             logs.lines()
                 .last()
-                .is_some_and(|l| l == disconnection_lines[0]),
+                .is_some_and(|l| l == shutting_down_lines[0]),
             "{} did not have the shutdown line as its last line:\n{}",
             log_path.display(),
             logs

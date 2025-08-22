@@ -13,14 +13,13 @@
 use crate::bmc::client_pool::BmcPoolMetrics;
 use crate::bmc::connection_impl;
 use crate::bmc::connection_impl::{ipmi, ssh};
-use crate::bmc::message_proxy::ChannelMsgOrExec;
+use crate::bmc::message_proxy::{ChannelMsgOrExec, ToFrontendMessage};
 use crate::bmc::vendor::{BmcVendor, BmcVendorDetectionError, SshBmcVendor};
 use crate::config::{Config, ConfigError};
 use crate::shutdown_handle::ShutdownHandle;
 use forge_uuid::machine::{MachineId, MachineIdParseError, MachineType};
 use rpc::forge;
 use rpc::forge_api_client::ForgeApiClient;
-use russh::ChannelMsg;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
@@ -33,7 +32,7 @@ use uuid::Uuid;
 
 pub async fn spawn(
     connection_details: ConnectionDetails,
-    broadcast_to_frontend_tx: broadcast::Sender<Arc<ChannelMsg>>,
+    broadcast_to_frontend_tx: broadcast::Sender<ToFrontendMessage>,
     metrics: Arc<BmcPoolMetrics>,
     config: Arc<Config>,
 ) -> Result<Handle, SpawnError> {
