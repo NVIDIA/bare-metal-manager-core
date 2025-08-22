@@ -255,7 +255,7 @@ pub async fn advance_created_instance_into_ready_state(
     // - first run: state controller moves state to WaitingForNetworkConfig
     env.run_machine_state_controller_iteration().await;
     assert_eq!(
-        env.find_machines(Some(host_machine_id.to_string().into()), None, false)
+        env.find_machines(host_machine_id.into(), None, false)
             .await
             .machines
             .remove(0)
@@ -266,14 +266,13 @@ pub async fn advance_created_instance_into_ready_state(
     // This will request to bind IB ports. We will then observe that these have been bound
     env.run_machine_state_controller_iteration().await;
     assert_eq!(
-        env.find_machines(Some(host_machine_id.to_string().into()), None, false)
+        env.find_machines(host_machine_id.into(), None, false)
             .await
             .machines
             .remove(0)
             .state,
         "Assigned/WaitingForNetworkConfig".to_string()
     );
-    println!("StateB1");
     // - forge-dpu-agent gets an instance network to configure, reports it configured
     super::network_configured(env, dpu_machine_ids)
         .boxed()
@@ -284,7 +283,7 @@ pub async fn advance_created_instance_into_ready_state(
     env.run_machine_state_controller_iteration().await;
 
     let state = env
-        .find_machines(Some(host_machine_id.to_string().into()), None, false)
+        .find_machines(host_machine_id.into(), None, false)
         .await
         .machines
         .remove(0)
@@ -297,7 +296,7 @@ pub async fn advance_created_instance_into_ready_state(
         env.run_machine_state_controller_iteration().await;
     }
     assert_eq!(
-        env.find_machines(Some(host_machine_id.to_string().into()), None, false)
+        env.find_machines(host_machine_id.into(), None, false)
             .await
             .machines
             .remove(0)
