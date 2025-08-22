@@ -11,12 +11,15 @@
  */
 
 use std::collections::HashSet;
+use std::fmt::Write;
 
 use chrono::{DateTime, Utc};
 use forge_uuid::infiniband::IBPartitionId;
 use serde::{Deserialize, Serialize};
 
-use crate::model::ib_partition::PartitionKey;
+use crate::model::{
+    ib_partition::PartitionKey, instance::config::infiniband::InstanceInfinibandConfig,
+};
 
 /// The infiniband status that was last reported by the networking subsystem
 /// Stored in a Postgres JSON field
@@ -92,6 +95,122 @@ impl From<MachineIbInterfaceStatusObservation> for rpc::forge::MachineIbInterfac
             }),
         }
     }
+}
+
+/// The reason why the IB config is not synced
+#[derive(Debug, Clone)]
+pub struct IbConfigNotSyncedReason(pub String);
+
+/// Returns whether the desired InfiniBand config for a Machine has been applied
+pub fn ib_config_synced(
+    observation: Option<&MachineInfinibandStatusObservation>,
+    config: Option<&InstanceInfinibandConfig>,
+    use_tenant_network: bool,
+) -> Result<(), IbConfigNotSyncedReason> {
+    let Some(config) = config.as_ref() else {
+        // If no IB config is requested, we always treat the config as applied
+        // TODO: This is to achieve the same behavior as the current system, where hosts without
+        // IB config don't care about what is configured.
+        // In the future we should also check here whether all interfaces/ports have **no** pkeys assigned to them.
+        // If there are any assigned, the state should be marked as not synced.
+        return Ok(());
+    };
+
+    if config.ib_interfaces.is_empty() {
+        // If no IB config is requested, we always treat the config as applied
+        // TODO: This is to achieve the same behavior as the current system, where hosts without
+        // IB config don't care about what is configured.
+        // In the future we should also check here whether all interfaces/ports have **no** pkeys assigned to them.
+        // If there are any assigned, the state should be marked as not synced.
+        return Ok(());
+    }
+
+    // The tenant requested to use IB. In this case
+    // - if the tenant network is still utilized (`use_tenant_config == true`), all interfaces that the tenant wants to use should be on the tenant network
+    // - if the tenant network is not utilized, all interfaces that the tenant wants to use should be on no network
+    // For interfaces that the tenant does not want to use, we will not perform any checks at the moment
+    let Some(observation) = observation.as_ref() else {
+        return Err(IbConfigNotSyncedReason("Due to missing IB status observation, it can't be verified whether the IB config is applied at UFM".to_string()));
+    };
+
+    let mut misconfigured_guids = Vec::new();
+    let mut unknown_guid_states = Vec::new();
+
+    for iface in config.ib_interfaces.iter() {
+        let Some(guid) = iface.guid.as_ref() else {
+            continue;
+        };
+        let expected_partition_id = iface.ib_partition_id;
+
+        let Some(actual_iface_state) = observation
+            .ib_interfaces
+            .iter()
+            .find(|iface| iface.guid == *guid)
+        else {
+            // We can't look up the observation. This should never happen, as the observation field
+            // for each interface is always populated.
+            unknown_guid_states.push(guid.to_string());
+            continue;
+        };
+
+        let Some(associated_pkeys) = actual_iface_state.associated_pkeys.as_ref() else {
+            unknown_guid_states.push(guid.to_string());
+            continue;
+        };
+
+        let Some(associated_partition_ids) = actual_iface_state.associated_partition_ids.as_ref()
+        else {
+            unknown_guid_states.push(guid.to_string());
+            continue;
+        };
+
+        if use_tenant_network {
+            // The interface should use exactly the partition ID that is requested
+            if associated_pkeys.len() != 1
+                || associated_partition_ids.len() != 1
+                || *associated_partition_ids.iter().next().unwrap() != expected_partition_id
+            {
+                misconfigured_guids
+                    .push((guid.to_string(), format!("[\"{expected_partition_id}\"]")));
+            }
+        } else {
+            // The interface should not be on any partition
+            if !associated_pkeys.is_empty() || !associated_partition_ids.is_empty() {
+                misconfigured_guids.push((guid.to_string(), "[]".to_string()));
+            }
+        }
+    }
+
+    // TODO: Check here whether all interfaces that are not referenced in the config
+    // are set to have exactly 0 pkeys configured
+    // This is only possible once we know there's no manually
+    // configured pkeys anymore in the system
+
+    let mut errors = String::new();
+    if !unknown_guid_states.is_empty() {
+        write!(
+            &mut errors,
+            "IB status observation for interface with GUIDs {} is missing or incomplete. However the interfaces are specified in instance config",
+            unknown_guid_states.join(",")
+        ).unwrap();
+    }
+
+    for (guid, expectation) in misconfigured_guids.iter() {
+        if !errors.is_empty() {
+            errors.push('\n');
+        }
+        write!(
+            &mut errors,
+            "Interface with GUID {guid} should be assigned to partition IDs {expectation}"
+        )
+        .unwrap();
+    }
+
+    if !errors.is_empty() {
+        return Err(IbConfigNotSyncedReason(errors));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
