@@ -432,7 +432,7 @@ enum ConnectionTestState {
     TryingBackdoorEscape,
 }
 
-struct PermissiveSshClient;
+pub struct PermissiveSshClient;
 
 impl russh::client::Handler for PermissiveSshClient {
     type Error = eyre::Error;
