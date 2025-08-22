@@ -159,6 +159,7 @@ pub struct MachineStateHandlerBuilder {
     credential_provider: Option<Arc<dyn CredentialProvider>>,
     power_options_config: PowerOptionConfig,
     enable_secure_boot: bool,
+    hgx_bmc_gpu_reboot_delay: chrono::Duration,
 }
 
 impl MachineStateHandlerBuilder {
@@ -192,6 +193,7 @@ impl MachineStateHandlerBuilder {
                 wait_duration_until_host_reboot: chrono::Duration::minutes(0),
             },
             enable_secure_boot: false,
+            hgx_bmc_gpu_reboot_delay: chrono::Duration::seconds(30),
         }
     }
 
@@ -322,6 +324,10 @@ impl MachineStateHandler {
             upgrade_script_state: Default::default(),
             credential_provider: builder.credential_provider,
             async_firmware_uploader: Arc::new(Default::default()),
+            hgx_bmc_gpu_reboot_delay: builder
+                .hgx_bmc_gpu_reboot_delay
+                .to_std()
+                .unwrap_or(tokio::time::Duration::from_secs(30)),
         });
         MachineStateHandler {
             dpu_up_threshold: builder.dpu_up_threshold,
@@ -5538,6 +5544,7 @@ struct HostUpgradeState {
     upgrade_script_state: Arc<UpdateScriptManager>,
     credential_provider: Option<Arc<dyn CredentialProvider>>,
     async_firmware_uploader: Arc<AsyncFirmwareUploader>,
+    hgx_bmc_gpu_reboot_delay: tokio::time::Duration,
 }
 
 impl std::fmt::Debug for HostUpgradeState {
@@ -6650,7 +6657,9 @@ impl HostUpgradeState {
             }
         }
 
-        if *firmware_type == FirmwareComponentType::HGXBmc {
+        if *firmware_type == FirmwareComponentType::HGXBmc
+            || *firmware_type == FirmwareComponentType::Gpu
+        {
             // Needs a host power reset
             let redfish_client = services
                 .redfish_client_pool
@@ -6658,23 +6667,16 @@ impl HostUpgradeState {
                 .await?;
 
             // DGX models only had an "off", GB200 (and presumably later ones) has an actual AC powercycle.
-            let model = endpoint
-                .report
-                .systems
-                .iter()
-                .find(|&x| x.model.is_some())
-                .and_then(|system| system.model.clone())
-                .unwrap_or("unknown".to_string());
-            let poweroff_style = if model.starts_with("DGX") {
-                SystemPowerControl::ForceOff
-            } else {
+            let poweroff_style = if redfish_client.ac_powercycle_supported_by_power() {
                 SystemPowerControl::ACPowercycle
+            } else {
+                SystemPowerControl::ForceOff
             };
             if let Err(e) = redfish_client.power(poweroff_style).await {
                 tracing::error!("Failed to power off {}: {e}", &endpoint.address);
                 return Ok(None);
             }
-            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            tokio::time::sleep(self.hgx_bmc_gpu_reboot_delay).await;
             if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
                 tracing::error!("Failed to power on {}: {e}", &endpoint.address);
                 return Ok(None);

@@ -31,6 +31,7 @@
 - [MR-4395](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4395) [MR-4342](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4342) Added ability to do host upgrades via script instead of the normal firmware update process.
 
 - [FORGE-6728](https://jirasw.nvidia.com/browse/FORGE-6728): new cli command to allow bulk update of sku device type
+- [MR-4478](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4478): added "GPU" firmware component type that does an AC powercycle reset to apply.
 
 ### Changed
 

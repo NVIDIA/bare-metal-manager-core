@@ -4247,7 +4247,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_with",
- "thiserror 2.0.14",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -4255,9 +4255,9 @@ dependencies = [
 
 [[package]]
 name = "libredfish"
-version = "0.29.62"
+version = "0.29.63"
 source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
-checksum = "ec6b17062510efd5a25dfc95871313b611a0a27ea045ca7f942a1370760b438b"
+checksum = "1f6426b984f6923ce1f88dcef9df52ffa5a1bfab6d100ad8bcd9eaf290404333"
 dependencies = [
  "async-trait",
  "chrono",

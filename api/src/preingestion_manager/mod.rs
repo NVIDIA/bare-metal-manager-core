@@ -62,6 +62,7 @@ struct PreingestionManagerStatic {
     downloader: FirmwareDownloader,
     upload_limiter: Arc<Semaphore>,
     concurrency_limit: usize,
+    hgx_bmc_gpu_reboot_delay: Duration,
     upgrade_script_state: Arc<UpdateScriptManager>,
     credential_provider: Option<Arc<dyn CredentialProvider>>,
 }
@@ -103,6 +104,11 @@ impl PreingestionManager {
                 concurrency_limit: config.firmware_global.concurrency_limit,
                 upgrade_script_state: Default::default(),
                 credential_provider,
+                hgx_bmc_gpu_reboot_delay: config
+                    .firmware_global
+                    .hgx_bmc_gpu_reboot_delay
+                    .to_std()
+                    .unwrap_or(Duration::from_secs(30)),
             }),
             metric_holder,
         }
@@ -945,13 +951,21 @@ impl PreingestionManagerStatic {
             // Will not be reporting the new version yet, we need to wait.
             need_wait = true;
         }
-        if *upgrade_type == FirmwareComponentType::HGXBmc {
+        if *upgrade_type == FirmwareComponentType::HGXBmc
+            || *upgrade_type == FirmwareComponentType::Gpu
+        {
             // Needs a host power reset
-            if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
+            // DGX models only had an "off", GB200 (and presumably later ones) has an actual AC powercycle.
+            let poweroff_style = if redfish_client.ac_powercycle_supported_by_power() {
+                SystemPowerControl::ACPowercycle
+            } else {
+                SystemPowerControl::ForceOff
+            };
+            if let Err(e) = redfish_client.power(poweroff_style).await {
                 tracing::error!("Failed to power off {}: {e}", &endpoint.address);
                 return Ok(());
             }
-            tokio::time::sleep(Duration::from_secs(15)).await;
+            tokio::time::sleep(self.hgx_bmc_gpu_reboot_delay).await;
             if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
                 tracing::error!("Failed to power on {}: {e}", &endpoint.address);
                 return Ok(());
