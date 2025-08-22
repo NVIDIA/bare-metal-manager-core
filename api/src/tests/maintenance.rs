@@ -27,8 +27,8 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
     // Create a machine
-    let (host_id, _dpu_machine_id) = create_managed_host(&env).await;
-    let (_host_id_2, _dpu_machine_id_2) = create_managed_host(&env).await;
+    let (host_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+    let (_host_id_2, _dpu_machine_id_2) = create_managed_host(&env).await.into();
     let rpc_host_id: rpc::MachineId = host_id.into();
 
     // enable maintenance mode

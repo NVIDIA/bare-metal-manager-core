@@ -30,7 +30,7 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
     let host_machine = env
         .find_machines(host_machine_id.into(), None, true)
         .await
@@ -142,7 +142,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let (instance_id, _instance) = common::api_fixtures::instance::TestInstance::new(&env)
         .single_interface_network_config(segment_id)
@@ -240,7 +240,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 async fn test_identify_mac(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let res = env
         .api

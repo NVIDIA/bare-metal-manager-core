@@ -22,7 +22,7 @@ use crate::tests::common;
 async fn test_create_inventory(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
 
-    let (_, dpu_machine_id) = create_managed_host(&env).await;
+    let dpu_machine_id = create_managed_host(&env).await.into_dpu();
 
     let machine_result = env.find_machines(dpu_machine_id.into(), None, true).await;
 

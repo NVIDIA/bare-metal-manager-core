@@ -1013,7 +1013,7 @@ async fn test_update_svi_ip_post_instance_allocation(
 
     txn.commit().await?;
 
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
 
     let mut txn = env
         .pool
@@ -1030,7 +1030,7 @@ async fn test_update_svi_ip_post_instance_allocation(
 
     let (_instance_id, _instance) = common::api_fixtures::instance::TestInstance::new(&env)
         .single_interface_network_config(segment_id)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     // At this moment, the third IP is taken from the tenant subnet for the instance.

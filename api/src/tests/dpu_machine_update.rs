@@ -41,17 +41,15 @@ async fn create_machines(
     test_env: &TestEnv,
     machine_count: usize,
 ) -> HashMap<MachineId, ManagedHostStateSnapshot> {
-    let mut machine_ids = Vec::default();
-    let mut dpu_machine_ids = Vec::default();
+    let mut machines = Vec::default();
     for _ in 0..machine_count {
-        let (host_machine_id, dpu_machine_id) = create_managed_host(test_env).await;
-        machine_ids.push(host_machine_id);
-        dpu_machine_ids.push(dpu_machine_id);
+        let machine = create_managed_host(test_env).await;
+        machines.push(machine);
     }
     let mut txn = test_env.pool.begin().await.unwrap();
 
-    for dpu_machine_id in &dpu_machine_ids {
-        update_nic_firmware_version(&mut txn, dpu_machine_id, "11.10.1000")
+    for m in &machines {
+        update_nic_firmware_version(&mut txn, m.dpu().machine_id(), "11.10.1000")
             .await
             .unwrap();
     }
@@ -61,7 +59,7 @@ async fn create_machines(
 
     crate::db::managed_host::load_by_machine_ids(
         &mut txn,
-        &machine_ids,
+        &machines.iter().map(|m| m.id).collect::<Vec<_>>(),
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,

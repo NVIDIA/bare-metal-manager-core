@@ -31,7 +31,7 @@ async fn test_update_dpu_agent_health_report(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
-    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     // Start with a clean slate
     sqlx::query("UPDATE machines SET dpu_agent_health_report=NULL where id=$1")
@@ -93,7 +93,7 @@ async fn test_machine_health_reporting(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     // As part of test fixtures creating the managed host, we send an empty hardware health
     // report and an empty dpu agent health report.
@@ -186,7 +186,7 @@ async fn test_hardware_health_reporting(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
 
-    let (host_machine_id, _) = create_managed_host(&env).await;
+    let (host_machine_id, _) = create_managed_host(&env).await.into();
 
     // Hardware health should start empty.
     check_reports_equal(
@@ -223,7 +223,7 @@ async fn test_machine_health_aggregation(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
 
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     // The aggregate health should have no alerts.
     let aggregate_health = aggregate(get_machine(&env, &host_machine_id).await).unwrap();
@@ -398,7 +398,7 @@ async fn test_machine_health_aggregation(
 async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
 
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     // Get the initial amount of health records. The ingestion history is ignored
     // for the remaining test
@@ -493,7 +493,7 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 async fn test_attempt_dpu_override(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
 
-    let (_, dpu_machine_id) = create_managed_host(&env).await;
+    let (_, dpu_machine_id) = create_managed_host(&env).await.into();
     use rpc::forge::forge_server::Forge;
     use tonic::Request;
     let _ = env
@@ -517,7 +517,7 @@ async fn test_attempt_dpu_override(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
 
-    let (host_machine_id, _) = create_managed_host(&env).await;
+    let (host_machine_id, _) = create_managed_host(&env).await.into();
 
     let hardware_health = hr("hardware-health", vec![("Fan", None)], vec![]);
     simulate_hardware_health_report(&env, &host_machine_id, hardware_health.clone()).await;
@@ -584,7 +584,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
 
-    let (host_machine_id, _) = create_managed_host(&env).await;
+    let (host_machine_id, _) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
     let machine_ids = crate::db::machine::find_machine_ids(
@@ -844,7 +844,7 @@ async fn test_tenant_reported_issue_health_override_template(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
-    let (host_machine_id, _) = create_managed_host(&env).await;
+    let (host_machine_id, _) = create_managed_host(&env).await.into();
 
     // Create a TenantReportedIssue health override using the API
     let tenant_issue_override = health_report::HealthReport {
@@ -917,7 +917,7 @@ async fn test_request_repair_health_override_template(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
-    let (host_machine_id, _) = create_managed_host(&env).await;
+    let (host_machine_id, _) = create_managed_host(&env).await.into();
 
     // Create a RequestRepair health override using the API
     let repair_request_override = health_report::HealthReport {
@@ -988,7 +988,7 @@ async fn test_tenant_reported_issue_and_request_repair_combined(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
-    let (host_machine_id, _) = create_managed_host(&env).await;
+    let (host_machine_id, _) = create_managed_host(&env).await.into();
 
     // Apply both overrides to the same machine
     let tenant_issue_override = health_report::HealthReport {

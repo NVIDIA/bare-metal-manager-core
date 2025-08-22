@@ -87,7 +87,7 @@ async fn test_dns(pool: sqlx::PgPool) {
     // Create a managed host to make sure that the MachineId DNS
     // records for the Host and DPU are created + end up in the
     // dns_records view.
-    let (host_id, dpu_id) = create_managed_host(&env).await;
+    let (host_id, dpu_id) = create_managed_host(&env).await.into();
     let api = &env.api;
 
     // And now check to make sure the DNS records exist and,

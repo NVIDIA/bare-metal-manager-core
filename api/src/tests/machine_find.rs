@@ -105,13 +105,10 @@ async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_find_machine_without_sku(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_machine_id = create_managed_host(&env).await.0;
+    let mh = create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
 
-    let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let machine = mh.host().db_machine(&mut txn).await;
 
     assert_eq!(machine.hw_sku, None);
 }
@@ -119,24 +116,21 @@ async fn test_find_machine_without_sku(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_find_machine_with_sku(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let host_machine_id = create_managed_host(&env).await.0;
+    let mh = create_managed_host(&env).await;
     let sku = serde_json::de::from_str::<rpc::forge::Sku>(FULL_SKU_DATA)
         .unwrap()
         .into();
 
     let mut txn = env.pool.begin().await.unwrap();
     db::sku::create(&mut txn, &sku).await.unwrap();
-    db::machine::assign_sku(&mut txn, &host_machine_id, "sku id")
+    db::machine::assign_sku(&mut txn, &mh.id, "sku id")
         .await
         .unwrap();
 
     txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await.unwrap();
 
-    let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let machine = mh.host().db_machine(&mut txn).await;
 
     assert_eq!(machine.hw_sku, Some("sku id".to_string()));
 }
@@ -273,7 +267,7 @@ async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_find_machine_dpu_included(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (_host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (_host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let machines = env.find_machines(None, None, true).await;
     assert_eq!(machines.machines.len(), 2); // 1 host and 1 DPU
@@ -291,7 +285,7 @@ async fn test_find_machine_dpu_included(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_find_machine_dpu_excluded(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (_host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (_host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let machines = env.find_machines(None, None, false).await;
     assert_eq!(machines.machines.len(), 1); // 1 host
@@ -349,7 +343,7 @@ async fn test_find_machine_ids(pool: sqlx::PgPool) {
     assert!(machine_ids.contains(&host_machine_id));
 
     // Create a managed host
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     // Find an existing instance type in the test env
     let instance_type_id = env
@@ -465,7 +459,7 @@ async fn test_find_host_machine_ids(pool: sqlx::PgPool) {
     let config = crate::db::machine::MachineSearchConfig::default();
 
     let env = create_test_env(pool).await;
-    let (host_machine_id, _) = create_managed_host(&env).await;
+    let (host_machine_id, _) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await.unwrap();
 
@@ -485,7 +479,7 @@ async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
     };
 
     let env = create_test_env(pool).await;
-    let (host_machine_id, _) = create_managed_host(&env).await;
+    let (host_machine_id, _) = create_managed_host(&env).await.into();
 
     let host_config2 = env.managed_host_config();
     create_dpu_machine(&env, &host_config2).await;
@@ -680,7 +674,7 @@ async fn test_find_machine_by_instance_type(
     // Our known fixture instance type
     let instance_type_id = existing_instance_types[0].id.clone();
 
-    let (tmp_machine_id, _) = create_managed_host(&env).await;
+    let (tmp_machine_id, _) = create_managed_host(&env).await.into();
 
     // Find the new host through the API
     let machines = env

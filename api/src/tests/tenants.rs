@@ -756,11 +756,11 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
     .unwrap();
 
     // Create instance
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
     let (instance_id, _instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
         .keyset_ids(&["keyset1", "keyset2"])
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     // Test that key set validation NOT ok with ssh keys passed with instance.
@@ -843,11 +843,11 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
 async fn test_keyset_in_instance(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
     let (instance_id, _instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
         .keyset_ids(&["keyset1", "keyset2"])
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let instance = env

@@ -1970,7 +1970,8 @@ async fn test_site_explorer_health_report(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) =
+        common::api_fixtures::create_managed_host(&env).await.into();
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let host_machine = env
         .find_machines(host_machine_id.into(), None, false)
@@ -3001,18 +3002,12 @@ async fn test_delete_explored_endpoint(
     txn.commit().await?;
 
     // Create explored endpoints that are part of a managed host
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
 
     // Get the machines to find their BMC IPs
     let mut txn = env.pool.begin().await?;
-    let host_machine =
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await?
-            .unwrap();
-    let dpu_machine =
-        db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-            .await?
-            .unwrap();
+    let host_machine = mh.host().db_machine(&mut txn).await;
+    let dpu_machine = mh.dpu().db_machine(&mut txn).await;
     txn.commit().await?;
 
     let host_ip = host_machine.bmc_info.ip.as_ref().unwrap();

@@ -40,8 +40,8 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
     .await;
 
     // Ingest 2 Machines. They should have different GUIDs, different LIDs, and report different IB status
-    let (host_machine_id_1, _dpu_machine_id) = create_managed_host(&env).await;
-    let (host_machine_id_2, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id_1, _dpu_machine_id) = create_managed_host(&env).await.into();
+    let (host_machine_id_2, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let host_machines = [host_machine_id_1, host_machine_id_2];
     let mut guids: HashMap<MachineId, Vec<String>> = HashMap::new();

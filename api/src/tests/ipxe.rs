@@ -56,7 +56,7 @@ async fn get_pxe_instructions(
 #[crate::sqlx_test]
 async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (_host_id, dpu_id) = common::api_fixtures::create_managed_host(&env).await;
+    let (_host_id, dpu_id) = common::api_fixtures::create_managed_host(&env).await.into();
     move_machine_to_needed_state(dpu_id, &ManagedHostState::Ready, &env.pool).await;
 
     let mut txn = env
@@ -212,7 +212,7 @@ async fn test_pxe_when_machine_is_not_ingested(pool: sqlx::PgPool) -> eyre::Resu
 #[crate::sqlx_test]
 async fn test_pxe_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_id, _dpu_id) = common::api_fixtures::create_managed_host(&env).await;
+    let (host_id, _dpu_id) = common::api_fixtures::create_managed_host(&env).await.into();
     let mut txn = env
         .pool
         .begin()
@@ -281,23 +281,19 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
 async fn test_pxe_instance(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env
         .pool
         .clone()
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let host_interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
-            .await
-            .unwrap()[&host_machine_id][0]
-            .id;
+    let host_interface_id = mh.host().first_interface_id(&mut txn).await;
     txn.commit().await.unwrap();
 
     let (_instance_id, _instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let instructions = get_pxe_instructions(
@@ -356,7 +352,7 @@ async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
 async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
-    let (_host_id, dpu_id) = common::api_fixtures::create_managed_host(&env).await;
+    let (_host_id, dpu_id) = common::api_fixtures::create_managed_host(&env).await.into();
     move_machine_to_needed_state(
         dpu_id,
         &ManagedHostState::DPUInit {

@@ -58,7 +58,7 @@ async fn test_health_of_nonexisting_machine(pool: sqlx::PgPool) {
     .await;
 
     // Health page for Machine which was force deleted
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
     env.api
         .admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
             host_query: host_machine_id.to_string(),

@@ -15,7 +15,6 @@ use crate::tests::common::{self, api_fixtures::get_vpc_fixture_id};
 use common::api_fixtures::{
     create_managed_host, create_test_env,
     instance::{TestInstance, default_tenant_config, single_interface_network_config},
-    network_configured,
 };
 
 use config_version::ConfigVersion;
@@ -82,7 +81,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let initial_os = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
@@ -114,7 +113,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     let (instance_id, _instance) = TestInstance::new(&env)
         .config(initial_config.clone())
         .metadata(initial_metadata.clone())
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let instance = env.one_instance(instance_id).await;
@@ -218,7 +217,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     );
 
     // Update the network
-    network_configured(&env, &vec![dpu_machine_id]).await;
+    mh.network_configured(&env).await;
 
     // Find our instance details again, which should now
     // be updated.
@@ -335,7 +334,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let initial_os = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
@@ -367,7 +366,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     let (instance_id, _instance) = TestInstance::new(&env)
         .config(valid_config.clone())
         .metadata(initial_metadata.clone())
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     // Try to update to an invalid OS
@@ -592,7 +591,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let initial_os = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
@@ -644,7 +643,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
     let (instance_id, _instance) = TestInstance::new(&env)
         .config(initial_config.clone())
         .metadata(initial_metadata.clone())
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let instance = env.one_instance(instance_id).await;
@@ -713,7 +712,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let _segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let initial_os = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
@@ -771,7 +770,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
     let (instance_id, _instance) = TestInstance::new(&env)
         .config(initial_config.clone())
         .metadata(initial_metadata.clone())
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let instance = env.one_instance(instance_id).await;
@@ -894,7 +893,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let _segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let initial_os = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
@@ -952,7 +951,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
     let (instance_id, _instance) = TestInstance::new(&env)
         .config(initial_config.clone())
         .metadata(initial_metadata.clone())
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let instance = env.one_instance(instance_id).await;

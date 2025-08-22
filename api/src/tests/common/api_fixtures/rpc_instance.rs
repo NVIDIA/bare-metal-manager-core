@@ -68,6 +68,10 @@ impl<'a> RpcInstanceStatus<'a> {
         Self(v)
     }
 
+    pub fn inner(&self) -> &rpc::forge::InstanceStatus {
+        self.0
+    }
+
     pub fn tenant(&self) -> rpc::forge::TenantState {
         self.0.tenant.as_ref().unwrap().state()
     }

@@ -46,7 +46,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let initial_os = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
@@ -71,7 +71,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
 
     let (instance_id, _instance) = TestInstance::new(&env)
         .config(config)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let instance = env.one_instance(instance_id).await;
@@ -235,7 +235,7 @@ async fn test_instance_creation_with_os_in_tenantconfig(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let mut tenant_config = default_tenant_config();
     // We don't use this OS object, but just copy parameters over
@@ -263,7 +263,7 @@ async fn test_instance_creation_with_os_in_tenantconfig(
 
     let (instance_id, _instance) = TestInstance::new(&env)
         .config(config)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let instance = env.one_instance(instance_id).await;

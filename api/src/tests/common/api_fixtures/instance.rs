@@ -23,6 +23,7 @@ use crate::model::machine::{
     CleanupState, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
 };
 use crate::tests::common::api_fixtures::RpcInstance;
+use crate::tests::common::api_fixtures::managed_host::ManagedHost;
 use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
 use rpc::{
     InstanceReleaseRequest, Timestamp,
@@ -94,6 +95,10 @@ impl<'a> TestInstance<'a> {
         self
     }
 
+    pub async fn create_for_manged_host(self, mh: &ManagedHost) -> (InstanceId, RpcInstance) {
+        self.create(&mh.dpu_ids, &mh.id).await
+    }
+
     pub async fn create(
         mut self,
         dpu_machine_ids: &[MachineId],
@@ -138,14 +143,13 @@ impl<'a> TestInstance<'a> {
 
 pub async fn create_instance_with_ib_config(
     env: &TestEnv,
-    dpu_machine_id: &MachineId,
-    host_machine_id: &MachineId,
+    mh: &ManagedHost,
     ib_config: rpc::forge::InstanceInfinibandConfig,
     network_segment_id: NetworkSegmentId,
 ) -> (InstanceId, RpcInstance) {
     TestInstance::new(env)
         .config(config_for_ib_config(ib_config, network_segment_id))
-        .create(&[*dpu_machine_id], host_machine_id)
+        .create_for_manged_host(mh)
         .await
 }
 

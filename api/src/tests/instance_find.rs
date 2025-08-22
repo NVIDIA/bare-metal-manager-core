@@ -36,7 +36,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         .to_owned();
 
     for i in 0..10 {
-        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+        let mh = create_managed_host(&env).await;
 
         if i % 2 == 0 {
             // Associate the machine with the instance type
@@ -45,7 +45,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 .associate_machines_with_instance_type(tonic::Request::new(
                     rpc::AssociateMachinesWithInstanceTypeRequest {
                         instance_type_id: instance_type_id.clone(),
-                        machine_ids: vec![host_machine_id.to_string()],
+                        machine_ids: vec![mh.id.to_string()],
                     },
                 ))
                 .await
@@ -53,7 +53,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
 
             let (_instance_id, _instance) = TestInstance::new(&env)
                 .single_interface_network_config(segment_id)
-                .create(&[dpu_machine_id], &host_machine_id)
+                .create_for_manged_host(&mh)
                 .await;
         } else {
             let (_instance_id, _instance) = TestInstance::new(&env)
@@ -66,7 +66,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                         value: Some(format!("label_value_{i}").to_string()),
                     }],
                 })
-                .create(&[dpu_machine_id], &host_machine_id)
+                .create_for_manged_host(&mh)
                 .await;
         }
     }
@@ -293,12 +293,12 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
     for i in 0..10 {
-        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+        let mh = create_managed_host(&env).await;
 
         if i % 2 == 0 {
             let (_instance_id, _instance) = TestInstance::new(&env)
                 .single_interface_network_config(segment_id)
-                .create(&[dpu_machine_id], &host_machine_id)
+                .create_for_manged_host(&mh)
                 .await;
         } else {
             let (_instance_id, _instance) = TestInstance::new(&env)
@@ -311,7 +311,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
                         value: Some(format!("label_value_{i}").to_string()),
                     }],
                 })
-                .create(&[dpu_machine_id], &host_machine_id)
+                .create_for_manged_host(&mh)
                 .await;
         }
     }
@@ -406,7 +406,7 @@ async fn test_find_instances_by_ids_none(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_find_instances_by_machine_id_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let request = tonic::Request::new(dpu_machine_id.into());
     let response = env.api.find_instance_by_machine_id(request).await;

@@ -202,7 +202,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     });
 
     // Create a host machine to associate with the instance type
-    let (tmp_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (tmp_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     // Associate the machine with the instance type
     let _ = env
@@ -427,7 +427,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let id = existing_instance_types[0].id.clone();
 
     // Create a host machine to associate with the instance type
-    let (tmp_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (tmp_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     // Associate the machine with the instance type
     let _ = env
@@ -607,7 +607,7 @@ async fn test_instance_type_associate(
     // Our known fixture instance type
     let id = existing_instance_types[0].id.clone();
 
-    let (tmp_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (tmp_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let orig_machine = env.find_machines(tmp_machine_id.into(), None, false).await;
 

@@ -139,8 +139,8 @@ async fn test_discover_2_managed_hosts(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env: common::api_fixtures::TestEnv = create_test_env(pool).await;
-    let (host1_id, dpu1_id) = create_managed_host(&env).await;
-    let (host2_id, dpu2_id) = create_managed_host(&env).await;
+    let (host1_id, dpu1_id) = create_managed_host(&env).await.into();
+    let (host2_id, dpu2_id) = create_managed_host(&env).await.into();
     assert!(host1_id.machine_type().is_host());
     assert!(host2_id.machine_type().is_host());
     assert!(dpu1_id.machine_type().is_dpu());

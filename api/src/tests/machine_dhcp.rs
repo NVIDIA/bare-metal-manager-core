@@ -204,7 +204,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let (segment_id_1, segment_id_2) = env.create_vpc_and_dual_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let network = rpc::InstanceNetworkConfig {
         interfaces: vec![
@@ -228,14 +228,14 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     };
     let (_instance_id, _instance) = TestInstance::new(&env)
         .network(network)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
     // Instance dhcp is not handled by carbide. Best way to find out allocated IP info is to read
     // data from managedhostnetworkconfig.
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: dpu_machine_id.into(),
+            dpu_machine_id: mh.dpu().machine_id().into(),
         }))
         .await
         .unwrap()

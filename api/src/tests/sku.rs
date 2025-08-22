@@ -232,7 +232,7 @@ pub mod tests {
     #[crate::sqlx_test]
     async fn test_generate_sku_from_machine(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let env = create_test_env(pool.clone()).await;
-        let (machine_id, _dpu_id) = create_managed_host(&env).await;
+        let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
         let mut txn = pool.begin().await?;
 
         let expected_sku: Sku = serde_json::de::from_str::<rpc::forge::Sku>(SKU_DATA)?.into();
@@ -256,7 +256,7 @@ pub mod tests {
     #[crate::sqlx_test]
     async fn test_api_happy_path(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let env = create_test_env(pool.clone()).await;
-        let (machine_id, _dpu_id) = create_managed_host(&env).await;
+        let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
         let mut txn = pool.begin().await?;
 
         let actual_sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
@@ -338,7 +338,7 @@ pub mod tests {
     ) -> Result<(), eyre::Error> {
         let env = create_test_env_for_sku(pool.clone(), true, None, false).await;
 
-        let (_machine_id, _dpu_id) = create_managed_host(&env).await;
+        let (_machine_id, _dpu_id) = create_managed_host(&env).await.into();
 
         Ok(())
     }
@@ -516,7 +516,7 @@ pub mod tests {
     ) -> Result<(), eyre::Error> {
         let env = create_test_env_for_sku(pool.clone(), false, None, false).await;
 
-        let (machine_id, _dpu_id) = create_managed_host(&env).await;
+        let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
 
         let state = get_machine_state(&pool, &machine_id).await?;
 
@@ -579,7 +579,7 @@ pub mod tests {
     ) -> Result<(), eyre::Error> {
         let env = create_test_env_for_sku(pool.clone(), false, None, false).await;
 
-        let (machine_id, _dpu_id) = create_managed_host(&env).await;
+        let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
 
         let state = get_machine_state(&pool, &machine_id).await?;
 
@@ -749,7 +749,7 @@ pub mod tests {
         // A new machine with the same hardware is automatically assigned the above
         // sku and moves on.
 
-        let (machine_id, _dpu_id) = create_managed_host(&env).await;
+        let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
 
         let machine2 = db::machine::find(
             &mut txn,
@@ -785,7 +785,7 @@ pub mod tests {
         let env =
             create_test_env_for_sku(pool.clone(), true, Some(Duration::from_secs(10)), false).await;
 
-        let (machine_id, _dpu_id) = create_managed_host(&env).await;
+        let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
 
         let mut txn = pool.begin().await?;
         let machine = db::machine::find(
@@ -807,7 +807,7 @@ pub mod tests {
         // A new machine with the same hardware is automatically assigned the above
         // sku and moves on.
 
-        let (machine_id, _dpu_id) = create_managed_host(&env).await;
+        let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
 
         let mut txn = pool.begin().await?;
 
@@ -868,7 +868,7 @@ pub mod tests {
     async fn test_match_sku_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let env = create_test_env_for_sku(pool.clone(), false, None, false).await;
 
-        let (machine_id, _dpu_id) = create_managed_host(&env).await;
+        let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
 
         let mut txn = pool.begin().await?;
         let machine = db::machine::find(
@@ -1259,7 +1259,7 @@ pub mod tests {
         pool: sqlx::PgPool,
     ) -> Result<(), eyre::Error> {
         let env = create_test_env_for_sku(pool.clone(), true, None, false).await;
-        let (machine_id, _dpu_id) = create_managed_host(&env).await;
+        let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
         let mut txn = pool.begin().await?;
 
         let actual_sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;

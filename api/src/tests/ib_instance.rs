@@ -14,11 +14,11 @@ use crate::cfg::file::IBFabricConfig;
 use crate::ib::{DEFAULT_IB_FABRIC_NAME, Filter, IBFabricManager};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
-use crate::{api::Api, db, db::machine::MachineSearchConfig, model::machine::ManagedHostState};
+use crate::{api::Api, model::machine::ManagedHostState};
 use common::api_fixtures::{
     TestEnv, create_managed_host,
     ib_partition::{DEFAULT_TENANT, create_ib_partition},
-    instance::{config_for_ib_config, create_instance_with_ib_config, delete_instance},
+    instance::{config_for_ib_config, create_instance_with_ib_config},
 };
 use forge_uuid::infiniband::IBPartitionId;
 use forge_uuid::machine::MachineId;
@@ -91,13 +91,8 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     assert!(ib_partition_status.rate_limit.is_none());
     assert!(ib_partition_status.service_level.is_none());
 
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-    let rpc_machine_id: ::rpc::common::MachineId = host_machine_id.into();
-    let machine = env
-        .find_machines(Some(rpc_machine_id.clone()), None, false)
-        .await
-        .machines
-        .remove(0);
+    let mh = create_managed_host(&env).await;
+    let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
     let discovery_info = machine.discovery_info.as_ref().unwrap();
@@ -149,20 +144,10 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         .guid
         .clone();
 
-    let (instance_id, instance) = create_instance_with_ib_config(
-        &env,
-        &dpu_machine_id,
-        &host_machine_id,
-        ib_config.clone(),
-        segment_id,
-    )
-    .await;
+    let (instance_id, instance) =
+        create_instance_with_ib_config(&env, &mh, ib_config.clone(), segment_id).await;
 
-    let machine = env
-        .find_machines(Some(rpc_machine_id.clone()), None, false)
-        .await
-        .machines
-        .remove(0);
+    let machine = mh.host().rpc_machine().await;
     assert_eq!(&machine.state, "Assigned/Ready");
     assert_eq!(
         env.test_meter
@@ -184,7 +169,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     );
 
     let check_instance = env.one_instance(instance_id).await;
-    assert_eq!(instance.machine_id(), host_machine_id);
+    assert_eq!(instance.machine_id(), mh.id);
     assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
     assert_eq!(instance, check_instance);
 
@@ -254,7 +239,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         "The expected amount of ports for pkey {hex_pkey} has not been registered"
     );
 
-    delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
+    mh.delete_instance(&env, instance_id).await;
 
     // Check whether the IB ports are still bound to the partition
     let ports = ib_conn
@@ -291,7 +276,7 @@ async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPoo
         DEFAULT_TENANT.to_string(),
     )
     .await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let result = try_allocate_instance(
         &env,
@@ -336,7 +321,7 @@ async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
         DEFAULT_TENANT.to_string(),
     )
     .await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let result = try_allocate_instance(
         &env,
@@ -381,7 +366,7 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
         DEFAULT_TENANT.to_string(),
     )
     .await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let result = try_allocate_instance(
         &env,
@@ -436,7 +421,7 @@ async fn test_can_not_create_instance_with_inconsistent_tenant(pool: sqlx::PgPoo
         "FAKE_TENANT".to_string(),
     )
     .await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let result = try_allocate_instance(
         &env,
@@ -497,13 +482,8 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
 
     env.run_ib_partition_controller_iteration().await;
 
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
-    let rpc_machine_id: ::rpc::common::MachineId = host_machine_id.into();
-    let machine = env
-        .find_machines(Some(rpc_machine_id.clone()), None, false)
-        .await
-        .machines
-        .remove(0);
+    let mh = create_managed_host(&env).await;
+    let machine = mh.host().rpc_machine().await;
 
     let discovery_info = machine.discovery_info.as_ref().unwrap();
     // Use only CX7 interfaces in this test
@@ -534,7 +514,7 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
 
     let result = try_allocate_instance(
         &env,
-        &host_machine_id,
+        &mh.id,
         rpc::forge::InstanceInfinibandConfig {
             ib_interfaces: vec![
                 // guids[0]
@@ -584,7 +564,7 @@ async fn test_ib_skip_update_infiniband_status(pool: sqlx::PgPool) {
     )
     .await;
 
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     env.run_machine_state_controller_iteration().await;
 
@@ -595,10 +575,7 @@ async fn test_ib_skip_update_infiniband_status(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let machine = mh.host().db_machine(&mut txn).await;
     txn.commit().await.unwrap();
 
     assert_eq!(machine.current_state(), &ManagedHostState::Ready);

@@ -91,7 +91,7 @@ async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
 async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     // Add an instance
     let instance_network = rpc::InstanceNetworkConfig {
@@ -106,7 +106,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     };
     let (_instance_id, _instance) = instance::TestInstance::new(&env)
         .network(instance_network)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let response = env
@@ -135,13 +135,13 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
         ],
         alerts: vec![],
     };
-    network_configured_with_health(&env, &dpu_machine_id, Some(dpu_health.clone())).await;
+    network_configured_with_health(&env, mh.dpu().machine_id(), Some(dpu_health.clone())).await;
 
     // Query the aggregate health.
     let reported_health = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![dpu_machine_id.to_string().into()],
+            machine_ids: vec![mh.dpu().machine_id().into()],
             include_history: false,
         }))
         .await
@@ -159,7 +159,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     // Now fetch the instance and check that knows its configs have synced
     let response = env
         .api
-        .find_instance_by_machine_id(tonic::Request::new(host_machine_id.to_string().into()))
+        .find_instance_by_machine_id(tonic::Request::new(mh.id.to_string().into()))
         .await
         .unwrap()
         .into_inner();
@@ -178,12 +178,12 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_dpu_health_is_required(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
-    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            dpu_machine_id: Some(dpu_machine_id.into()),
         }))
         .await
         .unwrap()
@@ -195,7 +195,7 @@ async fn test_dpu_health_is_required(pool: sqlx::PgPool) {
     let err = env
         .api
         .record_dpu_network_status(tonic::Request::new(DpuNetworkStatus {
-            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            dpu_machine_id: Some(dpu_machine_id.into()),
             dpu_agent_version: Some(dpu::TEST_DPU_AGENT_VERSION.to_string()),
             observed_at: Some(SystemTime::now().into()),
             dpu_health: None,
@@ -230,7 +230,7 @@ async fn test_dpu_health_is_required(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
-    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let dpu_health = rpc::health::HealthReport {
         source: "should-get-updated".to_string(),
@@ -257,7 +257,7 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     let reported_health = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![dpu_machine_id.to_string().into()],
+            machine_ids: vec![dpu_machine_id.into()],
             include_history: false,
         }))
         .await
@@ -284,7 +284,7 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     let reported_health = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![dpu_machine_id.to_string().into()],
+            machine_ids: vec![dpu_machine_id.into()],
             include_history: false,
         }))
         .await
@@ -306,7 +306,7 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = api_fixtures::create_test_env(pool).await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let network_config_version = crate::db::machine::get_network_config(
         env.pool.begin().await?.deref_mut(),

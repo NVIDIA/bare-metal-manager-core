@@ -1,6 +1,8 @@
+use crate::CarbideResult;
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE;
 use crate::tests::common;
+use crate::tests::common::api_fixtures::managed_host::{ManagedHost, ManagedHostSnapshots};
 use crate::tests::dpu_machine_update::{get_all_snapshots, update_nic_firmware_version};
 
 use std::collections::HashSet;
@@ -21,9 +23,9 @@ use rpc::forge::forge_server::Forge;
 #[crate::sqlx_test]
 async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let managed_host = create_managed_host(&env).await;
     let mut txn = env.pool.begin().await?;
-    update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
+    managed_host.update_nic_firmware_version(&mut txn).await?;
     txn.commit().await?;
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         metrics: None,
@@ -43,15 +45,11 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         .await?;
 
     assert_eq!(started_count.len(), 1);
-    assert!(!started_count.contains(&dpu_machine_id));
-    assert!(started_count.contains(&host_machine_id));
+    assert!(!started_count.contains(managed_host.dpu().machine_id()));
+    assert!(started_count.contains(&managed_host.id));
 
     // Check if health override is placed
-    let managed_host =
-        db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let managed_host = managed_host.snapshot(&mut txn).await;
 
     for dpu in managed_host.dpu_snapshots.iter() {
         let initiator = &dpu.reprovision_requested.as_ref().unwrap().initiator;
@@ -131,9 +129,9 @@ async fn test_get_updates_in_progress(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let managed_host = create_managed_host(&env).await;
     let mut txn = env.pool.begin().await?;
-    update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
+    managed_host.update_nic_firmware_version(&mut txn).await?;
     txn.commit().await?;
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         metrics: None,
@@ -162,9 +160,9 @@ async fn test_get_updates_in_progress(
         .get_updates_in_progress(&mut txn)
         .await?;
 
-    assert!(started_count.contains(&host_machine_id));
+    assert!(started_count.contains(&managed_host.id));
     assert_eq!(updating_count.len(), 1);
-    assert!(updating_count.contains(&host_machine_id));
+    assert!(updating_count.contains(&managed_host.id));
 
     Ok(())
 }
@@ -172,14 +170,14 @@ async fn test_get_updates_in_progress(
 #[crate::sqlx_test]
 async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let mut machine_ids = Vec::default();
-    let (host_machine_id, dpu_machine_id1) = create_managed_host(&env).await;
-    machine_ids.push(host_machine_id);
-    let (host_machine_id, dpu_machine_id2) = create_managed_host(&env).await;
-    machine_ids.push(host_machine_id);
+    let machines = vec![
+        create_managed_host(&env).await,
+        create_managed_host(&env).await,
+    ];
     let mut txn = env.pool.begin().await?;
-    update_nic_firmware_version(&mut txn, &dpu_machine_id1, "11.10.1000").await?;
-    update_nic_firmware_version(&mut txn, &dpu_machine_id2, "11.10.1000").await?;
+    for m in &machines {
+        m.update_nic_firmware_version(&mut txn).await?;
+    }
     txn.commit().await?;
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
@@ -188,17 +186,16 @@ async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     };
 
     let mut txn = env.pool.begin().await?;
-    let snapshots = crate::db::managed_host::load_by_machine_ids(
-        &mut txn,
-        &machine_ids,
-        LoadSnapshotOptions {
-            include_history: false,
-            include_instance_data: false,
-            host_health_config: env.config.host_health,
-        },
-    )
-    .await
-    .unwrap();
+    let snapshots = machines
+        .snapshots(
+            &mut txn,
+            LoadSnapshotOptions {
+                include_history: false,
+                include_instance_data: false,
+                host_health_config: env.config.host_health,
+            },
+        )
+        .await;
 
     let machine_updates = dpu_nic_firmware_update
         .check_for_updates(&snapshots, 10)
@@ -213,9 +210,9 @@ async fn test_clear_completed_updates(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
     let mut txn = env.pool.begin().await?;
-    update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
+    mh.update_nic_firmware_version(&mut txn).await?;
     txn.commit().await?;
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
@@ -235,15 +232,11 @@ async fn test_clear_completed_updates(
         .start_updates(&mut txn, 10, &HashSet::default(), &snapshots)
         .await?;
 
-    assert!(!started_count.contains(&dpu_machine_id));
-    assert!(started_count.contains(&host_machine_id));
+    assert!(!started_count.contains(mh.dpu().machine_id()));
+    assert!(started_count.contains(&mh.id));
 
     // Check if health override is placed
-    let managed_host =
-        db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let managed_host = mh.snapshot(&mut txn).await;
 
     for dpu in managed_host.dpu_snapshots.iter() {
         let initiator = &dpu.reprovision_requested.as_ref().unwrap().initiator;
@@ -264,11 +257,7 @@ async fn test_clear_completed_updates(
         .unwrap();
 
     // Health override is still in place since update did not complete
-    let managed_host =
-        db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let managed_host = mh.snapshot(&mut txn).await;
 
     for dpu in managed_host.dpu_snapshots.iter() {
         let initiator = &dpu.reprovision_requested.as_ref().unwrap().initiator;
@@ -287,13 +276,13 @@ async fn test_clear_completed_updates(
      WHERE machine_id=$2"#;
     sqlx::query::<_>(query)
         .bind(sqlx::types::Json("24.42.1000"))
-        .bind(dpu_machine_id.to_string())
+        .bind(mh.dpu().machine_id().to_string())
         .execute(&mut *txn)
         .await
         .unwrap();
     let query = r#"UPDATE machines set reprovisioning_requested = NULL where id = $1"#;
     sqlx::query(query)
-        .bind(dpu_machine_id.to_string())
+        .bind(mh.dpu().machine_id().to_string())
         .execute(&mut *txn)
         .await
         .unwrap();
@@ -302,7 +291,7 @@ async fn test_clear_completed_updates(
     // Mark the Host as in update.
     crate::db::machine::insert_health_report_override(
         &mut txn,
-        &host_machine_id,
+        &mh.id,
         health_report::OverrideMode::Merge,
         &health_override,
         false,
@@ -323,11 +312,7 @@ async fn test_clear_completed_updates(
         .unwrap();
 
     // Health override is removed
-    let managed_host =
-        db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let managed_host = mh.snapshot(&mut txn).await;
     assert!(
         !managed_host
             .host_snapshot
@@ -338,4 +323,13 @@ async fn test_clear_completed_updates(
     assert!(managed_host.aggregate_health.alerts.is_empty());
 
     Ok(())
+}
+
+impl ManagedHost {
+    pub async fn update_nic_firmware_version(
+        &self,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> CarbideResult<()> {
+        update_nic_firmware_version(txn, self.dpu().machine_id(), "11.10.1000").await
+    }
 }

@@ -806,7 +806,7 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let txn = env
         .pool
@@ -919,7 +919,7 @@ async fn test_allocate_instance_with_invalid_metadata(_: PgPoolOptions, options:
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(true) {
         let tenant_config = default_tenant_config();
@@ -964,7 +964,7 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let txn = env
         .pool
@@ -979,7 +979,7 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
         .single_interface_network_config(segment_id)
         .hostname(instance_hostname)
         .tenant_org("org-nebulon")
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let mut txn = env
@@ -988,14 +988,7 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
         .await
         .expect("Unable to create transaction on database pool");
 
-    let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
-        &host_machine_id,
-        db::managed_host::LoadSnapshotOptions::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
 
@@ -1011,7 +1004,7 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
         .expect("Unable to create transaction on database pool");
     txn.commit().await.unwrap();
 
-    let (new_host_machine_id, new_dpu_machine_id) = create_managed_host(&env).await;
+    let (new_host_machine_id, new_dpu_machine_id) = create_managed_host(&env).await.into();
     let (_instance_id, _instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
         .hostname(instance_hostname)
@@ -1025,7 +1018,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let (segment_id_1, segment_id_2) = env.create_vpc_and_dual_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let network = rpc::InstanceNetworkConfig {
         interfaces: vec![
@@ -1093,7 +1086,7 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     //Create instance with no hostname set
     let mut tenant_config = default_tenant_config();
@@ -1146,7 +1139,7 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
     for i in 0..=9 {
-        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
         let (_instance_id, _instance) = TestInstance::new(&env)
             .single_interface_network_config(segment_id)
@@ -1246,7 +1239,7 @@ async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConn
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let config = rpc::InstanceConfig {
         os: Some(default_os_config()),
@@ -1292,7 +1285,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     // Create an instance in non-ready state
     let config = rpc::InstanceConfig {
@@ -1371,7 +1364,7 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let (instance_id, _instance) = common::api_fixtures::instance::TestInstance::new(&env)
         .single_interface_network_config(segment_id)
@@ -1420,8 +1413,8 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
-    let (host_machine_id_2, _dpu_machine_id_2) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+    let (host_machine_id_2, _dpu_machine_id_2) = create_managed_host(&env).await.into();
 
     let config = rpc::InstanceConfig {
         tenant: Some(default_tenant_config()),
@@ -1483,7 +1476,7 @@ async fn test_instance_cloud_init_metadata(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env
         .pool
@@ -1535,14 +1528,14 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     // TODO: The test is broken from here. This method already moves the instance
     // into READY state, which means most assertions that follow this won't test
     // anything new anymmore.
     let (instance_id, _instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let mut txn = env
@@ -1553,14 +1546,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
 
     // When no network status has been observed, we report an interface
     // list with no IPs and MACs to the user
-    let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
-        &host_machine_id,
-        db::managed_host::LoadSnapshotOptions::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let snapshot = mh.snapshot(&mut txn).await;
 
     let snapshot = snapshot.instance.unwrap();
 
@@ -1602,17 +1588,14 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         observed_at: Utc::now(),
     };
 
-    update_instance_network_status_observation(&dpu_machine_id, &updated_network_status, &mut txn)
-        .await;
-
-    let snapshot = db::managed_host::load_snapshot(
+    update_instance_network_status_observation(
+        mh.dpu().machine_id(),
+        &updated_network_status,
         &mut txn,
-        &host_machine_id,
-        db::managed_host::LoadSnapshotOptions::default(),
     )
-    .await
-    .unwrap()
-    .unwrap();
+    .await;
+
+    let snapshot = mh.snapshot(&mut txn).await;
 
     let snapshot = snapshot.instance.unwrap();
 
@@ -1644,17 +1627,14 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     let mut txn = env.pool.begin().await.unwrap();
     updated_network_status.interfaces[0].mac_address =
         Some(MacAddress::new([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]).into());
-    update_instance_network_status_observation(&dpu_machine_id, &updated_network_status, &mut txn)
-        .await;
-
-    let snapshot = db::managed_host::load_snapshot(
+    update_instance_network_status_observation(
+        mh.dpu().machine_id(),
+        &updated_network_status,
         &mut txn,
-        &host_machine_id,
-        db::managed_host::LoadSnapshotOptions::default(),
     )
-    .await
-    .unwrap()
-    .unwrap();
+    .await;
+
+    let snapshot = mh.snapshot(&mut txn).await;
 
     let snapshot = snapshot.instance.unwrap();
 
@@ -1694,14 +1674,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     .fetch_one(&mut *txn)
     .await
     .unwrap();
-    let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
-        &host_machine_id,
-        db::managed_host::LoadSnapshotOptions::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let snapshot = mh.snapshot(&mut txn).await;
 
     let snapshot = snapshot.instance.unwrap();
 
@@ -1753,16 +1726,13 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             internal_uuid: None,
         });
 
-    update_instance_network_status_observation(&dpu_machine_id, &updated_network_status, &mut txn)
-        .await;
-    let snapshot = db::managed_host::load_snapshot(
+    update_instance_network_status_observation(
+        mh.dpu().machine_id(),
+        &updated_network_status,
         &mut txn,
-        &host_machine_id,
-        db::managed_host::LoadSnapshotOptions::default(),
     )
-    .await
-    .unwrap()
-    .unwrap();
+    .await;
+    let snapshot = mh.snapshot(&mut txn).await;
 
     let snapshot = snapshot.instance.unwrap();
     assert_eq!(
@@ -1798,13 +1768,13 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     let prefixes_query = "UPDATE machines SET network_status_observation=jsonb_strip_nulls(jsonb_set(network_status_observation, '{instance_network_observation,interfaces,0,prefixes}', 'null', false)) where id = $1 returning id";
 
     let (_,): (MachineId,) = sqlx::query_as(gateways_query)
-        .bind(dpu_machine_id)
+        .bind(mh.dpu().machine_id())
         .fetch_one(txn.deref_mut())
         .await
         .expect("Database error rewriting JSON");
 
     let (_,): (MachineId,) = sqlx::query_as(prefixes_query)
-        .bind(dpu_machine_id)
+        .bind(mh.dpu().machine_id())
         .fetch_one(txn.deref_mut())
         .await
         .expect("Database error rewriting JSON");
@@ -1827,7 +1797,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         }]
     );
 
-    delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
+    mh.delete_instance(&env, instance_id).await;
 }
 
 #[crate::sqlx_test]
@@ -1875,7 +1845,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let (segment_id_1, segment_id_2) = env.create_vpc_and_dual_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env
         .pool
@@ -2019,7 +1989,7 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     // Report an unhealthy DPU
     network_configured_with_health(
@@ -2088,7 +2058,7 @@ async fn test_create_instance_with_allow_unhealthy_machine_true(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     // Report an unhealthy DPU
     network_configured_with_health(
@@ -2153,7 +2123,7 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut os = default_os_config();
     os.phone_home_enabled = true;
@@ -2196,7 +2166,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     let (instance_id, _instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
@@ -2284,7 +2254,7 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let config = rpc::InstanceConfig {
         os: Some(default_os_config()),
@@ -2337,7 +2307,7 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let config = rpc::InstanceConfig {
         os: Some(default_os_config()),
@@ -2403,7 +2373,7 @@ async fn test_allocate_instance_with_old_network_segemnt(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let txn = env
         .pool
@@ -2431,7 +2401,7 @@ async fn test_allocate_instance_with_old_network_segemnt(
     let (instance_id, _instance) = TestInstance::new(&env)
         .network(nw_config)
         .metadata(instance_metadata.clone())
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     // Test searching based on instance id.
@@ -2453,17 +2423,10 @@ async fn test_allocate_instance_with_old_network_segemnt(
         .await
         .expect("Unable to create transaction on database pool");
 
-    let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
-        &host_machine_id,
-        db::managed_host::LoadSnapshotOptions::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
-    assert_eq!(fetched_instance.machine_id, host_machine_id);
+    assert_eq!(fetched_instance.machine_id, mh.id);
 
     let network_config = fetched_instance.config.network;
     assert_eq!(fetched_instance.network_config_version.version_nr(), 1);
@@ -2590,7 +2553,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let mut txn = env
         .pool
@@ -2604,11 +2567,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         0
     );
     assert!(matches!(
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
+        mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Ready
     ));
     let mut vpc = Vpc::find_by_name(&mut txn, "test vpc 1").await.unwrap();
@@ -2643,7 +2602,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .network(single_interface_network_config_with_vpc_prefix(rpc::Uuid {
             value: vpc_prefix_id.to_string(),
         }))
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let vpc_prefix = env
@@ -2692,17 +2651,10 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .await
         .expect("Unable to create transaction on database pool");
 
-    let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
-        &host_machine_id,
-        db::managed_host::LoadSnapshotOptions::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
-    assert_eq!(fetched_instance.machine_id, host_machine_id);
+    assert_eq!(fetched_instance.machine_id, mh.id);
     assert_eq!(
         InstanceAddress::count_by_segment_id(
             &mut txn,
@@ -2745,21 +2697,17 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     }
     assert_eq!(
         network_config_no_addresses,
-        InstanceNetworkConfig::for_vpc_prefix_id(vpc_prefix_id.into(), Some(dpu_machine_id))
+        InstanceNetworkConfig::for_vpc_prefix_id(
+            vpc_prefix_id.into(),
+            Some(*mh.dpu().machine_id())
+        )
     );
 
     assert!(!fetched_instance.observations.network.is_empty());
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
-    let _ = Instance::use_custom_ipxe_on_next_boot(&host_machine_id, false, &mut txn).await;
-    let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
-        &host_machine_id,
-        db::managed_host::LoadSnapshotOptions::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let _ = Instance::use_custom_ipxe_on_next_boot(&mh.id, false, &mut txn).await;
+    let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
 
@@ -2821,18 +2769,14 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     );
 
     assert!(matches!(
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
+        mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Assigned {
             instance_state: InstanceState::Ready
         }
     ));
     txn.commit().await.unwrap();
 
-    delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
+    mh.delete_instance(&env, instance_id).await;
 
     let segment_ids = fetched_instance
         .config
@@ -2863,11 +2807,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     assert!(network_segments.is_empty());
 
     assert!(matches!(
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
+        mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Ready
     ));
     assert_eq!(
@@ -3728,7 +3668,7 @@ async fn test_allocate_and_update_network_config_instance(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let (segment_id, segment_id2) = env.create_vpc_and_dual_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let mut txn = env
         .pool
@@ -3743,18 +3683,14 @@ async fn test_allocate_and_update_network_config_instance(
         0
     );
     assert!(matches!(
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
+        mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Ready
     ));
     txn.commit().await.unwrap();
 
     let (instance_id, _instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let instance = env.one_instance(instance_id).await;
@@ -3846,7 +3782,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let (segment_id, segment_id2) = env.create_vpc_and_dual_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let mut txn = env
         .pool
@@ -3861,18 +3797,14 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
         0
     );
     assert!(matches!(
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
+        mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Ready
     ));
     txn.commit().await.unwrap();
 
     let (instance_id, _instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let instance = env.one_instance(instance_id).await;
@@ -4020,7 +3952,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let _segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let initial_os = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
@@ -4116,7 +4048,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
     let (instance_id, _instance) = TestInstance::new(&env)
         .config(initial_config.clone())
         .metadata(initial_metadata.clone())
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let instance = env.one_instance(instance_id).await;
@@ -4227,7 +4159,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
     env.run_network_segment_controller_iteration().await;
 
     env.run_machine_state_controller_iteration().await;
-    network_configured(&env, &vec![dpu_machine_id]).await;
+    mh.network_configured(&env).await;
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
     let mut txn = env
@@ -4235,11 +4167,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let state =
-        crate::db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let state = mh.host().db_machine(&mut txn).await;
     let state = state.current_state();
     println!("{state:?}");
     assert!(matches!(
@@ -4286,7 +4214,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let (segment_id, segment_id2) = env.create_vpc_and_dual_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let mut txn = env
         .pool
@@ -4301,18 +4229,14 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
         0
     );
     assert!(matches!(
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
+        mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Ready
     ));
     txn.commit().await.unwrap();
 
     let (instance_id, _instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let instance = env.one_instance(instance_id).await;
@@ -4375,11 +4299,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let current_state =
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let current_state = mh.host().db_machine(&mut txn).await;
     let current_state = current_state.current_state();
     println!("Current State: {current_state}");
     assert!(matches!(
@@ -4393,7 +4313,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
     txn.rollback().await.unwrap();
 
     // - forge-dpu-agent gets an instance network to configure, reports it configured
-    network_configured(&env, &vec![dpu_machine_id]).await;
+    mh.network_configured(&env).await;
     // Move to ReleaseOldResources state.
     env.run_machine_state_controller_iteration().await;
     let mut txn = env
@@ -4402,11 +4322,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
         .await
         .expect("Unable to create transaction on database pool");
     assert!(matches!(
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
+        mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Assigned {
             instance_state: InstanceState::NetworkConfigUpdate {
                 network_config_update_state: NetworkConfigUpdateState::ReleaseOldResources
@@ -4421,11 +4337,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
         .await
         .expect("Unable to create transaction on database pool");
     assert!(matches!(
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
+        mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Assigned {
             instance_state: InstanceState::Ready
         }
@@ -4441,7 +4353,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let _segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let initial_os = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
@@ -4502,7 +4414,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     let (instance_id, _instance) = TestInstance::new(&env)
         .config(initial_config.clone())
         .metadata(initial_metadata.clone())
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let instance = env.one_instance(instance_id).await;
@@ -4608,11 +4520,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let current_state =
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let current_state = mh.host().db_machine(&mut txn).await;
     let current_state = current_state.current_state();
     println!("Current State: {current_state}");
     assert!(matches!(
@@ -4626,7 +4534,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     txn.rollback().await.unwrap();
 
     // - forge-dpu-agent gets an instance network to configure, reports it configured
-    network_configured(&env, &vec![dpu_machine_id]).await;
+    mh.network_configured(&env).await;
     // Move to ReleaseOldResources state.
     env.run_machine_state_controller_iteration().await;
     let mut txn = env
@@ -4635,11 +4543,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         .await
         .expect("Unable to create transaction on database pool");
     assert!(matches!(
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
+        mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Assigned {
             instance_state: InstanceState::NetworkConfigUpdate {
                 network_config_update_state: NetworkConfigUpdateState::ReleaseOldResources
@@ -4654,11 +4558,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         .await
         .expect("Unable to create transaction on database pool");
     assert!(matches!(
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
+        mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Assigned {
             instance_state: InstanceState::Ready
         }
@@ -4815,7 +4715,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
 async fn test_instance_release_backward_compatibility(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     // Create a VPC segment for the test
     let segment_id = env.create_vpc_and_tenant_segment().await;
@@ -4835,7 +4735,7 @@ async fn test_instance_release_backward_compatibility(_: PgPoolOptions, options:
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: host_machine_id.into(),
+            machine_id: mh.id.into(),
             instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
@@ -4888,11 +4788,7 @@ async fn test_instance_release_backward_compatibility(_: PgPoolOptions, options:
     // Wait a moment for async cleanup to complete
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let host_machine =
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let host_machine = mh.host().db_machine(&mut txn).await;
 
     // CRITICAL BACKWARD COMPATIBILITY VERIFICATION:
     // When using old API format (no issue, no is_repair_tenant), NO health overrides should be applied
@@ -4963,7 +4859,7 @@ async fn test_instance_release_repair_tenant(_: PgPoolOptions, options: PgConnec
     for (is_repair_tenant, test_name, description) in test_scenarios {
         println!("Testing repair tenant scenario: is_repair_tenant={is_repair_tenant}");
 
-        let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+        let mh = create_managed_host(&env).await;
 
         // Create instance configuration
         let config = rpc::InstanceConfig {
@@ -4980,7 +4876,7 @@ async fn test_instance_release_repair_tenant(_: PgPoolOptions, options: PgConnec
             .api
             .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
                 instance_id: None,
-                machine_id: host_machine_id.into(),
+                machine_id: mh.id.into(),
                 instance_type_id: None,
                 config: Some(config),
                 metadata: Some(rpc::Metadata {
@@ -5022,11 +4918,7 @@ async fn test_instance_release_repair_tenant(_: PgPoolOptions, options: PgConnec
             .expect("Unable to create transaction");
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        let host_machine =
-            db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-                .await
-                .unwrap()
-                .unwrap();
+        let host_machine = mh.host().db_machine(&mut txn).await;
 
         if is_repair_tenant {
             // For repair tenant releases, verify no new overrides are applied when no issues reported
@@ -5072,7 +4964,7 @@ async fn test_instance_release_repair_tenant(_: PgPoolOptions, options: PgConnec
 async fn test_instance_release_combined_enhancements(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
 
     // Create instance configuration
@@ -5090,7 +4982,7 @@ async fn test_instance_release_combined_enhancements(_: PgPoolOptions, options: 
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: host_machine_id.into(),
+            machine_id: mh.id.into(),
             instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
@@ -5139,11 +5031,7 @@ async fn test_instance_release_combined_enhancements(_: PgPoolOptions, options: 
         .expect("Unable to create transaction");
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let host_machine =
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let host_machine = mh.host().db_machine(&mut txn).await;
 
     // For repair tenant with issues (no existing RequestRepair override), should apply TenantReportedIssue
     let has_tenant_reported_override = host_machine
@@ -5185,7 +5073,7 @@ async fn test_instance_release_auto_repair_enabled(_: PgPoolOptions, options: Pg
 
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
 
     let config = rpc::InstanceConfig {
@@ -5202,7 +5090,7 @@ async fn test_instance_release_auto_repair_enabled(_: PgPoolOptions, options: Pg
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: host_machine_id.into(),
+            machine_id: mh.id.into(),
             instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
@@ -5243,11 +5131,7 @@ async fn test_instance_release_auto_repair_enabled(_: PgPoolOptions, options: Pg
         .expect("Unable to create transaction");
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let host_machine =
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let host_machine = mh.host().db_machine(&mut txn).await;
 
     println!(
         "Auto-repair enabled test - machine health overrides: {:#?}",
@@ -5313,7 +5197,7 @@ async fn test_instance_release_repair_tenant_successful_completion(
 
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
 
     let config = rpc::InstanceConfig {
@@ -5330,7 +5214,7 @@ async fn test_instance_release_repair_tenant_successful_completion(
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: host_machine_id.into(),
+            machine_id: mh.id.into(),
             instance_type_id: None,
             config: Some(config.clone()),
             metadata: None,
@@ -5361,11 +5245,7 @@ async fn test_instance_release_repair_tenant_successful_completion(
     let mut txn = env.pool.begin().await.unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let host_machine =
-        db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let host_machine = mh.host().db_machine(&mut txn).await;
 
     assert_eq!(
         host_machine.health_report_overrides.merges.len(),
@@ -5379,14 +5259,7 @@ async fn test_instance_release_repair_tenant_successful_completion(
     let mut update_txn = env.pool.begin().await.unwrap();
 
     // Get current machine to get its metadata
-    let current_machine = db::machine::find_one(
-        &mut update_txn,
-        &host_machine_id,
-        MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let current_machine = mh.host().db_machine(&mut update_txn).await;
 
     let mut labels = current_machine.metadata.labels.clone();
     labels.insert("repair_status".to_string(), "Completed".to_string());
@@ -5399,7 +5272,7 @@ async fn test_instance_release_repair_tenant_successful_completion(
     // Use the current machine version to avoid concurrent modification errors
     db::machine::update_metadata(
         &mut update_txn,
-        &host_machine_id,
+        &mh.id,
         current_machine.version,
         new_metadata,
     )

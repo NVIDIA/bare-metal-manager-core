@@ -18,13 +18,9 @@ use rpc::forge::forge_server::Forge;
 #[crate::sqlx_test]
 async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
-    let host_machine = env
-        .find_machines(Some(host_machine_id.to_string().into()), None, false)
-        .await
-        .machines
-        .remove(0);
+    let host_machine = mh.host().rpc_machine().await;
     let version1: config_version::ConfigVersion = host_machine.version.parse().unwrap();
     assert_eq!(version1.version_nr(), 1);
 
@@ -76,11 +72,7 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .await
         .unwrap();
 
-    let mut host_machine = env
-        .find_machines(host_machine_id.into(), None, false)
-        .await
-        .machines
-        .remove(0);
+    let mut host_machine = mh.host().rpc_machine().await;
     let version2: config_version::ConfigVersion = host_machine.version.parse().unwrap();
     assert_eq!(version2.version_nr(), 2);
     host_machine
@@ -130,11 +122,7 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .await
         .unwrap();
 
-    let mut host_machine = env
-        .find_machines(host_machine_id.into(), None, false)
-        .await
-        .machines
-        .remove(0);
+    let mut host_machine = mh.host().rpc_machine().await;
     let version3: config_version::ConfigVersion = host_machine.version.parse().unwrap();
     assert_eq!(version3.version_nr(), 3);
     host_machine

@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-
-use forge_uuid::machine::MachineId;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -12,6 +9,7 @@ use forge_uuid::machine::MachineId;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
 use crate::db::{self, machine::MachineSearchConfig};
 use crate::model::machine::InstallDpuOsState;
 use crate::model::{
@@ -25,14 +23,17 @@ use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use chrono::Utc;
 use common::api_fixtures::create_managed_host_multi_dpu;
 use common::api_fixtures::{create_test_env, reboot_completed};
+use forge_uuid::machine::MachineId;
 use rpc::forge::MachineArchitecture;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
+use std::collections::HashMap;
 
 use crate::tests::common;
 
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
 use crate::tests::common::api_fixtures::instance::TestInstance;
+use crate::tests::common::api_fixtures::managed_host::ManagedHost;
 use crate::tests::common::api_fixtures::{
     TestEnv, create_managed_host, discovery_completed, forge_agent_control, network_configured,
     update_time_params,
@@ -41,23 +42,17 @@ use crate::tests::common::api_fixtures::{
 #[crate::sqlx_test]
 async fn test_dpu_for_set_clear_reprovisioning(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = mh.dpu().db_machine(&mut txn).await;
 
     assert!(dpu.reprovision_requested.is_none(),);
 
-    mark_machine_for_updates(&env, &host_machine_id).await;
+    mh.mark_machine_for_updates().await;
 
-    trigger_dpu_reprovisioning(&env, dpu_machine_id, Mode::Set, true).await;
+    trigger_dpu_reprovisioning(&env, mh.dpu().machine_id(), Mode::Set, true).await;
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = mh.dpu().db_machine(&mut txn).await;
 
     assert_eq!(&dpu.reprovision_requested.unwrap().initiator, "AdminCli");
 
@@ -73,22 +68,19 @@ async fn test_dpu_for_set_clear_reprovisioning(pool: sqlx::PgPool) {
     assert_eq!(res.dpus.len(), 1);
     assert_eq!(
         res.dpus[0].id.clone().unwrap().to_string(),
-        dpu_machine_id.to_string()
+        mh.dpu().machine_id().to_string()
     );
 
-    trigger_dpu_reprovisioning(&env, dpu_machine_id, Mode::Clear, true).await;
+    trigger_dpu_reprovisioning(&env, mh.dpu().machine_id(), Mode::Clear, true).await;
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = mh.dpu().db_machine(&mut txn).await;
 
-    assert!(dpu.reprovision_requested.is_none(),);
+    assert!(dpu.reprovision_requested.is_none());
 }
 
 pub async fn trigger_dpu_reprovisioning(
     env: &TestEnv,
-    machine_id: MachineId,
+    machine_id: &MachineId,
     mode: Mode,
     update_firmware: bool,
 ) {
@@ -109,295 +101,116 @@ pub async fn trigger_dpu_reprovisioning(
 #[crate::sqlx_test]
 async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert!(dpu.reprovision_requested.is_none(),);
 
-    let interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
-        .await
-        .unwrap()
-        .get(&dpu_machine_id)
-        .unwrap()[0]
-        .id
-        .to_string();
+    let dpu_interface = mh.dpu().first_interface(&mut txn).await;
+    let dpu_arch = rpc::forge::MachineArchitecture::Arm;
 
-    let arch = rpc::forge::MachineArchitecture::Arm;
+    mh.mark_machine_for_updates().await;
 
-    mark_machine_for_updates(&env, &host_machine_id).await;
+    trigger_dpu_reprovisioning(&env, mh.dpu().machine_id(), Mode::Set, true).await;
 
-    trigger_dpu_reprovisioning(&env, dpu_machine_id, Mode::Set, true).await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(&dpu.reprovision_requested.unwrap().initiator, "AdminCli");
 
     let last_reboot_requested_time = dpu.last_reboot_requested;
 
     env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_ne!(
         dpu.last_reboot_requested.unwrap().time,
         last_reboot_requested_time.unwrap().time
     );
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id,
-                    crate::model::machine::ReprovisionState::InstallDpuOs {
-                        substate: InstallDpuOsState::InstallingBFB
-                    }
-                )]),
-            },
-        }
+        &mh.new_dpu_reprovision_state(ReprovisionState::InstallDpuOs {
+            substate: InstallDpuOsState::InstallingBFB
+        }),
     );
 
     env.run_machine_state_controller_iteration().await;
+
     env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id,
-                    crate::model::machine::ReprovisionState::WaitingForNetworkInstall,
-                )]),
-            },
-        }
+        &mh.new_dpu_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
     );
 
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert_ne!(pxe.pxe_script, "exit".to_string());
 
-    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
-    let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
-    discovery_completed(&env, dpu_rpc_id.clone()).await;
+    let _response = mh.dpu().forge_agent_control().await;
+    mh.dpu().discovery_completed().await;
 
     env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
-            },
-        }
+        &mh.new_dpu_reprovision_state(ReprovisionState::PoweringOffHost)
     );
     txn.commit().await.unwrap();
 
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert!(
         pxe.pxe_script
             .contains("Current state: Reprovisioning/PoweringOffHost. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
+    for state in [
+        ReprovisionState::PowerDown,
+        ReprovisionState::VerifyFirmareVersions,
+        ReprovisionState::WaitingForNetworkConfig,
+    ] {
+        let dpu = mh.dpu().next_iteration_machine(&env).await;
+        assert_eq!(dpu.current_state(), &mh.new_dpu_reprovision_state(state));
+    }
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
-            },
-        }
-    );
-    txn.commit().await.unwrap();
-
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id, ReprovisionState::VerifyFirmareVersions)]),
-            },
-        }
-    );
-    txn.commit().await.unwrap();
-
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id,
-                    ReprovisionState::WaitingForNetworkConfig
-                )]),
-            },
-        }
-    );
-    txn.commit().await.unwrap();
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert!(
         pxe.pxe_script
             .contains("Current state: Reprovisioning/WaitingForNetworkConfig. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
-    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+    let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
-    network_configured(&env, &vec![dpu_machine_id]).await;
 
-    env.run_machine_state_controller_iteration().await;
+    mh.network_configured(&env).await;
+    for state in [
+        ReprovisionState::RebootHostBmc,
+        ReprovisionState::RebootHost,
+    ] {
+        let dpu = mh.dpu().next_iteration_machine(&env).await;
+        assert_eq!(dpu.current_state(), &mh.new_dpu_reprovision_state(state));
+    }
 
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    txn.commit().await.unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHostBmc)]),
-            },
-        }
-    );
-
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    txn.commit().await.unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHost)]),
-            },
-        }
-    );
-
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(
         dpu.current_state(),
         &ManagedHostState::HostInit {
             machine_state: MachineState::Discovered { .. },
         }
     ));
-    txn.commit().await.unwrap();
 
-    let _response = forge_agent_control(&env, host_machine_id.into()).await;
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let _response = mh.host().forge_agent_control().await;
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(dpu.current_state(), &ManagedHostState::Ready));
-    txn.commit().await.unwrap();
 }
 
 #[crate::sqlx_test]
 async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (_host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = mh.dpu().db_machine(&mut txn).await;
 
     assert!(dpu.reprovision_requested.is_none(),);
 
@@ -406,7 +219,7 @@ async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgP
             .trigger_dpu_reprovisioning(tonic::Request::new(
                 ::rpc::forge::DpuReprovisioningRequest {
                     dpu_id: None,
-                    machine_id: dpu_machine_id.into(),
+                    machine_id: mh.dpu().machine_id().into(),
                     mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware: true
@@ -420,7 +233,7 @@ async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgP
 #[crate::sqlx_test]
 async fn test_dpu_for_reprovisioning_fail_if_state_is_not_ready(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (_, dpu_machine_id) = create_managed_host(&env).await;
+    let (_, dpu_machine_id) = create_managed_host(&env).await.into();
 
     assert!(
         env.api
@@ -441,224 +254,82 @@ async fn test_dpu_for_reprovisioning_fail_if_state_is_not_ready(pool: sqlx::PgPo
 #[crate::sqlx_test]
 async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = mh.dpu().db_machine(&mut txn).await;
 
     assert!(dpu.reprovision_requested.is_none(),);
 
-    let interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
-        .await
-        .unwrap()
-        .get(&dpu_machine_id)
-        .unwrap()[0]
-        .id
-        .to_string();
+    let dpu_interface = mh.dpu().first_interface(&mut txn).await;
+    let dpu_arch = rpc::forge::MachineArchitecture::Arm;
 
-    let arch = rpc::forge::MachineArchitecture::Arm;
+    mh.mark_machine_for_updates().await;
 
-    mark_machine_for_updates(&env, &host_machine_id).await;
+    trigger_dpu_reprovisioning(&env, mh.dpu().machine_id(), Mode::Set, false).await;
 
-    trigger_dpu_reprovisioning(&env, dpu_machine_id, Mode::Set, false).await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(dpu.reprovision_requested.unwrap().initiator, "AdminCli");
 
-    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
     env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id,
-                    ReprovisionState::InstallDpuOs {
-                        substate: InstallDpuOsState::InstallingBFB
-                    }
-                )]),
-            },
-        }
+        &mh.new_dpu_reprovision_state(ReprovisionState::InstallDpuOs {
+            substate: InstallDpuOsState::InstallingBFB
+        }),
     );
 
     env.run_machine_state_controller_iteration().await;
+
     env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id,
-                    ReprovisionState::WaitingForNetworkInstall
-                )]),
-            },
-        }
+        &mh.new_dpu_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
     );
 
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert_ne!(pxe.pxe_script, "exit".to_string());
-    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+
+    let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
         rpc::forge::forge_agent_control_response::Action::Discovery as i32
     );
-    discovery_completed(&env, dpu_rpc_id.clone()).await;
+    mh.dpu().discovery_completed().await;
 
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
-            },
-        }
+        &mh.new_dpu_reprovision_state(ReprovisionState::PoweringOffHost)
     );
-    txn.commit().await.unwrap();
-    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+
+    let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
 
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
+    for state in [
+        ReprovisionState::PowerDown,
+        ReprovisionState::VerifyFirmareVersions,
+        ReprovisionState::WaitingForNetworkConfig,
+    ] {
+        let dpu = mh.dpu().next_iteration_machine(&env).await;
+        assert_eq!(dpu.current_state(), &mh.new_dpu_reprovision_state(state));
+    }
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let _response = mh.dpu().forge_agent_control().await;
+    mh.network_configured(&env).await;
+    for state in [
+        ReprovisionState::RebootHostBmc,
+        ReprovisionState::RebootHost,
+    ] {
+        let dpu = mh.dpu().next_iteration_machine(&env).await;
+        assert_eq!(dpu.current_state(), &mh.new_dpu_reprovision_state(state));
+    }
 
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
-            },
-        }
-    );
-    txn.commit().await.unwrap();
-
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id, ReprovisionState::VerifyFirmareVersions)]),
-            },
-        }
-    );
-    txn.commit().await.unwrap();
-
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id,
-                    ReprovisionState::WaitingForNetworkConfig
-                )]),
-            },
-        }
-    );
-    txn.commit().await.unwrap();
-    let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
-    network_configured(&env, &vec![dpu_machine_id]).await;
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    txn.commit().await.unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHostBmc)]),
-            },
-        }
-    );
-
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    txn.commit().await.unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHost)]),
-            },
-        }
-    );
-
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    txn.commit().await.unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(
         dpu.current_state(),
         &ManagedHostState::HostInit {
@@ -666,47 +337,31 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         }
     ));
 
-    let _response = forge_agent_control(&env, host_machine_id.into()).await;
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let _response = mh.host().forge_agent_control().await;
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(dpu.current_state(), &ManagedHostState::Ready));
-    txn.commit().await.unwrap();
 }
 
 #[crate::sqlx_test]
 async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let (instance_id, instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
-        .await
-        .unwrap()
-        .get(&dpu_machine_id)
-        .unwrap()[0]
-        .id
-        .to_string();
+    let dpu_interface = mh.dpu().first_interface(&mut txn).await;
+    let dpu_arch = rpc::forge::MachineArchitecture::Arm;
 
-    let arch = rpc::forge::MachineArchitecture::Arm;
-
-    mark_machine_for_updates(&env, &host_machine_id).await;
-
-    trigger_dpu_reprovisioning(&env, dpu_machine_id, Mode::Set, true).await;
+    mh.mark_machine_for_updates().await;
+    trigger_dpu_reprovisioning(&env, mh.dpu().machine_id(), Mode::Set, true).await;
     env.api
         .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
-            machine_id: Some(host_machine_id.into()),
+            machine_id: mh.id.into(),
             apply_updates_on_reboot: true,
             boot_with_custom_ipxe: false,
             operation: 0,
@@ -714,20 +369,11 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .await
         .unwrap();
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(dpu.reprovision_requested.unwrap().initiator, "AdminCli");
 
     env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert!(matches!(
         dpu.current_state(),
         &ManagedHostState::Assigned {
@@ -735,10 +381,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         }
     ));
 
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     // Check that the tenant state is what we expect now that reprovisioning has started.
     let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
@@ -768,29 +411,13 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        ReprovisionState::WaitingForNetworkInstall
-                    )]),
-                },
-            }
-        }
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::WaitingForNetworkInstall),
     );
 
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     // Check that the tenant state is still what we expect now that reprovisioning has started.
     let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
@@ -813,51 +440,25 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         TenantState::DpuReprovisioning
     );
 
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert_ne!(pxe.pxe_script, "exit".to_string());
-    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
-    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+
+    let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
         rpc::forge::forge_agent_control_response::Action::Discovery as i32
     );
-    discovery_completed(&env, dpu_rpc_id.clone()).await;
+    mh.dpu().discovery_completed().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
-                },
-            }
-        }
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::PoweringOffHost),
     );
 
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let host = mh.host().db_machine(&mut txn).await;
     // Check that the tenant state is still what we expect now that reprovisioning has started.
     let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
         .await
@@ -878,21 +479,9 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         // `Updating`.
         TenantState::DpuReprovisioning
     );
-
     txn.commit().await.unwrap();
 
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert!(
         pxe.pxe_script
             .contains("Current state: Assigned/Reprovision/PoweringOffHost. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
@@ -900,27 +489,13 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
-                },
-            }
-        }
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::PowerDown)
     );
 
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     // Check that the tenant state is still what we expect now that reprovisioning has started.
     let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
@@ -942,42 +517,21 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         // `Updating`.
         TenantState::DpuReprovisioning
     );
-
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        ReprovisionState::VerifyFirmareVersions
-                    )]),
-                },
-            }
-        }
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::VerifyFirmareVersions)
     );
-
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let host = mh.host().db_machine(&mut txn).await;
     // Check that the tenant state is still what we expect now that reprovisioning has started.
     let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
         .await
         .unwrap()
         .unwrap();
-
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
@@ -992,41 +546,21 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         // `Updating`.
         TenantState::DpuReprovisioning
     );
-
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        ReprovisionState::WaitingForNetworkConfig
-                    )]),
-                },
-            }
-        }
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::WaitingForNetworkConfig)
     );
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let host = mh.host().db_machine(&mut txn).await;
     // Check that the tenant state is still what we expect now that reprovisioning has started.
     let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
         .await
         .unwrap()
         .unwrap();
-
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
@@ -1042,58 +576,31 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         TenantState::DpuReprovisioning
     );
     txn.commit().await.unwrap();
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
 
+    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert!(pxe.pxe_script.contains("exit"));
 
-    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+    let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
-    network_configured(&env, &vec![dpu_machine_id]).await;
+    mh.network_configured(&env).await;
 
     env.run_machine_state_controller_iteration().await;
-
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
+    let host = mh.host().db_machine(&mut txn).await;
     // Check that the tenant state is still what we expect now that reprovisioning has started.
     let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
         .await
         .unwrap()
         .unwrap();
-
     txn.commit().await.unwrap();
-
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHostBmc)]),
-                },
-            }
-        }
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::RebootHostBmc)
     );
-
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
@@ -1110,34 +617,18 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     );
 
     env.run_machine_state_controller_iteration().await;
-
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
+    let host = mh.host().db_machine(&mut txn).await;
     // Check that the tenant state is still what we expect now that reprovisioning has started.
     let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
         .await
         .unwrap()
         .unwrap();
-
     txn.commit().await.unwrap();
-
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHost)]),
-                },
-            }
-        }
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::RebootHost),
     );
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
@@ -1153,33 +644,23 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         // `Updating`.
         TenantState::DpuReprovisioning
     );
+
     env.run_machine_state_controller_iteration().await;
-
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
+    let host = mh.host().db_machine(&mut txn).await;
     // Check that the tenant state is still what we expect now that reprovisioning has completed.
     let db_instance = db::instance::Instance::find_by_id(&mut txn, instance_id)
         .await
         .unwrap()
         .unwrap();
     txn.commit().await.unwrap();
-
     assert!(matches!(
         dpu.current_state(),
         &ManagedHostState::Assigned {
             instance_state: InstanceState::Ready
         }
     ));
-
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         db_instance
@@ -1196,39 +677,25 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let mh = create_managed_host(&env).await;
 
     let (instance_id, _instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
-        .await
-        .unwrap()
-        .get(&dpu_machine_id)
-        .unwrap()[0]
-        .id
-        .to_string();
+    let dpu_interface = mh.dpu().first_interface(&mut txn).await;
+    let host_interface = mh.host().first_interface(&mut txn).await;
+    let dpu_arch = MachineArchitecture::Arm;
+    let host_arch = MachineArchitecture::X86;
 
-    let host_interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
-            .await
-            .unwrap()
-            .get(&host_machine_id)
-            .unwrap()[0]
-            .id
-            .to_string();
+    mh.mark_machine_for_updates().await;
 
-    let arch = rpc::forge::MachineArchitecture::Arm;
-
-    mark_machine_for_updates(&env, &host_machine_id).await;
-
-    trigger_dpu_reprovisioning(&env, dpu_machine_id, Mode::Set, false).await;
+    trigger_dpu_reprovisioning(&env, mh.dpu().machine_id(), Mode::Set, false).await;
     env.api
         .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
-            machine_id: Some(host_machine_id.into()),
+            machine_id: mh.id.into(),
             apply_updates_on_reboot: true,
             boot_with_custom_ipxe: false,
             operation: 0,
@@ -1236,44 +703,17 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .await
         .unwrap();
 
-    let current_instance = env
-        .api
-        .find_instances(tonic::Request::new(rpc::InstanceSearchQuery {
-            id: Some(rpc::Uuid {
-                value: instance_id.to_string(),
-            }),
-            label: None,
-        }))
-        .await
-        .unwrap()
-        .into_inner();
+    let current_instance = env.one_instance(instance_id).await;
+    assert!(current_instance.status().inner().update.is_some());
 
-    assert!(
-        current_instance.instances[0]
-            .status
-            .as_ref()
-            .unwrap()
-            .update
-            .is_some()
-    );
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         &dpu.reprovision_requested.as_ref().unwrap().initiator,
         "AdminCli"
     );
 
     env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert!(matches!(
         dpu.current_state(),
         &ManagedHostState::Assigned {
@@ -1281,34 +721,17 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         }
     ));
 
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: MachineArchitecture::X86 as i32,
-            interface_id: Some(rpc::Uuid {
-                value: host_interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert!(pxe.pxe_script.contains("scout.efi"));
 
-    _ = forge_agent_control(
-        &env,
-        current_instance.instances[0].machine_id.clone().unwrap(),
-    )
-    .await;
+    _ = forge_agent_control(&env, current_instance.inner().machine_id.clone().unwrap()).await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
     // Since DPU reprovisioning is started, we can't allow user to reboot host in between. It
     // should be prevented from cloud itself.
-
     assert!(
         env.api
             .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
-                machine_id: Some(host_machine_id.into()),
+                machine_id: mh.id.into(),
                 apply_updates_on_reboot: true,
                 boot_with_custom_ipxe: false,
                 operation: 0,
@@ -1316,215 +739,71 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
             .await
             .is_err()
     );
-
     txn.commit().await.unwrap();
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        ReprovisionState::WaitingForNetworkInstall
-                    )]),
-                },
-            }
-        }
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
     );
 
-    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+    let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
         rpc::forge::forge_agent_control_response::Action::Discovery as i32
     );
-    discovery_completed(&env, dpu_rpc_id.clone()).await;
+    mh.dpu().discovery_completed().await;
 
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
-                },
-            }
-        }
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::PoweringOffHost)
     );
-    txn.commit().await.unwrap();
 
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert!(
         pxe.pxe_script
             .contains("Current state: Assigned/Reprovision/PoweringOffHost. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
+    for state in [
+        ReprovisionState::PowerDown,
+        ReprovisionState::VerifyFirmareVersions,
+        ReprovisionState::WaitingForNetworkConfig,
+    ] {
+        let dpu = mh.dpu().next_iteration_machine(&env).await;
+        assert_eq!(
+            dpu.current_state(),
+            &mh.new_dpu_assigned_reprovision_state(state)
+        );
+    }
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
-                },
-            }
-        }
-    );
-    txn.commit().await.unwrap();
-
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        ReprovisionState::VerifyFirmareVersions
-                    )]),
-                },
-            }
-        }
-    );
-
-    txn.commit().await.unwrap();
-
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        ReprovisionState::WaitingForNetworkConfig
-                    )]),
-                },
-            }
-        }
-    );
-    txn.commit().await.unwrap();
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert!(
         pxe.pxe_script.contains(
             "Current state: Assigned/Reprovision/WaitingForNetworkConfig. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. "
         )
     );
 
-    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+    let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
-    let _ = network_configured(&env, &vec![dpu_machine_id]).await;
-    env.run_machine_state_controller_iteration().await;
+    mh.network_configured(&env).await;
 
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    txn.commit().await.unwrap();
+    for state in [
+        ReprovisionState::RebootHostBmc,
+        ReprovisionState::RebootHost,
+    ] {
+        let dpu = mh.dpu().next_iteration_machine(&env).await;
+        assert_eq!(
+            dpu.current_state(),
+            &mh.new_dpu_assigned_reprovision_state(state)
+        );
+    }
 
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHostBmc)]),
-                },
-            }
-        }
-    );
-
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    txn.commit().await.unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHost)]),
-                },
-            }
-        }
-    );
-
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    txn.commit().await.unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(
         dpu.current_state(),
         &ManagedHostState::Assigned {
@@ -1532,42 +811,21 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         }
     ));
 
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: MachineArchitecture::X86 as i32,
-            interface_id: Some(rpc::Uuid {
-                value: host_interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert!(pxe.pxe_script.contains("exit"));
 }
 
 #[crate::sqlx_test]
 async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert!(dpu.reprovision_requested.is_none(),);
 
-    mark_machine_for_updates(&env, &host_machine_id).await;
-
-    trigger_dpu_reprovisioning(&env, dpu_machine_id, Mode::Set, true).await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    mh.mark_machine_for_updates().await;
+    trigger_dpu_reprovisioning(&env, mh.dpu().machine_id(), Mode::Set, true).await;
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(dpu.reprovision_requested.unwrap().initiator, "AdminCli");
 
     let res = env
@@ -1580,22 +838,18 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
         .into_inner();
 
     assert_eq!(res.dpus.len(), 1);
-    assert_eq!(
-        res.dpus[0].id.clone().unwrap().to_string(),
-        dpu_machine_id.to_string()
-    );
+    assert_eq!(res.dpus[0].id, mh.dpu().machine_id().into());
 
-    db::machine::update_dpu_reprovision_start_time(&dpu_machine_id, &mut txn)
+    db::machine::update_dpu_reprovision_start_time(mh.dpu().machine_id(), &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
-
     assert!(
         env.api
             .trigger_dpu_reprovisioning(tonic::Request::new(
                 ::rpc::forge::DpuReprovisioningRequest {
                     dpu_id: None,
-                    machine_id: dpu_machine_id.into(),
+                    machine_id: mh.dpu().machine_id().into(),
                     mode: rpc::forge::dpu_reprovisioning_request::Mode::Clear as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware: true
@@ -1606,204 +860,93 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
     );
 
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert!(dpu.reprovision_requested.is_some(),);
 }
 
 #[crate::sqlx_test]
 async fn test_reboot_retry(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = mh.dpu().db_machine(&mut txn).await;
 
     assert!(dpu.reprovision_requested.is_none(),);
 
-    mark_machine_for_updates(&env, &host_machine_id).await;
+    mh.mark_machine_for_updates().await;
+    trigger_dpu_reprovisioning(&env, mh.dpu().machine_id(), Mode::Set, true).await;
 
-    trigger_dpu_reprovisioning(&env, dpu_machine_id, Mode::Set, true).await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(dpu.reprovision_requested.unwrap().initiator, "AdminCli");
-
     let last_reboot_requested_time = dpu.last_reboot_requested.as_ref();
-
     for _ in 0..3 {
         env.run_machine_state_controller_iteration().await;
     }
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_ne!(
         dpu.last_reboot_requested.unwrap().time,
         last_reboot_requested_time.unwrap().time
     );
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id,
-                    ReprovisionState::WaitingForNetworkInstall
-                )]),
-            },
-        }
+        &mh.new_dpu_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
     );
-
     txn.commit().await.unwrap();
 
     // no reboots should be forced during firmware update
     for _ in 1..5 {
         update_time_params(&env.pool, &dpu, 1, None).await;
-        env.run_machine_state_controller_iteration().await;
-
-        let mut txn = env.pool.begin().await.unwrap();
-        let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
-
+        let dpu = mh.dpu().next_iteration_machine(&env).await;
         assert_eq!(
             dpu.current_state(),
-            &ManagedHostState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        ReprovisionState::WaitingForNetworkInstall
-                    )]),
-                },
-            }
+            &mh.new_dpu_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
         );
     }
 
     reboot_completed(&env, dpu.id.into()).await;
-
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id,
-                    ReprovisionState::WaitingForNetworkInstall
-                )]),
-            },
-        }
+        &mh.new_dpu_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
     );
-
-    txn.rollback().await.unwrap();
 
     update_time_params(&env.pool, &dpu, 1, None).await;
-
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id,
-                    ReprovisionState::WaitingForNetworkInstall
-                )]),
-            },
-        }
+        &mh.new_dpu_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
     );
-
-    txn.rollback().await.unwrap();
 
     update_time_params(&env.pool, &dpu, 1, None).await;
-
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id,
-                    ReprovisionState::WaitingForNetworkInstall
-                )]),
-            },
-        }
+        &mh.new_dpu_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
     );
-
-    txn.rollback().await.unwrap();
 
     // Retry 1
     update_time_params(&env.pool, &dpu, 1, None).await;
-    env.run_machine_state_controller_iteration().await;
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(
         dpu.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::Reboot
     ));
-
-    txn.commit().await.unwrap();
 
     // Retry 2
     update_time_params(&env.pool, &dpu, 2, None).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu_ = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu_ = mh.dpu().db_machine(&mut txn).await;
 
     assert!(matches!(
         dpu.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::Reboot
     ));
     txn.commit().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
 
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_ne!(
         dpu_.last_reboot_requested.as_ref().unwrap().time,
         dpu.last_reboot_requested.as_ref().unwrap().time
@@ -1812,90 +955,54 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         dpu.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::Reboot
     ));
-    txn.commit().await.unwrap();
 
     // Retry 3
     update_time_params(&env.pool, &dpu, 3, None).await;
-    env.run_machine_state_controller_iteration().await;
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(
         dpu.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::Reboot
     ));
-    txn.commit().await.unwrap();
 
     // Retry 4
     update_time_params(&env.pool, &dpu, 4, None).await;
-    env.run_machine_state_controller_iteration().await;
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(
         dpu.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::PowerOff
     ));
-    txn.commit().await.unwrap();
 
     // Retry 5
     update_time_params(&env.pool, &dpu, 5, None).await;
-    env.run_machine_state_controller_iteration().await;
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(
         dpu.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::PowerOn
     ));
-    txn.commit().await.unwrap();
 
     // Retry 6
     update_time_params(&env.pool, &dpu, 5, None).await;
-    env.run_machine_state_controller_iteration().await;
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(
         dpu.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::Reboot
     ));
-    txn.commit().await.unwrap();
 }
 
 #[crate::sqlx_test]
 async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = mh.dpu().db_machine(&mut txn).await;
 
     assert!(dpu.reprovision_requested.is_none(),);
 
-    mark_machine_for_updates(&env, &host_machine_id).await;
+    mh.mark_machine_for_updates().await;
 
-    trigger_dpu_reprovisioning(&env, dpu_machine_id, Mode::Set, true).await;
+    trigger_dpu_reprovisioning(&env, mh.dpu().machine_id(), Mode::Set, true).await;
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         &dpu.reprovision_requested.as_ref().unwrap().initiator,
         "AdminCli"
@@ -1915,54 +1022,27 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
     env.override_machine_state_controller_handler(handler).await;
 
     env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_ne!(
         dpu.last_reboot_requested.as_ref().unwrap().time,
         last_reboot_requested_time.unwrap().time
     );
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id,
-                    ReprovisionState::InstallDpuOs {
-                        substate: InstallDpuOsState::InstallingBFB
-                    }
-                )]),
-            },
-        }
+        &mh.new_dpu_reprovision_state(ReprovisionState::InstallDpuOs {
+            substate: InstallDpuOsState::InstallingBFB
+        })
     );
 
     env.run_machine_state_controller_iteration().await;
+
     env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id,
-                    ReprovisionState::WaitingForNetworkInstall,
-                )]),
-            },
-        }
+        &mh.new_dpu_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
     );
 
     txn.commit().await.unwrap();
@@ -1972,16 +1052,8 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration().await;
 
     let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let host = mh.host().db_machine(&mut txn).await;
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     let last_reboot_requested = host.last_reboot_requested.as_ref().unwrap();
 
     tracing::info!("power request: {:?}", last_reboot_requested);
@@ -1992,14 +1064,7 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
 
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id,
-                    ReprovisionState::WaitingForNetworkInstall
-                )]),
-            },
-        }
+        &mh.new_dpu_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
     );
 
     txn.rollback().await.unwrap();
@@ -2008,19 +1073,16 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_clear_with_function_call(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = mh.dpu().db_machine(&mut txn).await;
 
     txn.commit().await.unwrap();
     assert!(dpu.reprovision_requested.is_none(),);
 
-    mark_machine_for_updates(&env, &host_machine_id).await;
+    mh.mark_machine_for_updates().await;
 
-    trigger_dpu_reprovisioning(&env, dpu_machine_id, Mode::Set, true).await;
+    trigger_dpu_reprovisioning(&env, mh.dpu().machine_id(), Mode::Set, true).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     assert!(
@@ -2047,24 +1109,21 @@ async fn test_clear_with_function_call(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_clear_maintenance_when_reprov_is_set(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = mh.dpu().db_machine(&mut txn).await;
 
     txn.commit().await.unwrap();
     assert!(dpu.reprovision_requested.is_none(),);
 
-    mark_machine_for_updates(&env, &host_machine_id).await;
+    mh.mark_machine_for_updates().await;
 
-    trigger_dpu_reprovisioning(&env, dpu_machine_id, Mode::Set, true).await;
+    trigger_dpu_reprovisioning(&env, mh.dpu().machine_id(), Mode::Set, true).await;
 
     assert!(
         env.api
             .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
-                host_id: host_machine_id.into(),
+                host_id: mh.id.into(),
                 operation: 1,
                 reference: Some("no reference".to_string()),
             }))
@@ -2103,24 +1162,21 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = mh.dpu().db_machine(&mut txn).await;
 
     txn.commit().await.unwrap();
     assert!(dpu.reprovision_requested.is_none(),);
 
-    mark_machine_for_updates(&env, &host_machine_id).await;
+    mh.mark_machine_for_updates().await;
 
     assert!(
         env.api
             .trigger_dpu_reprovisioning(tonic::Request::new(
                 ::rpc::forge::DpuReprovisioningRequest {
                     dpu_id: None,
-                    machine_id: host_machine_id.into(),
+                    machine_id: mh.id.into(),
                     mode: Mode::Restart as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware: false,
@@ -2130,7 +1186,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
             .is_err()
     );
 
-    trigger_dpu_reprovisioning(&env, dpu_machine_id, Mode::Set, true).await;
+    trigger_dpu_reprovisioning(&env, mh.dpu().machine_id(), Mode::Set, true).await;
 
     for _ in 0..3 {
         env.run_machine_state_controller_iteration().await;
@@ -2138,21 +1194,10 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id,
-                    ReprovisionState::WaitingForNetworkInstall,
-                )]),
-            }
-        }
+        &mh.new_dpu_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
     );
 
     let restart_time = dpu
@@ -2162,15 +1207,9 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
         .restart_reprovision_requested_at;
     txn.commit().await.unwrap();
 
-    trigger_dpu_reprovisioning(&env, host_machine_id, Mode::Restart, true).await;
-    env.run_machine_state_controller_iteration().await;
+    trigger_dpu_reprovisioning(&env, &mh.id, Mode::Restart, true).await;
 
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    txn.commit().await.unwrap();
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_ne!(
         restart_time,
         dpu.reprovision_requested
@@ -2181,21 +1220,18 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
 
     let _expected_state = ManagedHostState::DPUReprovision {
         dpu_states: crate::model::machine::DpuReprovisionStates {
-            states: HashMap::from([(dpu_machine_id, ReprovisionState::WaitingForNetworkInstall)]),
+            states: HashMap::from([(
+                *mh.dpu().machine_id(),
+                ReprovisionState::WaitingForNetworkInstall,
+            )]),
         },
     };
     assert!(matches!(dpu.current_state(), _expected_state));
 
     // change the mode
-    trigger_dpu_reprovisioning(&env, host_machine_id, Mode::Restart, false).await;
-    env.run_machine_state_controller_iteration().await;
+    trigger_dpu_reprovisioning(&env, &mh.id, Mode::Restart, false).await;
 
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    txn.commit().await.unwrap();
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_ne!(
         restart_time,
         dpu.reprovision_requested
@@ -2206,14 +1242,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
 
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::DPUReprovision {
-            dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(
-                    dpu_machine_id,
-                    ReprovisionState::WaitingForNetworkInstall,
-                )]),
-            },
-        }
+        &mh.new_dpu_reprovision_state(ReprovisionState::WaitingForNetworkInstall),
     );
 }
 
@@ -2244,7 +1273,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
 
     mark_machine_for_updates(&env, &host_machine_id).await;
 
-    trigger_dpu_reprovisioning(&env, dpu_machine_id_1, Mode::Set, true).await;
+    trigger_dpu_reprovisioning(&env, &dpu_machine_id_1, Mode::Set, true).await;
 
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2562,8 +1591,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
 
     mark_machine_for_updates(&env, &host_machine_id).await;
 
-    trigger_dpu_reprovisioning(&env, dpu_machine_id_1, Mode::Set, true).await;
-    trigger_dpu_reprovisioning(&env, dpu_machine_id_2, Mode::Set, true).await;
+    trigger_dpu_reprovisioning(&env, &dpu_machine_id_1, Mode::Set, true).await;
+    trigger_dpu_reprovisioning(&env, &dpu_machine_id_2, Mode::Set, true).await;
 
     let dpu = db::machine::find_one(&mut txn, &dpu_machine_id_1, MachineSearchConfig::default())
         .await
@@ -2856,39 +1885,24 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
 async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-
+    let mh = create_managed_host(&env).await;
     let (instance_id, _instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
-        .await
-        .unwrap()
-        .get(&dpu_machine_id)
-        .unwrap()[0]
-        .id
-        .to_string();
+    let dpu_interface = mh.dpu().first_interface(&mut txn).await;
+    let host_interface = mh.host().first_interface(&mut txn).await;
+    let dpu_arch = MachineArchitecture::Arm;
+    let host_arch = MachineArchitecture::X86;
 
-    let host_interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
-            .await
-            .unwrap()
-            .get(&host_machine_id)
-            .unwrap()[0]
-            .id
-            .to_string();
+    mh.mark_machine_for_updates().await;
 
-    let arch = rpc::forge::MachineArchitecture::Arm;
-
-    mark_machine_for_updates(&env, &host_machine_id).await;
-
-    trigger_dpu_reprovisioning(&env, dpu_machine_id, Mode::Set, false).await;
+    trigger_dpu_reprovisioning(&env, mh.dpu().machine_id(), Mode::Set, false).await;
     env.api
         .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
-            machine_id: Some(host_machine_id.into()),
+            machine_id: mh.id.into(),
             apply_updates_on_reboot: true,
             boot_with_custom_ipxe: false,
             operation: 0,
@@ -2896,44 +1910,17 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         .await
         .unwrap();
 
-    let current_instance = env
-        .api
-        .find_instances(tonic::Request::new(rpc::InstanceSearchQuery {
-            id: Some(rpc::Uuid {
-                value: instance_id.to_string(),
-            }),
-            label: None,
-        }))
-        .await
-        .unwrap()
-        .into_inner();
+    let current_instance = env.one_instance(instance_id).await;
+    assert!(current_instance.status().inner().update.is_some());
 
-    assert!(
-        current_instance.instances[0]
-            .status
-            .as_ref()
-            .unwrap()
-            .update
-            .is_some()
-    );
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         &dpu.reprovision_requested.as_ref().unwrap().initiator,
         "AdminCli"
     );
 
     env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     assert!(matches!(
         dpu.current_state(),
         &ManagedHostState::Assigned {
@@ -2941,34 +1928,18 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         }
     ));
 
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: MachineArchitecture::X86 as i32,
-            interface_id: Some(rpc::Uuid {
-                value: host_interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert!(pxe.pxe_script.contains("scout.efi"));
 
-    _ = forge_agent_control(
-        &env,
-        current_instance.instances[0].machine_id.clone().unwrap(),
-    )
-    .await;
+    _ = forge_agent_control(&env, current_instance.inner().machine_id.clone().unwrap()).await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Since DPU reprovisioning is started, we can't allow user to reboot host in between. It
     // should be prevented from cloud itself.
-
     assert!(
         env.api
             .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
-                machine_id: Some(host_machine_id.into()),
+                machine_id: mh.id.into(),
                 apply_updates_on_reboot: true,
                 boot_with_custom_ipxe: false,
                 operation: 0,
@@ -2976,183 +1947,63 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
             .await
             .is_err()
     );
-
     txn.commit().await.unwrap();
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        ReprovisionState::WaitingForNetworkInstall
-                    )]),
-                },
-            }
-        }
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
     );
 
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert_ne!(pxe.pxe_script, "exit".to_string());
-    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+
+    let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
         rpc::forge::forge_agent_control_response::Action::Discovery as i32
     );
-    discovery_completed(&env, dpu_rpc_id.clone()).await;
+    mh.dpu().discovery_completed().await;
 
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
-                },
-            }
-        }
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::PoweringOffHost)
     );
-    txn.commit().await.unwrap();
 
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert!(
         pxe.pxe_script
             .contains("Current state: Assigned/Reprovision/PoweringOffHost. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
+    for state in [
+        ReprovisionState::PowerDown,
+        ReprovisionState::VerifyFirmareVersions,
+        ReprovisionState::WaitingForNetworkConfig,
+    ] {
+        let dpu = mh.dpu().next_iteration_machine(&env).await;
+        assert_eq!(
+            dpu.current_state(),
+            &mh.new_dpu_assigned_reprovision_state(state)
+        );
+    }
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
-                },
-            }
-        }
-    );
-    txn.commit().await.unwrap();
-
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        ReprovisionState::VerifyFirmareVersions
-                    )]),
-                },
-            }
-        }
-    );
-    txn.commit().await.unwrap();
-
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        ReprovisionState::WaitingForNetworkConfig
-                    )]),
-                },
-            }
-        }
-    );
-    txn.commit().await.unwrap();
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert!(
         pxe.pxe_script.contains(
             "Current state: Assigned/Reprovision/WaitingForNetworkConfig. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. "
         )
     );
 
-    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+    let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
 
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = mh.dpu().db_machine(&mut txn).await;
     let failed_at = Utc::now();
     let deserialized = FailureDetails {
         cause: crate::model::machine::FailureCause::NVMECleanFailed {
@@ -3161,20 +2012,12 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         source: crate::model::machine::FailureSource::Scout,
         failed_at,
     };
-
     db::machine::update_failure_details(&dpu, &mut txn, deserialized)
         .await
         .unwrap();
-
     txn.commit().await.unwrap();
 
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_eq!(
         dpu.current_state(),
         &ManagedHostState::Assigned {
@@ -3191,14 +2034,12 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         }
     );
 
-    txn.rollback().await.unwrap();
-
     assert!(
         env.api
             .trigger_dpu_reprovisioning(tonic::Request::new(
                 ::rpc::forge::DpuReprovisioningRequest {
                     dpu_id: None,
-                    machine_id: host_machine_id.into(),
+                    machine_id: mh.id.into(),
                     mode: Mode::Restart as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware: false,
@@ -3208,252 +2049,82 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
             .is_ok()
     );
 
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        ReprovisionState::InstallDpuOs {
-                            substate: InstallDpuOsState::InstallingBFB,
-                        },
-                    )]),
-                },
-            }
-        }
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::InstallDpuOs {
+            substate: InstallDpuOsState::InstallingBFB,
+        },)
     );
-    txn.commit().await.unwrap();
 
     env.run_machine_state_controller_iteration().await;
-    env.run_machine_state_controller_iteration().await;
 
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    let dpu_rpc_id: ::rpc::common::MachineId = dpu_machine_id.into();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        ReprovisionState::WaitingForNetworkInstall
-                    )]),
-                },
-            }
-        }
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::WaitingForNetworkInstall)
     );
-    txn.commit().await.unwrap();
 
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert!(pxe.pxe_script.contains("internal/aarch64/carbide.efi"));
-    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+
+    let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
         rpc::forge::forge_agent_control_response::Action::Discovery as i32
     );
-    discovery_completed(&env, dpu_rpc_id.clone()).await;
+    mh.dpu().discovery_completed().await;
 
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_eq!(
         dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PoweringOffHost)]),
-                },
-            }
-        }
+        &mh.new_dpu_assigned_reprovision_state(ReprovisionState::PoweringOffHost)
     );
-    txn.commit().await.unwrap();
 
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert!(
         pxe.pxe_script
             .contains("Current state: Assigned/Reprovision/PoweringOffHost. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
+    for state in [
+        ReprovisionState::PowerDown,
+        ReprovisionState::VerifyFirmareVersions,
+        ReprovisionState::WaitingForNetworkConfig,
+    ] {
+        let dpu = mh.dpu().next_iteration_machine(&env).await;
+        assert_eq!(
+            dpu.current_state(),
+            &mh.new_dpu_assigned_reprovision_state(state)
+        );
+    }
 
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::PowerDown)]),
-                },
-            }
-        }
-    );
-    txn.commit().await.unwrap();
-
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        ReprovisionState::VerifyFirmareVersions
-                    )]),
-                },
-            }
-        }
-    );
-    txn.commit().await.unwrap();
-
-    let mut txn = env.pool.begin().await.unwrap();
-    env.run_machine_state_controller_iteration().await;
-
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(
-                        dpu_machine_id,
-                        ReprovisionState::WaitingForNetworkConfig
-                    )]),
-                },
-            }
-        }
-    );
-    txn.commit().await.unwrap();
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert!(
         pxe.pxe_script.contains(
             "Current state: Assigned/Reprovision/WaitingForNetworkConfig. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. "
         )
     );
 
-    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+    let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
         rpc::forge::forge_agent_control_response::Action::Noop as i32
     );
-    network_configured(&env, &vec![dpu_machine_id]).await;
-    env.run_machine_state_controller_iteration().await;
+    mh.network_configured(&env).await;
 
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    txn.commit().await.unwrap();
+    for state in [
+        ReprovisionState::RebootHostBmc,
+        ReprovisionState::RebootHost,
+    ] {
+        let dpu = mh.dpu().next_iteration_machine(&env).await;
+        assert_eq!(
+            dpu.current_state(),
+            &mh.new_dpu_assigned_reprovision_state(state)
+        );
+    }
 
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHostBmc)]),
-                },
-            }
-        }
-    );
-
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    txn.commit().await.unwrap();
-
-    assert_eq!(
-        dpu.current_state(),
-        &ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision {
-                dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(dpu_machine_id, ReprovisionState::RebootHost)]),
-                },
-            }
-        }
-    );
-
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    txn.commit().await.unwrap();
-
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(
         dpu.current_state(),
         &ManagedHostState::Assigned {
@@ -3461,32 +2132,18 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         }
     ));
 
-    let pxe = env
-        .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: MachineArchitecture::X86 as i32,
-            interface_id: Some(rpc::Uuid {
-                value: host_interface_id.clone(),
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert!(pxe.pxe_script.contains("exit"));
 }
 
 #[crate::sqlx_test]
 async fn test_dpu_for_reprovisioning_cannot_restart_if_not_started(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
-    mark_machine_for_updates(&env, &host_machine_id).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    mh.mark_machine_for_updates().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let dpu = mh.dpu().db_machine(&mut txn).await;
 
     assert!(dpu.reprovision_requested.is_none(),);
 
@@ -3495,7 +2152,7 @@ async fn test_dpu_for_reprovisioning_cannot_restart_if_not_started(pool: sqlx::P
         .trigger_dpu_reprovisioning(tonic::Request::new(
             ::rpc::forge::DpuReprovisioningRequest {
                 dpu_id: None,
-                machine_id: host_machine_id.into(),
+                machine_id: mh.id.into(),
                 mode: rpc::forge::dpu_reprovisioning_request::Mode::Restart as i32,
                 initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                 update_firmware: true,
@@ -3540,4 +2197,38 @@ async fn mark_machine_for_updates(env: &TestEnv, host_machine_id: &MachineId) {
         ))
         .await
         .unwrap();
+}
+
+impl ManagedHost {
+    pub async fn mark_machine_for_updates(&self) {
+        self.api
+            .insert_health_report_override(tonic::Request::new(
+                rpc::forge::InsertHealthReportOverrideRequest {
+                    machine_id: self.id.into(),
+                    r#override: Some(rpc::forge::HealthReportOverride {
+                        report: Some(
+                            health_report::HealthReport {
+                                source: "host-update".to_string(),
+                                observed_at: None,
+                                successes: Vec::new(),
+                                alerts: vec![health_report::HealthProbeAlert {
+                                    id: "HostUpdateInProgress".parse().unwrap(),
+                                    target: None,
+                                    in_alert_since: None,
+                                    message: "Update".to_string(),
+                                    tenant_message: None,
+                                    classifications: vec![
+                                        health_report::HealthAlertClassification::prevent_allocations(),
+                                    ],
+                                }],
+                            }
+                            .into(),
+                        ),
+                        mode: rpc::forge::OverrideMode::Merge.into(),
+                    }),
+                },
+            ))
+            .await
+            .unwrap();
+    }
 }

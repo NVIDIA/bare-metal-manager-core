@@ -437,7 +437,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     // Create an environment with one managed host in the ready state.
     let env = create_test_env(pool.clone()).await;
 
-    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
 
     // Create and start an update manager
     let update_manager =
@@ -447,10 +447,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // Check that we're properly marking it as upgrade needed
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(host.host_reprovision_requested.is_some());
     txn.commit().await.unwrap();
 
@@ -465,10 +462,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // It should have "started" a UEFI upgrade
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
@@ -485,10 +479,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
         panic!("Not in HostReprovision");
     };
@@ -501,10 +492,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
         panic!("Not in HostReprovision");
     };
@@ -538,10 +526,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
         panic!("Not in HostReprovision");
     };
@@ -561,10 +546,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // It should have "started" a BMC upgrade now
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
@@ -584,10 +566,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
@@ -609,10 +588,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
         panic!("Not in HostReprovision");
     };
@@ -649,10 +625,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
         panic!("Not in HostReprovision");
     };
@@ -665,10 +638,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // It should be checking
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
         panic!("Not in HostReprovision");
     };
@@ -682,10 +652,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // Now we should be back waiting for lockdown to resolve
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     let ManagedHostState::HostInit { .. } = host.current_state() else {
         panic!("Not in HostInit");
     };
@@ -698,10 +665,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     update_manager.run_single_iteration().await?;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(host.host_reprovision_requested.is_none()); // Should be cleared or we'd right back in
     let reqs = HostMachineUpdate::find_upgrade_needed(&mut txn, true, false).await?;
     assert!(reqs.is_empty());
@@ -825,7 +789,8 @@ async fn test_host_fw_upgrade_enabledisable_generic(
     config.firmware_global.autoupdate = global_enabled;
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
-    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let (host_machine_id, _dpu_machine_id) =
+        common::api_fixtures::create_managed_host(&env).await.into();
 
     Ok((env, host_machine_id))
 }
@@ -1165,10 +1130,10 @@ async fn test_instance_upgrading_actual(
     .await;
 
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
     let (instance_id, _instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     // Create and start an update manager
@@ -1184,11 +1149,7 @@ async fn test_instance_upgrading_actual(
         // A tick of the state machine, but we don't start anything yet and it's still in assigned/ready
         env.run_machine_state_controller_iteration().await;
         let mut txn = env.pool.begin().await.unwrap();
-        let host =
-            db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-                .await
-                .unwrap()
-                .unwrap();
+        let host = mh.host().db_machine(&mut txn).await;
         let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
             panic!("Unexpected state {:?}", host.state);
         };
@@ -1199,7 +1160,7 @@ async fn test_instance_upgrading_actual(
 
         // Simulate a tenant OKing the request
         let request = rpc::forge::InstancePowerRequest {
-            machine_id: Some(host_machine_id.into()),
+            machine_id: mh.id.into(),
             operation: rpc::forge::instance_power_request::Operation::PowerReset.into(),
             boot_with_custom_ipxe: false,
             apply_updates_on_reboot: true,
@@ -1209,8 +1170,7 @@ async fn test_instance_upgrading_actual(
     }
 
     // Split here to avoid hitting stack size limits
-    test_instance_upgrading_actual_part_2(&env, &host_machine_id, &instance_id, &update_manager)
-        .await
+    test_instance_upgrading_actual_part_2(&env, &mh.id, &instance_id, &update_manager).await
 }
 
 async fn test_instance_upgrading_actual_part_2(
@@ -1869,7 +1829,7 @@ async fn test_script_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
     let (_tmpdir, config) = script_setup();
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
-    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
 
     // Create and start an update manager
     let update_manager =
@@ -1879,10 +1839,7 @@ async fn test_script_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
 
     // Check that we're properly marking it as upgrade needed
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(host.host_reprovision_requested.is_some());
     txn.commit().await.unwrap();
 
@@ -1891,10 +1848,7 @@ async fn test_script_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
 
     // It should have started the script
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
@@ -1908,10 +1862,7 @@ async fn test_script_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
     // The script shouldn't have completed yet, so the state machine running shouldn't change anything
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
@@ -1926,10 +1877,7 @@ async fn test_script_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
@@ -1964,7 +1912,7 @@ async fn test_script_upgrade_failure(pool: sqlx::PgPool) -> CarbideResult<()> {
     )]);
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
-    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
 
     // Create and start an update manager
     let update_manager =
@@ -1974,10 +1922,7 @@ async fn test_script_upgrade_failure(pool: sqlx::PgPool) -> CarbideResult<()> {
 
     // Check that we're properly marking it as upgrade needed
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(host.host_reprovision_requested.is_some());
     txn.commit().await.unwrap();
 
@@ -1986,10 +1931,7 @@ async fn test_script_upgrade_failure(pool: sqlx::PgPool) -> CarbideResult<()> {
 
     // It should have started the script
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
@@ -2004,10 +1946,7 @@ async fn test_script_upgrade_failure(pool: sqlx::PgPool) -> CarbideResult<()> {
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
     let ManagedHostState::HostReprovision { reprovision_state } = host.current_state() else {
