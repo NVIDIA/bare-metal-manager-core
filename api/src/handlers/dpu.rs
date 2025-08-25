@@ -23,6 +23,7 @@ use crate::db::machine::MachineSearchConfig;
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::db::network_security_group;
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentSearchConfig};
+use crate::db::route_servers::RouteServer;
 use crate::db::vpc::{Vpc, VpcDpuLoopback};
 use crate::db::{DatabaseError, ObjectColumnFilter, network_segment};
 use crate::handlers::utils::convert_and_log_machine_id;
@@ -435,7 +436,23 @@ pub(crate) async fn get_managed_host_network_config_inner(
             .map(|instance| instance.id.into()),
         asn,
         dhcp_servers: api.eth_data.dhcp_servers.clone(),
-        route_servers: api.eth_data.route_servers.clone(),
+        // Strip the source_type for the route servers that
+        // we feed back to the DPUs -- they just care about
+        // the IP address. Although, maybe in the future,
+        // we might be interested in sending the entire
+        // struct down, and then putting some smarts inside
+        // the DPU re: the source_type.
+        //
+        // Only pass them on if route servers are enabled.
+        route_servers: if api.runtime_config.enable_route_servers {
+            RouteServer::get(txn)
+                .await?
+                .into_iter()
+                .map(|rs| rs.address.to_string())
+                .collect()
+        } else {
+            vec![]
+        },
         // TODO: Automatically add the prefix(es?) from the IPv4 loopback
         // pool to deny_prefixes. The database stores the pool in an
         // exploded representation, so we either need to reconstruct the

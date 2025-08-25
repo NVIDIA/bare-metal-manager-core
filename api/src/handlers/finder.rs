@@ -20,6 +20,7 @@ use crate::db::domain::{self, Domain};
 use crate::db::expected_machine::ExpectedMachine;
 use crate::db::instance::Instance;
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentSearchConfig};
+use crate::db::route_servers::{RouteServer, RouteServerSourceType};
 use crate::db::vpc::Vpc;
 use crate::db::{ObjectColumnFilter, instance, network_segment, vpc};
 use crate::{
@@ -163,6 +164,7 @@ enum Finder {
     ExploredEndpoint,
     LoopbackIp,
     NetworkSegment,
+    RouteServers,
     // TorLldp,
     // There is also this but seems currently unused / unpopulated:
     //  TopologyData->discovery_data(DiscoveryData)->info(HardwareInfo)
@@ -186,6 +188,7 @@ async fn by_ip(api: &Api, ip: &str) -> (Vec<rpc::IpAddressMatch>, Vec<CarbideErr
         search(ExploredEndpoint, api, ip),
         search(LoopbackIp, api, ip),
         search(NetworkSegment, api, ip),
+        search(RouteServers, api, ip),
     ];
     let results = futures::future::join_all(futures).await;
     let mut out = vec![];
@@ -225,29 +228,17 @@ async fn search(
     use Finder::*;
     let match_result = match finder {
         // Match against IP addresses defined in the config file
-        StaticData => None
-            .or_else(|| {
-                api.eth_data
-                    .dhcp_servers
-                    .iter()
-                    .find(|&dhcp| ip == *dhcp)
-                    .map(|ip| rpc::IpAddressMatch {
-                        ip_type: rpc::IpType::StaticDataDhcpServer as i32,
-                        owner_id: None,
-                        message: format!("{ip} is a static DHCP server"),
-                    })
-            })
-            .or_else(|| {
-                api.eth_data
-                    .route_servers
-                    .iter()
-                    .find(|&route| ip == *route)
-                    .map(|ip| rpc::IpAddressMatch {
-                        ip_type: rpc::IpType::StaticDataRouteServer as i32,
-                        owner_id: None,
-                        message: format!("{ip} is a static route server"),
-                    })
-            }),
+        StaticData => None.or_else(|| {
+            api.eth_data
+                .dhcp_servers
+                .iter()
+                .find(|&dhcp| ip == *dhcp)
+                .map(|ip| rpc::IpAddressMatch {
+                    ip_type: rpc::IpType::StaticDataDhcpServer as i32,
+                    owner_id: None,
+                    message: format!("{ip} is a static DHCP server"),
+                })
+        }),
 
         // Look for IP address in resource pools
         ResourcePools => {
@@ -371,6 +362,24 @@ async fn search(
                     owner_id: Some(prefix.segment_id.to_string()),
                     message,
                 }
+            })
+        }
+
+        // Search the RouteServers table to see if it's a "config"
+        // source (via the config TOML), or an "admin" source (via
+        // forge-admin-cli).
+        RouteServers => {
+            let out = RouteServer::find_by_address(&mut txn, addr).await?;
+            out.map(|route_server| rpc::IpAddressMatch {
+                ip_type: match route_server.source_type {
+                    RouteServerSourceType::AdminApi => rpc::IpType::RouteServerFromAdminApi,
+                    RouteServerSourceType::ConfigFile => rpc::IpType::RouteServerFromConfigFile,
+                } as i32,
+                owner_id: None,
+                message: format!(
+                    "{ip} is a route server with source type {:?}",
+                    route_server.source_type
+                ),
             })
         }
     };

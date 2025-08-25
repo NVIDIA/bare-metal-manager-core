@@ -11,12 +11,16 @@
  */
 
 use crate::tests::common;
+use itertools::Itertools;
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use crate::db::route_servers::RouteServer;
+use crate::db::route_servers::{RouteServer, RouteServerSourceType};
 use common::api_fixtures::create_test_env;
-use rpc::{forge::RouteServers, protos::forge::forge_server::Forge};
+use rpc::{
+    forge::RouteServerSourceType as RouteServerSourceTypePb, forge::RouteServers,
+    protos::forge::forge_server::Forge,
+};
 
 #[crate::sqlx_test()]
 async fn test_add_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
@@ -28,7 +32,8 @@ async fn test_add_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     ];
 
     let request = tonic::Request::new(RouteServers {
-        route_servers: expected_servers.iter().map(|a| a.to_string()).collect(),
+        route_servers: expected_servers.iter().map(ToString::to_string).collect(),
+        source_type: RouteServerSourceTypePb::AdminApi as i32,
     });
 
     env.api.add_route_servers(request).await?;
@@ -56,7 +61,8 @@ async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     ];
 
     let request: tonic::Request<RouteServers> = tonic::Request::new(RouteServers {
-        route_servers: expected_servers.iter().map(|a| a.to_string()).collect(),
+        route_servers: expected_servers.iter().map(ToString::to_string).collect(),
+        source_type: RouteServerSourceTypePb::AdminApi as i32,
     });
 
     env.api.add_route_servers(request).await?;
@@ -74,7 +80,8 @@ async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     let removed_servers = [expected_servers.pop().unwrap()];
     let request: tonic::Request<RouteServers> = tonic::Request::new(RouteServers {
-        route_servers: removed_servers.iter().map(|a| a.to_string()).collect(),
+        route_servers: removed_servers.iter().map(ToString::to_string).collect(),
+        source_type: RouteServerSourceTypePb::AdminApi as i32,
     });
 
     env.api.remove_route_servers(request).await?;
@@ -90,7 +97,8 @@ async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     assert_eq!(actual_servers, expected_servers);
 
     let request: tonic::Request<RouteServers> = tonic::Request::new(RouteServers {
-        route_servers: expected_servers.iter().map(|a| a.to_string()).collect(),
+        route_servers: expected_servers.iter().map(ToString::to_string).collect(),
+        source_type: RouteServerSourceTypePb::AdminApi as i32,
     });
 
     env.api.remove_route_servers(request).await?;
@@ -118,7 +126,8 @@ async fn test_initial_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
     ];
 
     let set_request = tonic::Request::new(RouteServers {
-        route_servers: expected_servers.iter().map(|a| a.to_string()).collect(),
+        route_servers: expected_servers.iter().map(ToString::to_string).collect(),
+        source_type: RouteServerSourceTypePb::AdminApi as i32,
     });
 
     env.api.replace_route_servers(set_request).await?;
@@ -139,72 +148,175 @@ async fn test_initial_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
 #[crate::sqlx_test()]
 async fn test_subsequent_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let expected_servers = [
+
+    // Initial test data
+    let admin_api_servers = vec![
         IpAddr::from_str("1.2.3.4")?,
         IpAddr::from_str("2.3.4.5")?,
         IpAddr::from_str("3.4.5.6")?,
     ];
+    let config_file_servers = vec![
+        IpAddr::from_str("7.8.9.10")?,
+        IpAddr::from_str("11.12.13.14")?,
+    ];
 
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await?;
-    let query = r#"INSERT INTO route_servers values ($1);"#;
-    for s in expected_servers.iter() {
-        sqlx::query_as::<_, RouteServer>(query)
-            .bind(s)
-            .fetch_all(&mut *txn)
+    // Insert initial data
+    let mut txn = env.pool.begin().await?;
+    let query = "INSERT INTO route_servers (address, source_type) VALUES ($1, $2)";
+
+    for server in &admin_api_servers {
+        sqlx::query(query)
+            .bind(server)
+            .bind(RouteServerSourceType::AdminApi)
+            .execute(&mut *txn)
             .await?;
     }
+
+    for server in &config_file_servers {
+        sqlx::query(query)
+            .bind(server)
+            .bind(RouteServerSourceType::ConfigFile)
+            .execute(&mut *txn)
+            .await?;
+    }
+
     txn.commit().await?;
 
-    let set_request = tonic::Request::new(RouteServers {
-        route_servers: expected_servers.iter().map(|a| a.to_string()).collect(),
+    // New AdminApi servers to replace the old ones
+    let updated_admin_api_servers = [
+        IpAddr::from_str("99.100.101.102")?,
+        IpAddr::from_str("103.104.105.106")?,
+        IpAddr::from_str("107.108.109.110")?,
+    ];
+
+    // Replace only the AdminApi servers
+    let replace_request = tonic::Request::new(RouteServers {
+        route_servers: updated_admin_api_servers
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        source_type: RouteServerSourceTypePb::AdminApi as i32,
     });
 
-    env.api.replace_route_servers(set_request).await?;
+    env.api.replace_route_servers(replace_request).await?;
 
-    let mut txn = env.pool.begin().await?;
-    let query = r#"SELECT * from route_servers;"#;
-    let actual_servers: Vec<IpAddr> = sqlx::query_as::<_, RouteServer>(query)
-        .fetch_all(&mut *txn)
-        .await?
-        .into_iter()
-        .map(|rs| rs.address)
+    // Check the results
+    let response = env.api.get_route_servers(tonic::Request::new(())).await?;
+    let actual_servers = response.into_inner().route_servers;
+
+    // Expected addresses should be updated AdminApi + unchanged ConfigFile
+    let expected_addresses: Vec<String> = updated_admin_api_servers
+        .iter()
+        .chain(&config_file_servers)
+        .map(ToString::to_string)
+        .sorted()
         .collect();
 
-    assert_eq!(actual_servers, expected_servers);
+    let actual_addresses: Vec<String> = actual_servers
+        .iter()
+        .map(|s| s.address.to_string())
+        .sorted()
+        .collect();
+
+    assert_eq!(actual_addresses, expected_addresses);
+
+    // Verify source types are correct
+    let actual_source_types: Vec<i32> = actual_servers
+        .iter()
+        .map(|s| s.source_type)
+        .sorted()
+        .collect();
+
+    let expected_source_types: Vec<i32> =
+        vec![RouteServerSourceTypePb::AdminApi as i32; updated_admin_api_servers.len()]
+            .into_iter()
+            .chain(vec![
+                RouteServerSourceTypePb::ConfigFile as i32;
+                config_file_servers.len()
+            ])
+            .sorted()
+            .collect();
+
+    assert_eq!(actual_source_types, expected_source_types);
+
     Ok(())
 }
 
 #[crate::sqlx_test()]
 async fn test_get(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let expected_servers = [
+
+    // Test data setup
+    let admin_api_servers = vec![
         IpAddr::from_str("1.2.3.4")?,
         IpAddr::from_str("2.3.4.5")?,
         IpAddr::from_str("3.4.5.6")?,
     ];
+    let config_file_servers = vec![
+        IpAddr::from_str("7.8.9.10")?,
+        IpAddr::from_str("11.12.13.14")?,
+    ];
 
+    // Insert test data
     let mut txn = env.pool.begin().await?;
-    let query = r#"INSERT INTO route_servers values ($1);"#;
-    for s in expected_servers.iter() {
-        sqlx::query_as::<_, RouteServer>(query)
-            .bind(s)
-            .fetch_all(&mut *txn)
+    let query = "INSERT INTO route_servers (address, source_type) VALUES ($1, $2)";
+
+    for server in &admin_api_servers {
+        sqlx::query(query)
+            .bind(server)
+            .bind(RouteServerSourceType::AdminApi)
+            .execute(&mut *txn)
             .await?;
     }
+
+    for server in &config_file_servers {
+        sqlx::query(query)
+            .bind(server)
+            .bind(RouteServerSourceType::ConfigFile)
+            .execute(&mut *txn)
+            .await?;
+    }
+
     txn.commit().await?;
 
-    let get_request = tonic::Request::new(());
-    let response = env.api.get_route_servers(get_request).await?;
+    // Test the API
+    let response = env.api.get_route_servers(tonic::Request::new(())).await?;
+    let actual_servers = response.into_inner().route_servers;
 
-    let actual_server = response.into_inner().route_servers;
+    // Verify addresses (sorted)
+    let actual_addresses: Vec<String> = actual_servers
+        .iter()
+        .map(|s| s.address.clone())
+        .sorted()
+        .collect();
 
-    assert_eq!(
-        actual_server,
-        expected_servers
-            .iter()
-            .map(|a| a.to_string())
-            .collect::<Vec<String>>()
-    );
+    let expected_addresses: Vec<String> = admin_api_servers
+        .iter()
+        .chain(&config_file_servers)
+        .map(ToString::to_string)
+        .sorted()
+        .collect();
+
+    assert_eq!(actual_addresses, expected_addresses);
+
+    // Verify source types (sorted to match API response order)
+    let actual_source_types: Vec<i32> = actual_servers
+        .iter()
+        .map(|s| s.source_type)
+        .sorted()
+        .collect();
+
+    let expected_source_types: Vec<i32> =
+        vec![RouteServerSourceTypePb::AdminApi as i32; admin_api_servers.len()]
+            .into_iter()
+            .chain(vec![
+                RouteServerSourceTypePb::ConfigFile as i32;
+                config_file_servers.len()
+            ])
+            .sorted()
+            .collect();
+
+    assert_eq!(actual_source_types, expected_source_types);
 
     Ok(())
 }

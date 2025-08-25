@@ -26,9 +26,7 @@ use ::rpc::forge::{
 use ::rpc::{NetworkSegment, Uuid};
 
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::path::Path;
-use std::str::FromStr;
 
 use crate::cfg::cli_options::{
     self, AllocateInstance, ForceDeleteMachineQuery, MachineAutoupdate, TimeoutConfig,
@@ -521,17 +519,6 @@ impl ApiClient {
             .admin_power_control(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)
-    }
-
-    pub async fn get_route_servers(&self) -> CarbideCliResult<Vec<IpAddr>> {
-        let route_servers = self.0.get_route_servers().await?;
-        route_servers
-            .route_servers
-            .iter()
-            .map(|rs| {
-                IpAddr::from_str(rs).map_err(|e| CarbideCliError::GenericError(e.to_string()))
-            })
-            .collect()
     }
 
     pub async fn get_all_machines_interfaces(

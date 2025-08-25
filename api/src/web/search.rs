@@ -243,6 +243,8 @@ async fn find_ip(state: Arc<Api>, ip: &str) -> impl IntoResponse {
         let (name, url) = match ip_type {
             StaticDataDhcpServer => ("DHCP Server", "".to_string()),
             StaticDataRouteServer => ("Route Server", "".to_string()),
+            RouteServerFromConfigFile => ("Route Server from Carbide Config", "".to_string()),
+            RouteServerFromAdminApi => ("Route Server from Admin API", "".to_string()),
             ResourcePool => ("Resource Pool", "/admin/resource-pool".to_string()),
             InstanceAddress => ("Instance", format!("/admin/instance/{owner}")),
             MachineAddress => ("Machine", format!("/admin/machine/{owner}")),

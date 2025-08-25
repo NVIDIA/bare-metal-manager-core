@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-// CLI enums variants can be rather large, we ok with that.
+// CLI enums variants can be rather large, we are ok with that.
 #![allow(clippy::large_enum_variant)]
 
 use std::collections::HashSet;
@@ -57,7 +57,6 @@ use cfg::cli_options::IpAction;
 use cfg::cli_options::MachineInterfaces;
 use cfg::cli_options::MachineMetadataCommand;
 use cfg::cli_options::RedfishCommand;
-use cfg::cli_options::RouteServer;
 use cfg::cli_options::SetAction;
 use cfg::cli_options::Shell;
 use cfg::cli_options::SiteExplorer;
@@ -116,6 +115,7 @@ mod network_security_group;
 mod ping;
 mod redfish;
 mod resource_pool;
+mod route_server;
 mod rpc;
 mod site_explorer;
 mod sku;
@@ -1034,24 +1034,9 @@ async fn main() -> color_eyre::Result<()> {
                 api_client.0.create_credential(req).await?;
             }
         },
-        CliCommand::RouteServer(action) => match action {
-            RouteServer::Get => {
-                let route_servers = api_client.get_route_servers().await?;
-                println!("{}", serde_json::to_string(&route_servers)?);
-            }
-            RouteServer::Add(ip) => {
-                api_client
-                    .0
-                    .add_route_servers(vec![ip.ip.to_string()])
-                    .await?;
-            }
-            RouteServer::Remove(ip) => {
-                api_client
-                    .0
-                    .remove_route_servers(vec![ip.ip.to_string()])
-                    .await?;
-            }
-        },
+        CliCommand::RouteServer(cmd) => {
+            route_server::dispatch(&cmd, &api_client, config.format).await?
+        }
         CliCommand::SiteExplorer(action) => match action {
             SiteExplorer::GetReport(mode) => {
                 show_site_explorer_discovered_managed_host(
@@ -1399,6 +1384,8 @@ async fn main() -> color_eyre::Result<()> {
                     match ip_type {
                         StaticDataDhcpServer => tracing::info!("DHCP Server"),
                         StaticDataRouteServer => tracing::info!("Route Server"),
+                        RouteServerFromConfigFile => tracing::info!("Route Server from Carbide config"),
+                        RouteServerFromAdminApi => tracing::info!("Route Server from Admin API"),
                         InstanceAddress => {
                             instance::handle_show(
                                 cfg::cli_options::ShowInstance {

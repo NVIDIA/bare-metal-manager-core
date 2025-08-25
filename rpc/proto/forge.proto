@@ -269,7 +269,7 @@ service Forge {
   rpc DeleteCredential(CredentialDeletionRequest) returns (CredentialDeletionResult);
 
   // Route Server Management
-  rpc GetRouteServers(google.protobuf.Empty) returns (RouteServers);
+  rpc GetRouteServers(google.protobuf.Empty) returns (RouteServerEntries);
   rpc AddRouteServers(RouteServers) returns (google.protobuf.Empty);
   rpc RemoveRouteServers(RouteServers) returns (google.protobuf.Empty);
   rpc ReplaceRouteServers(RouteServers) returns (google.protobuf.Empty);
@@ -3482,6 +3482,8 @@ message IpAddressMatch {
 // Yeah I'm surprised too.
 enum IpType {
   IpTypeStaticDataDhcpServer = 0;
+  // DEPRECATED: IpTypeStaticDataRouteServer is deprecated in favor
+  // of IpTypeRouteServerFromConfigFile and IpTypeRouteServerFromAdminApi.
   IpTypeStaticDataRouteServer = 1;
   IpTypeResourcePool = 2;
   IpTypeInstanceAddress = 3;
@@ -3490,6 +3492,15 @@ enum IpType {
   IpTypeLoopbackIp = 6;
   IpTypeNetworkSegment = 7;
   IpTypeExploredEndpoint = 8;
+  // IpTypeRouteServerFromConfigFile are IPs from the route_servers
+  // table that have been synced via the carbide-api config file
+  // at startup (see setup.rs and db_init.rs). Their DB records
+  // specifically say their source type is `config_file`.
+  IpTypeRouteServerFromConfigFile = 9;
+  // IpTypeRouteServerFromAdminApi are IPs from the route_servers
+  // table that have been added via forge-admin-cli calls. Their
+  // DB records specifically say their source type is `admin`.
+  IpTypeRouteServerFromAdminApi = 10;
 }
 
 message MachineBootOverride {
@@ -3557,7 +3568,42 @@ message NetworkTopologyData {
 }
 
 message RouteServers {
+  // route_servers is just a list of addresses to
+  // either add, remove, or replace, for the given
+  // source_type.
   repeated string route_servers = 1;
+  // RouteServerSourceType targets which source_type
+  // to add/remove/replace route server addresses for
+  // in the database. By default, it is *assumed* that
+  // API calls mean AdminApi (aka "admin_api"). However,
+  // we provide this option to allow admin API calls
+  // to handle overriding ConfigFile (aka "config_file")
+  // sourced entries as well, which is really intended
+  // for break-glass types of situations where a bad
+  // config rollout may need quick intervention via
+  // the admin API to correct (and not wait for a
+  // config rollback).
+  RouteServerSourceType source_type = 2;
+}
+
+message RouteServerEntries {
+  repeated RouteServer route_servers = 1;
+}
+
+// RouteServer models a RouteServer struct in
+// code, which models a route_servers record
+// in the database.
+message RouteServer {
+  string address = 1;
+  RouteServerSourceType source_type = 2;
+}
+
+// RouteServerSourceType maps to the RouteServerSourceType
+// type in the database, where ConfigFile == config_file,
+// and AdminApi == admin_api.
+enum RouteServerSourceType {
+  ConfigFile = 0;
+  AdminApi = 1;
 }
 
 message SetHostUefiPasswordRequest {

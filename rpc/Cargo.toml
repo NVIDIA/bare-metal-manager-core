@@ -27,7 +27,7 @@ hickory-resolver = "0.24.0"
 resolv-conf = "0.7.0"
 tracing = "0.1.37"
 thiserror = "2.0"
-tonic-prost="0.14"
+tonic-prost = "0.14"
 tonic-prost-build = "0.14"
 tryhard = "0.5.1"
 rustls = { workspace = true, features = ["default", "ring"] }
@@ -38,7 +38,8 @@ nonempty = "0.11.0"
 forge-http-connector = { path = "../common/http-connector" }
 forge-tls = { path = "../common/tls" }
 health-report = { path = "../common/health-report" }
-tonic-client-wrapper = { path = "../common/tonic-client-wrapper", default-features = false } # don't depend on codegen features at runtime
+tonic-client-wrapper = { path = "../common/tonic-client-wrapper", default-features = false }
+clap = "4.5.45" # don't depend on codegen features at runtime
 
 [build-dependencies]
 tonic-prost-build = "0.14"

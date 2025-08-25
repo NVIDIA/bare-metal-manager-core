@@ -6668,6 +6668,7 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "chrono",
+ "clap",
  "eyre",
  "forge-http-connector",
  "forge-tls",
