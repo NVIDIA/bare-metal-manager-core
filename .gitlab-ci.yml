@@ -874,8 +874,6 @@ build-powerdns-container:
       optional: false
     - job: export-docker-json-config
       optional: false
-    - job: build-runtime-container-x86_64
-      optional: true
   dependencies:
     - prepare-ci
     - export-docker-json-config
