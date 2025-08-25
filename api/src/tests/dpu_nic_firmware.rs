@@ -9,16 +9,12 @@ use std::collections::HashSet;
 use std::str::FromStr;
 use std::string::ToString;
 
-use crate::{
-    db,
-    machine_update_manager::{
-        dpu_nic_firmware::DpuNicFirmwareUpdate,
-        machine_update_module::{AutomaticFirmwareUpdateReference, MachineUpdateModule},
-    },
+use crate::machine_update_manager::{
+    dpu_nic_firmware::DpuNicFirmwareUpdate,
+    machine_update_module::{AutomaticFirmwareUpdateReference, MachineUpdateModule},
 };
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
 use forge_uuid::machine::MachineId;
-use rpc::forge::forge_server::Forge;
 
 #[crate::sqlx_test]
 async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
@@ -65,20 +61,8 @@ async fn test_start_updates_with_multidpu(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let (host_machine_id, _) = create_managed_host_multi_dpu(&env, 2).await;
-
-    let rpc_host_id: rpc::MachineId = host_machine_id.into();
-    let host = env
-        .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![rpc_host_id],
-            ..Default::default()
-        }))
-        .await
-        .unwrap()
-        .into_inner()
-        .machines
-        .remove(0);
+    let mh = create_managed_host_multi_dpu(&env, 2).await;
+    let host = mh.host().rpc_machine().await;
     let rpc_dpu_ids = host.associated_dpu_machine_ids;
     let dpu_machine_id = MachineId::from_str(&rpc_dpu_ids[0].id).unwrap();
     let dpu_machine_id2 = MachineId::from_str(&rpc_dpu_ids[1].id).unwrap();
@@ -107,14 +91,10 @@ async fn test_start_updates_with_multidpu(
     assert_eq!(dpus_started.len(), 1);
     assert!(!dpus_started.contains(&dpu_machine_id));
     assert!(!dpus_started.contains(&dpu_machine_id2));
-    assert!(dpus_started.contains(&host_machine_id));
+    assert!(dpus_started.contains(mh.host().machine_id()));
 
     // Check if health override is placed
-    let managed_host =
-        db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let managed_host = mh.snapshot(&mut txn).await;
 
     for dpu in managed_host.dpu_snapshots.iter() {
         let initiator = &dpu.reprovision_requested.as_ref().unwrap().initiator;

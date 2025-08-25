@@ -188,13 +188,12 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
     let env = create_test_env(db_pool.clone()).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
     // Create a machine
-    let (host_id, _) = create_managed_host_multi_dpu(&env, 2).await;
-    let rpc_host_id: rpc::MachineId = host_id.into();
+    let mh = create_managed_host_multi_dpu(&env, 2).await;
 
     // enable maintenance mode
     let req = rpcf::MaintenanceRequest {
         operation: rpcf::MaintenanceOperation::Enable.into(),
-        host_id: Some(rpc_host_id.clone()),
+        host_id: mh.host().machine_id().into(),
         reference: Some("https://jira.example.com/ABC-123".to_string()),
     };
     env.api
@@ -214,7 +213,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
     // allocate: should fail
     let req = rpcf::InstanceAllocationRequest {
         instance_id: None,
-        machine_id: Some(rpc_host_id.clone()),
+        machine_id: mh.host().machine_id().into(),
         instance_type_id: None,
         config: Some(instance_config.clone()),
         metadata: Some(rpcf::Metadata {
@@ -254,14 +253,14 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
     assert_eq!(machines.len(), 1); // Host
     assert_eq!(
         *machines[0].id.as_ref().unwrap(),
-        rpc_host_id,
+        mh.host().machine_id().into(),
         "Listing maintenance machines return incorrectly machines"
     );
 
     // disable maintenance
     let req = tonic::Request::new(rpcf::MaintenanceRequest {
         operation: rpcf::MaintenanceOperation::Disable.into(),
-        host_id: Some(rpc_host_id.clone()),
+        host_id: mh.host().machine_id().into(),
         reference: None,
     });
     env.api.set_maintenance(req).await.unwrap();
@@ -286,7 +285,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
     // allocate: should succeed
     let req = rpcf::InstanceAllocationRequest {
         instance_id: None,
-        machine_id: Some(rpc_host_id.clone()),
+        machine_id: mh.host().machine_id().into(),
         instance_type_id: None,
         config: Some(instance_config),
         metadata: Some(rpc::Metadata {

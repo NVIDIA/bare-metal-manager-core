@@ -51,7 +51,7 @@ async fn test_ok(pool: sqlx::PgPool) {
 async fn test_multi_dpu(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let app = make_test_app(&env);
-    let (managed_host_id, _) = create_managed_host_multi_dpu(&env, 2).await;
+    let managed_host_id = create_managed_host_multi_dpu(&env, 2).await.into_host();
 
     let response = app
         .oneshot(

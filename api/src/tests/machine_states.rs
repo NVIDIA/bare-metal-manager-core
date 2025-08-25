@@ -543,7 +543,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     )
     .await;
 
-    machine_validation_completed(&env, host_rpc_machine_id.clone(), None).await;
+    machine_validation_completed(&env, mh.host().machine_id(), None).await;
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.id,
@@ -787,18 +787,14 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
         .await
         .expect("Failed to add CA cert");
 
-    let (host_machine_id, _dpu_machine_id, _) =
-        create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
+    let mh = create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
 
     env.run_machine_state_controller_iteration().await;
 
     // This is kind of redundant since `create_managed_host` returns a machine
     // in Ready state, but, just to be super explicit...
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(host.current_state(), ManagedHostState::Ready));
     txn.commit().await.unwrap();
 
@@ -831,10 +827,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     }
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(
         host.current_state(),
         ManagedHostState::Failed {
@@ -865,10 +858,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     }
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(host.current_state(), ManagedHostState::Ready));
     txn.commit().await.unwrap();
 }
@@ -895,18 +885,14 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
         .expect("Failed to add CA cert")
         .into_inner();
 
-    let (host_machine_id, _dpu_machine_id, _) =
-        create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
+    let mh = create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
 
     env.run_machine_state_controller_iteration().await;
 
     // This is kind of redundant since `create_managed_host` returns a machine
     // in Ready state, but, just to be super explicit...
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(host.current_state(), ManagedHostState::Ready));
     txn.commit().await.unwrap();
 
@@ -941,10 +927,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
 
     // make sure the machine is in retired state
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     // and confirm that it is actually in the retired state
     assert!(matches!(
         host.current_state(),
@@ -986,10 +969,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
 
     // check that it has failed as intended due to the lack of ca cert
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(
         host.current_state(),
         ManagedHostState::Failed {
@@ -1027,11 +1007,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
 
     // check we are in revoked state
     let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(
         host.current_state(),
         ManagedHostState::Failed {
@@ -1059,10 +1035,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
     }
 
     let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(host.current_state(), ManagedHostState::Ready));
     txn.commit().await.unwrap();
 }
@@ -1277,7 +1250,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     )
     .await;
 
-    machine_validation_completed(env, host_rpc_machine_id.clone(), None).await;
+    machine_validation_completed(env, &host_machine_id, None).await;
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
@@ -1318,15 +1291,10 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
         .await
         .expect("Failed to add CA cert");
 
-    let (host_machine_id, _dpu_machine_id, _) =
-        create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
+    let mh = create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let snapshot = db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let snapshot = mh.snapshot(&mut txn).await;
     handler_host_power_control(
         &snapshot,
         &env.state_handler_services(),
@@ -1339,11 +1307,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
 
-    let snapshot1 = db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let snapshot1 = mh.snapshot(&mut txn).await;
     for i in 0..snapshot.dpu_snapshots.len() {
         assert_ne!(
             snapshot.dpu_snapshots[i]
@@ -1371,11 +1335,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let snapshot2 = db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let snapshot2 = mh.snapshot(&mut txn).await;
     for i in 0..snapshot.dpu_snapshots.len() {
         assert_ne!(
             snapshot1.dpu_snapshots[i]
@@ -1403,10 +1363,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let snapshot3 = db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let snapshot3 = mh.snapshot(&mut txn).await;
 
     for i in 0..snapshot.dpu_snapshots.len() {
         assert_eq!(

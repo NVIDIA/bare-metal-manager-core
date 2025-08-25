@@ -1787,35 +1787,33 @@ pub async fn create_managed_host(env: &TestEnv) -> ManagedHost {
     }
 }
 
-pub async fn create_managed_host_with_ek(
-    env: &TestEnv,
-    ek_cert: &[u8],
-) -> (MachineId, MachineId, ManagedHostConfig) {
+pub async fn create_managed_host_with_ek(env: &TestEnv, ek_cert: &[u8]) -> ManagedHost {
     let host_config = ManagedHostConfig {
         tpm_ek_cert: TpmEkCertificate::from(ek_cert.to_vec()),
         ..Default::default()
     };
 
-    let (host_machine_id, dpu_machine_id) =
+    let (host_machine_id, dpu_machine_ids) =
         create_managed_host_with_config(env, host_config.clone()).await;
-
-    (host_machine_id, dpu_machine_id[0], host_config)
+    ManagedHost {
+        id: host_machine_id,
+        dpu_ids: dpu_machine_ids,
+        api: env.api.clone(),
+    }
 }
 
 /// Create a managed host with `dpu_count` DPUs (default config)
-pub async fn create_managed_host_multi_dpu(
-    env: &TestEnv,
-    dpu_count: usize,
-) -> (MachineId, Vec<MachineId>) {
+pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> ManagedHost {
     assert!(dpu_count >= 1, "need to specify at least 1 dpu");
     let config =
         ManagedHostConfig::with_dpus((0..dpu_count).map(|_| DpuConfig::default()).collect());
     let mh = site_explorer::new_host(env, config).await.unwrap();
 
-    (
-        mh.host_snapshot.id,
-        mh.dpu_snapshots.iter().map(|dpu| dpu.id).collect(),
-    )
+    ManagedHost {
+        id: mh.host_snapshot.id,
+        dpu_ids: mh.dpu_snapshots.iter().map(|dpu| dpu.id).collect(),
+        api: env.api.clone(),
+    }
 }
 
 /// Create a managed host with full config control
@@ -1848,11 +1846,15 @@ pub async fn create_host_with_machine_validation(
     env: &TestEnv,
     machine_validation_result_data: Option<rpc::forge::MachineValidationResult>,
     error: Option<String>,
-) -> (rpc::MachineId, MachineId) {
+) -> ManagedHost {
     let mh = new_host_with_machine_validation(env, 1, machine_validation_result_data, error)
         .await
         .unwrap();
-    (mh.host_snapshot.id.into(), mh.dpu_snapshots[0].id)
+    ManagedHost {
+        id: mh.host_snapshot.id,
+        dpu_ids: mh.dpu_snapshots.into_iter().map(|s| s.id).collect(),
+        api: env.api.clone(),
+    }
 }
 
 pub async fn update_time_params(
@@ -1914,17 +1916,17 @@ pub async fn reboot_completed(
 // Emulates the `MachineValidationComplete` request of a Host
 pub async fn machine_validation_completed(
     env: &TestEnv,
-    machine_id: rpc::common::MachineId,
+    machine_id: &MachineId,
     machine_validation_error: Option<String>,
 ) {
-    let response = forge_agent_control(env, machine_id.clone()).await;
+    let response = forge_agent_control(env, machine_id.into()).await;
     let uuid = &response.data.unwrap().pair[1].value;
 
     let _response = env
         .api
         .machine_validation_completed(Request::new(
             rpc::forge::MachineValidationCompletedRequest {
-                machine_id: Some(machine_id),
+                machine_id: machine_id.into(),
                 machine_validation_error,
                 validation_id: Some(rpc::Uuid {
                     value: uuid.to_owned(),
@@ -1998,13 +2000,13 @@ pub async fn persist_machine_validation_result(
 /// Emulates the `get_machine_validation_results` request of a Host
 pub async fn get_machine_validation_results(
     env: &TestEnv,
-    machine_id: Option<rpc::common::MachineId>,
+    machine_id: Option<&MachineId>,
     include_history: bool,
     validation_id: Option<rpc::common::Uuid>,
 ) -> rpc::forge::MachineValidationResultList {
     env.api
         .get_machine_validation_results(Request::new(rpc::forge::MachineValidationGetRequest {
-            machine_id,
+            machine_id: machine_id.map(Into::into),
             include_history,
             validation_id,
         }))
@@ -2016,13 +2018,13 @@ pub async fn get_machine_validation_results(
 /// Emulates the `get_machine_validation_runs` request of a Host
 pub async fn get_machine_validation_runs(
     env: &TestEnv,
-    machine_id: rpc::common::MachineId,
+    machine_id: &MachineId,
     include_history: bool,
 ) -> rpc::forge::MachineValidationRunList {
     env.api
         .get_machine_validation_runs(Request::new(
             rpc::forge::MachineValidationRunListGetRequest {
-                machine_id: Some(machine_id),
+                machine_id: machine_id.into(),
                 include_history,
             },
         ))

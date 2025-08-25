@@ -30,17 +30,13 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
-    let host_machine = env
-        .find_machines(host_machine_id.into(), None, true)
-        .await
-        .machines
-        .remove(0);
+    let mh = create_managed_host(&env).await;
+    let host_machine = mh.host().rpc_machine().await;
 
     let (_instance_id, _instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
         .keyset_ids(&["keyset1", "keyset2"])
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
     test_not_found(&env).await;
@@ -95,7 +91,7 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
+    let loopback_ip = dpu::loopback_ip(&mut txn, mh.dpu().machine_id()).await;
     test_inner(
         &loopback_ip.to_string(),
         IpType::LoopbackIp,
@@ -142,24 +138,14 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
     let env = create_test_env(db_pool.clone()).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
+    let mh = create_managed_host(&env).await;
 
     let (instance_id, _instance) = common::api_fixtures::instance::TestInstance::new(&env)
         .single_interface_network_config(segment_id)
         .keyset_ids(&["keyset1", "keyset2"])
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
-    let res = env
-        .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![host_machine_id.to_string().into()],
-            ..Default::default()
-        }))
-        .await
-        .unwrap()
-        .into_inner()
-        .machines
-        .remove(0);
+    let res = mh.host().rpc_machine().await;
     let interface_id = &res.interfaces[0].id;
 
     // Network segment

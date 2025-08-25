@@ -97,10 +97,16 @@ impl<'a> TestInstance<'a> {
     }
 
     pub async fn create_for_manged_host(self, mh: &ManagedHost) -> (InstanceId, RpcInstance) {
-        self.create(&mh.dpu_ids, &mh.id).await
+        let used_dpu_ids = mh
+            .dpu_ids
+            .iter()
+            .filter(|id| !self.unused_dpu_machine_ids.contains(id))
+            .copied()
+            .collect::<Vec<_>>();
+        self.create(&used_dpu_ids, &mh.id).await
     }
 
-    pub async fn create(
+    async fn create(
         mut self,
         dpu_machine_ids: &[MachineId],
         host_machine_id: &MachineId,
