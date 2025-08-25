@@ -131,7 +131,7 @@ async fn test_allocate_and_release_instance_impl(
     let segment_ids = env.create_vpc_and_tenant_segments(dpu_count).await;
     let mh = create_managed_host_multi_dpu(&env, dpu_count).await;
 
-    let (used_dpu_ids, unused_dpu_ids) = mh.dpu_ids.split_at(instance_interface_count);
+    let (used_dpu_ids, _unused_dpu_ids) = mh.dpu_ids.split_at(instance_interface_count);
 
     let mut txn = env
         .pool
@@ -168,7 +168,6 @@ async fn test_allocate_and_release_instance_impl(
             &segment_ids,
             &device_locators,
         ))
-        .unused_dpu_machine_ids(unused_dpu_ids)
         .create_for_manged_host(&mh)
         .await;
 
