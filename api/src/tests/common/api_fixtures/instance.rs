@@ -36,7 +36,6 @@ pub struct TestInstance<'a> {
     config: rpc::InstanceConfig,
     tenant: rpc::TenantConfig,
     metadata: Option<rpc::Metadata>,
-    unused_dpu_machine_ids: Vec<MachineId>,
 }
 
 impl<'a> TestInstance<'a> {
@@ -53,7 +52,6 @@ impl<'a> TestInstance<'a> {
             },
             tenant: default_tenant_config(),
             metadata: None,
-            unused_dpu_machine_ids: vec![],
         }
     }
 
@@ -91,24 +89,13 @@ impl<'a> TestInstance<'a> {
         self
     }
 
-    pub fn unused_dpu_machine_ids(mut self, ids: &[MachineId]) -> Self {
-        self.unused_dpu_machine_ids = ids.to_vec();
-        self
-    }
-
     pub async fn create_for_manged_host(self, mh: &ManagedHost) -> (InstanceId, RpcInstance) {
-        let used_dpu_ids = mh
-            .dpu_ids
-            .iter()
-            .filter(|id| !self.unused_dpu_machine_ids.contains(id))
-            .copied()
-            .collect::<Vec<_>>();
-        self.create(&used_dpu_ids, &mh.id).await
+        self.create(&mh.dpu_ids, &mh.id).await
     }
 
     async fn create(
         mut self,
-        dpu_machine_ids: &[MachineId],
+        dpu_machine_ids: &Vec<MachineId>,
         host_machine_id: &MachineId,
     ) -> (InstanceId, RpcInstance) {
         if self.config.tenant.is_none() {
@@ -135,11 +122,7 @@ impl<'a> TestInstance<'a> {
 
         let instance = advance_created_instance_into_ready_state(
             self.env,
-            &dpu_machine_ids
-                .iter()
-                .chain(self.unused_dpu_machine_ids.iter().collect::<Vec<_>>())
-                .copied()
-                .collect(),
+            dpu_machine_ids,
             host_machine_id,
             instance_id,
         )
