@@ -834,6 +834,15 @@ async fn export_health_report(
                     .map(|r| (Some(&r.name), r.status.health)),
                 HealthCheck::Temperature,
             );
+            if let Some(leak_detectors) = &thermal.leak_detectors {
+                report_resources(
+                    &mut report,
+                    leak_detectors
+                        .iter()
+                        .map(|r| (Some(&r.name), r.status.health)),
+                    HealthCheck::Leak,
+                );
+            }
         }
         Err(ref e) => report.alerts.push(HealthProbeAlert {
             id: HealthCheck::Thermal.to_stable_id(),
@@ -978,6 +987,7 @@ mod report {
         FanSpeed,
         PowerSupply,
         PoweredOff,
+        Leak,
     }
 
     impl HealthCheck {
@@ -990,6 +1000,7 @@ mod report {
                 Self::FanSpeed => "FanSpeed",
                 Self::PowerSupply => "PowerSupply",
                 Self::PoweredOff => "PoweredOff",
+                Self::Leak => "Leak",
             })
             .unwrap()
         }
@@ -1003,6 +1014,7 @@ mod report {
                 Self::FanSpeed => "Fan speed out of bounds",
                 Self::PowerSupply => "Power supply issue",
                 Self::PoweredOff => "System is powered off",
+                Self::Leak => "Leak detected",
             }
         }
     }
