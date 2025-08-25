@@ -26,7 +26,7 @@ use std::time::SystemTime;
 async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
 
-    let (_, dpu_machine_id) = create_managed_host(&env).await.into();
+    let dpu_machine_id = create_managed_host(&env).await.into_dpu();
 
     // Set the upgrade policy
     let response = env

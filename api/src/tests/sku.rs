@@ -1005,7 +1005,7 @@ pub mod tests {
 
         reboot_completed(&env, machine_id.into()).await;
         env.run_machine_state_controller_iteration().await;
-        machine_validation_completed(&env, machine_id.into(), None).await;
+        machine_validation_completed(&env, &machine_id, None).await;
         env.run_machine_state_controller_iteration().await;
         reboot_completed(&env, machine_id.into()).await;
 
@@ -1088,7 +1088,7 @@ pub mod tests {
 
         reboot_completed(&env, machine_id.into()).await;
         env.run_machine_state_controller_iteration().await;
-        machine_validation_completed(&env, machine_id.into(), None).await;
+        machine_validation_completed(&env, &machine_id, None).await;
         env.run_machine_state_controller_iteration().await;
         reboot_completed(&env, machine_id.into()).await;
 

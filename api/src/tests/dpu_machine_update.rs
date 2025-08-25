@@ -220,11 +220,9 @@ async fn test_find_available_outdated_dpus_multidpu(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let (host_machine_id, _) = create_managed_host_multi_dpu(&env, 2).await;
+    let mh = create_managed_host_multi_dpu(&env, 2).await;
     let mut txn = env.pool.begin().await?;
-    let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap();
+    let all_dpus = mh.dpu_db_machines(&mut txn).await;
 
     for dpu in &all_dpus {
         update_nic_firmware_version(&mut txn, &dpu.id, "1.11.1000").await?;
@@ -232,7 +230,7 @@ async fn test_find_available_outdated_dpus_multidpu(
 
     let snapshots = crate::db::managed_host::load_by_machine_ids(
         &mut txn,
-        &[host_machine_id],
+        &[*mh.host().machine_id()],
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
@@ -257,20 +255,14 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let (host_machine_id, _) = create_managed_host_multi_dpu(&env, 2).await;
+    let mh = create_managed_host_multi_dpu(&env, 2).await;
 
     let mut txn = env.pool.begin().await?;
-    let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap();
-
-    let dpu_machine_id = all_dpus.first().unwrap().id;
-
     DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
         &mut txn,
         &[DpuMachineUpdate {
-            host_machine_id,
-            dpu_machine_id,
+            host_machine_id: *mh.host().machine_id(),
+            dpu_machine_id: *mh.dpu_n(0).machine_id(),
             firmware_version: "test_version".to_string(),
         }],
     )
@@ -281,7 +273,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     let mut txn = env.pool.begin().await?;
     let snapshots = crate::db::managed_host::load_by_machine_ids(
         &mut txn,
-        &[host_machine_id],
+        &[*mh.host().machine_id()],
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
@@ -297,16 +289,14 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     assert!(dpus.is_empty());
 
     let mut txn = env.pool.begin().await?;
-    let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap();
+    let all_dpus = mh.dpu_db_machines(&mut txn).await;
 
     let (dpu_under_reprov, dpu_not_under_reprov): (Vec<Machine>, Vec<Machine>) = all_dpus
         .into_iter()
         .partition(|x| x.reprovision_requested.is_some());
     assert_eq!(dpu_under_reprov.len(), 1);
     assert_eq!(dpu_not_under_reprov.len(), 1);
-    assert_eq!(dpu_under_reprov[0].id, dpu_machine_id);
+    assert_eq!(&dpu_under_reprov[0].id, mh.dpu_n(0).machine_id());
 
     Ok(())
 }
@@ -317,23 +307,20 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let (host_machine_id, _) = create_managed_host_multi_dpu(&env, 2).await;
+    let mh = create_managed_host_multi_dpu(&env, 2).await;
 
     let mut txn = env.pool.begin().await?;
-    let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap();
-
+    let all_dpus = mh.dpu_db_machines(&mut txn).await;
     DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
         &mut txn,
         &[
             DpuMachineUpdate {
-                host_machine_id,
+                host_machine_id: *mh.host().machine_id(),
                 dpu_machine_id: all_dpus[1].id,
                 firmware_version: "test_version".to_string(),
             },
             DpuMachineUpdate {
-                host_machine_id,
+                host_machine_id: *mh.host().machine_id(),
                 dpu_machine_id: all_dpus[0].id,
                 firmware_version: "test_version".to_string(),
             },
@@ -346,7 +333,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
     let mut txn = env.pool.begin().await?;
     let snapshots = crate::db::managed_host::load_by_machine_ids(
         &mut txn,
-        &[host_machine_id],
+        &[*mh.host().machine_id()],
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
@@ -362,9 +349,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
     assert!(dpus.is_empty());
 
     let mut txn = env.pool.begin().await?;
-    let all_dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
-        .await
-        .unwrap();
+    let all_dpus = mh.dpu_db_machines(&mut txn).await;
 
     let (dpu_under_reprov, dpu_not_under_reprov): (Vec<Machine>, Vec<Machine>) = all_dpus
         .into_iter()

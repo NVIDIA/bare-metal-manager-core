@@ -668,7 +668,7 @@ impl<'a> MockExploredHost<'a> {
             return self;
         }
 
-        machine_validation_completed(self.test_env, host_machine_id.into(), None).await;
+        machine_validation_completed(self.test_env, &host_machine_id, None).await;
 
         let stop_state = self
             .test_env
@@ -820,8 +820,7 @@ impl<'a> MockExploredHost<'a> {
             )
             .await;
             assert_eq!(success.message, "Success".to_string());
-            let runs =
-                get_machine_validation_runs(self.test_env, host_machine_id.into(), false).await;
+            let runs = get_machine_validation_runs(self.test_env, &host_machine_id, false).await;
             for run in runs.runs {
                 if run.validation_id == validation_id {
                     assert_eq!(run.status.unwrap_or_default().total, 1);
@@ -833,18 +832,16 @@ impl<'a> MockExploredHost<'a> {
             persist_machine_validation_result(self.test_env, machine_validation_result.clone())
                 .await;
             assert_eq!(
-                get_machine_validation_runs(self.test_env, host_machine_id.into(), false)
+                get_machine_validation_runs(self.test_env, &host_machine_id, false)
                     .await
                     .runs[0]
                     .end_time,
                 None
             );
 
-            machine_validation_completed(self.test_env, host_machine_id.into(), error.clone())
-                .await;
+            machine_validation_completed(self.test_env, &host_machine_id, error.clone()).await;
 
-            let runs =
-                get_machine_validation_runs(self.test_env, host_machine_id.into(), false).await;
+            let runs = get_machine_validation_runs(self.test_env, &host_machine_id, false).await;
             for run in runs.runs {
                 if run.validation_id == validation_id {
                     assert_eq!(run.status.unwrap_or_default().total, 1);

@@ -44,19 +44,8 @@ async fn test_managed_host_network_config(pool: sqlx::PgPool) {
 async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
     // Given: A managed host with 2 DPUs
     let env = api_fixtures::create_test_env(pool).await;
-    let (managed_host_id, _) = api_fixtures::create_managed_host_multi_dpu(&env, 2).await;
-    let host_machine = env
-        .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![managed_host_id.to_string().into()],
-            ..Default::default()
-        }))
-        .await
-        .unwrap()
-        .into_inner()
-        .machines
-        .remove(0);
-
+    let mh = api_fixtures::create_managed_host_multi_dpu(&env, 2).await;
+    let host_machine = mh.host().rpc_machine().await;
     let dpu_1_id = host_machine.associated_dpu_machine_ids[0].clone();
     let dpu_2_id = host_machine.associated_dpu_machine_ids[1].clone();
 

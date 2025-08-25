@@ -334,6 +334,10 @@ impl From<ManagedHost> for (MachineId, MachineId) {
 type Txn<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
 impl ManagedHost {
+    pub fn into_host(self) -> MachineId {
+        self.id
+    }
+
     pub fn into_dpu(mut self) -> MachineId {
         self.dpu_ids.remove(0)
     }
@@ -341,6 +345,14 @@ impl ManagedHost {
     pub fn dpu(&self) -> TestMachine {
         TestMachine {
             id: self.dpu_ids[0],
+            api: self.api.clone(),
+        }
+    }
+
+    pub fn dpu_n(&self, n: usize) -> TestMachine {
+        assert!(n < self.dpu_ids.len());
+        TestMachine {
+            id: self.dpu_ids[n],
             api: self.api.clone(),
         }
     }
@@ -359,10 +371,30 @@ impl ManagedHost {
             .unwrap()
     }
 
+    pub async fn dpu_db_machines(&self, txn: &mut Txn<'_>) -> Vec<Machine> {
+        crate::db::machine::find_dpus_by_host_machine_id(txn, &self.id)
+            .await
+            .unwrap()
+    }
+
     pub fn new_dpu_reprovision_state(&self, state: ReprovisionState) -> ManagedHostState {
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
                 states: HashMap::from([(*self.dpu().machine_id(), state)]),
+            },
+        }
+    }
+
+    pub fn new_dpus_reprovision_state(&self, states: &[&ReprovisionState]) -> ManagedHostState {
+        assert_eq!(states.len(), self.dpu_ids.len());
+        ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: self
+                    .dpu_ids
+                    .iter()
+                    .zip(states.iter())
+                    .map(|(id, state)| (*id, (*state).clone()))
+                    .collect(),
             },
         }
     }
@@ -505,6 +537,25 @@ impl TestMachine {
             .await
             .unwrap()
             .into_inner();
+    }
+
+    pub async fn trigger_dpu_reprovisioning(
+        &self,
+        mode: rpc::forge::dpu_reprovisioning_request::Mode,
+        update_firmware: bool,
+    ) {
+        self.api
+            .trigger_dpu_reprovisioning(tonic::Request::new(
+                ::rpc::forge::DpuReprovisioningRequest {
+                    dpu_id: None,
+                    machine_id: self.id.into(),
+                    mode: mode as i32,
+                    initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                    update_firmware,
+                },
+            ))
+            .await
+            .unwrap();
     }
 }
 

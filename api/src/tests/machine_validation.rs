@@ -17,7 +17,7 @@ use crate::handlers::machine_validation::apply_config_on_startup;
 use crate::model::machine::ValidationState;
 use crate::model::machine::{
     FailureCause, FailureDetails, FailureSource, MachineState, MachineValidatingState,
-    MachineValidationFilter, ManagedHostState, machine_id::try_parse_machine_id,
+    MachineValidationFilter, ManagedHostState,
 };
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
@@ -25,15 +25,12 @@ use rpc::forge::{MachineValidationTestNextVersionRequest, MachineValidationTestV
 use std::str::FromStr;
 use std::time::SystemTime;
 
-use crate::db;
 use crate::tests::common;
 use common::api_fixtures::{
     TestEnvOverrides, create_host_with_machine_validation, create_test_env,
-    create_test_env_with_overrides, forge_agent_control, get_config,
-    get_machine_validation_results, get_machine_validation_runs,
-    instance::{TestInstance, delete_instance},
-    machine_validation_completed, on_demand_machine_validation, reboot_completed,
-    update_machine_validation_run,
+    create_test_env_with_overrides, get_config, get_machine_validation_results,
+    get_machine_validation_runs, instance::TestInstance, machine_validation_completed,
+    on_demand_machine_validation, update_machine_validation_run,
 };
 use rpc::Timestamp;
 
@@ -43,20 +40,11 @@ async fn test_machine_validation_complete_with_error(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let (host_machine_id, dpu_machine_id) =
-        create_host_with_machine_validation(&env, None, Some("Test Error".to_owned())).await;
+    let mh = create_host_with_machine_validation(&env, None, Some("Test Error".to_owned())).await;
 
     let mut txn = env.pool.begin().await?;
 
-    let machine = db::machine::find_one(
-        &mut txn,
-        &dpu_machine_id,
-        crate::db::machine::MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-
+    let machine = mh.dpu().db_machine(&mut txn).await;
     match machine.current_state() {
         ManagedHostState::Failed {
             details,
@@ -77,11 +65,7 @@ async fn test_machine_validation_complete_with_error(
         }
     }
 
-    let machine = env
-        .find_machines(Some(host_machine_id), None, false)
-        .await
-        .machines
-        .remove(0);
+    let machine = mh.host().rpc_machine().await;
     let health = machine.health.as_ref().unwrap();
     assert_eq!(health.alerts.len(), 1);
     let mut alert = health.alerts[0].clone();
@@ -124,20 +108,13 @@ async fn test_machine_validation_with_error(
         test_id: Some("test1".to_string()),
     };
 
-    let (host_machine_id, dpu_machine_id) =
+    let mh =
         create_host_with_machine_validation(&env, Some(machine_validation_result.clone()), None)
             .await;
 
     let mut txn = env.pool.begin().await?;
 
-    let machine = db::machine::find_one(
-        &mut txn,
-        &dpu_machine_id,
-        crate::db::machine::MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let machine = mh.dpu().db_machine(&mut txn).await;
 
     match machine.current_state() {
         ManagedHostState::Failed {
@@ -161,11 +138,7 @@ async fn test_machine_validation_with_error(
         }
     }
 
-    let machine = env
-        .find_machines(Some(host_machine_id.clone()), None, false)
-        .await
-        .machines
-        .remove(0);
+    let machine = mh.host().rpc_machine().await;
     let health = machine.health.as_ref().unwrap();
     assert_eq!(health.alerts.len(), 1);
     let mut alert = health.alerts[0].clone();
@@ -194,7 +167,7 @@ async fn test_machine_validation_with_error(
     )
     .await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        mh.host().machine_id(),
         3,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -209,9 +182,9 @@ async fn test_machine_validation_with_error(
         },
     )
     .await;
-    machine_validation_completed(&env, host_machine_id.clone(), None).await;
+    machine_validation_completed(&env, mh.host().machine_id(), None).await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        mh.host().machine_id(),
         1,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
@@ -221,11 +194,7 @@ async fn test_machine_validation_with_error(
     )
     .await;
 
-    let machine = env
-        .find_machines(Some(host_machine_id.clone()), None, false)
-        .await
-        .machines
-        .remove(0);
+    let machine = mh.host().rpc_machine().await;
     let health = machine.health.as_ref().unwrap();
     assert_eq!(health.alerts.len(), 0);
     Ok(())
@@ -250,20 +219,13 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         test_id: Some("test1".to_string()),
     };
 
-    let (host_machine_id, dpu_machine_id) =
+    let mh =
         create_host_with_machine_validation(&env, Some(machine_validation_result.clone()), None)
             .await;
 
     let mut txn = env.pool.begin().await?;
 
-    let machine = db::machine::find_one(
-        &mut txn,
-        &dpu_machine_id,
-        crate::db::machine::MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let machine = mh.dpu().db_machine(&mut txn).await;
     txn.commit().await.unwrap();
 
     match machine.current_state() {
@@ -273,11 +235,7 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         }
     }
 
-    let machine = env
-        .find_machines(Some(host_machine_id.clone()), None, false)
-        .await
-        .machines
-        .remove(0);
+    let machine = mh.host().rpc_machine().await;
     assert!(machine.health.as_ref().unwrap().alerts.is_empty());
 
     let _ = on_demand_machine_validation(
@@ -290,7 +248,7 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     )
     .await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        mh.host().machine_id(),
         3,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -305,9 +263,9 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         },
     )
     .await;
-    machine_validation_completed(&env, host_machine_id.clone(), None).await;
+    machine_validation_completed(&env, mh.host().machine_id(), None).await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        mh.host().machine_id(),
         3,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
@@ -340,31 +298,30 @@ async fn test_machine_validation_get_results(
         test_id: Some("test1".to_string()),
     };
 
-    let (host_remote_id, dpu_machine_id) =
+    let mh =
         create_host_with_machine_validation(&env, Some(machine_validation_result.clone()), None)
             .await;
 
-    let host_machine_id = try_parse_machine_id(&host_remote_id).unwrap();
     let (instance_id, _instance) = TestInstance::new(&env)
         .single_interface_network_config(segment_id)
-        .create(&[dpu_machine_id], &host_machine_id)
+        .create_for_manged_host(&mh)
         .await;
 
-    let runs = get_machine_validation_runs(&env, host_remote_id.clone(), false).await;
+    let runs = get_machine_validation_runs(&env, mh.host().machine_id(), false).await;
     assert_eq!(runs.runs.len(), 1);
     assert_eq!(
         runs.runs[0].context.clone().unwrap_or_default(),
         "Discovery".to_owned()
     );
     let discovery_validation_id = runs.runs[0].validation_id.clone();
-    delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
+    mh.delete_instance(&env, instance_id).await;
 
     // one for cleanup and one for discovery
-    let runs = get_machine_validation_runs(&env, host_remote_id.clone(), false).await;
+    let runs = get_machine_validation_runs(&env, mh.host().machine_id(), false).await;
     assert_eq!(runs.runs.len(), 2);
 
     let results =
-        get_machine_validation_results(&env, Some(host_remote_id.clone()), true, None).await;
+        get_machine_validation_results(&env, Some(mh.host().machine_id()), true, None).await;
     assert_eq!(results.results.len(), 2);
     assert_eq!(results.results[0].name, machine_validation_result.name);
     assert_eq!(results.results[1].name, "instance".to_owned());
@@ -376,17 +333,17 @@ async fn test_machine_validation_get_results(
     assert_eq!(results.results[0].name, machine_validation_result.name);
 
     // find using machine and validation id
-    let results =
-        get_machine_validation_results(&env, Some(host_remote_id), true, cleanup_validation_id)
-            .await;
+    let results = get_machine_validation_results(
+        &env,
+        Some(mh.host().machine_id()),
+        true,
+        cleanup_validation_id,
+    )
+    .await;
     assert_eq!(results.results.len(), 1);
     assert_eq!(results.results[0].name, "instance".to_owned());
 
-    let machine = env
-        .find_machines(host_machine_id.into(), None, false)
-        .await
-        .machines
-        .remove(0);
+    let machine = mh.host().rpc_machine().await;
     assert!(machine.health.as_ref().unwrap().alerts.is_empty());
 
     Ok(())
@@ -515,20 +472,12 @@ async fn test_machine_validation_test_on_demand_filter(
         test_id: Some("test1".to_string()),
     };
 
-    let (host_machine_id, dpu_machine_id) =
+    let mh =
         create_host_with_machine_validation(&env, Some(machine_validation_result.clone()), None)
             .await;
 
     let mut txn = env.pool.begin().await?;
-
-    let machine = db::machine::find_one(
-        &mut txn,
-        &dpu_machine_id,
-        crate::db::machine::MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let machine = mh.dpu().db_machine(&mut txn).await;
     txn.commit().await.unwrap();
 
     match machine.current_state() {
@@ -538,11 +487,7 @@ async fn test_machine_validation_test_on_demand_filter(
         }
     }
 
-    let machine = env
-        .find_machines(Some(host_machine_id.clone()), None, false)
-        .await
-        .machines
-        .remove(0);
+    let machine = mh.host().rpc_machine().await;
     assert!(machine.health.as_ref().unwrap().alerts.is_empty());
     let allowed_tests = vec!["test1".to_string(), "test2".to_string()];
     let on_demand_response = on_demand_machine_validation(
@@ -558,7 +503,7 @@ async fn test_machine_validation_test_on_demand_filter(
     let validation_id =
         uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default()).unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        mh.host().machine_id(),
         1,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -567,9 +512,9 @@ async fn test_machine_validation_test_on_demand_filter(
         },
     )
     .await;
-    let _ = reboot_completed(&env, host_machine_id.clone()).await;
+    let _ = mh.host().reboot_completed().await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        mh.host().machine_id(),
         1,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -584,7 +529,7 @@ async fn test_machine_validation_test_on_demand_filter(
         },
     )
     .await;
-    let response = forge_agent_control(&env, host_machine_id.clone()).await;
+    let response = mh.host().forge_agent_control().await;
 
     for item in response.data.unwrap().pair {
         if item.key == "MachineValidationFilter" {
@@ -599,9 +544,9 @@ async fn test_machine_validation_test_on_demand_filter(
         }
     }
 
-    machine_validation_completed(&env, host_machine_id.clone(), None).await;
+    machine_validation_completed(&env, mh.host().machine_id(), None).await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        mh.host().machine_id(),
         3,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
@@ -623,9 +568,9 @@ async fn test_machine_validation_disabled(
         create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await
     };
 
-    let (host_machine_id, _) = create_host_with_machine_validation(&env, None, None).await;
+    let mh = create_host_with_machine_validation(&env, None, None).await;
 
-    let runs = get_machine_validation_runs(&env, host_machine_id.clone(), true).await;
+    let runs = get_machine_validation_runs(&env, mh.host().machine_id(), true).await;
     let skipped_state_int =
         rpc::forge::machine_validation_status::MachineValidationState::Completed(
             rpc::forge::machine_validation_status::MachineValidationCompleted::Skipped.into(),
@@ -640,11 +585,7 @@ async fn test_machine_validation_disabled(
         skipped_state_int
     );
 
-    let machine = env
-        .find_machines(Some(host_machine_id.clone()), None, false)
-        .await
-        .machines
-        .remove(0);
+    let machine = mh.host().rpc_machine().await;
     assert!(machine.health.as_ref().unwrap().alerts.is_empty());
 
     let on_demand_response = on_demand_machine_validation(
@@ -657,7 +598,7 @@ async fn test_machine_validation_disabled(
     )
     .await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        mh.host().machine_id(),
         3,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -672,9 +613,9 @@ async fn test_machine_validation_disabled(
         },
     )
     .await;
-    let _ = reboot_completed(&env, host_machine_id.clone()).await;
+    let _ = mh.host().reboot_completed().await;
 
-    let runs = get_machine_validation_runs(&env, host_machine_id.clone(), true).await;
+    let runs = get_machine_validation_runs(&env, mh.host().machine_id(), true).await;
     let started_state_int = rpc::forge::machine_validation_status::MachineValidationState::Started(
         rpc::forge::machine_validation_status::MachineValidationStarted::Started.into(),
     );
@@ -696,14 +637,14 @@ async fn test_machine_validation_disabled(
     assert!(status_asserted);
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        mh.host().machine_id(),
         3,
         ManagedHostState::Ready,
     )
     .await;
 
     status_asserted = false;
-    let runs = get_machine_validation_runs(&env, host_machine_id.clone(), true).await;
+    let runs = get_machine_validation_runs(&env, mh.host().machine_id(), true).await;
     for run in runs.runs {
         if run.validation_id.unwrap_or_default()
             == on_demand_response.validation_id.clone().unwrap_or_default()
@@ -1084,21 +1025,12 @@ async fn test_on_demant_un_verified_machine_validation(
         test_id: Some("test1".to_string()),
     };
 
-    let (host_machine_id, dpu_machine_id) =
+    let mh =
         create_host_with_machine_validation(&env, Some(machine_validation_result.clone()), None)
             .await;
 
     let mut txn = env.pool.begin().await?;
-
-    let machine = db::machine::find_one(
-        &mut txn,
-        &dpu_machine_id,
-        crate::db::machine::MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-
+    let machine = mh.dpu().db_machine(&mut txn).await;
     match machine.current_state() {
         ManagedHostState::Ready => {}
         s => {
@@ -1106,11 +1038,7 @@ async fn test_on_demant_un_verified_machine_validation(
         }
     }
 
-    let machine = env
-        .find_machines(Some(host_machine_id.clone()), None, false)
-        .await
-        .machines
-        .remove(0);
+    let machine = mh.host().rpc_machine().await;
     assert!(machine.health.as_ref().unwrap().alerts.is_empty());
     let allowed_tests = vec!["test1".to_string(), "test2".to_string()];
     let on_demand_response = on_demand_machine_validation(
@@ -1125,7 +1053,7 @@ async fn test_on_demant_un_verified_machine_validation(
     let validation_id =
         uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default()).unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        mh.host().machine_id(),
         1,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -1134,10 +1062,10 @@ async fn test_on_demant_un_verified_machine_validation(
         },
     )
     .await;
-    let _ = reboot_completed(&env, host_machine_id.clone()).await;
+    let _ = mh.host().reboot_completed().await;
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        mh.host().machine_id(),
         1,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -1152,7 +1080,7 @@ async fn test_on_demant_un_verified_machine_validation(
         },
     )
     .await;
-    let response = forge_agent_control(&env, host_machine_id.clone()).await;
+    let response = mh.host().forge_agent_control().await;
 
     for item in response.data.unwrap().pair {
         if item.key == "MachineValidationFilter" {
@@ -1253,21 +1181,13 @@ async fn test_on_demant_machine_validation_all_contexts(
         test_id: Some("test1".to_string()),
     };
 
-    let (host_machine_id, dpu_machine_id) =
+    let mh =
         create_host_with_machine_validation(&env, Some(machine_validation_result.clone()), None)
             .await;
 
     let mut txn = env.pool.begin().await?;
 
-    let machine = db::machine::find_one(
-        &mut txn,
-        &dpu_machine_id,
-        crate::db::machine::MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-
+    let machine = mh.dpu().db_machine(&mut txn).await;
     match machine.current_state() {
         ManagedHostState::Ready => {}
         s => {
@@ -1275,11 +1195,7 @@ async fn test_on_demant_machine_validation_all_contexts(
         }
     }
 
-    let machine = env
-        .find_machines(Some(host_machine_id.clone()), None, false)
-        .await
-        .machines
-        .remove(0);
+    let machine = mh.host().rpc_machine().await;
     assert!(machine.health.as_ref().unwrap().alerts.is_empty());
     let allowed_tests = vec!["test1".to_string(), "test2".to_string()];
     let contexts = vec![
@@ -1306,7 +1222,7 @@ async fn test_on_demant_machine_validation_all_contexts(
     assert_eq!(success.message, "Success".to_string());
     machine_validation_result.validation_id = on_demand_response.clone().validation_id;
 
-    let runs = get_machine_validation_runs(&env, host_machine_id.clone(), true).await;
+    let runs = get_machine_validation_runs(&env, mh.host().machine_id(), true).await;
     for run in runs.runs {
         if run.validation_id == on_demand_response.clone().validation_id {
             assert_eq!(run.status.unwrap_or_default().total, 0);
@@ -1318,7 +1234,7 @@ async fn test_on_demant_machine_validation_all_contexts(
     let validation_id =
         uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default()).unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        mh.host().machine_id(),
         1,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -1327,9 +1243,9 @@ async fn test_on_demant_machine_validation_all_contexts(
         },
     )
     .await;
-    let _ = reboot_completed(&env, host_machine_id.clone()).await;
+    let _ = mh.host().reboot_completed().await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        &try_parse_machine_id(&host_machine_id.clone()).unwrap(),
+        mh.host().machine_id(),
         1,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -1344,7 +1260,7 @@ async fn test_on_demant_machine_validation_all_contexts(
         },
     )
     .await;
-    let response = forge_agent_control(&env, host_machine_id.clone()).await;
+    let response = mh.host().forge_agent_control().await;
 
     for item in response.data.unwrap().pair {
         if item.key == "MachineValidationFilter" {

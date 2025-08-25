@@ -502,20 +502,10 @@ async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_attached_dpu_machine_ids_multi_dpu(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (machine_id, _) = create_managed_host_multi_dpu(&env, 2).await;
+    let mh = create_managed_host_multi_dpu(&env, 2).await;
 
     // Now host1 should have two DPUs.
-    let host_machine = env
-        .api
-        .find_machines_by_ids(tonic::Request::new(MachinesByIdsRequest {
-            machine_ids: vec![machine_id.into()],
-            ..Default::default()
-        }))
-        .await
-        .unwrap()
-        .into_inner()
-        .machines
-        .remove(0);
+    let host_machine = mh.host().rpc_machine().await;
     let dpu_ids = host_machine.associated_dpu_machine_ids;
     assert_eq!(
         dpu_ids.len(),
