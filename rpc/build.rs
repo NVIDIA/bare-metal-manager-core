@@ -564,6 +564,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.InstanceAllocationRequest",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute(
+            "forge.RouteServerEntries",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.RouteServer",
+            "#[derive(serde::Serialize)]",
+        )
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

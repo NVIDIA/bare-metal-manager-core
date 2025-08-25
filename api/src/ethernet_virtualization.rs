@@ -45,8 +45,6 @@ use forge_uuid::{instance::InstanceId, machine::MachineId, machine::MachineInter
 pub struct EthVirtData {
     pub asn: u32,
     pub dhcp_servers: Vec<String>,
-    pub route_servers: Vec<String>,
-    pub route_servers_enabled: bool,
     pub deny_prefixes: Vec<Ipv4Network>,
     pub site_fabric_prefixes: Option<SiteFabricPrefixList>,
 }

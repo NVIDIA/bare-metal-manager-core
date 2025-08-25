@@ -1064,8 +1064,6 @@ pub async fn create_test_env_with_overrides(
     let eth_virt_data = EthVirtData {
         asn: 65535,
         dhcp_servers: vec![FIXTURE_DHCP_RELAY_ADDRESS.to_string()],
-        route_servers: vec![],
-        route_servers_enabled: true,
         deny_prefixes: vec![],
         site_fabric_prefixes,
     };

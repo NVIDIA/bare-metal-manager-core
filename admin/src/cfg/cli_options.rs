@@ -27,7 +27,7 @@ use forge_ssh::ssh::{
 use forge_uuid::machine::MachineId;
 use forge_uuid::vpc::{VpcId, VpcPrefixId};
 use libredfish::model::update_service::ComponentType;
-use rpc::forge::{OperatingSystem, SshTimeoutConfig};
+use rpc::forge::{OperatingSystem, RouteServerSourceType, SshTimeoutConfig};
 use serde::{Deserialize, Serialize};
 use utils::{admin_cli::OutputFormat, has_duplicates};
 
@@ -2127,9 +2127,34 @@ pub struct AddDpuFactoryDefaultCredential {
 #[derive(Parser, Debug)]
 pub enum RouteServer {
     Get,
-    Add(IpFind),
-    Remove(IpFind),
+    Add(RouteServerAddresses),
+    Remove(RouteServerAddresses),
+    Replace(RouteServerAddresses),
 }
+
+// RouteServerAddresses is used for add/remove/replace
+// operations for route server addresses, with support
+// for overriding the source_type to not be admin_api,
+// and make ephemeral changes against whatever was
+// loaded up via the config file at start.
+#[derive(Parser, Debug)]
+pub struct RouteServerAddresses {
+    #[arg(value_delimiter = ',', help = "Comma-separated list of IPv4 addresses")]
+    pub ip: Vec<std::net::Ipv4Addr>,
+    // The optional source_type to set. If unset, this
+    // defaults to admin_api, which is what we'd expect.
+    // Override with --source_type=config to make
+    // ephemeral changes to config file-based entries,
+    // which is really intended for break-glass types
+    // of scenarios.
+    #[arg(
+        long,
+        default_value = "admin_api",
+        help = "The source_type to use for the target addresses. Defaults to admin_api."
+    )]
+    pub source_type: RouteServerSourceType,
+}
+
 #[derive(Parser, Debug)]
 pub enum MachineInterfaces {
     #[clap(about = "List of all Machine interfaces")]

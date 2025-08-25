@@ -3302,15 +3302,19 @@ impl Forge for Api {
         crate::handlers::credential::delete_credential(self, request).await
     }
 
-    /// Returns a list of all configured route server addresses
+    /// get_route_servers returns a list of all configured route server
+    /// entries for all source types.
     async fn get_route_servers(
         &self,
         request: tonic::Request<()>,
-    ) -> Result<tonic::Response<rpc::RouteServers>, Status> {
+    ) -> Result<tonic::Response<rpc::RouteServerEntries>, Status> {
         crate::handlers::route_server::get(self, request).await
     }
 
-    /// Overwrites all existing route server entries with the provided list
+    /// add_route_servers adds new route server entries for the
+    /// provided source_type, defaulting to admin_api for calls
+    /// coming from forge-admin-cli (but can be overridden in
+    /// cases where deemed appropriate).
     async fn add_route_servers(
         &self,
         request: tonic::Request<rpc::RouteServers>,
@@ -3318,6 +3322,10 @@ impl Forge for Api {
         crate::handlers::route_server::add(self, request).await
     }
 
+    /// remove_route_servers removes route server entries for the
+    /// provided source_type, defaulting to admin_api for calls
+    /// coming from forge-admin-cli (but can be overridden in
+    /// cases where deemed appropriate).
     async fn remove_route_servers(
         &self,
         request: tonic::Request<rpc::RouteServers>,
@@ -3325,7 +3333,10 @@ impl Forge for Api {
         crate::handlers::route_server::remove(self, request).await
     }
 
-    /// Overwrites all existing route server entries with the provided list
+    /// replace_route_servers replaces all route server entries
+    /// for the provided source_type with the given list, defaulting
+    /// to admin_api for calls coming from forge-admin-cli (but can
+    /// be overridden in cases where deemed appropriate).
     async fn replace_route_servers(
         &self,
         request: tonic::Request<rpc::RouteServers>,

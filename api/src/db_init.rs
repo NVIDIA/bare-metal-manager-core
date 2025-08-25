@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
+use std::collections::HashMap;
 
 use forge_network::virtualization::VpcVirtualizationType;
 use itertools::Itertools;
@@ -22,13 +22,12 @@ use crate::model::metadata::Metadata;
 use crate::{
     CarbideError,
     api::Api,
-    cfg::file::{AgentUpgradePolicyChoice, CarbideConfig},
+    cfg::file::AgentUpgradePolicyChoice,
     db::{
         DatabaseError,
         domain::{self, Domain, NewDomain},
         dpu_agent_upgrade_policy::DpuAgentUpgradePolicy,
         network_segment::{NetworkSegment, NewNetworkSegment},
-        route_servers::RouteServer,
     },
     model::{machine::upgrade_policy::AgentUpgradePolicy, network_segment::NetworkDefinition},
 };
@@ -178,34 +177,6 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
     }
 
     Ok(())
-}
-
-pub async fn create_initial_route_servers(
-    db_pool: &Pool<Postgres>,
-    carbide_config: &Arc<CarbideConfig>,
-) -> Result<Vec<String>, CarbideError> {
-    let mut txn = db_pool.begin().await.map_err(|e| {
-        DatabaseError::new(file!(), line!(), "begin create_initial_route_servers", e)
-    })?;
-    let result = if carbide_config.enable_route_servers {
-        let route_servers: Vec<IpAddr> = carbide_config
-            .route_servers
-            .iter()
-            .map(|rs| IpAddr::from_str(rs))
-            .collect::<Result<Vec<IpAddr>, _>>()
-            .map_err(CarbideError::AddressParseError)?;
-
-        RouteServer::get_or_create(&mut txn, &route_servers).await?
-    } else {
-        RouteServer::replace(&mut txn, &[]).await?;
-        vec![]
-    };
-
-    txn.commit().await.map_err(|e| {
-        DatabaseError::new(file!(), line!(), "commit create_initial_route_servers", e)
-    })?;
-
-    Ok(result.into_iter().map(|rs| rs.to_string()).collect())
 }
 
 pub async fn store_initial_dpu_agent_upgrade_policy(

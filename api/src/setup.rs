@@ -19,7 +19,8 @@ use forge_secrets::{ForgeVaultClient, credentials::CredentialProvider};
 use futures_util::TryFutureExt;
 use opentelemetry::metrics::Meter;
 use sqlx::{ConnectOptions, PgPool, postgres::PgSslMode};
-use std::{collections::HashSet, sync::Arc};
+use std::net::IpAddr;
+use std::{collections::HashSet, str::FromStr, sync::Arc};
 use tokio::sync::{
     Semaphore, oneshot,
     oneshot::{Receiver, Sender},
@@ -33,7 +34,9 @@ use crate::{
 use crate::{ib::DEFAULT_IB_FABRIC_NAME, state_controller::machine::handler::PowerOptionConfig};
 
 use crate::cfg::file::{HostHealthConfig, ListenMode};
+use crate::db::route_servers::{RouteServer, RouteServerSourceType};
 use crate::dynamic_settings::DynamicSettings;
+use crate::errors::CarbideError;
 use crate::listener::ApiListenMode;
 use crate::logging::log_limiter::LogLimiter;
 use crate::{
@@ -200,11 +203,10 @@ pub async fn start_api(
     // since the controllers rely on a fully-hydrated Api object, which relies on route_servers and
     // common_pools being populated. So if we're configured for listen_only, strictly read them from
     // the database (assuming another instance has populated them), otherwise, populate them now.
-    let route_servers = if carbide_config.listen_only {
+    if carbide_config.listen_only {
         tracing::info!(
             "Not populating resource pools or route_servers in database, as listen_only=true"
         );
-        vec![]
     } else {
         let mut txn = db_pool
             .begin()
@@ -219,10 +221,27 @@ pub async fn start_api(
             })?,
         )
         .await?;
+
+        // We'll always update whatever route servers are in the config
+        // to the database, and then leverage the enable_route_servers
+        // flag where needed to determine if we actually want to use
+        // them (like in api/src/handlers/dpu.rs). This allows us
+        // to decouple the configuration from the feature, and control
+        // the feature separately (it can get confusing -- and potentially
+        // buggy -- otherwise).
+        //
+        // These are of course set with RouteServerSourceType::ConfigFile.
+        let route_servers: Vec<IpAddr> = carbide_config
+            .route_servers
+            .iter()
+            .map(|rs| IpAddr::from_str(rs))
+            .collect::<Result<Vec<IpAddr>, _>>()
+            .map_err(CarbideError::AddressParseError)?;
+        RouteServer::replace(&mut txn, &route_servers, RouteServerSourceType::ConfigFile).await?;
+
         txn.commit()
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "commit define resource pools", e))?;
-        db_init::create_initial_route_servers(&db_pool, &carbide_config).await?
     };
     let common_pools = CommonPools::create(db_pool.clone(), ib_fabric_ids).await?;
 
@@ -259,8 +278,6 @@ pub async fn start_api(
     let eth_data = ethernet_virtualization::EthVirtData {
         asn: carbide_config.asn,
         dhcp_servers: carbide_config.dhcp_servers.clone(),
-        route_servers,
-        route_servers_enabled: carbide_config.enable_route_servers,
         deny_prefixes: carbide_config.deny_prefixes.clone(),
         site_fabric_prefixes,
     };

@@ -25,6 +25,7 @@ use std::str::FromStr;
 
 use chrono::DateTime;
 use chrono::Utc;
+use clap::ValueEnum;
 use errors::RpcDataConversionError;
 use mac_address::{MacAddress, MacParseError};
 use prost::Message;
@@ -724,6 +725,22 @@ impl forge::MachineCapabilityDeviceType {
         Ok(match t {
             forge::MachineCapabilityDeviceType::Dpu => "DPU".to_string(),
             forge::MachineCapabilityDeviceType::Unknown => "UNKNOWN".to_string(),
+        })
+    }
+}
+
+// This impl allows us to use the RPC RouteServerSourceType type
+// as a first class enum with clap, for the purpose of allowing
+// users to set --source-type with the forge-admin-cli.
+impl ValueEnum for forge::RouteServerSourceType {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Self::AdminApi, Self::ConfigFile]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        Some(match self {
+            Self::AdminApi => clap::builder::PossibleValue::new("admin_api"),
+            Self::ConfigFile => clap::builder::PossibleValue::new("config_file"),
         })
     }
 }
