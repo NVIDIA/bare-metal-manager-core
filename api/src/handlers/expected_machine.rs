@@ -11,7 +11,9 @@
  */
 
 use ::rpc::forge as rpc;
+use lazy_static::lazy_static;
 use mac_address::MacAddress;
+use regex::Regex;
 use sqlx::{Postgres, Transaction};
 use tonic::Status;
 
@@ -20,6 +22,11 @@ use crate::api::{Api, log_request_data};
 use crate::db::DatabaseError;
 use crate::db::expected_machine::ExpectedMachine;
 use crate::db::expected_machine::ExpectedMachineData;
+
+lazy_static! {
+    // Verify what serial is alphanumeric string with, allows dashes '-' and underscores '_'
+    static ref CHASSIS_SERIAL_REGEX: Regex = Regex::new(r"^[A-Za-z0-9_-]{4,64}$").unwrap();
+}
 
 pub(crate) async fn get(
     api: &Api,
@@ -76,6 +83,15 @@ pub(crate) async fn add(
             CarbideError::InvalidArgument("duplicate dpu serial number found".to_string()).into(),
         );
     }
+
+    if !CHASSIS_SERIAL_REGEX.is_match(&request.chassis_serial_number) {
+        return Err(CarbideError::InvalidArgument(format!(
+            "chassis serial is not formatted properly {}",
+            request.chassis_serial_number
+        ))
+        .into());
+    }
+
     let parsed_mac: MacAddress = request
         .bmc_mac_address
         .parse::<MacAddress>()
@@ -322,4 +338,26 @@ pub(crate) async fn query(
     })?;
 
     Ok(expected.remove(&mac))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chassis_serial_regex() {
+        assert!(CHASSIS_SERIAL_REGEX.is_match("ABC123"));
+        assert!(CHASSIS_SERIAL_REGEX.is_match("ABC-123"));
+        assert!(CHASSIS_SERIAL_REGEX.is_match("ABC_123"));
+        assert!(CHASSIS_SERIAL_REGEX.is_match("DELL-R740-12345"));
+        assert!(CHASSIS_SERIAL_REGEX.is_match("A495122X5503847"));
+
+        assert!(!CHASSIS_SERIAL_REGEX.is_match("ABC"));
+        assert!(!CHASSIS_SERIAL_REGEX.is_match("ABC 123"));
+        assert!(!CHASSIS_SERIAL_REGEX.is_match("A495122X5503847\r"));
+        assert!(!CHASSIS_SERIAL_REGEX.is_match("ABC.123"));
+
+        let too_long = "A".repeat(65);
+        assert!(!CHASSIS_SERIAL_REGEX.is_match(&too_long));
+    }
 }
