@@ -23,7 +23,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Command::Run(run_command) => {
-            let spawn_handle = ssh_console::spawn(run_command.try_into()?).await?;
+            let spawn_handle = ssh_console::spawn((*run_command).try_into()?).await?;
             // Let the service run forever by awaiting the join handle, while holding onto the
             // shutdown handle.
             let (_shutdown_tx, join_handle) = spawn_handle.into_parts();
@@ -46,9 +46,8 @@ struct Cli {
 }
 
 #[derive(clap::Parser, Debug)]
-#[allow(clippy::large_enum_variant)] // Clippy does not like having enums with significantly different sizes, but Clap does not recognize boxes
 enum Command {
-    Run(RunCommand),
+    Run(Box<RunCommand>),
     #[clap(about = "Output a default TOML config file for use with run -c")]
     DefaultRunConfig,
 }
