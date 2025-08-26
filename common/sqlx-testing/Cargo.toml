@@ -14,7 +14,11 @@ sqlx-core = { workspace = true }
 tokio = { workspace = true }
 
 # [local-dependencies]
-carbide-api = { path = "../../api" }
+carbide-api = { path = "../../api", default-features = false }
+
+[features]
+linux-build = ["carbide-api/linux-build"]
+
 
 
 [lints]

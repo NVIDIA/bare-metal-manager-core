@@ -9,7 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use sqlx::{FromRow, PgConnection};
+use sqlx::FromRow;
+use sqlx::PgConnection;
 
 use crate::{CarbideError, CarbideResult, db::DatabaseError};
 

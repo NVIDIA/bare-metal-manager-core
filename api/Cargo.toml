@@ -82,6 +82,7 @@ tokio-rustls = "0.26"
 rustls-pemfile = "2.2"
 tonic = { workspace = true }
 tonic-reflection = "0.12"
+tss-esapi = { version = "7.5.0", optional = true }
 url = { version = "2", features = ["serde"] }
 tower = "0.5"
 tower-http = { version = "0.6.1", features = [
@@ -92,7 +93,6 @@ tower-http = { version = "0.6.1", features = [
 tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 tracing-opentelemetry = { workspace = true }
-tss-esapi = { version = "7.5.0" }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 vaultrs = "0.7"
 version-compare = "0.2.0"
@@ -104,11 +104,10 @@ time = "0.3.36"
 asn1-rs = "0.7.0"
 ansi-to-html = { workspace = true }
 
-
 # [local-dependencies]
 bmc-vendor = { path = "../common/bmc-vendor" }
 config-version = { path = "../common/config-version", features = ["sqlx"] }
-forge-host-support = { path = "../common/host-support" }
+forge-host-support = { path = "../common/host-support", default-features = false }
 forge-network = { path = "../common/network", features = ["sqlx"] }
 forge-uuid = { path = "../common/uuid", features = ["sqlx"] }
 forge_secrets = { path = "../common/secrets" }
@@ -119,6 +118,15 @@ rpc = { path = "../rpc" }
 utils = { path = "../common/utils", features = ["sqlx"] }
 measured-boot = { path = "../common/measured-boot", features = ["sqlx"] }
 forge-ssh = { path = "../common/ssh" }
+
+[features]
+default = ["linux-build"]
+linux-build = [
+    "tss-esapi",
+    "sqlx-testing/linux-build",
+    "api-test-helper/linux-build",
+    "forge-host-support/linux-build",
+]
 
 [build-dependencies]
 forge-version = { path = "../common/version" }
@@ -132,8 +140,8 @@ rcgen = "0.13.1"
 carbide-macros = { path = "../common/carbide-macros" }
 machine-a-tron = { path = "../dev/machine-a-tron" }
 bmc-mock = { path = "../dev/bmc-mock" }
-api-test-helper = { path = "../common/api-test-helper" }
-sqlx-testing = { path = "../common/sqlx-testing" }
+api-test-helper = { path = "../common/api-test-helper", default-features = false }
+sqlx-testing = { path = "../common/sqlx-testing", default-features = false }
 prost = "0.14"
 
 [lints]

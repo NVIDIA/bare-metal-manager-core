@@ -50,6 +50,7 @@ mod machine_topology;
 pub mod machine_update_manager;
 mod machine_validation;
 mod maintenance;
+#[cfg(feature = "linux-build")]
 mod measured_boot;
 mod network_device;
 mod network_security_group;

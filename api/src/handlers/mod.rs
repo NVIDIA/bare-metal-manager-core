@@ -26,6 +26,7 @@ pub mod instance;
 pub mod instance_type;
 pub mod machine_hardware_info;
 pub mod machine_validation;
+#[cfg(feature = "linux-build")]
 pub mod measured_boot;
 pub mod network_security_group;
 pub mod network_segment;

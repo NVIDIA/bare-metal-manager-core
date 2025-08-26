@@ -29,7 +29,7 @@ use axum_extra::extract::{
 };
 use base64::prelude::*;
 use http::header::{CONTENT_TYPE, WWW_AUTHENTICATE};
-use http::{HeaderMap, Request, StatusCode};
+use http::{HeaderMap, Request, StatusCode, Uri};
 use itertools::Itertools;
 use oauth2::basic::{
     BasicClient, BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
@@ -438,6 +438,17 @@ pub async fn auth_oauth2(
     req: Request<AxumBody>,
     next: Next,
 ) -> Result<Response, StatusCode> {
+    // Remove the port (this matters on localhost) since a cookie for localhost:1079
+    // does not apply for the a page hosted on localhost:1079. Instead the cookie
+    // must be for localhost.
+
+    let Some(hostname) = Uri::try_from(hostname)
+        .ok()
+        .and_then(|uri| uri.host().map(|host| host.to_owned()))
+    else {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    };
+
     let oauth_extension_layer = match req.extensions().get::<Option<Oauth2Layer>>() {
         None => {
             tracing::error!("failed to find oauth2 extension layer");

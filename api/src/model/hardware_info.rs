@@ -18,6 +18,7 @@ use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
+#[cfg(feature = "linux-build")]
 use forge_host_support::hardware_enumeration::aggregate_cpus;
 use forge_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
 use mac_address::{MacAddress, MacParseError};
@@ -692,6 +693,7 @@ impl TryFrom<HardwareInfoDeserialized> for HardwareInfo {
     type Error = RpcDataConversionError;
 
     fn try_from(info: HardwareInfoDeserialized) -> Result<Self, Self::Error> {
+        #[cfg(feature = "linux-build")]
         let cpu_info: Vec<CpuInfo> = if info.cpu_info.is_empty() {
             // Convert V1 -> V2 format
             let cpus: Vec<rpc::machine_discovery::Cpu> = info
@@ -706,6 +708,10 @@ impl TryFrom<HardwareInfoDeserialized> for HardwareInfo {
         } else {
             info.cpu_info
         };
+        #[cfg(not(feature = "linux-build"))]
+        let _ = info.cpus;
+        #[cfg(not(feature = "linux-build"))]
+        let cpu_info = info.cpu_info;
 
         Ok(HardwareInfo {
             network_interfaces: info.network_interfaces,
@@ -751,6 +757,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             }
         };
 
+        #[cfg(feature = "linux-build")]
         // TODO: Remove "cpus" when there's no longer a need to handle the old topology format
         let cpu_info: Vec<CpuInfo> = if info.cpu_info.is_empty() {
             match try_convert_vec(info.cpus) {
@@ -763,6 +770,8 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
         } else {
             try_convert_vec(info.cpu_info)?
         };
+        #[cfg(not(feature = "linux-build"))]
+        let cpu_info = try_convert_vec(info.cpu_info)?;
 
         Ok(Self {
             network_interfaces: try_convert_vec(info.network_interfaces)?,

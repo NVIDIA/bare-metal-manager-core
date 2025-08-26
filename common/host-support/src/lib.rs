@@ -19,6 +19,7 @@ use tracing::metadata::LevelFilter;
 use tracing_subscriber::{filter::EnvFilter, prelude::*, util::SubscriberInitExt};
 
 pub mod agent_config;
+#[cfg(feature = "linux-build")]
 pub mod hardware_enumeration;
 pub mod registration;
 
