@@ -39,6 +39,7 @@ use libredfish::{RoleId, SystemPowerControl};
 use mac_address::MacAddress;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
+#[cfg(feature = "linux-build")]
 use tss_esapi::{
     structures::{Attest, Public as TssPublic, Signature},
     traits::UnMarshall,
@@ -880,10 +881,21 @@ impl Forge for Api {
         // Whoever was able to decrypt it (activate credential), possesses
         // the TPM that the endorsement key (EK) and the attestation key (AK) that they came from.
         // if attestation is not enabled, or it is a DPU, then issue machine certificates immediately
+        #[cfg(feature = "linux-build")]
         let mut attest_key_bind_challenge_opt: Option<rpc::AttestKeyBindChallenge> = None;
+        #[cfg(feature = "linux-build")]
         let mut machine_certificate_opt: Option<rpc::MachineCertificate> = None;
+        #[cfg(not(feature = "linux-build"))]
+        let attest_key_bind_challenge_opt: Option<rpc::AttestKeyBindChallenge> = None;
+        #[cfg(not(feature = "linux-build"))]
+        #[allow(clippy::needless_late_init)]
+        let machine_certificate_opt: Option<rpc::MachineCertificate>;
 
         if self.runtime_config.attestation_enabled && !hardware_info.is_dpu() {
+            #[cfg(not(feature = "linux-build"))]
+            unimplemented!();
+
+            #[cfg(feature = "linux-build")]
             if let Some(attest_key_info) = attest_key_info_opt {
                 tracing::info!(
                     "It is not a DPU and attestation is enabled. Generating Attest Key Bind Challenge ..."
@@ -3749,6 +3761,7 @@ impl Forge for Api {
         }))
     }
 
+    #[cfg(feature = "linux-build")]
     async fn attest_quote(
         &self,
         request: tonic::Request<rpc::AttestQuoteRequest>,
@@ -3910,6 +3923,14 @@ impl Forge for Api {
         }))
     }
 
+    #[cfg(not(feature = "linux-build"))]
+    async fn attest_quote(
+        &self,
+        request: tonic::Request<rpc::AttestQuoteRequest>,
+    ) -> std::result::Result<tonic::Response<rpc::AttestQuoteResponse>, tonic::Status> {
+        log_request_data(&request);
+        unimplemented!()
+    }
     async fn create_measurement_system_profile(
         &self,
         request: Request<measured_boot_pb::CreateMeasurementSystemProfileRequest>,

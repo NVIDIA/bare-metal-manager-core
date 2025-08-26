@@ -177,21 +177,27 @@ pub async fn query(
             // Unwrap safety: It's a valid `Uri`, so parsing/setting fields on a Url must work.
             let mut proxy_url: Url = uri.to_string().parse().unwrap();
             let orig_host = browser.bmc_ip.clone();
-            match proxy {
+            // See api/src/redfish.rs for the other redfish API client implementation.
+            let add_custom_header = match proxy {
                 HostPortPair::HostOnly(h) => {
                     proxy_url.set_host(Some(&h)).unwrap();
+                    true
                 }
                 HostPortPair::PortOnly(p) => {
                     proxy_url.set_port(Some(p)).unwrap();
+                    false
                 }
                 HostPortPair::HostAndPort(h, p) => {
                     proxy_url.set_host(Some(&h)).unwrap();
                     proxy_url.set_port(Some(p)).unwrap();
+                    true
                 }
-            }
+            };
 
             let mut headers = HeaderMap::new();
-            headers.insert("forwarded", format!("host={orig_host}",).parse().unwrap());
+            if add_custom_header {
+                headers.insert("forwarded", format!("host={orig_host}",).parse().unwrap());
+            }
             (proxy_url, headers)
         }
         None => (browser.url.clone().parse().unwrap(), HeaderMap::new()),

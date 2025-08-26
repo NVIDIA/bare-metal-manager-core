@@ -10,7 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+#[cfg(feature = "linux-build")]
 pub mod measured_boot;
+#[cfg(feature = "linux-build")]
 pub use measured_boot::SecretAkPub;
 
 pub mod tpm_ca_certs;

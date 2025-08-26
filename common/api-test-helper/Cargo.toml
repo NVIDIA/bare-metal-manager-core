@@ -27,9 +27,8 @@ uuid = "1.17.0"
 
 
 # [local-dependencies]
-agent = { path = "../../bluefield/agent" }
 bmc-mock = { path = "../../dev/bmc-mock" }
-carbide-api = { path = "../../api" }
+carbide-api = { path = "../../api", default-features = false }
 forge-version = { path = "../version" }
 rpc = { path = "../../rpc" }
 machine-a-tron = { path = "../../dev/machine-a-tron" }
@@ -44,3 +43,6 @@ forge-version = { path = "../version" }
 
 [lints]
 workspace = true
+
+[features]
+linux-build = ["carbide-api/linux-build"]

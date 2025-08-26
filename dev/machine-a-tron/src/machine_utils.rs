@@ -182,8 +182,22 @@ pub async fn add_address_to_interface(
     tracing::info!("Adding address {} to interface {}", address, interface);
     let wrapper_cmd = find_sudo_command();
     let mut cmd = tokio::process::Command::new(wrapper_cmd);
+    #[cfg(not(target_os = "macos"))]
     let output = cmd
         .args(["ip", "a", "add", address, "dev", interface])
+        .output()
+        .await?;
+    #[cfg(target_os = "macos")]
+    let output = cmd
+        .args([
+            // Prevent sudo from trying to read password.
+            "--non-interactive",
+            "ifconfig",
+            interface,
+            "add",
+            address,
+            "up",
+        ])
         .output()
         .await?;
 
@@ -193,9 +207,18 @@ pub async fn add_address_to_interface(
 
     Ok(())
 }
+#[cfg(target_os = "macos")]
+async fn interface_has_address(
+    _interface: &str,
+    _address: &str,
+) -> Result<bool, AddressConfigError> {
+    Ok(false)
+}
 
+#[cfg(not(target_os = "macos"))]
 async fn interface_has_address(interface: &str, address: &str) -> Result<bool, AddressConfigError> {
     let mut cmd = tokio::process::Command::new("/usr/bin/env");
+
     let output = cmd
         .args([
             "ip",

@@ -10,9 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
+#[cfg(feature = "linux-build")]
 pub mod measured_boot;
+#[cfg(feature = "linux-build")]
 #[cfg(test)]
 pub use measured_boot::do_compare_pub_key_against_cert;
+#[cfg(feature = "linux-build")]
 pub use measured_boot::{
     cli_make_cred, compare_pub_key_against_cert, event_log_to_string, has_passed_attestation,
     verify_pcr_hash, verify_quote_state, verify_signature,

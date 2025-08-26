@@ -52,6 +52,7 @@ then
         -out localhost.crt -days 365 -sha256 \
         -extfile openssl.cnf -extensions v3_ext
 fi
+chmod 600 localhost.key
 
 # Generate client key and CSR
 test -e client.key || openssl ecparam -name prime256v1 -genkey -noout -out client.key
