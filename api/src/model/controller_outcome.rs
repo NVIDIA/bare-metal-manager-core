@@ -11,6 +11,7 @@
  */
 
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 
 use crate::state_controller::state_handler::{
     SourceReference, StateHandlerError, StateHandlerOutcome,
@@ -45,10 +46,22 @@ pub enum PersistentStateHandlerOutcome {
     DoNothingWithDetails,
 }
 
+impl Display for PersistentStateHandlerOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct PersistentSourceReference {
     pub file: String,
     pub line: u32,
+}
+
+impl Display for PersistentSourceReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
 }
 
 impl From<&SourceReference> for PersistentSourceReference {

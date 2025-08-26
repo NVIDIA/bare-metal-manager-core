@@ -173,6 +173,7 @@ fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
             vpc.tenant_keyset_id.clone().unwrap_or_default(),
         ),
         ("VNI", format!("{}", vpc.vni.unwrap_or_default())),
+        ("DPA_VNI", format!("{}", vpc.dpa_vni.unwrap_or_default())),
         (
             "NW VIRTUALIZATION",
             forgerpc::VpcVirtualizationType::try_from(

@@ -10,12 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-pub mod config;
-pub mod controller;
-pub mod dpa_interface;
-pub mod ib_partition;
+//! State Controller implementation for Dpa Interface
+
+pub mod context;
+pub mod handler;
 pub mod io;
-pub mod machine;
 pub mod metrics;
-pub mod network_segment;
-pub mod state_handler;

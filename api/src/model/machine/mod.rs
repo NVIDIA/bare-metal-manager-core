@@ -51,6 +51,7 @@ pub mod network;
 pub mod storage;
 pub mod upgrade_policy;
 use crate::cfg::file::HostHealthConfig;
+use crate::db::dpa_interface::DpaInterface;
 use crate::db::instance::InstanceSnapshotPgJson;
 use crate::db::machine::MachineSnapshotPgJson;
 use crate::db::network_segment::NetworkSegmentType;
@@ -79,6 +80,7 @@ fn default_true() -> bool {
 pub struct ManagedHostStateSnapshot {
     pub host_snapshot: Machine,
     pub dpu_snapshots: Vec<Machine>,
+    pub dpa_interface_snapshots: Vec<DpaInterface>,
     /// If there is an instance provisioned on top of the machine, this holds
     /// its state
     pub instance: Option<InstanceSnapshot>,
@@ -93,6 +95,9 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
             row.try_get("host_snapshot")?;
         let dpu_snapshots: sqlx::types::Json<Vec<Option<MachineSnapshotPgJson>>> =
             row.try_get("dpu_snapshots")?;
+        // We are setting dpa_interface_snapshots to an emtpy vector here.
+        // This will be filled by load_object_state later.
+        let dpa_interface_snapshots: Vec<DpaInterface> = Vec::new();
 
         let mut instance: Option<InstanceSnapshot> =
             if let Some(column) = row.columns().iter().find(|c| c.name() == "instance") {
@@ -124,6 +129,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
         let mut result = Self {
             host_snapshot,
             dpu_snapshots,
+            dpa_interface_snapshots,
             managed_state,
             instance,
             // This will need to be modified by callers, as its value depends on a
@@ -705,6 +711,7 @@ impl Machine {
     pub fn managed_host_network_config_version_synced(&self) -> bool {
         let dpu_expected_version = self.network_config.version;
         let dpu_observation = self.network_status_observation.as_ref();
+
         let dpu_observed_version: ConfigVersion = match dpu_observation {
             None => {
                 return false;

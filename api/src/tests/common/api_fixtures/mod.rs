@@ -12,6 +12,7 @@
 
 //! Contains fixtures that use the Carbide API for setting up
 
+use crate::cfg::file::DpaInterfaceStateControllerConfig;
 use crate::cfg::file::{ListenMode, MachineUpdater, PowerManagerOptions, VpcPeeringPolicy};
 use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::logging::log_limiter::LogLimiter;
@@ -31,10 +32,10 @@ use crate::tests::common::{
 use crate::{
     api::Api,
     cfg::file::{
-        CarbideConfig, DpuConfig as InitialDpuConfig, Firmware, FirmwareComponent,
+        CarbideConfig, DpaConfig, DpuConfig as InitialDpuConfig, Firmware, FirmwareComponent,
         FirmwareComponentType, FirmwareEntry, FirmwareGlobal, HostHealthConfig, IBFabricConfig,
         IbFabricDefinition, IbPartitionStateControllerConfig, MachineStateControllerConfig,
-        MeasuredBootMetricsCollectorConfig, NetworkSegmentStateControllerConfig, SpxConfig,
+        MeasuredBootMetricsCollectorConfig, NetworkSegmentStateControllerConfig,
         StateControllerConfig, default_max_find_by_ids,
     },
     db::{
@@ -920,6 +921,9 @@ pub fn get_config() -> CarbideConfig {
         ib_partition_state_controller: IbPartitionStateControllerConfig {
             controller: StateControllerConfig::default(),
         },
+        dpa_interface_state_controller: DpaInterfaceStateControllerConfig {
+            controller: StateControllerConfig::default(),
+        },
         dpu_config: InitialDpuConfig {
             dpu_nic_firmware_initial_update_enabled: true,
             dpu_nic_firmware_reprovision_update_enabled: true,
@@ -955,7 +959,10 @@ pub fn get_config() -> CarbideConfig {
         bom_validation: BomValidationConfig::default(),
         listen_mode: ListenMode::Tls,
         listen_only: false,
-        spx_config: Some(SpxConfig::default()),
+        dpa_config: Some(DpaConfig {
+            enabled: true,
+            mqtt_endpoint: "mqtt.forge".to_string(),
+        }),
         power_manager_options: PowerManagerOptions {
             enabled: true,
             ..PowerManagerOptions::default()
@@ -1562,6 +1569,17 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: 20001.to_string(),
                 end: (20001 + fabric_len as u16 - 1).to_string(),
+            }],
+            prefix: None,
+        },
+    );
+    defs.insert(
+        resource_pool::common::DPA_VNI.to_string(),
+        resource_pool::ResourcePoolDef {
+            pool_type: resource_pool::ResourcePoolType::Integer,
+            ranges: vec![resource_pool::Range {
+                start: 30001.to_string(),
+                end: (30001 + fabric_len as u16 - 1).to_string(),
             }],
             prefix: None,
         },

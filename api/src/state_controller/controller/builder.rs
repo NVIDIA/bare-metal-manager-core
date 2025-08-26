@@ -298,6 +298,14 @@ impl<IO: StateControllerIO> Builder<IO> {
 ///
 /// Note that there is no real relation between the table and the query
 /// We just use it to get an object identifier
+///
+/// For each of the lock names (e.g. network_segments_controller_lock, machine_state_controller_lock),
+/// the inner select statement will return its OID.
+/// For example, SELECT 'network_segments_controller_lock'::regclass::oid will return the same int
+/// everytime (for example 17308). Each advisory lock is identified by a single bigint
+/// And SELECT pg_try_advisory_xact_lock(17308) will acquire the lock and return TRUE if no one else
+/// has locked that table. Otherwise it will return FALSE immediately. The acquired lock is held
+/// for the duration of the current transaction.
 fn create_lock_query(db_lock_name: &str) -> String {
     format!("SELECT pg_try_advisory_xact_lock((SELECT '{db_lock_name}'::regclass::oid)::integer);")
 }

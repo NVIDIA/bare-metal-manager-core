@@ -16,6 +16,7 @@ pub mod boot_override;
 pub mod credential;
 pub mod dns;
 pub mod domain;
+pub mod dpa;
 pub mod dpu;
 pub mod expected_machine;
 pub mod finder;

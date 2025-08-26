@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fmt;
 
 pub mod domain;
+pub mod dpa_interface;
 pub mod infiniband;
 pub mod instance;
 pub mod instance_type;

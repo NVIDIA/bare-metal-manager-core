@@ -198,6 +198,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub ib_partition_state_controller: IbPartitionStateControllerConfig,
 
+    /// DpaInterfaceStateController related configuration parameter
+    #[serde(default)]
+    pub dpa_interface_state_controller: DpaInterfaceStateControllerConfig,
+
     #[serde(default)]
     pub host_models: HashMap<String, Firmware>,
 
@@ -261,10 +265,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub selected_profile: libredfish::BiosProfileType,
 
-    /// SpxConfig refers to East West Ethernet (aka
+    /// DpaConfig refers to East West Ethernet (aka
     /// Cluster Interconnect Network) configuration
     #[serde(default)]
-    pub spx_config: Option<SpxConfig>,
+    pub dpa_config: Option<DpaConfig>,
 
     /// FNN depends on various route-targets that
     /// are DC-specific.  This value is used to
@@ -385,6 +389,16 @@ impl CarbideConfig {
             absolute: self.machine_updater.max_concurrent_machine_updates_absolute,
             percent: self.machine_updater.max_concurrent_machine_updates_percent,
         }
+    }
+
+    pub fn is_dpa_enabled(&self) -> bool {
+        if self.dpa_config.is_none() {
+            return false;
+        }
+
+        let conf = self.dpa_config.clone().unwrap();
+
+        conf.enabled
     }
 }
 
@@ -536,6 +550,14 @@ impl Default for NetworkSegmentStateControllerConfig {
 /// IbPartitionStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct IbPartitionStateControllerConfig {
+    /// Common state controller configs
+    #[serde(default = "StateControllerConfig::default")]
+    pub controller: StateControllerConfig,
+}
+
+/// DpaInterfaceStateController related config
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct DpaInterfaceStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
     pub controller: StateControllerConfig,
@@ -2020,8 +2042,8 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .bom_validation
                 .ignore_unassigned_machines,
             dpu_nic_firmware_update_versions: value.dpu_config.dpu_nic_firmware_update_versions,
-            spx_enabled: value.spx_config.clone().unwrap_or_default().enabled,
-            mqtt_endpoint: value.spx_config.unwrap_or_default().mqtt_endpoint,
+            dpa_enabled: value.dpa_config.clone().unwrap_or_default().enabled,
+            mqtt_endpoint: value.dpa_config.unwrap_or_default().mqtt_endpoint,
             bom_validation_auto_generate_missing_sku: value
                 .bom_validation
                 .auto_generate_missing_sku,
@@ -2064,13 +2086,13 @@ fn subdirectories_sorted_by_modification_date(topdir: &PathBuf) -> Vec<fs::DirEn
 fn default_mqtt_endpoint() -> String {
     "mqtt.forge".to_string()
 }
-/// SPX (aka Cluster Ineteconnect Network) related configuration
-/// In addition to enabling SPX and specifying
+/// DPA (aka Cluster Ineteconnect Network) related configuration
+/// In addition to enabling DPA and specifying
 /// the mqtt endpoint, you need to specify the vni range to
-/// be used by SPX as pools.spx-vni
+/// be used by DPA as pools.dpa-vni
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 
-pub struct SpxConfig {
+pub struct DpaConfig {
     /// Global enable/disable of Cluster Interconnect Network
     #[serde(default)]
     pub enabled: bool,
@@ -3112,17 +3134,17 @@ max_partition_per_tenant = 3
     }
 
     #[test]
-    fn deserialize_spx_config() {
+    fn deserialize_dpa_config() {
         let toml = r#"
 enabled=true
 mqtt_endpoint = "mqtt.forge"
         "#;
 
-        let spx_config: SpxConfig = Figment::new().merge(Toml::string(toml)).extract().unwrap();
+        let dpa_config: DpaConfig = Figment::new().merge(Toml::string(toml)).extract().unwrap();
 
         assert_eq!(
-            spx_config,
-            SpxConfig {
+            dpa_config,
+            DpaConfig {
                 enabled: true,
                 mqtt_endpoint: "mqtt.forge".to_string(),
             }

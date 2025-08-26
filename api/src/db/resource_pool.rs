@@ -309,6 +309,9 @@ pub enum OwnerType {
 
     /// owner_type for vpc_cni
     Vpc,
+
+    /// owner_type for East West Networks
+    Dpa,
 }
 
 impl FromStr for OwnerType {
@@ -331,6 +334,7 @@ impl fmt::Display for OwnerType {
             Self::NetworkSegment => write!(f, "network_segment"),
             Self::IBPartition => write!(f, "ib_partition"),
             Self::Vpc => write!(f, "vpc"),
+            Self::Dpa => write!(f, "dpa"),
         }
     }
 }

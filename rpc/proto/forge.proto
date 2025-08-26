@@ -519,6 +519,14 @@ service Forge {
   // Copy BFB to DPU's RSHIM
   rpc CopyBfbToDpuRshim(CopyBfbToDpuRshimRequest) returns (google.protobuf.Empty);
 
+  // Spectrum-X East West Networking related calls
+  rpc GetAllDpaInterfaceIds(google.protobuf.Empty) returns (DpaInterfaceIdList);
+  rpc FindDpaInterfacesByIds(DpaInterfacesByIdsRequest) returns (DpaInterfaceList);
+  // XXX TODO XXX Remove the calls below, as they are only for debug testing
+  rpc CreateDpaInterface(DpaInterfaceCreationRequest) returns (DpaInterface);
+  rpc DeleteDpaInterface(DpaInterfaceDeletionRequest) returns (DpaInterfaceDeletionResult);
+  rpc SetDpaNetworkObservationStatus(DpaNetworkObservationSetRequest) returns (DpaInterface);
+
   // Power Options
   rpc GetPowerOptions(PowerOptionRequest) returns (PowerOptionResponse);
   rpc UpdatePowerOption(PowerOptionUpdateRequest) returns (PowerOptionResponse);
@@ -695,7 +703,7 @@ message RuntimeConfig {
 
   repeated string dpu_nic_firmware_update_versions=37;
 
-  bool spx_enabled = 38;
+  bool dpa_enabled = 38;
   string mqtt_endpoint = 39;
 
   optional string sitename = 40;
@@ -817,6 +825,8 @@ message Vpc {
 
   // Sets the desired NSG ID for a VPC
   optional string network_security_group_id  = 11;
+
+  optional uint32 dpa_vni = 12;
 }
 
 message VpcCreationRequest {
@@ -4780,6 +4790,62 @@ message SkusByIdsRequest {
 }
 
 message SkuSearchFilter {
+}
+
+message DpaInterface {
+  common.UUID id = 1;
+  common.MachineId machine_id = 2;
+  string mac_addr = 3;
+
+  google.protobuf.Timestamp created = 4;
+  google.protobuf.Timestamp updated = 5;
+  google.protobuf.Timestamp deleted = 6;
+
+  string controller_state = 7;
+  string controller_state_version = 8;
+  string controller_state_outcome = 9;
+  string network_status_observation = 10;
+
+  string network_config = 11;
+  string network_config_version = 12;
+
+  repeated DpaInterfaceStateHistory history = 13;
+}
+
+
+message DpaInterfaceCreationRequest {
+  common.MachineId machine_id = 1;
+  string mac_addr = 2;
+}
+
+message DpaInterfaceIdList {
+  repeated common.UUID ids = 1;
+}
+
+message DpaInterfacesByIdsRequest {
+  repeated common.UUID ids = 1;
+  bool include_history = 2;
+}
+
+message DpaInterfaceList {
+  repeated DpaInterface interfaces = 1;
+}
+
+message DpaInterfaceStateHistory {
+  string state = 1;
+  string version = 2;
+  google.protobuf.Timestamp time = 3;
+}
+
+message DpaNetworkObservationSetRequest {
+  common.UUID id = 1;
+}
+
+message DpaInterfaceDeletionRequest {
+  common.UUID id = 1;
+}
+
+message DpaInterfaceDeletionResult {
 }
 
 message SkuUpdateMetadataRequest {

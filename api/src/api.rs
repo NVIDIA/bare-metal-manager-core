@@ -5313,6 +5313,73 @@ impl Forge for Api {
         Ok(Response::new(()))
     }
 
+    // Return a Vector of all the DPA interface IDs
+    async fn get_all_dpa_interface_ids(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<rpc::DpaInterfaceIdList>, Status> {
+        crate::handlers::dpa::get_all_ids(self, request)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    // Given a Vector of DPA Interface IDs, return the corresponding
+    // DPA Interfaces in a Vector
+    async fn find_dpa_interfaces_by_ids(
+        &self,
+        request: Request<rpc::DpaInterfacesByIdsRequest>,
+    ) -> Result<Response<rpc::DpaInterfaceList>, Status> {
+        crate::handlers::dpa::find_dpa_interfaces_by_ids(self, request)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    // create_dpa_interface is mainly for debugging purposes. In practice,
+    // when the scout reports its inventory, we will create DPA interfaces
+    // for DPA NICs reported in the inventory.
+    async fn create_dpa_interface(
+        &self,
+        request: Request<rpc::DpaInterfaceCreationRequest>,
+    ) -> Result<Response<rpc::DpaInterface>, Status> {
+        if !self.runtime_config.is_dpa_enabled() {
+            return Err(CarbideError::InvalidArgument(
+                "CreateDpaInterface cannot be done as dpa_enabled is false".to_string(),
+            )
+            .into());
+        }
+        crate::handlers::dpa::create(self, request)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    // delete_dpa_interface is mainly for debugging purposes.
+    async fn delete_dpa_interface(
+        &self,
+        request: Request<rpc::DpaInterfaceDeletionRequest>,
+    ) -> Result<Response<rpc::DpaInterfaceDeletionResult>, Status> {
+        if !self.runtime_config.is_dpa_enabled() {
+            return Err(CarbideError::InvalidArgument(
+                "DeleteDpaInterface cannot be done as dpa_enabled is false".to_string(),
+            )
+            .into());
+        }
+        crate::handlers::dpa::delete(self, request)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    // set_dpa_network_observaction_status is for debugging purposes.
+    // In practice, the MQTT subscriber running in Carbide will update
+    // the observation status
+    async fn set_dpa_network_observation_status(
+        &self,
+        request: Request<rpc::DpaNetworkObservationSetRequest>,
+    ) -> Result<Response<rpc::DpaInterface>, Status> {
+        crate::handlers::dpa::set_dpa_network_observation_status(self, request)
+            .await
+            .map_err(|e| e.into())
+    }
+
     async fn create_bmc_user(
         &self,
         request: tonic::Request<rpc::CreateBmcUserRequest>,
@@ -5616,6 +5683,37 @@ impl Api {
             }
             Err(err) => {
                 tracing::error!(owner_id, error = %err, pool = "vpc_vni", "Error allocating from resource pool");
+                Err(err.into())
+            }
+        }
+    }
+
+    /// Allocate a value from the dpa vni resource pool.
+    ///
+    /// If the pool exists but is empty or has en error, return that.
+    pub(crate) async fn pool_allocate_dpa_vni(
+        &self,
+        txn: &mut PgConnection,
+        owner_id: &str,
+    ) -> Result<i32, CarbideError> {
+        match self
+            .common_pools
+            .dpa
+            .pool_dpa_vni
+            .allocate(txn, resource_pool::OwnerType::Dpa, owner_id)
+            .await
+        {
+            Ok(val) => Ok(val),
+            Err(resource_pool::ResourcePoolError::Empty) => {
+                tracing::error!(
+                    owner_id,
+                    pool = "dpa_vni",
+                    "Pool exhausted, cannot allocate"
+                );
+                Err(CarbideError::ResourceExhausted("pool dpa_vni".to_string()))
+            }
+            Err(err) => {
+                tracing::error!(owner_id, error = %err, pool = "dpa_vni", "Error allocating from resource pool");
                 Err(err.into())
             }
         }

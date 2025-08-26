@@ -42,6 +42,8 @@ pub const FNN_ASN: &str = "fnn-asn";
 /// Must match a pool defined in dev/resource_pools.toml
 pub const VPC_DPU_LOOPBACK: &str = "vpc-dpu-lo";
 
+pub const DPA_VNI: &str = "dpa-vni";
+
 /// How often to update the resource pool metrics
 const METRICS_RESOURCEPOOL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -55,10 +57,16 @@ pub fn ib_pkey_pool_name(fabric: &str) -> String {
 pub struct CommonPools {
     pub ethernet: EthernetPools,
     pub infiniband: IbPools,
+    pub dpa: DpaPools,
     pub pool_stats: Arc<Mutex<HashMap<String, ResourcePoolStats>>>,
     /// Instructs the metric task to stop.
     /// We rely on `CommonPools` being dropped to instruct the metric task to stop
     _stop_sender: oneshot::Sender<()>,
+}
+
+#[derive(Debug)]
+pub struct DpaPools {
+    pub pool_dpa_vni: Arc<DbResourcePool<i32>>,
 }
 
 /// ResourcePools that are used for ethernet virtualization
@@ -135,6 +143,11 @@ impl CommonPools {
         );
         pool_names.extend(pkey_pools.values().map(|pool| pool.name().to_string()));
 
+        let pool_dpa_vni: Arc<DbResourcePool<i32>> =
+            Arc::new(DbResourcePool::new(DPA_VNI.to_string(), ValueType::Integer));
+
+        pool_names.extend(vec![pool_dpa_vni.name().to_string()]);
+
         // Gather resource pool stats. A different thread sends them to Prometheus.
         let (stop_sender, mut stop_receiver) = oneshot::channel();
         let pool_stats: Arc<Mutex<HashMap<String, ResourcePoolStats>>> =
@@ -172,6 +185,7 @@ impl CommonPools {
                 pool_vpc_dpu_loopback_ip,
             },
             infiniband: IbPools { pkey_pools },
+            dpa: DpaPools { pool_dpa_vni },
             pool_stats,
             _stop_sender: stop_sender,
         }))

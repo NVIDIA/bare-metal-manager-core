@@ -18,9 +18,11 @@ use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use sqlx::{PgConnection, PgPool};
 
+use crate::api::Api;
 use crate::cfg::file::HostHealthConfig;
-use crate::db::ObjectColumnFilter;
+use crate::db::vpc::Vpc;
 use crate::db::vpc_prefix::VpcPrefix;
+use crate::db::{ObjectColumnFilter, dpa_interface};
 use crate::model::instance::config::network::NetworkDetails;
 use crate::model::machine::NotAllocatableReason;
 use crate::network_segment::allocate::Ipv4PrefixAllocator;
@@ -118,6 +120,28 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
             allow_unhealthy_machine,
         })
     }
+}
+
+pub async fn allocate_dpa_vni(
+    api: &Api,
+    network_config: &InstanceNetworkConfig,
+    txn: &mut PgConnection,
+) -> CarbideResult<()> {
+    let Some(network_segment_id) = network_config.interfaces[0].network_segment_id else {
+        // Network segment allocation is done before persisting record in db. So if still
+        // network segment is empty, return error.
+        return Err(CarbideError::InvalidArgument(
+            "Expected Network Segment".to_string(),
+        ));
+    };
+
+    let vpc = Vpc::find_by_segment(txn, network_segment_id)
+        .await
+        .map_err(CarbideError::DBError)?;
+
+    vpc.allocate_dpa_vni(txn, api).await?;
+
+    Ok(())
 }
 
 /// Allocate network segment and update network segment id with it.
@@ -249,6 +273,7 @@ pub async fn allocate_network(
 
 /// Allocates an instance for a tenant
 pub async fn allocate_instance(
+    api: &Api,
     mut request: InstanceAllocationRequest,
     database: &PgPool,
     host_health_config: HostHealthConfig,
@@ -360,6 +385,13 @@ pub async fn allocate_instance(
             }
         }
     }
+
+    if api.runtime_config.is_dpa_enabled()
+        && dpa_interface::is_machine_dpa_capable(&mut txn, request.machine_id).await?
+    {
+        allocate_dpa_vni(api, &request.config.network, &mut txn).await?;
+    }
+
     // Allocate network segment here before validate if vpc_prefix_id is mentioned.
     allocate_network(&mut request.config.network, &mut txn).await?;
 
