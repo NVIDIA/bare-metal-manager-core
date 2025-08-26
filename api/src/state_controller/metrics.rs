@@ -311,6 +311,7 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
             .with_unit("ms")
             .build();
         {
+            // The code below is what creates counters like forge_network_segments_total
             let metrics = shared_metrics_holder.clone();
             meter
                 .u64_observable_gauge(format!("{object_type}_total"))

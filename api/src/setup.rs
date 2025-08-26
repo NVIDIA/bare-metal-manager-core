@@ -59,6 +59,7 @@ use crate::{
     site_explorer::{BmcEndpointExplorer, SiteExplorer},
     state_controller::{
         controller::StateController,
+        dpa_interface::{handler::DpaInterfaceStateHandler, io::DpaInterfaceStateControllerIO},
         ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
         machine::{handler::MachineStateHandlerBuilder, io::MachineStateControllerIO},
         network_segment::{
@@ -602,6 +603,33 @@ pub async fn initialize_and_start_controllers(
         .site_config(carbide_config.clone())
         .build_and_spawn()
         .expect("Unable to build NetworkSegmentController");
+
+    let dpa_pool_vni = common_pools.dpa.pool_dpa_vni.clone();
+
+    let mut _dpa_interface_state_controller_handle: Option<
+        crate::state_controller::controller::StateControllerHandle,
+    > = None;
+
+    if carbide_config.is_dpa_enabled() {
+        tracing::info!("Starting DpaInterfaceStateController as dpa is enabled");
+        _dpa_interface_state_controller_handle = Some(
+            StateController::<DpaInterfaceStateControllerIO>::builder()
+                .database(db_pool.clone())
+                .meter("forge_dpa_interfaces", meter.clone())
+                .redfish_client_pool(shared_redfish_pool.clone())
+                .nvmesh_client_pool(shared_nvmesh_pool.clone())
+                .ib_fabric_manager(ib_fabric_manager.clone())
+                .forge_api(api_service.clone())
+                .iteration_config(
+                    (&carbide_config.dpa_interface_state_controller.controller).into(),
+                )
+                .state_handler(Arc::new(DpaInterfaceStateHandler::new(dpa_pool_vni)))
+                .ipmi_tool(ipmi_tool.clone())
+                .site_config(carbide_config.clone())
+                .build_and_spawn()
+                .expect("Unable to build DpaInterfaceStateController"),
+        );
+    }
 
     let _ib_partition_controller_handle =
         StateController::<IBPartitionStateControllerIO>::builder()

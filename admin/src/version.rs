@@ -113,7 +113,7 @@ pub async fn handle_show_version(
             config,
             bom_validation_auto_generate_missing_sku_interval
         );
-        r!(table, config, spx_enabled);
+        r!(table, config, dpa_enabled);
         r!(table, config, mqtt_endpoint);
 
         _ = table.print_tty(true);

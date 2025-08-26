@@ -2,6 +2,7 @@ pub(crate) mod common;
 mod connected_device;
 mod create_domain;
 mod dns;
+mod dpa_interfaces;
 mod dpu_agent_upgrade;
 mod dpu_info_list;
 mod dpu_machine_inventory;

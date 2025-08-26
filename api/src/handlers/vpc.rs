@@ -88,6 +88,9 @@ pub(crate) async fn create(
         .map_err(CarbideError::from)?;
 
     vpc.vni = Some(api.allocate_vpc_vni(&mut txn, &vpc.id.to_string()).await?);
+
+    // We will allocate an dpa_vni for this VPC when the first instance with DPA NICs gets added
+    // to this VPC.
     Vpc::set_vni(&mut txn, vpc.id, vpc.vni.unwrap())
         .await
         .map_err(CarbideError::from)?;
@@ -264,6 +267,15 @@ pub(crate) async fn delete(
             .ethernet
             .pool_vpc_vni
             .release(&mut txn, vni)
+            .await
+            .map_err(CarbideError::from)?;
+    }
+
+    if let Some(dpa_vni) = vpc.dpa_vni {
+        api.common_pools
+            .dpa
+            .pool_dpa_vni
+            .release(&mut txn, dpa_vni)
             .await
             .map_err(CarbideError::from)?;
     }

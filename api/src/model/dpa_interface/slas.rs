@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,12 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-pub mod config;
-pub mod controller;
-pub mod dpa_interface;
-pub mod ib_partition;
-pub mod io;
-pub mod machine;
-pub mod metrics;
-pub mod network_segment;
-pub mod state_handler;
+//! SLAs for Dpa Interface State Machine Controller
+//! These SLAs are in seconds
+
+pub const PROVISIONING: u64 = 15 * 60;
+
+pub const WAITINGFORSETVNI: u64 = 15 * 60;
+
+pub const WAITINGFORRESETVNI: u64 = 15 * 60;

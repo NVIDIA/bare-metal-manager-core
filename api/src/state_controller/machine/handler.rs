@@ -740,6 +740,23 @@ impl MachineStateHandler {
                         .await?;
                     }
 
+                    // Machine is currently in READY state, and instance is being created.
+                    // So we set use_admin_network to false and tell each DPA interface to
+                    // update its network config. This will cause the DPA state controller
+                    // to transition to the DPAs from READY state to WaitingForSetVNI state
+                    // and send SetVNI commands to the DPA NICs.
+                    for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
+                        let (mut netconf, version) = dpa_interface.network_config.clone().take();
+                        netconf.use_admin_network = Some(false);
+                        db::dpa_interface::try_update_network_config(
+                            txn,
+                            &dpa_interface.id,
+                            version,
+                            &netconf,
+                        )
+                        .await?;
+                    }
+
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::WaitingForNetworkSegmentToBeReady,
                     };
@@ -4662,6 +4679,19 @@ impl StateHandler for InstanceStateHandler {
                         ));
                     }
 
+                    // Check each DPA interface to see if it has acted on updating the network config.
+                    // This involves the DPA State Machine sending SetVNI commands to the NICs, and getting
+                    // an ACK. If any of the interfaces has not yet heard back the ACk, we will continue to
+                    // be in the current state.
+                    for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
+                        if !dpa_interface.managed_host_network_config_version_synced() {
+                            return Ok(wait!(
+                                "Waiting for DPA agent(s) to apply network config and report healthy network"
+                                    .to_string()
+                            ));
+                        }
+                    }
+
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::WaitingForStorageConfig,
                     };
@@ -5034,6 +5064,22 @@ impl StateHandler for InstanceStateHandler {
                         .await?;
                     }
 
+                    // Machine is currently an instance, but the instance is being released and we
+                    // are switching the NICs to the admin network. Set use_admin_network to true
+                    // and update the network config version in the DPA interfaces. This will cause
+                    // the DPA State Controller to send SetVNI commands with the VNI being zero.
+                    for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
+                        let (mut netconf, version) = dpa_interface.network_config.clone().take();
+                        netconf.use_admin_network = Some(true);
+                        db::dpa_interface::try_update_network_config(
+                            txn,
+                            &dpa_interface.id,
+                            version,
+                            &netconf,
+                        )
+                        .await?;
+                    }
+
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::WaitingForNetworkReconfig,
                     };
@@ -5048,6 +5094,18 @@ impl StateHandler for InstanceStateHandler {
                                 .to_string()
                         ));
                     }
+
+                    // Check each DPA interface associated with the machine to make sure the DPA NIC has updated
+                    // its network config (setting VNI to zero in this case).
+                    for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
+                        if !dpa_interface.managed_host_network_config_version_synced() {
+                            return Ok(wait!(
+                                "Waiting for DPA agent(s) to apply network config and report healthy network"
+                                    .to_string()
+                            ));
+                        }
+                    }
+
                     check_host_health_for_alerts(mh_snapshot)?;
 
                     ib::unbind_ib_ports(

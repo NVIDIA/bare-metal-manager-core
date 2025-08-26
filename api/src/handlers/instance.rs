@@ -60,6 +60,7 @@ pub(crate) async fn allocate(
 
     // Row-locking on Machine records happens in allocate_instance
     let mh_snapshot = allocate_instance(
+        api,
         request,
         &api.database_connection,
         api.runtime_config.host_health,

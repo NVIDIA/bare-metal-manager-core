@@ -66,7 +66,7 @@ use cfg::cli_options::UriInfo;
 use cfg::cli_options::VpcPeeringOptions;
 use cfg::cli_options::VpcPrefixOptions;
 use cfg::cli_options::{
-    CliCommand, CliOptions, Domain, Instance, Machine, MachineHardwareInfo,
+    CliCommand, CliOptions, Domain, DpaOptions, Instance, Machine, MachineHardwareInfo,
     MachineHardwareInfoCommand, MaintenanceAction, ManagedHost, NetworkCommand, NetworkSegment,
     ResourcePool, VpcOptions,
 };
@@ -97,6 +97,7 @@ mod async_write;
 mod cfg;
 mod devenv;
 mod domain;
+mod dpa;
 mod dpu;
 mod expected_machines;
 mod host;
@@ -1276,6 +1277,11 @@ async fn main() -> color_eyre::Result<()> {
             }
             VpcOptions::SetVirtualizer(set_vpc_virt) => {
                 vpc::set_network_virtualization_type(&api_client, set_vpc_virt).await?
+            }
+        },
+        CliCommand::Dpa(dpa) => match dpa {
+            DpaOptions::Show(dpa) => {
+                dpa::handle_show(dpa, config.format, &api_client, config.internal_page_size).await?
             }
         },
         CliCommand::VpcPeering(vpc_peering_command) => {

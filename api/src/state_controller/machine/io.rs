@@ -75,7 +75,7 @@ impl StateControllerIO for MachineStateControllerIO {
         txn: &mut PgConnection,
         machine_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
-        db::managed_host::load_snapshot(
+        let mut retstate = db::managed_host::load_snapshot(
             txn,
             machine_id,
             db::managed_host::LoadSnapshotOptions {
@@ -84,7 +84,16 @@ impl StateControllerIO for MachineStateControllerIO {
                 host_health_config: self.host_health,
             },
         )
-        .await
+        .await?;
+
+        if retstate.is_some() {
+            let retstate_ref: &mut ManagedHostStateSnapshot = retstate.as_mut().unwrap();
+            let dpa_snapshots =
+                db::dpa_interface::DpaInterface::find_by_machine_id(txn, machine_id).await?;
+            retstate_ref.dpa_interface_snapshots = dpa_snapshots;
+        };
+
+        return Ok(retstate);
     }
 
     async fn load_controller_state(

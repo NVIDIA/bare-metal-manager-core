@@ -16,6 +16,8 @@ pub mod desired_firmware;
 pub mod dhcp_entry;
 pub mod dhcp_record;
 pub mod domain;
+pub mod dpa_interface;
+pub mod dpa_interface_state_history;
 pub mod dpu_agent_upgrade_policy;
 pub mod dpu_machine_update;
 pub mod expected_machine;

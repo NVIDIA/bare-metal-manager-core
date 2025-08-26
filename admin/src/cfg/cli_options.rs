@@ -256,6 +256,9 @@ pub enum CliCommand {
 
     #[clap(about = "SSH Util functions", subcommand)]
     Ssh(SshActions),
+
+    #[clap(about = "DPA related handling", subcommand)]
+    Dpa(DpaOptions),
 }
 
 #[derive(Parser, Debug)]
@@ -2542,6 +2545,18 @@ pub struct VpcPrefixShow {
 pub struct VpcPrefixDelete {
     #[clap(value_name = "VpcPrefixId")]
     pub vpc_prefix_id: VpcPrefixId,
+}
+
+#[derive(Parser, Debug)]
+pub enum DpaOptions {
+    #[clap(about = "Display Dpa information")]
+    Show(ShowDpa),
+}
+
+#[derive(Parser, Debug)]
+pub struct ShowDpa {
+    #[clap(help = "The DPA Interface ID to query, leave empty for all (default)")]
+    pub id: Option<String>,
 }
 
 #[derive(Parser, Debug)]

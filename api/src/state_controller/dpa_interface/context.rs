@@ -10,12 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-pub mod config;
-pub mod controller;
-pub mod dpa_interface;
-pub mod ib_partition;
-pub mod io;
-pub mod machine;
-pub mod metrics;
-pub mod network_segment;
-pub mod state_handler;
+use crate::state_controller::{
+    dpa_interface::metrics::DpaInterfaceMetrics, state_handler::StateHandlerContextObjects,
+};
+
+pub struct DpaInterfaceStateHandlerContextObjects {}
+
+impl StateHandlerContextObjects for DpaInterfaceStateHandlerContextObjects {
+    type ObjectMetrics = DpaInterfaceMetrics;
+}

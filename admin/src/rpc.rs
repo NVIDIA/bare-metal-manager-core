@@ -818,6 +818,41 @@ impl ApiClient {
         Ok(all_list)
     }
 
+    // Get all the DPA interfaces and return the vector of DPA interfaces
+    pub async fn get_all_dpas(&self, page_size: usize) -> CarbideCliResult<rpc::DpaInterfaceList> {
+        let all_ids = self.get_dpa_ids().await?;
+        let mut all_list = rpc::DpaInterfaceList {
+            interfaces: Vec::with_capacity(all_ids.ids.len()),
+        };
+
+        let include_history = all_ids.ids.len() == 1;
+
+        for ids in all_ids.ids.chunks(page_size) {
+            let request = rpc::DpaInterfacesByIdsRequest {
+                ids: ids.to_vec(),
+                include_history,
+            };
+
+            let list = self.0.find_dpa_interfaces_by_ids(request).await?;
+            all_list.interfaces.extend(list.interfaces);
+        }
+
+        Ok(all_list)
+    }
+
+    // Given an DPA inteface ID, fetch it from Carbide and return it
+    pub async fn get_one_dpa(
+        &self,
+        dpa_id: ::rpc::common::Uuid,
+    ) -> CarbideCliResult<rpc::DpaInterfaceList> {
+        let request = rpc::DpaInterfacesByIdsRequest {
+            ids: vec![dpa_id],
+            include_history: true,
+        };
+
+        Ok(self.0.find_dpa_interfaces_by_ids(request).await?)
+    }
+
     pub async fn get_one_vpc(&self, vpc_id: ::rpc::common::Uuid) -> CarbideCliResult<rpc::VpcList> {
         let vpcs = self.0.find_vpcs_by_ids(&[vpc_id.clone()]).await?;
 
@@ -891,6 +926,14 @@ impl ApiClient {
         };
         self.0
             .create_network_segment(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    // Fetch from Carbide and return a vector of Dpa interface IDs
+    async fn get_dpa_ids(&self) -> CarbideCliResult<rpc::DpaInterfaceIdList> {
+        self.0
+            .get_all_dpa_interface_ids()
             .await
             .map_err(CarbideCliError::ApiInvocationError)
     }

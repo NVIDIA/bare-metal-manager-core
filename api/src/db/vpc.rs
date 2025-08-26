@@ -25,6 +25,7 @@ use super::network_segment::NetworkSegment;
 use super::{
     ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter, network_segment, vpc,
 };
+use crate::api::Api;
 use crate::model::metadata::Metadata;
 use crate::{CarbideError, CarbideResult, db};
 use forge_network::virtualization::{DEFAULT_NETWORK_VIRTUALIZATION_TYPE, VpcVirtualizationType};
@@ -43,6 +44,7 @@ pub struct Vpc {
     pub network_virtualization_type: VpcVirtualizationType,
     // Option because we can't allocate it until DB generates an id for us
     pub vni: Option<i32>,
+    pub dpa_vni: Option<i32>,
     pub metadata: Metadata,
 }
 
@@ -131,6 +133,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
             tenant_keyset_id: None, //TODO: fix this once DB gets updated
             network_virtualization_type: row.try_get("network_virtualization_type")?,
             vni: row.try_get("vni")?,
+            dpa_vni: row.try_get("dpa_vni")?,
             metadata,
         })
     }
@@ -234,6 +237,43 @@ impl Vpc {
         Ok(())
     }
 
+    pub async fn allocate_dpa_vni(
+        mut self,
+        txn: &mut PgConnection,
+        api: &Api,
+    ) -> Result<(), CarbideError> {
+        if let Some(dpa_vni) = self.dpa_vni {
+            if dpa_vni != 0 {
+                return Ok(());
+            };
+        };
+
+        // VPC does not have dpa_vni associated with it. Allocate an dpa_vni for VPC now.
+
+        self.dpa_vni = Some(api.pool_allocate_dpa_vni(txn, &self.id.to_string()).await?);
+        Vpc::set_dpa_vni(txn, self.id, self.dpa_vni.unwrap())
+            .await
+            .map_err(CarbideError::from)?;
+
+        Ok(())
+    }
+
+    // Update the DPA_VNI field of the VPC entry in the DB specified by the given ID
+    pub async fn set_dpa_vni(
+        txn: &mut PgConnection,
+        id: VpcId,
+        vni: i32,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE vpcs SET dpa_vni = $1 WHERE id = $2 AND dpa_vni IS NULL";
+        let _ = sqlx::query(query)
+            .bind(vni)
+            .bind(id)
+            .execute(txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
+
     // Note: Following find function should not be used to search based on vpc labels.
     // Recommended approach to filter by labels is to first find VPC ids.
     pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Vpc>>(
@@ -314,6 +354,7 @@ impl From<Vpc> for rpc::Vpc {
             deleted: src.deleted.map(|t| t.into()),
             tenant_keyset_id: src.tenant_keyset_id,
             vni: src.vni.map(|x| x as u32),
+            dpa_vni: src.dpa_vni.map(|x| x as u32),
             network_virtualization_type: Some(
                 rpc::VpcVirtualizationType::from(src.network_virtualization_type).into(),
             ),

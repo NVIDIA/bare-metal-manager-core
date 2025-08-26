@@ -198,7 +198,7 @@ message RuntimeConfig {
 
   repeated string dpu_nic_firmware_update_versions=37;
 
-  bool spx_enabled = 38;
+  bool dpa_enabled = 38;
   string mqtt_endpoint = 39;
 }
 

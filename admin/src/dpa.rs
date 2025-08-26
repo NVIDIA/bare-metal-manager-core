@@ -1,0 +1,136 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::fmt::Write;
+
+use crate::cfg::cli_options::ShowDpa;
+use crate::rpc::ApiClient;
+use ::rpc::forge::{self as forgerpc};
+use prettytable::{Table, row};
+use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+
+pub async fn handle_show(
+    args: ShowDpa,
+    output_format: OutputFormat,
+    api_client: &ApiClient,
+    page_size: usize,
+) -> CarbideCliResult<()> {
+    let is_json = output_format == OutputFormat::Json;
+    if args.id.is_none() {
+        show_dpas(is_json, api_client, page_size).await?
+    } else {
+        show_dpa_details(args.id.unwrap(), is_json, api_client).await?
+    }
+    Ok(())
+}
+
+// Show a table of all the DPA interfaces in the system
+async fn show_dpas(json: bool, api_client: &ApiClient, page_size: usize) -> CarbideCliResult<()> {
+    let all_dpas = api_client.get_all_dpas(page_size).await?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&all_dpas)?);
+    } else {
+        convert_dpas_to_nice_table(all_dpas).printstd();
+    }
+    Ok(())
+}
+
+// Show detailed information about the DPA interface specified by id
+async fn show_dpa_details(id: String, json: bool, api_client: &ApiClient) -> CarbideCliResult<()> {
+    let dpa_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
+        .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
+        .into();
+
+    let dpas = api_client.get_one_dpa(dpa_id).await?;
+
+    let dpa = match dpas.interfaces.len() {
+        1 => &dpas.interfaces[0],
+        _ => return Err(CarbideCliError::GenericError("Unknown DPA ID".to_string())),
+    };
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(dpa)?);
+    } else {
+        println!(
+            "{}",
+            convert_dpa_to_nice_format(dpa).unwrap_or_else(|x| x.to_string())
+        );
+    }
+    Ok(())
+}
+
+fn convert_dpas_to_nice_table(dpas: forgerpc::DpaInterfaceList) -> Box<Table> {
+    let mut table = Table::new();
+
+    table.set_titles(row!["Id", "Machine", "state", "Created",]);
+
+    for dpa in dpas.interfaces {
+        table.add_row(row![
+            dpa.id.unwrap_or_default(),
+            dpa.machine_id.clone().unwrap_or_default().id,
+            dpa.controller_state,
+            dpa.created.unwrap_or_default().to_string(),
+        ]);
+    }
+
+    table.into()
+}
+
+fn convert_dpa_to_nice_format(dpa: &forgerpc::DpaInterface) -> CarbideCliResult<String> {
+    let width = 25;
+    let mut lines = String::new();
+
+    let data = vec![
+        ("ID", dpa.id.clone().unwrap_or_default().value),
+        ("MACHINE ID", dpa.machine_id.clone().unwrap_or_default().id),
+        ("CREATED", dpa.created.unwrap_or_default().to_string()),
+        ("UPDATED", dpa.updated.unwrap_or_default().to_string()),
+        (
+            "DELETED",
+            match dpa.deleted {
+                Some(ts) => ts.to_string(),
+                None => "".to_string(),
+            },
+        ),
+        ("STATE", dpa.controller_state.to_string()),
+    ];
+
+    for (key, value) in data {
+        writeln!(&mut lines, "{key:<width$}: {value}")?;
+    }
+
+    writeln!(&mut lines, "STATE HISTORY: (Latest 5 only)")?;
+    if dpa.history.is_empty() {
+        writeln!(&mut lines, "\tEMPTY")?;
+    } else {
+        writeln!(
+            &mut lines,
+            "\tState          Version                      Time"
+        )?;
+        writeln!(
+            &mut lines,
+            "\t---------------------------------------------------"
+        )?;
+        for x in dpa.history.iter().rev().take(5).rev() {
+            writeln!(
+                &mut lines,
+                "\t{:<15} {:25} {}",
+                x.state,
+                x.version,
+                x.time.unwrap_or_default()
+            )?;
+        }
+    }
+
+    Ok(lines)
+}
