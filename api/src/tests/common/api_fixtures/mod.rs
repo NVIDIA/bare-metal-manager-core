@@ -281,6 +281,14 @@ impl TestEnv {
         ManagedHostConfig::default()
     }
 
+    /// Create database transaction for tests.
+    pub async fn db_txn(&self) -> sqlx::Transaction<'_, sqlx::Postgres> {
+        self.pool
+            .begin()
+            .await
+            .expect("Unable to create transaction on database pool")
+    }
+
     fn fill_machine_information(
         &self,
         state: &ManagedHostState,

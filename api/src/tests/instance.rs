@@ -133,11 +133,7 @@ async fn test_allocate_and_release_instance_impl(
 
     let (used_dpu_ids, _unused_dpu_ids) = mh.dpu_ids.split_at(instance_interface_count);
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+    let mut txn = env.db_txn().await;
     for segment_id in &segment_ids {
         assert_eq!(
             InstanceAddress::count_by_segment_id(&mut txn, segment_id)
@@ -196,12 +192,7 @@ async fn test_allocate_and_release_instance_impl(
     expected_tenant_config.phone_home_enabled = expected_os.phone_home_enabled;
     assert_eq!(tenant_config, &expected_tenant_config);
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
@@ -243,11 +234,7 @@ async fn test_allocate_and_release_instance_impl(
     let fetched_instance = snapshot.instance.unwrap();
     txn.commit().await.unwrap();
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+    let mut txn = env.db_txn().await;
     // TODO: The MAC here doesn't matter. It's not used for lookup
     let record = InstanceAddress::find_by_instance_id_and_segment_id(
         &mut txn,
@@ -293,11 +280,7 @@ async fn test_allocate_and_release_instance_impl(
     tinstance.delete().await;
 
     // Address is freed during delete
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+    let mut txn = env.db_txn().await;
     assert!(matches!(
         mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Ready
@@ -338,11 +321,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     let mh = create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+    let mut txn = env.db_txn().await;
     //let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
@@ -394,12 +373,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     expected_tenant_config.phone_home_enabled = expected_os.phone_home_enabled;
     assert_eq!(tenant_config, &expected_tenant_config);
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
@@ -438,12 +412,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     assert!(!fetched_instance.use_custom_pxe_on_boot);
     txn.commit().await.unwrap();
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     // TODO: The MAC here doesn't matter. It's not used for lookup
     let segment = NetworkSegment::find_by_name(&mut txn, "TENANT")
         .await
@@ -516,7 +485,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     // handle_delete_post_bootingwithdiscoveryimage()
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let machine = mh.host().db_machine(&mut txn).await;
     db::machine::update_reboot_time(&machine, &mut txn)
         .await
@@ -565,7 +534,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     }
 
     // check that it has failed as intended due to the lack of ca cert
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(
         host.current_state(),
@@ -600,7 +569,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     )
     .await;
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let machine = mh.host().db_machine(&mut txn).await;
     db::machine::update_reboot_time(&machine, &mut txn)
         .await
@@ -650,7 +619,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     });
     persist_machine_validation_result(&env, machine_validation_result.clone()).await;
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     db::machine::update_machine_validation_time(mh.host().machine_id(), &mut txn)
         .await
         .unwrap();
@@ -667,7 +636,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     )
     .await;
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let machine = mh.host().db_machine(&mut txn).await;
     db::machine::update_reboot_time(&machine, &mut txn)
         .await
@@ -693,12 +662,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     // end of delete_instance()
 
     // Address is freed during delete
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     assert!(matches!(
         mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Ready
@@ -761,12 +725,7 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
         Some(instance_metadata.clone())
     );
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
@@ -887,11 +846,7 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
         .build()
         .await;
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+    let mut txn = env.db_txn().await;
 
     let snapshot = mh.snapshot(&mut txn).await;
 
@@ -1380,12 +1335,7 @@ async fn test_instance_cloud_init_metadata(
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     let machine = mh.host().db_machine(&mut txn).await;
 
     let request = tonic::Request::new(rpc::forge::CloudInitInstructionsRequest {
@@ -1440,12 +1390,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .build()
         .await;
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     // When no network status has been observed, we report an interface
     // list with no IPs and MACs to the user
     let snapshot = mh.snapshot(&mut txn).await;
@@ -1526,7 +1471,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         }]
     );
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     updated_network_status.interfaces[0].mac_address =
         Some(MacAddress::new([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]).into());
     update_instance_network_status_observation(
@@ -1566,7 +1511,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     );
 
     // Assuming the config would change, the status should become unsynced again
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let next_config_version = snapshot.network_config_version.increment();
     let (_,): (uuid::Uuid,) = sqlx::query_as(
         "UPDATE instances SET network_config_version=$1 WHERE id = $2::uuid returning id",
@@ -1608,7 +1553,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
 
     // When the observation catches up, we are good again
     // The extra VF is ignored
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     updated_network_status.config_version = next_config_version;
     updated_network_status
         .interfaces
@@ -1665,7 +1610,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     // Drop the gateways and prefixes fields from the JSONB and ensure the rest of the
     // object is OK (to emulate older agents not sending gateways and prefixes in the status
     // observations).
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let gateways_query = "UPDATE machines SET network_status_observation=jsonb_strip_nulls(jsonb_set(network_status_observation, '{instance_network_observation,interfaces,0,gateways}', 'null', false)) where id = $1 returning id";
     let prefixes_query = "UPDATE machines SET network_status_observation=jsonb_strip_nulls(jsonb_set(network_status_observation, '{instance_network_observation,interfaces,0,prefixes}', 'null', false)) where id = $1 returning id";
 
@@ -1749,12 +1694,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     let (segment_id_1, segment_id_2) = env.create_vpc_and_dual_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, &segment_id_1)
             .await
@@ -1792,12 +1732,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
 
     let tinstance = mh.instance_builer(&env).network(network).build().await;
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, &segment_id_1)
             .await
@@ -2102,7 +2037,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
     );
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     txn.commit().await.unwrap();
 
@@ -2310,12 +2245,7 @@ async fn test_allocate_instance_with_old_network_segemnt(
         Some(instance_metadata.clone())
     );
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
@@ -2398,12 +2328,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
 
     assert!(config.network.interfaces[0].network_segment_id.is_none());
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     allocate_network(&mut config.network, &mut txn)
         .await
         .unwrap();
@@ -2411,12 +2336,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
     txn.commit().await.unwrap();
     assert!(config.network.interfaces[0].network_segment_id.is_some());
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     let network_segment = NetworkSegment::find_by(
         &mut txn,
         ObjectColumnFilter::One(
@@ -2448,11 +2368,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+    let mut txn = env.db_txn().await;
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
             .await
@@ -2539,12 +2455,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     expected_tenant_config.phone_home_enabled = expected_os.phone_home_enabled;
     assert_eq!(tenant_config, &expected_tenant_config);
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
@@ -2608,12 +2519,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     assert!(!fetched_instance.use_custom_pxe_on_boot);
     txn.commit().await.unwrap();
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     let mut ns = NetworkSegment::find_by(
         &mut txn,
         ObjectColumnFilter::One(
@@ -2684,12 +2590,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .collect_vec();
 
     // Address is freed during delete
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     let network_segments = NetworkSegment::find_by(
         &mut txn,
         ObjectColumnFilter::List(IdColumn, &segment_ids),
@@ -2763,12 +2664,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     let vpc_id: forge_uuid::vpc::VpcId = vpc.id.as_ref().unwrap().clone().try_into().unwrap();
     let vpc_prefix_id = create_tenant_overlay_prefix(&env, vpc_id).await;
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     let allocator = Ipv4PrefixAllocator::new(
         // 15 IPs
         vpc_prefix_id,
@@ -2797,11 +2693,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
 
     txn.commit().await.unwrap();
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+    let mut txn = env.db_txn().await;
 
     let allocator = Ipv4PrefixAllocator::new(
         vpc_prefix_id,
@@ -2830,12 +2722,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
 
     txn.commit().await.unwrap();
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     let allocator = Ipv4PrefixAllocator::new(
         vpc_prefix_id,
         Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap(),
@@ -2870,12 +2757,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     assert_ne!(address1, address3);
     assert_ne!(address2, address3);
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     let allocator = Ipv4PrefixAllocator::new(
         vpc_prefix_id,
         Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap(),
@@ -2910,7 +2792,7 @@ async fn create_tenant_overlay_prefix(
     env: &TestEnv,
     vpc_id: forge_uuid::vpc::VpcId,
 ) -> VpcPrefixId {
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let vpc_prefix_id = crate::db::vpc_prefix::NewVpcPrefix {
         id: uuid::Uuid::new_v4().into(),
         prefix: IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap()),
@@ -3564,12 +3446,7 @@ async fn test_allocate_and_update_network_config_instance(
     let (segment_id, segment_id2) = env.create_vpc_and_dual_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
             .await
@@ -3644,16 +3521,8 @@ async fn test_allocate_and_update_network_config_instance(
         rpc::SyncState::Pending
     );
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-    let instance = crate::db::instance::Instance::find_by_id(&mut txn, instance.id())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let mut txn = env.db_txn().await;
+    let instance = tinstance.db_instance(&mut txn).await;
     txn.rollback().await.unwrap();
 
     assert!(instance.update_network_config_request.is_some());
@@ -3679,12 +3548,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
     let (segment_id, segment_id2) = env.create_vpc_and_dual_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
             .await
@@ -3714,15 +3578,8 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
 
     let instance_id_rpc = instance.rpc_id();
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-    let instance = crate::db::instance::Instance::find_by_id(&mut txn, instance.id())
-        .await
-        .unwrap()
-        .unwrap();
+    let mut txn = env.db_txn().await;
+    let instance = tinstance.db_instance(&mut txn).await;
 
     let current_ip = instance.config.network.interfaces[0]
         .ip_addrs
@@ -3795,15 +3652,8 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
         rpc::SyncState::Pending
     );
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-    let instance = crate::db::instance::Instance::find_by_id(&mut txn, instance.id())
-        .await
-        .unwrap()
-        .unwrap();
+    let mut txn = env.db_txn().await;
+    let instance = tinstance.db_instance(&mut txn).await;
 
     txn.rollback().await.unwrap();
 
@@ -4059,11 +3909,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
     mh.network_configured(&env).await;
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+    let mut txn = env.db_txn().await;
     let state = mh.host().db_machine(&mut txn).await;
     let state = state.current_state();
     println!("{state:?}");
@@ -4113,12 +3959,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
     let (segment_id, segment_id2) = env.create_vpc_and_dual_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
             .await
@@ -4192,11 +4033,8 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
     env.run_machine_state_controller_iteration().await;
     // and stay there only.
     env.run_machine_state_controller_iteration().await;
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+
+    let mut txn = env.db_txn().await;
     let current_state = mh.host().db_machine(&mut txn).await;
     let current_state = current_state.current_state();
     println!("Current State: {current_state}");
@@ -4214,11 +4052,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
     mh.network_configured(&env).await;
     // Move to ReleaseOldResources state.
     env.run_machine_state_controller_iteration().await;
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+    let mut txn = env.db_txn().await;
     assert!(matches!(
         mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Assigned {
@@ -4229,11 +4063,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
     ));
     txn.rollback().await.unwrap();
     env.run_machine_state_controller_iteration().await;
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+    let mut txn = env.db_txn().await;
     assert!(matches!(
         mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Assigned {
@@ -4362,12 +4192,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         }],
     };
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     let segments = NetworkSegment::find_ids(&mut txn, NetworkSegmentSearchFilter::default())
         .await
         .unwrap();
@@ -4414,11 +4239,8 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     env.run_machine_state_controller_iteration().await;
     // and stay there only.
     env.run_machine_state_controller_iteration().await;
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+
+    let mut txn = env.db_txn().await;
     let current_state = mh.host().db_machine(&mut txn).await;
     let current_state = current_state.current_state();
     println!("Current State: {current_state}");
@@ -4436,11 +4258,8 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     mh.network_configured(&env).await;
     // Move to ReleaseOldResources state.
     env.run_machine_state_controller_iteration().await;
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+
+    let mut txn = env.db_txn().await;
     assert!(matches!(
         mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Assigned {
@@ -4451,11 +4270,8 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     ));
     txn.rollback().await.unwrap();
     env.run_machine_state_controller_iteration().await;
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
+
+    let mut txn = env.db_txn().await;
     assert!(matches!(
         mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Assigned {
@@ -4547,12 +4363,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
             .all(|i| i.network_segment_id.is_none())
     );
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     allocate_network(&mut config.network, &mut txn)
         .await
         .unwrap();
@@ -4566,12 +4377,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
             .all(|i| i.network_segment_id.is_some())
     );
 
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     let expected_ips = [
         Ipv4Addr::from_str("10.217.5.224").unwrap(),
         Ipv4Addr::from_str("10.217.5.226").unwrap(),
@@ -4678,12 +4484,7 @@ async fn test_instance_release_backward_compatibility(_: PgPoolOptions, options:
 
     // Verify instance is properly cleaned up by checking machine state
     // The host should transition properly after successful cleanup
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
+    let mut txn = env.db_txn().await;
     // Wait a moment for async cleanup to complete
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -4810,11 +4611,7 @@ async fn test_instance_release_repair_tenant(_: PgPoolOptions, options: PgConnec
         let _release_inner = release_response.into_inner();
 
         // Verify repair tenant behavior
-        let mut txn = env
-            .pool
-            .begin()
-            .await
-            .expect("Unable to create transaction");
+        let mut txn = env.db_txn().await;
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let host_machine = mh.host().db_machine(&mut txn).await;
@@ -4923,11 +4720,7 @@ async fn test_instance_release_combined_enhancements(_: PgPoolOptions, options: 
     let _release_inner = release_response.into_inner();
 
     // Verify combined enhancement effects
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction");
+    let mut txn = env.db_txn().await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let host_machine = mh.host().db_machine(&mut txn).await;
@@ -5023,11 +4816,7 @@ async fn test_instance_release_auto_repair_enabled(_: PgPoolOptions, options: Pg
     let _release_inner = release_response.into_inner();
 
     // Verify auto-repair enabled effects: BOTH TenantReportedIssue AND RequestRepair should be applied
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction");
+    let mut txn = env.db_txn().await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let host_machine = mh.host().db_machine(&mut txn).await;
@@ -5141,7 +4930,7 @@ async fn test_instance_release_repair_tenant_successful_completion(
         .unwrap();
 
     // Verify both overrides are applied after regular tenant release
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let host_machine = mh.host().db_machine(&mut txn).await;
