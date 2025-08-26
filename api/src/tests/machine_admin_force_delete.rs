@@ -41,7 +41,7 @@ use common::api_fixtures::{
     get_instance_type_fixture_id,
     host::host_discover_dhcp,
     ib_partition::{DEFAULT_TENANT, create_ib_partition},
-    instance::{TestInstance, create_instance_with_ib_config},
+    instance::create_instance_with_ib_config,
     tpm_attestation::EK_CERT_SERIALIZED,
 };
 
@@ -491,7 +491,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
         }],
     };
 
-    let (instance_id, instance) =
+    let (tinstance, instance) =
         create_instance_with_ib_config(&env, &mh, ib_config, segment_id).await;
 
     let mut txn = env
@@ -508,7 +508,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     ));
     txn.commit().await.unwrap();
 
-    let check_instance = env.one_instance(instance_id).await;
+    let check_instance = tinstance.rpc_instance().await;
     assert_eq!(check_instance.machine_id(), mh.id);
     assert_eq!(check_instance.status().tenant(), rpc::TenantState::Ready);
     assert_eq!(instance, check_instance);
@@ -651,9 +651,10 @@ async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .single_interface_network_config(segment_id)
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     // 2) mock force-delete
@@ -679,7 +680,7 @@ async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
 
     // 3) verify instance's tenant state is rpc::forge::TenantState::Terminating
     let request_instances = tonic::Request::new(InstancesByIdsRequest {
-        instance_ids: vec![rpc::Uuid::from(instance_id)],
+        instance_ids: vec![tinstance.id().into()],
     });
     let mut instance_list = env
         .api

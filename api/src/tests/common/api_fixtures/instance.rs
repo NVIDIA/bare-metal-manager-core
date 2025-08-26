@@ -13,11 +13,10 @@
 use std::ops::DerefMut;
 use std::time::SystemTime;
 
-use super::{
-    TestEnv, forge_agent_control, inject_machine_measurements, persist_machine_validation_result,
-};
+use super::{TestEnv, inject_machine_measurements, persist_machine_validation_result};
 use crate::db;
 use crate::model::instance::config::network::DeviceLocator;
+use crate::model::instance::snapshot::InstanceSnapshot;
 use crate::model::instance::status::network::InstanceNetworkStatusObservation;
 use crate::model::machine::{
     CleanupState, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
@@ -25,21 +24,21 @@ use crate::model::machine::{
 use crate::tests::common::api_fixtures::RpcInstance;
 use crate::tests::common::api_fixtures::managed_host::ManagedHost;
 use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
-use futures::FutureExt as _;
 use rpc::{
     InstanceReleaseRequest, Timestamp,
     forge::{forge_server::Forge, instance_interface_config::NetworkDetails},
 };
 
-pub struct TestInstance<'a> {
+pub struct TestInstanceBuilder<'a, 'b> {
     env: &'a TestEnv,
     config: rpc::InstanceConfig,
     tenant: rpc::TenantConfig,
     metadata: Option<rpc::Metadata>,
+    mh: &'b ManagedHost,
 }
 
-impl<'a> TestInstance<'a> {
-    pub fn new(env: &'a TestEnv) -> Self {
+impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
+    pub fn new(env: &'a TestEnv, mh: &'b ManagedHost) -> Self {
         Self {
             env,
             config: rpc::InstanceConfig {
@@ -52,6 +51,7 @@ impl<'a> TestInstance<'a> {
             },
             tenant: default_tenant_config(),
             metadata: None,
+            mh,
         }
     }
 
@@ -89,15 +89,12 @@ impl<'a> TestInstance<'a> {
         self
     }
 
-    pub async fn create_for_manged_host(self, mh: &ManagedHost) -> (InstanceId, RpcInstance) {
-        self.create(&mh.dpu_ids, &mh.id).await
+    pub async fn build(self) -> TestInstance<'a, 'b> {
+        let (tinstance, _) = self.build_and_return().await;
+        tinstance
     }
 
-    async fn create(
-        mut self,
-        dpu_machine_ids: &Vec<MachineId>,
-        host_machine_id: &MachineId,
-    ) -> (InstanceId, RpcInstance) {
+    pub async fn build_and_return(mut self) -> (TestInstance<'a, 'b>, RpcInstance) {
         if self.config.tenant.is_none() {
             self.config.tenant = Some(self.tenant);
         }
@@ -106,7 +103,7 @@ impl<'a> TestInstance<'a> {
             .api
             .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
                 instance_id: None,
-                machine_id: host_machine_id.into(),
+                machine_id: self.mh.host().machine_id().into(),
                 instance_type_id: None,
                 config: Some(self.config),
                 metadata: self.metadata,
@@ -120,26 +117,66 @@ impl<'a> TestInstance<'a> {
             .try_into()
             .unwrap();
 
-        let instance = advance_created_instance_into_ready_state(
-            self.env,
-            dpu_machine_ids,
-            host_machine_id,
-            instance_id,
-        )
-        .await;
-        (instance_id, instance)
+        advance_created_instance_into_ready_state(self.env, self.mh).await;
+        let tinstance = TestInstance {
+            id: instance_id,
+            env: self.env,
+            mh: self.mh,
+        };
+        let rpc_instance = tinstance.rpc_instance().await;
+        (tinstance, rpc_instance)
     }
 }
 
-pub async fn create_instance_with_ib_config(
-    env: &TestEnv,
-    mh: &ManagedHost,
+pub struct TestInstance<'a, 'b> {
+    id: InstanceId,
+    env: &'a TestEnv,
+    mh: &'b ManagedHost,
+}
+
+type Txn<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
+
+impl<'a, 'b> TestInstance<'a, 'b> {
+    pub fn id(&self) -> &InstanceId {
+        &self.id
+    }
+
+    pub async fn db_instance(&self, txn: &mut Txn<'_>) -> InstanceSnapshot {
+        db::instance::Instance::find_by_id(txn, self.id)
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    pub async fn rpc_instance(&self) -> RpcInstance {
+        let mut result = self
+            .env
+            .api
+            .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery {
+                id: Some(self.id.into()),
+                label: None,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(result.instances.len(), 1);
+        RpcInstance::new(result.instances.remove(0))
+    }
+
+    pub async fn delete(&self) {
+        self.mh.delete_instance(self.env, self.id).await
+    }
+}
+
+pub async fn create_instance_with_ib_config<'a, 'b>(
+    env: &'a TestEnv,
+    mh: &'b ManagedHost,
     ib_config: rpc::forge::InstanceInfinibandConfig,
     network_segment_id: NetworkSegmentId,
-) -> (InstanceId, RpcInstance) {
-    TestInstance::new(env)
+) -> (TestInstance<'a, 'b>, RpcInstance) {
+    mh.instance_builer(env)
         .config(config_for_ib_config(ib_config, network_segment_id))
-        .create_for_manged_host(mh)
+        .build_and_return()
         .await
 }
 
@@ -230,12 +267,7 @@ pub fn config_for_ib_config(
     }
 }
 
-pub async fn advance_created_instance_into_ready_state(
-    env: &TestEnv,
-    dpu_machine_ids: &Vec<MachineId>,
-    host_machine_id: &MachineId,
-    instance_id: InstanceId,
-) -> RpcInstance {
+pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &ManagedHost) {
     // Run network state machine handler here.
     env.run_network_segment_controller_iteration().await;
 
@@ -244,39 +276,24 @@ pub async fn advance_created_instance_into_ready_state(
     // - first run: state controller moves state to WaitingForNetworkConfig
     env.run_machine_state_controller_iteration().await;
     assert_eq!(
-        env.find_machines(host_machine_id.into(), None, false)
-            .await
-            .machines
-            .remove(0)
-            .state,
+        mh.host().rpc_machine().await.state,
         "Assigned/WaitingForNetworkConfig".to_string()
     );
     // - second run: Run one iteration in WaitingForNetworkConfig
     // This will request to bind IB ports. We will then observe that these have been bound
     env.run_machine_state_controller_iteration().await;
     assert_eq!(
-        env.find_machines(host_machine_id.into(), None, false)
-            .await
-            .machines
-            .remove(0)
-            .state,
+        mh.host().rpc_machine().await.state,
         "Assigned/WaitingForNetworkConfig".to_string()
     );
     // - forge-dpu-agent gets an instance network to configure, reports it configured
-    super::network_configured(env, dpu_machine_ids)
-        .boxed()
-        .await;
+    mh.network_configured(env).await;
     // If IB is used, another state controller iteration might be required to bind the IB ports
     // and get actually out of the state
     // This iteration will call bind_ib_ports
     env.run_machine_state_controller_iteration().await;
 
-    let state = env
-        .find_machines(host_machine_id.into(), None, false)
-        .await
-        .machines
-        .remove(0)
-        .state;
+    let state = mh.host().rpc_machine().await.state;
     if state == "Assigned/WaitingForNetworkConfig" {
         // Also report that we are no longer on the tenant network for IB
         // That can require one more state controller iteration after the fabric
@@ -285,41 +302,29 @@ pub async fn advance_created_instance_into_ready_state(
         env.run_machine_state_controller_iteration().await;
     }
     assert_eq!(
-        env.find_machines(host_machine_id.into(), None, false)
-            .await
-            .machines
-            .remove(0)
-            .state,
+        mh.host().rpc_machine().await.state,
         "Assigned/WaitingForStorageConfig".to_string()
     );
     // - simulate that the host's hardware is reported healthy
     super::simulate_hardware_health_report(
         env,
-        host_machine_id,
+        mh.host().machine_id(),
         health_report::HealthReport::empty("hardware-health".to_string()),
     )
     .await;
 
     // - third run: state controller runs again, advances state to Ready
     env.run_machine_state_controller_iteration_until_state_matches(
-        host_machine_id,
+        mh.host().machine_id(),
         10,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::Ready,
         },
     )
     .await;
-
-    // get the updated info with proper network config info added after the instance state is ready
-    env.one_instance(instance_id).await
 }
 
-pub async fn delete_instance(
-    env: &TestEnv,
-    instance_id: InstanceId,
-    dpu_machine_ids: &Vec<MachineId>,
-    host_machine_id: &MachineId,
-) {
+pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &ManagedHost) {
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
             id: Some(instance_id.into()),
@@ -334,7 +339,7 @@ pub async fn delete_instance(
     assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        host_machine_id,
+        mh.host().machine_id(),
         1,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::BootingWithDiscoveryImage {
@@ -343,7 +348,7 @@ pub async fn delete_instance(
         },
     )
     .await;
-    handle_delete_post_bootingwithdiscoveryimage(env, dpu_machine_ids, host_machine_id).await;
+    handle_delete_post_bootingwithdiscoveryimage(env, mh).await;
 
     assert!(
         env.find_instances(Some(instance_id.into()))
@@ -359,23 +364,9 @@ pub async fn delete_instance(
     env.run_network_segment_controller_iteration().await;
 }
 
-pub async fn handle_delete_post_bootingwithdiscoveryimage(
-    env: &TestEnv,
-    dpu_machine_ids: &Vec<MachineId>,
-    host_machine_id: &MachineId,
-) {
+pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &ManagedHost) {
     let mut txn = env.pool.begin().await.unwrap();
-    let machine = db::machine::find_one(
-        &mut txn,
-        host_machine_id,
-        db::machine::MachineSearchConfig {
-            include_history: true,
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let machine = mh.host().db_machine(&mut txn).await;
     db::machine::update_reboot_time(&machine, &mut txn)
         .await
         .unwrap();
@@ -385,7 +376,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     // First DeletingManagedResource updates use_admin_network, transitions to WaitingForNetworkReconfig
     // Second to discover we are now in WaitingForNetworkReconfig
     env.run_machine_state_controller_iteration_until_state_matches(
-        host_machine_id,
+        mh.host().machine_id(),
         2,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::WaitingForNetworkReconfig,
@@ -394,14 +385,9 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     .await;
 
     // Apply switching back to admin network
-    super::network_configured(env, dpu_machine_ids).await;
+    mh.network_configured(env).await;
     env.run_machine_state_controller_iteration().await;
-    let state = env
-        .find_machines(Some(host_machine_id.to_string().into()), None, false)
-        .await
-        .machines
-        .remove(0)
-        .state;
+    let state = mh.host().rpc_machine().await.state;
     if state == "Assigned/WaitingForNetworkReconfig" {
         // Also report that we are no longer on the tenant network for IB
         // That can require one more state controller iteration after the fabric
@@ -411,11 +397,11 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     }
 
     if env.attestation_enabled {
-        inject_machine_measurements(env, (*host_machine_id).into()).await;
+        inject_machine_measurements(env, mh.host().machine_id().into()).await;
     }
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        host_machine_id,
+        mh.host().machine_id(),
         3,
         ManagedHostState::WaitingForCleanup {
             cleanup_state: CleanupState::HostCleanup {
@@ -426,17 +412,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     .await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let machine = db::machine::find_one(
-        &mut txn,
-        host_machine_id,
-        crate::db::machine::MachineSearchConfig {
-            include_history: true,
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let machine = mh.host().db_machine(&mut txn).await;
     db::machine::update_reboot_time(&machine, &mut txn)
         .await
         .unwrap();
@@ -446,7 +422,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     txn.commit().await.unwrap();
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        host_machine_id,
+        mh.host().machine_id(),
         3,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -477,7 +453,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         test_id: Some("instance".to_string()),
     };
 
-    let response = forge_agent_control(env, host_machine_id.into()).await;
+    let response = mh.host().forge_agent_control().await;
     let uuid = &response.data.unwrap().pair[1].value;
 
     machine_validation_result.validation_id = Some(rpc::Uuid {
@@ -486,13 +462,13 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     persist_machine_validation_result(env, machine_validation_result.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    db::machine::update_machine_validation_time(host_machine_id, &mut txn)
+    db::machine::update_machine_validation_time(mh.host().machine_id(), &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        host_machine_id,
+        mh.host().machine_id(),
         3,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
@@ -503,24 +479,14 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     .await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let machine = db::machine::find_one(
-        &mut txn,
-        host_machine_id,
-        crate::db::machine::MachineSearchConfig {
-            include_history: true,
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let machine = mh.host().db_machine(&mut txn).await;
     db::machine::update_reboot_time(&machine, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        host_machine_id,
+        mh.host().machine_id(),
         3,
         ManagedHostState::Ready,
     )

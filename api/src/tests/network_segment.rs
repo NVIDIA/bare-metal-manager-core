@@ -1028,9 +1028,9 @@ async fn test_update_svi_ip_post_instance_allocation(
     );
     txn.commit().await.unwrap();
 
-    let (_instance_id, _instance) = common::api_fixtures::instance::TestInstance::new(&env)
+    mh.instance_builer(&env)
         .single_interface_network_config(segment_id)
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     // At this moment, the third IP is taken from the tenant subnet for the instance.

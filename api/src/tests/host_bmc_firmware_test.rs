@@ -11,9 +11,7 @@
  */
 
 use crate::tests::common;
-use crate::tests::common::api_fixtures::{
-    TestEnvOverrides, create_test_env, forge_agent_control, instance::TestInstance,
-};
+use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env, forge_agent_control};
 use crate::{
     CarbideResult,
     cfg::file::{
@@ -1131,9 +1129,10 @@ async fn test_instance_upgrading_actual(
 
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .single_interface_network_config(segment_id)
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     // Create and start an update manager
@@ -1170,7 +1169,7 @@ async fn test_instance_upgrading_actual(
     }
 
     // Split here to avoid hitting stack size limits
-    test_instance_upgrading_actual_part_2(&env, &mh.id, &instance_id, &update_manager).await
+    test_instance_upgrading_actual_part_2(&env, &mh.id, tinstance.id(), &update_manager).await
 }
 
 async fn test_instance_upgrading_actual_part_2(

@@ -12,8 +12,7 @@
 
 use crate::db::network_segment::NetworkSegment;
 use crate::tests::common::api_fixtures::{
-    create_managed_host, create_test_env,
-    instance::{TestInstance, default_tenant_config},
+    create_managed_host, create_test_env, instance::default_tenant_config,
 };
 use ::rpc::forge as rpc;
 use rpc::forge_server::Forge;
@@ -51,12 +50,12 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 .await
                 .unwrap();
 
-            let (_instance_id, _instance) = TestInstance::new(&env)
+            mh.instance_builer(&env)
                 .single_interface_network_config(segment_id)
-                .create_for_manged_host(&mh)
+                .build()
                 .await;
         } else {
-            let (_instance_id, _instance) = TestInstance::new(&env)
+            mh.instance_builer(&env)
                 .single_interface_network_config(segment_id)
                 .metadata(rpc::Metadata {
                     name: format!("instance_{i}{i}{i}").to_string(),
@@ -66,7 +65,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                         value: Some(format!("label_value_{i}").to_string()),
                     }],
                 })
-                .create_for_manged_host(&mh)
+                .build()
                 .await;
         }
     }
@@ -296,12 +295,12 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
         let mh = create_managed_host(&env).await;
 
         if i % 2 == 0 {
-            let (_instance_id, _instance) = TestInstance::new(&env)
+            mh.instance_builer(&env)
                 .single_interface_network_config(segment_id)
-                .create_for_manged_host(&mh)
+                .build()
                 .await;
         } else {
-            let (_instance_id, _instance) = TestInstance::new(&env)
+            mh.instance_builer(&env)
                 .single_interface_network_config(segment_id)
                 .metadata(rpc::Metadata {
                     name: format!("instance_{i}{i}{i}").to_string(),
@@ -311,7 +310,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
                         value: Some(format!("label_value_{i}").to_string()),
                     }],
                 })
-                .create_for_manged_host(&mh)
+                .build()
                 .await;
         }
     }

@@ -11,7 +11,7 @@
  */
 use crate::tests::common;
 
-use crate::tests::common::api_fixtures::{create_managed_host, instance::TestInstance};
+use crate::tests::common::api_fixtures::create_managed_host;
 use common::api_fixtures::{TestEnv, create_test_env};
 use rpc::forge::{CreateTenantKeysetResponse, forge_server::Forge};
 use tonic::Code;
@@ -757,10 +757,11 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
 
     // Create instance
     let mh = create_managed_host(&env).await;
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .single_interface_network_config(segment_id)
         .keyset_ids(&["keyset1", "keyset2"])
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     // Test that key set validation NOT ok with ssh keys passed with instance.
@@ -768,7 +769,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         env.api
             .validate_tenant_public_key(tonic::Request::new(
                 rpc::forge::ValidateTenantPublicKeyRequest {
-                    instance_id: instance_id.to_string(),
+                    instance_id: tinstance.id().to_string(),
                     tenant_public_key: "mykey1".to_string()
                 },
             ))
@@ -781,7 +782,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         env.api
             .validate_tenant_public_key(tonic::Request::new(
                 rpc::forge::ValidateTenantPublicKeyRequest {
-                    instance_id: instance_id.to_string(),
+                    instance_id: tinstance.id().to_string(),
                     tenant_public_key: "some_long_key_base64_encoded".to_string()
                 },
             ))
@@ -793,7 +794,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         env.api
             .validate_tenant_public_key(tonic::Request::new(
                 rpc::forge::ValidateTenantPublicKeyRequest {
-                    instance_id: instance_id.to_string(),
+                    instance_id: tinstance.id().to_string(),
                     tenant_public_key: "my_another_key".to_string()
                 },
             ))
@@ -806,7 +807,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         env.api
             .validate_tenant_public_key(tonic::Request::new(
                 rpc::forge::ValidateTenantPublicKeyRequest {
-                    instance_id: instance_id.to_string(),
+                    instance_id: tinstance.id().to_string(),
                     tenant_public_key: "my_another_keyset3".to_string()
                 },
             ))
@@ -818,7 +819,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         env.api
             .validate_tenant_public_key(tonic::Request::new(
                 rpc::forge::ValidateTenantPublicKeyRequest {
-                    instance_id: instance_id.to_string(),
+                    instance_id: tinstance.id().to_string(),
                     tenant_public_key: "some_long_key_base64_encoded_1".to_string()
                 },
             ))
@@ -830,7 +831,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         env.api
             .validate_tenant_public_key(tonic::Request::new(
                 rpc::forge::ValidateTenantPublicKeyRequest {
-                    instance_id: instance_id.to_string(),
+                    instance_id: tinstance.id().to_string(),
                     tenant_public_key: "unknown_key1".to_string()
                 },
             ))
@@ -844,18 +845,17 @@ async fn test_keyset_in_instance(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .single_interface_network_config(segment_id)
         .keyset_ids(&["keyset1", "keyset2"])
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     let instance = env
         .api
         .find_instances(tonic::Request::new(::rpc::forge::InstanceSearchQuery {
-            id: Some(::rpc::common::Uuid {
-                value: instance_id.to_string(),
-            }),
+            id: tinstance.id().into(),
             label: None,
         }))
         .await

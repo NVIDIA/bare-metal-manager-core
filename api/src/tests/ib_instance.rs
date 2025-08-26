@@ -144,7 +144,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         .guid
         .clone();
 
-    let (instance_id, instance) =
+    let (tinstance, instance) =
         create_instance_with_ib_config(&env, &mh, ib_config.clone(), segment_id).await;
 
     let machine = mh.host().rpc_machine().await;
@@ -168,7 +168,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         "0"
     );
 
-    let check_instance = env.one_instance(instance_id).await;
+    let check_instance = tinstance.rpc_instance().await;
     assert_eq!(instance.machine_id(), mh.id);
     assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
     assert_eq!(instance, check_instance);
@@ -240,7 +240,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         "The expected amount of ports for pkey {hex_pkey} has not been registered"
     );
 
-    mh.delete_instance(&env, instance_id).await;
+    tinstance.delete().await;
 
     // Check whether the IB ports are still bound to the partition
     let ports = ib_conn
