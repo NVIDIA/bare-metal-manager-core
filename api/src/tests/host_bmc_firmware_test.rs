@@ -11,7 +11,7 @@
  */
 
 use crate::tests::common;
-use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env, forge_agent_control};
+use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};
 use crate::{
     CarbideResult,
     cfg::file::{
@@ -21,8 +21,7 @@ use crate::{
     db,
     db::{
         DatabaseError, explored_endpoints::DbExploredEndpoint,
-        host_machine_update::HostMachineUpdate, machine::MachineSearchConfig,
-        machine_topology::MachineTopology,
+        host_machine_update::HostMachineUpdate, machine_topology::MachineTopology,
     },
     machine_update_manager::{
         MachineUpdateManager, machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE,
@@ -38,8 +37,10 @@ use crate::{
     },
     preingestion_manager::PreingestionManager,
 };
-use common::api_fixtures::{self, TestEnv, create_test_env_with_overrides, get_config};
-use forge_uuid::instance::InstanceId;
+use common::api_fixtures::{
+    self, TestEnv, create_test_env_with_overrides, get_config, instance::TestInstance,
+    managed_host::ManagedHost,
+};
 use forge_uuid::machine::MachineId;
 use regex::Regex;
 use rpc::forge::DhcpDiscovery;
@@ -705,7 +706,8 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 async fn test_host_fw_upgrade_enabledisable_global_enabled(
     pool: sqlx::PgPool,
 ) -> CarbideResult<()> {
-    let (env, host_machine_id) = test_host_fw_upgrade_enabledisable_generic(pool, true).await?;
+    let (env, mh) = test_host_fw_upgrade_enabledisable_generic(pool, true).await?;
+    let host_machine_id = *mh.host().machine_id();
 
     // Check that if it's globally enabled but specifically disabled, we don't request updates.
     let mut txn = env.pool.begin().await.unwrap();
@@ -718,10 +720,7 @@ async fn test_host_fw_upgrade_enabledisable_global_enabled(
     update_manager.run_single_iteration().await?;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(host.host_reprovision_requested.is_none());
 
     // Now switch it to unspecified and it should get a request
@@ -730,10 +729,7 @@ async fn test_host_fw_upgrade_enabledisable_global_enabled(
 
     update_manager.run_single_iteration().await?;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(host.host_reprovision_requested.is_some());
     txn.commit().await.unwrap();
 
@@ -744,7 +740,8 @@ async fn test_host_fw_upgrade_enabledisable_global_enabled(
 async fn test_host_fw_upgrade_enabledisable_global_disabled(
     pool: sqlx::PgPool,
 ) -> CarbideResult<()> {
-    let (env, host_machine_id) = test_host_fw_upgrade_enabledisable_generic(pool, false).await?;
+    let (env, mh) = test_host_fw_upgrade_enabledisable_generic(pool, false).await?;
+    let host_machine_id = *mh.host().machine_id();
     // Create and start an update manager
     let update_manager =
         MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
@@ -752,10 +749,7 @@ async fn test_host_fw_upgrade_enabledisable_global_disabled(
 
     // Globally disabled, so it should not have requested an update
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(host.host_reprovision_requested.is_none());
 
     tracing::info!("setting update");
@@ -767,11 +761,7 @@ async fn test_host_fw_upgrade_enabledisable_global_disabled(
     update_manager.run_single_iteration().await?;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(host.host_reprovision_requested.is_some());
     txn.commit().await.unwrap();
 
@@ -781,16 +771,15 @@ async fn test_host_fw_upgrade_enabledisable_global_disabled(
 async fn test_host_fw_upgrade_enabledisable_generic(
     pool: sqlx::PgPool,
     global_enabled: bool,
-) -> CarbideResult<(TestEnv, MachineId)> {
+) -> CarbideResult<(TestEnv, ManagedHost)> {
     // Create an environment with one managed host in the ready state.  Tweak the default config to enable or disable firmware global autoupdate.
     let mut config = get_config();
     config.firmware_global.autoupdate = global_enabled;
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
-    let (host_machine_id, _dpu_machine_id) =
-        common::api_fixtures::create_managed_host(&env).await.into();
+    let mh = common::api_fixtures::create_managed_host(&env).await;
 
-    Ok((env, host_machine_id))
+    Ok((env, mh))
 }
 
 #[test]
@@ -1169,25 +1158,19 @@ async fn test_instance_upgrading_actual(
     }
 
     // Split here to avoid hitting stack size limits
-    test_instance_upgrading_actual_part_2(&env, &mh.id, tinstance.id(), &update_manager).await
+    test_instance_upgrading_actual_part_2(&env, &mh, &tinstance, &update_manager).await
 }
 
 async fn test_instance_upgrading_actual_part_2(
     env: &TestEnv,
-    host_machine_id: &MachineId,
-    instance_id: &InstanceId,
+    mh: &ManagedHost,
+    tinstance: &TestInstance<'_, '_>,
     update_manager: &MachineUpdateManager,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = env.pool.begin().await.unwrap();
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let instance = tinstance.db_instance(&mut txn).await;
     txn.commit().await.unwrap();
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
@@ -1204,10 +1187,7 @@ async fn test_instance_upgrading_actual_part_2(
     // A tick of the state machine, now we begin.
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
         panic!("Unexpected state {:?}", host.state);
     };
@@ -1215,11 +1195,7 @@ async fn test_instance_upgrading_actual_part_2(
         panic!("Unexpected instance state {:?}", host.state);
     };
 
-    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
-        .await
-        .unwrap()
-        .unwrap();
-
+    let instance = tinstance.db_instance(&mut txn).await;
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
@@ -1245,17 +1221,14 @@ async fn test_instance_upgrading_actual_part_2(
     txn.commit().await.unwrap();
 
     // Simulate agent saying it's booted so we can continue
-    _ = forge_agent_control(env, (*host_machine_id).into()).await;
+    mh.host().forge_agent_control().await;
     sleep(std::time::Duration::from_secs(2)).await;
 
     env.run_machine_state_controller_iteration().await;
 
     // Should check firmware next
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
     let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
@@ -1269,11 +1242,7 @@ async fn test_instance_upgrading_actual_part_2(
     };
     assert!(host.host_reprovision_requested.is_some());
 
-    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
-        .await
-        .unwrap()
-        .unwrap();
-
+    let instance = tinstance.db_instance(&mut txn).await;
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
@@ -1290,10 +1259,7 @@ async fn test_instance_upgrading_actual_part_2(
     );
     txn.commit().await.unwrap();
 
-    let request = rpc::common::MachineId {
-        id: host_machine_id.to_string(),
-    };
-    let request = Request::new(request);
+    let request = Request::new(mh.id.into());
     env.api.reset_host_reprovisioning(request).await?;
 
     // Next one should start a UEFI upgrade
@@ -1304,10 +1270,7 @@ async fn test_instance_upgrading_actual_part_2(
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
     let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
@@ -1323,11 +1286,7 @@ async fn test_instance_upgrading_actual_part_2(
     assert_eq!(firmware_type, FirmwareComponentType::Uefi);
 
     // Verify expected TenantState
-    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
-        .await
-        .unwrap()
-        .unwrap();
-
+    let instance = tinstance.db_instance(&mut txn).await;
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
@@ -1349,10 +1308,7 @@ async fn test_instance_upgrading_actual_part_2(
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
         panic!("Unexpected state {:?}", host.state);
     };
@@ -1364,11 +1320,7 @@ async fn test_instance_upgrading_actual_part_2(
     };
 
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
-        .await
-        .unwrap()
-        .unwrap();
-
+    let instance = tinstance.db_instance(&mut txn).await;
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
@@ -1390,10 +1342,7 @@ async fn test_instance_upgrading_actual_part_2(
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
         panic!("Unexpected state {:?}", host.state);
     };
@@ -1426,10 +1375,7 @@ async fn test_instance_upgrading_actual_part_2(
     .unwrap();
 
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
@@ -1452,10 +1398,7 @@ async fn test_instance_upgrading_actual_part_2(
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
         panic!("Unexpected state {:?}", host.state);
     };
@@ -1467,11 +1410,7 @@ async fn test_instance_upgrading_actual_part_2(
     };
 
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
-        .await
-        .unwrap()
-        .unwrap();
-
+    let instance = tinstance.db_instance(&mut txn).await;
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
         instance
@@ -1496,10 +1435,7 @@ async fn test_instance_upgrading_actual_part_2(
 
     // It should have "started" a BMC upgrade now
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.host_reprovision_requested.is_some());
     let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
@@ -1514,10 +1450,7 @@ async fn test_instance_upgrading_actual_part_2(
     };
     assert_eq!(firmware_type, FirmwareComponentType::Bmc);
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let instance = tinstance.db_instance(&mut txn).await;
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
@@ -1544,10 +1477,7 @@ async fn test_instance_upgrading_actual_part_2(
     // Another state machine pass
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
         panic!("Unexpected state {:?}", host.state);
     };
@@ -1559,10 +1489,7 @@ async fn test_instance_upgrading_actual_part_2(
     };
 
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let instance = tinstance.db_instance(&mut txn).await;
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
@@ -1612,10 +1539,7 @@ async fn test_instance_upgrading_actual_part_2(
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
         panic!("Unexpected state {:?}", host.state);
     };
@@ -1627,10 +1551,7 @@ async fn test_instance_upgrading_actual_part_2(
     };
 
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let instance = tinstance.db_instance(&mut txn).await;
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
@@ -1652,10 +1573,7 @@ async fn test_instance_upgrading_actual_part_2(
 
     // It should be checking
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
         panic!("Unexpected state {:?}", host.state);
     };
@@ -1667,10 +1585,7 @@ async fn test_instance_upgrading_actual_part_2(
     }
 
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let instance = tinstance.db_instance(&mut txn).await;
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
@@ -1693,10 +1608,7 @@ async fn test_instance_upgrading_actual_part_2(
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
     let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
         panic!("Unexpected state {:?}", host.state);
     };
@@ -1705,10 +1617,7 @@ async fn test_instance_upgrading_actual_part_2(
     };
 
     // Check that the TenantState is what we expect based on the instance/machine state.
-    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let instance = tinstance.db_instance(&mut txn).await;
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
@@ -1728,16 +1637,10 @@ async fn test_instance_upgrading_actual_part_2(
         .await
         .unwrap();
     assert!(reqs.is_empty());
-    let host = db::machine::find_one(&mut txn, host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
 
     // Make sure TenantState agrees
-    let instance = db::instance::Instance::find_by_id(&mut txn, *instance_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let instance = tinstance.db_instance(&mut txn).await;
 
     let device_id_maps = host.get_dpu_device_and_id_mappings().unwrap();
     assert_eq!(
