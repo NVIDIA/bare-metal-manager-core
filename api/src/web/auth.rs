@@ -28,7 +28,7 @@ use axum_extra::extract::{
 };
 use base64::Engine;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
-use http::{HeaderMap, Uri};
+use http::HeaderMap;
 use oauth2::{
     AsyncHttpClient, AuthorizationCode, ClientSecret, HttpRequest, PkceCodeVerifier, Scope,
     TokenResponse, http::HeaderValue as Oauth2HeaderValue,
@@ -71,16 +71,6 @@ pub async fn callback(
         &request_headers,
         oauth2_layer.private_cookiejar_key.clone(),
     );
-    let Some(hostname) = Uri::try_from(hostname)
-        .ok()
-        .and_then(|uri| uri.host().map(|host| host.to_owned()))
-    else {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "invalid hostname missing host",
-        )
-            .into_response();
-    };
 
     // Cookies with domain `localhost:1079` might not be attached to browser requests
     // to the hostname `localhost:1079` (tested on Firefox).
@@ -92,7 +82,7 @@ pub async fn callback(
     // https://stackoverflow.com/a/16328399 references https://www.rfc-editor.org/rfc/rfc6265#section-8.5
     // which states that cookies are not necessarily isolated by port.
     #[cfg(not(feature = "linux-build"))]
-    let Some(stripped_hostname) = Uri::try_from(hostname.clone())
+    let Some(stripped_hostname) = http::Uri::try_from(hostname.clone())
         .ok()
         .and_then(|uri| uri.host().map(|host| host.to_owned()))
     else {
