@@ -467,15 +467,16 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
         ));
     }
 
-    let mut expected_gpus: HashMap<(&str, &str), &SkuComponentGpu> = expected_sku
+    // FORGE-6856: Disable checking of VRAM because the value can change if ECC mode is enabled on the GPU.
+    let mut expected_gpus: HashMap<&str, &SkuComponentGpu> = expected_sku
         .components
         .gpus
         .iter()
-        .map(|gpu| ((gpu.model.as_str(), gpu.total_memory.as_str()), gpu))
+        .map(|gpu| (gpu.model.as_str(), gpu))
         .collect();
 
     for actual_gpu in actual_sku.components.gpus.iter() {
-        match expected_gpus.remove(&(actual_gpu.model.as_str(), actual_gpu.total_memory.as_str())) {
+        match expected_gpus.remove(&actual_gpu.model.as_str()) {
             None => diffs.push(format!("Unexpected GPU config ({actual_gpu}) found")),
             Some(expected_gpu) => {
                 if actual_gpu.count != expected_gpu.count {
