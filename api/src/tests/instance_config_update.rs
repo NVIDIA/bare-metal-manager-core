@@ -14,7 +14,7 @@ use crate::tests::common::{self, api_fixtures::get_vpc_fixture_id};
 
 use common::api_fixtures::{
     create_managed_host, create_test_env,
-    instance::{TestInstance, default_tenant_config, single_interface_network_config},
+    instance::{default_tenant_config, single_interface_network_config},
 };
 
 use config_version::ConfigVersion;
@@ -110,13 +110,14 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         labels: vec![],
     };
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .config(initial_config.clone())
         .metadata(initial_metadata.clone())
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(
         instance.status().configs_synced(),
@@ -158,7 +159,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: None,
                 config: Some(updated_config_1.clone()),
                 metadata: Some(updated_metadata_1.clone()),
@@ -194,7 +195,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     env.api
         .update_instance_phone_home_last_contact(tonic::Request::new(
             rpc::forge::InstancePhoneHomeLastContactRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
             },
         ))
         .await
@@ -202,7 +203,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
 
     // Find our instance details again, which should now
     // be updated.
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     // Post-phone-home, sync should still be pending, but state Configuring.
     assert_eq!(
@@ -221,7 +222,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
 
     // Find our instance details again, which should now
     // be updated.
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     // Post-configure, we should now be synced.
     assert_eq!(
@@ -267,7 +268,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: Some(initial_config_version.version_string()),
                 config: Some(updated_config_2.clone()),
                 metadata: Some(updated_metadata_2.clone()),
@@ -291,7 +292,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: Some(updated_config_version.version_string()),
                 config: Some(updated_config_2.clone()),
                 metadata: Some(updated_metadata_2.clone()),
@@ -363,10 +364,11 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         labels: vec![],
     };
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .config(valid_config.clone())
         .metadata(initial_metadata.clone())
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     // Try to update to an invalid OS
@@ -387,7 +389,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: None,
                 config: Some(invalid_os_config),
                 metadata: Some(initial_metadata.clone()),
@@ -412,7 +414,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: None,
                 config: Some(config_with_updated_tenant),
                 metadata: Some(initial_metadata.clone()),
@@ -453,7 +455,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: None,
                 config: Some(config_with_updated_network),
                 metadata: Some(initial_metadata.clone()),
@@ -483,7 +485,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: None,
                 config: Some(config_with_updated_ib),
                 metadata: Some(initial_metadata.clone()),
@@ -508,7 +510,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: None,
                 config: Some(duplicated_keysets_config),
                 metadata: Some(initial_metadata.clone()),
@@ -542,7 +544,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: None,
                 config: Some(maxed_keysets_config),
                 metadata: Some(initial_metadata.clone()),
@@ -562,7 +564,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
             .api
             .update_instance_config(tonic::Request::new(
                 rpc::forge::InstanceConfigUpdateRequest {
-                    instance_id: Some(instance_id.into()),
+                    instance_id: tinstance.id().into(),
                     if_version_match: None,
                     config: Some(valid_config.clone()),
                     metadata: Some(invalid_metadata.clone()),
@@ -640,13 +642,14 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
         labels: vec![],
     };
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .config(initial_config.clone())
         .metadata(initial_metadata.clone())
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(
         instance.status().configs_synced(),
@@ -675,7 +678,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: None,
                 config: Some(updated_config_1.clone()),
                 metadata: Some(updated_metadata_1.clone()),
@@ -696,7 +699,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
     );
 
     // SyncState::Synced means network config update is not applicable.
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(
         instance.status().network().configs_synced(),
@@ -767,13 +770,14 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         labels: vec![],
     };
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .config(initial_config.clone())
         .metadata(initial_metadata.clone())
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(
         instance.status().configs_synced(),
@@ -822,7 +826,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: None,
                 config: Some(updated_config_1.clone()),
                 metadata: Some(updated_metadata_1.clone()),
@@ -842,7 +846,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
     );
 
     // SyncState::Synced means network config update is not applicable.
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(
         instance.status().network().configs_synced(),
@@ -875,7 +879,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: None,
                 config: Some(updated_config_1.clone()),
                 metadata: Some(updated_metadata_1.clone()),
@@ -948,13 +952,14 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
         labels: vec![],
     };
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .config(initial_config.clone())
         .metadata(initial_metadata.clone())
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(
         instance.status().configs_synced(),
@@ -966,9 +971,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
     // Trigger instance deletion.
     env.api
         .release_instance(tonic::Request::new(rpc::InstanceReleaseRequest {
-            id: Some(::rpc::Uuid {
-                value: instance_id.to_string(),
-            }),
+            id: tinstance.id().into(),
             issue: None,
             is_repair_tenant: None,
         }))
@@ -1010,7 +1013,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
         env.api
             .update_instance_config(tonic::Request::new(
                 rpc::forge::InstanceConfigUpdateRequest {
-                    instance_id: Some(instance_id.into()),
+                    instance_id: tinstance.id().into(),
                     if_version_match: None,
                     config: Some(updated_config_1.clone()),
                     metadata: Some(updated_metadata_1.clone()),

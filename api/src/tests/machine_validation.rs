@@ -29,8 +29,8 @@ use crate::tests::common;
 use common::api_fixtures::{
     TestEnvOverrides, create_host_with_machine_validation, create_test_env,
     create_test_env_with_overrides, get_config, get_machine_validation_results,
-    get_machine_validation_runs, instance::TestInstance, machine_validation_completed,
-    on_demand_machine_validation, update_machine_validation_run,
+    get_machine_validation_runs, machine_validation_completed, on_demand_machine_validation,
+    update_machine_validation_run,
 };
 use rpc::Timestamp;
 
@@ -302,9 +302,10 @@ async fn test_machine_validation_get_results(
         create_host_with_machine_validation(&env, Some(machine_validation_result.clone()), None)
             .await;
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .single_interface_network_config(segment_id)
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     let runs = get_machine_validation_runs(&env, mh.host().machine_id(), false).await;
@@ -314,7 +315,7 @@ async fn test_machine_validation_get_results(
         "Discovery".to_owned()
     );
     let discovery_validation_id = runs.runs[0].validation_id.clone();
-    mh.delete_instance(&env, instance_id).await;
+    tinstance.delete().await;
 
     // one for cleanup and one for discovery
     let runs = get_machine_validation_runs(&env, mh.host().machine_id(), false).await;

@@ -59,9 +59,9 @@ use common::api_fixtures::{
     TestEnvOverrides, create_managed_host, create_test_env, create_test_env_with_overrides, dpu,
     get_config, get_vpc_fixture_id, inject_machine_measurements,
     instance::{
-        TestInstance, advance_created_instance_into_ready_state, default_os_config,
-        default_tenant_config, delete_instance, interface_network_config_with_devices,
-        single_interface_network_config, single_interface_network_config_with_vpc_prefix,
+        advance_created_instance_into_ready_state, default_os_config, default_tenant_config,
+        interface_network_config_with_devices, single_interface_network_config,
+        single_interface_network_config_with_vpc_prefix,
         update_instance_network_status_observation,
     },
     managed_host::ManagedHostConfig,
@@ -163,15 +163,16 @@ async fn test_allocate_and_release_instance_impl(
     ));
     txn.commit().await.unwrap();
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .network(interface_network_config_with_devices(
             &segment_ids,
             &device_locators,
         ))
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
@@ -289,7 +290,7 @@ async fn test_allocate_and_release_instance_impl(
     ));
     txn.commit().await.unwrap();
 
-    mh.delete_instance(&env, instance_id).await;
+    tinstance.delete().await;
 
     // Address is freed during delete
     let mut txn = env
@@ -360,15 +361,16 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let device_locator = host_machine
         .get_device_locator_for_dpu_id(mh.dpu().machine_id())
         .unwrap();
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .network(interface_network_config_with_devices(
             &[segment_id],
             &[device_locator.clone()],
         ))
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
@@ -490,7 +492,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     // from delete_instance()
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
-            id: Some(instance_id.into()),
+            id: tinstance.id().into(),
             issue: None,
             is_repair_tenant: None,
         }))
@@ -498,7 +500,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .expect("Delete instance failed.");
 
     // The instance should show up immediatly as terminating - even if the state handler didn't yet run
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
     assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
     env.run_machine_state_controller_iteration_until_state_matches(
@@ -682,7 +684,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     // end of handle_delete_post_bootingwithdiscoveryimage()
 
     assert!(
-        env.find_instances(Some(instance_id.into()))
+        env.find_instances(tinstance.id().into())
             .await
             .instances
             .is_empty()
@@ -739,14 +741,15 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
         ],
     };
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .single_interface_network_config(segment_id)
         .metadata(instance_metadata.clone())
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     // Test searching based on instance id.
-    let mut instance_matched_by_id = env.one_instance(instance_id).await.into_inner();
+    let mut instance_matched_by_id = tinstance.rpc_instance().await.into_inner();
 
     instance_matched_by_id.metadata = instance_matched_by_id.metadata.take().map(|mut metadata| {
         metadata.labels.sort_by(|l1, l2| l1.key.cmp(&l2.key));
@@ -877,11 +880,11 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
 
     let instance_hostname = "test-hostname";
 
-    let (_instance_id, _instance) = TestInstance::new(&env)
+    mh.instance_builer(&env)
         .single_interface_network_config(segment_id)
         .hostname(instance_hostname)
         .tenant_org("org-nebulon")
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     let mut txn = env
@@ -906,12 +909,13 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
         .expect("Unable to create transaction on database pool");
     txn.commit().await.unwrap();
 
-    let new_mh = create_managed_host(&env).await;
-    let (_instance_id, _instance) = TestInstance::new(&env)
+    create_managed_host(&env)
+        .await
+        .instance_builer(&env)
         .single_interface_network_config(segment_id)
         .hostname(instance_hostname)
         .tenant_org("org-nvidia") // different org, should fail on the same one
-        .create_for_manged_host(&new_mh)
+        .build()
         .await;
 }
 
@@ -944,11 +948,11 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
     };
 
     // Create instance with hostname
-    let (_instance_id, _instance) = TestInstance::new(&env)
+    mh.instance_builer(&env)
         .network(network)
         .hostname("test-hostname")
         .tenant_org("nvidia-org")
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     let response = env
@@ -1002,9 +1006,9 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
         network_security_group_id: None,
     };
 
-    let (_instance_id, _instance) = TestInstance::new(&env)
+    mh.instance_builer(&env)
         .config(instance_config)
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     let response = env
@@ -1043,7 +1047,7 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
     for i in 0..=9 {
         let mh = create_managed_host(&env).await;
 
-        let (_instance_id, _instance) = TestInstance::new(&env)
+        mh.instance_builer(&env)
             .single_interface_network_config(segment_id)
             .metadata(rpc::forge::Metadata {
                 name: format!("instance_{i}{i}{i}").to_string(),
@@ -1059,7 +1063,7 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
                     },
                 ],
             })
-            .create_for_manged_host(&mh)
+            .build()
             .await;
     }
 
@@ -1187,7 +1191,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
+    let mh = create_managed_host(&env).await;
 
     // Create an instance in non-ready state
     let config = rpc::InstanceConfig {
@@ -1203,7 +1207,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: host_machine_id.into(),
+            machine_id: mh.host().machine_id().into(),
             instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
@@ -1248,17 +1252,12 @@ async fn test_instance_deletion_before_provisioning_finishes(
 
     // Advance the instance into the "ready" state. To the tenant it will however
     // still show up as terminating
-    let instance = advance_created_instance_into_ready_state(
-        &env,
-        &vec![dpu_machine_id],
-        &host_machine_id,
-        instance_id,
-    )
-    .await;
+    advance_created_instance_into_ready_state(&env, &mh).await;
+    let instance = env.one_instance(instance_id).await;
     assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
     // Now go through regular deletion
-    delete_instance(&env, instance_id, &vec![dpu_machine_id], &host_machine_id).await;
+    mh.delete_instance(&env, instance_id).await;
 }
 
 #[crate::sqlx_test]
@@ -1268,33 +1267,34 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let (instance_id, _instance) = common::api_fixtures::instance::TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .single_interface_network_config(segment_id)
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     // We can call `release_instance` multiple times
     for i in 0..2 {
         env.api
             .release_instance(tonic::Request::new(InstanceReleaseRequest {
-                id: Some(instance_id.into()),
+                id: tinstance.id().into(),
                 issue: None,
                 is_repair_tenant: None,
             }))
             .await
             .unwrap_or_else(|_| panic!("Delete instance failed failed on attempt {i}."));
-        let instance = env.one_instance(instance_id).await;
+        let instance = tinstance.rpc_instance().await;
         assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
     }
 
     // And finally delete the instance
-    mh.delete_instance(&env, instance_id).await;
+    tinstance.delete().await;
 
     // Release instance on non-existing instance should lead to a Not Found error
     let err = env
         .api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
-            id: Some(instance_id.into()),
+            id: tinstance.id().into(),
             issue: None,
             is_repair_tenant: None,
         }))
@@ -1304,7 +1304,7 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
     let err_msg = err.message();
     assert_eq!(
         err.message(),
-        format!("instance not found: {instance_id}"),
+        format!("instance not found: {}", tinstance.id()),
         "Error message is: {}",
         err_msg
     );
@@ -1400,9 +1400,10 @@ async fn test_instance_cloud_init_metadata(
 
     assert_eq!(metadata.instance_id, mh.host().machine_id().to_string());
 
-    let (instance_id, instance) = TestInstance::new(&env)
+    let (tinstance, instance) = mh
+        .instance_builer(&env)
         .single_interface_network_config(segment_id)
-        .create_for_manged_host(&mh)
+        .build_and_return()
         .await;
 
     let request = tonic::Request::new(rpc::forge::CloudInitInstructionsRequest {
@@ -1415,10 +1416,10 @@ async fn test_instance_cloud_init_metadata(
         panic!("The value for metadata should not have been None");
     };
 
-    assert_eq!(metadata.instance_id, instance_id.to_string());
+    assert_eq!(metadata.instance_id, tinstance.id().to_string());
 
     txn.commit().await.unwrap();
-    mh.delete_instance(&env, instance_id).await;
+    tinstance.delete().await;
 
     Ok(())
 }
@@ -1433,9 +1434,10 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     // TODO: The test is broken from here. This method already moves the instance
     // into READY state, which means most assertions that follow this won't test
     // anything new anymmore.
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .single_interface_network_config(segment_id)
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     let mut txn = env
@@ -1505,7 +1507,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     );
     txn.commit().await.unwrap();
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
     let status = instance.status();
     assert_eq!(status.configs_synced(), rpc::SyncState::Synced);
     assert_eq!(status.network().configs_synced(), rpc::SyncState::Synced);
@@ -1544,7 +1546,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     );
     txn.commit().await.unwrap();
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
     let status = instance.status();
     assert_eq!(status.configs_synced(), rpc::SyncState::Synced);
     assert_eq!(status.network().configs_synced(), rpc::SyncState::Synced);
@@ -1570,7 +1572,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         "UPDATE instances SET network_config_version=$1 WHERE id = $2::uuid returning id",
     )
     .bind(next_config_version.version_string())
-    .bind(instance_id)
+    .bind(tinstance.id())
     .fetch_one(&mut *txn)
     .await
     .unwrap();
@@ -1584,7 +1586,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     );
     txn.commit().await.unwrap();
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
     let status = instance.status();
     assert_eq!(status.configs_synced(), rpc::SyncState::Pending);
     assert_eq!(status.network().configs_synced(), rpc::SyncState::Pending);
@@ -1641,7 +1643,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     );
     txn.commit().await.unwrap();
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
     let status = instance.status();
     assert_eq!(status.configs_synced(), rpc::SyncState::Synced);
     assert_eq!(status.network().configs_synced(), rpc::SyncState::Synced);
@@ -1681,7 +1683,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
 
     txn.commit().await.unwrap();
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
     let status = instance.status();
     assert_eq!(
         status.network().interfaces,
@@ -1697,7 +1699,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         }]
     );
 
-    mh.delete_instance(&env, instance_id).await;
+    tinstance.delete().await;
 }
 
 #[crate::sqlx_test]
@@ -1788,10 +1790,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         ],
     };
 
-    let (instance_id, _instance) = TestInstance::new(&env)
-        .network(network)
-        .create_for_manged_host(&mh)
-        .await;
+    let tinstance = mh.instance_builer(&env).network(network).build().await;
 
     let mut txn = env
         .pool
@@ -1846,7 +1845,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         .unwrap()
         .unwrap();
     assert_eq!(
-        instance_id.to_string(),
+        tinstance.id().to_string(),
         address_by_prefix.instance_id.to_string()
     );
 
@@ -2036,12 +2035,13 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
         network_security_group_id: None,
     };
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .config(instance_config)
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     // Should be in a provisioning state
     assert_eq!(instance.status().tenant(), rpc::TenantState::Provisioning);
@@ -2050,13 +2050,13 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
     env.api
         .update_instance_phone_home_last_contact(tonic::Request::new(
             rpc::forge::InstancePhoneHomeLastContactRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
             },
         ))
         .await
         .unwrap();
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
 }
@@ -2068,14 +2068,15 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .single_interface_network_config(segment_id)
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
-            id: Some(instance_id.into()),
+            id: tinstance.id().into(),
             issue: None,
             is_repair_tenant: None,
         }))
@@ -2124,12 +2125,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         "State is not changed. The reboot counter should only increased once state changed"
     );
 
-    common::api_fixtures::instance::handle_delete_post_bootingwithdiscoveryimage(
-        &env,
-        &mh.dpu_ids,
-        &mh.id,
-    )
-    .await;
+    common::api_fixtures::instance::handle_delete_post_bootingwithdiscoveryimage(&env, &mh).await;
 
     assert_eq!(
         env.test_meter
@@ -2294,14 +2290,15 @@ async fn test_allocate_instance_with_old_network_segemnt(
         interface.network_details = None;
     }
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .network(nw_config)
         .metadata(instance_metadata.clone())
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     // Test searching based on instance id.
-    let mut instance_matched_by_id = env.one_instance(instance_id).await.into_inner();
+    let mut instance_matched_by_id = tinstance.rpc_instance().await.into_inner();
 
     instance_matched_by_id.metadata = instance_matched_by_id.metadata.take().map(|mut metadata| {
         metadata.labels.sort_by(|l1, l2| l1.key.cmp(&l2.key));
@@ -2494,11 +2491,12 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     assert_eq!(vpc_prefix.total_31_segments, 16);
     assert_eq!(vpc_prefix.available_31_segments, 16);
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .network(single_interface_network_config_with_vpc_prefix(rpc::Uuid {
             value: vpc_prefix_id.to_string(),
         }))
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     let vpc_prefix = env
@@ -2517,7 +2515,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     assert_eq!(vpc_prefix.total_31_segments, 16);
     assert_eq!(vpc_prefix.available_31_segments, 15);
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
@@ -2672,7 +2670,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     ));
     txn.commit().await.unwrap();
 
-    mh.delete_instance(&env, instance_id).await;
+    tinstance.delete().await;
 
     let segment_ids = fetched_instance
         .config
@@ -3584,12 +3582,13 @@ async fn test_allocate_and_update_network_config_instance(
     ));
     txn.commit().await.unwrap();
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .single_interface_network_config(segment_id)
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
@@ -3638,7 +3637,7 @@ async fn test_allocate_and_update_network_config_instance(
         .await
         .unwrap();
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(
         instance.status().network().configs_synced(),
@@ -3698,12 +3697,13 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
     ));
     txn.commit().await.unwrap();
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .single_interface_network_config(segment_id)
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
@@ -3788,7 +3788,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
         .await
         .unwrap();
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(
         instance.status().network().configs_synced(),
@@ -3941,13 +3941,14 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         labels: vec![],
     };
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .config(initial_config.clone())
         .metadata(initial_metadata.clone())
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(
         instance.status().configs_synced(),
@@ -4027,7 +4028,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: None,
                 config: Some(updated_config_1.clone()),
                 metadata: Some(updated_metadata_1.clone()),
@@ -4043,7 +4044,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
     );
 
     // SyncState::Synced means network config update is not applicable.
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(
         instance.status().network().configs_synced(),
@@ -4073,7 +4074,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         }
     ));
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     let interfaces = &instance.config().network().interfaces;
     let mut vf_ids = interfaces
@@ -4130,12 +4131,13 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
     ));
     txn.commit().await.unwrap();
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .single_interface_network_config(segment_id)
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
@@ -4307,13 +4309,14 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         labels: vec![],
     };
 
-    let (instance_id, _instance) = TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .config(initial_config.clone())
         .metadata(initial_metadata.clone())
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(
         instance.status().configs_synced(),
@@ -4376,7 +4379,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: None,
                 config: Some(updated_config_1.clone()),
                 metadata: Some(updated_metadata_1.clone()),

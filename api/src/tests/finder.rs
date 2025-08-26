@@ -13,7 +13,6 @@
 use crate::db::network_segment::NetworkSegment;
 use common::api_fixtures::create_managed_host_with_config;
 use common::api_fixtures::dpu;
-use common::api_fixtures::instance::TestInstance;
 use common::api_fixtures::managed_host::ManagedHostConfig;
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_test_env,
@@ -33,10 +32,10 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let mh = create_managed_host(&env).await;
     let host_machine = mh.host().rpc_machine().await;
 
-    let (_instance_id, _instance) = TestInstance::new(&env)
+    mh.instance_builer(&env)
         .single_interface_network_config(segment_id)
         .keyset_ids(&["keyset1", "keyset2"])
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     test_not_found(&env).await;
@@ -140,10 +139,11 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let (instance_id, _instance) = common::api_fixtures::instance::TestInstance::new(&env)
+    let tinstance = mh
+        .instance_builer(&env)
         .single_interface_network_config(segment_id)
         .keyset_ids(&["keyset1", "keyset2"])
-        .create_for_manged_host(&mh)
+        .build()
         .await;
     let res = mh.host().rpc_machine().await;
     let interface_id = &res.interfaces[0].id;
@@ -162,7 +162,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // Instance
     let req = rpc::forge::IdentifyUuidRequest {
-        uuid: Some(instance_id.into()),
+        uuid: tinstance.id().into(),
     };
     let res = env
         .api

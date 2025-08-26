@@ -30,7 +30,7 @@ use crate::{
             Service, UefiDevicePath,
         },
     },
-    tests::common::ib_guid_pool,
+    tests::common::{api_fixtures::instance::TestInstanceBuilder, ib_guid_pool},
 };
 
 use forge_uuid::instance::InstanceId;
@@ -413,8 +413,12 @@ impl ManagedHost {
         network_configured(test_env, &self.dpu_ids).await
     }
 
+    pub fn instance_builer<'a, 'b>(&'b self, test_env: &'a TestEnv) -> TestInstanceBuilder<'a, 'b> {
+        TestInstanceBuilder::new(test_env, self)
+    }
+
     pub async fn delete_instance(&self, env: &TestEnv, instance_id: InstanceId) {
-        delete_instance(env, instance_id, &self.dpu_ids, &self.id).await
+        delete_instance(env, instance_id, self).await
     }
 }
 

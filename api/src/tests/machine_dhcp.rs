@@ -23,7 +23,6 @@ use rpc::forge::{DhcpDiscovery, forge_server::Forge};
 use crate::tests::common;
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_test_env, dpu,
-    instance::TestInstance,
 };
 
 #[crate::sqlx_test]
@@ -226,10 +225,8 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
             },
         ],
     };
-    let (_instance_id, _instance) = TestInstance::new(&env)
-        .network(network)
-        .create_for_manged_host(&mh)
-        .await;
+
+    mh.instance_builer(&env).network(network).build().await;
     // Instance dhcp is not handled by carbide. Best way to find out allocated IP info is to read
     // data from managedhostnetworkconfig.
     let response = env

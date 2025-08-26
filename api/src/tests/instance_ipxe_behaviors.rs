@@ -10,19 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::tests::common::api_fixtures::instance::TestInstance;
 use crate::tests::common::api_fixtures::managed_host::ManagedHost;
-use crate::tests::common::api_fixtures::rpc_instance::RpcInstance;
 use common::api_fixtures::{TestEnv, create_test_env};
 use forge_uuid::machine::MachineInterfaceId;
 use rpc::forge::{PxeInstructions, forge_server::Forge};
 
 use crate::tests::common::api_fixtures::{
     create_managed_host,
-    instance::{
-        TestInstance, default_os_config, default_tenant_config, single_interface_network_config,
-    },
+    instance::{default_os_config, default_tenant_config, single_interface_network_config},
 };
-use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
+use forge_uuid::{machine::MachineId, network::NetworkSegmentId};
 
 use crate::tests::common;
 
@@ -36,9 +34,10 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     let host_interface_id = mh.host().first_interface_id(&mut txn).await;
     txn.rollback().await.unwrap();
 
-    let (instance_id, _instance) = create_instance(&env, &mh, false, segment_id).await;
+    let tinstance = create_instance(&env, &mh, false, segment_id).await;
     assert!(
-        !env.one_instance(instance_id)
+        !tinstance
+            .rpc_instance()
             .await
             .config()
             .tenant()
@@ -91,9 +90,10 @@ async fn test_instance_always_boot_with_custom_ipxe(pool: sqlx::PgPool) {
     let host_interface_id = mh.host().first_interface_id(&mut txn).await;
     txn.rollback().await.unwrap();
 
-    let (instance_id, _instance) = create_instance(&env, &mh, true, segment_id).await;
+    let tinstance = create_instance(&env, &mh, true, segment_id).await;
     assert!(
-        env.one_instance(instance_id)
+        tinstance
+            .rpc_instance()
             .await
             .config()
             .tenant()
@@ -149,12 +149,12 @@ async fn invoke_instance_power(
         .unwrap();
 }
 
-pub async fn create_instance(
-    env: &TestEnv,
-    mh: &ManagedHost,
+pub async fn create_instance<'a, 'b>(
+    env: &'a TestEnv,
+    mh: &'b ManagedHost,
     run_provisioning_instructions_on_every_boot: bool,
     segment_id: NetworkSegmentId,
-) -> (InstanceId, RpcInstance) {
+) -> TestInstance<'a, 'b> {
     let mut os: rpc::forge::OperatingSystem = default_os_config();
     os.run_provisioning_instructions_on_every_boot = run_provisioning_instructions_on_every_boot;
 
@@ -166,8 +166,5 @@ pub async fn create_instance(
         storage: None,
         network_security_group_id: None,
     };
-    TestInstance::new(env)
-        .config(config)
-        .create_for_manged_host(mh)
-        .await
+    mh.instance_builer(env).config(config).build().await
 }

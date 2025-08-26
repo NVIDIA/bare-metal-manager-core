@@ -14,9 +14,7 @@ use crate::tests::common;
 
 use common::api_fixtures::{
     create_managed_host, create_test_env,
-    instance::{
-        TestInstance, default_os_config, default_tenant_config, single_interface_network_config,
-    },
+    instance::{default_os_config, default_tenant_config, single_interface_network_config},
 };
 
 use config_version::ConfigVersion;
@@ -69,12 +67,9 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         network_security_group_id: None,
     };
 
-    let (instance_id, _instance) = TestInstance::new(&env)
-        .config(config)
-        .create_for_manged_host(&mh)
-        .await;
+    let tinstance = mh.instance_builer(&env).config(config).build().await;
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
@@ -101,7 +96,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         .api
         .update_instance_operating_system(tonic::Request::new(
             rpc::forge::InstanceOperatingSystemUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: None,
                 os: Some(updated_os_1.clone()),
             },
@@ -134,7 +129,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         .api
         .update_instance_operating_system(tonic::Request::new(
             rpc::forge::InstanceOperatingSystemUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: Some(initial_config_version.version_string()),
                 os: Some(updated_os_2.clone()),
             },
@@ -157,7 +152,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         .api
         .update_instance_operating_system(tonic::Request::new(
             rpc::forge::InstanceOperatingSystemUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: Some(updated_config_version.version_string()),
                 os: Some(updated_os_2.clone()),
             },
@@ -211,7 +206,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         .api
         .update_instance_operating_system(tonic::Request::new(
             rpc::forge::InstanceOperatingSystemUpdateRequest {
-                instance_id: Some(instance_id.into()),
+                instance_id: tinstance.id().into(),
                 if_version_match: None,
                 os: Some(invalid_os),
             },
@@ -261,12 +256,9 @@ async fn test_instance_creation_with_os_in_tenantconfig(
         network_security_group_id: None,
     };
 
-    let (instance_id, _instance) = TestInstance::new(&env)
-        .config(config)
-        .create_for_manged_host(&mh)
-        .await;
+    let tinstance = mh.instance_builer(&env).config(config).build().await;
 
-    let instance = env.one_instance(instance_id).await;
+    let instance = tinstance.rpc_instance().await;
 
     assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 

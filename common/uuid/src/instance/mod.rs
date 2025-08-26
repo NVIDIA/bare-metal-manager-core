@@ -68,6 +68,30 @@ impl From<InstanceId> for ::rpc::common::Uuid {
     }
 }
 
+impl From<InstanceId> for Option<::rpc::common::Uuid> {
+    fn from(val: InstanceId) -> Self {
+        Some(::rpc::common::Uuid {
+            value: val.to_string(),
+        })
+    }
+}
+
+impl From<&InstanceId> for ::rpc::common::Uuid {
+    fn from(val: &InstanceId) -> Self {
+        Self {
+            value: val.to_string(),
+        }
+    }
+}
+
+impl From<&InstanceId> for Option<::rpc::common::Uuid> {
+    fn from(val: &InstanceId) -> Self {
+        Some(::rpc::common::Uuid {
+            value: val.to_string(),
+        })
+    }
+}
+
 impl TryFrom<::rpc::common::Uuid> for InstanceId {
     type Error = RpcDataConversionError;
     fn try_from(msg: ::rpc::common::Uuid) -> Result<Self, RpcDataConversionError> {

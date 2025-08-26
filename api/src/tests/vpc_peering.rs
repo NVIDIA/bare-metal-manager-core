@@ -12,7 +12,7 @@
 
 use crate::{
     db,
-    tests::common::api_fixtures::{create_managed_host, create_test_env, instance::TestInstance},
+    tests::common::api_fixtures::{create_managed_host, create_test_env},
 };
 use forge_uuid::{machine::MachineId, vpc::VpcId};
 use rpc::{
@@ -285,9 +285,10 @@ async fn create_vpc_peering(
             virtual_function_id: None,
         }],
     };
-    let (_instance_id, _instance) = TestInstance::new(env)
+
+    mh.instance_builer(env)
         .network(instance_network)
-        .create_for_manged_host(&mh)
+        .build()
         .await;
 
     Ok((
