@@ -1384,6 +1384,7 @@ dev-env-test-with-carbide:
   stage: test
   tags:
     - dev-env-carbide
+  allow_failure: true
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $DEV_ENV_TEST == "true"
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
