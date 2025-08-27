@@ -19,10 +19,12 @@ use crate::model::{
         ManagedHostState, ReprovisionState,
     },
 };
+use crate::redfish::test_support::RedfishSimAction;
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use chrono::Utc;
 use common::api_fixtures::create_managed_host_multi_dpu;
 use common::api_fixtures::{create_test_env, reboot_completed};
+use libredfish::SystemPowerControl;
 use rpc::forge::MachineArchitecture;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
@@ -87,6 +89,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     mh.mark_machine_for_updates().await;
 
+    let redfish_timepoint = env.redfish_sim.timepoint();
     mh.dpu().trigger_dpu_reprovisioning(Mode::Set, true).await;
 
     let dpu = mh.dpu().db_machine(&mut txn).await;
@@ -97,10 +100,15 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration().await;
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_ne!(
-        dpu.last_reboot_requested.unwrap().time,
-        last_reboot_requested_time.unwrap().time
+        dpu.last_reboot_requested.as_ref().unwrap().time,
+        last_reboot_requested_time.as_ref().unwrap().time
     );
-
+    // DPU restart on Ready -> Reprovision state
+    assert_eq!(
+        env.redfish_sim.actions_since(&redfish_timepoint).one_host(),
+        &[RedfishSimAction::Power(SystemPowerControl::ForceRestart)]
+    );
+    let redfish_timepoint = env.redfish_sim.timepoint();
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
         dpu.current_state(),
@@ -124,6 +132,13 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     let _response = mh.dpu().forge_agent_control().await;
     mh.dpu().discovery_completed().await;
 
+    // No reboots before PowerOff
+    assert_eq!(
+        env.redfish_sim.actions_since(&redfish_timepoint).one_host(),
+        &[]
+    );
+    let redfish_timepoint = env.redfish_sim.timepoint();
+
     env.run_machine_state_controller_iteration().await;
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(
@@ -138,14 +153,29 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
             .contains("Current state: Reprovisioning/PoweringOffHost. This state assumes an OS is provisioned and will exit into the OS in 5 seconds. ")
     );
 
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_reprovision_state(ReprovisionState::PowerDown)
+    );
+    assert_eq!(
+        env.redfish_sim.actions_since(&redfish_timepoint).one_host(),
+        &[RedfishSimAction::Power(SystemPowerControl::ForceOff)]
+    );
+    let redfish_timepoint = env.redfish_sim.timepoint();
+
     for state in [
-        ReprovisionState::PowerDown,
         ReprovisionState::VerifyFirmareVersions,
         ReprovisionState::WaitingForNetworkConfig,
     ] {
         let dpu = mh.dpu().next_iteration_machine(&env).await;
         assert_eq!(dpu.current_state(), &mh.new_dpu_reprovision_state(state));
     }
+    assert_eq!(
+        env.redfish_sim.actions_since(&redfish_timepoint).one_host(),
+        &[RedfishSimAction::Power(SystemPowerControl::On)]
+    );
+    let redfish_timepoint = env.redfish_sim.timepoint();
 
     let pxe = dpu_interface.get_pxe_instructions(dpu_arch).await;
     assert!(
@@ -179,6 +209,12 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     let _response = mh.host().forge_agent_control().await;
     let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(dpu.current_state(), &ManagedHostState::Ready));
+
+    // HostInit::Discovered -> Ready goes through restart
+    assert_eq!(
+        env.redfish_sim.actions_since(&redfish_timepoint).one_host(),
+        &[RedfishSimAction::Power(SystemPowerControl::ForceRestart)]
+    );
 }
 
 #[crate::sqlx_test]

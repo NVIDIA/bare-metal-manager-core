@@ -735,7 +735,7 @@ pub mod test_support {
 
     #[derive(Default)]
     struct RedfishSimState {
-        _hosts: HashMap<String, RedfishSimHostState>,
+        hosts: HashMap<String, RedfishSimHostState>,
         users: HashMap<String, String>,
         fw_version: Arc<String>,
         secure_boot: AtomicBool,
@@ -744,11 +744,68 @@ pub mod test_support {
     #[derive(Debug, Default)]
     struct RedfishSimHostState {
         power: PowerState,
+        actions: Vec<RedfishSimAction>,
     }
 
     #[derive(Default)]
     pub struct RedfishSim {
         state: Arc<Mutex<RedfishSimState>>,
+    }
+
+    impl RedfishSim {
+        pub fn timepoint(&self) -> RedfishSimTimepoint {
+            RedfishSimTimepoint {
+                pos: self
+                    .state
+                    .lock()
+                    .unwrap()
+                    .hosts
+                    .iter()
+                    .map(|(host, state)| (host.clone(), state.actions.len()))
+                    .collect(),
+            }
+        }
+
+        pub fn actions_since(&self, timepoint: &RedfishSimTimepoint) -> RedfishSimActions {
+            let state = self.state.lock().unwrap();
+            RedfishSimActions {
+                host_actions: state
+                    .hosts
+                    .iter()
+                    .map(|(host, state)| {
+                        (
+                            host.clone(),
+                            timepoint
+                                .pos
+                                .get(host)
+                                .map(|pos| state.actions[*pos..].to_vec())
+                                .unwrap_or_else(|| state.actions.clone()),
+                        )
+                    })
+                    .collect(),
+            }
+        }
+    }
+
+    pub struct RedfishSimTimepoint {
+        pos: HashMap<String, usize>,
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum RedfishSimAction {
+        Power(libredfish::SystemPowerControl),
+        BmcReset,
+    }
+
+    pub struct RedfishSimActions {
+        host_actions: HashMap<String, Vec<RedfishSimAction>>,
+    }
+
+    impl RedfishSimActions {
+        pub fn one_host(&self) -> &[RedfishSimAction] {
+            assert_eq!(self.host_actions.len(), 1);
+            self.host_actions.values().next().unwrap()
+        }
     }
 
     struct RedfishSimClient {
@@ -760,7 +817,7 @@ pub mod test_support {
     #[async_trait]
     impl Redfish for RedfishSimClient {
         async fn get_power_state(&self) -> Result<libredfish::PowerState, RedfishError> {
-            Ok(self.state.clone().lock().unwrap()._hosts[&self._host].power)
+            Ok(self.state.lock().unwrap().hosts[&self._host].power)
         }
 
         async fn get_power_metrics(&self) -> Result<libredfish::model::power::Power, RedfishError> {
@@ -773,14 +830,10 @@ pub mod test_support {
                 | libredfish::SystemPowerControl::GracefulShutdown => PowerState::Off,
                 _ => PowerState::On,
             };
-            self.state
-                .clone()
-                .lock()
-                .unwrap()
-                ._hosts
-                .get_mut(&self._host)
-                .unwrap()
-                .power = power_state;
+            let mut state = self.state.lock().unwrap();
+            let host_state = state.hosts.get_mut(&self._host).unwrap();
+            host_state.power = power_state;
+            host_state.actions.push(RedfishSimAction::Power(action));
             Ok(())
         }
 
@@ -789,6 +842,9 @@ pub mod test_support {
         }
 
         async fn bmc_reset(&self) -> Result<(), RedfishError> {
+            let mut state = self.state.lock().unwrap();
+            let host_state = state.hosts.get_mut(&self._host).unwrap();
+            host_state.actions.push(RedfishSimAction::BmcReset);
             Ok(())
         }
 
@@ -1583,10 +1639,11 @@ pub mod test_support {
                     .clone()
                     .lock()
                     .unwrap()
-                    ._hosts
+                    .hosts
                     .entry(host.to_string())
                     .or_insert(RedfishSimHostState {
                         power: PowerState::On,
+                        actions: Default::default(),
                     });
                 if self.state.clone().lock().unwrap().fw_version.is_empty() {
                     self.state.clone().lock().unwrap().fw_version = Arc::new("23.10".to_string());
