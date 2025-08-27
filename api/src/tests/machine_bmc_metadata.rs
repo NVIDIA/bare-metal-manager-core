@@ -20,21 +20,16 @@ async fn fetch_bmc_credentials(pool: PgPool) {
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
     let host_bmc_mac = host_config.bmc_mac_address;
-    let (host_machine_id, _dpu_machine_id) =
-        create_managed_host_with_config(&env, host_config).await;
+    let mh = create_managed_host_with_config(&env, host_config).await;
 
-    let host_machine = env
-        .find_machines(host_machine_id.into(), None, false)
-        .await
-        .machines
-        .remove(0);
+    let host_machine = mh.host().rpc_machine().await;
     let bmc_info = host_machine.bmc_info.clone().unwrap();
     assert_eq!(bmc_info.mac, Some(host_bmc_mac.to_string()));
     let host_bmc_ip = bmc_info.ip.clone().expect("Host BMC IP must be available");
 
     for request in vec![
         rpc::forge::BmcMetaDataGetRequest {
-            machine_id: Some(host_machine_id.into()),
+            machine_id: host_machine.id,
             request_type: rpc::forge::BmcRequestType::Redfish.into(),
             role: rpc::forge::UserRoles::Administrator.into(),
             bmc_endpoint_request: None,

@@ -1817,13 +1817,7 @@ pub async fn create_managed_host_with_ek(env: &TestEnv, ek_cert: &[u8]) -> Manag
         ..Default::default()
     };
 
-    let (host_machine_id, dpu_machine_ids) =
-        create_managed_host_with_config(env, host_config.clone()).await;
-    ManagedHost {
-        id: host_machine_id,
-        dpu_ids: dpu_machine_ids,
-        api: env.api.clone(),
-    }
+    create_managed_host_with_config(env, host_config.clone()).await
 }
 
 /// Create a managed host with `dpu_count` DPUs (default config)
@@ -1844,7 +1838,7 @@ pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> M
 pub async fn create_managed_host_with_config(
     env: &TestEnv,
     config: ManagedHostConfig,
-) -> (MachineId, Vec<MachineId>) {
+) -> ManagedHost {
     let dpu_count = config.dpus.len();
     let mh = site_explorer::new_host(env, config)
         .await
@@ -1852,7 +1846,7 @@ pub async fn create_managed_host_with_config(
 
     let host_machine_id = mh.host_snapshot.id;
 
-    match dpu_count {
+    let (id, dpu_ids) = match dpu_count {
         0 => (host_machine_id, vec![]),
         1 => (host_machine_id, vec![mh.dpu_snapshots[0].id]),
         _ => {
@@ -1863,6 +1857,11 @@ pub async fn create_managed_host_with_config(
                 .collect();
             (host_machine_id, dpu_ids)
         }
+    };
+    ManagedHost {
+        id,
+        dpu_ids,
+        api: env.api.clone(),
     }
 }
 

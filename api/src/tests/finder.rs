@@ -266,19 +266,11 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let env = create_test_env(db_pool.clone()).await;
     let config = ManagedHostConfig::default();
     let dpu_config = config.get_and_assert_single_dpu().clone();
-    let (host_machine_id, dpu_machine_id) = create_managed_host_with_config(&env, config).await;
+    let mh = create_managed_host_with_config(&env, config).await;
+    let host_machine_id = *mh.host().machine_id();
+    let dpu_machine_id = *mh.dpu().machine_id();
 
-    let res = env
-        .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![dpu_machine_id[0].to_string().into()],
-            ..Default::default()
-        }))
-        .await
-        .unwrap()
-        .into_inner()
-        .machines
-        .remove(0);
+    let res = mh.dpu().rpc_machine().await;
     assert_eq!(
         res.discovery_info.unwrap().dmi_data.unwrap().product_serial,
         dpu_config.serial
@@ -352,7 +344,7 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
             .into_inner();
         assert_eq!(
             res.machine_id.unwrap().to_string(),
-            dpu_machine_id[0].to_string()
+            dpu_machine_id.to_string()
         );
     }
 
@@ -387,7 +379,7 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
             .into_inner();
         assert_eq!(
             res.machine_id.unwrap().to_string(),
-            dpu_machine_id[0].to_string()
+            dpu_machine_id.to_string()
         );
     }
 
