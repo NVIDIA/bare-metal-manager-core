@@ -21,7 +21,8 @@ pub mod tests {
         tests::common::api_fixtures::{
             TestEnv, TestEnvOverrides, create_managed_host, create_managed_host_with_config,
             create_test_env, create_test_env_with_overrides, get_config,
-            machine_validation_completed, managed_host::ManagedHostConfig, reboot_completed,
+            machine_validation_completed,
+            managed_host::{ManagedHost, ManagedHostConfig},
         },
     };
 
@@ -143,13 +144,9 @@ pub mod tests {
   "schema_version": 2
 }"#;
 
-    pub async fn handle_inventory_update(
-        pool: &sqlx::PgPool,
-        env: &TestEnv,
-        machine_id: &MachineId,
-    ) {
+    pub async fn handle_inventory_update(pool: &sqlx::PgPool, env: &TestEnv, mh: &ManagedHost) {
         env.run_machine_state_controller_iteration_until_state_condition(
-            machine_id,
+            mh.host().machine_id(),
             3,
             |machine| {
                 tracing::info!("waiting for inventory update: {}", machine.current_state());
@@ -164,7 +161,7 @@ pub mod tests {
         .await;
 
         let mut txn = pool.begin().await.unwrap();
-        crate::db::machine::update_discovery_time(machine_id, &mut txn)
+        crate::db::machine::update_discovery_time(mh.host().machine_id(), &mut txn)
             .await
             .unwrap();
         txn.commit().await.unwrap();
@@ -357,22 +354,14 @@ pub mod tests {
                 ),
             });
 
-        let (machine_id, _dpu_id) =
-            create_managed_host_with_config(&env, managed_host_config).await;
+        let mh = create_managed_host_with_config(&env, managed_host_config).await;
 
         // the create call above stops at WaitingForSkuAssignment.  make sure it doesn't move if the state machine runs again
         env.run_machine_state_controller_iteration().await;
         env.run_machine_state_controller_iteration().await;
 
         let mut txn = pool.begin().await?;
-        let machine = db::machine::find(
-            &mut txn,
-            ObjectFilter::One(machine_id),
-            MachineSearchConfig::default(),
-        )
-        .await?
-        .pop()
-        .unwrap();
+        let machine = mh.host().db_machine(&mut txn).await;
 
         assert!(matches!(
             machine.current_state(),
@@ -396,8 +385,8 @@ pub mod tests {
                 ),
             });
 
-        let (machine_id, _dpu_id) =
-            create_managed_host_with_config(&env, managed_host_config).await;
+        let mh = create_managed_host_with_config(&env, managed_host_config).await;
+        let machine_id = *mh.host().machine_id();
 
         let mut txn = pool.begin().await?;
 
@@ -412,15 +401,7 @@ pub mod tests {
         env.run_machine_state_controller_iteration().await;
 
         let mut txn = pool.begin().await?;
-        let machine = db::machine::find(
-            &mut txn,
-            ObjectFilter::One(machine_id),
-            MachineSearchConfig::default(),
-        )
-        .await?
-        .pop()
-        .unwrap();
-
+        let machine = mh.host().db_machine(&mut txn).await;
         assert!(matches!(
             machine.current_state(),
             ManagedHostState::BomValidating {
@@ -431,21 +412,10 @@ pub mod tests {
         Ok(())
     }
 
-    async fn get_machine_state(
-        pool: &sqlx::PgPool,
-        machine_id: &MachineId,
-    ) -> Result<ManagedHostState, eyre::Error> {
-        let mut txn = pool.begin().await?;
-        let machine = db::machine::find(
-            &mut txn,
-            ObjectFilter::One(*machine_id),
-            MachineSearchConfig::default(),
-        )
-        .await?
-        .pop()
-        .unwrap();
-
-        Ok(machine.current_state().clone())
+    async fn get_machine_state(pool: &sqlx::PgPool, mh: &ManagedHost) -> ManagedHostState {
+        let mut txn = pool.begin().await.unwrap();
+        let machine = mh.host().db_machine(&mut txn).await;
+        machine.current_state().clone()
     }
 
     #[crate::sqlx_test]
@@ -462,8 +432,8 @@ pub mod tests {
                 ),
             });
 
-        let (machine_id, _dpu_id) =
-            create_managed_host_with_config(&env, managed_host_config).await;
+        let mh = create_managed_host_with_config(&env, managed_host_config).await;
+        let machine_id = *mh.host().machine_id();
 
         let mut txn = pool.begin().await?;
 
@@ -474,11 +444,11 @@ pub mod tests {
 
         txn.commit().await?;
 
-        handle_inventory_update(&pool, &env, &machine_id).await;
+        handle_inventory_update(&pool, &env, &mh).await;
 
         env.run_machine_state_controller_iteration().await;
 
-        let state = get_machine_state(&pool, &machine_id).await?;
+        let state = get_machine_state(&pool, &mh).await;
         assert!(matches!(
             state,
             ManagedHostState::BomValidating {
@@ -487,7 +457,7 @@ pub mod tests {
         ));
 
         env.run_machine_state_controller_iteration().await;
-        let state = get_machine_state(&pool, &machine_id).await?;
+        let state = get_machine_state(&pool, &mh).await;
         assert!(matches!(
             state,
             ManagedHostState::Validation {
@@ -497,7 +467,7 @@ pub mod tests {
             }
         ));
         env.run_machine_state_controller_iteration().await;
-        let state = get_machine_state(&pool, &machine_id).await?;
+        let state = get_machine_state(&pool, &mh).await;
         assert!(matches!(
             state,
             ManagedHostState::Validation {
@@ -516,22 +486,16 @@ pub mod tests {
     ) -> Result<(), eyre::Error> {
         let env = create_test_env_for_sku(pool.clone(), false, None, false).await;
 
-        let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
+        let mh = create_managed_host(&env).await;
 
-        let state = get_machine_state(&pool, &machine_id).await?;
+        let state = get_machine_state(&pool, &mh).await;
 
-        assert!(matches!(state, ManagedHostState::Ready,));
+        assert!(matches!(state, ManagedHostState::Ready));
 
         let mut txn = pool.begin().await?;
 
-        let machine = db::machine::find(
-            &mut txn,
-            ObjectFilter::One(machine_id),
-            MachineSearchConfig::default(),
-        )
-        .await?
-        .pop()
-        .unwrap();
+        let machine = mh.host().db_machine(&mut txn).await;
+        let machine_id = *mh.host().machine_id();
 
         crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
@@ -541,7 +505,7 @@ pub mod tests {
 
         for _ in 0..20 {
             env.run_machine_state_controller_iteration().await;
-            state = get_machine_state(&pool, &machine_id).await?;
+            state = get_machine_state(&pool, &mh).await;
             assert!(!matches!(
                 state,
                 ManagedHostState::Validation {
@@ -579,22 +543,16 @@ pub mod tests {
     ) -> Result<(), eyre::Error> {
         let env = create_test_env_for_sku(pool.clone(), false, None, false).await;
 
-        let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
+        let mh = create_managed_host(&env).await;
 
-        let state = get_machine_state(&pool, &machine_id).await?;
+        let state = get_machine_state(&pool, &mh).await;
 
-        assert!(matches!(state, ManagedHostState::Ready,));
+        assert!(matches!(state, ManagedHostState::Ready));
 
         let mut txn = pool.begin().await?;
 
-        let machine = db::machine::find(
-            &mut txn,
-            ObjectFilter::One(machine_id),
-            MachineSearchConfig::default(),
-        )
-        .await?
-        .pop()
-        .unwrap();
+        let machine = mh.host().db_machine(&mut txn).await;
+        let machine_id = *mh.host().machine_id();
 
         let original_sku = crate::db::sku::find(&mut txn, &[machine.hw_sku.clone().unwrap()])
             .await?
@@ -618,7 +576,7 @@ pub mod tests {
 
         txn.commit().await?;
 
-        handle_inventory_update(&pool, &env, &machine_id).await;
+        handle_inventory_update(&pool, &env, &mh).await;
 
         env.run_machine_state_controller_iteration_until_state_condition(
             &machine_id,
@@ -652,7 +610,7 @@ pub mod tests {
         crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
         txn.commit().await?;
 
-        handle_inventory_update(&pool, &env, &machine_id).await;
+        handle_inventory_update(&pool, &env, &mh).await;
 
         env.run_machine_state_controller_iteration_until_state_condition(
             &machine_id,
@@ -675,14 +633,13 @@ pub mod tests {
             },
         )
         .await;
-        let _response =
-            crate::tests::common::api_fixtures::forge_agent_control(&env, machine_id.into()).await;
+        mh.host().forge_agent_control().await;
 
-        let mut state = get_machine_state(&pool, &machine_id).await?;
+        let mut state = get_machine_state(&pool, &mh).await;
         for _ in 0..3 {
             env.run_machine_state_controller_iteration().await;
 
-            state = get_machine_state(&pool, &machine_id).await?;
+            state = get_machine_state(&pool, &mh).await;
             assert!(!matches!(
                 state,
                 ManagedHostState::Validation {
@@ -712,8 +669,8 @@ pub mod tests {
                 ),
             });
 
-        let (machine_id, _dpu_id) =
-            create_managed_host_with_config(&env, managed_host_config).await;
+        let mh = create_managed_host_with_config(&env, managed_host_config).await;
+        let machine_id = *mh.host().machine_id();
 
         let mut txn = pool.begin().await?;
 
@@ -728,15 +685,7 @@ pub mod tests {
         env.run_machine_state_controller_iteration().await;
 
         let mut txn = pool.begin().await?;
-        let machine = db::machine::find(
-            &mut txn,
-            ObjectFilter::One(machine_id),
-            MachineSearchConfig::default(),
-        )
-        .await?
-        .pop()
-        .unwrap();
-
+        let machine = mh.host().db_machine(&mut txn).await;
         assert!(matches!(
             machine.current_state(),
             ManagedHostState::BomValidating {
@@ -749,16 +698,9 @@ pub mod tests {
         // A new machine with the same hardware is automatically assigned the above
         // sku and moves on.
 
-        let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
+        let mh2 = create_managed_host(&env).await;
 
-        let machine2 = db::machine::find(
-            &mut txn,
-            ObjectFilter::One(machine_id),
-            MachineSearchConfig::default(),
-        )
-        .await?
-        .pop()
-        .unwrap();
+        let machine2 = mh2.host().db_machine(&mut txn).await;
 
         assert_eq!(machine2.hw_sku, Some(expected_sku_id));
 
@@ -965,22 +907,15 @@ pub mod tests {
         .await?;
         txn.commit().await?;
 
-        let (machine_id, _dpu_id) =
-            create_managed_host_with_config(&env, managed_host_config).await;
+        let mh = create_managed_host_with_config(&env, managed_host_config).await;
 
         env.run_machine_state_controller_iteration().await;
         env.run_machine_state_controller_iteration().await;
         env.run_machine_state_controller_iteration().await;
 
         let mut txn = pool.begin().await?;
-        let machine = db::machine::find(
-            &mut txn,
-            ObjectFilter::One(machine_id),
-            MachineSearchConfig::default(),
-        )
-        .await?
-        .pop()
-        .unwrap();
+        let machine = mh.host().db_machine(&mut txn).await;
+        let machine_id = *mh.host().machine_id();
 
         assert!(matches!(
             machine.current_state(),
@@ -996,18 +931,18 @@ pub mod tests {
 
         txn.commit().await?;
 
-        handle_inventory_update(&pool, &env, &machine_id).await;
+        handle_inventory_update(&pool, &env, &mh).await;
 
         env.run_machine_state_controller_iteration_until_state_condition(&machine_id, 10, |m| {
             matches!(m.current_state(), ManagedHostState::Validation { .. })
         })
         .await;
 
-        reboot_completed(&env, machine_id.into()).await;
+        mh.host().reboot_completed().await;
         env.run_machine_state_controller_iteration().await;
         machine_validation_completed(&env, &machine_id, None).await;
         env.run_machine_state_controller_iteration().await;
-        reboot_completed(&env, machine_id.into()).await;
+        mh.host().reboot_completed().await;
 
         // run until ready
         env.run_machine_state_controller_iteration_until_state_matches(
@@ -1051,19 +986,12 @@ pub mod tests {
         txn.commit().await?;
 
         tracing::info!("{}", line!());
-        let (machine_id, _dpu_id) =
-            create_managed_host_with_config(&env, managed_host_config).await;
+        let mh = create_managed_host_with_config(&env, managed_host_config).await;
+        let machine_id = *mh.host().machine_id();
 
         tracing::info!("{}", line!());
         let mut txn = pool.begin().await?;
-        let machine = db::machine::find(
-            &mut txn,
-            ObjectFilter::One(machine_id),
-            MachineSearchConfig::default(),
-        )
-        .await?
-        .pop()
-        .unwrap();
+        let machine = mh.host().db_machine(&mut txn).await;
 
         tracing::info!("{}", line!());
         assert!(matches!(
@@ -1078,7 +1006,7 @@ pub mod tests {
 
         // when auto-gen-sku is enabled, the state machine will create the sku and
         // re-verify the machine (requiring an inventory update)
-        handle_inventory_update(&pool, &env, &machine_id).await;
+        handle_inventory_update(&pool, &env, &mh).await;
 
         env.run_machine_state_controller_iteration_until_state_condition(&machine_id, 10, |m| {
             matches!(m.current_state(), ManagedHostState::Validation { .. })
@@ -1086,11 +1014,11 @@ pub mod tests {
         .await;
         tracing::info!("{}", line!());
 
-        reboot_completed(&env, machine_id.into()).await;
+        mh.host().reboot_completed().await;
         env.run_machine_state_controller_iteration().await;
         machine_validation_completed(&env, &machine_id, None).await;
         env.run_machine_state_controller_iteration().await;
-        reboot_completed(&env, machine_id.into()).await;
+        mh.host().reboot_completed().await;
 
         // run until ready
         env.run_machine_state_controller_iteration_until_state_matches(
