@@ -16,7 +16,6 @@ pub fn main_sync(
     // during setup_and_run. Current files being managed are:
     //
     // - /etc/cron.daily/apt-clean
-    // - /etc/cron.daily/tmp-clean
     // - /etc/dhcp/dhclient-exit-hooks.d/ntpsec
     // - /run/otelcol-contrib/machine-id
     // - /run/otelcol-contrib/host-machine-id
@@ -24,10 +23,6 @@ pub fn main_sync(
         (
             "/etc/cron.daily/apt-clean".into(),
             duppet::FileSpec::new_with_perms(include_str!("../templates/apt-clean"), 0o755),
-        ),
-        (
-            "/etc/cron.daily/tmp-clean".into(),
-            duppet::FileSpec::new_with_perms(include_str!("../templates/tmp-clean"), 0o755),
         ),
         (
             "/etc/dhcp/dhclient-exit-hooks.d/ntpsec".into(),
