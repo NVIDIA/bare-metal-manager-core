@@ -26,7 +26,7 @@ use libredfish::model::sel::LogEntry;
 use libredfish::model::sensor::{GPUSensors, ReadingType};
 use libredfish::model::storage::Drives;
 use libredfish::model::thermal::{Fan, LeakDetector, Temperature};
-use libredfish::model::{ResourceHealth, ResourceState};
+use libredfish::model::{ResourceHealth, ResourceState, ResourceStatus};
 use libredfish::model::{power::Power, software_inventory::SoftwareInventory, thermal::Thermal};
 use libredfish::{PowerState, Redfish, RedfishClientPool, RedfishError};
 use opentelemetry::Key;
@@ -188,10 +188,10 @@ fn export_leak_sensors(
         .with_unit("Moisture")
         .build();
     for detector in leak_detectors.iter() {
-        let value: i64 = match detector.detector_state.as_deref() {
-            Some("OK") => 0,
-            Some("Warning") => 1,
-            Some("Critical") => 2,
+        let value: i64 = match (detector.status.health, detector.status.state) {
+            (Some(ResourceHealth::Ok), Some(ResourceState::Enabled)) => 0,
+            (Some(ResourceHealth::Warning), Some(ResourceState::Enabled)) => 1,
+            (Some(ResourceHealth::Critical), Some(ResourceState::Enabled)) => 2,
             _ => -1,
         };
         let sensor_name = detector.name.clone().as_str().replace(' ', "_");
@@ -823,7 +823,7 @@ async fn export_health_report(
                             true
                         }
                     })
-                    .map(|r| (r.name.as_ref().or(r.fan_name.as_ref()), r.status.health)),
+                    .map(|r| (r.name.as_ref().or(r.fan_name.as_ref()), r.status)),
                 HealthCheck::FanSpeed,
             );
             report_resources(
@@ -831,15 +831,13 @@ async fn export_health_report(
                 thermal
                     .temperatures
                     .iter()
-                    .map(|r| (Some(&r.name), r.status.health)),
+                    .map(|r| (Some(&r.name), r.status)),
                 HealthCheck::Temperature,
             );
             if let Some(leak_detectors) = &thermal.leak_detectors {
                 report_resources(
                     &mut report,
-                    leak_detectors
-                        .iter()
-                        .map(|r| (Some(&r.name), r.status.health)),
+                    leak_detectors.iter().map(|r| (Some(&r.name), r.status)),
                     HealthCheck::Leak,
                 );
             }
@@ -882,7 +880,7 @@ async fn export_health_report(
             if let Some(voltages) = &power.voltages {
                 report_resources(
                     &mut report,
-                    voltages.iter().map(|r| (Some(&r.name), r.status.health)),
+                    voltages.iter().map(|r| (Some(&r.name), r.status)),
                     HealthCheck::Voltage,
                 );
             }
@@ -941,13 +939,14 @@ async fn export_health_report(
 
 fn report_resources<'a>(
     report: &mut HealthReport,
-    resources: impl Iterator<Item = (Option<&'a String>, Option<ResourceHealth>)>,
+    resources: impl Iterator<Item = (Option<&'a String>, ResourceStatus)>,
     health_check: HealthCheck,
 ) {
     for resource in resources {
-        let classification = match resource.1 {
-            Some(ResourceHealth::Warning) => Some("Warning"),
-            Some(ResourceHealth::Critical) => Some("Critical"),
+        let classification = match (resource.1.health, resource.1.state) {
+            (Some(ResourceHealth::Warning), Some(ResourceState::Enabled)) => Some("Warning"),
+            (Some(ResourceHealth::Critical), Some(ResourceState::Enabled)) => Some("Critical"),
+            (Some(ResourceHealth::Critical), _) => Some("SensorFailure"),
             _ => None,
         };
         if let Some(c) = classification {
