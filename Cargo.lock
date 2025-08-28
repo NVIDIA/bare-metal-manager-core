@@ -4746,6 +4746,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "mlxconfig-embedded"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "mlxconfig-registry",
+ "mlxconfig-variables",
+ "prettytable-rs",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
+name = "mlxconfig-registry"
+version = "0.1.0"
+dependencies = [
+ "mlxconfig-variables",
+ "once_cell",
+ "serde",
+ "serde_yaml",
+]
+
+[[package]]
+name = "mlxconfig-variables"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
 name = "mockall"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
