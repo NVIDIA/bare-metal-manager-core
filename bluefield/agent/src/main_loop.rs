@@ -1082,8 +1082,9 @@ async fn hack_dpu_os_to_load_atf_uefi_with_specific_versions() -> eyre::Result<(
 
         let cmd_str = pretty_cmd(cmd.as_std());
 
-        // bfvcheck is taking around 11 seconds.
-        let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT * 2, cmd.output())
+        // bfvcheck is taking around 11 seconds, and worse case is 30s
+        // bump it to a minute just in case
+        let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT * 6, cmd.output())
             .await
             .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
 
