@@ -125,6 +125,18 @@ impl MlxVariableRegistry {
     pub fn builder() -> MlxVariableRegistryBuilder {
         MlxVariableRegistryBuilder::new()
     }
+
+    // get_variable returns a variable from the registry,
+    // or None if it's not in there.
+    pub fn get_variable(&self, name: &str) -> Option<&MlxConfigVariable> {
+        self.variables.iter().find(|v| v.name == name)
+    }
+
+    // variable_names returns all the variable
+    // names defined in the registry.
+    pub fn variable_names(&self) -> Vec<&str> {
+        self.variables.iter().map(|v| v.name.as_str()).collect()
+    }
 }
 
 // MlxVariableRegistryBuilder is used for building a shiny new
