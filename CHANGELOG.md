@@ -44,6 +44,8 @@
 
 - [FORGE-6728](https://jirasw.nvidia.com/browse/FORGE-6728): Allow the cli for force an assignment of a SKU to a machine
 
+- Split alerts out on separate lines in managed-host show cli command
+
 ### Fixed
 - [FORGE-6856](https://jirasw.nvidia.com/browse/FORGE-6856) Remove VRAM from SKU comparison since it may change depending on GPU mode.
 
