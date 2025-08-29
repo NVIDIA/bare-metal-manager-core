@@ -18,7 +18,6 @@ use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::logging::log_limiter::LogLimiter;
 use crate::model::machine::MachineValidatingState;
 use crate::model::machine::ValidationState;
-use crate::tests::common::api_fixtures::managed_host::ManagedHost;
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS,
     FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
@@ -130,8 +129,13 @@ pub mod network_segment;
 pub mod rpc_instance;
 pub mod site_explorer;
 pub mod tenant;
+pub mod test_machine;
+pub mod test_managed_host;
 pub mod tpm_attestation;
 pub mod vpc;
+
+pub type TestMachine = test_machine::TestMachine;
+pub type TestManagedHost = test_managed_host::TestManagedHost;
 
 /// The datacenter-level DHCP relay that is assumed for all DPU discovery
 ///
@@ -1800,18 +1804,18 @@ pub async fn forge_agent_control(
 }
 
 /// Create a managed host with 1 DPU (default config)
-pub async fn create_managed_host(env: &TestEnv) -> ManagedHost {
+pub async fn create_managed_host(env: &TestEnv) -> TestManagedHost {
     let mh = site_explorer::new_host(env, ManagedHostConfig::default())
         .await
         .expect("Failed to create a new host");
-    ManagedHost {
+    TestManagedHost {
         id: mh.host_snapshot.id,
         dpu_ids: mh.dpu_snapshots.iter().map(|dpu| dpu.id).collect(),
         api: env.api.clone(),
     }
 }
 
-pub async fn create_managed_host_with_ek(env: &TestEnv, ek_cert: &[u8]) -> ManagedHost {
+pub async fn create_managed_host_with_ek(env: &TestEnv, ek_cert: &[u8]) -> TestManagedHost {
     let host_config = ManagedHostConfig {
         tpm_ek_cert: TpmEkCertificate::from(ek_cert.to_vec()),
         ..Default::default()
@@ -1821,13 +1825,13 @@ pub async fn create_managed_host_with_ek(env: &TestEnv, ek_cert: &[u8]) -> Manag
 }
 
 /// Create a managed host with `dpu_count` DPUs (default config)
-pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> ManagedHost {
+pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> TestManagedHost {
     assert!(dpu_count >= 1, "need to specify at least 1 dpu");
     let config =
         ManagedHostConfig::with_dpus((0..dpu_count).map(|_| DpuConfig::default()).collect());
     let mh = site_explorer::new_host(env, config).await.unwrap();
 
-    ManagedHost {
+    TestManagedHost {
         id: mh.host_snapshot.id,
         dpu_ids: mh.dpu_snapshots.iter().map(|dpu| dpu.id).collect(),
         api: env.api.clone(),
@@ -1838,7 +1842,7 @@ pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> M
 pub async fn create_managed_host_with_config(
     env: &TestEnv,
     config: ManagedHostConfig,
-) -> ManagedHost {
+) -> TestManagedHost {
     let dpu_count = config.dpus.len();
     let mh = site_explorer::new_host(env, config)
         .await
@@ -1858,7 +1862,7 @@ pub async fn create_managed_host_with_config(
             (host_machine_id, dpu_ids)
         }
     };
-    ManagedHost {
+    TestManagedHost {
         id,
         dpu_ids,
         api: env.api.clone(),
@@ -1869,11 +1873,11 @@ pub async fn create_host_with_machine_validation(
     env: &TestEnv,
     machine_validation_result_data: Option<rpc::forge::MachineValidationResult>,
     error: Option<String>,
-) -> ManagedHost {
+) -> TestManagedHost {
     let mh = new_host_with_machine_validation(env, 1, machine_validation_result_data, error)
         .await
         .unwrap();
-    ManagedHost {
+    TestManagedHost {
         id: mh.host_snapshot.id,
         dpu_ids: mh.dpu_snapshots.into_iter().map(|s| s.id).collect(),
         api: env.api.clone(),

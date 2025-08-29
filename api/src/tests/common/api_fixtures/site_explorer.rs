@@ -8,12 +8,12 @@ use crate::model::machine::{
     BomValidating, BomValidatingContext, MachineValidatingState, MeasuringState, ValidationState,
 };
 use crate::tests::common::api_fixtures::{
-    TestEnv,
+    TestEnv, TestManagedHost,
     dpu::DpuConfig,
     forge_agent_control, get_machine_validation_runs,
     host::host_uefi_setup,
     machine_validation_completed,
-    managed_host::{ManagedHost, ManagedHostConfig},
+    managed_host::ManagedHostConfig,
     network_segment::{
         FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
         FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
@@ -1252,7 +1252,7 @@ pub async fn new_dpu(env: &TestEnv, config: ManagedHostConfig) -> eyre::Result<M
 pub async fn new_dpu_in_network_install(
     env: &TestEnv,
     config: ManagedHostConfig,
-) -> eyre::Result<ManagedHost> {
+) -> eyre::Result<TestManagedHost> {
     let mut mock_explored_host = MockExploredHost::new(env, config);
 
     mock_explored_host = mock_explored_host
@@ -1290,7 +1290,7 @@ pub async fn new_dpu_in_network_install(
         .unwrap()
         .id;
 
-    Ok(ManagedHost {
+    Ok(TestManagedHost {
         id: host_machine_id,
         dpu_ids: vec![dpu_machine_id],
         api: env.api.clone(),

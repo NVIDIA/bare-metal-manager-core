@@ -20,8 +20,7 @@ use std::{
 use super::site_explorer;
 use crate::tests::common::{
     api_fixtures::{
-        FIXTURE_DHCP_RELAY_ADDRESS, TestEnv,
-        managed_host::{ManagedHost, ManagedHostConfig},
+        FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, TestManagedHost, managed_host::ManagedHostConfig,
     },
     mac_address_pool,
 };
@@ -254,7 +253,7 @@ pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) 
 pub async fn create_dpu_machine_in_waiting_for_network_install(
     env: &TestEnv,
     host_config: &ManagedHostConfig,
-) -> ManagedHost {
+) -> TestManagedHost {
     site_explorer::new_dpu_in_network_install(env, host_config.clone())
         .await
         .unwrap()

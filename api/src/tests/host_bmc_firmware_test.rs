@@ -38,8 +38,8 @@ use crate::{
     preingestion_manager::PreingestionManager,
 };
 use common::api_fixtures::{
-    self, TestEnv, create_test_env_with_overrides, get_config, instance::TestInstance,
-    managed_host::ManagedHost,
+    self, TestEnv, TestManagedHost, create_test_env_with_overrides, get_config,
+    instance::TestInstance,
 };
 use forge_uuid::machine::MachineId;
 use regex::Regex;
@@ -771,7 +771,7 @@ async fn test_host_fw_upgrade_enabledisable_global_disabled(
 async fn test_host_fw_upgrade_enabledisable_generic(
     pool: sqlx::PgPool,
     global_enabled: bool,
-) -> CarbideResult<(TestEnv, ManagedHost)> {
+) -> CarbideResult<(TestEnv, TestManagedHost)> {
     // Create an environment with one managed host in the ready state.  Tweak the default config to enable or disable firmware global autoupdate.
     let mut config = get_config();
     config.firmware_global.autoupdate = global_enabled;
@@ -1163,7 +1163,7 @@ async fn test_instance_upgrading_actual(
 
 async fn test_instance_upgrading_actual_part_2(
     env: &TestEnv,
-    mh: &ManagedHost,
+    mh: &TestManagedHost,
     tinstance: &TestInstance<'_, '_>,
     update_manager: &MachineUpdateManager,
 ) -> Result<(), Box<dyn std::error::Error>> {

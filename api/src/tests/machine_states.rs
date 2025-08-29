@@ -27,9 +27,10 @@ use common::api_fixtures::dpu::{
     create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
 };
 use common::api_fixtures::host::{host_discover_dhcp, host_discover_machine, host_uefi_setup};
-use common::api_fixtures::managed_host::ManagedHost;
 use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
-use common::api_fixtures::{create_managed_host, create_test_env, machine_validation_completed};
+use common::api_fixtures::{
+    TestManagedHost, create_managed_host, create_test_env, machine_validation_completed,
+};
 use measured_boot::pcr::PcrRegisterValue;
 
 use crate::model::machine::{FailureCause, FailureSource};
@@ -1051,7 +1052,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     let host_machine_id = host_discover_machine(env, &host_config, machine_interface_id).await;
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
-    let mh = ManagedHost {
+    let mh = TestManagedHost {
         id: host_machine_id,
         dpu_ids: vec![*dpu_machine_id],
         api: env.api.clone(),

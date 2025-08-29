@@ -1,0 +1,134 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use crate::db::managed_host::LoadSnapshotOptions;
+use crate::model::machine::InstanceState;
+use crate::model::machine::Machine;
+use crate::model::machine::ManagedHostState;
+use crate::model::machine::ManagedHostStateSnapshot;
+use crate::model::machine::ReprovisionState;
+use crate::tests::common::api_fixtures::instance::TestInstanceBuilder;
+use crate::tests::common::api_fixtures::{Api, TestEnv, TestMachine};
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+pub struct TestManagedHost {
+    pub id: MachineId,
+    pub dpu_ids: Vec<MachineId>,
+    pub api: Arc<Api>,
+}
+
+impl From<TestManagedHost> for (MachineId, MachineId) {
+    fn from(mut v: TestManagedHost) -> Self {
+        (v.id, v.dpu_ids.remove(0))
+    }
+}
+
+type Txn<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
+
+impl TestManagedHost {
+    pub fn dpu(&self) -> TestMachine {
+        TestMachine::new(self.dpu_ids[0], self.api.clone())
+    }
+
+    pub fn dpu_n(&self, n: usize) -> TestMachine {
+        assert!(n < self.dpu_ids.len());
+        TestMachine::new(self.dpu_ids[n], self.api.clone())
+    }
+
+    pub fn host(&self) -> TestMachine {
+        TestMachine::new(self.id, self.api.clone())
+    }
+
+    pub async fn snapshot(&self, txn: &mut Txn<'_>) -> ManagedHostStateSnapshot {
+        crate::db::managed_host::load_snapshot(txn, &self.id, Default::default())
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    pub async fn dpu_db_machines(&self, txn: &mut Txn<'_>) -> Vec<Machine> {
+        crate::db::machine::find_dpus_by_host_machine_id(txn, &self.id)
+            .await
+            .unwrap()
+    }
+
+    pub fn new_dpu_reprovision_state(&self, state: ReprovisionState) -> ManagedHostState {
+        ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(*self.dpu().machine_id(), state)]),
+            },
+        }
+    }
+
+    pub fn new_dpus_reprovision_state(&self, states: &[&ReprovisionState]) -> ManagedHostState {
+        assert_eq!(states.len(), self.dpu_ids.len());
+        ManagedHostState::DPUReprovision {
+            dpu_states: crate::model::machine::DpuReprovisionStates {
+                states: self
+                    .dpu_ids
+                    .iter()
+                    .zip(states.iter())
+                    .map(|(id, state)| (*id, (*state).clone()))
+                    .collect(),
+            },
+        }
+    }
+
+    pub fn new_dpu_assigned_reprovision_state(&self, state: ReprovisionState) -> ManagedHostState {
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: crate::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(*self.dpu().machine_id(), state)]),
+                },
+            },
+        }
+    }
+
+    pub async fn network_configured(&self, test_env: &TestEnv) {
+        crate::tests::common::api_fixtures::network_configured(test_env, &self.dpu_ids).await
+    }
+
+    pub fn instance_builer<'a, 'b>(&'b self, test_env: &'a TestEnv) -> TestInstanceBuilder<'a, 'b> {
+        TestInstanceBuilder::new(test_env, self)
+    }
+
+    pub async fn delete_instance(&self, env: &TestEnv, instance_id: InstanceId) {
+        crate::tests::common::api_fixtures::instance::delete_instance(env, instance_id, self).await
+    }
+}
+
+pub(crate) trait TestManagedHostSnapshots {
+    async fn snapshots(
+        &self,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        load_options: LoadSnapshotOptions,
+    ) -> HashMap<MachineId, ManagedHostStateSnapshot>;
+}
+
+impl TestManagedHostSnapshots for Vec<TestManagedHost> {
+    async fn snapshots(
+        &self,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        load_options: LoadSnapshotOptions,
+    ) -> HashMap<MachineId, ManagedHostStateSnapshot> {
+        crate::db::managed_host::load_by_machine_ids(
+            txn,
+            &self.iter().map(|m| m.id).collect::<Vec<_>>(),
+            load_options,
+        )
+        .await
+        .unwrap()
+    }
+}

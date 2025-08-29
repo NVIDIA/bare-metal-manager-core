@@ -12,8 +12,7 @@
 use crate::db;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{
-    TestEnv, TestEnvOverrides, create_managed_host, create_test_env_with_overrides,
-    managed_host::ManagedHost,
+    TestEnv, TestEnvOverrides, TestManagedHost, create_managed_host, create_test_env_with_overrides,
 };
 use ::rpc::forge as rpc;
 use ::rpc::forge::forge_server::Forge;
@@ -26,7 +25,7 @@ use std::time::SystemTime;
 async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
 
-    let dpu_machine_id = create_managed_host(&env).await.into_dpu();
+    let dpu_machine_id = *create_managed_host(&env).await.dpu().machine_id();
 
     // Set the upgrade policy
     let response = env
@@ -230,7 +229,7 @@ async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), e
     Ok(())
 }
 
-impl ManagedHost {
+impl TestManagedHost {
     async fn mock_observation_and_get_only_health_alert(
         &self,
         test_env: &TestEnv,

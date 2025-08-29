@@ -283,7 +283,7 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let host_interface_id = mh.host().first_interface_id(&mut txn).await;
+    let host_interface = mh.host().first_interface(&mut txn).await;
     txn.commit().await.unwrap();
 
     mh.instance_builer(&env)
@@ -291,12 +291,9 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
         .build()
         .await;
 
-    let instructions = get_pxe_instructions(
-        &env,
-        host_interface_id,
-        rpc::forge::MachineArchitecture::X86,
-    )
-    .await;
+    let instructions = host_interface
+        .get_pxe_instructions(rpc::forge::MachineArchitecture::X86)
+        .await;
 
     assert_eq!(instructions.pxe_script, "SomeRandomiPxe".to_string());
 }

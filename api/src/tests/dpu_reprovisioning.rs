@@ -32,9 +32,8 @@ use std::collections::HashMap;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
-use crate::tests::common::api_fixtures::managed_host::ManagedHost;
 use crate::tests::common::api_fixtures::{
-    create_managed_host, forge_agent_control, update_time_params,
+    TestManagedHost, create_managed_host, forge_agent_control, update_time_params,
 };
 
 #[crate::sqlx_test]
@@ -1796,7 +1795,7 @@ async fn test_dpu_for_reprovisioning_cannot_restart_if_not_started(pool: sqlx::P
     }
 }
 
-impl ManagedHost {
+impl TestManagedHost {
     pub async fn mark_machine_for_updates(&self) {
         self.api
             .insert_health_report_override(tonic::Request::new(
