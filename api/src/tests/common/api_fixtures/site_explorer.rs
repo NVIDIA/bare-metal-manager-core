@@ -13,7 +13,7 @@ use crate::tests::common::api_fixtures::{
     forge_agent_control, get_machine_validation_runs,
     host::host_uefi_setup,
     machine_validation_completed,
-    managed_host::ManagedHostConfig,
+    managed_host::{ManagedHost, ManagedHostConfig},
     network_segment::{
         FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
         FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
@@ -566,7 +566,7 @@ impl<'a> MockExploredHost<'a> {
 
         discovery_completed(self.test_env, host_machine_id.into()).await;
         self.test_env.run_ib_fabric_monitor_iteration().await;
-        host_uefi_setup(self.test_env, &host_machine_id, host_machine_id.into()).await;
+        host_uefi_setup(self.test_env, &host_machine_id).await;
 
         let stop_state = self
             .test_env
@@ -763,7 +763,7 @@ impl<'a> MockExploredHost<'a> {
 
         discovery_completed(self.test_env, host_machine_id.into()).await;
         self.test_env.run_ib_fabric_monitor_iteration().await;
-        host_uefi_setup(self.test_env, &host_machine_id, host_machine_id.into()).await;
+        host_uefi_setup(self.test_env, &host_machine_id).await;
 
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
@@ -1252,7 +1252,7 @@ pub async fn new_dpu(env: &TestEnv, config: ManagedHostConfig) -> eyre::Result<M
 pub async fn new_dpu_in_network_install(
     env: &TestEnv,
     config: ManagedHostConfig,
-) -> eyre::Result<(MachineId, MachineId)> {
+) -> eyre::Result<ManagedHost> {
     let mut mock_explored_host = MockExploredHost::new(env, config);
 
     mock_explored_host = mock_explored_host
@@ -1290,5 +1290,9 @@ pub async fn new_dpu_in_network_install(
         .unwrap()
         .id;
 
-    Ok((dpu_machine_id, host_machine_id))
+    Ok(ManagedHost {
+        id: host_machine_id,
+        dpu_ids: vec![dpu_machine_id],
+        api: env.api.clone(),
+    })
 }

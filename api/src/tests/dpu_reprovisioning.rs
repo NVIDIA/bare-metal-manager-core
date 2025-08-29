@@ -1124,22 +1124,23 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
 
-    let (dpu_machine_id, host_machine_id) =
-        create_dpu_machine_in_waiting_for_network_install(&env, &host_config).await;
-    let dpu_rpc_machine_id: rpc::MachineId = dpu_machine_id.into();
+    let mh = create_dpu_machine_in_waiting_for_network_install(&env, &host_config).await;
 
-    let agent_control_response = forge_agent_control(&env, dpu_rpc_machine_id.clone()).await;
+    let agent_control_response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         agent_control_response.action,
         rpc::forge_agent_control_response::Action::Noop as i32
     );
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        &host_machine_id,
+        mh.host().machine_id(),
         4,
         ManagedHostState::DPUInit {
             dpu_states: crate::model::machine::DpuInitStates {
-                states: HashMap::from([(dpu_machine_id, DpuInitState::WaitingForNetworkConfig)]),
+                states: HashMap::from([(
+                    *mh.dpu().machine_id(),
+                    DpuInitState::WaitingForNetworkConfig,
+                )]),
             },
         },
     )

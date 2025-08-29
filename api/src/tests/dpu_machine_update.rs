@@ -197,9 +197,8 @@ async fn test_find_unavailable_outdated_dpus(
     let mut txn = env.pool.begin().await?;
 
     let host_config = env.managed_host_config();
-    let (dpu_machine_id, host_machine_id) =
-        create_dpu_machine_in_waiting_for_network_install(&env, &host_config).await;
-    update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
+    let mh = create_dpu_machine_in_waiting_for_network_install(&env, &host_config).await;
+    update_nic_firmware_version(&mut txn, mh.dpu().machine_id(), "11.10.1000").await?;
     txn.commit().await.unwrap();
 
     create_machines(&env, 2).await;
@@ -208,8 +207,11 @@ async fn test_find_unavailable_outdated_dpus(
     let dpus = DpuMachineUpdate::find_unavailable_outdated_dpus(&env.config, &snapshots).await;
 
     assert_eq!(dpus.len(), 1);
-    assert_eq!(dpus.first().unwrap().dpu_machine_id, dpu_machine_id);
-    assert_eq!(dpus.first().unwrap().host_machine_id, host_machine_id);
+    assert_eq!(&dpus.first().unwrap().dpu_machine_id, mh.dpu().machine_id());
+    assert_eq!(
+        &dpus.first().unwrap().host_machine_id,
+        mh.host().machine_id()
+    );
 
     Ok(())
 }

@@ -109,11 +109,7 @@ pub async fn host_discover_machine(
     response.machine_id.expect("machine_id must be set")
 }
 
-pub async fn host_uefi_setup(
-    env: &TestEnv,
-    host_machine_id: &MachineId,
-    host_rpc_machine_id: ::rpc::common::MachineId,
-) {
+pub async fn host_uefi_setup(env: &TestEnv, host_machine_id: &MachineId) {
     for state in UefiSetupState::iter() {
         if state == UefiSetupState::UnlockHost {
             // This state is reserved for legacy hosts--newly ingested hosts will never get here
@@ -134,7 +130,7 @@ pub async fn host_uefi_setup(
         )
         .await;
 
-        let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
+        let response = forge_agent_control(env, host_machine_id.into()).await;
         assert_eq!(response.action, Action::Noop as i32);
     }
 }

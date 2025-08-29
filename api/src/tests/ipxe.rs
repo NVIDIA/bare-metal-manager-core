@@ -84,29 +84,24 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
 async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let (dpu_machine_id, _) =
-        common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install(
-            &env,
-            &host_config,
-        )
-        .await;
+    let mh = common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install(
+        &env,
+        &host_config,
+    )
+    .await;
 
     let mut txn = env.pool.begin().await.unwrap();
 
-    let machine = db::machine::find_one(
-        &mut txn,
-        &dpu_machine_id,
-        crate::db::machine::MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let machine = mh.dpu().db_machine(&mut txn).await;
 
     assert_eq!(
         machine.current_state(),
         &ManagedHostState::DPUInit {
             dpu_states: crate::model::machine::DpuInitStates {
-                states: HashMap::from([(dpu_machine_id, DpuInitState::WaitingForNetworkConfig,)]),
+                states: HashMap::from([(
+                    *mh.dpu().machine_id(),
+                    DpuInitState::WaitingForNetworkConfig,
+                )]),
             },
         }
     );
