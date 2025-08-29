@@ -41,4 +41,6 @@ mkdir -p /opt/shorelineagent/secrets
 touch /opt/shorelineagent/scraper.yml
 
 rmmod mlx5_ib || true
+udevadm settle
 modprobe mlx5_ib || true
+udevadm settle
