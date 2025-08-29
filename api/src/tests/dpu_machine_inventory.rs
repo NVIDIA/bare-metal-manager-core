@@ -21,15 +21,10 @@ use crate::tests::common;
 #[crate::sqlx_test]
 async fn test_create_inventory(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
-
-    let dpu_machine_id = create_managed_host(&env).await.into_dpu();
-
-    let machine_result = env.find_machines(dpu_machine_id.into(), None, true).await;
-
-    assert_eq!(machine_result.machines.len(), 1);
+    let dpu_machine = create_managed_host(&env).await.dpu().rpc_machine().await;
 
     assert_eq!(
-        machine_result.machines[0].inventory,
+        dpu_machine.inventory,
         Some(rpc::MachineInventory {
             components: vec![
                 rpc::MachineInventorySoftwareComponent {

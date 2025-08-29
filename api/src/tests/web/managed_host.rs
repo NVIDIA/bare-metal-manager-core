@@ -51,7 +51,10 @@ async fn test_ok(pool: sqlx::PgPool) {
 async fn test_multi_dpu(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let app = make_test_app(&env);
-    let managed_host_id = create_managed_host_multi_dpu(&env, 2).await.into_host();
+    let host_machine_id = *create_managed_host_multi_dpu(&env, 2)
+        .await
+        .host()
+        .machine_id();
 
     let response = app
         .oneshot(
@@ -84,11 +87,11 @@ async fn test_multi_dpu(pool: sqlx::PgPool) {
         .find(|h| {
             h.machine_id
                 .as_ref()
-                .map(|m| m == &managed_host_id.to_string())
+                .map(|m| m == &host_machine_id.to_string())
                 .unwrap_or(false)
         })
         .unwrap_or_else(|| {
-            panic!("Could not find expected host {managed_host_id} in managed_hosts output")
+            panic!("Could not find expected host {host_machine_id} in managed_hosts output")
         });
     assert!(host.hostname.is_some(), "Hostname should be set");
     assert_eq!(host.dpus.len(), 2, "Host should have 2 dpus");

@@ -2,7 +2,8 @@ use crate::CarbideResult;
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE;
 use crate::tests::common;
-use crate::tests::common::api_fixtures::managed_host::{ManagedHost, ManagedHostSnapshots};
+use crate::tests::common::api_fixtures::TestManagedHost;
+use crate::tests::common::api_fixtures::test_managed_host::TestManagedHostSnapshots;
 use crate::tests::dpu_machine_update::{get_all_snapshots, update_nic_firmware_version};
 
 use std::collections::HashSet;
@@ -305,7 +306,7 @@ async fn test_clear_completed_updates(
     Ok(())
 }
 
-impl ManagedHost {
+impl TestManagedHost {
     pub async fn update_nic_firmware_version(
         &self,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,

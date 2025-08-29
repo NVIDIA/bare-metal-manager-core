@@ -1,0 +1,135 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use crate::model::machine::Machine;
+use crate::tests::common::api_fixtures::{Api, TestEnv};
+use forge_uuid::machine::MachineId;
+use rpc::forge::forge_server::Forge;
+use std::sync::Arc;
+use tonic::Request;
+
+pub mod interface;
+
+pub type TestMachineInterface = interface::TestMachineInterface;
+
+pub struct TestMachine {
+    id: MachineId,
+    api: Arc<Api>,
+}
+
+type Txn<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
+
+impl TestMachine {
+    pub fn new(id: MachineId, api: Arc<Api>) -> Self {
+        Self { id, api }
+    }
+
+    pub fn machine_id(&self) -> &MachineId {
+        &self.id
+    }
+
+    pub async fn rpc_machine(&self) -> rpc::Machine {
+        self.api
+            .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
+                search_config: Some(rpc::forge::MachineSearchConfig {
+                    include_dpus: false,
+                    include_history: true,
+                    ..Default::default()
+                }),
+                id: self.id.into(),
+                fqdn: None,
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .machines
+            .remove(0)
+    }
+
+    pub async fn next_iteration_machine(&self, env: &TestEnv) -> Machine {
+        env.run_machine_state_controller_iteration().await;
+        let mut txn = env.pool.begin().await.unwrap();
+        let dpu = self.db_machine(&mut txn).await;
+        txn.commit().await.unwrap();
+        dpu
+    }
+
+    pub async fn db_machine(&self, txn: &mut Txn<'_>) -> Machine {
+        crate::db::machine::find_one(txn, &self.id, Default::default())
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    pub async fn first_interface(&self, txn: &mut Txn<'_>) -> TestMachineInterface {
+        TestMachineInterface::new(
+            crate::db::machine_interface::find_by_machine_ids(txn, &[self.id])
+                .await
+                .unwrap()
+                .get(&self.id)
+                .unwrap()[0]
+                .id,
+            self.api.clone(),
+        )
+    }
+
+    pub async fn reboot_completed(&self) -> rpc::forge::MachineRebootCompletedResponse {
+        tracing::info!("Machine ={} rebooted", self.id);
+        self.api
+            .reboot_completed(Request::new(rpc::forge::MachineRebootCompletedRequest {
+                machine_id: self.id.into(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+    }
+
+    pub async fn forge_agent_control(&self) -> rpc::forge::ForgeAgentControlResponse {
+        self.reboot_completed().await;
+        self.api
+            .forge_agent_control(Request::new(rpc::forge::ForgeAgentControlRequest {
+                machine_id: self.id.into(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+    }
+
+    pub async fn discovery_completed(&self) {
+        self.api
+            .discovery_completed(Request::new(rpc::forge::MachineDiscoveryCompletedRequest {
+                machine_id: self.id.into(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+    }
+
+    pub async fn trigger_dpu_reprovisioning(
+        &self,
+        mode: rpc::forge::dpu_reprovisioning_request::Mode,
+        update_firmware: bool,
+    ) {
+        self.api
+            .trigger_dpu_reprovisioning(tonic::Request::new(
+                ::rpc::forge::DpuReprovisioningRequest {
+                    dpu_id: None,
+                    machine_id: self.id.into(),
+                    mode: mode as i32,
+                    initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                    update_firmware,
+                },
+            ))
+            .await
+            .unwrap();
+    }
+}

@@ -22,7 +22,7 @@ use crate::model::machine::{
     CleanupState, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
 };
 use crate::tests::common::api_fixtures::RpcInstance;
-use crate::tests::common::api_fixtures::managed_host::ManagedHost;
+use crate::tests::common::api_fixtures::TestManagedHost;
 use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
 use rpc::{
     InstanceReleaseRequest, Timestamp,
@@ -34,11 +34,11 @@ pub struct TestInstanceBuilder<'a, 'b> {
     config: rpc::InstanceConfig,
     tenant: rpc::TenantConfig,
     metadata: Option<rpc::Metadata>,
-    mh: &'b ManagedHost,
+    mh: &'b TestManagedHost,
 }
 
 impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
-    pub fn new(env: &'a TestEnv, mh: &'b ManagedHost) -> Self {
+    pub fn new(env: &'a TestEnv, mh: &'b TestManagedHost) -> Self {
         Self {
             env,
             config: rpc::InstanceConfig {
@@ -131,7 +131,7 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
 pub struct TestInstance<'a, 'b> {
     id: InstanceId,
     env: &'a TestEnv,
-    mh: &'b ManagedHost,
+    mh: &'b TestManagedHost,
 }
 
 type Txn<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
@@ -170,7 +170,7 @@ impl<'a, 'b> TestInstance<'a, 'b> {
 
 pub async fn create_instance_with_ib_config<'a, 'b>(
     env: &'a TestEnv,
-    mh: &'b ManagedHost,
+    mh: &'b TestManagedHost,
     ib_config: rpc::forge::InstanceInfinibandConfig,
     network_segment_id: NetworkSegmentId,
 ) -> (TestInstance<'a, 'b>, RpcInstance) {
@@ -267,7 +267,7 @@ pub fn config_for_ib_config(
     }
 }
 
-pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &ManagedHost) {
+pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &TestManagedHost) {
     // Run network state machine handler here.
     env.run_network_segment_controller_iteration().await;
 
@@ -324,7 +324,7 @@ pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &Manag
     .await;
 }
 
-pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &ManagedHost) {
+pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestManagedHost) {
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
             id: Some(instance_id.into()),
@@ -364,7 +364,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &Manage
     env.run_network_segment_controller_iteration().await;
 }
 
-pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &ManagedHost) {
+pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &TestManagedHost) {
     let mut txn = env.pool.begin().await.unwrap();
     let machine = mh.host().db_machine(&mut txn).await;
     db::machine::update_reboot_time(&machine, &mut txn)

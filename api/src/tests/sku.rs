@@ -19,10 +19,9 @@ pub mod tests {
             sku::Sku,
         },
         tests::common::api_fixtures::{
-            TestEnv, TestEnvOverrides, create_managed_host, create_managed_host_with_config,
-            create_test_env, create_test_env_with_overrides, get_config,
-            machine_validation_completed,
-            managed_host::{ManagedHost, ManagedHostConfig},
+            TestEnv, TestEnvOverrides, TestManagedHost, create_managed_host,
+            create_managed_host_with_config, create_test_env, create_test_env_with_overrides,
+            get_config, machine_validation_completed, managed_host::ManagedHostConfig,
         },
     };
 
@@ -144,7 +143,7 @@ pub mod tests {
   "schema_version": 2
 }"#;
 
-    pub async fn handle_inventory_update(pool: &sqlx::PgPool, env: &TestEnv, mh: &ManagedHost) {
+    pub async fn handle_inventory_update(pool: &sqlx::PgPool, env: &TestEnv, mh: &TestManagedHost) {
         env.run_machine_state_controller_iteration_until_state_condition(
             mh.host().machine_id(),
             3,
@@ -412,7 +411,7 @@ pub mod tests {
         Ok(())
     }
 
-    async fn get_machine_state(pool: &sqlx::PgPool, mh: &ManagedHost) -> ManagedHostState {
+    async fn get_machine_state(pool: &sqlx::PgPool, mh: &TestManagedHost) -> ManagedHostState {
         let mut txn = pool.begin().await.unwrap();
         let machine = mh.host().db_machine(&mut txn).await;
         machine.current_state().clone()

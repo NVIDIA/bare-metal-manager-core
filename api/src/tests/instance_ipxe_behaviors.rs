@@ -11,10 +11,8 @@
  */
 
 use crate::tests::common::api_fixtures::instance::TestInstance;
-use crate::tests::common::api_fixtures::managed_host::ManagedHost;
-use common::api_fixtures::{TestEnv, create_test_env};
-use forge_uuid::machine::MachineInterfaceId;
-use rpc::forge::{PxeInstructions, forge_server::Forge};
+use common::api_fixtures::{TestEnv, TestManagedHost, create_test_env};
+use rpc::forge::forge_server::Forge;
 
 use crate::tests::common::api_fixtures::{
     create_managed_host,
@@ -31,8 +29,9 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     let mh = create_managed_host(&env).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host_interface_id = mh.host().first_interface_id(&mut txn).await;
+    let host_interface = mh.host().first_interface(&mut txn).await;
     txn.rollback().await.unwrap();
+    let host_arch = rpc::forge::MachineArchitecture::X86;
 
     let tinstance = create_instance(&env, &mh, false, segment_id).await;
     assert!(
@@ -45,11 +44,11 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     );
 
     // First boot should return custom iPXE instructions
-    let pxe = fetch_ipxe_instructions(&env, &host_interface_id).await;
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
 
     // Second boot should return "exit"
-    let pxe = fetch_ipxe_instructions(&env, &host_interface_id).await;
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert!(
         pxe.pxe_script
             .contains("Current state: Assigned/Ready. This state assumes an OS is provisioned and will exit into the OS in 5 seconds."),
@@ -58,7 +57,7 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
 
     // A regular reboot attempt should still lead to returning "exit"
     invoke_instance_power(&env, mh.id, false).await;
-    let pxe = fetch_ipxe_instructions(&env, &host_interface_id).await;
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert!(
         pxe.pxe_script
             .contains("Current state: Assigned/Ready. This state assumes an OS is provisioned and will exit into the OS in 5 seconds."),
@@ -67,12 +66,12 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
 
     // A reboot with flag `boot_with_custom_ipxe` should provide the custom iPXE
     invoke_instance_power(&env, mh.id, true).await;
-    let pxe = fetch_ipxe_instructions(&env, &host_interface_id).await;
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
 
     // The next reboot should again lead to returning "exit"
     invoke_instance_power(&env, mh.id, false).await;
-    let pxe = fetch_ipxe_instructions(&env, &host_interface_id).await;
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert!(
         pxe.pxe_script
             .contains("Current state: Assigned/Ready. This state assumes an OS is provisioned and will exit into the OS in 5 seconds."),
@@ -87,8 +86,9 @@ async fn test_instance_always_boot_with_custom_ipxe(pool: sqlx::PgPool) {
     let mh = create_managed_host(&env).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host_interface_id = mh.host().first_interface_id(&mut txn).await;
+    let host_interface = mh.host().first_interface(&mut txn).await;
     txn.rollback().await.unwrap();
+    let host_arch = rpc::forge::MachineArchitecture::X86;
 
     let tinstance = create_instance(&env, &mh, true, segment_id).await;
     assert!(
@@ -101,36 +101,22 @@ async fn test_instance_always_boot_with_custom_ipxe(pool: sqlx::PgPool) {
     );
 
     // First boot should return custom iPXE instructions
-    let pxe = fetch_ipxe_instructions(&env, &host_interface_id).await;
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
 
     // Second boot should also return custom iPXE instructions
-    let pxe = fetch_ipxe_instructions(&env, &host_interface_id).await;
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
 
     // A regular reboot attempt should also return custom iPXE instructions
     invoke_instance_power(&env, mh.id, false).await;
-    let pxe = fetch_ipxe_instructions(&env, &host_interface_id).await;
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
 
     // A reboot with flag `boot_with_custom_ipxe` should also return custom iPXE instructions
     invoke_instance_power(&env, mh.id, true).await;
-    let pxe = fetch_ipxe_instructions(&env, &host_interface_id).await;
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
-}
-
-async fn fetch_ipxe_instructions(
-    env: &TestEnv,
-    interface_id: &MachineInterfaceId,
-) -> PxeInstructions {
-    env.api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: rpc::forge::MachineArchitecture::X86 as i32,
-            interface_id: Some((*interface_id).into()),
-        }))
-        .await
-        .unwrap()
-        .into_inner()
 }
 
 async fn invoke_instance_power(
@@ -151,7 +137,7 @@ async fn invoke_instance_power(
 
 pub async fn create_instance<'a, 'b>(
     env: &'a TestEnv,
-    mh: &'b ManagedHost,
+    mh: &'b TestManagedHost,
     run_provisioning_instructions_on_every_boot: bool,
     segment_id: NetworkSegmentId,
 ) -> TestInstance<'a, 'b> {
