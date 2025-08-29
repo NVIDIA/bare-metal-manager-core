@@ -12,7 +12,6 @@
 use crate::tests::common;
 
 use crate::db;
-use crate::db::machine::MachineSearchConfig;
 use crate::measured_boot::db as mbdb;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::TpmEkCertificate;
@@ -28,6 +27,7 @@ use common::api_fixtures::dpu::{
     create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
 };
 use common::api_fixtures::host::{host_discover_dhcp, host_discover_machine, host_uefi_setup};
+use common::api_fixtures::managed_host::ManagedHost;
 use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
 use common::api_fixtures::{create_managed_host, create_test_env, machine_validation_completed};
 use measured_boot::pcr::PcrRegisterValue;
@@ -37,7 +37,7 @@ use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host_with_ek, discovery_completed,
     dpu::{TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION, TEST_DPU_AGENT_VERSION},
-    forge_agent_control, network_configured, update_time_params,
+    forge_agent_control, update_time_params,
 };
 use chrono::Duration;
 use common::api_fixtures::{create_test_env_with_overrides, get_config};
@@ -54,13 +54,9 @@ use tonic::Request;
 #[crate::sqlx_test]
 async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (_host_machine_id, dpu_machine_id) =
-        common::api_fixtures::create_managed_host(&env).await.into();
-    let mut txn = env.pool.begin().await.unwrap();
-    let dpu = db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let mut txn = env.db_txn().await;
+    let dpu = mh.dpu().db_machine(&mut txn).await;
 
     assert!(matches!(dpu.current_state(), ManagedHostState::Ready));
 
@@ -151,7 +147,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
 async fn test_failed_state_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
 
     db::machine::update_failure_details(
@@ -172,7 +168,7 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
     // let state machine check the failure condition.
     env.run_machine_state_controller_iteration().await;
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
 
     assert!(matches!(
@@ -254,7 +250,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     env.run_machine_state_controller_iteration().await;
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
 
     assert!(matches!(
@@ -299,14 +295,11 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let env = create_test_env(pool).await;
-    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
-    let mut txn = env.pool.begin().await.unwrap();
+    let mh = create_managed_host(&env).await;
+    let mut txn = env.db_txn().await;
 
     // create_dpu_machine runs record_dpu_network_status, so machine should be healthy
-    let dpu_machine = db::machine::find_by_query(&mut txn, &dpu_machine_id.to_string())
-        .await
-        .unwrap()
-        .expect("expect DPU to be found");
+    let dpu_machine = mh.dpu().db_machine(&mut txn).await;
     assert!(
         dpu_machine
             .dpu_agent_health_report
@@ -364,10 +357,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     env.run_machine_state_controller_iteration().await;
 
     // Now the network should be marked unhealthy
-    let dpu_machine = db::machine::find_by_query(&mut txn, &dpu_machine_id.to_string())
-        .await
-        .unwrap()
-        .expect("expect DPU to be found");
+    let dpu_machine = mh.dpu().db_machine(&mut txn).await;
     assert!(
         !dpu_machine
             .dpu_agent_health_report
@@ -431,7 +421,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
 async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
 
     db::machine::update_failure_details(
@@ -453,7 +443,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
     env.run_machine_state_controller_iteration().await;
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
 
     assert!(matches!(
@@ -465,7 +455,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     update_time_params(&env.pool, &host, 1, None).await;
     env.run_machine_state_controller_iteration().await;
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
 
     assert!(matches!(
@@ -509,7 +499,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     );
 
     env.run_machine_state_controller_iteration().await;
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
 
     assert!(host.last_reboot_requested.is_some());
@@ -555,7 +545,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         },
     )
     .await;
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
 
     assert_ne!(
@@ -579,10 +569,8 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let (_host_machine_id_1, _dpu_machine_id_1) =
-        common::api_fixtures::create_managed_host(&env).await.into();
-    let (_host_machine_id_2, _dpu_machine_id_2) =
-        common::api_fixtures::create_managed_host(&env).await.into();
+    common::api_fixtures::create_managed_host(&env).await;
+    common::api_fixtures::create_managed_host(&env).await;
 
     assert_eq!(
         env.test_meter
@@ -677,18 +665,17 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
 async fn test_state_outcome(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let (dpu_machine_id, _host_machine_id) =
-        create_dpu_machine_in_waiting_for_network_install(&env, &host_config).await;
+    let mh = create_dpu_machine_in_waiting_for_network_install(&env, &host_config).await;
 
-    let mut txn = env.pool.begin().await.unwrap();
-    let host_machine = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let mut txn = env.db_txn().await;
+    let host_machine = mh.host().db_machine(&mut txn).await;
     txn.rollback().await.unwrap();
     let _expected_state = ManagedHostState::DPUInit {
         dpu_states: crate::model::machine::DpuInitStates {
-            states: HashMap::from([(dpu_machine_id, DpuInitState::WaitingForNetworkConfig)]),
+            states: HashMap::from([(
+                *mh.dpu().machine_id(),
+                DpuInitState::WaitingForNetworkConfig,
+            )]),
         },
     };
     assert!(matches!(host_machine.current_state(), _expected_state));
@@ -702,15 +689,12 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
 
     // Scout does its thing
 
-    let _ = forge_agent_control(&env, dpu_machine_id.to_string().into()).await;
+    let _ = mh.dpu().forge_agent_control().await;
 
     // Now we're stuck waiting for DPU agent to run
     env.run_machine_state_controller_iteration().await;
-    let mut txn = env.pool.begin().await.unwrap();
-    let host_machine = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let mut txn = env.db_txn().await;
+    let host_machine = mh.host().db_machine(&mut txn).await;
     txn.rollback().await.unwrap();
     let outcome = host_machine.controller_state_outcome.unwrap();
     dbg!(&outcome);
@@ -732,7 +716,7 @@ async fn test_state_sla(pool: sqlx::PgPool) {
     assert!(sla.sla.is_none());
 
     // Now do a Hack and move the Machine into a failed state - which has a SLA
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     db::machine::update_state(
         &mut txn,
         &mh.id,
@@ -793,7 +777,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
 
     // This is kind of redundant since `create_managed_host` returns a machine
     // in Ready state, but, just to be super explicit...
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(host.current_state(), ManagedHostState::Ready));
     txn.commit().await.unwrap();
@@ -812,7 +796,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     assert_eq!(1, bundles_response.bundles.len());
     let bundle = MeasurementBundle::from_grpc(Some(&bundles_response.bundles[0])).unwrap();
     assert_eq!(bundle.state, MeasurementBundleState::Active);
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let retired_bundle =
         mbdb::bundle::set_state_for_id(&mut txn, bundle.bundle_id, MeasurementBundleState::Retired)
             .await
@@ -841,7 +825,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     // ..and now reactivate the bundle.
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let reactivated_bundle = mbdb::bundle::set_state_for_id(
         &mut txn,
         retired_bundle.bundle_id,
@@ -857,7 +841,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
         env.run_machine_state_controller_iteration().await;
     }
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(host.current_state(), ManagedHostState::Ready));
     txn.commit().await.unwrap();
@@ -891,7 +875,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
 
     // This is kind of redundant since `create_managed_host` returns a machine
     // in Ready state, but, just to be super explicit...
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(host.current_state(), ManagedHostState::Ready));
     txn.commit().await.unwrap();
@@ -911,7 +895,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
     assert_eq!(1, bundles_response.bundles.len());
     let bundle = MeasurementBundle::from_grpc(Some(&bundles_response.bundles[0])).unwrap();
     assert_eq!(bundle.state, MeasurementBundleState::Active);
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let retired_bundle =
         mbdb::bundle::set_state_for_id(&mut txn, bundle.bundle_id, MeasurementBundleState::Retired)
             .await
@@ -926,7 +910,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
     }
 
     // make sure the machine is in retired state
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     // and confirm that it is actually in the retired state
     assert!(matches!(
@@ -952,7 +936,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
         .await
         .unwrap();
     // "resurrect" the bundle
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let reactivated_bundle = mbdb::bundle::set_state_for_id(
         &mut txn,
         retired_bundle.bundle_id,
@@ -968,7 +952,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
     }
 
     // check that it has failed as intended due to the lack of ca cert
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(
         host.current_state(),
@@ -993,7 +977,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
         .expect("Failed to add CA cert");
 
     // before advancing the state, change the bundle state to revoked
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let _revoked_bundle =
         mbdb::bundle::set_state_for_id(&mut txn, bundle.bundle_id, MeasurementBundleState::Revoked)
             .await
@@ -1006,7 +990,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
     }
 
     // check we are in revoked state
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(
         host.current_state(),
@@ -1034,7 +1018,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
         env.run_machine_state_controller_iteration().await;
     }
 
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(host.current_state(), ManagedHostState::Ready));
     txn.commit().await.unwrap();
@@ -1067,7 +1051,11 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     let host_machine_id = host_discover_machine(env, &host_config, machine_interface_id).await;
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
-    let host_rpc_machine_id: rpc::MachineId = host_machine_id.into();
+    let mh = ManagedHost {
+        id: host_machine_id,
+        dpu_ids: vec![*dpu_machine_id],
+        api: env.api.clone(),
+    };
 
     // ---------------
     // now, since the CA has not been added, we should be stuck in the failed state
@@ -1075,13 +1063,9 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         env.run_machine_state_controller_iteration().await;
     }
 
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
 
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(
         host.current_state(),
         ManagedHostState::Failed {
@@ -1107,11 +1091,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     env.run_machine_state_controller_iteration().await;
 
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(
         host.current_state(),
         ManagedHostState::HostInit {
@@ -1151,11 +1131,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     }
 
     // now we should be in pending bundle state
-    let host = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
+    let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(
         host.current_state(),
         ManagedHostState::HostInit {
@@ -1202,18 +1178,18 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     env.api
         .record_hardware_health_report(Request::new(HardwareHealthReport {
-            machine_id: Some(host_machine_id.to_string().into()),
+            machine_id: host_machine_id.into(),
             report: Some(HealthReport::empty("hardware-health".to_string()).into()),
         }))
         .await
         .expect("Failed to add hardware health report to newly created machine");
 
-    let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
+    let response = mh.host().forge_agent_control().await;
     assert_eq!(response.action, Action::Discovery as i32);
 
-    discovery_completed(env, host_rpc_machine_id.clone()).await;
+    mh.host().discovery_completed().await;
 
-    host_uefi_setup(env, &host_machine_id, host_rpc_machine_id.clone()).await;
+    host_uefi_setup(env, &host_machine_id).await;
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
@@ -1231,7 +1207,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     // We use forge_dpu_agent's health reporting as a signal that
     // DPU has rebooted.
-    network_configured(env, &vec![*dpu_machine_id]).await;
+    mh.network_configured(env).await;
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
@@ -1264,7 +1240,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     .await;
 
     // This is what simulates a reboot being completed.
-    let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
+    let response = mh.host().forge_agent_control().await;
     assert_eq!(response.action, Action::Noop as i32);
 
     env.run_machine_state_controller_iteration_until_state_matches(
@@ -1293,7 +1269,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
 
     let mh = create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let snapshot = mh.snapshot(&mut txn).await;
     handler_host_power_control(
         &snapshot,
@@ -1305,7 +1281,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     .unwrap();
     txn.commit().await.unwrap();
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
 
     let snapshot1 = mh.snapshot(&mut txn).await;
     for i in 0..snapshot.dpu_snapshots.len() {
@@ -1323,7 +1299,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
         );
     }
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     handler_host_power_control(
         &snapshot,
         &env.state_handler_services(),
@@ -1334,7 +1310,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     .unwrap();
     txn.commit().await.unwrap();
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let snapshot2 = mh.snapshot(&mut txn).await;
     for i in 0..snapshot.dpu_snapshots.len() {
         assert_ne!(
@@ -1351,7 +1327,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
         );
     }
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     handler_host_power_control(
         &snapshot,
         &env.state_handler_services(),
@@ -1362,7 +1338,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     .unwrap();
     txn.commit().await.unwrap();
 
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     let snapshot3 = mh.snapshot(&mut txn).await;
 
     for i in 0..snapshot.dpu_snapshots.len() {
