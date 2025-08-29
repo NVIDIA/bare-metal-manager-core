@@ -18,6 +18,7 @@
 // corresponding options depending on the type.
 
 use crate::spec::MlxVariableSpec;
+use crate::{IntoMlxValue, MlxConfigValue, MlxValueError};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,5 +87,17 @@ impl MlxConfigVariableBuilder {
 impl MlxConfigVariable {
     pub fn builder() -> MlxConfigVariableBuilder {
         MlxConfigVariableBuilder::new()
+    }
+
+    // with creates a value for this variable,
+    // leveraging our IntoMlxValue trait.
+    pub fn with<T: IntoMlxValue>(&self, value: T) -> Result<MlxConfigValue, MlxValueError> {
+        let mlx_value = value.into_mlx_value_for_spec(&self.spec)?;
+        MlxConfigValue::new(self.clone(), mlx_value)
+    }
+
+    // spec returns the underlying spec for the variable.
+    pub fn spec(&self) -> &MlxVariableSpec {
+        &self.spec
     }
 }

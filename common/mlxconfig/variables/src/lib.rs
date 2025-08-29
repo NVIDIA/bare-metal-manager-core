@@ -16,9 +16,11 @@
 pub mod constraints;
 pub mod registry;
 pub mod spec;
+pub mod value;
 pub mod variable;
 
 pub use constraints::*;
 pub use registry::*;
 pub use spec::*;
+pub use value::*;
 pub use variable::*;
