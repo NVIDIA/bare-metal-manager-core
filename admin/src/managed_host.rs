@@ -345,7 +345,7 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
                         }
                     })
                     .collect::<Vec<String>>()
-                    .join(","),
+                    .join(&format!("\n{:<width$}: ", " ")),
             ),
         ),
         ("    Overrides", Some(m.health_overrides.clone().join(","))),
