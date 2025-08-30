@@ -7,6 +7,8 @@
 
 ### Changed
 
+- [MR-4525](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4525) Handle GB200 not supporting lockdown for upgrades
+
 ### Fixed
 
 ### Removed

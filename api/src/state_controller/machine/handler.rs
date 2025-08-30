@@ -5861,46 +5861,40 @@ impl HostUpgradeState {
             .create_client_from_machine(&state.host_snapshot, txn)
             .await?;
 
-        match redfish_client.lockdown_status().await {
+        let lockdown_disabled = match redfish_client.lockdown_status().await {
+            Ok(status) => !status.is_fully_enabled(), // If it was partial, treat as disabled so we will fully enable it
             Err(e) => {
-                tracing::warn!("Could not get lockdown status for {machine_id}: {e}",);
-                Ok(None)
-            }
-            Ok(status) if status.is_fully_disabled() => {
-                tracing::debug!("host firmware update: Reenabling lockdown");
-                // Already disabled, we need to reenable.
-                if let Err(e) = redfish_client
-                    .lockdown(libredfish::EnabledDisabled::Enabled)
-                    .await
-                {
-                    tracing::error!("Could not set lockdown for {machine_id}: {e}");
+                if let libredfish::RedfishError::NotSupported(_) = e {
+                    // Returned when the platform doesn't support lockdown, so here we say it's not disabled
+                    // Note that this is different from the place where we do something similar
+                    false
+                } else {
+                    tracing::warn!("Could not get lockdown status for {machine_id}: {e}",);
                     return Ok(None);
                 }
-                // Reenabling lockdown can require us to wait for the DPU to become available again due to resets, we cannot go directly to Ready.
-                match scenario {
-                    HostFirmwareScenario::Ready => Ok(Some(ManagedHostState::HostInit {
-                        machine_state: MachineState::WaitingForLockdown {
-                            lockdown_info: LockdownInfo {
-                                state: LockdownState::TimeWaitForDPUDown,
-                                mode: Enable,
-                            },
-                        },
-                    })),
-                    HostFirmwareScenario::Instance => {
-                        handler_host_power_control(
-                            state,
-                            services,
-                            SystemPowerControl::ForceRestart,
-                            txn,
-                        )
-                        .await?;
-                        scenario.complete_state()
-                    }
-                }
             }
-            _ => {
-                tracing::debug!("host firmware update: Don't need to reenable lockdown");
-                if let HostFirmwareScenario::Instance = scenario {
+        };
+        if lockdown_disabled {
+            tracing::debug!("host firmware update: Reenabling lockdown");
+            // Already disabled, we need to reenable.
+            if let Err(e) = redfish_client
+                .lockdown(libredfish::EnabledDisabled::Enabled)
+                .await
+            {
+                tracing::error!("Could not set lockdown for {machine_id}: {e}");
+                return Ok(None);
+            }
+            // Reenabling lockdown can require us to wait for the DPU to become available again due to resets, we cannot go directly to Ready.
+            match scenario {
+                HostFirmwareScenario::Ready => Ok(Some(ManagedHostState::HostInit {
+                    machine_state: MachineState::WaitingForLockdown {
+                        lockdown_info: LockdownInfo {
+                            state: LockdownState::TimeWaitForDPUDown,
+                            mode: Enable,
+                        },
+                    },
+                })),
+                HostFirmwareScenario::Instance => {
                     handler_host_power_control(
                         state,
                         services,
@@ -5908,9 +5902,16 @@ impl HostUpgradeState {
                         txn,
                     )
                     .await?;
+                    scenario.complete_state()
                 }
-                scenario.complete_state()
             }
+        } else {
+            tracing::debug!("host firmware update: Don't need to reenable lockdown");
+            if let HostFirmwareScenario::Instance = scenario {
+                handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn)
+                    .await?;
+            }
+            scenario.complete_state()
         }
     }
 
@@ -6213,41 +6214,42 @@ impl HostUpgradeState {
             .create_client_from_machine(snapshot, txn)
             .await?;
 
-        match redfish_client.lockdown_status().await {
+        let lockdown_disabled = match redfish_client.lockdown_status().await {
+            Ok(status) => status.is_fully_disabled(), // If we're partial, we want to act like it was enabled so we disable it
             Err(e) => {
-                tracing::warn!(
-                    "Could not get lockdown status for {}: {e}",
-                    address.to_string()
-                );
-                return Ok(None);
-            }
-            Ok(status) if status.is_fully_disabled() => {
-                // Already disabled, we can go ahead
-                tracing::debug!("Host fw update: No need for disabling lockdown");
-            }
-            _ => {
-                tracing::info!(%address, "Host fw update: Disabling lockdown");
-                if let Err(e) = redfish_client
-                    .lockdown(libredfish::EnabledDisabled::Disabled)
-                    .await
-                {
-                    tracing::warn!("Could not set lockdown for {}: {e}", address.to_string());
-                    return Ok(None);
-                }
-                if fw_info.model == "Dell" {
-                    tracing::info!(%address, "Host fw update: Rebooting after disabling lockdown because Dell");
-                    handler_host_power_control(
-                        state,
-                        services,
-                        SystemPowerControl::ForceRestart,
-                        txn,
-                    )
-                    .await?;
-                    // Wait until the next state machine iteration to let it restart
+                if let libredfish::RedfishError::NotSupported(_) = e {
+                    // Returned when the platform doesn't support lockdown, so here we say it's already disabled
+                    // Note that this is different from the place where we do something similar
+                    true
+                } else {
+                    tracing::warn!(
+                        "Could not get lockdown status for {}: {e}",
+                        state.host_snapshot.id
+                    );
                     return Ok(None);
                 }
             }
         };
+        if lockdown_disabled {
+            // Already disabled, we can go ahead
+            tracing::debug!("Host fw update: No need for disabling lockdown");
+        } else {
+            tracing::info!(%address, "Host fw update: Disabling lockdown");
+            if let Err(e) = redfish_client
+                .lockdown(libredfish::EnabledDisabled::Disabled)
+                .await
+            {
+                tracing::warn!("Could not set lockdown for {}: {e}", address.to_string());
+                return Ok(None);
+            }
+            if fw_info.model == "Dell" {
+                tracing::info!(%address, "Host fw update: Rebooting after disabling lockdown because Dell");
+                handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn)
+                    .await?;
+                // Wait until the next state machine iteration to let it restart
+                return Ok(None);
+            }
+        }
 
         let machine_id = state.host_snapshot.id.to_string();
         let filename = to_install.get_filename(*fw_info.firmware_number);
