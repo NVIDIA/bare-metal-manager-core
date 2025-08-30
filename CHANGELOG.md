@@ -7,15 +7,13 @@
 
 ### Changed
 
-- [MR-4525](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4525) Handle GB200 not supporting lockdown for upgrades
-
 ### Fixed
 
 ### Removed
 
 ### Internal Changes
 
-## [Unreleased (v2025.08.29-rc2-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc2-0...trunk)
+## [v2025.08.29-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc2-0...v2025.08.29-rc2-0)
 
 ### Added
 
@@ -32,6 +30,8 @@
 ### Changed
 
 - [FORGE-6725](https://jirasw.nvidia.com/browse/FORGE-6725), [MR-4450](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4450): Changed default setting for generation of SKUs to `false`.
+- [MR-4522](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4522): Split alerts out on separate lines in managed-host show cli command
+- [MR-4525](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4525) Handle GB200 not supporting lockdown for upgrades
 
 ### Fixed
 
@@ -87,9 +87,9 @@
 - [FORGE-6707](https://jirasw.nvidia.com/browse/FORGE-6707), [MR-4413](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4413): refactor: FORGE-6707: ExpectedMachineData introduced.
 - [FORGE-6794](https://jirasw.nvidia.com/browse/FORGE-6794), [MR-4457](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4457): chore: FORGE-6794: tests: instances: added rpc instance helper.
 - [MR-4454](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4454): fix: typo: BIOS => BOSS.
+- [MR-4521](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4521): Unit tests: separate modules for test object helpers.
 
 ## [v2025.08.15-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.01-rc2-0...v2025.08.15-rc2-0)
-## [MR-4521](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4521): Unit tests: separate modules for test object helpers.
 
 ### Added
 
