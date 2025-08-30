@@ -259,6 +259,8 @@ impl MachineUpdateManager {
                     e,
                 )
             })?;
+        } else {
+            tracing::debug!("Machine update manager failed to acquire the lock");
         }
         if let Some(metrics) = self.metrics.as_ref() {
             metrics
