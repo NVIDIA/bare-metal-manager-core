@@ -800,6 +800,16 @@ def _factory_reset_dpu(test_config: TestConfig, site_config: SiteConfig, machine
         )
         time.sleep(5)
         network.wait_for_redfish_endpoint(hostname=machine_info.dpu_info_map[dpu_id]["bmc_ip"])
+        
+        # Confirm password is reset before force-deleting, so we won't hit 'AvoidLockout' error
+        time.sleep(5)
+        try:
+            network.check_dpu_password_reset(machine_info.dpu_info_map[dpu_id]["bmc_ip"])
+        except Exception as e:
+            _error_and_exit(
+                f"Password reset check failed on DPU{i}: {e}", set_maintenance=True, 
+                machine_id=test_config.machine_under_test
+            )
         i += 1
 
 
