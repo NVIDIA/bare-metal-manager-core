@@ -63,6 +63,7 @@ pub mod vpc_prefix;
 use sqlx::Postgres;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::panic::Location;
 
 // Max values we can bind to a Postgres SQL statement;
 pub const BIND_LIMIT: usize = 65535;
@@ -257,6 +258,39 @@ impl DatabaseError {
             source,
         }
     }
+
+    #[track_caller]
+    pub fn txn_begin(name: &str, source: sqlx::Error) -> DatabaseError {
+        let loc = Location::caller();
+        DatabaseError {
+            file: loc.file(),
+            line: loc.line(),
+            query: format!("begin {name}"),
+            source,
+        }
+    }
+
+    #[track_caller]
+    pub fn txn_commit(name: &str, source: sqlx::Error) -> DatabaseError {
+        let loc = Location::caller();
+        DatabaseError {
+            file: loc.file(),
+            line: loc.line(),
+            query: format!("commit {name}"),
+            source,
+        }
+    }
+
+    #[track_caller]
+    pub fn query(query: &str, source: sqlx::Error) -> DatabaseError {
+        let loc = Location::caller();
+        DatabaseError {
+            file: loc.file(),
+            line: loc.line(),
+            query: query.to_string(),
+            source,
+        }
+    }
 }
 
 impl Display for DatabaseError {
@@ -272,5 +306,37 @@ impl Display for DatabaseError {
 impl Error for DatabaseError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(&self.source)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_database_error_txn_begin() {
+        const DB_TXN_NAME: &str = "test txn";
+        let err = DatabaseError::txn_begin(DB_TXN_NAME, sqlx::Error::protocol("some error"));
+        assert_eq!(err.line, line!() - 1);
+        assert_eq!(err.file, file!());
+        assert!(format!("{err}").contains(&format!("begin {DB_TXN_NAME}")))
+    }
+
+    #[test]
+    fn test_database_error_txn_commit() {
+        const DB_TXN_NAME: &str = "test txn";
+        let err = DatabaseError::txn_commit(DB_TXN_NAME, sqlx::Error::protocol("some error"));
+        assert_eq!(err.line, line!() - 1);
+        assert_eq!(err.file, file!());
+        assert!(format!("{err}").contains(&format!("commit {DB_TXN_NAME}")))
+    }
+
+    #[test]
+    fn test_database_error_new_with_location() {
+        const DB_QUERY: &str = "SELECT * from some_table;";
+        let err = DatabaseError::query(DB_QUERY, sqlx::Error::protocol("some error"));
+        assert_eq!(err.line, line!() - 1);
+        assert_eq!(err.file, file!());
+        assert!(format!("{err}").contains(DB_QUERY));
     }
 }

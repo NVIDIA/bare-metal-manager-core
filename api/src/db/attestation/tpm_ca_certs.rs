@@ -43,7 +43,7 @@ impl TpmCaCert {
             .bind(cert_subject)
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| CarbideError::from(DatabaseError::query(query, e)))?;
 
         Ok(Some(res))
     }
@@ -58,7 +58,7 @@ impl TpmCaCert {
             .bind(cert_subject)
             .fetch_optional(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
+            .map_err(|e| CarbideError::from(DatabaseError::query(query, e)))
     }
 
     pub async fn get_all(txn: &mut PgConnection) -> CarbideResult<Vec<TpmCaCert>> {
@@ -67,7 +67,7 @@ impl TpmCaCert {
         sqlx::query_as(query)
             .fetch_all(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
+            .map_err(|e| CarbideError::from(DatabaseError::query(query, e)))
     }
 
     pub async fn delete(txn: &mut PgConnection, ca_cert_id: i32) -> CarbideResult<Option<Self>> {
@@ -77,7 +77,7 @@ impl TpmCaCert {
             .bind(ca_cert_id)
             .fetch_optional(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
+            .map_err(|e| CarbideError::from(DatabaseError::query(query, e)))
     }
 }
 

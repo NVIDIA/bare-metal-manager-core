@@ -76,7 +76,7 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
     let mut txn = db_pool
         .begin()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "begin backfill ek cert status", e))?;
+        .map_err(|e| DatabaseError::txn_begin("begin backfill ek cert status", e))?;
 
     let machines: Vec<forge_uuid::machine::MachineId> =
         db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
@@ -104,7 +104,7 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
 
     txn.commit()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "commit backfill ek cert status", e))?;
+        .map_err(|e| DatabaseError::txn_commit("commit backfill ek cert status", e))?;
 
     Ok(())
 }
