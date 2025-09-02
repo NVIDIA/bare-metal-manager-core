@@ -21,7 +21,7 @@ pub mod tests {
         tests::common::api_fixtures::{
             TestEnv, TestEnvOverrides, TestManagedHost, create_managed_host,
             create_managed_host_with_config, create_test_env, create_test_env_with_overrides,
-            get_config, machine_validation_completed, managed_host::ManagedHostConfig,
+            get_config, managed_host::ManagedHostConfig,
         },
     };
 
@@ -939,7 +939,7 @@ pub mod tests {
 
         mh.host().reboot_completed().await;
         env.run_machine_state_controller_iteration().await;
-        machine_validation_completed(&env, &machine_id, None).await;
+        mh.machine_validation_completed().await;
         env.run_machine_state_controller_iteration().await;
         mh.host().reboot_completed().await;
 
@@ -967,7 +967,6 @@ pub mod tests {
                 }),
             });
 
-        tracing::info!("{}", line!());
         let mut txn = pool.begin().await?;
         ExpectedMachine::create(
             &mut txn,
@@ -984,15 +983,12 @@ pub mod tests {
         .await?;
         txn.commit().await?;
 
-        tracing::info!("{}", line!());
         let mh = create_managed_host_with_config(&env, managed_host_config).await;
         let machine_id = *mh.host().machine_id();
 
-        tracing::info!("{}", line!());
         let mut txn = pool.begin().await?;
         let machine = mh.host().db_machine(&mut txn).await;
 
-        tracing::info!("{}", line!());
         assert!(matches!(
             machine.current_state(),
             ManagedHostState::BomValidating {
@@ -1000,8 +996,6 @@ pub mod tests {
             }
         ));
         txn.commit().await?;
-
-        tracing::info!("{}", line!());
 
         // when auto-gen-sku is enabled, the state machine will create the sku and
         // re-verify the machine (requiring an inventory update)
@@ -1011,11 +1005,10 @@ pub mod tests {
             matches!(m.current_state(), ManagedHostState::Validation { .. })
         })
         .await;
-        tracing::info!("{}", line!());
 
         mh.host().reboot_completed().await;
         env.run_machine_state_controller_iteration().await;
-        machine_validation_completed(&env, &machine_id, None).await;
+        mh.machine_validation_completed().await;
         env.run_machine_state_controller_iteration().await;
         mh.host().reboot_completed().await;
 

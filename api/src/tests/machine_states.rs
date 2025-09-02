@@ -28,9 +28,7 @@ use common::api_fixtures::dpu::{
 };
 use common::api_fixtures::host::{host_discover_dhcp, host_discover_machine, host_uefi_setup};
 use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
-use common::api_fixtures::{
-    TestManagedHost, create_managed_host, create_test_env, machine_validation_completed,
-};
+use common::api_fixtures::{TestManagedHost, create_managed_host, create_test_env};
 use measured_boot::pcr::PcrRegisterValue;
 
 use crate::model::machine::{FailureCause, FailureSource};
@@ -534,7 +532,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     )
     .await;
 
-    machine_validation_completed(&env, mh.host().machine_id(), None).await;
+    mh.machine_validation_completed().await;
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.id,
@@ -1227,7 +1225,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     )
     .await;
 
-    machine_validation_completed(env, &host_machine_id, None).await;
+    mh.machine_validation_completed().await;
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
