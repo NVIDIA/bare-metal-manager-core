@@ -32,7 +32,7 @@ impl SecretAkPub {
             .bind(ak_pub.as_slice())
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| CarbideError::from(DatabaseError::query(query, e)))?;
 
         Ok(Some(res))
     }
@@ -44,7 +44,7 @@ impl SecretAkPub {
             .bind(secret.as_slice())
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| CarbideError::from(DatabaseError::query(query, e)))?;
 
         Ok(Some(res))
     }
@@ -59,6 +59,6 @@ impl SecretAkPub {
             .bind(secret.as_slice())
             .fetch_optional(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
+            .map_err(|e| CarbideError::from(DatabaseError::query(query, e)))
     }
 }

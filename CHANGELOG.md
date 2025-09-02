@@ -14,6 +14,7 @@
 ### Internal Changes
 
 - [MR-4529](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4529): chore: tests: Added: `TestManagedHost::machine_validation_completed`
+- [MR-4532](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4532): refactor: database error handling unification in the Carbide API.
 
 ## [v2025.08.29-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc2-0...v2025.08.29-rc2-0)
 
