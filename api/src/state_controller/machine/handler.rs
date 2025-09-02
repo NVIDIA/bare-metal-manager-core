@@ -93,7 +93,6 @@ use crate::{
     },
 };
 
-mod ib;
 mod machine_validation;
 mod power;
 mod sku;
@@ -4688,14 +4687,6 @@ impl StateHandler for InstanceStateHandler {
                         }
                     };
 
-                    ib::bind_ib_ports(
-                        ctx.services,
-                        txn,
-                        instance.id,
-                        instance.config.infiniband.ib_interfaces.clone(),
-                    )
-                    .await?;
-
                     // Check whether the IB config is synced
                     if let Err(not_synced_reason) = ib_config_synced(
                         mh_snapshot
@@ -5049,14 +5040,6 @@ impl StateHandler for InstanceStateHandler {
                         ));
                     }
                     check_host_health_for_alerts(mh_snapshot)?;
-
-                    ib::unbind_ib_ports(
-                        ctx.services,
-                        txn,
-                        instance.id,
-                        instance.config.infiniband.ib_interfaces.clone(),
-                    )
-                    .await?;
 
                     // Check whether IB config is removed
                     if let Err(not_synced_reason) = ib_config_synced(

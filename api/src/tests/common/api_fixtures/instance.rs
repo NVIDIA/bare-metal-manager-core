@@ -293,6 +293,7 @@ pub async fn advance_created_instance_into_ready_state(
         // That can require one more state controller iteration after the fabric
         // monitor supplied the results
         env.run_ib_fabric_monitor_iteration().await;
+        env.run_ib_fabric_monitor_iteration().await;
         env.run_machine_state_controller_iteration().await;
     }
     assert_eq!(
@@ -417,6 +418,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         // Also report that we are no longer on the tenant network for IB
         // That can require one more state controller iteration after the fabric
         // monitor supplied the results
+        env.run_ib_fabric_monitor_iteration().await;
         env.run_ib_fabric_monitor_iteration().await;
         env.run_machine_state_controller_iteration().await;
     }

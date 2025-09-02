@@ -303,6 +303,7 @@ impl IbFabricMonitor {
             fabric_data.derive_partitions_by_guid();
         }
 
+        let mut reports = Vec::new();
         for (machine, mut snapshot) in snapshots {
             match record_machine_infiniband_status_observation(
                 &self.db_pool,
@@ -314,12 +315,60 @@ impl IbFabricMonitor {
             )
             .await
             {
-                Ok(()) => {}
+                Ok(report) => {
+                    reports.push(report);
+                }
                 Err(e) => {
                     tracing::error!(error = %e, machine_id = %machine, "Failed to update IB Status observation");
                 }
             }
         }
+
+        let mut num_changes = 0;
+
+        for report in reports {
+            for (fabric, guid, pkey) in report.missing_guid_pkeys {
+                let Some(partition_id) = partition_ids_by_pkey.get(&pkey) else {
+                    tracing::warn!("Missing pkey {pkey} does not map to a Partition ID");
+                    continue;
+                };
+                let Some(partition) = tenant_partitions.get(partition_id) else {
+                    tracing::warn!("Missing pkey {pkey} does not map to a Partition");
+                    continue;
+                };
+
+                let conn = self.fabric_manager.connect(&fabric).await?;
+                match conn
+                    .bind_ib_ports(partition.into(), vec![guid.clone()])
+                    .await
+                {
+                    Ok(()) => {
+                        num_changes += 1;
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to bind {guid} to pkey {pkey} on fabric {fabric}: {e}"
+                        );
+                    }
+                }
+            }
+
+            for (fabric, guid, pkey) in report.unexpected_guid_pkeys {
+                let conn = self.fabric_manager.connect(&fabric).await?;
+                match conn.unbind_ib_ports(pkey.into(), vec![guid.clone()]).await {
+                    Ok(()) => {
+                        num_changes += 1;
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to unbind {guid} from pkey {pkey} on fabric {fabric}: {e}"
+                        );
+                    }
+                }
+            }
+        }
+
+        let _ = num_changes;
 
         Ok(())
     }
@@ -541,6 +590,14 @@ async fn get_tenant_partitions(
     Ok(result)
 }
 
+/// These are the GUID/Pkey combinations where changes are required
+#[derive(Debug, Clone, Default)]
+struct MachineIbStatusEvaluation {
+    missing_guid_pkeys: Vec<(String, String, PartitionKey)>,
+    unexpected_guid_pkeys: Vec<(String, String, PartitionKey)>,
+    unknown_guid_pkeys: Vec<(String, String, PartitionKey)>,
+}
+
 async fn record_machine_infiniband_status_observation(
     db_pool: &PgPool,
     mh_snapshot: &mut ManagedHostStateSnapshot,
@@ -548,7 +605,9 @@ async fn record_machine_infiniband_status_observation(
     tenant_partition_ids_by_pkey: &HashMap<PartitionKey, IBPartitionId>,
     data_by_fabric: &HashMap<String, FabricData>,
     metrics: &mut IbFabricMonitorMetrics,
-) -> Result<(), CarbideError> {
+) -> Result<MachineIbStatusEvaluation, CarbideError> {
+    let mut result = MachineIbStatusEvaluation::default();
+
     if mh_snapshot.host_snapshot.hardware_info.is_none() {
         // Skip status update while hardware info is not available
         *metrics
@@ -559,7 +618,7 @@ async fn record_machine_infiniband_status_observation(
             .num_machines_by_ports_with_partitions
             .entry(0)
             .or_default() += 1;
-        return Ok(());
+        return Ok(result);
     }
 
     let machine_id = &mh_snapshot.host_snapshot.id;
@@ -578,18 +637,30 @@ async fn record_machine_infiniband_status_observation(
         .as_ref()
         .map(|instance| &instance.config.infiniband);
     let mut expected_pkeys = HashMap::new();
-    if let Some(expected_ib_config) = expected_ib_config {
-        for iface in expected_ib_config.ib_interfaces.iter() {
-            let Some(guid) = iface.guid.as_ref() else {
-                continue;
-            };
-            let Some(partition_data) = tenant_partitions.get(&iface.ib_partition_id) else {
-                continue;
-            };
-            let Some(expected_pkey) = partition_data.config.pkey else {
-                continue;
-            };
-            expected_pkeys.insert(guid.clone(), expected_pkey);
+
+    let mut use_admin_network = false;
+    for dpu in mh_snapshot.dpu_snapshots.iter() {
+        use_admin_network |= dpu.network_config.use_admin_network.unwrap_or(true);
+    }
+    // If we are on the tenant network, then the pkey configuration is the instances
+    // network configuration.
+    // If not - e.g. during Instance termination - there are no pkeys expected on any
+    // interface
+    let use_tenant_network = !use_admin_network;
+    if use_tenant_network {
+        if let Some(expected_ib_config) = expected_ib_config {
+            for iface in expected_ib_config.ib_interfaces.iter() {
+                let Some(guid) = iface.guid.as_ref() else {
+                    continue;
+                };
+                let Some(partition_data) = tenant_partitions.get(&iface.ib_partition_id) else {
+                    continue;
+                };
+                let Some(expected_pkey) = partition_data.config.pkey else {
+                    continue;
+                };
+                expected_pkeys.insert(guid.clone(), expected_pkey);
+            }
         }
     }
 
@@ -610,10 +681,6 @@ async fn record_machine_infiniband_status_observation(
 
     let mut active_ports = 0;
     let mut ports_with_partitions = 0;
-    // These are the GUID/Pkey combinations where changes are required
-    let mut missing_guid_pkeys = Vec::new();
-    let mut unexpected_guid_pkeys = Vec::new();
-    let mut unknown_guid_pkeys = Vec::new();
 
     for guid in guids.iter() {
         // Search for the GUID in all fabrics. Record the fabric where we found it, plus the actual data
@@ -665,7 +732,11 @@ async fn record_machine_infiniband_status_observation(
                                     associated_partition_ids.insert(*partition_id);
                                 }
                                 None => {
-                                    unknown_guid_pkeys.push((guid.to_string(), *pkey));
+                                    result.unknown_guid_pkeys.push((
+                                        fabric_id.to_string(),
+                                        guid.to_string(),
+                                        *pkey,
+                                    ));
                                 }
                             }
                         }
@@ -675,19 +746,31 @@ async fn record_machine_infiniband_status_observation(
                             Some(expected_pkey) => {
                                 // GUID should be associated with `expected_pkey`
                                 if !pkeys.contains(expected_pkey) {
-                                    missing_guid_pkeys.push((guid.to_string(), *expected_pkey));
+                                    result.missing_guid_pkeys.push((
+                                        fabric_id.to_string(),
+                                        guid.to_string(),
+                                        *expected_pkey,
+                                    ));
                                 }
                                 // Everything else is unexpected
                                 for pkey in pkeys {
                                     if pkey != expected_pkey {
-                                        unexpected_guid_pkeys.push((guid.to_string(), *pkey));
+                                        result.unexpected_guid_pkeys.push((
+                                            fabric_id.to_string(),
+                                            guid.to_string(),
+                                            *pkey,
+                                        ));
                                     }
                                 }
                             }
                             None => {
                                 // All GUIDs are unexpected
                                 for pkey in pkeys {
-                                    unexpected_guid_pkeys.push((guid.to_string(), *pkey));
+                                    result.unexpected_guid_pkeys.push((
+                                        fabric_id.to_string(),
+                                        guid.to_string(),
+                                        *pkey,
+                                    ));
                                 }
                             }
                         }
@@ -741,10 +824,10 @@ async fn record_machine_infiniband_status_observation(
         .entry(ports_with_partitions)
         .or_default() += 1;
 
-    if !missing_guid_pkeys.is_empty() {
+    if !result.missing_guid_pkeys.is_empty() {
         metrics.num_machines_with_missing_pkeys += 1;
         let mut msg = "Machine is missing pkeys on UFM: ".to_string();
-        for (idx, (guid, pkey)) in missing_guid_pkeys.iter().enumerate() {
+        for (idx, (_fabric, guid, pkey)) in result.missing_guid_pkeys.iter().enumerate() {
             if idx != 0 {
                 msg.push(',');
             }
@@ -752,10 +835,10 @@ async fn record_machine_infiniband_status_observation(
         }
         tracing::warn!(machine_id = %machine_id, msg);
     }
-    if !unexpected_guid_pkeys.is_empty() {
+    if !result.unexpected_guid_pkeys.is_empty() {
         metrics.num_machines_with_unexpected_pkeys += 1;
         let mut msg = "Machine has unexpected registered pkeys on UFM: ".to_string();
-        for (idx, (guid, pkey)) in unexpected_guid_pkeys.iter().enumerate() {
+        for (idx, (_fabric, guid, pkey)) in result.unexpected_guid_pkeys.iter().enumerate() {
             if idx != 0 {
                 msg.push(',');
             }
@@ -763,11 +846,11 @@ async fn record_machine_infiniband_status_observation(
         }
         tracing::warn!(machine_id = %machine_id, msg);
     }
-    if !unknown_guid_pkeys.is_empty() {
+    if !result.unknown_guid_pkeys.is_empty() {
         metrics.num_machines_with_unknown_pkeys += 1;
         let mut msg =
             "Machine has registered pkeys on UFM that do not map to IB PartitionIDs: ".to_string();
-        for (idx, (guid, pkey)) in unknown_guid_pkeys.iter().enumerate() {
+        for (idx, (_fabric, guid, pkey)) in result.unknown_guid_pkeys.iter().enumerate() {
             if idx != 0 {
                 msg.push(',');
             }
@@ -802,7 +885,7 @@ async fn record_machine_infiniband_status_observation(
         mh_snapshot.host_snapshot.infiniband_status_observation = Some(cur);
     }
 
-    Ok(())
+    Ok(result)
 }
 
 /// Parses a u64 string in hexadecimal or decimal format
