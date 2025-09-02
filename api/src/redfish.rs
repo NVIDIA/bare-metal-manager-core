@@ -402,6 +402,14 @@ pub async fn host_power_control(
     ipmi_tool: Arc<dyn IPMITool>,
     txn: &mut PgConnection,
 ) -> CarbideResult<()> {
+    let action = if action == SystemPowerControl::ACPowercycle
+        && !redfish_client.ac_powercycle_supported_by_power()
+    {
+        // Not supported here, so just turn off
+        SystemPowerControl::ForceOff
+    } else {
+        action
+    };
     // Always log to ensure we can see that forge is doing the power controlling
     tracing::info!(
         machine_id = machine.id.to_string(),

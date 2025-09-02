@@ -6660,17 +6660,14 @@ impl HostUpgradeState {
                     }
                 }
                 Some(PowerDrainState::Off) => {
-                    // AC Power Cycle is an action that is only supported by Lenovos
-                    if endpoint.report.vendor.unwrap_or_default().is_lenovo() {
-                        tracing::info!("Doing powercycle now for {}", &endpoint.address);
-                        handler_host_power_control(
-                            state,
-                            services,
-                            SystemPowerControl::ACPowercycle,
-                            txn,
-                        )
-                        .await?;
-                    }
+                    tracing::info!("Doing powercycle now for {}", &endpoint.address);
+                    handler_host_power_control(
+                        state,
+                        services,
+                        SystemPowerControl::ACPowercycle,
+                        txn,
+                    )
+                    .await?;
 
                     let delay = if *power_drains_needed < 1000 { 90 } else { 0 };
                     let reprovision_state = HostReprovisionState::ResetForNewFirmware {
@@ -6731,22 +6728,19 @@ impl HostUpgradeState {
             }
         }
 
-        if *firmware_type == FirmwareComponentType::HGXBmc
-            || *firmware_type == FirmwareComponentType::Gpu
+        if (*firmware_type == FirmwareComponentType::HGXBmc
+            || *firmware_type == FirmwareComponentType::Gpu)
+            && !power_drains_needed.is_some()
         {
-            // Needs a host power reset
+            // Needs a host power reset.  We might also have used the power drains to do an AC powercycle.
             let redfish_client = services
                 .redfish_client_pool
                 .create_client_from_machine(&state.host_snapshot, txn)
                 .await?;
 
-            // DGX models only had an "off", GB200 (and presumably later ones) has an actual AC powercycle.
-            let poweroff_style = if redfish_client.ac_powercycle_supported_by_power() {
-                SystemPowerControl::ACPowercycle
-            } else {
-                SystemPowerControl::ForceOff
-            };
-            if let Err(e) = redfish_client.power(poweroff_style).await {
+            // We previously possibly tried to use ACPowerycle here, however that requires enough time for the BMC to come back.  We use
+            // the power_drains_needed setting instead for that which is already aware of how to keep track of that sort of thing.
+            if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
                 tracing::error!("Failed to power off {}: {e}", &endpoint.address);
                 return Ok(None);
             }
