@@ -11,6 +11,7 @@
  */
 
 use crate::db::managed_host::LoadSnapshotOptions;
+use crate::handlers::measured_boot::rpc_forge::forge_agent_control_response::Action;
 use crate::model::machine::InstanceState;
 use crate::model::machine::Machine;
 use crate::model::machine::ManagedHostState;
@@ -20,8 +21,10 @@ use crate::tests::common::api_fixtures::instance::TestInstanceBuilder;
 use crate::tests::common::api_fixtures::{Api, TestEnv, TestMachine};
 use forge_uuid::instance::InstanceId;
 use forge_uuid::machine::MachineId;
+use rpc::forge::forge_server::Forge;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tonic::Request;
 
 pub struct TestManagedHost {
     pub id: MachineId,
@@ -98,6 +101,25 @@ impl TestManagedHost {
 
     pub async fn network_configured(&self, test_env: &TestEnv) {
         crate::tests::common::api_fixtures::network_configured(test_env, &self.dpu_ids).await
+    }
+
+    pub async fn machine_validation_completed(&self) {
+        let response = self.host().forge_agent_control().await;
+        assert_eq!(response.action, Action::MachineValidation as i32);
+        let uuid = &response.data.unwrap().pair[1].value;
+        self.api
+            .machine_validation_completed(Request::new(
+                rpc::forge::MachineValidationCompletedRequest {
+                    machine_id: self.id.into(),
+                    machine_validation_error: None,
+                    validation_id: Some(rpc::Uuid {
+                        value: uuid.to_owned(),
+                    }),
+                },
+            ))
+            .await
+            .unwrap()
+            .into_inner();
     }
 
     pub fn instance_builer<'a, 'b>(&'b self, test_env: &'a TestEnv) -> TestInstanceBuilder<'a, 'b> {

@@ -29,8 +29,7 @@ use crate::tests::common;
 use common::api_fixtures::{
     TestEnvOverrides, create_host_with_machine_validation, create_test_env,
     create_test_env_with_overrides, get_config, get_machine_validation_results,
-    get_machine_validation_runs, machine_validation_completed, on_demand_machine_validation,
-    update_machine_validation_run,
+    get_machine_validation_runs, on_demand_machine_validation, update_machine_validation_run,
 };
 use rpc::Timestamp;
 
@@ -182,7 +181,7 @@ async fn test_machine_validation_with_error(
         },
     )
     .await;
-    machine_validation_completed(&env, mh.host().machine_id(), None).await;
+    mh.machine_validation_completed().await;
     env.run_machine_state_controller_iteration_until_state_matches(
         mh.host().machine_id(),
         1,
@@ -263,7 +262,7 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         },
     )
     .await;
-    machine_validation_completed(&env, mh.host().machine_id(), None).await;
+    mh.machine_validation_completed().await;
     env.run_machine_state_controller_iteration_until_state_matches(
         mh.host().machine_id(),
         3,
@@ -513,6 +512,7 @@ async fn test_machine_validation_test_on_demand_filter(
         },
     )
     .await;
+
     let _ = mh.host().reboot_completed().await;
     env.run_machine_state_controller_iteration_until_state_matches(
         mh.host().machine_id(),
@@ -530,8 +530,8 @@ async fn test_machine_validation_test_on_demand_filter(
         },
     )
     .await;
-    let response = mh.host().forge_agent_control().await;
 
+    let response = mh.host().forge_agent_control().await;
     for item in response.data.unwrap().pair {
         if item.key == "MachineValidationFilter" {
             let machine_validation_filter: MachineValidationFilter =
@@ -545,7 +545,7 @@ async fn test_machine_validation_test_on_demand_filter(
         }
     }
 
-    machine_validation_completed(&env, mh.host().machine_id(), None).await;
+    mh.machine_validation_completed().await;
     env.run_machine_state_controller_iteration_until_state_matches(
         mh.host().machine_id(),
         3,
