@@ -92,6 +92,10 @@ pub fn wrap_router_with_mock_machine(
             get(get_chassis_network_adapters_network_device_function),
         )
         .route(
+            rf!("Chassis/{chassis_id}/PCIeDevices"),
+            get(get_chassis_pcie_devices),
+        )
+        .route(
             rf!("Chassis/{chassis_id}/PCIeDevices/{pcie_device_id}"),
             get(get_pcie_device),
         )
@@ -585,6 +589,71 @@ async fn get_pcie_device(
     };
 
     Ok(Bytes::from(serde_json::to_string(&pcie_device)?))
+}
+
+async fn get_chassis_pcie_devices(
+    State(mut state): State<MockWrapperState>,
+    Path(chassis_id): Path<String>,
+    request: Request<Body>,
+) -> MockWrapperResult {
+    let is_host_with_dpus = matches!(state.machine_info, MachineInfo::Host(_));
+    let dpu_count = if let MachineInfo::Host(ref host) = state.machine_info {
+        host.dpus.len()
+    } else {
+        0
+    };
+
+    if !is_host_with_dpus {
+        return state.call_inner_router(request).await;
+    }
+
+    let inner_response = state.call_inner_router(request).await?;
+    let mut collection: serde_json::Value = serde_json::from_slice(&inner_response)?;
+
+    let mut members = Vec::new();
+
+    if let Some(existing_members) = collection["Members"].as_array() {
+        for member in existing_members {
+            if let Some(odata_id) = member["@odata.id"].as_str() {
+                let device_response = state
+                    .call_inner_router(
+                        Request::builder()
+                            .method(Method::GET)
+                            .uri(odata_id)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await;
+
+                // Keep all default PCIE devices. Just remove any of the DPU entries
+                if let Ok(device_bytes) = device_response {
+                    if let Ok(pcie_device) = serde_json::from_slice::<PCIeDevice>(&device_bytes) {
+                        if pcie_device.manufacturer.is_some_and(|manufacturer| {
+                            manufacturer != *"Mellanox Technologies".to_string()
+                        }) {
+                            members.push(member.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for index in 1..=dpu_count {
+        members.push(serde_json::json!({
+            "@odata.id": format!(
+                "/redfish/v1/Chassis/{}/PCIeDevices/{}_{}",
+                chassis_id, MAT_DPU_PCIE_DEVICE_PREFIX, index
+            )
+        }));
+    }
+
+    collection["Members"] = serde_json::Value::Array(members);
+    collection["Members@odata.count"] = serde_json::Value::Number(serde_json::Number::from(
+        collection["Members"].as_array().unwrap().len(),
+    ));
+
+    Ok(Bytes::from(serde_json::to_string(&collection)?))
 }
 
 async fn get_dell_system(
