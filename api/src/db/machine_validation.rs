@@ -151,7 +151,7 @@ impl MachineValidation {
             .bind(status.state.to_string())
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
     pub async fn update_end_time(
@@ -165,7 +165,7 @@ impl MachineValidation {
             .bind(status.state.to_string())
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -182,7 +182,7 @@ impl MachineValidation {
             .bind(total)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
     pub async fn create_new_run(
@@ -220,7 +220,7 @@ impl MachineValidation {
             .bind(status.state.to_string())
             .execute(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         let mut column_name = "discovery_machine_validation_id".to_string();
         if context == "Cleanup" {
@@ -658,7 +658,7 @@ impl MachineValidationResult {
             ))
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 

@@ -302,7 +302,7 @@ WHERE vpc_id = ",
             .build_query_as()
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
+            .map_err(|e| DatabaseError::query(query.sql(), e))
     }
 
     pub async fn find_by_id(
@@ -314,7 +314,7 @@ WHERE vpc_id = ",
             .bind(id)
             .fetch_optional(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn find_id_by_machine_id(
@@ -326,7 +326,7 @@ WHERE vpc_id = ",
             .bind(machine_id.to_string())
             .fetch_optional(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn find_by_machine_id(
@@ -338,7 +338,7 @@ WHERE vpc_id = ",
             .bind(machine_id.to_string())
             .fetch_optional(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn find_by_machine_ids(
@@ -350,7 +350,7 @@ WHERE vpc_id = ",
             .bind(machine_ids)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn use_custom_ipxe_on_next_boot(
@@ -365,7 +365,7 @@ WHERE vpc_id = ",
             .bind(machine_id.to_string())
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(())
     }
@@ -397,7 +397,7 @@ WHERE vpc_id = ",
 
         match query_result {
             Ok((_instance_id,)) => Ok(()),
-            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+            Err(e) => Err(DatabaseError::query(query, e)),
         }
     }
 
@@ -411,7 +411,7 @@ WHERE vpc_id = ",
             .bind(instance_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         tracing::info!(
             "Phone home last contact updated for instance {}",
@@ -481,7 +481,7 @@ WHERE vpc_id = ",
                     "instance",
                     expected_version.to_string(),
                 ),
-                e => DatabaseError::new(file!(), line!(), query, e).into(),
+                e => DatabaseError::query(query, e).into(),
             }),
         }
     }
@@ -531,7 +531,7 @@ WHERE vpc_id = ",
                     "instance",
                     expected_version.to_string(),
                 ),
-                e => DatabaseError::new(file!(), line!(), query, e).into(),
+                e => DatabaseError::query(query, e).into(),
             }),
         }
     }
@@ -563,7 +563,7 @@ WHERE vpc_id = ",
 
         match query_result {
             Ok((_instance_id,)) => Ok(()),
-            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+            Err(e) => Err(DatabaseError::query(query, e)),
         }
     }
 
@@ -629,7 +629,7 @@ WHERE vpc_id = ",
 
         match query_result {
             Ok((_instance_id,)) => Ok(()),
-            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+            Err(e) => Err(DatabaseError::query(query, e)),
         }
     }
 
@@ -655,7 +655,7 @@ WHERE vpc_id = ",
             .bind(instance_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(())
     }
@@ -680,7 +680,7 @@ WHERE vpc_id = ",
             .bind(instance_id)
             .fetch_one(txn.deref_mut())
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(())
     }
@@ -695,7 +695,7 @@ WHERE vpc_id = ",
             .bind(instance_id)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(())
     }
@@ -793,12 +793,7 @@ impl NewInstance<'_> {
             Err(sqlx::Error::RowNotFound) => Err(CarbideError::FailedPrecondition(
                 "expected InstanceTypeId does not match source machine".to_string(),
             )),
-            Err(e) => Err(CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                query,
-                e,
-            ))),
+            Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
             Ok(o) => Ok(o),
         }
     }
@@ -814,7 +809,8 @@ impl DeleteInstance {
             .fetch_one(txn)
             .await
             .map(|_| ())
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
+            .map_err(|e| DatabaseError::query(query, e))
+            .map_err(CarbideError::from)
     }
 
     pub async fn mark_as_deleted(&self, txn: &mut PgConnection) -> CarbideResult<()> {
@@ -824,7 +820,7 @@ impl DeleteInstance {
             .bind(self.instance_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 }

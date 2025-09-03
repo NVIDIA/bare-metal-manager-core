@@ -102,7 +102,7 @@ impl NetworkDevice {
             .bind(&data.ip_address)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn get_or_create_network_device(
@@ -131,7 +131,7 @@ impl NetworkDevice {
         sqlx::query(query)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -146,7 +146,7 @@ impl NetworkDevice {
         let result = sqlx::query_as::<_, NetworkDevice>(query)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         if !result.is_empty() {
             let ids = result.iter().map(|x| x.id()).join(",");
@@ -182,7 +182,7 @@ impl DpuToNetworkDeviceMap {
             .bind(network_device_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn delete(txn: &mut PgConnection, dpu_id: &MachineId) -> Result<(), DatabaseError> {
@@ -193,7 +193,7 @@ impl DpuToNetworkDeviceMap {
             .bind(dpu_id.to_string())
             .fetch_all(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         NetworkDevice::cleanup_unused_switches(txn).await
     }

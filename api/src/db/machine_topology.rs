@@ -20,9 +20,9 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
 use super::DatabaseError;
+use crate::CarbideResult;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::hardware_info::HardwareInfo;
-use crate::{CarbideError, CarbideResult};
 use forge_uuid::machine::MachineId;
 
 #[cfg(test)]
@@ -127,7 +127,7 @@ impl MachineTopology {
             .bind(sqlx::types::Json(&discovery_data))
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(res)
     }
@@ -171,7 +171,7 @@ impl MachineTopology {
             .bind(sqlx::types::Json(&topology_data))
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(res)
     }
@@ -225,7 +225,7 @@ impl MachineTopology {
             .bind(sqlx::types::Json(bios_version))
             .execute(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(())
     }
@@ -243,7 +243,7 @@ impl MachineTopology {
             .bind(str_ids)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+            .map_err(|e| DatabaseError::query(query, e))?
             .into_iter()
             .into_group_map_by(|t: &Self| t.machine_id);
         Ok(topologies)
@@ -283,7 +283,7 @@ impl MachineTopology {
             .bind(address)
             .fetch_optional(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn find_machine_bmc_pairs(
@@ -368,7 +368,7 @@ impl MachineTopology {
             .bind(value)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(())
     }
@@ -428,7 +428,7 @@ impl MachineTopologyTestHelpers for MachineTopology {
             .bind(sqlx::types::Json(&discovery_data))
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(res)
     }
@@ -472,7 +472,7 @@ impl MachineTopologyTestHelpers for MachineTopology {
             .bind(sqlx::types::Json(&topology_data))
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(res)
     }

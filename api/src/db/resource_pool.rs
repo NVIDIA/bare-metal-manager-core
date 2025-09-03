@@ -71,7 +71,7 @@ where
             let q = qb.build();
             q.execute(&mut *txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+                .map_err(|e| DatabaseError::query(query, e))?;
         }
         Ok(())
     }
@@ -115,7 +115,7 @@ RETURNING allocate.value
             .bind(sqlx::types::Json(&allocated_state))
             .fetch_one(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         let out = allocated
             .parse()
             .map_err(|e: <T as FromStr>::Err| ResourcePoolError::Parse {
@@ -144,7 +144,7 @@ WHERE name = $2 AND value = $3
             .bind(value.to_string())
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -172,7 +172,7 @@ where
         .bind(name)
         .fetch_one(executor)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     Ok(s)
 }
 
@@ -194,7 +194,7 @@ pub async fn all(txn: &mut PgConnection) -> Result<Vec<ResourcePoolSnapshot>, Re
         let mut rows: Vec<ResourcePoolSnapshot> = sqlx::query_as(query)
             .fetch_all(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         out.append(&mut rows);
     }
     out.sort_unstable_by(|a, b| a.name.cmp(&b.name));
@@ -213,7 +213,7 @@ pub async fn find_value(
         .bind(value)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     Ok(entry)
 }
 

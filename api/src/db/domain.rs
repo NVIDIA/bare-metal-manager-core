@@ -323,7 +323,7 @@ impl NewDomain {
                 {
                     CarbideError::InvalidArgument("name".to_string())
                 }
-                e => CarbideError::from(DatabaseError::new(file!(), line!(), query, e)),
+                e => CarbideError::from(DatabaseError::query(query, e)),
             })
     }
 }
@@ -361,7 +361,7 @@ impl Domain {
             .build_query_as()
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
+            .map_err(|e| DatabaseError::query(query.sql(), e))
     }
 
     pub async fn find_by_name(
@@ -387,7 +387,7 @@ impl Domain {
             .bind(self.id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn update(&mut self, txn: &mut PgConnection) -> Result<Domain, DatabaseError> {
@@ -404,7 +404,7 @@ impl Domain {
             .bind(self.id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     #[cfg(test)]

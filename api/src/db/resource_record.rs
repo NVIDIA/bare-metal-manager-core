@@ -49,7 +49,7 @@ pub async fn find_record(
         .bind(query_name)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(result)
 }

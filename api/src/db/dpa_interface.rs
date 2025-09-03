@@ -147,7 +147,7 @@ impl NewDpaInterface {
             .bind(sqlx::types::Json(&state))
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 }
 
@@ -180,7 +180,7 @@ impl DpaInterface {
             .bind(observation.observed_at)
             .fetch_one(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub fn managed_host_network_config_version_synced(&self) -> bool {
@@ -205,7 +205,7 @@ impl DpaInterface {
             sqlx::query_as(query)
                 .fetch_all(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+                .map_err(|e| DatabaseError::query(query, e))?
         };
 
         Ok(results)
@@ -222,7 +222,7 @@ impl DpaInterface {
                 .bind(mid)
                 .fetch_all(&mut *txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+                .map_err(|e| DatabaseError::query(query, e))?
         };
 
         Ok(results)
@@ -254,7 +254,7 @@ impl DpaInterface {
             .build_query_as()
             .fetch_all(txn)
             .await
-            .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), builder.sql(), err))
+            .map_err(|err: sqlx::Error| DatabaseError::query(builder.sql(), err))
     }
 
     /// Updates the dpa interface state that is owned by the state controller
@@ -285,7 +285,7 @@ impl DpaInterface {
                 Ok(true)
             }
             Err(sqlx::Error::RowNotFound) => Ok(false),
-            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+            Err(e) => Err(DatabaseError::query(query, e)),
         }
     }
 
@@ -300,7 +300,7 @@ impl DpaInterface {
             .bind(id)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -310,14 +310,14 @@ impl DpaInterface {
             .bind(self.id)
             .execute(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         let query = "delete from dpa_interfaces where id=$1";
         sqlx::query(query)
             .bind(self.id)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
             .map(|_| ())
     }
 }
@@ -341,7 +341,7 @@ pub async fn is_machine_dpa_capable(
         .bind(machine_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(ifc_count != 0)
 }
@@ -369,7 +369,7 @@ pub async fn try_update_network_config(
     match query_result {
         Ok(interface_id) => Ok(interface_id),
         Err(sqlx::Error::RowNotFound) => Ok(NULL_DPA_INTERFACE_ID),
-        Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+        Err(e) => Err(DatabaseError::query(query, e)),
     }
 }
 

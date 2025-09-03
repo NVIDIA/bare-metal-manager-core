@@ -21,13 +21,13 @@ impl DpuAgentUpgradePolicy {
         let Some(row) = sqlx::query(query)
             .fetch_optional(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+            .map_err(|e| DatabaseError::query(query, e))?
         else {
             return Ok(None);
         };
         let str_policy: &str = row
             .try_get("policy")
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(Some(str_policy.into()))
     }
 
@@ -40,7 +40,7 @@ impl DpuAgentUpgradePolicy {
             .bind(policy.to_string())
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 }

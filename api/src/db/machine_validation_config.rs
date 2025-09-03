@@ -86,7 +86,7 @@ impl MachineValidationExternalConfig {
             .bind(ConfigVersion::initial())
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -104,7 +104,7 @@ impl MachineValidationExternalConfig {
             .bind(next_version)
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(())
     }
@@ -128,7 +128,7 @@ impl MachineValidationExternalConfig {
         let names = sqlx::query_as(query)
             .fetch_all(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(names)
     }
 

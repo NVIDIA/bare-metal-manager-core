@@ -125,7 +125,7 @@ impl NetworkPrefix {
             .bind(prefix)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(container)
     }
 
@@ -139,7 +139,7 @@ impl NetworkPrefix {
             .bind(prefixes)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         let value = prefixes
             .iter()
@@ -214,7 +214,7 @@ impl NetworkPrefix {
             .bind(vpc_id)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(prefixes)
     }
 
@@ -232,7 +232,7 @@ impl NetworkPrefix {
             .bind(vpc_ids)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(prefixes)
     }
@@ -277,7 +277,7 @@ impl NetworkPrefix {
                 .bind(prefix.num_reserved)
                 .fetch_one(&mut *inner_transaction)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+                .map_err(|e| DatabaseError::query(query, e))?;
 
             inserted_prefixes.push(new_prefix);
         }
@@ -300,7 +300,7 @@ impl NetworkPrefix {
             .fetch_all(txn)
             .await
             .map(|_| ())
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     // Update the VPC prefix for this segment prefix using the values
@@ -319,7 +319,7 @@ impl NetworkPrefix {
             .bind(self.id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         self.vpc_prefix_id = network_prefix.vpc_prefix_id;
         self.vpc_prefix = network_prefix.vpc_prefix;
@@ -355,7 +355,7 @@ impl NetworkPrefix {
             .bind(prefix_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(())
     }

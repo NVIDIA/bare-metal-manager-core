@@ -138,7 +138,7 @@ pub async fn set_primary_interface(
         .bind(*interface_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 pub async fn associate_interface_with_dpu_machine(
@@ -153,7 +153,7 @@ pub async fn associate_interface_with_dpu_machine(
         .bind(*interface_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 pub async fn associate_interface_with_machine(
@@ -173,7 +173,7 @@ pub async fn associate_interface_with_machine(
             {
                 CarbideError::OnePrimaryInterface
             }
-            _ => CarbideError::from(DatabaseError::new(file!(), line!(), query, err)),
+            _ => CarbideError::from(DatabaseError::query(query, err)),
         })
 }
 
@@ -200,7 +200,7 @@ pub async fn find_by_ip(
         .bind(ip)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
+        .map_err(|e| DatabaseError::query(&query, e))
 }
 
 pub async fn find_all(txn: &mut PgConnection) -> CarbideResult<Vec<MachineInterfaceSnapshot>> {
@@ -234,7 +234,7 @@ pub async fn count_by_segment_id(
         .bind(segment_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(address_count.max(0) as usize)
 }
@@ -372,7 +372,7 @@ pub async fn create(
     sqlx::query(query)
         .execute(&mut *inner_txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     // Use the UsedAdminNetworkIpResolver, which specifically looks at
     // the machine interface addresses table in the database for finding
@@ -462,7 +462,7 @@ pub async fn allocate_svi_ip(
     sqlx::query(query)
         .execute(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     let mut addresses_allocator = IpAllocator::new(
         txn,
@@ -547,7 +547,7 @@ async fn insert_machine_interface(
             {
                 CarbideError::OnePrimaryInterface
             }
-            _ => DatabaseError::new(file!(), line!(), query, err).into(),
+            _ => DatabaseError::query(query, err).into(),
         })?;
 
     Ok(interface_id)
@@ -569,7 +569,7 @@ async fn insert_machine_interface_address(
         .bind(address)
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
 }
 
@@ -596,7 +596,7 @@ async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineInterfaceSnapshot>>(
         .build_query_as::<MachineInterfaceSnapshot>()
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
+        .map_err(|e| DatabaseError::query(query.sql(), e))?;
     Ok(interfaces)
 }
 
@@ -771,7 +771,7 @@ pub async fn find_by_machine_and_segment(
         .bind(segment_id)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
+        .map_err(|e| DatabaseError::query(&query, e))
         .map(|interfaces| interfaces.into_iter().collect())
 }
 
@@ -791,7 +791,7 @@ pub async fn update_last_dhcp(
         .bind(interface_id)
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
 }
 
@@ -807,7 +807,7 @@ pub async fn delete(
         .execute(&mut *txn)
         .await
         .map(|_| ())
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     let query = "UPDATE machine_interfaces_deletion SET last_deletion=NOW() WHERE id = 1";
     sqlx::query(query)
@@ -815,7 +815,7 @@ pub async fn delete(
         .execute(txn)
         .await
         .map(|_| ())
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 pub async fn delete_by_ip(txn: &mut PgConnection, ip: IpAddr) -> Result<Option<()>, DatabaseError> {
@@ -867,7 +867,7 @@ WHERE network_segments.id = $1::uuid";
             .bind(self.segment_id)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         let mut ips: Vec<IpAddr> = containers.iter().map(|c| c.address).collect();
         ips.extend(self.busy_ips.iter());

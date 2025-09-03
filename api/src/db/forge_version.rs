@@ -19,7 +19,7 @@ pub async fn observe_as_latest_version(
             .bind(version)
             .fetch_optional(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+            .map_err(|e| DatabaseError::query(query, e))?
     };
 
     if id.is_some() {
@@ -32,7 +32,7 @@ pub async fn observe_as_latest_version(
         sqlx::query(query)
             .execute(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+            .map_err(|e| DatabaseError::query(query, e))?
             .rows_affected()
     };
 
@@ -54,7 +54,7 @@ pub async fn observe_as_latest_version(
             .bind(version)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
     }
 
     Ok(true)
@@ -72,7 +72,7 @@ pub async fn date_superseded(
         .bind(version)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(result.flatten())
 }

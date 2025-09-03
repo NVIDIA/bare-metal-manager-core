@@ -78,6 +78,6 @@ impl DhcpRecord {
             .bind(segment_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 }

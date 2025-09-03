@@ -242,7 +242,7 @@ WHERE address=$4 AND version=$5";
             .bind(old_version)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(query_result.rows_affected() > 0)
     }
@@ -281,7 +281,7 @@ WHERE address=$4 AND version=$5";
             Ok((_address,)) => Ok(true),
             Err(e) => match e {
                 sqlx::Error::RowNotFound => Ok(false),
-                e => Err(DatabaseError::new(file!(), line!(), query, e)),
+                e => Err(DatabaseError::query(query, e)),
             },
         }
     }
@@ -297,7 +297,7 @@ WHERE address=$4 AND version=$5";
             .bind(address)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -312,7 +312,7 @@ WHERE address=$4 AND version=$5";
             .bind(address)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -414,7 +414,7 @@ WHERE address=$4 AND version=$5";
             .bind(address)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -450,7 +450,7 @@ WHERE address=$4 AND version=$5";
             .bind(ConfigVersion::initial())
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(())
     }
@@ -462,7 +462,7 @@ WHERE address=$4 AND version=$5";
             .execute(txn)
             .await
             .map(|_| ())
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     /// Search the exploration report for any explored endpoint with a manager or system interface
@@ -511,7 +511,7 @@ WHERE address=$4 AND version=$5";
             .bind(address)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -525,7 +525,7 @@ WHERE address=$4 AND version=$5";
             .bind(address)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -538,7 +538,7 @@ WHERE address=$4 AND version=$5";
             .bind(address)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -552,7 +552,7 @@ WHERE address=$4 AND version=$5";
             .bind(address)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 }

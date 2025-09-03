@@ -32,7 +32,7 @@ impl MachineInterfaceAddress {
             .bind(interface_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn find_by_address(
@@ -49,7 +49,7 @@ impl MachineInterfaceAddress {
             .bind(address)
             .fetch_optional(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn delete(
@@ -62,7 +62,7 @@ impl MachineInterfaceAddress {
             .execute(txn)
             .await
             .map(|_| ())
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 }
 

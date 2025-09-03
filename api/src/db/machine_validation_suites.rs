@@ -337,7 +337,7 @@ impl MachineValidationTest {
         let ret = sqlx::query_as(&query)
             .fetch_all(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), &query, e)))?;
+            .map_err(|e| DatabaseError::query(&query, e))?;
         Ok(ret)
     }
     pub fn generate_test_id(name: &str) -> String {
@@ -367,7 +367,7 @@ impl MachineValidationTest {
         let _: () = sqlx::query_as(&query)
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), &query, e)))?;
+            .map_err(|e| DatabaseError::query(&query, e))?;
         Ok(test_id)
     }
 
@@ -397,7 +397,7 @@ impl MachineValidationTest {
         let _: () = sqlx::query_as(&query)
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), &query, e)))?;
+            .map_err(|e| DatabaseError::query(&query, e))?;
         Ok(req.test_id)
     }
 

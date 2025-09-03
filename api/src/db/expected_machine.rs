@@ -101,7 +101,7 @@ impl ExpectedMachine {
             .bind(bmc_mac_address)
             .fetch_optional(txn)
             .await
-            .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), sql, err))
+            .map_err(|err| DatabaseError::query(sql, err))
     }
 
     pub async fn find_many_by_bmc_mac_address(
@@ -113,9 +113,7 @@ impl ExpectedMachine {
             .bind(bmc_mac_addresses)
             .fetch_all(txn)
             .await
-            .map_err(|err: sqlx::Error| {
-                CarbideError::from(DatabaseError::new(file!(), line!(), sql, err))
-            })?;
+            .map_err(|err| DatabaseError::query(sql, err))?;
 
         // expected_machines has a unique constraint on bmc_mac_address,
         // but if the constraint gets dropped and we have multiple mac addresses,
@@ -142,7 +140,7 @@ impl ExpectedMachine {
         sqlx::query_as(sql)
             .fetch_all(txn)
             .await
-            .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), sql, err).into())
+            .map_err(|err| DatabaseError::query(sql, err).into())
     }
 
     pub async fn find_all_linked(
@@ -165,7 +163,7 @@ FROM expected_machines em
         sqlx::query_as(sql)
             .fetch_all(txn)
             .await
-            .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), sql, err).into())
+            .map_err(|err| DatabaseError::query(sql, err).into())
     }
 
     #[cfg(test)] // currently only used by tests
@@ -223,7 +221,7 @@ FROM expected_machines em
                 sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
                     CarbideError::ExpectedHostDuplicateMacAddress(bmc_mac_address)
                 }
-                _ => DatabaseError::new(file!(), line!(), query, err).into(),
+                _ => DatabaseError::query(query, err).into(),
             })
     }
 
@@ -234,7 +232,7 @@ FROM expected_machines em
             .bind(bmc_mac_address)
             .execute(txn)
             .await
-            .map_err(|err| DatabaseError::new(file!(), line!(), query, err))?;
+            .map_err(|err| DatabaseError::query(query, err))?;
 
         if result.rows_affected() == 0 {
             return Err(CarbideError::NotFoundError {
@@ -253,7 +251,7 @@ FROM expected_machines em
             .execute(txn)
             .await
             .map(|_| ())
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn update(
@@ -280,7 +278,7 @@ FROM expected_machines em
                     kind: "expected_machine",
                     id: self.bmc_mac_address.to_string(),
                 },
-                _ => DatabaseError::new(file!(), line!(), query, err).into(),
+                _ => DatabaseError::query(query, err).into(),
             })?;
 
         self.data = data;

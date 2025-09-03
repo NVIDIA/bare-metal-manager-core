@@ -102,7 +102,7 @@ pub async fn update_bmc_network_into_topologies(
         .bind(machine_id.to_string())
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+        .map_err(|e| DatabaseError::query(query, e))?
         .ok_or(CarbideError::NotFoundError {
             kind: "machine_topologies.machine_id",
             id: machine_id.to_string(),
