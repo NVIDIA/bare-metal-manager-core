@@ -68,7 +68,7 @@ impl PowerOptions {
             .bind(host_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(options)
     }
@@ -89,7 +89,7 @@ impl PowerOptions {
             .bind(host_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(updated_value)
     }
@@ -100,7 +100,7 @@ impl PowerOptions {
         let all_options = sqlx::query_as(query)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(all_options)
     }
@@ -115,7 +115,7 @@ impl PowerOptions {
             .bind(machine_ids)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(all_options)
     }
@@ -142,7 +142,7 @@ impl PowerOptions {
             .bind(options.host_id)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(())
     }

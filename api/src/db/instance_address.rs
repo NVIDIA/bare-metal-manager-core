@@ -68,7 +68,7 @@ impl InstanceAddress {
             .bind(address)
             .fetch_optional(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     #[cfg(test)] // currently only used by tests
@@ -84,7 +84,7 @@ impl InstanceAddress {
             .bind(segment_id)
             .fetch_optional(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     #[cfg(test)] // currently only used by tests
@@ -99,7 +99,7 @@ impl InstanceAddress {
             .build_query_as()
             .fetch_optional(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
+            .map_err(|e| DatabaseError::query(query.sql(), e))
     }
 
     pub async fn delete(
@@ -112,7 +112,7 @@ impl InstanceAddress {
             .bind(instance_id)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -126,7 +126,7 @@ impl InstanceAddress {
             .bind(addresses)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -193,7 +193,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
             .bind(segment_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(address_count.max(0) as usize)
     }
@@ -248,7 +248,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
         sqlx::query(query)
             .execute(&mut *inner_txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         // Assign all addresses in one shot.
         for iface in &mut updated_config.interfaces {
@@ -348,9 +348,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
                     .bind(IpNetwork::new(address.network(), address.prefix())?)
                     .fetch_all(&mut *inner_txn)
                     .await
-                    .map_err(|e| {
-                        CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
-                    })?;
+                    .map_err(|e| DatabaseError::query(query, e))?;
             }
         }
 
@@ -403,7 +401,7 @@ WHERE network_segments.id = $1::uuid";
             .bind(self.segment_id)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         let mut used_ips: Vec<IpAddr> = containers.iter().map(|c| c.address).collect();
         used_ips.extend(self.busy_ips.iter());
@@ -440,7 +438,7 @@ WHERE network_segments.id = $1::uuid";
             .bind(self.segment_id)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(containers.iter().map(|c| c.prefix).collect())
     }
@@ -577,7 +575,7 @@ pub async fn allocate_svi_ip(
     sqlx::query(query)
         .execute(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     let mut addresses_allocator = IpAllocator::new(
         txn,

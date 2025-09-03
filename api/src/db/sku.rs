@@ -68,7 +68,7 @@ pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), CarbideErro
     sqlx::query(query)
         .execute(&mut *inner_txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     if let Some(existing_sku) = find_matching(&mut inner_txn, sku).await? {
         return Err(CarbideError::InvalidArgument(format!(
@@ -105,7 +105,7 @@ pub async fn delete(txn: &mut PgConnection, sku_id: &str) -> Result<String, Data
         .bind(sku_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(id)
 }
@@ -174,7 +174,7 @@ pub async fn update_metadata(
         .build_query_as()
         .fetch_one(&mut *txn)
         .await
-        .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), builder.sql(), err))?;
+        .map_err(|err| DatabaseError::query(builder.sql(), err))?;
 
     Ok(())
 }
@@ -190,7 +190,7 @@ pub async fn replace_components(
         .bind(sku_id)
         .fetch_one(&mut *txn)
         .await
-        .map_err(|err| DatabaseError::new(file!(), line!(), query, err))?;
+        .map_err(|err| DatabaseError::query(query, err))?;
 
     crate::db::machine::update_sku_status_verify_request_time_for_sku(txn, sku_id).await?;
     Ok(sku)

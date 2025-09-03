@@ -146,12 +146,7 @@ pub async fn create(
             kind: "NetworkSecurityGroup",
             id: metadata.name.clone(),
         }),
-        Err(e) => Err(CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            query,
-            e,
-        ))),
+        Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
     }
 }
 
@@ -192,7 +187,7 @@ pub(crate) async fn find_ids(
         .build_query_as()
         .fetch_all(txn)
         .await
-        .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), builder.sql(), err))?)
+        .map_err(|err| DatabaseError::query(builder.sql(), err))?)
 }
 
 /// Queries the DB for non-deleted NetworkSecurityGroup records
@@ -230,7 +225,7 @@ pub(crate) async fn find_by_ids(
         .build_query_as()
         .fetch_all(txn)
         .await
-        .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), builder.sql(), err))?)
+        .map_err(|err| DatabaseError::query(builder.sql(), err))?)
 }
 
 /// Queries the DB for objects that have attached NetworkSecurityGroups
@@ -282,7 +277,7 @@ pub(crate) async fn find_objects_with_attachments(
         .build_query_as()
         .fetch_all(txn)
         .await
-        .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), builder.sql(), err))?)
+        .map_err(|err| DatabaseError::query(builder.sql(), err))?)
 }
 
 /// Queries the DB for the NSG propagation status across sets of objects
@@ -443,17 +438,13 @@ pub(crate) async fn get_propagation_status(
         .build_query_as()
         .fetch_all(&mut *txn)
         .await
-        .map_err(|err: sqlx::Error| {
-            DatabaseError::new(file!(), line!(), vpc_query_builder.sql(), err)
-        })?;
+        .map_err(|err| DatabaseError::query(vpc_query_builder.sql(), err))?;
 
     let instances = instance_query_builder
         .build_query_as()
         .fetch_all(txn)
         .await
-        .map_err(|err: sqlx::Error| {
-            DatabaseError::new(file!(), line!(), instance_query_builder.sql(), err)
-        })?;
+        .map_err(|err| DatabaseError::query(instance_query_builder.sql(), err))?;
 
     Ok((vpcs, instances))
 }
@@ -532,12 +523,7 @@ pub(crate) async fn update(
             kind: "NetworkSecurityGroup",
             id: metadata.name.clone(),
         }),
-        Err(e) => Err(CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            query,
-            e,
-        ))),
+        Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
     }
 }
 
@@ -570,11 +556,6 @@ pub(crate) async fn soft_delete(
     {
         Ok(network_security_group) => Ok(Some(network_security_group)),
         Err(sqlx::Error::RowNotFound) => Ok(None),
-        Err(e) => Err(CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            query,
-            e,
-        ))),
+        Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
     }
 }

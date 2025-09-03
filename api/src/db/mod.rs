@@ -332,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn test_database_error_new_with_location() {
+    fn test_database_error_query() {
         const DB_QUERY: &str = "SELECT * from some_table;";
         let err = DatabaseError::query(DB_QUERY, sqlx::Error::protocol("some error"));
         assert_eq!(err.line, line!() - 1);

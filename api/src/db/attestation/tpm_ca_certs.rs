@@ -43,7 +43,7 @@ impl TpmCaCert {
             .bind(cert_subject)
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::query(query, e)))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(Some(res))
     }
@@ -58,7 +58,8 @@ impl TpmCaCert {
             .bind(cert_subject)
             .fetch_optional(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::query(query, e)))
+            .map_err(|e| DatabaseError::query(query, e))
+            .map_err(CarbideError::from)
     }
 
     pub async fn get_all(txn: &mut PgConnection) -> CarbideResult<Vec<TpmCaCert>> {
@@ -67,7 +68,8 @@ impl TpmCaCert {
         sqlx::query_as(query)
             .fetch_all(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::query(query, e)))
+            .map_err(|e| DatabaseError::query(query, e))
+            .map_err(CarbideError::from)
     }
 
     pub async fn delete(txn: &mut PgConnection, ca_cert_id: i32) -> CarbideResult<Option<Self>> {
@@ -77,7 +79,8 @@ impl TpmCaCert {
             .bind(ca_cert_id)
             .fetch_optional(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::query(query, e)))
+            .map_err(|e| DatabaseError::query(query, e))
+            .map_err(CarbideError::from)
     }
 }
 
@@ -105,7 +108,8 @@ impl EkCertVerificationStatus {
             .bind(ek_sha256)
             .fetch_optional(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
+            .map_err(|e| DatabaseError::query(query, e))
+            .map_err(CarbideError::from)
     }
 
     pub async fn get_by_unmatched_ca(txn: &mut PgConnection) -> CarbideResult<Vec<Self>> {
@@ -114,7 +118,8 @@ impl EkCertVerificationStatus {
         sqlx::query_as(query)
             .fetch_all(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
+            .map_err(|e| DatabaseError::query(query, e))
+            .map_err(CarbideError::from)
     }
 
     pub async fn get_by_issuer(txn: &mut PgConnection, issuer: &[u8]) -> CarbideResult<Vec<Self>> {
@@ -124,7 +129,8 @@ impl EkCertVerificationStatus {
             .bind(issuer)
             .fetch_all(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
+            .map_err(|e| DatabaseError::query(query, e))
+            .map_err(CarbideError::from)
     }
 
     pub async fn get_by_machine_id(
@@ -137,7 +143,8 @@ impl EkCertVerificationStatus {
             .bind(machine_id)
             .fetch_optional(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
+            .map_err(|e| DatabaseError::query(query, e))
+            .map_err(CarbideError::from)
     }
 
     pub async fn update_ca_verification_status(
@@ -153,7 +160,8 @@ impl EkCertVerificationStatus {
             .bind(ek_sha256)
             .fetch_all(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
+            .map_err(|e| DatabaseError::query(query, e))
+            .map_err(CarbideError::from)
     }
 
     pub async fn unmatch_ca_verification_status(
@@ -165,7 +173,8 @@ impl EkCertVerificationStatus {
             .bind(ca_id)
             .fetch_optional(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
+            .map_err(|e| DatabaseError::query(query, e))
+            .map_err(CarbideError::from)
     }
 
     pub async fn delete_ca_verification_status_by_machine_id(
@@ -177,7 +186,8 @@ impl EkCertVerificationStatus {
             .bind(machine_id)
             .fetch_optional(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
+            .map_err(|e| DatabaseError::query(query, e))
+            .map_err(CarbideError::from)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -193,7 +203,7 @@ impl EkCertVerificationStatus {
     ) -> CarbideResult<Option<Self>> {
         let query = "INSERT INTO ek_cert_verification_status VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *";
 
-        let res = sqlx::query_as(query)
+        sqlx::query_as(query)
             .bind(ek_sha256)
             .bind(serial_num)
             .bind(signing_ca_found)
@@ -203,8 +213,8 @@ impl EkCertVerificationStatus {
             .bind(machine_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
-
-        Ok(Some(res))
+            .map_err(|e| DatabaseError::query(query, e))
+            .map_err(CarbideError::from)
+            .map(Some)
     }
 }

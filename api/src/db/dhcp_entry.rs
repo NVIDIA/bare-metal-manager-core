@@ -65,7 +65,7 @@ ON CONFLICT DO NOTHING";
             .bind(&self.vendor_string)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(())
     }
@@ -81,6 +81,6 @@ DELETE FROM dhcp_entries WHERE machine_interface_id=$1::uuid";
             .execute(txn)
             .await
             .map(|_| ())
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 }

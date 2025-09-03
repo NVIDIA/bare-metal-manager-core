@@ -65,7 +65,7 @@ pub async fn find_by_machine_ids(
         .bind(str_ids)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     let mut histories = std::collections::HashMap::new();
     for result in query_results.into_iter() {
@@ -111,7 +111,7 @@ pub async fn persist(
         .bind(state_version)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        .map_err(|e| DatabaseError::query(query, e))
         .map(Into::into)
 }
 
@@ -127,7 +127,7 @@ pub async fn update_machine_ids(
         .bind(old_machine_id.to_string())
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }

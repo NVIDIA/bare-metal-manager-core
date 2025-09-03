@@ -54,7 +54,7 @@ impl PredictedMachineInterface {
             .build_query_as()
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
+            .map_err(|e| DatabaseError::query(query.sql(), e))
     }
 
     pub async fn delete(&self, txn: &mut PgConnection) -> Result<(), DatabaseError> {
@@ -63,7 +63,7 @@ impl PredictedMachineInterface {
             .bind(self.id)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -92,6 +92,6 @@ impl NewPredictedMachineInterface<'_> {
             .bind(self.expected_network_segment_type)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 }

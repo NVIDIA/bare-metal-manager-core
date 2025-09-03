@@ -113,7 +113,7 @@ impl RouteServer {
         Ok(sqlx::query_as(query)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?)
+            .map_err(|e| DatabaseError::query(query, e))?)
     }
 
     // find_by_address returns a RouteServer entry matching
@@ -127,7 +127,7 @@ impl RouteServer {
             .bind(address)
             .fetch_optional(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?)
+            .map_err(|e| DatabaseError::query(query, e))?)
     }
 
     // add will insert a list of route server IP addresses

@@ -400,7 +400,7 @@ pub async fn find_existing_machine(
         .bind(relay)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(id)
 }
@@ -507,7 +507,7 @@ pub async fn find(
         .build_query_as()
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), builder.sql(), e))?;
+        .map_err(|e| DatabaseError::query(builder.sql(), e))?;
 
     Ok(all_machines)
 }
@@ -529,7 +529,7 @@ pub async fn find_by_ip(
         .bind(ip.to_string())
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
+        .map_err(|e| DatabaseError::query(&query, e))?;
 
     Ok(machine)
 }
@@ -565,7 +565,7 @@ pub async fn find_ids_by_instance_type_id(
         .bind(instance_type_id)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), builder.sql(), e))
+        .map_err(|e| DatabaseError::query(builder.sql(), e))
 }
 
 async fn update_machine_instance_type(
@@ -601,7 +601,7 @@ async fn update_machine_instance_type(
         .build_query_as()
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), builder.sql(), e))
+        .map_err(|e| DatabaseError::query(builder.sql(), e))
 }
 
 /// Associates machines with an InstanceType.
@@ -644,7 +644,7 @@ pub async fn find_by_hostname(
         .bind(hostname)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
+        .map_err(|e| DatabaseError::query(&query, e))?;
 
     Ok(machine)
 }
@@ -663,7 +663,7 @@ pub async fn find_by_mac_address(
         .bind(mac_address)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
+        .map_err(|e| DatabaseError::query(&query, e))?;
 
     Ok(machine)
 }
@@ -682,7 +682,7 @@ pub async fn find_by_loopback_ip(
         .bind(loopback_ip)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
+        .map_err(|e| DatabaseError::query(&query, e))?;
     Ok(machine)
 }
 
@@ -696,7 +696,7 @@ pub async fn find_id_by_fqdn(
         .bind(fqdn)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(machine_id)
 }
@@ -735,7 +735,7 @@ pub async fn update_reboot_time(
         .bind(machine.id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
 }
 
@@ -761,7 +761,7 @@ pub async fn update_reboot_requested_time(
         .bind(machine_id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
 }
 
@@ -781,7 +781,7 @@ pub async fn update_restart_verification_status(
         .bind(machine_id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
 }
 
@@ -794,7 +794,7 @@ pub async fn update_cleanup_time(
         .bind(machine.id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -808,7 +808,7 @@ pub async fn update_bios_password_set_time(
         .bind(machine_id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -822,7 +822,7 @@ pub async fn update_discovery_time(
         .bind(machine_id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -843,7 +843,7 @@ pub async fn find_host_by_dpu_machine_id(
         .bind(dpu_machine_id.to_string())
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
+        .map_err(|e| DatabaseError::query(&query, e))?;
 
     Ok(machine)
 }
@@ -866,7 +866,7 @@ pub async fn lookup_host_machine_ids_by_dpu_ids(
         )
         .fetch_all(conn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 pub async fn find_dpus_by_host_machine_id(
@@ -886,7 +886,7 @@ pub async fn find_dpus_by_host_machine_id(
         .bind(host_machine_id.to_string())
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
+        .map_err(|e| DatabaseError::query(&query, e))?;
 
     Ok(machines)
 }
@@ -920,7 +920,7 @@ pub async fn update_metadata(
             sqlx::Error::RowNotFound => {
                 CarbideError::ConcurrentModificationError("machine", expected_version.to_string())
             }
-            e => DatabaseError::new(file!(), line!(), query, e).into(),
+            e => DatabaseError::query(query, e).into(),
         }),
     }
 }
@@ -942,7 +942,7 @@ pub async fn update_network_status_observation(
         .bind(observation.observed_at)
         .fetch_one(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        .map_err(|e| DatabaseError::query(query, e))
     {
         Ok(result) => result,
         Err(e) if matches!(e.source, sqlx::Error::RowNotFound) => {
@@ -981,7 +981,7 @@ pub async fn update_infiniband_status_observation(
         .bind(observation.observed_at.to_rfc3339())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -1220,7 +1220,7 @@ pub async fn update_agent_reported_inventory(
         .bind(machine_id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -1237,12 +1237,12 @@ pub async fn get_all_network_status_observation(
         .bind(limit)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     let mut all = Vec::with_capacity(rows.len());
     for row in rows {
         let s: sqlx::types::Json<MachineNetworkStatusObservation> = row
             .try_get("network_status_observation")
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         all.push(s.0);
     }
     Ok(all)
@@ -1264,7 +1264,7 @@ pub async fn force_cleanup(
         .bind(machine_id.to_string())
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
 }
 
@@ -1295,7 +1295,7 @@ pub async fn try_update_network_config(
     match query_result {
         Ok(_machine_id) => Ok(true),
         Err(sqlx::Error::RowNotFound) => Ok(false),
-        Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+        Err(e) => Err(DatabaseError::query(query, e)),
     }
 }
 
@@ -1341,7 +1341,7 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
         .bind(current_machine_id.to_string())
         .fetch_one(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     // If the Machines name in Metadata matched the predicted machine id,
     // then update it to the new ID.
@@ -1353,7 +1353,7 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
         .bind(current_machine_id.to_string())
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(machine_id)
 }
@@ -1382,7 +1382,7 @@ pub async fn clear_failure_details(
         .bind(machine_id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -1458,7 +1458,7 @@ pub async fn create(
         .bind(sku_id)
         .fetch_one(&mut *txn)
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     if machine_id != *stable_machine_id {
         return Err(CarbideError::internal(format!(
@@ -1505,7 +1505,7 @@ pub async fn trigger_dpu_reprovisioning_request(
         .bind(sqlx::types::Json(req))
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -1526,7 +1526,7 @@ pub async fn update_dpu_reprovision_start_time(
         .bind(sqlx::types::Json(current_time))
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -1546,7 +1546,7 @@ pub async fn update_host_reprovision_start_time(
         .bind(sqlx::types::Json(current_time))
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -1564,7 +1564,7 @@ pub async fn get_host_reprovisioning_machines(
     sqlx::query_as(&query)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
+        .map_err(|e| DatabaseError::query(&query, e))
 }
 
 pub async fn update_controller_state_outcome(
@@ -1578,7 +1578,7 @@ pub async fn update_controller_state_outcome(
         .bind(machine_id.to_string())
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
 }
 
@@ -1597,7 +1597,7 @@ pub async fn approve_dpu_reprovision_request(
         .bind(sqlx::types::Json(true))
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -1616,7 +1616,7 @@ pub async fn approve_host_reprovision_request(
         .bind(sqlx::types::Json(true))
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -1687,7 +1687,7 @@ pub async fn list_machines_requested_for_reprovisioning(
     sqlx::query_as(&query)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
+        .map_err(|e| DatabaseError::query(&query, e))
 }
 
 pub async fn list_machines_requested_for_host_reprovisioning(
@@ -1702,7 +1702,7 @@ pub async fn list_machines_requested_for_host_reprovisioning(
     sqlx::query_as(&query)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))
+        .map_err(|e| DatabaseError::query(&query, e))
 }
 
 /// Apply dpu agent upgrade policy to a single DPU.
@@ -1762,7 +1762,7 @@ pub async fn set_dpu_agent_upgrade_requested(
         .bind(machine_id.to_string())
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
 }
 
@@ -1865,7 +1865,7 @@ pub async fn update_machine_validation_time(
         .bind(machine_id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -1881,7 +1881,7 @@ pub async fn update_machine_validation_id(
         .bind(machine_id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "UPDATE machines ", e))
+        .map_err(|e| DatabaseError::query(&base_query, e))
 }
 
 pub async fn update_failure_details_by_machine_id(
@@ -1895,7 +1895,7 @@ pub async fn update_failure_details_by_machine_id(
         .bind(machine_id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -1920,7 +1920,7 @@ pub async fn find_dpu_ids_and_loopback_ips(
     let dpu_infos: Vec<DpuInfo> = sqlx::query_as(query)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+        .map_err(|e| DatabaseError::query(query, e))?
         .into_iter()
         .map(|(id, loopback_ip)| DpuInfo { id, loopback_ip })
         .collect();
@@ -2003,7 +2003,7 @@ pub async fn find_by_validation_id(
         .bind(validation_id)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
+        .map_err(|e| DatabaseError::query(&query, e))?;
 
     Ok(machine)
 }
@@ -2020,7 +2020,7 @@ pub async fn set_firmware_autoupdate(
         .bind(machine_id)
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
 }
 
@@ -2036,7 +2036,7 @@ pub async fn set_machine_validation_request(
         .bind(machine_validation_request)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -2069,7 +2069,7 @@ pub async fn update_dpu_asns(
     let dpu_ids: Vec<MachineId> = sqlx::query_as(query)
         .fetch_all(txn.deref_mut())
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     if !dpu_ids.is_empty() {
         tracing::info!(dpu_count = dpu_ids.len(), "Updating missing ASN of DPUs");
@@ -2093,12 +2093,12 @@ pub async fn update_dpu_asns(
             .bind(dpu_machine_id)
             .execute(&mut *txn)
             .await
-            .map_err(|e: sqlx::Error| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
     }
 
     txn.commit()
         .await
-        .map_err(|e: sqlx::Error| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -2234,7 +2234,7 @@ pub async fn get_network_config(
         .bind(machine_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(Versioned::new(network_config.0, network_config_version))
 }

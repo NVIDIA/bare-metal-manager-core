@@ -185,7 +185,7 @@ impl DpuMachineUpdate {
                         kind: "trigger_reprovisioning_for_managed_host",
                         id: machine_update.dpu_machine_id.to_string(),
                     },
-                    _ => DatabaseError::new(file!(), line!(), query, err).into(),
+                    _ => DatabaseError::query(query, err).into(),
                 })?;
         }
 
@@ -216,7 +216,7 @@ impl DpuMachineUpdate {
             .bind(&reference)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(result)
     }

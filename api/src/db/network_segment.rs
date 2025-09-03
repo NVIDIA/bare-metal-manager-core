@@ -496,7 +496,7 @@ impl NewNetworkSegment {
             .bind(self.can_stretch)
             .fetch_one(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         NetworkPrefix::create_for(txn, &segment_id, &self.prefixes).await?;
         NetworkSegmentStateHistory::persist(txn, segment_id, &initial_state, version).await?;
 
@@ -534,7 +534,7 @@ impl NetworkSegment {
                 .bind(vpc_id)
                 .fetch_all(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?
+                .map_err(|e| DatabaseError::query(&query, e))?
         };
 
         Ok(results)
@@ -553,7 +553,7 @@ impl NetworkSegment {
             .bind(IpNetwork::from(relay))
             .fetch_all(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), &query, e)))?;
+            .map_err(|e| DatabaseError::query(&query, e))?;
 
         match results.len() {
             0 | 1 => Ok(results.pop()),
@@ -581,7 +581,7 @@ impl NetworkSegment {
 
         let mut results = Vec::new();
         while let Some(maybe_id) = segment_id_stream.next().await {
-            let id = maybe_id.map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            let id = maybe_id.map_err(|e| DatabaseError::query(query, e))?;
             results.push(id);
         }
 
@@ -634,7 +634,7 @@ impl NetworkSegment {
             .build_query_as()
             .fetch_all(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
+            .map_err(|e| DatabaseError::query(query.sql(), e))?;
 
         if search_config.include_num_free_ips {
             Self::update_num_free_ips_into_prefix_list(txn, &mut all_records).await?;
@@ -668,7 +668,7 @@ impl NetworkSegment {
             .build_query_as()
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
+            .map_err(|e| DatabaseError::query(query.sql(), e))?;
 
         Ok(network_segment_ids)
     }
@@ -777,7 +777,7 @@ impl NetworkSegment {
                 Ok(true)
             }
             Err(sqlx::Error::RowNotFound) => Ok(false),
-            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+            Err(e) => Err(DatabaseError::query(query, e)),
         }
     }
 
@@ -792,7 +792,7 @@ impl NetworkSegment {
             .bind(segment_id)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -807,7 +807,7 @@ impl NetworkSegment {
             .bind(self.id)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -840,7 +840,8 @@ impl NetworkSegment {
             .bind(self.id)
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| DatabaseError::query(query, e))
+            .map_err(CarbideError::from)?;
 
         Ok(id)
     }
@@ -856,7 +857,7 @@ impl NetworkSegment {
             .bind(segment_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(segment)
     }
@@ -870,7 +871,7 @@ impl NetworkSegment {
             .bind(name)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
+            .map_err(|e| DatabaseError::query(&query, e))?;
         Ok(segment)
     }
 
@@ -885,15 +886,10 @@ impl NetworkSegment {
         let mut segments: Vec<NetworkSegment> = sqlx::query_as(&query)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), &query, e))?;
+            .map_err(|e| DatabaseError::query(&query, e))?;
 
         if segments.is_empty() {
-            return Err(DatabaseError::new(
-                file!(),
-                line!(),
-                &query,
-                sqlx::Error::RowNotFound,
-            ));
+            return Err(DatabaseError::query(&query, sqlx::Error::RowNotFound));
         }
 
         Ok(segments.remove(0))
@@ -929,7 +925,7 @@ impl NetworkSegment {
             .bind(network_segment_ids)
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(id)
     }

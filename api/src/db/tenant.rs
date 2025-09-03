@@ -46,7 +46,7 @@ impl Tenant {
             .bind(version)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn find<S: AsRef<str>>(
@@ -58,7 +58,7 @@ impl Tenant {
             .bind(organization_id.as_ref())
             .fetch_optional(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(results)
     }
@@ -100,7 +100,7 @@ impl Tenant {
                 sqlx::Error::RowNotFound => {
                     CarbideError::ConcurrentModificationError("tenant", current_version.to_string())
                 }
-                error => CarbideError::from(DatabaseError::new(file!(), line!(), query, error)),
+                error => CarbideError::from(DatabaseError::query(query, error)),
             })
     }
 
@@ -193,7 +193,7 @@ impl TenantKeyset {
             .bind(self.version.to_string())
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn find_ids(
@@ -268,7 +268,7 @@ impl TenantKeyset {
                         .bind(keyset_id)
                         .fetch_all(txn)
                         .await
-                        .map_err(|e| DatabaseError::new(file!(), line!(), base_query, e))
+                        .map_err(|e| DatabaseError::query(base_query, e))
                 }
 
                 ObjectFilter::List(keyset_ids) => {
@@ -277,7 +277,7 @@ impl TenantKeyset {
                         .bind(keyset_ids)
                         .fetch_all(txn)
                         .await
-                        .map_err(|e| DatabaseError::new(file!(), line!(), base_query, e))
+                        .map_err(|e| DatabaseError::query(base_query, e))
                 }
             }
         } else {
@@ -285,7 +285,7 @@ impl TenantKeyset {
             sqlx::query_as::<_, TenantKeyset>(query)
                 .fetch_all(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+                .map_err(|e| DatabaseError::query(query, e))
         }?;
 
         if !include_key_data {
@@ -316,7 +316,7 @@ impl TenantKeyset {
         {
             Ok(_) => Ok(true),
             Err(sqlx::Error::RowNotFound) => Ok(false),
-            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+            Err(e) => Err(DatabaseError::query(query, e)),
         }
     }
 }
@@ -359,7 +359,7 @@ impl UpdateTenantKeyset {
                 "keyset",
                 expected_version,
             )),
-            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e).into()),
+            Err(e) => Err(DatabaseError::query(query, e).into()),
         }
     }
 }
@@ -394,7 +394,7 @@ pub async fn load_by_organization_ids(
         .bind(organization_ids)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 #[cfg(test)]

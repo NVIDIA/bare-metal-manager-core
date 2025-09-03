@@ -85,7 +85,7 @@ impl HostMachineUpdate {
         sqlx::query_as::<_, MachineId>(query)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 }
 
@@ -109,7 +109,7 @@ pub async fn trigger_host_reprovisioning_request(
         .bind(sqlx::types::Json(req))
         .fetch_one(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -123,7 +123,7 @@ pub async fn clear_host_reprovisioning_request(
         .bind(machine_id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }
@@ -140,6 +140,6 @@ pub async fn reset_host_reprovisioning_request(
         .bind(sqlx::types::Json(!clear_reset))
         .fetch_one(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
 }

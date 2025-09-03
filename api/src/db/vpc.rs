@@ -156,7 +156,7 @@ impl NewVpc {
             .bind(sqlx::types::Json(&self.metadata.labels))
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 }
 
@@ -233,7 +233,7 @@ impl Vpc {
             .bind(id)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -270,7 +270,7 @@ impl Vpc {
             .bind(id)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -287,7 +287,7 @@ impl Vpc {
             .build_query_as()
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
+            .map_err(|e| DatabaseError::query(query.sql(), e))
     }
 
     pub async fn find_by_vni(txn: &mut PgConnection, vni: i32) -> Result<Vec<Vpc>, DatabaseError> {
@@ -318,7 +318,7 @@ impl Vpc {
             .build_query_as()
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
+            .map_err(|e| DatabaseError::query(query.sql(), e))
     }
 
     /// Tries to deletes a VPC
@@ -334,7 +334,7 @@ impl Vpc {
         match sqlx::query_as(query).bind(id).fetch_one(txn).await {
             Ok(vpc) => Ok(Some(vpc)),
             Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+            Err(e) => Err(DatabaseError::query(query, e)),
         }
     }
 }
@@ -557,12 +557,7 @@ impl UpdateVpc {
                     current_version.to_string(),
                 ))
             }
-            Err(e) => Err(CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                query,
-                e,
-            ))),
+            Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
         }
     }
 }
@@ -608,12 +603,7 @@ impl UpdateVpcVirtualization {
                     current_version.to_string(),
                 ))
             }
-            Err(e) => Err(CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                query,
-                e,
-            ))),
+            Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
         }?;
 
         // Update SVI IP for stretchable segments.
@@ -658,7 +648,7 @@ pub async fn increment_vpc_version(
         .bind(id)
         .fetch_one(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), read_query, e))?;
+        .map_err(|e| DatabaseError::query(read_query, e))?;
 
     let new_version = current_version.increment();
 
@@ -668,7 +658,7 @@ pub async fn increment_vpc_version(
         .bind(id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), update_query, e))
+        .map_err(|e| DatabaseError::query(update_query, e))
 }
 
 #[derive(Clone, Debug, FromRow)]
@@ -696,7 +686,7 @@ impl VpcDpuLoopback {
             .bind(self.loopback_ip)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn delete_and_deallocate(
@@ -728,7 +718,7 @@ impl VpcDpuLoopback {
         let deleted_loopbacks = sqlx_query
             .fetch_all(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         for value in deleted_loopbacks {
             // We deleted a IP from vpc_dpu_loopback table. Deallocate this IP from common pool.
@@ -764,7 +754,7 @@ impl VpcDpuLoopback {
             .bind(vpc_id)
             .fetch_optional(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     /// Allocate loopback ip for a vpc and dpu if not allocated yet.

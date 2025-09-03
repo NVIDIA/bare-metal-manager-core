@@ -76,6 +76,6 @@ impl DpaInterfaceStateHistory {
             .bind(state_version)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 }

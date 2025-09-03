@@ -87,12 +87,7 @@ pub async fn create(
             kind: "InstanceType",
             id: metadata.name.clone(),
         }),
-        Err(e) => Err(CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            query,
-            e,
-        ))),
+        Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
     }
 }
 
@@ -115,7 +110,7 @@ pub(crate) async fn find_ids(
         .build_query_as()
         .fetch_all(txn)
         .await
-        .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), builder.sql(), err))?)
+        .map_err(|err| DatabaseError::query(builder.sql(), err))?)
 }
 
 /// Queries the DB for non-deleted InstanceType records
@@ -145,7 +140,7 @@ pub(crate) async fn find_by_ids(
         .bind(instance_type_ids)
         .fetch_all(txn)
         .await
-        .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), builder.sql(), err))?)
+        .map_err(|err| DatabaseError::query(builder.sql(), err))?)
 }
 
 /// Updates an InstanceType records in the DB.
@@ -199,12 +194,7 @@ pub(crate) async fn update(
             kind: "InstanceType",
             id: metadata.name.clone(),
         }),
-        Err(e) => Err(CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            query,
-            e,
-        ))),
+        Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
     }
 }
 
@@ -229,12 +219,7 @@ pub(crate) async fn soft_delete(
     {
         Ok(instance_type) => Ok(Some(instance_type)),
         Err(sqlx::Error::RowNotFound) => Ok(None),
-        Err(e) => Err(CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            query,
-            e,
-        ))),
+        Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
     }
 }
 

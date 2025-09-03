@@ -33,7 +33,7 @@ pub async fn snapshot_desired_firmware(
     sqlx::query(query)
         .execute(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     for (_, model) in cfg.map() {
         snapshot_desired_firmware_for_model(&mut *txn, &model).await?;
     }
@@ -72,7 +72,7 @@ async fn snapshot_desired_firmware_for_model(
         )))
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }

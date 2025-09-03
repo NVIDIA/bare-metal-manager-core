@@ -324,7 +324,7 @@ impl NewIBPartition {
             .bind(ib_fabric_config.max_partition_per_tenant)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(segment)
     }
@@ -342,7 +342,7 @@ impl IBPartition {
         let mut results = Vec::new();
         let mut segment_id_stream = sqlx::query_as(query).fetch(txn);
         while let Some(maybe_id) = segment_id_stream.next().await {
-            let id = maybe_id.map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            let id = maybe_id.map_err(|e| DatabaseError::query(query, e))?;
             results.push(id);
         }
 
@@ -359,7 +359,7 @@ impl IBPartition {
                 .bind(tenant_organization_id)
                 .fetch_all(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+                .map_err(|e| DatabaseError::query(query, e))?
         };
 
         Ok(results)
@@ -406,7 +406,7 @@ impl IBPartition {
             .build_query_as()
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
+            .map_err(|e| DatabaseError::query(query.sql(), e))
     }
 
     pub async fn find_pkey_by_partition_id(
@@ -422,7 +422,7 @@ impl IBPartition {
             .build_query_as::<Pkey>()
             .fetch_optional(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
+            .map_err(|e| DatabaseError::query(query.sql(), e))?;
 
         Ok(pkey.map(|id| id.0 as u16))
     }
@@ -449,7 +449,7 @@ impl IBPartition {
         match query_result {
             Ok(_partition_id) => Ok(true), // TODO(k82cn): Add state history if necessary.
             Err(sqlx::Error::RowNotFound) => Ok(false),
-            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+            Err(e) => Err(DatabaseError::query(query, e)),
         }
     }
 
@@ -464,7 +464,7 @@ impl IBPartition {
             .bind(partition_id)
             .execute(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 
@@ -474,7 +474,7 @@ impl IBPartition {
             .bind(self.id)
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(segment)
     }
@@ -493,7 +493,7 @@ impl IBPartition {
             .bind(partition_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(partition)
     }
@@ -508,7 +508,7 @@ impl IBPartition {
             .bind(self.id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(segment)
     }

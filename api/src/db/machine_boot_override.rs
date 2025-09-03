@@ -91,7 +91,7 @@ impl MachineBootOverride {
             .bind(custom_user_data)
             .fetch_one(txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(Some(res))
     }
@@ -119,9 +119,7 @@ impl MachineBootOverride {
                     .bind(self.machine_interface_id)
                     .execute(txn)
                     .await
-                    .map_err(|e| {
-                        CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
-                    })?;
+                    .map_err(|e| DatabaseError::query(query, e))?;
             }
             None => {
                 MachineBootOverride::create(
@@ -142,12 +140,13 @@ impl MachineBootOverride {
     ) -> CarbideResult<()> {
         let query = "DELETE FROM machine_boot_override WHERE machine_interface_id = $1";
 
-        Ok(sqlx::query(query)
+        sqlx::query(query)
             .bind(machine_interface_id)
             .execute(txn)
             .await
             .map(|_| ())
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?)
+            .map_err(|e| DatabaseError::query(query, e))
+            .map_err(CarbideError::from)
     }
 
     pub async fn find_optional(
@@ -180,6 +179,6 @@ impl MachineBootOverride {
             .build_query_as()
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
+            .map_err(|e| DatabaseError::query(query.sql(), e))
     }
 }

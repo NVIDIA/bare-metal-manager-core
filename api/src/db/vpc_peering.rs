@@ -74,12 +74,7 @@ impl VpcPeering {
                 id: format!("{vpc_id_1} and {vpc_id_2}"),
             }),
 
-            Err(e) => Err(CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                query,
-                e,
-            ))),
+            Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
         }
     }
 
@@ -115,7 +110,7 @@ impl VpcPeering {
             .bind(ids)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(vpc_peering_list)
     }
@@ -126,7 +121,7 @@ impl VpcPeering {
             .bind(vpc_peer_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(vpc_peering)
     }
@@ -150,7 +145,7 @@ impl VpcPeering {
             .bind(vpc_id)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(vpc_peer_ids)
     }
@@ -177,7 +172,7 @@ impl VpcPeering {
             .bind(virtualization_types)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(peer_vpc_vnis)
     }
@@ -194,7 +189,7 @@ impl VpcPeering {
             .bind(vpc_id)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(())
     }

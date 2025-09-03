@@ -99,7 +99,7 @@ impl DbExploredManagedHost {
         sqlx::query(query)
             .execute(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         // TODO: Optimize me into a single query
         for host in explored_hosts {
@@ -111,7 +111,7 @@ impl DbExploredManagedHost {
                 .bind(sqlx::types::Json(&host.dpus))
                 .execute(&mut *txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+                .map_err(|e| DatabaseError::query(query, e))?;
         }
 
         Ok(())
@@ -127,7 +127,7 @@ impl DbExploredManagedHost {
             .execute(txn)
             .await
             .map(|_| ())
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn is_managed_host_created_for_endpoint(
@@ -141,7 +141,7 @@ impl DbExploredManagedHost {
             .bind(bmc_ip)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(count > 0)
     }

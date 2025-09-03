@@ -93,7 +93,7 @@ impl StorageCluster {
             .execute(txn)
             .await
             .map(|_| ())
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     /// allow updating hostname/ip/port/auth for the storage cluster
@@ -137,7 +137,7 @@ impl StorageCluster {
                 .bind(self.id)
                 .fetch_one(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+                .map_err(|e| DatabaseError::query(query, e))?
         } else {
             query = "INSERT INTO storage_clusters(name, description, host, port, capacity, allocated, available, healthy, created_at, modified_at, id) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *";
             sqlx::query_as(query)
@@ -154,7 +154,7 @@ impl StorageCluster {
                 .bind(self.id)
                 .fetch_one(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+                .map_err(|e| DatabaseError::query(query, e))?
         };
 
         Ok(cluster)
@@ -233,7 +233,7 @@ impl StoragePool {
             .execute(txn)
             .await
             .map(|_| ())
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     /// only name and description can be updated
@@ -278,7 +278,7 @@ impl StoragePool {
                 .bind(self.attributes.id)
                 .fetch_one(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+                .map_err(|e| DatabaseError::query(query, e))?
         } else {
             query = "INSERT INTO storage_pools(id, name, description, raid_level, capacity, allocated, available, organization_id, use_for_boot_volumes, nvmesh_uuid, cluster_id, created_at, modified_at) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *";
             sqlx::query_as(query)
@@ -297,7 +297,7 @@ impl StoragePool {
                 .bind(&self.modified_at)
                 .fetch_one(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+                .map_err(|e| DatabaseError::query(query, e))?
         };
         Ok(pool)
     }
@@ -403,7 +403,7 @@ impl StorageVolume {
             .execute(txn)
             .await
             .map(|_| ())
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     /// the actual volume attach on the nvmesh cluster will happen later
@@ -477,7 +477,7 @@ impl StorageVolume {
                 .bind(self.attributes.id)
                 .fetch_one(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+                .map_err(|e| DatabaseError::query(query, e))?
         } else {
             let query = "INSERT INTO storage_volumes(id, name, description, capacity, delete_with_instance, boot_volume, pool_id, cluster_id, nvmesh_uuid, os_image_id, source_id, health, attached, status_message, created_at, modified_at) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::json, $18::json)";
             sqlx::query_as(query)
@@ -501,7 +501,7 @@ impl StorageVolume {
                 .bind(&self.dpu_machine_id)
                 .fetch_one(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+                .map_err(|e| DatabaseError::query(query, e))?
         };
         Ok(volume)
     }
@@ -574,7 +574,7 @@ impl OsImage {
             .execute(txn)
             .await
             .map(|_| ())
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     pub async fn update(
@@ -613,7 +613,7 @@ impl OsImage {
                 .bind(self.attributes.id)
                 .fetch_one(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+                .map_err(|e| DatabaseError::query(query, e))?
         } else {
             let capacity = match self.attributes.capacity {
                 Some(x) => x as i64,
@@ -642,7 +642,7 @@ impl OsImage {
                 .bind(&self.modified_at)
                 .fetch_one(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+                .map_err(|e| DatabaseError::query(query, e))?
         };
         Ok(os_image)
     }

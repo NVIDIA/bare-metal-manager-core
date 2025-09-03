@@ -90,7 +90,7 @@ impl VpcPrefix {
             .build_query_as()
             .fetch_all(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))?;
+            .map_err(|e| DatabaseError::query(query.sql(), e))?;
 
         Self::update_stats(&mut container, txn).await?;
         Ok(container)
@@ -106,7 +106,7 @@ impl VpcPrefix {
             .bind(filter)
             .fetch_all(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Self::update_stats(&mut container, txn).await?;
         Ok(container)
@@ -123,7 +123,7 @@ impl VpcPrefix {
             .bind(vpc_id)
             .fetch_all(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Self::update_stats(&mut container, txn).await?;
         Ok(container)
@@ -140,7 +140,7 @@ impl VpcPrefix {
             .bind(vpc_ids)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     // Update last used prefix.
@@ -155,7 +155,7 @@ impl VpcPrefix {
             .bind(vpc_prefix_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(())
     }
@@ -202,7 +202,7 @@ impl VpcPrefix {
             .build_query_as()
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
+            .map_err(|e| DatabaseError::query(query.sql(), e))
     }
 }
 
@@ -262,7 +262,7 @@ impl NewVpcPrefix {
             .bind(self.vpc_id)
             .fetch_one(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), insert_query, e))?;
+            .map_err(|e| DatabaseError::query(insert_query, e))?;
 
         increment_vpc_version(txn, self.vpc_id).await?;
 
@@ -276,7 +276,7 @@ impl NewVpcPrefix {
             .bind(self.prefix)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     // Given a new VPC prefix which has been not been persisted yet, find the
@@ -301,7 +301,7 @@ impl NewVpcPrefix {
             })
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 }
 
@@ -321,7 +321,7 @@ impl UpdateVpcPrefix {
             .bind(self.id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
         // Note that if/when we add support for prefix resizing, we will need to
         // call increment_vpc_version() here.
     }
@@ -338,7 +338,7 @@ impl DeleteVpcPrefix {
             .bind(self.id)
             .fetch_one(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         increment_vpc_version(txn, deleted_prefix.vpc_id).await?;
 
