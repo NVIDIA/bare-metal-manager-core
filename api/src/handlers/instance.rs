@@ -76,14 +76,13 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::InstanceIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin instance::find_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "instance::find_ids";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let filter: rpc::InstanceSearchFilter = request.into_inner();
 
@@ -131,14 +130,14 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin instance::find_by_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "instance::find_by_ids";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+
     let snapshots = db::managed_host::load_by_instance_ids(
         &mut txn,
         instance_ids.as_ref(),
@@ -162,14 +161,13 @@ pub(crate) async fn find(
 ) -> Result<Response<rpc::InstanceList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_instances",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "find_instances";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let rpc::InstanceSearchQuery { id, label, .. } = request.into_inner();
     let instance_ids = match (id, label) {
@@ -225,14 +223,13 @@ pub(crate) async fn find_by_machine_id(
 
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_instance_by_machine_id",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "find_instance_by_machine_id";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let mh_snapshot = match db::managed_host::load_snapshot(
         &mut txn,
@@ -257,14 +254,9 @@ pub(crate) async fn find_by_machine_id(
 
     let response = Response::new(rpc::InstanceList { instances });
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit find_instance_by_machine_id",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(response)
 }
@@ -626,14 +618,13 @@ pub(crate) async fn release(
     log_request_data(&request);
     let delete_instance = DeleteInstance::try_from(request.into_inner())?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin release_instance",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "release_instance";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let instance = Instance::find_by_id(&mut txn, delete_instance.instance_id)
         .await
@@ -706,14 +697,9 @@ pub(crate) async fn release(
     // we convert this case of the DatabaseError into NotFound too.
     delete_instance.mark_as_deleted(&mut txn).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit release_instance",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc::InstanceReleaseResult {}))
 }
@@ -726,14 +712,13 @@ pub(crate) async fn update_phone_home_last_contact(
     let request = request.into_inner();
     let instance_id = InstanceId::from_grpc(request.instance_id.clone())?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin update_instance_phone_home_last_contact",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "update_instance_phone_home_last_contact";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let instance = Instance::find_by_id(&mut txn, instance_id)
         .await
@@ -749,14 +734,9 @@ pub(crate) async fn update_phone_home_last_contact(
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit update_instance_phone_home_last_contact",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc::InstancePhoneHomeLastContactResponse {
         timestamp: Some(res.into()),
@@ -769,14 +749,13 @@ pub(crate) async fn invoke_power(
 ) -> Result<Response<rpc::InstancePowerResult>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin invoke_instance_power",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "invoke_instance_power";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let request = request.into_inner();
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
@@ -875,14 +854,9 @@ pub(crate) async fn invoke_power(
         }
     }
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit invoke_instance_power",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     if reprovision_handled {
         // Host will reboot once DPU reprovisioning is successfully finished.
@@ -948,14 +922,13 @@ pub(crate) async fn update_operating_system(
     };
     os.validate().map_err(CarbideError::from)?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin update_instance_operating_system",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "update_instance_operating_system";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let instance = Instance::find_by_id(&mut txn, instance_id)
         .await
@@ -987,14 +960,9 @@ pub(crate) async fn update_operating_system(
     })?;
     let instance = snapshot_to_instance(mh_snapshot)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit update_instance_operating_system",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(instance))
 }
@@ -1029,14 +997,13 @@ pub(crate) async fn update_instance_config(
         CarbideError::InvalidArgument(format!("Instance metadata is not valid: {e}"))
     })?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin update_instance_config",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "update_instance_config";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let instance = Instance::find_by_id(&mut txn, instance_id)
         .await
@@ -1120,14 +1087,9 @@ pub(crate) async fn update_instance_config(
     })?;
     let instance = snapshot_to_instance(mh_snapshot)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit update_instance_config",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(instance))
 }

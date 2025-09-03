@@ -542,14 +542,12 @@ pub(crate) async fn get_managed_host_network_config(
     let request = request.into_inner();
     let dpu_machine_id = convert_and_log_machine_id(request.dpu_machine_id.as_ref())?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_managed_host_network_config",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "get_managed_host_network_config";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let snapshot = db::managed_host::load_snapshot(
         &mut txn,
@@ -566,14 +564,9 @@ pub(crate) async fn get_managed_host_network_config(
     let resp =
         get_managed_host_network_config_inner(api, dpu_machine_id, snapshot, &mut txn).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit get_managed_host_network_config",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(resp))
 }
@@ -588,14 +581,12 @@ pub(crate) async fn update_agent_reported_inventory(
     let dpu_machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
     if let Some(inventory) = request.inventory.as_ref() {
-        let mut txn = api.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin create_machine_inventory",
-                e,
-            ))
-        })?;
+        const DB_TXN_NAME: &str = "update_agent_reported_inventory";
+        let mut txn = api
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| (DatabaseError::txn_begin(DB_TXN_NAME, e)))?;
 
         let inventory =
             MachineInventory::try_from(inventory.clone()).map_err(CarbideError::from)?;
@@ -603,9 +594,9 @@ pub(crate) async fn update_agent_reported_inventory(
             .await
             .map_err(CarbideError::from)?;
 
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(file!(), line!(), "commit inventory", e))
-        })?;
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
     } else {
         return Err(Status::invalid_argument("inventory missing from request"));
     }
@@ -631,14 +622,12 @@ pub(crate) async fn record_dpu_network_status(
     // TODO: persist this somewhere
     let _fabric_interfaces_data = request.fabric_interfaces.as_slice();
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin record_dpu_network_status",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "record_dpu_network_status";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // Load the DPU Object. We require it to update the health report based
     // on the last report
@@ -735,26 +724,20 @@ pub(crate) async fn record_dpu_network_status(
         .map_err(CarbideError::from)?;
     }
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit record_dpu_network_status",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     // Check if we need to flag this forge-dpu-agent for upgrade or mark an upgrade completed
     // We do this here because we just learnt about which version of forge-dpu-agent is
     // running.
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin record_dpu_network_status upgrade check",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME_2: &str = "record_dpu_network_status upgrade check";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME_2, e))?;
+
     if let Some(policy) = DpuAgentUpgradePolicy::get(&mut txn)
         .await
         .map_err(CarbideError::from)?
@@ -762,14 +745,9 @@ pub(crate) async fn record_dpu_network_status(
         let _needs_upgrade =
             db::machine::apply_agent_upgrade_policy(&mut txn, policy, &dpu_machine_id).await?;
     }
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit record_dpu_network_status upgrade check",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME_2, e))?;
 
     // If this all worked and the DPU is healthy, we shouldn't emit a log line
     // If there is any error the report, the logging of the follow-up report is
@@ -802,14 +780,11 @@ pub(crate) async fn get_all_managed_host_network_status(
 ) -> Result<Response<rpc::ManagedHostNetworkStatusResponse>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_all_managed_host_network_status",
-            e,
-        ))
-    })?;
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin("get_all_managed_host_network_status", e))?;
 
     let all_status = db::machine::get_all_network_status_observation(&mut txn, 2000)
         .await
@@ -852,14 +827,13 @@ pub(crate) async fn dpu_agent_upgrade_check(
     BuildVersion::try_from(server_version)
         .map_err(|_| Status::internal("Invalid server version, cannot check for upgrade"))?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin dpu_agent_upgrade_check ",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "dpu_agent_upgrade_check";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+
     let machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
         .await
         .map_err(CarbideError::from)?;
@@ -878,14 +852,9 @@ pub(crate) async fn dpu_agent_upgrade_check(
     } else {
         tracing::trace!(%machine_id, agent_version, "forge-dpu-agent is up to date");
     }
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "end dpu_agent_upgrade_check handler",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     // The debian/ubuntu package version is our build_version minus the initial `v`
     let package_version = &server_version[1..];
@@ -904,14 +873,13 @@ pub(crate) async fn dpu_agent_upgrade_policy_action(
     request: tonic::Request<rpc::DpuAgentUpgradePolicyRequest>,
 ) -> Result<tonic::Response<rpc::DpuAgentUpgradePolicyResponse>, Status> {
     log_request_data(&request);
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin apply_agent_upgrade_policy_all",
-            e,
-        ))
-    })?;
+
+    const DB_TXN_NAME: &str = "apply_agent_upgrade_policy_all";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let req = request.into_inner();
     let mut did_change = false;
@@ -930,14 +898,10 @@ pub(crate) async fn dpu_agent_upgrade_policy_action(
     else {
         return Err(tonic::Status::not_found("No agent upgrade policy"));
     };
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit apply_agent_upgrade_policy_all",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+
     let response = rpc::DpuAgentUpgradePolicyResponse {
         active_policy: active_policy.into(),
         did_change,
@@ -959,14 +923,12 @@ pub(crate) async fn trigger_dpu_reprovisioning(
     let machine_id = req.machine_id.as_ref().or(req.dpu_id.as_ref());
     let machine_id = convert_and_log_machine_id(machine_id)?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin trigger_dpu_reprovisioning ",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "trigger_dpu_reprovisioning";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let snapshot = db::managed_host::load_snapshot(
         &mut txn,
@@ -1093,14 +1055,9 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         }
     }
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "end trigger_dpu_reprovisioning",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(()))
 }

@@ -34,14 +34,11 @@ pub(crate) async fn get(
 ) -> Result<tonic::Response<rpc::ExpectedMachine>, tonic::Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_expected_machine",
-            e,
-        ))
-    })?;
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin("get_expected_machine", e))?;
 
     let request = request.into_inner();
 
@@ -99,25 +96,18 @@ pub(crate) async fn add(
 
     let db_data = request.try_into()?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin add_expected_machines",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "add_expected_machines";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| CarbideError::from(DatabaseError::txn_begin(DB_TXN_NAME, e)))?;
 
     ExpectedMachine::create(&mut txn, parsed_mac, db_data).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit add_expected_machines",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| CarbideError::from(DatabaseError::txn_commit(DB_TXN_NAME, e)))?;
 
     Ok(tonic::Response::new(()))
 }
@@ -136,25 +126,18 @@ pub(crate) async fn delete(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin delete_expected_machines",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "delete_expected_machines";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     ExpectedMachine::delete(parsed_mac, &mut txn).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit delete_expected_machines",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(tonic::Response::new(()))
 }
@@ -183,25 +166,18 @@ pub(crate) async fn update(
         data: data.clone(),
     };
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin update_expected_machine",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "update_expected_machine";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     expected_machine.update(&mut txn, data).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit update_expected_machine",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(tonic::Response::new(()))
 }
@@ -213,28 +189,20 @@ pub(crate) async fn replace_all(
     log_request_data(&request);
     let request = request.into_inner();
 
-    let mut txn: Transaction<'_, Postgres> =
-        api.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin replace_all_expected_machines",
-                e,
-            ))
-        })?;
+    const DB_TXN_NAME: &str = "replace_all_expected_machines";
+    let mut txn: Transaction<'_, Postgres> = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     ExpectedMachine::clear(&mut txn)
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit replace_all_expected_machines",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     for expected_machine in request.expected_machines {
         add(api, tonic::Request::new(expected_machine)).await?;
@@ -248,14 +216,11 @@ pub(crate) async fn get_all(
 ) -> Result<tonic::Response<rpc::ExpectedMachineList>, tonic::Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_all_expected_machines",
-            e,
-        ))
-    })?;
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin("get_all_expected_machines", e))?;
 
     let expected_machine_list: Vec<ExpectedMachine> = ExpectedMachine::find_all(&mut txn).await?;
 
@@ -269,9 +234,11 @@ pub(crate) async fn get_linked(
     request: tonic::Request<()>,
 ) -> Result<tonic::Response<rpc::LinkedExpectedMachineList>, tonic::Status> {
     log_request_data(&request);
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "begin get_linked", e))
-    })?;
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin("get_linked", e))?;
 
     let out = ExpectedMachine::find_all_linked(&mut txn).await?;
     let list = rpc::LinkedExpectedMachineList {
@@ -286,28 +253,20 @@ pub(crate) async fn delete_all(
 ) -> Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
 
-    let mut txn: Transaction<'_, Postgres> =
-        api.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin delete_all_expected_machines",
-                e,
-            ))
-        })?;
+    const DB_TXN_NAME: &str = "delete_all_expected_machines";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     ExpectedMachine::clear(&mut txn)
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit delete_all_expected_machines",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(tonic::Response::new(()))
 }
@@ -317,25 +276,18 @@ pub(crate) async fn query(
     api: &Api,
     mac: MacAddress,
 ) -> Result<Option<ExpectedMachine>, CarbideError> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_many_by_bmc_mac_address",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "find_many_by_bmc_mac_address";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let mut expected = ExpectedMachine::find_many_by_bmc_mac_address(&mut txn, &[mac]).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit find_many_by_bmc_mac_address",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(expected.remove(&mac))
 }

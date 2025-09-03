@@ -79,14 +79,13 @@ pub(crate) async fn create(
     validate_expanded_rule_set(&rules, max_nsg_size)?;
 
     // Start a new transaction for a db write.
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin create_network_security_group",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "create_network_security_group";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // Write a new NetworkSecurityGroup to the DB and get back
     // our new NetworkSecurityGroup.
@@ -112,14 +111,9 @@ pub(crate) async fn create(
     };
 
     //  Commit our txn if nothing has gone wrong so far.
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit create_network_security_group",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     // Send our response back.
     Ok(Response::new(rpc_out))
@@ -133,14 +127,13 @@ pub(crate) async fn find_ids(
 
     let req = request.into_inner();
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_network_security_group_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "find_network_security_group_ids";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let network_security_group_ids = network_security_group::find_ids(
         &mut txn,
@@ -165,14 +158,9 @@ pub(crate) async fn find_ids(
             .collect(),
     };
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit find_network_security_group_ids",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc_out))
 }
@@ -213,14 +201,13 @@ pub(crate) async fn find_by_ids(
         })?;
 
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_network_security_groups_by_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "find_network_security_groups_by_ids";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // Make our DB query for the IDs to get our NetworkSecurityGroups
     let network_security_groups = network_security_group::find_by_ids(
@@ -254,14 +241,9 @@ pub(crate) async fn find_by_ids(
     };
 
     // Commit if nothing has gone wrong up to now
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit find_network_security_groups_by_ids",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     // Send our response back
     Ok(Response::new(rpc_out))
@@ -314,14 +296,13 @@ pub(crate) async fn update(
     validate_expanded_rule_set(&rules, max_nsg_size)?;
 
     // Start a new transaction for a db write.
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin update_network_security_group",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "update_network_security_group";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let tenant_organization_id =
         req.tenant_organization_id
@@ -409,14 +390,9 @@ pub(crate) async fn update(
     };
 
     // Commit our txn if nothing has gone wrong so far.
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit udpdate_network_security_group",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     // Send our response back.
     Ok(Response::new(rpc_out))
@@ -437,14 +413,13 @@ pub(crate) async fn delete(
     })?;
 
     // Prepare our txn to delete from the DB
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin delete_network_security_group",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "delete_network_security_group";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let tenant_organization_id =
         req.tenant_organization_id
@@ -570,14 +545,13 @@ pub(crate) async fn get_propagation_status(
         })?;
 
     // Prepare our txn to associate machines with the NetworkSecurityGroup
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_propagation_status",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "get_propagation_status";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // Query the DB for propagation status.
     let (vpcs, instances) = network_security_group::get_propagation_status(
@@ -607,14 +581,9 @@ pub(crate) async fn get_propagation_status(
     };
 
     // Commit if nothing has gone wrong up to now
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit get_attachments",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     // Send our response back
     Ok(Response::new(rpc_out))
@@ -653,15 +622,12 @@ pub(crate) async fn get_attachments(
             ))
         })?;
 
-    // Prepare our txn to associate machines with the NetworkSecurityGroup
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin associate_machines",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "get_attachments";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // Query the DB for propagation status.
     let attachments = network_security_group::find_objects_with_attachments(
@@ -677,14 +643,9 @@ pub(crate) async fn get_attachments(
     };
 
     // Commit if nothing has gone wrong up to now
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit get_attachments",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     // Send our response back
     Ok(Response::new(rpc_out))

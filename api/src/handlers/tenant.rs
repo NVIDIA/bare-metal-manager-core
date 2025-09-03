@@ -61,14 +61,13 @@ pub(crate) async fn create(
 
     metadata.validate(true).map_err(CarbideError::from)?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin create_tenant",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "create_tenant";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let response = Tenant::create_and_persist(organization_id, metadata, &mut txn)
         .await
@@ -77,14 +76,9 @@ pub(crate) async fn create(
         .map(Response::new)
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit create_tenant",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(response)
 }
@@ -99,9 +93,13 @@ pub(crate) async fn find(
         tenant_organization_id,
     } = request.into_inner();
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "begin find_tenant", e))
-    })?;
+    const DB_TXN_NAME: &str = "find_tenant";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let response = match Tenant::find(tenant_organization_id, &mut txn)
         .await
@@ -113,14 +111,9 @@ pub(crate) async fn find(
         Some(t) => t.try_into().map_err(CarbideError::from)?,
     };
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit find_tenant",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(response))
 }
@@ -141,14 +134,13 @@ pub(crate) async fn update(
 
     metadata.validate(true).map_err(CarbideError::from)?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin update_tenant",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "update_tenant";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let if_version_match: Option<config_version::ConfigVersion> =
         if let Some(config_version_str) = if_version_match {
@@ -163,14 +155,9 @@ pub(crate) async fn update(
         .map(Response::new)
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit update_tenant",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(response)
 }

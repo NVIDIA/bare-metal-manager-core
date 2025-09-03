@@ -255,10 +255,11 @@ impl NetworkPrefix {
         segment_id: &NetworkSegmentId,
         prefixes: &[NewNetworkPrefix],
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
+        const DB_TXN_NAME: &str = "network_prefix::create_for";
         let mut inner_transaction = txn
             .begin()
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "begin", e))?;
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         // https://github.com/launchbadge/sqlx/issues/294
         //
@@ -285,7 +286,7 @@ impl NetworkPrefix {
         inner_transaction
             .commit()
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "commit", e))?;
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
         Ok(inserted_prefixes)
     }

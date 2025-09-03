@@ -43,14 +43,13 @@ pub(crate) async fn handle_machine_hardware_info_update(
         ))
     })?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin update machine hardware info",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "update machine hardware info";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let machine_topology = MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id])
         .await
@@ -91,13 +90,8 @@ pub(crate) async fn handle_machine_hardware_info_update(
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit update machine hardware info",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
     Ok(Response::new(()))
 }

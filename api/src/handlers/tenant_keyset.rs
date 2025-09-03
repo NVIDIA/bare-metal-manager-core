@@ -31,28 +31,22 @@ pub(crate) async fn create(
         .try_into()
         .map_err(CarbideError::from)?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin create_tenant_keyset",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "create_tenant_keyset";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let keyset = keyset_request
         .create(&mut txn)
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit create_tenant_keyset",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc::CreateTenantKeysetResponse {
         keyset: Some(keyset.into()),
@@ -65,14 +59,13 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::TenantKeysetIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin tenant_keyset::find_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "tenant_keyset::find_ids";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let filter: rpc::TenantKeysetSearchFilter = request.into_inner();
 
@@ -93,14 +86,13 @@ pub(crate) async fn find_by_ids(
     request: Request<rpc::TenantKeysetsByIdsRequest>,
 ) -> Result<Response<rpc::TenantKeySetList>, Status> {
     log_request_data(&request);
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin tenant_keyset::find_by_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "tenant_keyset::find_by_ids";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let rpc::TenantKeysetsByIdsRequest {
         keyset_ids,
@@ -152,14 +144,13 @@ pub(crate) async fn find(
         .into());
     }
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_tenant_keyset",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "find_tenant_keyset";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let keyset_ids = if let Some(keyset_id) = keyset_id {
         ObjectFilter::One(keyset_id)
@@ -171,14 +162,9 @@ pub(crate) async fn find(
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit find_tenant_keyset",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc::TenantKeySetList {
         keyset: keyset.into_iter().map(|x| x.into()).collect(),
@@ -196,25 +182,19 @@ pub(crate) async fn update(
         .try_into()
         .map_err(CarbideError::from)?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin update_tenant_keyset",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "update_tenant_keyset";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     update_request.update(&mut txn).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit update_tenant_keyset",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc::UpdateTenantKeysetResponse {}))
 }
@@ -227,14 +207,13 @@ pub(crate) async fn delete(
 
     let rpc::DeleteTenantKeysetRequest { keyset_identifier } = request.into_inner();
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin delete_tenant_keyset",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "delete_tenant_keyset";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let Some(keyset_identifier) = keyset_identifier else {
         return Err(CarbideError::MissingArgument("keyset_identifier").into());
@@ -254,14 +233,9 @@ pub(crate) async fn delete(
         .into());
     }
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit delete_tenant_keyset",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc::DeleteTenantKeysetResponse {}))
 }

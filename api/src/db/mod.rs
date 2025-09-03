@@ -60,6 +60,7 @@ pub mod vpc;
 pub mod vpc_peering;
 pub mod vpc_prefix;
 
+use crate::CarbideError;
 use sqlx::Postgres;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -282,6 +283,17 @@ impl DatabaseError {
     }
 
     #[track_caller]
+    pub fn txn_rollback(name: &str, source: sqlx::Error) -> DatabaseError {
+        let loc = Location::caller();
+        DatabaseError {
+            file: loc.file(),
+            line: loc.line(),
+            query: format!("rollback {name}"),
+            source,
+        }
+    }
+
+    #[track_caller]
     pub fn query(query: &str, source: sqlx::Error) -> DatabaseError {
         let loc = Location::caller();
         DatabaseError {
@@ -309,6 +321,12 @@ impl Error for DatabaseError {
     }
 }
 
+impl From<DatabaseError> for tonic::Status {
+    fn from(from: DatabaseError) -> Self {
+        CarbideError::from(from).into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,6 +347,15 @@ mod tests {
         assert_eq!(err.line, line!() - 1);
         assert_eq!(err.file, file!());
         assert!(format!("{err}").contains(&format!("commit {DB_TXN_NAME}")))
+    }
+
+    #[test]
+    fn test_database_error_txn_rollback() {
+        const DB_TXN_NAME: &str = "test txn";
+        let err = DatabaseError::txn_rollback(DB_TXN_NAME, sqlx::Error::protocol("some error"));
+        assert_eq!(err.line, line!() - 1);
+        assert_eq!(err.file, file!());
+        assert!(format!("{err}").contains(&format!("rollback {DB_TXN_NAME}")))
     }
 
     #[test]

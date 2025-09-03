@@ -21,14 +21,13 @@ pub(crate) async fn create(
     request: Request<::rpc::forge::SkuList>,
 ) -> CarbideResult<Response<::rpc::forge::SkuIdList>> {
     log_request_data(&request);
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin generate_sku_from_machine",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "create_sku";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let sku_list = request.into_inner();
 
@@ -40,18 +39,22 @@ pub(crate) async fn create(
         sku_ids.ids.push(sku.id);
     }
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "commit sku create", e))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(sku_ids))
 }
 
 pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> CarbideResult<Response<()>> {
     log_request_data(&request);
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "begin delete_sku", e))
-    })?;
+    const DB_TXN_NAME: &str = "delete_sku";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let sku_id_list = request.into_inner().ids;
     let mut skus = crate::db::sku::find(&mut txn, &sku_id_list).await?;
@@ -79,9 +82,9 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> CarbideRes
 
     crate::db::sku::delete(&mut txn, &sku.id).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "commit sku create", e))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(()))
 }
@@ -93,14 +96,13 @@ pub(crate) async fn generate_from_machine(
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin generate_sku_from_machine",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "generate_sku_from_machine";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id)
         .await
@@ -114,14 +116,13 @@ pub(crate) async fn assign_to_machine(
     request: Request<::rpc::forge::SkuMachinePair>,
 ) -> CarbideResult<Response<()>> {
     log_request_data(&request);
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin assign_sku_to_machine",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "assign_sku_to_machine";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let sku_machine_pair = request.into_inner();
     let machine_id = convert_and_log_machine_id(sku_machine_pair.machine_id.as_ref())?;
@@ -174,9 +175,9 @@ pub(crate) async fn assign_to_machine(
 
     crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "assign to machine", e))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(()))
 }
@@ -188,14 +189,13 @@ pub(crate) async fn verify_for_machine(
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin verify_sku_for_machine",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "verify_sku_for_machine";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
         .await
@@ -227,14 +227,9 @@ pub(crate) async fn verify_for_machine(
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "verify machine with sku",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(()))
 }
@@ -246,14 +241,13 @@ pub(crate) async fn remove_sku_association(
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin remove_sku_association",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "remove_sku_association";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
         .await
@@ -281,14 +275,9 @@ pub(crate) async fn remove_sku_association(
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "remove sku association",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(()))
 }
@@ -298,14 +287,13 @@ pub(crate) async fn get_all_ids(
     request: Request<()>,
 ) -> CarbideResult<Response<::rpc::forge::SkuIdList>> {
     log_request_data(&request);
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_all_sku_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "get_all_sku_ids";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let sku_ids = crate::db::sku::get_sku_ids(&mut txn)
         .await
@@ -334,14 +322,13 @@ pub(crate) async fn find_skus_by_ids(
         ));
     }
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_skus_by_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "find_skus_by_ids";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let skus = crate::db::sku::find(&mut txn, &sku_ids).await?;
 
@@ -367,14 +354,13 @@ pub(crate) async fn update_sku_metadata(
 
     let request = request.into_inner();
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_skus_by_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "update_sku_metadata";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     crate::db::sku::update_metadata(
         &mut txn,
@@ -384,14 +370,9 @@ pub(crate) async fn update_sku_metadata(
     )
     .await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "remove sku association",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(()))
 }
@@ -407,25 +388,19 @@ pub(crate) async fn replace_sku_components(
         ));
     };
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_skus_by_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "replace_sku_components";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let sku = crate::db::sku::replace_components(&mut txn, &request.id, components.into()).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "remove sku association",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(sku.into()))
 }

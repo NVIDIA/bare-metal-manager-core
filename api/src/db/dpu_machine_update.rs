@@ -149,14 +149,11 @@ impl DpuMachineUpdate {
         txn: &mut PgConnection,
         machine_updates: &[DpuMachineUpdate],
     ) -> Result<(), CarbideError> {
-        let mut inner_txn = txn.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin trigger_reprovisioning_for_managed_host",
-                e,
-            ))
-        })?;
+        const DB_TXN_NAME: &str = "trigger_reprovisioning_for_managed_host";
+        let mut inner_txn = txn
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         for machine_update in machine_updates {
             let initiator = DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
@@ -189,14 +186,10 @@ impl DpuMachineUpdate {
                 })?;
         }
 
-        inner_txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit trigger_reprovisioning_for_managed_host",
-                e,
-            ))
-        })?;
+        inner_txn
+            .commit()
+            .await
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
         Ok(())
     }

@@ -30,14 +30,11 @@ pub(crate) async fn get(
     let machine_interface_id = MachineInterfaceId::try_from(request.clone())
         .map_err(|_e| Status::invalid_argument(format!("bad input uuid: {request}")))?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_machine_boot_override ",
-            e,
-        ))
-    })?;
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin("get_machine_boot_override ", e))?;
 
     let machine_id = match db::machine_interface::find_one(&mut txn, machine_interface_id).await {
         Ok(interface) => interface.machine_id,
@@ -67,15 +64,12 @@ pub(crate) async fn set(
     crate::api::log_request_data(&request);
 
     let mbo: MachineBootOverride = request.into_inner().try_into()?;
-
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin set_machine_boot_override ",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "set_machine_boot_override";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let machine_id = match db::machine_interface::find_one(&mut txn, mbo.machine_interface_id).await
     {
@@ -100,7 +94,9 @@ pub(crate) async fn set(
 
     mbo.update_or_insert(&mut txn).await?;
 
-    txn.commit().await.unwrap();
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(tonic::Response::new(()))
 }
@@ -115,14 +111,12 @@ pub(crate) async fn clear(
     let machine_interface_id = MachineInterfaceId::try_from(request.clone())
         .map_err(|_e| Status::invalid_argument(format!("bad input uuid: {request}")))?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin clear_machine_boot_override ",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "clear_machine_boot_override";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| CarbideError::from(DatabaseError::txn_begin(DB_TXN_NAME, e)))?;
 
     let machine_id = match db::machine_interface::find_one(&mut txn, machine_interface_id).await {
         Ok(interface) => interface.machine_id,
@@ -145,7 +139,9 @@ pub(crate) async fn clear(
     }
     MachineBootOverride::clear(&mut txn, machine_interface_id).await?;
 
-    txn.commit().await.unwrap();
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(tonic::Response::new(()))
 }

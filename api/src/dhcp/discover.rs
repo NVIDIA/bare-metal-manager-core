@@ -26,10 +26,11 @@ pub async fn discover_dhcp(
     database_connection: &sqlx::PgPool,
     request: Request<rpc::DhcpDiscovery>,
 ) -> Result<Response<rpc::DhcpRecord>, CarbideError> {
+    const DB_TXN_NAME: &str = "discover_dhcp";
     let mut txn = database_connection
         .begin()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "begin discover_dhcp", e))?;
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let rpc::DhcpDiscovery {
         mac_address,
@@ -118,12 +119,13 @@ pub async fn discover_dhcp(
 
     txn.commit()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "commit discover_dhcp", e))?;
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
+    const DB_TXN_NAME_2: &str = "discover_dhcp 2";
     let mut txn = database_connection
         .begin()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "begin discover_dhcp 2", e))?;
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME_2, e))?;
 
     let record: rpc::DhcpRecord =
         DhcpRecord::find_by_mac_address(&mut txn, &parsed_mac, &machine_interface.segment_id)
@@ -133,6 +135,6 @@ pub async fn discover_dhcp(
 
     txn.commit()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "commit discover_dhcp 2", e))?;
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME_2, e))?;
     Ok(Response::new(record))
 }
