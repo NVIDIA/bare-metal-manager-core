@@ -27,14 +27,13 @@ pub(crate) async fn grow(
 
     let toml_text = request.into_inner().text;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin admin_grow_resource_pool",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "admin_grow_resource_pool";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let mut pools = HashMap::new();
     let table: toml::Table = toml_text
@@ -49,14 +48,9 @@ pub(crate) async fn grow(
     use crate::resource_pool::DefineResourcePoolError as DE;
     match crate::resource_pool::define_all_from(&mut txn, &pools).await {
         Ok(()) => {
-            txn.commit().await.map_err(|e| {
-                CarbideError::from(DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "end admin_grow_resource_pool",
-                    e,
-                ))
-            })?;
+            txn.commit()
+                .await
+                .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
             Ok(Response::new(rpc::GrowResourcePoolResponse {}))
         }
         Err(DE::InvalidArgument(msg)) => Err(tonic::Status::invalid_argument(msg)),
@@ -72,27 +66,21 @@ pub(crate) async fn list(
 ) -> Result<tonic::Response<rpc::ResourcePools>, tonic::Status> {
     crate::api::log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin admin_list_resource_pools ",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "admin_list_resource_pools";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let snapshot = crate::resource_pool::all(&mut txn)
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "end admin_list_resource_pools",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc::ResourcePools {
         pools: snapshot.into_iter().map(|s| s.into()).collect(),

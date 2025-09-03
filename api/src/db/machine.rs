@@ -2048,7 +2048,7 @@ pub async fn update_dpu_asns(
     let mut txn = db_pool
         .begin()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "begin agent upgrade policy", e))?;
+        .map_err(|e| DatabaseError::txn_begin("agent upgrade policy", e))?;
 
     if common_pools
         .ethernet

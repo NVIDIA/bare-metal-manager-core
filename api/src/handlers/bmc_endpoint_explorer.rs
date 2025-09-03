@@ -237,14 +237,11 @@ async fn resolve_bmc_interface(
     if let Some(mac_str) = &request.mac_address {
         bmc_mac_address = mac_str.parse::<MacAddress>().map_err(CarbideError::from)?;
     } else {
-        let mut txn = api.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin resolve_bmc_interface",
-                e,
-            ))
-        })?;
+        let mut txn = api
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin("resolve_bmc_interface", e))?;
 
         if let Some(bmc_machine_interface) = find_by_ip(&mut txn, bmc_addr.ip())
             .await

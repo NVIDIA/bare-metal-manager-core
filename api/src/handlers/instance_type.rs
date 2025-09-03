@@ -65,14 +65,13 @@ pub(crate) async fn create(
     }
 
     // Start a new transaction for a db write.
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin create_instance_type",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "create_instance_type";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // Write a new instance type to the DB and get back
     // our new InstanceType.
@@ -85,14 +84,9 @@ pub(crate) async fn create(
     };
 
     //  Commit our txn if nothing has gone wrong so far.
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit create_instance_type",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     // Send our response back.
     Ok(Response::new(rpc_out))
@@ -104,14 +98,13 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::FindInstanceTypeIdsResponse>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_instance_type_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "find_instance_type_ids";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let instance_type_ids = instance_type::find_ids(&mut txn, false).await?;
 
@@ -119,14 +112,9 @@ pub(crate) async fn find_ids(
         instance_type_ids: instance_type_ids.iter().map(|i| i.to_string()).collect(),
     };
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit find_instance_type_ids",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc_out))
 }
@@ -164,14 +152,12 @@ pub(crate) async fn find_by_ids(
     }
 
     // Prepare our txn to grab the instance types from the DB
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_instance_types_by_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "find_instance_types_by_ids";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // Make our DB query for the IDs to get our instance types
     let instance_types = instance_type::find_by_ids(&mut txn, &instance_type_ids, false).await?;
@@ -191,14 +177,9 @@ pub(crate) async fn find_by_ids(
     };
 
     // Commit if nothing has gone wrong up to now
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit find_instance_types_by_ids",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     // Send our response back
     Ok(Response::new(rpc_out))
@@ -243,14 +224,13 @@ pub(crate) async fn update(
     }
 
     // Start a new transaction for a db write.
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin update_instance_type",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "update_instance_type";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // Look up the instance type.  We'll need to check the current
     // version. We could probably do everything with a single query
@@ -335,14 +315,9 @@ pub(crate) async fn update(
     };
 
     // Commit our txn if nothing has gone wrong so far.
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit udpdate_instance_type",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     // Send our response back.
     Ok(Response::new(rpc_out))
@@ -363,14 +338,13 @@ pub(crate) async fn delete(
         })?;
 
     // Prepare our txn to delete from the DB
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_instance_types_by_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "delete_instance_type";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // Look for any related machines.  Forge-Cloud provides users with
     // the behavior of removing all machine associations to an InstanceType for machines
@@ -420,14 +394,9 @@ pub(crate) async fn delete(
     let rpc_out = rpc::DeleteInstanceTypeResponse {};
 
     // Commit if nothing has gone wrong up to now
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit find_instance_types_by_ids",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     // Send our response back
     Ok(Response::new(rpc_out))
@@ -464,14 +433,13 @@ pub(crate) async fn associate_machines(
         })?;
 
     // Prepare our txn to associate machines with the instance type
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin associate_machines",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "associate_machines";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // Query the DB to make sure the instance type is valid/active.
     let instance_types =
@@ -604,14 +572,9 @@ pub(crate) async fn associate_machines(
     let rpc_out = rpc::AssociateMachinesWithInstanceTypeResponse {};
 
     // Commit if nothing has gone wrong up to now
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit associate_machines",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     // Send our response back
     Ok(Response::new(rpc_out))
@@ -630,14 +593,13 @@ pub(crate) async fn remove_machine_association(
         .map_err(|e| CarbideError::from(RpcDataConversionError::InvalidMachineId(e.to_string())))?;
 
     // Prepare our txn to associate machines with the instance type
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin remove_machine_association",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "remove_machine_association";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // Grab a row lock on the requested machine so we can
     // coordinate with the instance allocation handler and
@@ -688,14 +650,9 @@ pub(crate) async fn remove_machine_association(
     let rpc_out = rpc::RemoveMachineInstanceTypeAssociationResponse {};
 
     // Commit if nothing has gone wrong up to now
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit remove_machine_association",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     // Send our response back
     Ok(Response::new(rpc_out))

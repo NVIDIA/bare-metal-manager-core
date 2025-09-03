@@ -42,9 +42,13 @@ pub(crate) async fn create(
         }
     }
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "begin create_vpc", e))
-    })?;
+    const DB_TXN_NAME: &str = "create_vpc";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     if let Some(ref nsg_id) = vpc_creation_request.network_security_group_id {
         let id = nsg_id.parse::<NetworkSecurityGroupId>().map_err(|e| {
@@ -97,9 +101,9 @@ pub(crate) async fn create(
 
     let rpc_out: rpc::Vpc = vpc.into();
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "commit create_vpc", e))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc_out))
 }
@@ -112,9 +116,13 @@ pub(crate) async fn update(
 
     let vpc_update_request = request.get_ref();
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "begin update_vpc", e))
-    })?;
+    const DB_TXN_NAME: &str = "update_vpc";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // If a security group is applied to the VPC, we need to do some validation.
     if let Some(ref nsg_id) = vpc_update_request.network_security_group_id {
@@ -179,9 +187,9 @@ pub(crate) async fn update(
         .update(&mut txn)
         .await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "commit update_vpc", e))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc::VpcUpdateResult {
         vpc: Some(vpc.into()),
@@ -194,9 +202,13 @@ pub(crate) async fn update_virtualization(
 ) -> Result<Response<rpc::VpcUpdateVirtualizationResult>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "begin update_vpc", e))
-    })?;
+    const DB_TXN_NAME: &str = "update_vpc";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let updater = UpdateVpcVirtualization::try_from(request.into_inner())?;
 
@@ -220,9 +232,9 @@ pub(crate) async fn update_virtualization(
     }
     updater.update(&mut txn).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "commit update_vpc", e))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc::VpcUpdateVirtualizationResult {}))
 }
@@ -233,9 +245,13 @@ pub(crate) async fn delete(
 ) -> Result<Response<rpc::VpcDeletionResult>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "begin delete_vpc", e))
-    })?;
+    const DB_TXN_NAME: &str = "delete_vpc";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // TODO: This needs to validate that nothing references the VPC anymore
     // (like NetworkSegments)
@@ -285,9 +301,9 @@ pub(crate) async fn delete(
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "commit delete_vpc", e))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc::VpcDeletionResult {}))
 }
@@ -298,14 +314,13 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::VpcIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin vpc::find_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "vpc::find_ids";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let filter: rpc::VpcSearchFilter = request.into_inner();
 
@@ -326,14 +341,13 @@ pub(crate) async fn find_by_ids(
     request: Request<rpc::VpcsByIdsRequest>,
 ) -> Result<Response<rpc::VpcList>, Status> {
     log_request_data(&request);
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin vpc::find_by_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "vpc::find_by_ids";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let vpc_ids: Result<Vec<VpcId>, CarbideError> = request
         .into_inner()
@@ -378,9 +392,13 @@ pub(crate) async fn find(
 ) -> Result<Response<rpc::VpcList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "begin find_vpcs", e))
-    })?;
+    const DB_TXN_NAME: &str = "find_vpcs";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let rpc::VpcSearchQuery { id, name, .. } = request.into_inner();
 

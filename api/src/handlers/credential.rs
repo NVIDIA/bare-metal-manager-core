@@ -326,14 +326,13 @@ pub(crate) async fn get_dpu_ssh_credential(
 
     let query = request.into_inner().host_id;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_dpu_ssh_credential",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "get_dpu_ssh_credential";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+
     let machine_id = match db::machine::find_by_query(&mut txn, &query)
         .await
         .map_err(CarbideError::from)?
@@ -358,14 +357,9 @@ pub(crate) async fn get_dpu_ssh_credential(
     };
 
     // We don't need this transaction
-    txn.rollback().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "rollback get_dpu_ssh_credential",
-            e,
-        ))
-    })?;
+    txn.rollback()
+        .await
+        .map_err(|e| DatabaseError::txn_rollback(DB_TXN_NAME, e))?;
 
     // Load credentials from Vault
     let credentials = api

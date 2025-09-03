@@ -27,9 +27,12 @@ pub(crate) async fn create(
 ) -> CarbideResult<Response<::rpc::forge::DpaInterface>> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "begin create dpa", e))
-    })?;
+    const DB_TXN_NAME: &str = "create dpa";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let new_dpa = NewDpaInterface::try_from(request.into_inner())?
         .persist(&mut txn)
@@ -38,9 +41,9 @@ pub(crate) async fn create(
 
     let dpa_out: rpc::forge::DpaInterface = new_dpa.into();
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "commit create_dpa", e))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(dpa_out))
 }
@@ -65,14 +68,12 @@ pub(crate) async fn delete(
     let id = DpaInterfaceId::try_from(&rpc_id)?;
 
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin delete dpa interface",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "delete dpa interface";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let dpa_ifs_int = DpaInterface::find_by_ids(&mut txn, &[id], false).await?;
 
@@ -87,9 +88,9 @@ pub(crate) async fn delete(
 
     dpa_if_int.delete(&mut txn).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "commit delete dpa", e))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(::rpc::forge::DpaInterfaceDeletionResult {}))
 }
@@ -100,14 +101,11 @@ pub(crate) async fn get_all_ids(
 ) -> CarbideResult<Response<::rpc::forge::DpaInterfaceIdList>> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin dpa get_all_ids",
-            e,
-        ))
-    })?;
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin("dpa get_all_ids", e))?;
 
     let dpa_ids = DpaInterface::find_ids(&mut txn).await?;
 
@@ -157,14 +155,12 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
         .collect::<Result<Vec<DpaInterfaceId>, CarbideError>>()?;
 
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_dpa_interfaces_by_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "find_dpa_interfaces_by_ids";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let dpa_ifs_int = DpaInterface::find_by_ids(&mut txn, &dpa_ids, req.include_history).await?;
 
@@ -174,14 +170,9 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
         .collect::<Vec<rpc::forge::DpaInterface>>();
 
     // Commit if nothing has gone wrong up to now
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit find_dpa_interfaces_by_ids",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc::forge::DpaInterfaceList {
         interfaces: rpc_dpa_ifs,
@@ -211,14 +202,12 @@ pub(crate) async fn set_dpa_network_observation_status(
     let id = DpaInterfaceId::try_from(&rpc_id)?;
 
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_dpa_interfaces_by_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "set_dpa_network_observation_status";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let dpa_ifs_int = DpaInterface::find_by_ids(&mut txn, &[id], false).await?;
 
@@ -232,9 +221,9 @@ pub(crate) async fn set_dpa_network_observation_status(
 
     dpa_if_int.update_network_observation(&mut txn).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "commit create_dpa", e))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(dpa_if_int.into()))
 }

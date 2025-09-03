@@ -27,14 +27,12 @@ pub async fn record_hardware_health_report(
     api: &Api,
     request: Request<rpc::HardwareHealthReport>,
 ) -> Result<Response<()>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin record_hardware_health_report",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "record_hardware_health_report";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let rpc::HardwareHealthReport { machine_id, report } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
 
@@ -60,14 +58,9 @@ pub async fn record_hardware_health_report(
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit record_hardware_health_report",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(()))
 }
@@ -76,14 +69,13 @@ pub async fn get_hardware_health_report(
     api: &Api,
     request: Request<::rpc::common::MachineId>,
 ) -> Result<Response<rpc::OptionalHealthReport>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_hardware_health_report",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "get_hardware_health_report";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+
     let machine_id = request.into_inner();
     let machine_id = convert_and_log_machine_id(Some(&machine_id))?;
 
@@ -95,14 +87,9 @@ pub async fn get_hardware_health_report(
             id: machine_id.to_string(),
         })?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit get_hardware_health_report",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     let report = if let Some(mut hardware_health_report) =
         host_machine.hardware_health_report.as_ref().cloned()
@@ -123,14 +110,13 @@ pub async fn list_health_report_overrides(
     api: &Api,
     machine_id: Request<::rpc::common::MachineId>,
 ) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin InsertHealthReportOverrideRequest",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "list_health_report_overrides";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+
     let machine_id = convert_and_log_machine_id(Some(&machine_id.into_inner()))?;
 
     let host_machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
@@ -141,14 +127,9 @@ pub async fn list_health_report_overrides(
             id: machine_id.to_string(),
         })?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit list_health_report_overrides",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc::ListHealthReportOverrideResponse {
         overrides: host_machine
@@ -167,14 +148,13 @@ pub async fn record_log_parser_health_report(
     api: &Api,
     request: Request<rpc::HardwareHealthReport>,
 ) -> Result<Response<()>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin record_log_parser_health_report",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "record_log_parser_health_report";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+
     let rpc::HardwareHealthReport { machine_id, report } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
     let Some(report) = report else {
@@ -186,14 +166,10 @@ pub async fn record_log_parser_health_report(
     db::machine::update_log_parser_health_report(&mut txn, &machine_id, &report)
         .await
         .map_err(CarbideError::from)?;
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit record_log_parser_health_report",
-            e,
-        ))
-    })?;
+
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(()))
 }
@@ -274,14 +250,12 @@ pub async fn insert_health_report_override(
         )
         .into());
     }
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin insert_health_report_override",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "insert_health_report_override";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let mut report = health_report::HealthReport::try_from(report.clone())
         .map_err(|e| CarbideError::internal(e.to_string()))?;
@@ -301,14 +275,9 @@ pub async fn insert_health_report_override(
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit insert_health_report_override",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(()))
 }
@@ -317,27 +286,20 @@ pub async fn remove_health_report_override(
     api: &Api,
     request: Request<rpc::RemoveHealthReportOverrideRequest>,
 ) -> Result<Response<()>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin remove_health_report_override",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "remove_health_report_override";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let rpc::RemoveHealthReportOverrideRequest { machine_id, source } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
 
     remove_by_source(&mut txn, machine_id, source).await?;
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit remove_health_report_override",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(()))
 }

@@ -50,14 +50,13 @@ pub async fn create(
             })
         })?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin vpc_peering::create",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "vpc_peering::create";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // Check this VPC peering is permitted under current site vpc_peering_policy
     match api.runtime_config.vpc_peering_policy {
@@ -104,14 +103,9 @@ pub async fn create(
 
     let vpc_peering = db::VpcPeering::create(&mut txn, vpc_id, peer_vpc_id).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit vpc_peering::create",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(tonic::Response::new(vpc_peering.into()))
 }
@@ -131,27 +125,21 @@ pub async fn find_ids(
         None => None,
     };
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin vpc_peering::find_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "vpc_peering::find_ids";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let vpc_peering_ids = db::VpcPeering::find_ids(&mut txn, vpc_id)
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit vpc_peering::find_ids",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     let vpc_peering_ids = vpc_peering_ids
         .into_iter()
@@ -183,27 +171,21 @@ pub async fn find_by_ids(
         .collect();
     let vpc_peering_ids = vpc_peering_ids?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin vpc_peering::find_by_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "vpc_peering::find_by_ids";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let vpc_peerings = db::VpcPeering::find_by_ids(&mut txn, vpc_peering_ids)
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit vpc_peering::find_by_ids",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     let vpc_peerings = vpc_peerings.into_iter().map(Into::into).collect();
 
@@ -225,27 +207,21 @@ pub async fn delete(
                 .map_err(|_| CarbideError::InvalidArgument("Fail to convert id".into()))
         })?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin vpc_peering::delete",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "vpc_peering::delete";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let _ = db::VpcPeering::delete(&mut txn, id)
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit vpc_peering::delete",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(tonic::Response::new(rpc::VpcPeeringDeletionResult {}))
 }

@@ -361,10 +361,11 @@ pub async fn create(
     addresses: AddressSelectionStrategy,
 ) -> CarbideResult<MachineInterfaceSnapshot> {
     // We're potentially about to insert a couple rows, so create a savepoint.
+    const DB_TXN_NAME: &str = "machine_interface::create";
     let mut inner_txn = txn
         .begin()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "begin", e))?;
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // If either requested addresses are auto-generated, we lock the entire table
     // by way of the inner_txn.
@@ -439,7 +440,7 @@ pub async fn create(
     inner_txn
         .commit()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "commit", e))?;
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(
         find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id))

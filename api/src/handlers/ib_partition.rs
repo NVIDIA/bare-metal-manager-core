@@ -26,14 +26,13 @@ pub(crate) async fn create(
 ) -> Result<Response<rpc::IbPartition>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin create_ib_partition",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "create_ib_partition";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let mut resp = NewIBPartition::try_from(request.into_inner())?;
     let fabric_config = api.ib_fabric_manager.get_config();
@@ -57,14 +56,9 @@ pub(crate) async fn create(
         })?;
     let resp = rpc::IbPartition::try_from(resp).map(Response::new)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit create_ib_partition",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(resp)
 }
@@ -75,14 +69,13 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::IbPartitionIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin ib_partition::find_ids",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "ib_partition::find_ids";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let filter: rpc::IbPartitionSearchFilter = request.into_inner();
 
@@ -103,14 +96,13 @@ pub(crate) async fn find_by_ids(
     request: Request<rpc::IbPartitionsByIdsRequest>,
 ) -> Result<Response<rpc::IbPartitionList>, Status> {
     log_request_data(&request);
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin ib_partition::find_by_ids",
-            e,
-        ))
-    })?;
+
+    const DB_TXN_NAME: &str = "ib_partition::find_by_ids";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let rpc::IbPartitionsByIdsRequest {
         ib_partition_ids, ..
@@ -164,14 +156,13 @@ pub(crate) async fn find(
 ) -> Result<Response<rpc::IbPartitionList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_ib_partitions",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "find_ib_partitions";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let rpc::IbPartitionQuery {
         id, search_config, ..
@@ -210,14 +201,13 @@ pub(crate) async fn delete(
 ) -> Result<Response<rpc::IbPartitionDeletionResult>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin delete_ib_partition",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "delete_ib_partition";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let rpc::IbPartitionDeletionRequest { id, .. } = request.into_inner();
 
@@ -248,14 +238,9 @@ pub(crate) async fn delete(
         .map(|_| rpc::IbPartitionDeletionResult {})
         .map(Response::new)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit delete_ib_partition",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(resp)
 }
@@ -266,14 +251,13 @@ pub(crate) async fn for_tenant(
 ) -> Result<Response<rpc::IbPartitionList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin find_ib_partions_for_tenant",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "find_ib_partions_for_tenant";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let rpc::TenantSearchQuery {
         tenant_organization_id,

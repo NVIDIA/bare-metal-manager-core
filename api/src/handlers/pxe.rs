@@ -33,14 +33,13 @@ pub(crate) async fn get_pxe_instructions(
 ) -> Result<Response<rpc::PxeInstructions>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_pxe_instructions",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "get_pxe_instructions";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let request = request.into_inner();
 
@@ -56,14 +55,9 @@ pub(crate) async fn get_pxe_instructions(
         .map_err(|_| Status::invalid_argument("Unknown arch received."))?;
     let pxe_script = PxeInstructions::get_pxe_instructions(&mut txn, interface_id, arch).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit get_pxe_instructions",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc::PxeInstructions { pxe_script }))
 }
@@ -76,14 +70,13 @@ pub(crate) async fn get_cloud_init_instructions(
     let cloud_name = "nvidia".to_string();
     let platform = "forge".to_string();
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_cloud_init_instructions",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "get_cloud_init_instructions";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let ip_str = &request.into_inner().ip;
     let ip: IpAddr = ip_str
@@ -179,14 +172,9 @@ pub(crate) async fn get_cloud_init_instructions(
         }
     };
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit get_cloud_init_instructions",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(instructions))
 }

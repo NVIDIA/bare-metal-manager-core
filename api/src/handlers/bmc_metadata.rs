@@ -42,14 +42,12 @@ pub(crate) async fn get(
     log_request_data(&request);
     let request = request.into_inner();
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_bmc_meta_data",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "get_bmc_meta_data";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let bmc_endpoint_request = crate::api::validate_and_complete_bmc_endpoint_request(
         &mut txn,
@@ -58,14 +56,9 @@ pub(crate) async fn get(
     )
     .await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit get_bmc_meta_data",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     let Some(bmc_mac_address) = bmc_endpoint_request.mac_address else {
         return Err(CarbideError::NotFoundError {

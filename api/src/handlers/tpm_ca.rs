@@ -31,14 +31,12 @@ pub(crate) async fn tpm_add_ca_cert(
     // parse ca cert, extract serial num, nvb, nva, subject (in binary)
     let (not_valid_before, not_valid_after, subject) = attest::extract_ca_fields(ca_cert_bytes)?;
     // insert cert into the DB (in binary) + all the extracted fields above
-    let mut txn = database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin tpm_add_ca_cert",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "tpm_add_ca_cert";
+
+    let mut txn = database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let db_ca_cert_opt = db_attest::TpmCaCert::insert(
         &mut txn,
@@ -80,14 +78,9 @@ pub(crate) async fn tpm_add_ca_cert(
         }
     }
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit tpm_add_ca_cert",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(rpc::TpmCaAddedCaStatus {
         id: Some(rpc::TpmCaCertId {
@@ -103,25 +96,18 @@ pub(crate) async fn tpm_show_ca_certs(
 ) -> Result<Response<rpc::TpmCaCertDetailCollection>, tonic::Status> {
     log_request_data(request);
 
-    let mut txn = database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin tpm_show_ca_certs",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "tpm_show_ca_certs";
+
+    let mut txn = database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let ca_certs = db_attest::TpmCaCert::get_all(&mut txn).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit tpm_show_ca_certs",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     let ca_cert_details = ca_certs
         .iter()
@@ -146,26 +132,19 @@ pub(crate) async fn tpm_show_unmatched_ek_certs(
 ) -> Result<Response<rpc::TpmEkCertStatusCollection>, tonic::Status> {
     log_request_data(request);
 
-    let mut txn = database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin tpm_show_unmatched_ek_certs",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "tpm_show_unmatched_ek_certs";
+
+    let mut txn = database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let unmatched_ek_statuses =
         db_attest::EkCertVerificationStatus::get_by_unmatched_ca(&mut txn).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit tpm_show_unmatched_ek_certs",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     let unmatched_eks = unmatched_ek_statuses
         .iter()
@@ -193,28 +172,20 @@ pub(crate) async fn tpm_delete_ca_cert(
     let payload = request.into_inner();
     let ca_cert_id = payload.ca_cert_id;
 
-    let mut txn = database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin tpm_add_ca_cert",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "tpm_delete_ca_cert";
+    let mut txn = database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     db_attest::EkCertVerificationStatus::unmatch_ca_verification_status(&mut txn, ca_cert_id)
         .await?;
 
     db_attest::TpmCaCert::delete(&mut txn, ca_cert_id).await?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit tpm_add_ca_cert",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(Response::new(()))
 }

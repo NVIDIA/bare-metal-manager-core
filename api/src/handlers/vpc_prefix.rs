@@ -56,14 +56,13 @@ pub async fn create(
         }
     }
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin vpc_prefix::create",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "vpc_prefix::create";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let conflicting_vpc_prefixes = new_prefix
         .probe(&mut txn)
@@ -160,14 +159,9 @@ pub async fn create(
             .map_err(CarbideError::from)?;
     }
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit vpc_prefix::create",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(tonic::Response::new(vpc_prefix.into()))
 }
@@ -223,27 +217,21 @@ pub async fn search(
         })
         .transpose()?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin vpc_prefix::search",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "vpc_prefix::search";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let vpc_prefix_ids = db::VpcPrefix::search(&mut txn, vpc_id, name, prefix_match)
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit vpc_prefix::search",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     let vpc_prefix_ids = vpc_prefix_ids.into_iter().map(|id| id.into()).collect();
     Ok(tonic::Response::new(rpc::VpcPrefixIdList {
@@ -272,14 +260,13 @@ pub async fn get(
         .collect::<Result<Vec<_>, _>>()
         .map_err(CarbideError::from)?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin vpc_prefix::get",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "vpc_prefix::get";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let vpc_prefixes = db::VpcPrefix::get_by_id(
         &mut txn,
@@ -288,14 +275,9 @@ pub async fn get(
     .await
     .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit vpc_prefix::get",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     let vpc_prefixes: Vec<_> = vpc_prefixes.into_iter().map(rpc::VpcPrefix::from).collect();
     Ok(tonic::Response::new(rpc::VpcPrefixList { vpc_prefixes }))
@@ -309,28 +291,22 @@ pub async fn update(
 
     let update_prefix = db::UpdateVpcPrefix::try_from(request.into_inner())?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin vpc_prefix::update",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "vpc_prefix::update";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let updated = update_prefix
         .update(&mut txn)
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit vpc_prefix::update",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(tonic::Response::new(updated.into()))
 }
@@ -343,14 +319,13 @@ pub async fn delete(
 
     let delete_prefix = db::DeleteVpcPrefix::try_from(request.into_inner())?;
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin vpc_prefix::delete",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "vpc_prefix::delete";
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // TODO: We could probably produce some nicer errors here when trying
     // to delete prefixes that are still being used by network segments, or
@@ -362,14 +337,9 @@ pub async fn delete(
         .await
         .map_err(CarbideError::from)?;
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit vpc_prefix::delete",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(tonic::Response::new(rpc::VpcPrefixDeletionResult {}))
 }

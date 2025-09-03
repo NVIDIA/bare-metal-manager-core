@@ -25,28 +25,22 @@ pub(crate) async fn create(
 ) -> Result<Response<rpc::Domain>, Status> {
     crate::api::log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin create_domain",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "create_domain";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let response = Ok(NewDomain::try_from(request.into_inner())?
         .persist(&mut txn)
         .await
         .map(rpc::Domain::from)
         .map(Response::new)?);
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit create_domain",
-            e,
-        ))
-    })?;
+
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     response
 }
@@ -57,14 +51,12 @@ pub(crate) async fn update(
 ) -> Result<Response<rpc::Domain>, Status> {
     crate::api::log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin update_domain",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "update_domain";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let rpc::Domain { id, name, .. } = request.into_inner();
 
@@ -109,14 +101,9 @@ pub(crate) async fn update(
         .map(rpc::Domain::from)
         .map(Response::new)?);
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit update_domain",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     response
 }
@@ -127,14 +114,12 @@ pub(crate) async fn delete(
 ) -> Result<Response<rpc::DomainDeletionResult>, Status> {
     crate::api::log_request_data(&request);
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin delete_domain",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "delete_domain";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let rpc::DomainDeletion { id, .. } = request.into_inner();
 
@@ -181,14 +166,9 @@ pub(crate) async fn delete(
         .map(|_| rpc::DomainDeletionResult {})
         .map(Response::new)?);
 
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit delete_domain",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     response
 }
@@ -198,9 +178,12 @@ pub(crate) async fn find(
     request: Request<rpc::DomainSearchQuery>,
 ) -> Result<Response<rpc::DomainList>, Status> {
     crate::api::log_request_data(&request);
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "begin find_domain", e))
-    })?;
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin("find_domain", e))?;
 
     let rpc::DomainSearchQuery { id, name, .. } = request.into_inner();
     let domains = match (id, name) {

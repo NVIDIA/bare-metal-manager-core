@@ -208,10 +208,11 @@ WHERE network_prefixes.segment_id = $1::uuid";
     ) -> CarbideResult<InstanceNetworkConfig> {
         // We expect only one ipv4 prefix. Also Ipv6 is not supported yet.
         // We're potentially about to insert a couple rows, so create a savepoint.
+        const DB_TXN_NAME: &str = "instance_address::allocate";
         let mut inner_txn = txn
             .begin()
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), "begin", e)))?;
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         let segment_ids = updated_config
             .interfaces
@@ -355,7 +356,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
         inner_txn
             .commit()
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), "commit", e)))?;
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
         Ok(updated_config)
     }

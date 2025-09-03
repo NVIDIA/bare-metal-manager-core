@@ -59,10 +59,11 @@ pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), CarbideErro
         ));
     }
 
+    const DB_TXN_NAME: &str = "sku::create";
     let mut inner_txn = txn
         .begin()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "begin", e))?;
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let query = "LOCK TABLE machine_skus IN ACCESS EXCLUSIVE MODE";
     sqlx::query(query)
@@ -92,7 +93,7 @@ pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), CarbideErro
     inner_txn
         .commit()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "commit create sku", e))?;
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(())
 }

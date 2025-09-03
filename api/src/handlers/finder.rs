@@ -124,14 +124,11 @@ pub(crate) async fn identify_serial(
     crate::api::log_request_data(&request);
     let req = request.into_inner();
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin identify_serial",
-            e,
-        ))
-    })?;
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin("identify_serial", e))?;
 
     let machine_ids = if req.exact {
         MachineTopology::find_by_serial(&mut txn, &req.serial_number).await
@@ -219,11 +216,12 @@ async fn search(
         ));
     }
 
+    const DB_TXN_NAME: &str = "IP search";
     let mut txn = api
         .database_connection
         .begin()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "begin IP search", e))?;
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     use Finder::*;
     let match_result = match finder {
@@ -387,7 +385,7 @@ async fn search(
     // not strictly necessary, we could drop the txn and it would rollback
     txn.commit()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "commit IP search", e))?;
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(match_result)
 }
@@ -397,7 +395,7 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
         .database_connection
         .begin()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "begin UUID search", e))?;
+        .map_err(|e| DatabaseError::txn_begin("UUID search", e))?;
 
     if let Ok(ns_id) = NetworkSegmentId::try_from(u.clone()) {
         let segments = NetworkSegment::find_by(
@@ -463,7 +461,7 @@ async fn by_mac(
         .database_connection
         .begin()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "begin MAC search", e))?;
+        .map_err(|e| DatabaseError::txn_begin("MAC search", e))?;
 
     match db::machine_interface::find_by_mac_address(&mut txn, mac).await {
         Ok(interfaces) if interfaces.len() == 1 => {
