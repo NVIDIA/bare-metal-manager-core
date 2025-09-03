@@ -504,7 +504,15 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         }
         IsInfiniteBootEnabled => {
             let is_infinite_boot_enabled = redfish.is_infinite_boot_enabled().await?;
-            println!("{is_infinite_boot_enabled:#?}");
+            match is_infinite_boot_enabled {
+                Some(true) => println!("Enabled"),
+                Some(false) => println!("Disabled"),
+                None => println!("Unknown"),
+            }
+        }
+        EnableInfiniteBoot => {
+            redfish.enable_infinite_boot().await?;
+            println!("BIOS changes require a system restart to take effect.");
         }
         SetNicMode => {
             redfish.set_nic_mode(NicMode::Nic).await?;

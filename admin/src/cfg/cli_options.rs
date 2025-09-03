@@ -983,6 +983,7 @@ pub enum RedfishCommand {
     SetBios(SetBios),
     GetNicMode,
     IsInfiniteBootEnabled,
+    EnableInfiniteBoot,
     SetNicMode,
     SetDpuMode,
     ChassisResetCard1Powercycle,
@@ -1358,6 +1359,14 @@ pub enum AdminPowerControlAction {
     GracefulRestart,
     ForceRestart,
     ACPowercycle,
+}
+
+#[derive(Parser, Debug)]
+pub struct InfiniteBootArgs {
+    #[clap(long, help = "ID of the machine to enable/query infinite boot")]
+    pub machine: String,
+    #[clap(short, long, help = "Issue reboot to apply BIOS change")]
+    pub reboot: bool,
 }
 
 impl From<AdminPowerControlAction> for rpc::forge::admin_power_control_request::SystemPowerControl {
@@ -1988,6 +1997,10 @@ pub enum BmcAction {
     AdminPowerControl(AdminPowerControlArgs),
     CreateBmcUser(CreateBmcUserArgs),
     DeleteBmcUser(DeleteBmcUserArgs),
+    #[clap(about = "Enable infinite boot")]
+    EnableInfiniteBoot(InfiniteBootArgs),
+    #[clap(about = "Check if infinite boot is enabled")]
+    IsInfiniteBootEnabled(InfiniteBootArgs),
 }
 
 #[derive(Parser, Debug)]

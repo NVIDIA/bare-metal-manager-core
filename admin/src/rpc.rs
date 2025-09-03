@@ -2272,4 +2272,34 @@ impl ApiClient {
             .await
             .map_err(CarbideCliError::ApiInvocationError)
     }
+
+    pub async fn enable_infinite_boot(
+        &self,
+        bmc_endpoint_request: Option<BmcEndpointRequest>,
+        machine_id: Option<String>,
+    ) -> CarbideCliResult<rpc::EnableInfiniteBootResponse> {
+        let request = rpc::EnableInfiniteBootRequest {
+            bmc_endpoint_request,
+            machine_id,
+        };
+        self.0
+            .enable_infinite_boot(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
+
+    pub async fn is_infinite_boot_enabled(
+        &self,
+        bmc_endpoint_request: Option<BmcEndpointRequest>,
+        machine_id: Option<String>,
+    ) -> CarbideCliResult<rpc::IsInfiniteBootEnabledResponse> {
+        let request = rpc::IsInfiniteBootEnabledRequest {
+            bmc_endpoint_request,
+            machine_id,
+        };
+        self.0
+            .is_infinite_boot_enabled(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)
+    }
 }

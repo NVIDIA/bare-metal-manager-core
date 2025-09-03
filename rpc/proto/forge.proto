@@ -476,6 +476,10 @@ service Forge {
   rpc CreateBmcUser(CreateBmcUserRequest) returns (CreateBmcUserResponse);
   // Delete BMC User
   rpc DeleteBmcUser(DeleteBmcUserRequest) returns (DeleteBmcUserResponse);
+  // Enable Infinite Boot
+  rpc EnableInfiniteBoot(EnableInfiniteBootRequest) returns (EnableInfiniteBootResponse);
+  // Check Infinite Boot Status
+  rpc IsInfiniteBootEnabled(IsInfiniteBootEnabledRequest) returns (IsInfiniteBootEnabledResponse);
 
   // On demand Machine-Validation
   rpc OnDemandMachineValidation(MachineValidationOnDemandRequest) returns (MachineValidationOnDemandResponse);
@@ -2774,6 +2778,23 @@ message AdminBmcResetRequest {
 }
 
 message AdminBmcResetResponse {
+}
+
+message EnableInfiniteBootRequest{
+  optional BmcEndpointRequest bmc_endpoint_request = 1;
+  optional string machine_id = 2;
+}
+
+message EnableInfiniteBootResponse {
+}
+
+message IsInfiniteBootEnabledRequest{
+  optional BmcEndpointRequest bmc_endpoint_request = 1;
+  optional string machine_id = 2;
+}
+
+message IsInfiniteBootEnabledResponse {
+  optional bool is_enabled = 1;
 }
 
 enum BMCRequestType {

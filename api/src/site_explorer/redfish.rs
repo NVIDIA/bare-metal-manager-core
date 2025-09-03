@@ -320,6 +320,42 @@ impl RedfishClient {
         Ok(())
     }
 
+    pub async fn enable_infinite_boot(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+    ) -> Result<(), EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client
+            .enable_infinite_boot()
+            .await
+            .map_err(map_redfish_error)?;
+
+        Ok(())
+    }
+
+    pub async fn is_infinite_boot_enabled(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+    ) -> Result<Option<bool>, EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, username, password)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client
+            .is_infinite_boot_enabled()
+            .await
+            .map_err(map_redfish_error)
+    }
+
     pub async fn forge_setup(
         &self,
         bmc_ip_address: SocketAddr,
