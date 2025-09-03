@@ -3720,12 +3720,20 @@ pub async fn trigger_reboot_if_needed(
             let power_down_host = cycle != 0 && cycle % 4 == 0;
 
             let status = if power_down_host {
-                // PowerDown
+                // PowerDown (or ACPowercycle for Lenovo)
                 // DPU or host, in both cases power down is triggered from host.
-                let action = SystemPowerControl::ForceOff;
+                let vendor = state.host_snapshot.bmc_vendor();
+
+                let action = if vendor.is_lenovo() {
+                    SystemPowerControl::ACPowercycle
+                } else {
+                    SystemPowerControl::ForceOff
+                };
+
                 handler_host_power_control(state, services, action, txn).await?;
+
                 format!(
-                    "Has not come up after {time_elapsed_since_state_change} minutes, trying ForceOff, cycle: {cycle}",
+                    "{vendor} has not come up after {time_elapsed_since_state_change} minutes, trying {action}, cycle: {cycle}",
                 )
             } else {
                 // Reboot
@@ -7404,11 +7412,12 @@ pub async fn handler_host_power_control(
 
     let power_state = host_power_state(redfish_client.as_ref()).await?;
 
-    if (power_state == libredfish::PowerState::Off
+    let target_power_state_reached = (power_state == libredfish::PowerState::Off
         && (action == SystemPowerControl::ForceOff
             || action == SystemPowerControl::GracefulShutdown))
-        || (power_state == libredfish::PowerState::On && action == SystemPowerControl::On)
-    {
+        || (power_state == libredfish::PowerState::On && action == SystemPowerControl::On);
+
+    if target_power_state_reached {
         let machine_id = &managedhost_snapshot.host_snapshot.id;
         tracing::warn!(%machine_id, %power_state, %action, "Target power state is already reached. Skipping power control action");
     } else {
@@ -7434,9 +7443,16 @@ pub async fn handler_host_power_control(
         })?;
     }
 
-    // If host is forcedOff/On, it will impact DPU also. So DPU timestamp should also be updated
+    // If host is forcedOff/ACPowercycled/On, it will impact DPU also. So DPU timestamp should also be updated
     // here.
-    if action == SystemPowerControl::ForceOff || action == SystemPowerControl::On {
+    let dpu_impacting_actions = [
+        SystemPowerControl::ForceOff,
+        SystemPowerControl::ACPowercycle,
+        SystemPowerControl::On,
+    ];
+    let should_update_dpu_timestamp = dpu_impacting_actions.contains(&action);
+
+    if should_update_dpu_timestamp {
         for dpu_snapshot in &managedhost_snapshot.dpu_snapshots {
             db::machine::update_reboot_requested_time(&dpu_snapshot.id, txn, action.into()).await?;
         }
