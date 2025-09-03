@@ -9,43 +9,6 @@
 
 set -euo pipefail
 
-#
-# Update `forged` repo (git commit, merge, & wait for pipeline to complete)
-#
-function update_forged() {
-  echo "Committing and merging changes to forged"
-  git remote set-url origin "https://oauth2:${FORGED_PROJECT_ACCESS_TOKEN}@${CI_SERVER_HOST}/nvmetal/forged.git"
-  git config user.email "dummy@example.com" && git config user.name "Automated Pipeline ${CI_PIPELINE_IID}"
-  git commit -am "${FORGED_COMMIT_MSG}"
-  git push origin "${FORGED_BRANCH}"
-  MR_IID="$(gitlab --server-url "${GITLAB_SERVER_URL_NO_PORT}" --private-token "${FORGED_PROJECT_ACCESS_TOKEN}" project-merge-request create \
-    --project-id "${FORGED_PROJECT_ID}" --source-branch "${FORGED_BRANCH}" --target-branch main --title "${FORGED_COMMIT_MSG}" \
-    --remove-source-branch true --squash true | cut -d " " -f 2)"
-
-  echo "Waiting up to 2 mins for MR & CI to be ready..."
-  MERGE_STATUS_CMD="gitlab --verbose --server-url \"${GITLAB_SERVER_URL_NO_PORT}\" --private-token \"${FORGED_PROJECT_ACCESS_TOKEN}\" project-merge-request list \
-    --project-id \"${FORGED_PROJECT_ID}\" --iid \"${MR_IID}\" | grep detailed-merge-status | awk -F ' ' '{print \$2}'"
-  timeout=$((SECONDS + 120))
-  while true; do
-    # If status field hasn't changed to 'ci_still_running' in 2 mins, it's safe to proceed anyway (there appears to be a transient bug in the API)
-    if [[ $SECONDS -ge $timeout ]]; then echo "Timeout waiting for MR to be ready, proceeding anyway..."; break; fi
-    status=$(eval "${MERGE_STATUS_CMD}")
-    if [[ $status == "ci_still_running" ]]; then break; else sleep 5; fi
-  done
-
-  gitlab --server-url "${GITLAB_SERVER_URL_NO_PORT}" --private-token "${FORGED_PROJECT_ACCESS_TOKEN}" project-merge-request merge \
-    --project-id "${FORGED_PROJECT_ID}" --iid "${MR_IID}" --should-remove-source-branch true --merge-when-pipeline-succeeds true
-
-  echo "Waiting up to 40 mins for MR to be merged..."
-  MR_STATE_CMD="gitlab --verbose --server-url \"${GITLAB_SERVER_URL_NO_PORT}\" --private-token \"${FORGED_PROJECT_ACCESS_TOKEN}\" project-merge-request list \
-    --project-id \"${FORGED_PROJECT_ID}\" --iid \"${MR_IID}\" | grep \"^state\" | awk -F ' ' '{print \$2}'"
-  timeout=$((SECONDS + (60*40)))
-  while true; do
-    if [[ $SECONDS -ge $timeout ]]; then echo "Error: Timeout waiting for MR to be merged"; exit 1; fi
-    state=$(eval "${MR_STATE_CMD}")
-    if [[ $state == "merged" ]]; then break; else sleep 60; fi
-  done
-}
 
 #
 # Sync Argo CD and wait for health
@@ -60,11 +23,8 @@ function sync_argocd() {
 # Get the latest build versions of the carbide artifacts and ssh-console
 source .gitlab/get-latest-versions.sh
 
-FORGED_PROJECT_ID="90150"
-FORGED_BRANCH="auto-update-from-carbide-job-${CI_JOB_ID}"
 FORGED_COMMIT_MSG="chore(${SITE_UNDER_TEST}): auto-update site-controller to ${LATEST_COMMON_VERSION}"
 FORGED_PROJECT_ACCESS_TOKEN="$(vault kv get -field forged_project_token secrets/forge/tokens)"
-GITLAB_SERVER_URL_NO_PORT="${CI_SERVER_PROTOCOL}://${CI_SERVER_HOST}"
 
 ARGOCD_SITE_URL="argocd-${SHORT_SITE_NAME}.frg.nvidia.com"
 ARGOCD_SITE_USERNAME="admin"
@@ -77,9 +37,10 @@ SYNC_STATUS_CMD="argocd app get --refresh argocd/site-controller | grep -P 'carb
 INITIAL_SYNC_STATUS=$(eval "${SYNC_STATUS_CMD}")
 echo -e "Initial Argo CD sync status: \n${INITIAL_SYNC_STATUS}"
 
-# Clone and make edits to `forged`
+# Clone and make edits to forged
+echo "Cloning forged and running kustomize edit..."
 git clone "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/nvmetal/forged.git" && cd forged
-git checkout -b "${FORGED_BRANCH}"
+git checkout main
 cd envs/"${SITE_UNDER_TEST}"/site/site-controller
 kustomize edit set image "${APPLICATION_DOCKER_IMAGE_PRODUCTION}"="${APPLICATION_DOCKER_IMAGE}":"${LATEST_COMMON_VERSION}"
 kustomize edit set image "${ARTIFACTS_DOCKER_IMAGE_AARCH64_PRODUCTION}"="${ARTIFACTS_DOCKER_IMAGE_AARCH64}":"${LATEST_COMMON_VERSION}"
@@ -87,12 +48,16 @@ kustomize edit set image "${ARTIFACTS_DOCKER_IMAGE_X86_64_PRODUCTION}"="${ARTIFA
 kustomize edit set image nvcr.io/nvidian/nvforge/nvmetal-scout-burn-in=nvcr.io/nvidian/nvforge-devel/machine_validation:"${LATEST_COMMON_VERSION}"
 kustomize edit set image nvcr.io/nvidian/nvforge/ssh-console=nvcr.io/nvidian/nvforge-devel/ssh-console:"${LATEST_SSH_CONSOLE_VERSION}"
 
-# If git status is dirty, create MR then sync Argo CD. Else just sync Argo CD if needed.
+# If git status is dirty, push directly to main then sync Argo CD. Else just sync Argo CD if needed.
 git_status="$(git status --porcelain)"
 echo -e "Git status: \n${git_status}"
 if [[ -n $git_status ]]; then
-  echo "Git status is dirty, proceeding to commit."
-  update_forged
+  echo "Git status is dirty, proceeding to commit and push to main..."
+  git remote set-url origin "https://oauth2:${FORGED_PROJECT_ACCESS_TOKEN}@${CI_SERVER_HOST}/nvmetal/forged.git"
+  git config user.email "dummy@example.com" && git config user.name "Automated Pipeline ${CI_PIPELINE_IID}"
+  git commit -am "${FORGED_COMMIT_MSG}"
+  git pull --rebase origin main  # Resilience against remote being ahead of local branch
+  git push origin main
   if echo "${INITIAL_SYNC_STATUS}" | grep -q "OutOfSync"; then
     echo "Waiting 5 mins to be sure gitlab-master has synced to gitlab cloud..."
     sleep $((60*5))
