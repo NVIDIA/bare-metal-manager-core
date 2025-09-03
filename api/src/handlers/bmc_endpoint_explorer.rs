@@ -137,6 +137,37 @@ pub(crate) async fn disable_secure_boot(
     Ok(Response::new(()))
 }
 
+pub(crate) async fn enable_infinite_boot(
+    api: &Api,
+    request: ::rpc::forge::BmcEndpointRequest,
+) -> Result<Response<()>, tonic::Status> {
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    api.endpoint_explorer
+        .enable_infinite_boot(bmc_addr, &machine_interface)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    Ok(Response::new(()))
+}
+
+pub(crate) async fn is_infinite_boot_enabled(
+    api: &Api,
+    request: ::rpc::forge::BmcEndpointRequest,
+) -> Result<Response<Option<bool>>, tonic::Status> {
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    let is_enabled = api
+        .endpoint_explorer
+        .is_infinite_boot_enabled(bmc_addr, &machine_interface)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    Ok(Response::new(is_enabled))
+}
+
 pub(crate) async fn forge_setup(
     api: &Api,
     request: ::rpc::forge::ForgeSetupRequest,

@@ -185,4 +185,20 @@ impl EndpointExplorer for MockEndpointExplorer {
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
     }
+
+    async fn enable_infinite_boot(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn is_infinite_boot_enabled(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<Option<bool>, EndpointExplorationError> {
+        Ok(None)
+    }
 }

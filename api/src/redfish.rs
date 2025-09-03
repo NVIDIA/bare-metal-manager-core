@@ -1592,6 +1592,10 @@ pub mod test_support {
             Ok(())
         }
 
+        async fn enable_infinite_boot(&self) -> Result<(), RedfishError> {
+            Ok(())
+        }
+
         async fn is_infinite_boot_enabled(&self) -> Result<Option<bool>, RedfishError> {
             Ok(None)
         }

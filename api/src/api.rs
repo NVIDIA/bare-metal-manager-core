@@ -3074,6 +3074,103 @@ impl Forge for Api {
         Ok(Response::new(rpc::DisableSecureBootResponse {}))
     }
 
+    async fn enable_infinite_boot(
+        &self,
+        request: tonic::Request<rpc::EnableInfiniteBootRequest>,
+    ) -> Result<Response<::rpc::forge::EnableInfiniteBootResponse>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin enable_infinite_boot",
+                e,
+            ))
+        })?;
+
+        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
+            &mut txn,
+            req.bmc_endpoint_request,
+            req.machine_id,
+        )
+        .await?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit enable_infinite_boot",
+                e,
+            ))
+        })?;
+
+        crate::handlers::bmc_endpoint_explorer::enable_infinite_boot(
+            self,
+            bmc_endpoint_request.clone(),
+        )
+        .await?;
+
+        let endpoint_address = bmc_endpoint_request.ip_address.clone();
+        tracing::info!(
+            "enable_infinite_boot request succeeded to {}",
+            endpoint_address
+        );
+
+        Ok(Response::new(rpc::EnableInfiniteBootResponse {}))
+    }
+
+    async fn is_infinite_boot_enabled(
+        &self,
+        request: tonic::Request<rpc::IsInfiniteBootEnabledRequest>,
+    ) -> Result<Response<::rpc::forge::IsInfiniteBootEnabledResponse>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin is_infinite_boot_enabled",
+                e,
+            ))
+        })?;
+
+        let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
+            &mut txn,
+            req.bmc_endpoint_request,
+            req.machine_id,
+        )
+        .await?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit is_infinite_boot_enabled",
+                e,
+            ))
+        })?;
+
+        let response = crate::handlers::bmc_endpoint_explorer::is_infinite_boot_enabled(
+            self,
+            bmc_endpoint_request.clone(),
+        )
+        .await?;
+
+        let endpoint_address = bmc_endpoint_request.ip_address.clone();
+        tracing::info!(
+            "is_infinite_boot_enabled request succeeded to {}, result: {:?}",
+            endpoint_address,
+            response.get_ref()
+        );
+
+        Ok(Response::new(rpc::IsInfiniteBootEnabledResponse {
+            is_enabled: *response.get_ref(),
+        }))
+    }
+
     async fn forge_setup(
         &self,
         request: tonic::Request<rpc::ForgeSetupRequest>,

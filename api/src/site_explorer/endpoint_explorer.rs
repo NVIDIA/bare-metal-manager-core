@@ -74,6 +74,18 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         interface: &MachineInterfaceSnapshot,
     ) -> Result<(), EndpointExplorationError>;
 
+    async fn enable_infinite_boot(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError>;
+
+    async fn is_infinite_boot_enabled(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<Option<bool>, EndpointExplorationError>;
+
     async fn forge_setup(
         &self,
         address: SocketAddr,

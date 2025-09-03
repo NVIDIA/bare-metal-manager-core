@@ -27,6 +27,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::str::FromStr;
 
+use crate::cfg::cli_options::AdminPowerControlAction;
 use crate::cfg::cli_options::QuarantineAction;
 use crate::cfg::storage::{
     OsImageActions, StorageActions, StorageClusterActions, StoragePoolActions, StorageVolumeActions,
@@ -943,6 +944,31 @@ async fn main() -> color_eyre::Result<()> {
                         args.username,
                     )
                     .await?;
+            }
+            BmcAction::EnableInfiniteBoot(args) => {
+                let machine = args.machine;
+                api_client
+                    .enable_infinite_boot(None, Some(machine.clone()))
+                    .await?;
+                if args.reboot {
+                    api_client
+                        .admin_power_control(
+                            None,
+                            Some(machine),
+                            AdminPowerControlAction::ForceRestart.into(),
+                        )
+                        .await?;
+                }
+            }
+            BmcAction::IsInfiniteBootEnabled(args) => {
+                let response = api_client
+                    .is_infinite_boot_enabled(None, Some(args.machine))
+                    .await?;
+                match response.is_enabled {
+                    Some(true) => println!("Enabled"),
+                    Some(false) => println!("Disabled"),
+                    None => println!("Unknown"),
+                }
             }
         },
         CliCommand::Inventory(action) => {
