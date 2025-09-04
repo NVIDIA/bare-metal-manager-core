@@ -105,8 +105,8 @@ impl IBFabric for MockIBFabric {
         let mut ib = match state.subnets.get(&pkey) {
             None => {
                 return Err(CarbideError::NotFoundError {
-                    kind: "",
-                    id: pkey.to_string(),
+                    kind: "ufm_path",
+                    id: format!("/resources/pkeys/0x{pkey:x}"),
                 });
             }
             Some(ib) => ib.clone(),

@@ -13,7 +13,7 @@
 use crate::logging::metrics_utils::SharedMetricsHolder;
 use opentelemetry::{
     KeyValue,
-    metrics::{Histogram, Meter},
+    metrics::{Counter, Histogram, Meter},
 };
 use serde::Serialize;
 use std::{collections::HashMap, time::Duration};
@@ -46,6 +46,19 @@ pub struct IbFabricMonitorMetrics {
     /// The amount of machines where at least one port is assigned to a pkey value
     /// that is not associated with any partition ID
     pub num_machines_with_unknown_pkeys: usize,
+    /// The amount of changes that IBFabricMonitor performed,
+    /// keyed by the type of change and outcome
+    pub applied_changes: HashMap<AppliedChange, usize>,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct AppliedChange {
+    /// The fabric the operation has been applied against
+    pub fabric: String,
+    /// The operation that has been performed
+    pub operation: &'static str,
+    /// Whether the operation succeeded or failed
+    pub is_ok: bool,
 }
 
 /// Metrics collected for a single fabric
@@ -91,6 +104,7 @@ impl IbFabricMonitorMetrics {
             num_machines_with_missing_pkeys: 0,
             num_machines_with_unexpected_pkeys: 0,
             num_machines_with_unknown_pkeys: 0,
+            applied_changes: HashMap::new(),
         }
     }
 }
@@ -98,6 +112,7 @@ impl IbFabricMonitorMetrics {
 /// Instruments that are used by pub struct IbFabricMonitor
 pub struct IbFabricMonitorInstruments {
     pub iteration_latency: Histogram<f64>,
+    pub ufm_changes_applied: Counter<u64>,
 }
 
 impl IbFabricMonitorInstruments {
@@ -135,6 +150,11 @@ impl IbFabricMonitorInstruments {
                 })
                 .build();
         }
+
+        let ufm_changes_applied = meter
+            .u64_counter("forge_ib_monitor_ufm_changes_applied")
+            .with_description("The amount of changes that have been performed at UFM")
+            .build();
 
         {
             let metrics = shared_metrics.clone();
@@ -397,7 +417,10 @@ impl IbFabricMonitorInstruments {
                 .build();
         }
 
-        Self { iteration_latency }
+        Self {
+            iteration_latency,
+            ufm_changes_applied,
+        }
     }
 
     fn emit_counters_and_histograms(&self, metrics: &IbFabricMonitorMetrics) {
@@ -405,6 +428,17 @@ impl IbFabricMonitorInstruments {
             1000.0 * metrics.recording_started_at.elapsed().as_secs_f64(),
             &[],
         );
+
+        for (change, &count) in metrics.applied_changes.iter() {
+            self.ufm_changes_applied.add(
+                count as u64,
+                &[
+                    KeyValue::new("fabric", change.fabric.clone()),
+                    KeyValue::new("operation", change.operation),
+                    KeyValue::new("status", if change.is_ok { "ok" } else { "error" }),
+                ],
+            );
+        }
     }
 }
 

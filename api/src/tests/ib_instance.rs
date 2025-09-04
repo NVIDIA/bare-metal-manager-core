@@ -167,6 +167,14 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
             .unwrap(),
         "0"
     );
+    assert_eq!(
+        env.test_meter
+            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+        vec![(
+            "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
+            "2".to_string()
+        )]
+    );
 
     let check_instance = tinstance.rpc_instance().await;
     assert_eq!(instance.machine_id(), mh.id);
@@ -254,6 +262,21 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     assert!(
         ports.is_empty(),
         "IB ports have not been removed for pkey {hex_pkey}"
+    );
+    assert_eq!(
+        env.test_meter
+            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+        vec![
+            (
+                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
+                "2".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}"
+                    .to_string(),
+                "2".to_string()
+            )
+        ]
     );
 }
 
