@@ -41,7 +41,18 @@ async fn clear_sku_validation_report(
     txn: &mut PgConnection,
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<(), StateHandlerError> {
-    let health_report = HealthReport::empty(HealthReport::SKU_VALIDATION_SOURCE.to_string());
+    let mut health_report = HealthReport::empty(HealthReport::SKU_VALIDATION_SOURCE.to_string());
+
+    health_report.successes = mh_snapshot
+        .host_snapshot
+        .sku_validation_health_report
+        .as_ref()
+        .map(|hr| {
+            let mut s = hr.successes.clone();
+            s.truncate(10);
+            s
+        })
+        .unwrap_or_default();
 
     Ok(db::machine::update_sku_validation_health_report(
         txn,
@@ -345,8 +356,6 @@ async fn handle_bom_validation_disabled(
         assigned_sku_id=%mh_snapshot.host_snapshot.hw_sku.as_deref().unwrap_or_default(),
         "Skipping SKU Validation due to configuration");
 
-    clear_sku_validation_report(txn, mh_snapshot).await?;
-
     advance_to_machine_validating(txn, mh_snapshot).await
 }
 
@@ -360,7 +369,7 @@ pub(crate) async fn handle_bom_validation_state(
         return handle_bom_validation_disabled(txn, host_handler_params, mh_snapshot).await;
     }
 
-    match bom_validating_state {
+    let outcome = match bom_validating_state {
         BomValidating::MatchingSku(bom_validating_context) => {
             if mh_snapshot.host_snapshot.hw_sku.is_none() {
                 if let Some(sku) =
@@ -516,5 +525,14 @@ pub(crate) async fn handle_bom_validation_state(
             }
             outcome
         }
+    };
+
+    // if leaving BOM validation states, clear any health reports
+    if let Ok(StateHandlerOutcome::Transition { next_state, .. }) = &outcome {
+        if !matches!(next_state, ManagedHostState::BomValidating { .. }) {
+            clear_sku_validation_report(txn, mh_snapshot).await?;
+        }
     }
+
+    outcome
 }
