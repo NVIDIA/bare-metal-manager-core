@@ -758,6 +758,10 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
             .await
             .or_else(|err| match err {
                 RedfishError::NotSupported(_) => Ok(vec![]),
+                // CBC_0 is the chassis subsystem that WIWYNN suggested as the source of truth
+                // for retrieving GB200's chassis serial number. All other chassis subsystems with
+                // network adapters reflect a different serial number.
+                RedfishError::MissingKey { .. } if chassis_id == "CBC_0" => Ok(vec![]),
                 _ => Err(err),
             })
         else {
