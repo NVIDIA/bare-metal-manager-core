@@ -318,10 +318,11 @@ pub async fn allocate_instance(
             }
         }
     */
+    const DB_TXN_NAME: &str = "allocate_instance";
     let mut txn = database
         .begin()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "begin allocate_instance", e))?;
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     // Grab a row-level lock on the requested machine
     let machines = db::machine::find(
@@ -551,7 +552,7 @@ pub async fn allocate_instance(
 
     txn.commit()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "commit allocate_instance", e))?;
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(mh_snapshot)
 }

@@ -125,15 +125,11 @@ pub async fn begin_txn(
     db_conn: &Pool<Postgres>,
     phase: impl std::fmt::Display,
 ) -> Result<Transaction<'_, Postgres>, Status> {
-    db_conn.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            format!("begin txn {phase}").as_str(),
-            e,
-        ))
-        .into()
-    })
+    db_conn
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(format!("txn {phase}").as_str(), e))
+        .map_err(Status::from)
 }
 
 // commit_txn exists to attempt to commit a transaction, returning
@@ -143,13 +139,8 @@ pub async fn commit_txn(
     txn: Transaction<'_, Postgres>,
     phase: impl std::fmt::Display,
 ) -> Result<(), Status> {
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            format!("commit txn {phase}").as_str(),
-            e,
-        ))
-        .into()
-    })
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(format!("txn {phase}").as_str(), e))
+        .map_err(Status::from)
 }

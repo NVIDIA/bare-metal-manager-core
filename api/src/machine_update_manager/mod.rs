@@ -173,14 +173,12 @@ impl MachineUpdateManager {
         let mut current_updating_count = 0;
         let mut max_concurrent_updates = 0;
 
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "begin MachineUpdateManager::run_single_iteration",
-                e,
-            )
-        })?;
+        const DB_TXN_NAME: &str = "MachineUpdateManager::run_single_iteration";
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         if sqlx::query_scalar(MachineUpdateManager::DB_LOCK_QUERY)
             .fetch_one(&mut *txn)
@@ -251,14 +249,9 @@ impl MachineUpdateManager {
                 update_module.update_metrics(&mut txn, &snapshots).await;
             }
 
-            txn.commit().await.map_err(|e| {
-                DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "commit MachineUpdateManager::run_single_iteration",
-                    e,
-                )
-            })?;
+            txn.commit()
+                .await
+                .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
         } else {
             tracing::debug!("Machine update manager failed to acquire the lock");
         }

@@ -20,7 +20,6 @@ use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::CarbideError;
 use crate::api::Api;
 use crate::db::DatabaseError;
 use crate::model::storage::{
@@ -257,14 +256,12 @@ pub(crate) async fn import_storage_cluster(
     api: &Api,
     request: Request<crate::api::rpc::StorageClusterAttributes>,
 ) -> Result<Response<crate::api::rpc::StorageCluster>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin import_storage_cluster",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "import_storage_cluster";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let attrs = StorageClusterAttributes::try_from(request.into_inner())
         .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -302,14 +299,12 @@ pub(crate) async fn list_storage_cluster(
     api: &Api,
     _request: Request<crate::api::rpc::ListStorageClusterRequest>,
 ) -> Result<Response<crate::api::rpc::ListStorageClusterResponse>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin list_storage_cluster",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "list_storage_cluster";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let clusters_internal = StorageCluster::list(&mut txn)
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
@@ -331,14 +326,12 @@ pub(crate) async fn get_storage_cluster(
     api: &Api,
     request: Request<rpc::Uuid>,
 ) -> Result<Response<crate::api::rpc::StorageCluster>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_storage_cluster",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "get_storage_cluster";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let cluster_id = Uuid::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
     let cluster = StorageCluster::get(&mut txn, cluster_id)
@@ -357,14 +350,12 @@ pub(crate) async fn delete_storage_cluster(
     api: &Api,
     request: Request<crate::api::rpc::DeleteStorageClusterRequest>,
 ) -> Result<Response<crate::api::rpc::DeleteStorageClusterResponse>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin delete_storage_cluster",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "delete_storage_cluster";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let cluster_name_id = request.into_inner();
     if cluster_name_id.id.is_none() {
         return Err(Status::invalid_argument("storage cluster id"));
@@ -393,14 +384,12 @@ pub(crate) async fn update_storage_cluster(
     api: &Api,
     request: Request<crate::api::rpc::UpdateStorageClusterRequest>,
 ) -> Result<Response<crate::api::rpc::StorageCluster>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin update_storage_cluster",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "update_storage_cluster";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let req = request.into_inner();
     if req.cluster_id.is_none() || req.attributes.is_none() {
@@ -462,14 +451,12 @@ pub(crate) async fn create_storage_pool(
     api: &Api,
     request: Request<crate::api::rpc::StoragePoolAttributes>,
 ) -> Result<Response<crate::api::rpc::StoragePool>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin create_storage_pool",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "create_storage_pool";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let attrs = StoragePoolAttributes::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
@@ -531,14 +518,12 @@ pub(crate) async fn list_storage_pool(
     api: &Api,
     request: Request<crate::api::rpc::ListStoragePoolRequest>,
 ) -> Result<Response<crate::api::rpc::ListStoragePoolResponse>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin list_storage_pool",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "list_storage_pool";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let req = request.into_inner();
     let mut cluster_id: Option<Uuid> = None;
     let mut org_id: Option<TenantOrganizationId> = None;
@@ -575,14 +560,12 @@ pub(crate) async fn get_storage_pool(
     api: &Api,
     request: Request<rpc::Uuid>,
 ) -> Result<Response<crate::api::rpc::StoragePool>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_storage_pool",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "get_storage_pool";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let pool_id: Uuid = Uuid::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
     let pool = StoragePool::get(&mut txn, pool_id)
@@ -602,14 +585,12 @@ pub(crate) async fn delete_storage_pool(
     api: &Api,
     request: Request<crate::api::rpc::DeleteStoragePoolRequest>,
 ) -> Result<Response<crate::api::rpc::DeleteStoragePoolResponse>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin delete_storage_pool",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "delete_storage_pool";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let req = request.into_inner();
     if req.cluster_id.is_none() || req.pool_id.is_none() {
         return Err(Status::invalid_argument("storage cluster id or pool id"));
@@ -683,14 +664,12 @@ pub(crate) async fn update_storage_pool(
     api: &Api,
     request: Request<crate::api::rpc::StoragePoolAttributes>,
 ) -> Result<Response<crate::api::rpc::StoragePool>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin update_storage_pool",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "update_storage_pool";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let new_attrs: StoragePoolAttributes = StoragePoolAttributes::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
     let pool = StoragePool::get(&mut txn, new_attrs.id)
@@ -773,14 +752,12 @@ pub(crate) async fn create_storage_volume(
     api: &Api,
     request: Request<crate::api::rpc::StorageVolumeAttributes>,
 ) -> Result<Response<crate::api::rpc::StorageVolume>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin create_storage_volume",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "create_storage_volume";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let attrs: StorageVolumeAttributes = StorageVolumeAttributes::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
     let cluster = StorageCluster::get(&mut txn, attrs.cluster_id)
@@ -817,14 +794,12 @@ pub(crate) async fn list_storage_volume(
     api: &Api,
     request: Request<crate::api::rpc::StorageVolumeFilter>,
 ) -> Result<Response<crate::api::rpc::ListStorageVolumeResponse>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin list_storage_volume",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "list_storage_volume";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let filter = request.into_inner();
     let volume_filter: StorageVolumeFilter = StorageVolumeFilter::try_from(filter)
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
@@ -849,14 +824,12 @@ pub(crate) async fn get_storage_volume(
     api: &Api,
     request: Request<rpc::Uuid>,
 ) -> Result<Response<crate::api::rpc::StorageVolume>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_storage_volume",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "get_storage_volume";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let volume_id: Uuid = request
         .into_inner()
         .try_into()
@@ -877,14 +850,12 @@ pub(crate) async fn delete_storage_volume(
     api: &Api,
     request: Request<crate::api::rpc::DeleteStorageVolumeRequest>,
 ) -> Result<Response<crate::api::rpc::DeleteStorageVolumeResponse>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin delete_storage_volume",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "delete_storage_volume";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let req = request.into_inner();
     if req.volume_id.is_none() || req.pool_id.is_none() || req.cluster_id.is_none() {
         return Err(Status::invalid_argument(
@@ -955,14 +926,12 @@ pub(crate) async fn update_storage_volume(
     api: &Api,
     request: Request<crate::api::rpc::StorageVolumeAttributes>,
 ) -> Result<Response<crate::api::rpc::StorageVolume>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin update_storage_volume",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "update_storage_volume";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let new_attrs: StorageVolumeAttributes =
         StorageVolumeAttributes::try_from(request.into_inner())
@@ -1041,14 +1010,12 @@ pub(crate) async fn create_os_image(
     api: &Api,
     request: Request<crate::api::rpc::OsImageAttributes>,
 ) -> Result<Response<crate::api::rpc::OsImage>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin create_os_image",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "create_os_image";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let attrs: OsImageAttributes = OsImageAttributes::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
     if attrs.source_url.is_empty() || attrs.digest.is_empty() {
@@ -1125,14 +1092,12 @@ pub(crate) async fn list_os_image(
     api: &Api,
     request: Request<crate::api::rpc::ListOsImageRequest>,
 ) -> Result<Response<crate::api::rpc::ListOsImageResponse>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin list_os_image",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "list_os_image";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let tenant: Option<TenantOrganizationId> = match request.into_inner().tenant_organization_id {
         Some(x) => Some(
             TenantOrganizationId::try_from(x)
@@ -1161,14 +1126,12 @@ pub(crate) async fn get_os_image(
     api: &Api,
     request: Request<rpc::Uuid>,
 ) -> Result<Response<crate::api::rpc::OsImage>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_os_image",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "get_os_image";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let image_id: Uuid = Uuid::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
     let image = OsImage::get(&mut txn, image_id)
@@ -1187,14 +1150,12 @@ pub(crate) async fn delete_os_image(
     api: &Api,
     request: Request<crate::api::rpc::DeleteOsImageRequest>,
 ) -> Result<Response<crate::api::rpc::DeleteOsImageResponse>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin get_os_image",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "delete_os_image";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
     let req = request.into_inner();
     if req.id.is_none() {
         return Err(Status::invalid_argument("os image id missing"));
@@ -1276,14 +1237,12 @@ pub(crate) async fn update_os_image(
     api: &Api,
     request: Request<crate::api::rpc::OsImageAttributes>,
 ) -> Result<Response<crate::api::rpc::OsImage>, Status> {
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin update_os_image",
-            e,
-        ))
-    })?;
+    const DB_TXN_NAME: &str = "update_os_image";
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let new_attrs: OsImageAttributes = OsImageAttributes::try_from(request.into_inner())
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
