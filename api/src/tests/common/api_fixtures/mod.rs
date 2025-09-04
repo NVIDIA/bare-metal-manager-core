@@ -772,7 +772,7 @@ fn dpu_fw_example() -> HashMap<String, Firmware> {
                     FirmwareComponent {
                         current_version_reported_as: Some(Regex::new("BMC_Firmware").unwrap()),
                         preingest_upgrade_when_below: None,
-                        known_firmware: vec![FirmwareEntry::standard("BF-23.10")],
+                        known_firmware: vec![FirmwareEntry::standard("BF-24.10-17")],
                     },
                 ),
                 (

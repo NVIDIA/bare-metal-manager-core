@@ -1031,7 +1031,7 @@ pub mod test_support {
             _firmware: tokio::fs::File,
         ) -> Result<libredfish::model::task::Task, RedfishError> {
             let mut state = self.state.lock().unwrap();
-            state.fw_version = Arc::new("23.10".to_string());
+            state.fw_version = Arc::new("24.10-17".to_string());
             Ok(serde_json::from_str(
                 "{
             \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
@@ -1658,7 +1658,8 @@ pub mod test_support {
                         actions: Default::default(),
                     });
                 if self.state.clone().lock().unwrap().fw_version.is_empty() {
-                    self.state.clone().lock().unwrap().fw_version = Arc::new("23.10".to_string());
+                    self.state.clone().lock().unwrap().fw_version =
+                        Arc::new("24.10-17".to_string());
                 }
             }
             Ok(Box::new(RedfishSimClient {
