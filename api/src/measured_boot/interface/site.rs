@@ -43,7 +43,7 @@ pub async fn insert_into_approved_machines(
         .bind(comments)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "insert_into_approved_machines", e))
+        .map_err(|e| DatabaseError::new("insert_into_approved_machines", e))
 }
 
 pub async fn remove_from_approved_machines_by_approval_id(
@@ -55,14 +55,7 @@ pub async fn remove_from_approved_machines_by_approval_id(
         .bind(approval_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "remove_from_approved_machines_by_approval_id",
-                e,
-            )
-        })
+        .map_err(|e| DatabaseError::new("remove_from_approved_machines_by_approval_id", e))
 }
 
 pub async fn remove_from_approved_machines_by_machine_id(
@@ -74,14 +67,7 @@ pub async fn remove_from_approved_machines_by_machine_id(
         .bind(machine_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "remove_from_approved_machines_by_machine_id",
-                e,
-            )
-        })
+        .map_err(|e| DatabaseError::new("remove_from_approved_machines_by_machine_id", e))
 }
 
 pub async fn get_approved_machines(
@@ -89,7 +75,7 @@ pub async fn get_approved_machines(
 ) -> Result<Vec<MeasurementApprovedMachineRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_approved_machines", e.source))
+        .map_err(|e| DatabaseError::new("get_approved_machines", e.source))
 }
 
 pub async fn get_approval_for_machine_id(
@@ -98,7 +84,7 @@ pub async fn get_approval_for_machine_id(
 ) -> Result<Option<MeasurementApprovedMachineRecord>, DatabaseError> {
     common::get_object_for_id(txn, machine_id)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_approval_for_machine_id", e.source))
+        .map_err(|e| DatabaseError::new("get_approval_for_machine_id", e.source))
 }
 
 pub async fn insert_into_approved_profiles(
@@ -116,7 +102,7 @@ pub async fn insert_into_approved_profiles(
         .bind(comments)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "insert_into_approved_profiles", e))
+        .map_err(|e| DatabaseError::new("insert_into_approved_profiles", e))
 }
 
 pub async fn remove_from_approved_profiles_by_approval_id(
@@ -128,14 +114,7 @@ pub async fn remove_from_approved_profiles_by_approval_id(
         .bind(approval_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "remove_from_approved_profiles_by_approval_id",
-                e,
-            )
-        })
+        .map_err(|e| DatabaseError::new("remove_from_approved_profiles_by_approval_id", e))
 }
 
 pub async fn remove_from_approved_profiles_by_profile_id(
@@ -147,14 +126,7 @@ pub async fn remove_from_approved_profiles_by_profile_id(
         .bind(profile_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "remove_from_approved_profiles_by_profile_id",
-                e,
-            )
-        })
+        .map_err(|e| DatabaseError::new("remove_from_approved_profiles_by_profile_id", e))
 }
 
 pub async fn get_approved_profiles(
@@ -162,7 +134,7 @@ pub async fn get_approved_profiles(
 ) -> Result<Vec<MeasurementApprovedProfileRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_approved_profiles", e.source))
+        .map_err(|e| DatabaseError::new("get_approved_profiles", e.source))
 }
 
 pub async fn get_approval_for_profile_id(
@@ -175,7 +147,7 @@ pub async fn get_approval_for_profile_id(
         .bind(profile_id)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_approval_for_profile_id", e))
+        .map_err(|e| DatabaseError::new("get_approval_for_profile_id", e))
 }
 
 pub async fn list_attestation_summary(
@@ -186,5 +158,5 @@ pub async fn list_attestation_summary(
     sqlx::query_as(query)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "list_attestation_summary", e))
+        .map_err(|e| DatabaseError::new("list_attestation_summary", e))
 }

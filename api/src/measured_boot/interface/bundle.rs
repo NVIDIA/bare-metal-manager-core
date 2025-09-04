@@ -97,14 +97,7 @@ pub async fn insert_measurement_bundle_value_record(
         .bind(value)
         .fetch_one(txn)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "insert_measurement_bundle_value_record",
-                e,
-            )
-        })
+        .map_err(|e| DatabaseError::new("insert_measurement_bundle_value_record", e))
 }
 
 /// rename_bundle_for_bundle_id renames a bundle based on its bundle ID.
@@ -124,7 +117,7 @@ pub async fn rename_bundle_for_bundle_id(
         .bind(bundle_id)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "rename_bundle_for_bundle_id", e))
+        .map_err(|e| DatabaseError::new("rename_bundle_for_bundle_id", e))
 }
 
 /// rename_bundle_for_bundle_name renames a bundle based on its bundle name.
@@ -142,7 +135,7 @@ pub async fn rename_bundle_for_bundle_name(
         .bind(old_bundle_name)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "rename_bundle_for_bundle_name", e))
+        .map_err(|e| DatabaseError::new("rename_bundle_for_bundle_name", e))
 }
 
 /// update_state_for_bundle_id updates the state for a given bundle ID.
@@ -168,7 +161,7 @@ pub async fn update_state_for_bundle_id(
                 .bind(MeasurementBundleState::Revoked)
                 .fetch_optional(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "update_state_for_bundle_id", e))
+                .map_err(|e| DatabaseError::new("update_state_for_bundle_id", e))
         }
         false => {
             let query = format!(
@@ -181,7 +174,7 @@ pub async fn update_state_for_bundle_id(
                 .bind(bundle_id)
                 .fetch_optional(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "update_state_for_bundle_id", e))
+                .map_err(|e| DatabaseError::new("update_state_for_bundle_id", e))
         }
     }
 }
@@ -195,7 +188,7 @@ pub async fn get_measurement_bundle_by_id(
 ) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
     common::get_object_for_id(txn, bundle_id)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_measurement_bundle_by_id", e.source))
+        .map_err(|e| DatabaseError::new("get_measurement_bundle_by_id", e.source))
 }
 
 /// get_measurement_bundle_for_name returns a populated MeasurementBundleRecord
@@ -207,14 +200,7 @@ pub async fn get_measurement_bundle_for_name(
 ) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
     common::get_object_for_unique_column(txn, "name", bundle_name.clone())
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_bundle_for_name",
-                e.source,
-            )
-        })
+        .map_err(|e| DatabaseError::new("get_measurement_bundle_for_name", e.source))
 }
 
 /// get_measurement_bundle_records returns all MeasurementBundleRecord
@@ -223,22 +209,17 @@ pub async fn get_measurement_bundle_for_name(
 pub async fn get_measurement_bundle_records(
     txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
-    common::get_all_objects(txn).await.map_err(|e| {
-        DatabaseError::new(file!(), line!(), "get_measurement_bundle_records", e.source)
-    })
+    common::get_all_objects(txn)
+        .await
+        .map_err(|e| DatabaseError::new("get_measurement_bundle_records", e.source))
 }
 
 pub async fn get_measurement_bundle_records_with_txn(
     txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
-    common::get_all_objects(txn).await.map_err(|e| {
-        DatabaseError::new(
-            file!(),
-            line!(),
-            "get_measurement_bundle_records_with_txn",
-            e.source,
-        )
-    })
+    common::get_all_objects(txn)
+        .await
+        .map_err(|e| DatabaseError::new("get_measurement_bundle_records_with_txn", e.source))
 }
 
 /// get_measurement_bundle_records_for_profile_id returns all
@@ -250,14 +231,7 @@ pub async fn get_measurement_bundle_records_for_profile_id(
 ) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
     common::get_objects_where_id(txn, profile_id)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_bundle_records_for_profile_id",
-                e.source,
-            )
-        })
+        .map_err(|e| DatabaseError::new("get_measurement_bundle_records_for_profile_id", e.source))
 }
 
 /// get_measurement_bundles_values returns all MeasurementBundleValueRecord
@@ -266,9 +240,9 @@ pub async fn get_measurement_bundle_records_for_profile_id(
 pub async fn get_measurement_bundles_values(
     txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
-    common::get_all_objects(txn).await.map_err(|e| {
-        DatabaseError::new(file!(), line!(), "get_measurement_bundles_values", e.source)
-    })
+    common::get_all_objects(txn)
+        .await
+        .map_err(|e| DatabaseError::new("get_measurement_bundles_values", e.source))
 }
 
 /// get_measurement_bundle_values_for_bundle_id returns
@@ -284,14 +258,7 @@ pub async fn get_measurement_bundle_values_for_bundle_id(
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     common::get_objects_where_id(txn, bundle_id)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_bundle_values_for_bundle_id",
-                e.source,
-            )
-        })
+        .map_err(|e| DatabaseError::new("get_measurement_bundle_values_for_bundle_id", e.source))
 }
 
 /// get_machines_for_bundle_id returns a unique list of
@@ -305,7 +272,7 @@ pub async fn get_machines_for_bundle_id(
         .bind(bundle_id)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_bundle_id", e))
+        .map_err(|e| DatabaseError::new("get_machines_for_bundle_id", e))
 }
 
 /// get_machines_for_bundle_name returns a unique list of all CandidateMachineId
@@ -321,7 +288,7 @@ pub async fn get_machines_for_bundle_name(
         .bind(bundle_name)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_bundle_name", e))
+        .map_err(|e| DatabaseError::new("get_machines_for_bundle_name", e))
 }
 
 /// delete_bundle_for_id deletes a bundle record.
@@ -331,7 +298,7 @@ pub async fn delete_bundle_for_id(
 ) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
     common::delete_object_where_id(txn, bundle_id)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "delete_bundle_for_id", e.source))
+        .map_err(|e| DatabaseError::new("delete_bundle_for_id", e.source))
 }
 
 /// delete_bundle_values_for_id deletes all bundle
@@ -342,7 +309,7 @@ pub async fn delete_bundle_values_for_id(
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     common::delete_objects_where_id(txn, bundle_id)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "delete_bundle_values_for_id", e.source))
+        .map_err(|e| DatabaseError::new("delete_bundle_values_for_id", e.source))
 }
 
 /// import_measurement_bundles is intended for doing "full site" imports,
@@ -380,7 +347,7 @@ pub async fn import_measurement_bundle(
         .bind(bundle.state)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "import_measurement_bundle", e))
+        .map_err(|e| DatabaseError::new("import_measurement_bundle", e))
 }
 
 /// import_measurement_bundles_values is intended for doing "full site"
@@ -419,5 +386,5 @@ pub async fn import_measurement_bundles_value(
         .bind(bundle.ts)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "import_measurement_bundles_value", e))
+        .map_err(|e| DatabaseError::new("import_measurement_bundles_value", e))
 }

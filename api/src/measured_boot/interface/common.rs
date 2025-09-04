@@ -88,7 +88,7 @@ where
 {
     get_object_for_unique_column(txn, T::db_primary_uuid_name(), id)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_object_for_id", e.source))
+        .map_err(|e| DatabaseError::new("get_object_for_id", e.source))
 }
 
 /// get_object_for_unique_column provides a generic for getting a fully
@@ -116,7 +116,7 @@ where
         .bind(value)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_object_for_unique_column", e))?;
+        .map_err(|e| DatabaseError::new("get_object_for_unique_column", e))?;
     Ok(result)
 }
 
@@ -144,7 +144,7 @@ where
         .bind(id)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_objects_where_id", e))?;
+        .map_err(|e| DatabaseError::new("get_objects_where_id", e))?;
     Ok(result)
 }
 
@@ -162,7 +162,7 @@ where
     let result = sqlx::query_as::<_, R>(&query)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_all_objects", e))?;
+        .map_err(|e| DatabaseError::new("get_all_objects", e))?;
     Ok(result)
 }
 
@@ -184,7 +184,7 @@ where
 {
     delete_objects_where_unique_column(txn, T::db_primary_uuid_name(), id)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "delete_objects_where_id", e.source))
+        .map_err(|e| DatabaseError::new("delete_objects_where_id", e.source))
 }
 
 pub async fn delete_objects_where_unique_column<T, R>(
@@ -205,9 +205,7 @@ where
         .bind(value)
         .fetch_all(txn)
         .await
-        .map_err(|e| {
-            DatabaseError::new(file!(), line!(), "delete_objects_where_unique_column", e)
-        })?;
+        .map_err(|e| DatabaseError::new("delete_objects_where_unique_column", e))?;
     Ok(result)
 }
 
@@ -223,7 +221,7 @@ where
 {
     delete_object_where_unique_column(txn, T::db_primary_uuid_name(), id)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "delete_object_where_id", e.source))
+        .map_err(|e| DatabaseError::new("delete_object_where_id", e.source))
 }
 
 pub async fn delete_object_where_unique_column<T, R>(
@@ -244,9 +242,7 @@ where
         .bind(value)
         .fetch_optional(txn)
         .await
-        .map_err(|e| {
-            DatabaseError::new(file!(), line!(), "delete_object_where_unique_column", e)
-        })?;
+        .map_err(|e| DatabaseError::new("delete_object_where_unique_column", e))?;
     Ok(result)
 }
 
@@ -278,7 +274,7 @@ pub async fn acquire_advisory_txn_lock(
         .bind(hash_key)
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "acquire_advisory_txn_lock", e))?;
+        .map_err(|e| DatabaseError::new("acquire_advisory_txn_lock", e))?;
     Ok(())
 }
 

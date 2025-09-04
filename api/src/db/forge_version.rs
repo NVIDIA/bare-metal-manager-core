@@ -91,6 +91,6 @@ pub async fn make_mock_observation(
         .bind(superseded.unwrap_or(Utc::now()))
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
 }

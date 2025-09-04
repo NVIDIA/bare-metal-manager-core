@@ -45,7 +45,7 @@ pub async fn insert_measurement_journal_record(
         .bind(state)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "insert_measurement_journal_record", e))
+        .map_err(|e| DatabaseError::new("insert_measurement_journal_record", e))
 }
 
 /// this is used to remove the duplication of reports and records
@@ -67,7 +67,7 @@ pub async fn update_measurement_journal_record(
         .bind(report_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "update_measurement_journal_record", e))
+        .map_err(|e| DatabaseError::new("update_measurement_journal_record", e))
 }
 
 /// delete_journal_where_id deletes a journal record.
@@ -77,7 +77,7 @@ pub async fn delete_journal_where_id(
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
     common::delete_object_where_id(txn, journal_id)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "delete_journal_where_id", e.source))
+        .map_err(|e| DatabaseError::new("delete_journal_where_id", e.source))
 }
 
 /// get_measurement_journal_record_by_id returns a populated
@@ -90,14 +90,7 @@ pub async fn get_measurement_journal_record_by_id(
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
     common::get_object_for_id(txn, journal_id)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_journal_record_by_id",
-                e.source,
-            )
-        })
+        .map_err(|e| DatabaseError::new("get_measurement_journal_record_by_id", e.source))
 }
 
 /// get_measurement_journal_record_by_report_id returns a populated
@@ -110,14 +103,7 @@ pub async fn get_measurement_journal_record_by_report_id(
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
     common::get_object_for_id(txn, report_id)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_journal_record_by_report_id",
-                e.source,
-            )
-        })
+        .map_err(|e| DatabaseError::new("get_measurement_journal_record_by_report_id", e.source))
 }
 
 /// get_measurement_journal_records returns all MeasurementJournalRecord
@@ -126,14 +112,9 @@ pub async fn get_measurement_journal_record_by_report_id(
 pub async fn get_measurement_journal_records(
     txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementJournalRecord>, DatabaseError> {
-    common::get_all_objects(txn).await.map_err(|e| {
-        DatabaseError::new(
-            file!(),
-            line!(),
-            "get_measurement_journal_records",
-            e.source,
-        )
-    })
+    common::get_all_objects(txn)
+        .await
+        .map_err(|e| DatabaseError::new("get_measurement_journal_records", e.source))
 }
 
 /// get_measurement_journal_records_for_machine_id returns all journal
@@ -145,12 +126,5 @@ pub async fn get_measurement_journal_records_for_machine_id(
 ) -> Result<Vec<MeasurementJournalRecord>, DatabaseError> {
     common::get_objects_where_id(txn, machine_id)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_journal_records_for_machine_id",
-                e.source,
-            )
-        })
+        .map_err(|e| DatabaseError::new("get_measurement_journal_records_for_machine_id", e.source))
 }

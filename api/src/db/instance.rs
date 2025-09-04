@@ -289,7 +289,7 @@ WHERE vpc_id = ",
         Ok(query
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "instance::find_ids", e))?)
+            .map_err(|e| DatabaseError::new("instance::find_ids", e))?)
     }
 
     pub async fn find(
@@ -591,8 +591,6 @@ WHERE vpc_id = ",
                         StorageVolume::get(txn, attrs.id).await?
                     } else {
                         return Err(DatabaseError::new(
-                            file!(),
-                            line!(),
                             "instance update_storage_config",
                             sqlx::Error::ColumnNotFound("volume must exist".to_string()),
                         ));
@@ -600,8 +598,6 @@ WHERE vpc_id = ",
                 }
                 None => {
                     return Err(DatabaseError::new(
-                        file!(),
-                        line!(),
                         "instance update_storage_config",
                         sqlx::Error::ColumnNotFound("volume must exist".to_string()),
                     ));
@@ -642,8 +638,6 @@ WHERE vpc_id = ",
         // We will move move it there once that code is in place
         status.validate().map_err(|e| {
             DatabaseError::new(
-                file!(),
-                line!(),
                 "ioerror",
                 sqlx::Error::Io(std::io::Error::other(e.to_string())),
             )

@@ -61,7 +61,7 @@ impl NetworkDevice {
                 sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut *txn)
                     .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "network_devices All", e))
+                    .map_err(|e| DatabaseError::new("network_devices All", e))
             }
             ObjectFilter::One(id) => {
                 let where_clause = "WHERE l.id=$1".to_string();
@@ -69,7 +69,7 @@ impl NetworkDevice {
                     .bind(id.to_string())
                     .fetch_all(&mut *txn)
                     .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "network_devices One", e))
+                    .map_err(|e| DatabaseError::new("network_devices One", e))
             }
             ObjectFilter::List(list) => {
                 let where_clause = "WHERE l.id=ANY($1)".to_string();
@@ -78,7 +78,7 @@ impl NetworkDevice {
                     .bind(str_list)
                     .fetch_all(&mut *txn)
                     .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "network_devices List", e))
+                    .map_err(|e| DatabaseError::new("network_devices List", e))
             }
         }?;
 
@@ -241,7 +241,7 @@ impl DpuToNetworkDeviceMap {
             .bind(device_id)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "network_device_id", e))
+            .map_err(|e| DatabaseError::new("network_device_id", e))
     }
 
     pub async fn find_by_dpu_ids(
@@ -255,7 +255,7 @@ impl DpuToNetworkDeviceMap {
             .bind(str_list)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "port_to_network_device_map", e))
+            .map_err(|e| DatabaseError::new("port_to_network_device_map", e))
     }
 }
 

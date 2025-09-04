@@ -48,8 +48,6 @@ impl VpcPrefix {
                     )
                     .map_err(|err| {
                         DatabaseError::new(
-                            file!(),
-                            line!(),
                             "vpc_prefix_update_stats_ipv4_conversion",
                             sqlx::Error::Protocol(err.to_string()),
                         )
@@ -59,8 +57,6 @@ impl VpcPrefix {
                         .subnets(31)
                         .map_err(|err| {
                             DatabaseError::new(
-                                file!(),
-                                line!(),
                                 "vpc_prefix_update_stats_subnet_count",
                                 sqlx::Error::Protocol(err.to_string()),
                             )

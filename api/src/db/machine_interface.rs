@@ -897,8 +897,6 @@ WHERE network_segments.id = $1::uuid";
         for used_ip in used_ips {
             let network = IpNetwork::new(used_ip, 32).map_err(|e| {
                 DatabaseError::new(
-                    file!(),
-                    line!(),
                     "machine_interface.used_prefixes",
                     sqlx::Error::Io(std::io::Error::other(e.to_string())),
                 )

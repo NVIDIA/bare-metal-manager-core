@@ -108,7 +108,7 @@ impl DbExploredEndpoint {
         let ids: Vec<ExploredEndpointIp> = query
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "explored_endpoints::find_ips", e))?;
+            .map_err(|e| DatabaseError::new("explored_endpoints::find_ips", e))?;
         // Convert to Vec<IpAddr> and return.
         Ok(ids.iter().map(|id| id.0).collect())
     }
@@ -124,7 +124,7 @@ impl DbExploredEndpoint {
             .fetch_all(txn)
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
-            .map_err(|e| DatabaseError::new(file!(), line!(), "explored_endpoints::find_by_ips", e))
+            .map_err(|e| DatabaseError::new("explored_endpoints::find_by_ips", e))
     }
 
     /// find_all returns all explored endpoints that site explorer has been able to probe
@@ -135,7 +135,7 @@ impl DbExploredEndpoint {
             .fetch_all(txn)
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
-            .map_err(|e| DatabaseError::new(file!(), line!(), "explored_endpoints find_all", e))
+            .map_err(|e| DatabaseError::new("explored_endpoints find_all", e))
     }
 
     /// find_preingest_not_waiting gets everything that is still in preingestion that isn't waiting for site explorer to refresh it again and isn't in an error state.
@@ -151,14 +151,7 @@ impl DbExploredEndpoint {
             .fetch_all(txn)
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
-            .map_err(|e| {
-                DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "explored_endpoints find_preingest_not_waiting",
-                    e,
-                )
-            })
+            .map_err(|e| DatabaseError::new("explored_endpoints find_preingest_not_waiting", e))
     }
 
     /// find_preingest_installing returns the endpoints where wew are waiting for firmware installs
@@ -171,14 +164,7 @@ impl DbExploredEndpoint {
             .fetch_all(txn)
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
-            .map_err(|e| {
-                DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "explored_endpoints find_preingest_not_waiting",
-                    e,
-                )
-            })
+            .map_err(|e| DatabaseError::new("explored_endpoints find_preingest_not_waiting", e))
     }
 
     /// find_all_no_upgrades returns all explored endpoints that site explorer has been able to probe, but ignores anything currently undergoing an upgrade
@@ -192,14 +178,7 @@ impl DbExploredEndpoint {
             .fetch_all(txn)
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
-            .map_err(|e| {
-                DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "explored_endpoints find_all_preingestion_complete",
-                    e,
-                )
-            })
+            .map_err(|e| DatabaseError::new("explored_endpoints find_all_preingestion_complete", e))
     }
 
     /// find_all_by_ip returns a list of explored endpoints that match the ip (should be a list of one)
@@ -214,9 +193,7 @@ impl DbExploredEndpoint {
             .fetch_all(txn)
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
-            .map_err(|e| {
-                DatabaseError::new(file!(), line!(), "explored_endpoints find_all_by_ip", e)
-            })
+            .map_err(|e| DatabaseError::new("explored_endpoints find_all_by_ip", e))
     }
 
     /// Updates the explored information about a node
@@ -491,14 +468,7 @@ WHERE address=$4 AND version=$5";
             .fetch_all(txn)
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
-            .map_err(|e| {
-                DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "explored_endpoints find_freetext_in_report",
-                    e,
-                )
-            })
+            .map_err(|e| DatabaseError::new("explored_endpoints find_freetext_in_report", e))
     }
 
     pub async fn set_last_redfish_bmc_reset(

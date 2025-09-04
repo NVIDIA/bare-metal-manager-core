@@ -91,7 +91,7 @@ pub async fn for_machine(
         .bind(id.to_string())
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        .map_err(|e| DatabaseError::query(query, e))
         .map(|events| events.into_iter().map(Into::into).collect())
 }
 

@@ -72,8 +72,6 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
                 interfaces.len()
             );
             return Err(DatabaseError::new(
-                file!(),
-                line!(),
                 "DpaInterface::find_by_ids()",
                 sqlx::Error::Decode(
                     eyre::eyre!(

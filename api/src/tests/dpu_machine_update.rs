@@ -5,9 +5,9 @@ use crate::db::machine::MachineSearchConfig;
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::tests::common;
 
+use crate::CarbideResult;
 use crate::model::machine::{Machine, ManagedHostStateSnapshot};
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
-use crate::{CarbideError, CarbideResult};
 use crate::{
     db, db::dpu_machine_update::DpuMachineUpdate,
     model::machine::network::MachineNetworkStatusObservation,
@@ -32,7 +32,7 @@ pub async fn update_nic_firmware_version(
         .bind(machine_id)
         .execute(txn)
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }

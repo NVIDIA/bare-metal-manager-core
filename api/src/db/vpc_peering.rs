@@ -96,7 +96,7 @@ impl VpcPeering {
         let vpc_peering_ids: Vec<VpcPeeringId> = query
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "vpc_peering::find_ids", e))?;
+            .map_err(|e| DatabaseError::new("vpc_peering::find_ids", e))?;
 
         Ok(vpc_peering_ids)
     }

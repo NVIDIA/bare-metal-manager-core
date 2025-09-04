@@ -86,12 +86,7 @@ impl MeasuredBootMetricsCollector {
         let mut metrics = MeasuredBootMetricsCollectorMetrics::new();
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "begin MeasuredBootMetricsCollector::run_single_iteration",
-                e,
-            )
+            DatabaseError::txn_begin("MeasuredBootMetricsCollector::run_single_iteration", e)
         })?;
 
         let profiles = db::profile::get_all(&mut txn).await?;

@@ -434,7 +434,7 @@ pub async fn advance(
         .bind(machine.id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "update machines state", e))?;
+        .map_err(|e| DatabaseError::new("update machines state", e))?;
 
     Ok(true)
 }
@@ -1006,7 +1006,7 @@ async fn update_health_report(
         .bind(observed_at)
         .fetch_one(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "update health report", e))
+        .map_err(|e| DatabaseError::new("update health report", e))
     {
         Ok(result) => result,
         Err(e) if matches!(e.source, sqlx::Error::RowNotFound) => {
@@ -1090,7 +1090,7 @@ pub async fn update_log_parser_health_report(
         .bind(machine_id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "update health report", e))?;
+        .map_err(|e| DatabaseError::new("update health report", e))?;
 
     Ok(())
 }
@@ -1177,7 +1177,7 @@ pub async fn insert_health_report_override(
         .bind(machine_id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "insert health report override", e))?;
+        .map_err(|e| DatabaseError::new("insert health report override", e))?;
 
     Ok(())
 }
@@ -1202,7 +1202,7 @@ pub async fn remove_health_report_override(
         .bind(machine_id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "remove health report override", e))?;
+        .map_err(|e| DatabaseError::new("remove health report override", e))?;
 
     Ok(())
 }
@@ -1642,7 +1642,7 @@ pub async fn restart_dpu_reprovisioning(
         .bind(str_list)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "restart reprovisioning_requested", e))?;
+        .map_err(|e| DatabaseError::new("restart reprovisioning_requested", e))?;
 
     Ok(())
 }
@@ -1670,7 +1670,7 @@ pub async fn clear_dpu_reprovisioning_request(
         .bind(machine_id.to_string())
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "clear reprovisioning_requested", e))?;
+        .map_err(|e| DatabaseError::new("clear reprovisioning_requested", e))?;
 
     Ok(())
 }
@@ -1815,7 +1815,7 @@ pub async fn find_machine_ids(
     let machine_ids: Vec<MachineId> = q
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "find_machine_ids", e))?;
+        .map_err(|e| DatabaseError::new("find_machine_ids", e))?;
 
     Ok(machine_ids)
 }
@@ -1834,14 +1834,7 @@ pub async fn update_state(
         crate::db::machine::MachineSearchConfig::default(),
     )
     .await?
-    .ok_or_else(|| {
-        DatabaseError::new(
-            file!(),
-            line!(),
-            "db::machine::find_one",
-            sqlx::Error::RowNotFound,
-        )
-    })?;
+    .ok_or_else(|| DatabaseError::new("db::machine::find_one", sqlx::Error::RowNotFound))?;
 
     let version = host.current_version().increment();
     tracing::info!(machine_id = %host.id, ?new_state, "Updating host state");
@@ -2115,7 +2108,7 @@ pub async fn assign_sku(
         .bind(machine_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "assign sku to machine", e))?;
+        .map_err(|e| DatabaseError::new("assign sku to machine", e))?;
 
     Ok(id)
 }
@@ -2130,7 +2123,7 @@ pub async fn unassign_sku(
         .bind(machine_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "assign sku to machine", e))?;
+        .map_err(|e| DatabaseError::new("assign sku to machine", e))?;
 
     Ok(id)
 }
@@ -2146,7 +2139,7 @@ pub async fn update_sku_status_last_match_attempt(
         .bind(machine_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "update sku last match attempt", e))?;
+        .map_err(|e| DatabaseError::new("update sku last match attempt", e))?;
 
     Ok(())
 }
@@ -2162,7 +2155,7 @@ pub async fn update_sku_status_last_generate_attempt(
         .bind(machine_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "update sku last match attempt", e))?;
+        .map_err(|e| DatabaseError::new("update sku last generate attempt", e))?;
 
     Ok(())
 }
@@ -2178,7 +2171,7 @@ pub async fn update_sku_status_verify_request_time(
         .bind(machine_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "update sku status", e))?;
+        .map_err(|e| DatabaseError::new("update sku status", e))?;
 
     Ok(())
 }
@@ -2194,7 +2187,7 @@ pub async fn update_sku_status_verify_request_time_for_sku(
         .bind(sku_id)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "update sku status", e))?;
+        .map_err(|e| DatabaseError::new("update sku status", e))?;
 
     tracing::info!(machine_ids=?ids, "SKU updated, requesting verify for affected machines");
     Ok(())
@@ -2210,7 +2203,7 @@ pub async fn find_machine_ids_by_sku_id(
         .bind(sku_id)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get assigned sku count", e))?;
+        .map_err(|e| DatabaseError::new("get assigned sku count", e))?;
 
     Ok(ids)
 }

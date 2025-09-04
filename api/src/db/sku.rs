@@ -45,7 +45,7 @@ pub async fn find_matching(
                 }
             }
             Err(sqlx::Error::RowNotFound) => {}
-            Err(e) => return Err(DatabaseError::new(file!(), line!(), "find matching sku", e)),
+            Err(e) => return Err(DatabaseError::new("find matching sku", e)),
         }
     }
 
@@ -88,7 +88,7 @@ pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), CarbideErro
         .bind(sku.schema_version as i32)
         .fetch_one(&mut *inner_txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "create sku", e))?;
+        .map_err(|e| DatabaseError::new("create sku", e))?;
 
     inner_txn
         .commit()
@@ -117,7 +117,7 @@ pub async fn get_sku_ids(txn: &mut PgConnection) -> Result<Vec<String>, Database
     let skus: Vec<(String,)> = sqlx::query_as(query)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get sku ids", e))?;
+        .map_err(|e| DatabaseError::new("get sku ids", e))?;
 
     Ok(skus.into_iter().map(|v| v.0).collect())
 }
@@ -133,7 +133,7 @@ pub async fn find(txn: &mut PgConnection, sku_ids: &[String]) -> Result<Vec<Sku>
         .bind(sku_ids)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "find skus", e))?;
+        .map_err(|e| DatabaseError::new("find skus", e))?;
 
     Ok(skus)
 }
@@ -146,8 +146,6 @@ pub async fn update_metadata(
 ) -> Result<(), DatabaseError> {
     if description.is_none() && device_type.is_none() {
         return Err(DatabaseError::new(
-            file!(),
-            line!(),
             "Update SKU Metadata",
             sqlx::Error::InvalidArgument("desciption and/or device_type required".to_string()),
         ));
@@ -213,8 +211,6 @@ pub async fn generate_sku_from_machine_at_version(
         0 | 1 => generate_sku_from_machine_at_version_0_or_1(txn, machine_id, schema_version).await,
         2 => generate_sku_from_machine_at_version_2(txn, machine_id).await,
         _ => Err(DatabaseError::new(
-            file!(),
-            line!(),
             "generate_sku_from_machine_at_version",
             sqlx::Error::RowNotFound,
         )),
@@ -240,8 +236,6 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
     .into_iter()
     .next() else {
         return Err(DatabaseError::new(
-            file!(),
-            line!(),
             "sku_from_topology",
             sqlx::Error::RowNotFound,
         ));
@@ -249,8 +243,6 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
 
     let Some(hardware_info) = machine.hardware_info.as_ref() else {
         return Err(DatabaseError::new(
-            file!(),
-            line!(),
             "sku_from_topology",
             sqlx::Error::RowNotFound,
         ));
@@ -387,8 +379,6 @@ pub async fn generate_sku_from_machine_at_version_2(
     .into_iter()
     .next() else {
         return Err(DatabaseError::new(
-            file!(),
-            line!(),
             "sku_from_topology",
             sqlx::Error::RowNotFound,
         ));
@@ -396,8 +386,6 @@ pub async fn generate_sku_from_machine_at_version_2(
 
     let Some(hardware_info) = machine.hardware_info.as_ref() else {
         return Err(DatabaseError::new(
-            file!(),
-            line!(),
             "sku_from_topology",
             sqlx::Error::RowNotFound,
         ));

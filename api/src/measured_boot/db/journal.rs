@@ -202,14 +202,8 @@ pub async fn get_latest_journal_for_id(
         .bind(machine_id)
         .fetch_optional(txn)
         .await
-        .map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "get_latest_journal_for_id",
-                e,
-            ))
-        })? {
+        .map_err(|e| CarbideError::from(DatabaseError::new("get_latest_journal_for_id", e)))?
+    {
         Some(info) => Ok(Some(MeasurementJournal {
             journal_id: info.journal_id,
             machine_id: info.machine_id,

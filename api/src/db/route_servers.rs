@@ -87,7 +87,7 @@ impl RouteServer {
             .bind(source_type)
             .execute(&mut *txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "RouteServer::replace delete", e))?;
+            .map_err(|e| DatabaseError::new("RouteServer::replace delete", e))?;
 
         // Insert all new entries (if any)
         if !addresses.is_empty() {
@@ -98,9 +98,10 @@ impl RouteServer {
                 b.push_bind(v).push_bind(source_type);
             });
 
-            qb.build().execute(&mut *txn).await.map_err(|e| {
-                DatabaseError::new(file!(), line!(), "RouteServer::replace insert", e)
-            })?;
+            qb.build()
+                .execute(&mut *txn)
+                .await
+                .map_err(|e| DatabaseError::new("RouteServer::replace insert", e))?;
         }
 
         Ok(())
@@ -157,7 +158,7 @@ impl RouteServer {
             query
                 .execute(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "RouteServer::add", e))?;
+                .map_err(|e| DatabaseError::new("RouteServer::add", e))?;
         }
         Ok(())
     }
@@ -185,7 +186,7 @@ impl RouteServer {
                 .bind(source_type)
                 .execute(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "RouteServer::remove", e))?;
+                .map_err(|e| DatabaseError::new("RouteServer::remove", e))?;
         }
         Ok(())
     }

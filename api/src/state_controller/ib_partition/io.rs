@@ -72,8 +72,6 @@ impl StateControllerIO for IBPartitionStateControllerIO {
             return Ok(None);
         } else if partitions.len() != 1 {
             return Err(DatabaseError::new(
-                file!(),
-                line!(),
                 "IBPartition::find()",
                 sqlx::Error::Decode(
                     eyre::eyre!(

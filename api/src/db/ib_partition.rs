@@ -390,7 +390,7 @@ impl IBPartition {
         let ids: Vec<IBPartitionId> = query
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partition::find_ids", e))?;
+            .map_err(|e| DatabaseError::new("ib_partition::find_ids", e))?;
 
         Ok(ids)
     }

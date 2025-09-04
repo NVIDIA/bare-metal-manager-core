@@ -297,14 +297,7 @@ impl MachineTopology {
             .bind(bmc_ips)
             .fetch_all(txn)
             .await
-            .map_err(|e| {
-                DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "machine_topologies find_machine_bmc_pairs",
-                    e,
-                )
-            })
+            .map_err(|e| DatabaseError::new("machine_topologies find_machine_bmc_pairs", e))
     }
 
     /// Find any topology with a product, chassis, or board serial number exactly matching the input.
@@ -335,9 +328,7 @@ impl MachineTopology {
             .bind(to_find)
             .fetch_all(txn)
             .await
-            .map_err(|e| {
-                DatabaseError::new(file!(), line!(), "machine_topologies find_by_serial", e)
-            })
+            .map_err(|e| DatabaseError::new("machine_topologies find_by_serial", e))
     }
 
     /// Search the topologyfor a string anywhere in the JSON.
@@ -352,9 +343,7 @@ impl MachineTopology {
             .bind(to_find)
             .fetch_all(txn)
             .await
-            .map_err(|e| {
-                DatabaseError::new(file!(), line!(), "machine_topologies find_freetext", e)
-            })
+            .map_err(|e| DatabaseError::new("machine_topologies find_freetext", e))
     }
 
     pub async fn set_topology_update_needed(

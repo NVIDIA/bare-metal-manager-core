@@ -509,8 +509,6 @@ impl NewNetworkSegment {
         .pop()
         .ok_or_else(|| {
             DatabaseError::new(
-                file!(),
-                line!(),
                 "finding just-created network segment",
                 sqlx::Error::RowNotFound,
             )
@@ -613,7 +611,7 @@ impl NetworkSegment {
         let ids: Vec<NetworkSegmentId> = query
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "network_segment::find_ids", e))?;
+            .map_err(|e| DatabaseError::new("network_segment::find_ids", e))?;
 
         Ok(ids)
     }
@@ -726,8 +724,6 @@ impl NetworkSegment {
             .await
             .map_err(|e| {
                 DatabaseError::new(
-                    file!(),
-                    line!(),
                     "IpAllocator.new error",
                     sqlx::Error::Io(std::io::Error::other(e.to_string())),
                 )
@@ -735,8 +731,6 @@ impl NetworkSegment {
 
             let nfree = allocated_addresses.num_free().map_err(|e| {
                 DatabaseError::new(
-                    file!(),
-                    line!(),
                     "IpAllocator.num_free error",
                     sqlx::Error::Io(std::io::Error::other(e.to_string())),
                 )
