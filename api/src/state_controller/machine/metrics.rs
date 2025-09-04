@@ -27,6 +27,7 @@ use opentelemetry::{
 #[derive(Debug, Default)]
 pub struct MachineMetrics {
     pub agent_versions: HashMap<String, usize>,
+    pub alerts_suppressed: bool,
     pub dpus_up: usize,
     pub dpus_healthy: usize,
     /// DPU probe alerts by Probe ID and Target
@@ -42,6 +43,7 @@ pub struct MachineMetrics {
     /// Health probe alerts for the aggregate host by Probe ID and Target
     pub health_probe_alerts: HashSet<(health_report::HealthProbeId, Option<String>)>,
     pub health_alert_classifications: HashSet<health_report::HealthAlertClassification>,
+    pub machine_id: String,
     /// The amount of configured `merge` overrides
     pub num_merge_overrides: usize,
     /// Whether an override of type `replace` is configured
@@ -87,6 +89,8 @@ pub struct MachineStateControllerIterationMetrics {
     pub unhealthy_hosts_by_probe_id: HashMap<(String, Option<String>, IsInUseByTenant), usize>,
     /// The amount of unhealthy hosts by Alert classification and assignment status
     pub unhealthy_hosts_by_classification_id: HashMap<(String, IsInUseByTenant), usize>,
+    /// The set of machines (by machine_id) whose external, metrics-based alerting is suppressed
+    pub host_alerts_suppressed_by_machine_id: HashSet<String>,
     /// The amount of configured overrides by type (merge vs replace) and assignment status
     pub num_overrides: HashMap<(&'static str, IsInUseByTenant), usize>,
     /// Mapping from SKU ID to the amount of hosts which have the SKU configured
@@ -416,6 +420,27 @@ impl MetricsEmitter for MachineMetricsEmitter {
         {
             let metrics = shared_metrics.clone();
             meter
+                .u64_observable_gauge("forge_alerts_suppressed_count")
+                .with_description(
+                    "Whether external metrics based alerting is suppressed for a specific host",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for machine_id in &metrics.host_alerts_suppressed_by_machine_id {
+                            observer.observe(
+                                1u64,
+                                &[attrs, &[KeyValue::new("machine_id", machine_id.clone())]]
+                                    .concat(),
+                            );
+                        }
+                    })
+                })
+                .build()
+        };
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
                 .u64_observable_gauge("forge_hosts_by_sku_count")
                 .with_description(
                     "The amount of hosts which have assigned a particular SKU and Machine Type",
@@ -659,6 +684,11 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 .entry((classification.to_string(), is_assigned))
                 .or_default() += 1;
         }
+        if object_metrics.alerts_suppressed {
+            iteration_metrics
+                .host_alerts_suppressed_by_machine_id
+                .insert(object_metrics.machine_id.to_string());
+        }
         *iteration_metrics
             .num_overrides
             .entry(("merge", is_assigned))
@@ -763,6 +793,8 @@ mod tests {
                     Some("def.txt".to_string()),
                 )]),
                 health_alert_classifications: HashSet::new(),
+                alerts_suppressed: false,
+                machine_id: "".to_string(),
                 num_merge_overrides: 0,
                 replace_override_enabled: false,
                 is_usable_as_instance: true,
@@ -813,6 +845,8 @@ mod tests {
                 ]
                 .into_iter()
                 .collect(),
+                alerts_suppressed: false,
+                machine_id: "".to_string(),
                 num_merge_overrides: 0,
                 replace_override_enabled: false,
                 is_usable_as_instance: true,
@@ -845,6 +879,8 @@ mod tests {
                 machine_reboot_attempts_in_failed_during_discovery: Some(1),
                 health_probe_alerts: HashSet::new(),
                 health_alert_classifications: HashSet::new(),
+                alerts_suppressed: false,
+                machine_id: "".to_string(),
                 num_merge_overrides: 1,
                 replace_override_enabled: true,
                 is_usable_as_instance: false,
@@ -884,6 +920,8 @@ mod tests {
                 machine_reboot_attempts_in_failed_during_discovery: Some(2),
                 health_probe_alerts: HashSet::new(),
                 health_alert_classifications: HashSet::new(),
+                alerts_suppressed: false,
+                machine_id: "".to_string(),
                 num_merge_overrides: 0,
                 replace_override_enabled: false,
                 is_usable_as_instance: true,
@@ -947,6 +985,8 @@ mod tests {
                 ]
                 .into_iter()
                 .collect(),
+                alerts_suppressed: false,
+                machine_id: "".to_string(),
                 num_merge_overrides: 1,
                 replace_override_enabled: false,
                 is_usable_as_instance: false,
@@ -997,6 +1037,8 @@ mod tests {
                 ]
                 .into_iter()
                 .collect(),
+                alerts_suppressed: false,
+                machine_id: "".to_string(),
                 num_merge_overrides: 0,
                 replace_override_enabled: true,
                 is_usable_as_instance: false,

@@ -429,6 +429,7 @@ impl MachineStateHandler {
             }
         }
 
+        ctx.metrics.machine_id = state.host_snapshot.id.to_string();
         ctx.metrics.is_usable_as_instance = state.is_usable_as_instance(false).is_ok();
         ctx.metrics.num_gpus = state
             .host_snapshot
@@ -445,13 +446,18 @@ impl MachineStateHandler {
         ctx.metrics.sku = state.host_snapshot.hw_sku.clone();
         ctx.metrics.sku_device_type = state.host_snapshot.hw_sku_device_type.clone();
 
-        // Note that DPU alerts may be surpressed (classifications removed) in the aggregate health report.
+        // Note that DPU alerts may be suppressed (classifications removed) in the aggregate health report.
+        let suppress_alerts =
+            health_report::HealthAlertClassification::suppress_external_alerting();
         for alert in state.aggregate_health.alerts.iter() {
             ctx.metrics
                 .health_probe_alerts
                 .insert((alert.id.clone(), alert.target.clone()));
             for c in alert.classifications.iter() {
                 ctx.metrics.health_alert_classifications.insert(c.clone());
+                if *c == suppress_alerts {
+                    ctx.metrics.alerts_suppressed = true;
+                }
             }
         }
 
