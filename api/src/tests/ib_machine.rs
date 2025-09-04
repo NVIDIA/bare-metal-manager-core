@@ -23,7 +23,7 @@ use common::api_fixtures::create_managed_host;
 use forge_uuid::machine::MachineId;
 
 #[crate::sqlx_test]
-async fn machine_reports_ib_status(pool: sqlx::PgPool) {
+async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPool) {
     let mut config = common::api_fixtures::get_config();
     config.ib_config = Some(IBFabricConfig {
         enabled: true,
@@ -126,6 +126,8 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
 
     // Also bind the 2nd GUID and 4th GUID with a partition behind the scenes
     // Partition 2 has no representation in Forge
+    // This should lead to certain metrics being emitted. It also should lead to
+    // the misconfiguration being auto-corrected
     let (ib_partition_id1, ib_partition1) = create_ib_partition(
         &env,
         "test_ib_partition".to_string(),
@@ -197,8 +199,6 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
         Some(HashSet::from_iter([guid2.clone()]))
     );
 
-    env.ib_fabric_manager.get_mock_manager();
-
     env.ib_fabric_monitor.run_single_iteration().await.unwrap();
     assert_eq!(
         env.test_meter
@@ -245,6 +245,15 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
             .formatted_metric("forge_ib_monitor_machines_with_unknown_pkeys_count")
             .unwrap(),
         "1"
+    );
+    // Automatic reconcilation unassigns the unexpected pkey
+    assert_eq!(
+        env.test_meter
+            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+        vec![(
+            "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}".to_string(),
+            "3".to_string()
+        )]
     );
 
     active_lids.clear();
@@ -318,4 +327,88 @@ async fn machine_reports_ib_status(pool: sqlx::PgPool) {
 
         assert_ne!(ib_status.ib_interfaces.len(), 0);
     }
+
+    // After the last run, the unexpected pkeys have been removed
+    env.ib_fabric_monitor.run_single_iteration().await.unwrap();
+    // Double check that the setting is applied
+    let err = ib_manager
+        .get_ib_network(
+            pkey1.into(),
+            GetPartitionOptions {
+                include_guids_data: true,
+                include_qos_conf: true,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        format!("ufm_path not found: /resources/pkeys/{pkey1}")
+    );
+    let err = ib_manager
+        .get_ib_network(
+            pkey2.into(),
+            GetPartitionOptions {
+                include_guids_data: true,
+                include_qos_conf: true,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        format!("ufm_path not found: /resources/pkeys/{pkey2}")
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machine_ib_status_updates_count")
+            .unwrap(),
+        "1"
+    );
+    assert_eq!(
+        env.test_meter
+            .parsed_metrics("forge_ib_monitor_machines_by_port_state_count"),
+        vec![
+            (
+                "{active_ports=\"4\",total_ports=\"6\"}".to_string(),
+                "1".to_string()
+            ),
+            (
+                "{active_ports=\"6\",total_ports=\"6\"}".to_string(),
+                "1".to_string()
+            )
+        ]
+    );
+    assert_eq!(
+        env.test_meter
+            .parsed_metrics("forge_ib_monitor_machines_by_ports_with_partitions_count"),
+        vec![("{ports_with_partitions=\"0\"}".to_string(), "2".to_string())]
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_missing_pkeys_count")
+            .unwrap(),
+        "0"
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_unexpected_pkeys_count")
+            .unwrap(),
+        "0"
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_unknown_pkeys_count")
+            .unwrap(),
+        "0"
+    );
+    // No additional changes means the counter metric has the same values
+    assert_eq!(
+        env.test_meter
+            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+        vec![(
+            "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}".to_string(),
+            "3".to_string()
+        )]
+    );
 }

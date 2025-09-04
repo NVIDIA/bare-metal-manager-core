@@ -45,7 +45,7 @@ use crate::{
 };
 
 mod metrics;
-use metrics::IbFabricMonitorMetrics;
+use metrics::{AppliedChange, IbFabricMonitorMetrics};
 
 use self::metrics::FabricMetrics;
 
@@ -335,33 +335,55 @@ impl IbFabricMonitor {
                 };
 
                 let conn = self.fabric_manager.connect(&fabric).await?;
-                match conn
+                let is_ok = match conn
                     .bind_ib_ports(partition.into(), vec![guid.clone()])
                     .await
                 {
                     Ok(()) => {
                         num_changes += 1;
+                        true
                     }
                     Err(e) => {
                         tracing::error!(
                             "Failed to bind {guid} to pkey {pkey} on fabric {fabric}: {e}"
                         );
+                        false
                     }
-                }
+                };
+
+                *metrics
+                    .applied_changes
+                    .entry(AppliedChange {
+                        fabric,
+                        operation: "bind_guid_to_pkey",
+                        is_ok,
+                    })
+                    .or_default() += 1;
             }
 
             for (fabric, guid, pkey) in report.unexpected_guid_pkeys {
                 let conn = self.fabric_manager.connect(&fabric).await?;
-                match conn.unbind_ib_ports(pkey.into(), vec![guid.clone()]).await {
+                let is_ok = match conn.unbind_ib_ports(pkey.into(), vec![guid.clone()]).await {
                     Ok(()) => {
                         num_changes += 1;
+                        true
                     }
                     Err(e) => {
                         tracing::error!(
                             "Failed to unbind {guid} from pkey {pkey} on fabric {fabric}: {e}"
                         );
+                        false
                     }
-                }
+                };
+
+                *metrics
+                    .applied_changes
+                    .entry(AppliedChange {
+                        fabric,
+                        operation: "unbind_guid_from_pkey",
+                        is_ok,
+                    })
+                    .or_default() += 1;
             }
         }
 
