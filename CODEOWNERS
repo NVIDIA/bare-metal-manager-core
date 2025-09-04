@@ -1,0 +1,24 @@
+# This file is separated into sections, and each section is evaluated
+# and enforced separately. The names of the sections have no meaning to gitlab.
+# 
+# See https://docs.gitlab.com/user/project/codeowners/reference/ for syntax.
+#
+# Note in particular this warning:
+# > If an entry is duplicated in a section, the last entry is used. Rules
+# > defined later in the file take precedence over earlier rules.
+
+# We keep this in its own section to ensure it gets evaluated separately.
+[meta owners]
+CODEOWNERS @@Owner
+
+# Code with security or correctness concerns can be assigned owners here.
+[critical]
+
+# Anything related to keeping CI/CD working should be defined here.
+[cicd]
+.gitlab-ci.yml @lgray
+
+# Anything in this section is an optional approval, but can be useful
+# to subscribe to changes in certain areas.
+^[notification]
+common/network/src/ip/ @drew
