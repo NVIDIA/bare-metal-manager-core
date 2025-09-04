@@ -516,7 +516,7 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
     result
 }
 
-fn get_memory_details(memory_devices: &Vec<MemoryDevice>) -> Option<String> {
+pub fn get_memory_details(memory_devices: &Vec<MemoryDevice>) -> Option<String> {
     let mut breakdown = BTreeMap::default();
     let mut total_size = 0;
     for md in memory_devices {

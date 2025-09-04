@@ -154,7 +154,7 @@ pub async fn list_health_report_overrides(
         overrides: host_machine
             .health_report_overrides
             .clone()
-            .create_iter()
+            .into_iter()
             .map(|o| HealthReportOverride {
                 report: Some(o.0.into()),
                 mode: o.1 as i32,

@@ -1,13 +1,19 @@
+use crate::db::managed_host;
+use crate::db::managed_host::LoadSnapshotOptions;
+use crate::model::hardware_info::HardwareInfo;
+use crate::tests::common::api_fixtures::dpu::DpuConfig;
+use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
+use crate::tests::common::api_fixtures::site_explorer;
+use crate::tests::{
+    common::api_fixtures::{create_managed_host_multi_dpu, create_test_env},
+    web::{authenticated_request_builder, make_test_app},
+};
+use crate::web::managed_host::ManagedHostRowDisplay;
 use axum::body::Body;
 use http_body_util::BodyExt;
 use hyper::http::StatusCode;
 use tower::ServiceExt;
 use utils::ManagedHostOutput;
-
-use crate::tests::{
-    common::api_fixtures::{create_managed_host_multi_dpu, create_test_env},
-    web::{authenticated_request_builder, make_test_app},
-};
 
 #[crate::sqlx_test]
 async fn test_ok(pool: sqlx::PgPool) {
@@ -101,4 +107,121 @@ async fn test_multi_dpu(pool: sqlx::PgPool) {
             "DPU should not have the same machine ID as the host"
         );
     }
+}
+
+// Test the ManagedHostRowDisplay as a proxy for testing that the HTML has what we want in
+// managed_host::show_html (parsing the HTML string is prohibitive)
+#[crate::sqlx_test]
+async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
+    let env = create_test_env(pool).await;
+    let config = ManagedHostConfig::with_dpus((0..2).map(|_| DpuConfig::default()).collect());
+    let hardware_info = HardwareInfo::from(&config);
+    let mock_host = site_explorer::new_mock_host(&env, config).await?;
+
+    // Get info from what we mocked for site explorer so we know what to assert on in the ManagedHostRowDisplay
+    let machine_id = mock_host
+        .discovered_machine_id()
+        .expect("mock host should have gotten a machine ID");
+    let host_bmc_ip = mock_host
+        .host_bmc_ip
+        .expect("mock host should have gotten a BMC IP");
+    let dpu_1_bmc_ip = *mock_host
+        .dpu_bmc_ips
+        .get(&0)
+        .expect("mock DPU should have gotten a BMC IP");
+    let dpu_2_bmc_ip = *mock_host
+        .dpu_bmc_ips
+        .get(&1)
+        .expect("mock DPU should have gotten a BMC IP");
+
+    // Load snapshots the way
+    let snapshots = managed_host::load_all(
+        &mut env.pool.begin().await.unwrap(),
+        LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: false,
+            host_health_config: env.config.host_health,
+        },
+    )
+    .await?;
+
+    assert_eq!(
+        snapshots.len(),
+        1,
+        "Unexpected number of managed host snapshots"
+    );
+
+    let snapshot = snapshots.into_iter().next().unwrap();
+    assert_eq!(snapshot.host_snapshot.id, machine_id);
+
+    let row = ManagedHostRowDisplay::from(snapshot.clone());
+
+    assert!(row.maintenance_start_time.is_empty());
+    assert!(row.maintenance_reference.is_empty());
+    assert_eq!(row.state, "Ready");
+    assert_eq!(row.num_ib_ifs, hardware_info.infiniband_interfaces.len());
+    assert_eq!(row.num_gpus, hardware_info.gpus.len(),);
+    assert!(!row.time_in_state_above_sla);
+    assert!(!row.time_in_state.is_empty()); // Should match something like "0 seconds"
+    assert_eq!(row.host_bmc_ip, host_bmc_ip.to_string());
+    assert_eq!(
+        row.host_bmc_mac,
+        mock_host.managed_host.bmc_mac_address.to_string()
+    );
+    assert_eq!(
+        row.vendor,
+        hardware_info.dmi_data.as_ref().unwrap().sys_vendor
+    );
+    assert_eq!(
+        row.model,
+        hardware_info.dmi_data.as_ref().unwrap().product_name
+    );
+    assert_eq!(row.machine_id, machine_id.to_string());
+    assert!(row.health_overrides.is_empty());
+    assert!(row.health_probe_alerts.is_empty());
+    assert!(!row.host_admin_ip.is_empty());
+    assert_eq!(
+        row.host_admin_mac,
+        hardware_info
+            .network_interfaces
+            .first()
+            .unwrap()
+            .mac_address
+            .to_string()
+    );
+    assert!(row.state_reason.is_empty());
+
+    assert_eq!(row.dpus.len(), 2);
+
+    assert_eq!(
+        row.dpus[0].machine_id,
+        snapshot.dpu_snapshots[0].id.to_string()
+    );
+    assert_eq!(row.dpus[0].bmc_ip, dpu_1_bmc_ip.to_string());
+    assert_eq!(
+        row.dpus[0].bmc_mac,
+        mock_host.managed_host.dpus[0].bmc_mac_address.to_string()
+    );
+    assert_eq!(
+        row.dpus[0].oob_mac,
+        mock_host.managed_host.dpus[0].oob_mac_address.to_string()
+    );
+    assert!(!row.dpus[0].oob_ip.is_empty(), "dpu should show an oob ip");
+
+    assert_eq!(
+        row.dpus[1].machine_id,
+        snapshot.dpu_snapshots[1].id.to_string()
+    );
+    assert_eq!(row.dpus[1].bmc_ip, dpu_2_bmc_ip.to_string());
+    assert_eq!(
+        row.dpus[1].bmc_mac,
+        mock_host.managed_host.dpus[1].bmc_mac_address.to_string()
+    );
+    assert_eq!(
+        row.dpus[1].oob_mac,
+        mock_host.managed_host.dpus[1].oob_mac_address.to_string()
+    );
+    assert!(!row.dpus[1].oob_ip.is_empty(), "dpu should show an oob ip");
+
+    Ok(())
 }

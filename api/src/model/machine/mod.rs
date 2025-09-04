@@ -867,27 +867,12 @@ impl From<Machine> for rpc::forge::Machine {
             false => HealthReport::empty("aggregate-health".to_string()), // Health is written by ManagedHostStateSnapshot
         };
 
-        // Derive legacy Maintenance mode fields
-        // They are determine by the value of a well-known health override, that is also set
-        // via SetMaintenance API
         let (maintenance_reference, maintenance_start_time) = if !machine.is_dpu() {
-            match machine.health_report_overrides.merges.get("maintenance") {
-                Some(r#override) => {
-                    let maintenance_alert_id = "Maintenance".parse().unwrap();
-                    match r#override
-                        .alerts
-                        .iter()
-                        .find(|alert| alert.id == maintenance_alert_id)
-                    {
-                        Some(alert) => (
-                            Some(alert.message.clone()),
-                            alert.in_alert_since.map(rpc::Timestamp::from),
-                        ),
-                        None => (None, None),
-                    }
-                }
-                None => (None, None),
-            }
+            machine
+                .health_report_overrides
+                .maintenance_override()
+                .map(|o| (Some(o.maintenance_reference), o.maintenance_start_time))
+                .unwrap_or_default()
         } else {
             (None, None)
         };
@@ -965,7 +950,7 @@ impl From<Machine> for rpc::forge::Machine {
             firmware_autoupdate: machine.firmware_autoupdate,
             health_overrides: machine
                 .health_report_overrides
-                .create_iter()
+                .into_iter()
                 .map(|(hr, m)| HealthOverrideOrigin {
                     mode: m as i32,
                     source: hr.source,

@@ -17,15 +17,21 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
+use futures_util::TryFutureExt;
 use hyper::http::StatusCode;
 use itertools::Itertools;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
-use utils::ManagedHostMetadata;
-use utils::managed_host_display::ManagedHostAttachedDpu;
+use utils::managed_host_display::get_memory_details;
+use utils::{ManagedHostMetadata, reason_to_user_string};
 
 use super::filters;
 use crate::api::Api;
+use crate::db::managed_host::LoadSnapshotOptions;
+use crate::db::{DatabaseError, managed_host};
+use crate::model;
+use crate::model::machine;
+use crate::model::machine::{Machine, ManagedHostStateSnapshot};
 
 const UNKNOWN: &str = "Unknown";
 
@@ -66,27 +72,153 @@ struct HostGroup {
 }
 
 #[derive(PartialEq, Eq)]
-struct ManagedHostRowDisplay {
-    machine_id: String,
-    state: String,
-    time_in_state: String,
-    time_in_state_above_sla: bool,
-    state_reason: String,
-    health_probe_alerts: Vec<health_report::HealthProbeAlert>,
-    health_overrides: Vec<String>,
-    host_admin_ip: String,
-    host_admin_mac: String,
-    host_bmc_ip: String,
-    host_bmc_mac: String,
-    vendor: String,
-    model: String,
-    num_gpus: usize,
-    num_ib_ifs: usize,
-    host_memory: String,
-    is_link_ref: bool, // is maintenance_reference a URL?
-    maintenance_reference: String,
-    maintenance_start_time: String,
-    dpus: Vec<AttachedDpuRowDisplay>,
+pub struct ManagedHostRowDisplay {
+    pub machine_id: String,
+    pub state: String,
+    pub time_in_state: String,
+    pub time_in_state_above_sla: bool,
+    pub state_reason: String,
+    pub health_probe_alerts: Vec<health_report::HealthProbeAlert>,
+    pub health_overrides: Vec<String>,
+    pub host_admin_ip: String,
+    pub host_admin_mac: String,
+    pub host_bmc_ip: String,
+    pub host_bmc_mac: String,
+    pub vendor: String,
+    pub model: String,
+    pub num_gpus: usize,
+    pub num_ib_ifs: usize,
+    pub host_memory: String,
+    pub is_link_ref: bool, // is maintenance_reference a URL?
+    pub maintenance_reference: String,
+    pub maintenance_start_time: String,
+    pub dpus: Vec<AttachedDpuRowDisplay>,
+}
+
+impl From<ManagedHostStateSnapshot> for ManagedHostRowDisplay {
+    fn from(item: ManagedHostStateSnapshot) -> Self {
+        let ManagedHostStateSnapshot {
+            host_snapshot,
+            dpu_snapshots,
+            aggregate_health,
+            ..
+        } = item;
+
+        let (maintenance_reference, maintenance_start_time) = host_snapshot
+            .health_report_overrides
+            .maintenance_override()
+            .map(|o| {
+                (
+                    o.maintenance_reference,
+                    o.maintenance_start_time
+                        .map(|t| t.to_string())
+                        .unwrap_or_default(),
+                )
+            })
+            .unwrap_or_default();
+
+        // Decompose hardware_info into the pieces we want to show
+        let (vendor, model, num_gpus, num_ib_ifs, host_memory) = host_snapshot
+            .hardware_info
+            .map(|hardware_info| {
+                let (vendor, model) = hardware_info
+                    .dmi_data
+                    .map(|d| (d.sys_vendor, d.product_name))
+                    .unwrap_or_default();
+
+                (
+                    vendor,
+                    model,
+                    hardware_info.gpus.len(),
+                    hardware_info.infiniband_interfaces.len(),
+                    get_memory_details(
+                        &hardware_info
+                            .memory_devices
+                            .into_iter()
+                            .map_into()
+                            .collect(),
+                    )
+                    .unwrap_or_default(),
+                )
+            })
+            .unwrap_or_default();
+        let host_bmc_ip = host_snapshot.bmc_info.ip.unwrap_or_default();
+        let host_bmc_mac = host_snapshot
+            .bmc_info
+            .mac
+            .map(|m| m.to_string())
+            .unwrap_or_default();
+
+        let (host_admin_ip, host_admin_mac) = host_snapshot
+            .interfaces
+            .into_iter()
+            .find(|i| i.primary_interface)
+            .map(|i| {
+                (
+                    i.addresses
+                        .first()
+                        .map(|i| i.to_string())
+                        .unwrap_or_default(),
+                    i.mac_address.to_string(),
+                )
+            })
+            .unwrap_or_default();
+
+        Self {
+            machine_id: host_snapshot.id.to_string(),
+            state: host_snapshot.state.value.to_string(),
+            time_in_state: host_snapshot.state.version.since_state_change_humanized(),
+            time_in_state_above_sla: machine::state_sla(
+                &host_snapshot.state.value,
+                &host_snapshot.state.version,
+            )
+            .time_in_state_above_sla,
+            state_reason: host_snapshot
+                .controller_state_outcome
+                .and_then(|o| reason_to_user_string(&o.into()))
+                .unwrap_or_default(),
+            health_probe_alerts: aggregate_health.alerts,
+            health_overrides: host_snapshot
+                .health_report_overrides
+                .into_iter()
+                .map(|(r, _)| r.source)
+                .collect(),
+            host_bmc_ip,
+            host_bmc_mac,
+            host_admin_ip,
+            host_admin_mac,
+            vendor,
+            model,
+            num_gpus,
+            num_ib_ifs,
+            host_memory,
+            is_link_ref: maintenance_reference.starts_with("http"),
+            maintenance_reference,
+            maintenance_start_time,
+            dpus: dpu_snapshots.into_iter().map_into().collect(),
+        }
+    }
+}
+
+impl From<model::machine::Machine> for AttachedDpuRowDisplay {
+    fn from(item: Machine) -> Self {
+        let bmc_ip = item.bmc_info.ip.unwrap_or_default();
+        let bmc_mac = item.bmc_info.mac.map(|m| m.to_string()).unwrap_or_default();
+        let primary_iface = item.interfaces.iter().find(|i| i.primary_interface);
+        let oob_ip = primary_iface
+            .and_then(|t| t.addresses.first().map(|a| a.to_string()))
+            .unwrap_or_default();
+        let oob_mac = primary_iface
+            .map(|t| t.mac_address.to_string())
+            .unwrap_or_default();
+        Self {
+            machine_id: item.id.to_string(),
+            bmc_ip,
+            bmc_mac,
+            oob_ip,
+            oob_mac,
+        }
+    }
 }
 
 impl PartialOrd for ManagedHostRowDisplay {
@@ -103,12 +235,12 @@ impl Ord for ManagedHostRowDisplay {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
-struct AttachedDpuRowDisplay {
-    machine_id: String,
-    bmc_ip: String,
-    bmc_mac: String,
-    oob_ip: String,
-    oob_mac: String,
+pub struct AttachedDpuRowDisplay {
+    pub machine_id: String,
+    pub bmc_ip: String,
+    pub bmc_mac: String,
+    pub oob_ip: String,
+    pub oob_mac: String,
 }
 
 enum DpuProperty {
@@ -243,62 +375,30 @@ impl ManagedHostRowDisplay {
     }
 }
 
-impl From<utils::ManagedHostOutput> for ManagedHostRowDisplay {
-    fn from(o: utils::ManagedHostOutput) -> Self {
-        let maint_ref = o.maintenance_reference.unwrap_or_default();
-        ManagedHostRowDisplay {
-            machine_id: o.machine_id.unwrap_or(UNKNOWN.to_string()),
-            state: o.state,
-            time_in_state: o.time_in_state,
-            time_in_state_above_sla: o.time_in_state_above_sla,
-            state_reason: o.state_reason,
-            health_probe_alerts: o.health.alerts.clone(),
-            health_overrides: o.health_overrides,
-            host_bmc_ip: o.host_bmc_ip.unwrap_or_default(),
-            host_bmc_mac: o.host_bmc_mac.unwrap_or_default(),
-            host_admin_ip: o.host_admin_ip.unwrap_or_default(),
-            host_admin_mac: o.host_admin_mac.unwrap_or_default(),
-            vendor: o
-                .discovery_info
-                .clone()
-                .dmi_data
-                .map(|dmi| dmi.sys_vendor)
-                .unwrap_or_default(),
-            model: o
-                .discovery_info
-                .dmi_data
-                .map(|dmi| dmi.product_name)
-                .unwrap_or_default(),
-            num_gpus: o.host_gpu_count,
-            num_ib_ifs: o.host_ib_ifs_count,
-            host_memory: o.host_memory.unwrap_or(UNKNOWN.to_string()),
-            is_link_ref: maint_ref.starts_with("http"),
-            maintenance_reference: maint_ref,
-            maintenance_start_time: o.maintenance_start_time.unwrap_or_default(),
-            dpus: o.dpus.into_iter().map_into().collect(),
-        }
-    }
-}
-
-impl From<ManagedHostAttachedDpu> for AttachedDpuRowDisplay {
-    fn from(d: ManagedHostAttachedDpu) -> Self {
-        Self {
-            machine_id: d.machine_id.unwrap_or(UNKNOWN.to_string()),
-            bmc_ip: d.bmc_ip.unwrap_or_default(),
-            bmc_mac: d.bmc_mac.unwrap_or_default(),
-            oob_ip: d.oob_ip.unwrap_or_default(),
-            oob_mac: d.oob_mac.unwrap_or_default(),
-        }
-    }
-}
-
 /// List managed hosts
 pub async fn show_html(
     state: AxumState<Arc<Api>>,
     Query(mut params): Query<HashMap<String, String>>,
 ) -> Response {
-    let managed_hosts = match fetch_managed_hosts(state, false).await {
-        Ok(m) => m,
+    let host_health = state.runtime_config.host_health;
+    let managed_hosts = match state
+        .database_connection
+        .acquire()
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin managed host show_html", e))
+        .and_then(|mut conn| async move {
+            managed_host::load_all(
+                &mut conn,
+                LoadSnapshotOptions {
+                    include_history: false,
+                    include_instance_data: false,
+                    host_health_config: host_health,
+                },
+            )
+            .await
+        })
+        .await
+    {
+        Ok(hosts) => hosts,
         Err(err) => {
             tracing::error!(%err, "fetch_managed_hosts");
             return (
@@ -530,7 +630,7 @@ fn filter_expr(keys: &[GroupingKey], values: &[String]) -> String {
 }
 
 pub async fn show_all_json(state: AxumState<Arc<Api>>) -> Response {
-    let mut managed_hosts = match fetch_managed_hosts(state, true).await {
+    let mut managed_hosts = match fetch_managed_hosts_with_metadata(state, true).await {
         Ok(m) => m,
         Err(err) => {
             tracing::error!(%err, "fetch_managed_hosts");
@@ -545,7 +645,10 @@ pub async fn show_all_json(state: AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(managed_hosts)).into_response()
 }
 
-async fn fetch_managed_hosts(
+/// Get all managed hosts, with expensive metadata like connected network devices, using information
+/// from site explorer, redfish, etc. This is a very expensive call and should be used only for
+/// cases which need all of this information.
+async fn fetch_managed_hosts_with_metadata(
     AxumState(api): AxumState<Arc<Api>>,
     include_history: bool,
 ) -> eyre::Result<Vec<utils::ManagedHostOutput>> {
@@ -597,19 +700,21 @@ fn mem_to_size(mem: &str) -> isize {
     if mem == UNKNOWN {
         return 0;
     }
-    let parts: Vec<&str> = mem.split_whitespace().collect();
 
     // The first number is the size, and the second part is the unit (GiB or TiB)
-    let Ok(size) = parts[0].parse::<f64>() else {
+    let Some((Ok(size), unit)) = mem
+        .split_once(|s: char| s.is_whitespace())
+        .map(|(size, unit)| (size.parse::<f64>(), unit))
+    else {
         tracing::warn!("Invalid memory format: '{mem}'");
         return 0;
     };
-    let unit = parts[1];
+
     (match unit {
         "GiB" => size,
         "TiB" => size * 1024.0,
         _ => {
-            tracing::warn!("Invalid unit '{}' in mem string '{mem}'", parts[1]);
+            tracing::warn!("Invalid unit '{}' in mem string '{mem}'", unit);
             return 0;
         }
     }) as isize
