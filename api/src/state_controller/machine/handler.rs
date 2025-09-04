@@ -2735,6 +2735,13 @@ async fn check_fw_component_version(
                 );
             }
 
+            tracing::warn!(
+                "{:#?} FW didn't update succesfully. Expected version: {}, Current version: {}",
+                component,
+                expected_version,
+                cur_version,
+            );
+
             // Don't return Error. In case of the error, reboot time won't be updated in db.
             // This will cause continuous reboot of machine after first failure_retry_time is
             // passed.
@@ -2750,6 +2757,41 @@ async fn check_fw_component_version(
             component,
             expected_version,
         );
+
+        // BMC FW version need to update in machine_topology->bmc_info
+        if component == FirmwareComponentType::Bmc
+            && dpu_snapshot
+                .bmc_info
+                .clone()
+                .firmware_version
+                .is_some_and(|v| v != cur_version)
+            && dpu_snapshot.bmc_addr().is_some()
+        {
+            let mut bios_version: Option<String> =
+                match redfish_client.get_firmware("DPU_UEFI").await {
+                    Ok(uefi) => uefi.version.clone(),
+                    Err(e) => {
+                        tracing::error!("redfish command get_firmware error {}", e.to_string());
+                        None
+                    }
+                };
+
+            if bios_version.is_none() {
+                let hardware_info = dpu_snapshot.hardware_info.clone();
+                bios_version = hardware_info
+                    .as_ref()
+                    .and_then(|h| h.dmi_data.as_ref())
+                    .map(|d| d.bios_version.clone());
+            }
+            MachineTopology::update_firmware_version_by_bmc_address(
+                txn,
+                &dpu_snapshot.bmc_addr().unwrap().ip(),
+                cur_version.as_str(),
+                bios_version.unwrap_or("".to_string()).as_str(),
+            )
+            .await
+            .map_err(|e| StateHandlerError::FirmwareUpdateError(eyre!(e)))?;
+        }
     }
 
     // All good.
