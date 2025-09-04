@@ -716,7 +716,7 @@ pub mod tests {
             .bind(machine_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "clear sku last match attempt", e))?;
+            .map_err(|e| DatabaseError::new("clear sku last match attempt", e))?;
 
         Ok(())
     }

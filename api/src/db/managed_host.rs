@@ -44,7 +44,7 @@ pub async fn load_all(
     ))
     .fetch_all(txn)
     .await
-    .map_err(|e| DatabaseError::new(file!(), line!(), "managed_host::load_all", e))?
+    .map_err(|e| DatabaseError::new("managed_host::load_all", e))?
     .into_iter()
     .map(|mut snapshot: ManagedHostStateSnapshot| {
         snapshot.derive_aggregate_health(options.host_health_config);
@@ -102,9 +102,7 @@ pub async fn load_by_machine_ids(
             .bind(host_ids)
             .fetch_all(txn)
             .await
-            .map_err(|e| {
-                DatabaseError::new(file!(), line!(), "managed_host::load_by_machine_ids", e)
-            })?
+            .map_err(|e| DatabaseError::new("managed_host::load_by_machine_ids", e))?
             .into_iter()
             .map(|mut snapshot: ManagedHostStateSnapshot| {
                 snapshot.derive_aggregate_health(options.host_health_config);
@@ -176,7 +174,7 @@ pub async fn load_by_instance_ids(
         .build_query_as()
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "managed_host::load_by_instance_ids", e))?
+        .map_err(|e| DatabaseError::new("managed_host::load_by_instance_ids", e))?
         .into_iter()
         .map(|mut s: ManagedHostStateSnapshot| {
             s.derive_aggregate_health(load_snapshot_options.host_health_config);

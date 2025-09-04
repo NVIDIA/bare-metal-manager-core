@@ -251,11 +251,13 @@ pub struct DatabaseError {
 }
 
 impl DatabaseError {
-    pub fn new(file: &'static str, line: u32, query: &str, source: sqlx::Error) -> DatabaseError {
+    #[track_caller]
+    pub fn new(op_name: &str, source: sqlx::Error) -> DatabaseError {
+        let loc = Location::caller();
         DatabaseError {
-            file,
-            line,
-            query: query.to_string(),
+            file: loc.file(),
+            line: loc.line(),
+            query: op_name.to_string(),
             source,
         }
     }
@@ -330,6 +332,15 @@ impl From<DatabaseError> for tonic::Status {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_database_error_new() {
+        const OP_NAME: &str = "something people want to say";
+        let err = DatabaseError::new(OP_NAME, sqlx::Error::protocol("some error"));
+        assert_eq!(err.line, line!() - 1);
+        assert_eq!(err.file, file!());
+        assert!(format!("{err}").contains(OP_NAME))
+    }
 
     #[test]
     fn test_database_error_txn_begin() {

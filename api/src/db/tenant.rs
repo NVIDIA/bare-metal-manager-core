@@ -119,7 +119,7 @@ impl Tenant {
             .build_query_as::<(String,)>()
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "find_tenant_organization_ids", e))?
+            .map_err(|e| DatabaseError::new("find_tenant_organization_ids", e))?
             .into_iter()
             .map(|row| row.0)
             .collect();
@@ -212,7 +212,7 @@ impl TenantKeyset {
         let ids: Vec<TenantKeysetId> = query
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "tenant_keyset::find_ids", e))?;
+            .map_err(|e| DatabaseError::new("tenant_keyset::find_ids", e))?;
 
         Ok(ids)
     }
@@ -235,7 +235,7 @@ impl TenantKeyset {
         let mut keysets: Vec<TenantKeyset> = query
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "tenant_keyset::find_by_ids", e))?;
+            .map_err(|e| DatabaseError::new("tenant_keyset::find_by_ids", e))?;
 
         if !include_key_data {
             for data in &mut keysets {
@@ -260,7 +260,7 @@ impl TenantKeyset {
                     .bind(organization_id.to_string())
                     .fetch_all(txn)
                     .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "keyset All", e)),
+                    .map_err(|e| DatabaseError::new("keyset All", e)),
 
                 ObjectFilter::One(keyset_id) => {
                     sqlx::query_as(&base_query.replace("{where}", "AND keyset_id = $2"))

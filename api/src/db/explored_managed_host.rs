@@ -56,9 +56,10 @@ impl DbExploredManagedHost {
         // grab list of IPs
         let mut builder = sqlx::QueryBuilder::new("SELECT host_bmc_ip FROM explored_managed_hosts");
         let query = builder.build_query_as();
-        let ids: Vec<ExploredManagedHostIp> = query.fetch_all(txn).await.map_err(|e| {
-            DatabaseError::new(file!(), line!(), "explored_managed_hosts::find_ips", e)
-        })?;
+        let ids: Vec<ExploredManagedHostIp> = query
+            .fetch_all(txn)
+            .await
+            .map_err(|e| DatabaseError::new("explored_managed_hosts::find_ips", e))?;
         // Convert to Vec<IpAddr> and return.
         Ok(ids.iter().map(|id| id.0).collect())
     }
@@ -74,9 +75,7 @@ impl DbExploredManagedHost {
             .fetch_all(txn)
             .await
             .map(|hosts| hosts.into_iter().map(Into::into).collect())
-            .map_err(|e| {
-                DatabaseError::new(file!(), line!(), "explored_managed_hosts::find_by_ips", e)
-            })
+            .map_err(|e| DatabaseError::new("explored_managed_hosts::find_by_ips", e))
     }
 
     pub async fn find_all(
@@ -88,7 +87,7 @@ impl DbExploredManagedHost {
             .fetch_all(txn)
             .await
             .map(|hosts| hosts.into_iter().map(Into::into).collect())
-            .map_err(|e| DatabaseError::new(file!(), line!(), "explored_managed_hosts find_all", e))
+            .map_err(|e| DatabaseError::new("explored_managed_hosts find_all", e))
     }
 
     pub async fn update(

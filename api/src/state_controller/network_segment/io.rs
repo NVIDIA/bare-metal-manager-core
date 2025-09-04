@@ -76,8 +76,6 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         }
         if segments.len() > 1 {
             return Err(DatabaseError::new(
-                file!(),
-                line!(),
                 "NetworkSegment::find()",
                 sqlx::Error::Decode(
                     eyre::eyre!(

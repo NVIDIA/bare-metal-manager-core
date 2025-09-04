@@ -50,8 +50,6 @@ pub async fn match_latest_reports(
 ) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
     if values.is_empty() {
         return Err(DatabaseError::new(
-            file!(),
-            line!(),
             "match_latest_reports",
             sqlx::Error::Protocol(String::from("empty values list")),
         ));
@@ -84,7 +82,7 @@ pub async fn match_latest_reports(
     prepared
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "match_latest_reports", e))
+        .map_err(|e| DatabaseError::new("match_latest_reports", e))
 }
 
 /// insert_measurement_report_record is a very basic insert of a
@@ -100,7 +98,7 @@ pub async fn insert_measurement_report_record(
         .bind(machine_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "insert_measurement_report_record", e))
+        .map_err(|e| DatabaseError::new("insert_measurement_report_record", e))
 }
 
 /// insert_measurement_report_value_records takes a vec of
@@ -114,8 +112,6 @@ pub async fn insert_measurement_report_value_records(
 ) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
     if values.is_empty() {
         return Err(DatabaseError::new(
-            file!(),
-            line!(),
             "match_latest_reports",
             sqlx::Error::Protocol(String::from("empty PcrRegisterValues list")),
         ));
@@ -141,14 +137,7 @@ async fn insert_measurement_report_value_record(
         .bind(&value.sha_any)
         .fetch_one(txn)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "insert_measurement_report_value_record",
-                e,
-            )
-        })
+        .map_err(|e| DatabaseError::new("insert_measurement_report_value_record", e))
 }
 
 /// get_all_measurement_report_records returns all MeasurementReportRecord
@@ -157,14 +146,9 @@ async fn insert_measurement_report_value_record(
 pub async fn get_all_measurement_report_records(
     txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
-    common::get_all_objects(txn).await.map_err(|e| {
-        DatabaseError::new(
-            file!(),
-            line!(),
-            "get_all_measurement_report_records",
-            e.source,
-        )
-    })
+    common::get_all_objects(txn)
+        .await
+        .map_err(|e| DatabaseError::new("get_all_measurement_report_records", e.source))
 }
 
 /// get_measurement_report_record_by_id returns a populated
@@ -177,14 +161,7 @@ pub async fn get_measurement_report_record_by_id(
 ) -> Result<Option<MeasurementReportRecord>, DatabaseError> {
     common::get_object_for_id(txn, report_id)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_report_record_by_id",
-                e.source,
-            )
-        })
+        .map_err(|e| DatabaseError::new("get_measurement_report_record_by_id", e.source))
 }
 
 /// get_measurement_report_records_for_machine_id returns all report
@@ -196,14 +173,7 @@ pub async fn get_measurement_report_records_for_machine_id(
 ) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
     common::get_objects_where_id(txn, machine_id)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_report_records_for_machine_id",
-                e.source,
-            )
-        })
+        .map_err(|e| DatabaseError::new("get_measurement_report_records_for_machine_id", e.source))
 }
 
 /// get_measurement_report_values_for_report_id returns
@@ -218,14 +188,7 @@ pub async fn get_measurement_report_values_for_report_id(
 ) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
     common::get_objects_where_id(txn, report_id)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_report_values_for_report_id",
-                e.source,
-            )
-        })
+        .map_err(|e| DatabaseError::new("get_measurement_report_values_for_report_id", e.source))
 }
 
 /// delete_report_for_id deletes a report record.
@@ -244,7 +207,7 @@ pub async fn delete_report_values_for_id(
 ) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
     common::delete_objects_where_id(txn, report_id)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "delete_report_values_for_id", e.source))
+        .map_err(|e| DatabaseError::new("delete_report_values_for_id", e.source))
 }
 
 pub(crate) async fn update_report_tstamp(
@@ -258,7 +221,7 @@ pub(crate) async fn update_report_tstamp(
         .bind(report_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "update_report_tstamp", e))
+        .map_err(|e| DatabaseError::new("update_report_tstamp", e))
 }
 
 pub(crate) async fn update_report_values_tstamp(
@@ -273,7 +236,7 @@ pub(crate) async fn update_report_values_tstamp(
         .bind(report_id)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "update_report_values_tstamp", e))
+        .map_err(|e| DatabaseError::new("update_report_values_tstamp", e))
 }
 
 #[cfg(test)]
@@ -286,13 +249,8 @@ pub(crate) mod test_support {
     pub async fn get_all_measurement_report_value_records(
         txn: &mut PgConnection,
     ) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
-        common::get_all_objects(txn).await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_all_measurement_report_value_records",
-                e.source,
-            )
-        })
+        common::get_all_objects(txn)
+            .await
+            .map_err(|e| DatabaseError::new("get_all_measurement_report_value_records", e.source))
     }
 }

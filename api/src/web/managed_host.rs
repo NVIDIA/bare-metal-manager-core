@@ -384,7 +384,7 @@ pub async fn show_html(
     let managed_hosts = match state
         .database_connection
         .acquire()
-        .map_err(|e| DatabaseError::new(file!(), line!(), "begin managed host show_html", e))
+        .map_err(|e| DatabaseError::new("begin managed host show_html", e))
         .and_then(|mut conn| async move {
             managed_host::load_all(
                 &mut conn,

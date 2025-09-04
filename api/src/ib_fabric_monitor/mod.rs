@@ -196,14 +196,11 @@ impl IbFabricMonitor {
             return Ok(());
         }
 
-        let mut conn = self.db_pool.acquire().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "acquire connection",
-                e,
-            ))
-        })?;
+        let mut conn = self
+            .db_pool
+            .acquire()
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new("acquire connection", e)))?;
         let snapshots = match self.get_all_snapshots(&mut conn).await {
             Ok(snapshots) => snapshots,
             Err(e) => {
@@ -872,14 +869,10 @@ async fn record_machine_infiniband_status_observation(
     // from hardware_info.infiniband_interfaces[]
     // So it guarantees stable order between function calls
     if prev != cur {
-        let mut conn = db_pool.acquire().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "acquire connection",
-                e,
-            ))
-        })?;
+        let mut conn = db_pool
+            .acquire()
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new("acquire connection", e)))?;
         db::machine::update_infiniband_status_observation(&mut conn, machine_id, &cur).await?;
         metrics.num_machine_ib_status_updates += 1;
         mh_snapshot.host_snapshot.infiniband_status_observation = Some(cur);

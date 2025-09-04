@@ -77,14 +77,7 @@ async fn insert_measurement_profile_attr_record(
         .bind(value)
         .fetch_one(txn)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "insert_measurement_profile_attr_record",
-                e,
-            )
-        })
+        .map_err(|e| DatabaseError::new("insert_measurement_profile_attr_record", e))
 }
 
 /// rename_profile_for_profile_id renames a profile based on its profile ID.
@@ -104,7 +97,7 @@ pub async fn rename_profile_for_profile_id(
         .bind(profile_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "rename_profile_for_profile_id", e))
+        .map_err(|e| DatabaseError::new("rename_profile_for_profile_id", e))
 }
 
 /// rename_profile_for_profile_name renames a profile based
@@ -124,21 +117,16 @@ pub async fn rename_profile_for_profile_name(
         .bind(old_profile_name)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "rename_profile_for_profile_name", e))
+        .map_err(|e| DatabaseError::new("rename_profile_for_profile_name", e))
 }
 
 /// get_all_measurement_profile_records gets all system profile records.
 pub async fn get_all_measurement_profile_records(
     txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementSystemProfileRecord>, DatabaseError> {
-    common::get_all_objects(txn).await.map_err(|e| {
-        DatabaseError::new(
-            file!(),
-            line!(),
-            "get_all_measurement_profile_records",
-            e.source,
-        )
-    })
+    common::get_all_objects(txn)
+        .await
+        .map_err(|e| DatabaseError::new("get_all_measurement_profile_records", e.source))
 }
 
 /// get_measurement_profile_record_by_id returns a populated
@@ -150,14 +138,7 @@ pub async fn get_measurement_profile_record_by_id(
 ) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
     common::get_object_for_id(txn, profile_id)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_profile_record_by_id",
-                e.source,
-            )
-        })
+        .map_err(|e| DatabaseError::new("get_measurement_profile_record_by_id", e.source))
 }
 
 /// get_measurement_profile_record_by_name returns a populated
@@ -169,14 +150,7 @@ pub async fn get_measurement_profile_record_by_name(
 ) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
     common::get_object_for_unique_column(txn, "name", val)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_profile_record_by_name",
-                e.source,
-            )
-        })
+        .map_err(|e| DatabaseError::new("get_measurement_profile_record_by_name", e.source))
 }
 
 /// delete_profile_record_for_id deletes a profile record
@@ -187,7 +161,7 @@ pub async fn delete_profile_record_for_id(
 ) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
     common::delete_object_where_id(txn, profile_id)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "delete_profile_record_for_id", e.source))
+        .map_err(|e| DatabaseError::new("delete_profile_record_for_id", e.source))
 }
 
 /// delete_profile_attr_records_for_id deletes all profile
@@ -198,14 +172,7 @@ pub async fn delete_profile_attr_records_for_id(
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
     common::delete_objects_where_id(txn, profile_id)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "delete_profile_attr_records_for_id",
-                e.source,
-            )
-        })
+        .map_err(|e| DatabaseError::new("delete_profile_attr_records_for_id", e.source))
 }
 
 /// get_measurement_profile_record_by_attrs will attempt to get a single
@@ -282,9 +249,10 @@ pub async fn get_measurement_profile_id_by_attrs(
     query.push_bind(attrs_len);
 
     let query = query.build_query_as();
-    let ids = query.fetch_optional(txn).await.map_err(|e| {
-        DatabaseError::new(file!(), line!(), "get_measurement_profile_id_by_attrs", e)
-    })?;
+    let ids = query
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("get_measurement_profile_id_by_attrs", e))?;
 
     Ok(ids)
 }
@@ -312,14 +280,7 @@ pub async fn get_measurement_profile_attrs_for_profile_id(
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
     common::get_objects_where_id(txn, profile_id)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_measurement_profile_attrs_for_profile_id",
-                e.source,
-            )
-        })
+        .map_err(|e| DatabaseError::new("get_measurement_profile_attrs_for_profile_id", e.source))
 }
 
 /// get_bundles_for_profile_id returns a unique list of all
@@ -335,7 +296,7 @@ pub async fn get_bundles_for_profile_id(
         .bind(profile_id)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_bundles_for_profile_id", e))
+        .map_err(|e| DatabaseError::new("get_bundles_for_profile_id", e))
 }
 
 /// get_bundles_for_profile_name returns a unique list of all
@@ -352,7 +313,7 @@ pub async fn get_bundles_for_profile_name(
         .bind(profile_name)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_bundles_for_profile_name", e))
+        .map_err(|e| DatabaseError::new("get_bundles_for_profile_name", e))
 }
 
 /// get_machines_for_profile_id returns a unique list of all MachineId
@@ -368,7 +329,7 @@ pub async fn get_machines_for_profile_id(
         .bind(profile_id)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_profile_id", e))
+        .map_err(|e| DatabaseError::new("get_machines_for_profile_id", e))
 }
 
 /// get_machines_for_profile_name returns a unique list of all CandidateMachineId
@@ -384,7 +345,7 @@ pub async fn get_machines_for_profile_name(
         .bind(profile_name)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_machines_for_profile_name", e))
+        .map_err(|e| DatabaseError::new("get_machines_for_profile_name", e))
 }
 
 /// import_measurement_system_profiles takes a vector of MeasurementSystemProfileRecord
@@ -426,7 +387,7 @@ pub async fn import_measurement_profile(
         .bind(profile.ts)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "import_measurement_profile", e))
+        .map_err(|e| DatabaseError::new("import_measurement_profile", e))
 }
 
 /// import_measurement_system_profiles_attrs inserts a bunch of measurement profile
@@ -468,14 +429,7 @@ pub async fn import_measurement_system_profiles_attr(
         .bind(bundle.ts)
         .fetch_one(txn)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "import_measurement_system_profiles_attr",
-                e,
-            )
-        })
+        .map_err(|e| DatabaseError::new("import_measurement_system_profiles_attr", e))
 }
 
 /// export_measurement_profile_records returns all MeasurementSystemProfileRecord
@@ -485,14 +439,9 @@ pub async fn import_measurement_system_profiles_attr(
 pub async fn export_measurement_profile_records(
     txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementSystemProfileRecord>, DatabaseError> {
-    common::get_all_objects(txn).await.map_err(|e| {
-        DatabaseError::new(
-            file!(),
-            line!(),
-            "export_measurement_profile_records",
-            e.source,
-        )
-    })
+    common::get_all_objects(txn)
+        .await
+        .map_err(|e| DatabaseError::new("export_measurement_profile_records", e.source))
 }
 
 /// export_measurement_system_profiles_attrs returns all MeasurementSystemProfileAttrRecord
@@ -503,14 +452,9 @@ pub async fn export_measurement_profile_records(
 pub async fn export_measurement_system_profiles_attrs(
     txn: &mut PgConnection,
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
-    common::get_all_objects(txn).await.map_err(|e| {
-        DatabaseError::new(
-            file!(),
-            line!(),
-            "export_measurement_system_profiles_attrs",
-            e.source,
-        )
-    })
+    common::get_all_objects(txn)
+        .await
+        .map_err(|e| DatabaseError::new("export_measurement_system_profiles_attrs", e.source))
 }
 
 #[cfg(test)]
@@ -522,13 +466,8 @@ pub(crate) mod test_support {
     pub async fn get_all_measurement_profile_attr_records(
         txn: &mut PgConnection,
     ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
-        common::get_all_objects(txn).await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_all_measurement_profile_attr_records",
-                e.source,
-            )
-        })
+        common::get_all_objects(txn)
+            .await
+            .map_err(|e| DatabaseError::new("get_all_measurement_profile_attr_records", e.source))
     }
 }

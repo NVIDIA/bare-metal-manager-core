@@ -83,15 +83,11 @@ pub async fn new_with_txn(
                         db_err
                     )),
                     _ => CarbideError::from(DatabaseError::new(
-                        file!(),
-                        line!(),
                         "MeasurementBundle.new_with_txn db_err",
                         sqlx_err,
                     )),
                 },
                 None => CarbideError::from(DatabaseError::new(
-                    file!(),
-                    line!(),
                     "MeasurementBundle.new_with_txn sqlx_err",
                     sqlx_err,
                 )),

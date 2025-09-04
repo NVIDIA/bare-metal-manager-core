@@ -62,7 +62,7 @@ impl HostMachineUpdate {
         sqlx::query_as(query.as_str())
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "find_outdated_hosts", e))
+            .map_err(|e| DatabaseError::new("find_outdated_hosts", e))
     }
 
     pub async fn find_upgrade_in_progress(
@@ -73,7 +73,7 @@ impl HostMachineUpdate {
         sqlx::query_as(query)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "find_outdated_hosts", e))
+            .map_err(|e| DatabaseError::new("find_upgrade_in_progress", e))
     }
 
     pub async fn find_completed_updates(

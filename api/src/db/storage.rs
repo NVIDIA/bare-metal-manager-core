@@ -43,7 +43,7 @@ impl StorageCluster {
         sqlx::query_as(&query)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_cluster list", e))
+            .map_err(|e| DatabaseError::new("storage_cluster list", e))
     }
 
     pub async fn get(txn: &mut PgConnection, cluster_id: Uuid) -> Result<Self, DatabaseError> {
@@ -52,7 +52,7 @@ impl StorageCluster {
             .bind(cluster_id.to_string())
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_cluster get", e))
+            .map_err(|e| DatabaseError::new("storage_cluster get", e))
     }
 
     /// make sure we can login to it and get some status info before storing it
@@ -65,8 +65,6 @@ impl StorageCluster {
         let timestamp: DateTime<Utc> = Utc::now();
         let id: Uuid = Uuid::try_from(nvmesh_cluster.uuid.as_str()).map_err(|e| {
             DatabaseError::new(
-                file!(),
-                line!(),
                 "storage_cluster import",
                 sqlx::Error::Protocol(e.to_string()),
             )
@@ -181,14 +179,14 @@ impl StoragePool {
             let pools = sqlx::query_as(&query.replace("{where}", ""))
                 .fetch_all(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "storage_pools All", e))?;
+                .map_err(|e| DatabaseError::new("storage_pools All", e))?;
             return Ok(pools);
         }
         let pools = sqlx::query_as(&query.replace("{where}", &where_clause))
             .bind(filter)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_pool list", e))?;
+            .map_err(|e| DatabaseError::new("storage_pool list", e))?;
         Ok(pools)
     }
 
@@ -198,7 +196,7 @@ impl StoragePool {
             .bind(pool_id.to_string())
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_pool get", e))
+            .map_err(|e| DatabaseError::new("storage_pool get", e))
     }
 
     pub async fn create(
@@ -207,12 +205,7 @@ impl StoragePool {
         nvmesh_pool: &nvmesh::VolumeProvisioningGroup,
     ) -> Result<Self, DatabaseError> {
         let nvmesh_uuid: Uuid = Uuid::try_from(nvmesh_pool.id.as_str()).map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "storage_pool create",
-                sqlx::Error::Protocol(e.to_string()),
-            )
+            DatabaseError::new("storage_pool create", sqlx::Error::Protocol(e.to_string()))
         })?;
 
         let pool = StoragePool {
@@ -333,8 +326,6 @@ impl StorageVolume {
             where_clause = "WHERE l.source_id IS NULL".to_string();
         } else {
             return Err(DatabaseError::new(
-                file!(),
-                line!(),
                 "storage_volume list",
                 sqlx::Error::Protocol("invalid filters".to_string()),
             ));
@@ -343,7 +334,7 @@ impl StorageVolume {
         sqlx::query_as(&query.replace("{where}", &where_clause))
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_volume list", e))
+            .map_err(|e| DatabaseError::new("storage_volume list", e))
     }
 
     pub async fn get(txn: &mut PgConnection, volume_id: Uuid) -> Result<Self, DatabaseError> {
@@ -352,7 +343,7 @@ impl StorageVolume {
             .bind(volume_id.to_string())
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "storage_volumes One", e))
+            .map_err(|e| DatabaseError::new("storage_volumes One", e))
     }
 
     pub async fn create(
@@ -372,8 +363,6 @@ impl StorageVolume {
         }
         let nvmesh_uuid: Uuid = Uuid::try_from(nvmesh_vol.uuid.as_str()).map_err(|e| {
             DatabaseError::new(
-                file!(),
-                line!(),
                 "storage_volume create",
                 sqlx::Error::Protocol(e.to_string()),
             )
@@ -525,13 +514,13 @@ impl OsImage {
             sqlx::query_as(&query.replace("{where}", ""))
                 .fetch_all(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "os_images All", e))
+                .map_err(|e| DatabaseError::new("os_images All", e))
         } else {
             sqlx::query_as(&query.replace("{where}", &where_clause))
                 .bind(filter)
                 .fetch_all(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "os_images All", e))
+                .map_err(|e| DatabaseError::new("os_images All", e))
         }
     }
 
@@ -541,7 +530,7 @@ impl OsImage {
             .bind(os_image_id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "os_images All", e))
+            .map_err(|e| DatabaseError::new("os_images All", e))
     }
 
     pub async fn create(

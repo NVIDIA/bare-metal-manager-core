@@ -186,7 +186,7 @@ FROM expected_machines em
                     kind: "expected_machine",
                     id: self.bmc_mac_address.to_string(),
                 },
-                _ => DatabaseError::new(file!(), line!(), query, err).into(),
+                _ => DatabaseError::query(query, err).into(),
             })?;
 
         self.data.bmc_username = bmc_username;

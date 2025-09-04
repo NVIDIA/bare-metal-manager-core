@@ -179,7 +179,7 @@ impl NetworkPrefix {
             .bind(uuid)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::query(query, e))
     }
 
     /*
@@ -197,7 +197,7 @@ impl NetworkPrefix {
             .build_query_as()
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
+            .map_err(|e| DatabaseError::query(query.sql(), e))
     }
 
     // Return a list of network segment prefixes that are associated with this

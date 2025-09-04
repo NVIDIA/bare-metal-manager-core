@@ -140,7 +140,7 @@ impl DpuMachineUpdate {
         let (count,): (i64,) = sqlx::query_as(query)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "get_fw_updates_running_count", e))?;
+            .map_err(|e| DatabaseError::new("get_fw_updates_running_count", e))?;
 
         Ok(count)
     }

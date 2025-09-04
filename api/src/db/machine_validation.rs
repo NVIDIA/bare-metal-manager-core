@@ -103,7 +103,7 @@ impl MachineValidation {
             ObjectFilter::All => sqlx::query_as(&base_query.replace("{where}", ""))
                 .fetch_all(txn)
                 .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "MachineValidation All", e))?,
+                .map_err(|e| DatabaseError::new("MachineValidation All", e))?,
             ObjectFilter::One(id) => {
                 let query = base_query
                     .replace("{where}", &format!("WHERE result.{column}='{id}'"))
@@ -111,7 +111,7 @@ impl MachineValidation {
                 sqlx::query_as(&query)
                     .fetch_all(txn)
                     .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "MachineValidation One", e))?
+                    .map_err(|e| DatabaseError::new("MachineValidation One", e))?
             }
             ObjectFilter::List(list) => {
                 if list.is_empty() {
@@ -131,9 +131,10 @@ impl MachineValidation {
                     .replace("{where}", &format!("WHERE result.{column} IN ({columns})"))
                     .replace("{column}", column);
 
-                sqlx::query_as(&query).fetch_all(txn).await.map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "machine_validation List", e)
-                })?
+                sqlx::query_as(&query)
+                    .fetch_all(txn)
+                    .await
+                    .map_err(|e| DatabaseError::new("machine_validation List", e))?
             }
         };
 
@@ -585,16 +586,15 @@ impl MachineValidationResult {
             ObjectFilter::All => sqlx::query_as(&base_query.replace("{where}", ""))
                 .fetch_all(txn)
                 .await
-                .map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "machine_validation_results All", e)
-                })?,
+                .map_err(|e| DatabaseError::new("machine_validation_results All", e))?,
             ObjectFilter::One(id) => {
                 let query = base_query
                     .replace("{where}", &format!("WHERE result.{column}='{id}'"))
                     .replace("{column}", column);
-                sqlx::query_as(&query).fetch_all(txn).await.map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "machine_validation_results One", e)
-                })?
+                sqlx::query_as(&query)
+                    .fetch_all(txn)
+                    .await
+                    .map_err(|e| DatabaseError::new("machine_validation_results One", e))?
             }
             ObjectFilter::List(list) => {
                 if list.is_empty() {
@@ -614,9 +614,10 @@ impl MachineValidationResult {
                     .replace("{where}", &format!("WHERE result.{column} IN ({columns})"))
                     .replace("{column}", column);
 
-                sqlx::query_as(&query).fetch_all(txn).await.map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "machine_validation_results List", e)
-                })?
+                sqlx::query_as(&query)
+                    .fetch_all(txn)
+                    .await
+                    .map_err(|e| DatabaseError::new("machine_validation_results List", e))?
             }
         };
 

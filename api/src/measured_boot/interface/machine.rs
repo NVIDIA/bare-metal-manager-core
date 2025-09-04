@@ -48,7 +48,7 @@ pub async fn get_latest_journal_for_id(
         .bind(machine_id)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "get_latest_journal_for_id", e))
+        .map_err(|e| DatabaseError::new("get_latest_journal_for_id", e))
 }
 
 /// get_candidate_machine_record_by_id returns a CandidateMachineRecord row.
@@ -58,14 +58,7 @@ pub async fn get_candidate_machine_record_by_id(
 ) -> Result<Option<CandidateMachineRecord>, DatabaseError> {
     common::get_object_for_id(txn, machine_id)
         .await
-        .map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "get_candidate_machine_record_by_id",
-                e.source,
-            )
-        })
+        .map_err(|e| DatabaseError::new("get_candidate_machine_record_by_id", e.source))
 }
 
 /// get_candidate_machine_records returns all MockMachineRecord rows,
@@ -73,7 +66,7 @@ pub async fn get_candidate_machine_record_by_id(
 pub async fn get_candidate_machine_records(
     txn: &mut PgConnection,
 ) -> Result<Vec<CandidateMachineRecord>, DatabaseError> {
-    common::get_all_objects(txn).await.map_err(|e| {
-        DatabaseError::new(file!(), line!(), "get_candidate_machine_records", e.source)
-    })
+    common::get_all_objects(txn)
+        .await
+        .map_err(|e| DatabaseError::new("get_candidate_machine_records", e.source))
 }

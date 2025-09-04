@@ -52,7 +52,7 @@ impl DhcpEntry {
             .build_query_as()
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query.sql(), e))
+            .map_err(|e| DatabaseError::query(query.sql(), e))
     }
 
     pub async fn persist(&self, txn: &mut PgConnection) -> Result<(), DatabaseError> {

@@ -221,7 +221,7 @@ impl Vpc {
         let ids: Vec<VpcId> = query
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "vpc::find_ids", e))?;
+            .map_err(|e| DatabaseError::new("vpc::find_ids", e))?;
 
         Ok(ids)
     }
