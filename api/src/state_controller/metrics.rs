@@ -21,6 +21,12 @@ use opentelemetry::{
 };
 use std::{collections::HashMap, marker::PhantomData, time::Duration};
 
+#[derive(Debug, Hash, PartialEq, Eq, serde::Serialize, Clone)]
+pub(crate) struct FullState {
+    state: &'static str,
+    substate: &'static str,
+}
+
 // This attributes defines whether we captured the metrics recently,
 // where recently here means in the last Minute. in the case multiple
 // state controllers run in a 3 control plane cluster, this will help
@@ -86,8 +92,9 @@ pub struct CommonIterationMetrics {
     pub recording_started_at: std::time::Instant,
     /// When we finished recording the metrics
     pub recording_finished_at: std::time::Instant,
-    /// Aggregated metrics per state
-    pub state_metrics: HashMap<(&'static str, &'static str), StateMetrics>,
+    /// Aggregated metrics per state, with optional next state information
+    /// Key: FullState containing current_state, current_substate before the transition
+    pub state_metrics: HashMap<FullState, StateMetrics>,
 }
 
 impl Default for CommonIterationMetrics {
@@ -107,13 +114,19 @@ impl CommonIterationMetrics {
     ) {
         // The `unknown` state can occur if loading the current object state fails
         // or if the state is not deserializable
-        let (state, substate) = object_metrics
+        let (state_name, substate_name) = object_metrics
             .initial_state
             .as_ref()
             .map(IO::metric_state_names)
             .unwrap_or(("unknown", ""));
 
-        let state_metrics = self.state_metrics.entry((state, substate)).or_default();
+        let state_metrics = self
+            .state_metrics
+            .entry(FullState {
+                state: state_name,
+                substate: substate_name,
+            })
+            .or_default();
 
         // The first set of metrics is always related to the initial state
         state_metrics
@@ -139,24 +152,43 @@ impl CommonIterationMetrics {
 
         // If a follow-up state is defined, we exited the state and entered the next state
         if let Some(next_state) = object_metrics.next_state.as_ref() {
+            // Get the metric names for the next state
+            let (next_state_name, next_substate_name) = IO::metric_state_names(next_state);
+
             // time_in_state now represents the entire time cost for the machine in a certain state
             state_metrics
-                .time_in_state
-                .push(object_metrics.time_in_state);
+                .state_transition_records
+                .push(StateTransitionRecord {
+                    time_in_state: object_metrics.time_in_state,
+                    target_state: FullState {
+                        state: next_state_name,
+                        substate: next_substate_name,
+                    },
+                });
 
             // We exited the initial state
             state_metrics.num_exited += 1;
 
             // We have to emit additional metrics for the next state
-            let (state, substate) = IO::metric_state_names(next_state);
-
-            let state_metrics = self.state_metrics.entry((state, substate)).or_default();
-            state_metrics.num_entered += 1;
-            state_metrics.num_objects += 1;
+            let next_state_metrics = self
+                .state_metrics
+                .entry(FullState {
+                    state: next_state_name,
+                    substate: next_substate_name,
+                })
+                .or_default();
+            next_state_metrics.num_entered += 1;
+            next_state_metrics.num_objects += 1;
             // The object will never be above sla in the new state,
             // given it just entered this state
         }
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct StateTransitionRecord {
+    pub time_in_state: Duration,
+    pub target_state: FullState,
 }
 
 /// Metrics for each state of an object
@@ -167,7 +199,7 @@ pub struct StateMetrics {
     /// Amount of objects that have been in the state for more than the SLA allows
     pub num_objects_above_sla: usize,
     /// The time the objects had been in that state
-    pub time_in_state: Vec<Duration>,
+    pub state_transition_records: Vec<StateTransitionRecord>,
     /// How long we took to execute state handlers in this state
     pub handler_latencies: Vec<Duration>,
     /// Counts the errors per error type in this state
@@ -338,14 +370,14 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
                 ))
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
-                        for ((state, substate), m) in metrics.state_metrics.iter() {
+                        for (full_state, state_metrics) in metrics.state_metrics.iter() {
                             observer.observe(
-                                m.num_objects as u64,
+                                state_metrics.num_objects as u64,
                                 &[
                                     attrs,
                                     &[
-                                        KeyValue::new("state", state.to_string()),
-                                        KeyValue::new("substate", substate.to_string()),
+                                        KeyValue::new("state", full_state.state.to_string()),
+                                        KeyValue::new("substate", full_state.substate.to_string()),
                                     ],
                                 ]
                                 .concat(),
@@ -365,14 +397,14 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
                 ))
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
-                        for ((state, substate), m) in metrics.state_metrics.iter() {
+                        for (full_state, state_metrics) in metrics.state_metrics.iter() {
                             observer.observe(
-                                m.num_objects_above_sla as u64,
+                                state_metrics.num_objects_above_sla as u64,
                                 [
                                     attrs,
                                     &[
-                                        KeyValue::new("state", state.to_string()),
-                                        KeyValue::new("substate", substate.to_string()),
+                                        KeyValue::new("state", full_state.state.to_string()),
+                                        KeyValue::new("substate", full_state.substate.to_string()),
                                     ],
                                 ]
                                     .concat().as_slice(),
@@ -393,18 +425,18 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
                     "The number of {object_type} in the system with a given state that failed state handling"
                 ))
                 .with_callback(move |observer| {
-                    metrics.if_available(|metrics, attrs| {
-                        for ((state, substate), m) in metrics.state_metrics.iter() {
+                                        metrics.if_available(|metrics, attrs| {
+                        for (full_state, state_metrics) in metrics.state_metrics.iter() {
                             let mut total_errs = 0;
-                            for (error, &count) in m.handling_errors_per_type.iter() {
+                            for (error, &count) in state_metrics.handling_errors_per_type.iter() {
                                 total_errs += count;
                                 observer.observe(
                                     count as u64,
                                     &[
                                         attrs,
                                         &[
-                                            KeyValue::new("state", state.to_string()),
-                                            KeyValue::new("substate", substate.to_string()),
+                                            KeyValue::new("state", full_state.state.to_string()),
+                                            KeyValue::new("substate", full_state.substate.to_string()),
                                             KeyValue::new("error", error.to_string()),
                                         ],
                                     ]
@@ -417,8 +449,8 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
                                 &[
                                     attrs,
                                     &[
-                                        KeyValue::new("state", state.to_string()),
-                                        KeyValue::new("substate", substate.to_string()),
+                                        KeyValue::new("state", full_state.state.to_string()),
+                                        KeyValue::new("substate", full_state.substate.to_string()),
                                         KeyValue::new("error", "any".to_string()),
                                     ],
                                 ]
@@ -484,25 +516,43 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
             &[],
         );
 
-        for ((state, substate), m) in iteration_metrics.state_metrics.iter() {
-            let state_attr = KeyValue::new("state", state.to_string());
-            let substate_attr = KeyValue::new("substate", substate.to_string());
+        for (full_state, state_metrics) in iteration_metrics.state_metrics.iter() {
+            let state_attr = KeyValue::new("state", full_state.state.to_string());
+            let substate_attr = KeyValue::new("substate", full_state.substate.to_string());
             let attrs = &[state_attr.clone(), substate_attr.clone()];
 
             // Record how often this state was entered and exited from in the current
             // controller iteration
-            if m.num_entered != 0 {
-                self.state_entered_counter.add(m.num_entered as u64, attrs);
+            if state_metrics.num_entered != 0 {
+                self.state_entered_counter
+                    .add(state_metrics.num_entered as u64, attrs);
             }
-            if m.num_exited != 0 {
-                self.state_exited_counter.add(m.num_exited as u64, attrs);
+            if state_metrics.num_exited != 0 {
+                self.state_exited_counter
+                    .add(state_metrics.num_exited as u64, attrs);
             }
 
-            for time_in_state in m.time_in_state.iter() {
-                self.time_in_state_histogram
-                    .record(time_in_state.as_secs_f64(), attrs);
+            // Record time_in_state histogram with next_state information
+            for state_transition_record in state_metrics.state_transition_records.iter() {
+                let attrs_with_next_state = &[
+                    state_attr.clone(),
+                    substate_attr.clone(),
+                    KeyValue::new(
+                        "next_state",
+                        state_transition_record.target_state.state.to_string(),
+                    ),
+                    KeyValue::new(
+                        "next_substate",
+                        state_transition_record.target_state.substate.to_string(),
+                    ),
+                ];
+
+                self.time_in_state_histogram.record(
+                    state_transition_record.time_in_state.as_secs_f64(),
+                    attrs_with_next_state,
+                );
             }
-            for handler_latency in m.handler_latencies.iter() {
+            for handler_latency in state_metrics.handler_latencies.iter() {
                 self.handler_latency_in_state_histogram
                     .record(1000.0 * handler_latency.as_secs_f64(), attrs);
             }
@@ -532,43 +582,63 @@ impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
         let mut times_in_state: HashMap<String, LatencyStats> = HashMap::new();
         let mut handler_latencies: HashMap<String, LatencyStats> = HashMap::new();
 
-        for ((state, substate), m) in iteration_metrics.common.state_metrics.iter() {
-            total_objects += m.num_objects;
+        for (full_state, state_metrics) in iteration_metrics.common.state_metrics.iter() {
+            total_objects += state_metrics.num_objects;
 
-            let state_name = if !substate.is_empty() {
-                format!("{state}.{substate}")
+            let full_state_name = if !full_state.substate.is_empty() {
+                format!("{}.{}", full_state.state, full_state.substate)
             } else {
-                state.to_string()
+                full_state.state.to_string()
             };
 
-            if !m.time_in_state.is_empty() {
-                times_in_state.insert(
-                    state_name.clone(),
-                    LatencyStats::from_latencies(&m.time_in_state, Duration::as_secs),
-                );
+            if !state_metrics.state_transition_records.is_empty() {
+                // Group transitions by target state to preserve target_state information in span attributes
+                let mut transitions_by_target: std::collections::HashMap<String, Vec<Duration>> =
+                    std::collections::HashMap::new();
+
+                for record in &state_metrics.state_transition_records {
+                    let next_full_state_name = format!(
+                        "{}.{}",
+                        record.target_state.state, record.target_state.substate
+                    );
+                    let transition_key = format!("{full_state_name} -> {next_full_state_name}");
+                    transitions_by_target
+                        .entry(transition_key)
+                        .or_default()
+                        .push(record.time_in_state);
+                }
+
+                // Create stats for each target state transition
+                for (transition_key, durations) in transitions_by_target {
+                    times_in_state.insert(
+                        transition_key,
+                        LatencyStats::from_latencies(&durations, Duration::as_secs),
+                    );
+                }
             };
 
-            if !m.handler_latencies.is_empty() {
+            if !state_metrics.handler_latencies.is_empty() {
                 handler_latencies.insert(
-                    state_name.clone(),
-                    LatencyStats::from_latencies(&m.handler_latencies, |duration| {
+                    full_state_name.clone(),
+                    LatencyStats::from_latencies(&state_metrics.handler_latencies, |duration| {
                         duration.as_micros().min(u64::MAX as u128) as u64
                     }),
                 );
             }
 
-            for (error, &count) in m.handling_errors_per_type.iter() {
+            for (error, &count) in state_metrics.handling_errors_per_type.iter() {
                 total_errors += count;
                 *error_types
-                    .entry(state_name.clone())
+                    .entry(full_state_name.clone())
                     .or_default()
                     .entry(error.to_string())
                     .or_default() += count;
             }
 
-            states.insert(state_name.clone(), m.num_objects);
-            if m.num_objects_above_sla > 0 {
-                states_above_sla.insert(state_name.clone(), m.num_objects_above_sla);
+            states.insert(full_state_name.clone(), state_metrics.num_objects);
+            if state_metrics.num_objects_above_sla > 0 {
+                states_above_sla
+                    .insert(full_state_name.clone(), state_metrics.num_objects_above_sla);
             }
         }
 
