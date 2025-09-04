@@ -190,14 +190,9 @@ pub(crate) async fn get_site_exploration_report(
         .await
         .map_err(CarbideError::from)?;
 
-    txn.rollback().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "end get_site_exploration_report",
-            e,
-        ))
-    })?;
+    txn.rollback()
+        .await
+        .map_err(|e| DatabaseError::txn_rollback(DB_TXN_NAME, e))?;
 
     Ok(tonic::Response::new(report.into()))
 }

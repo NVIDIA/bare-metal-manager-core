@@ -492,14 +492,9 @@ pub(crate) async fn delete(
     let rpc_out = rpc::DeleteNetworkSecurityGroupResponse {};
 
     // Commit if nothing has gone wrong up to now
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "commit delete_network_security_group",
-            e,
-        ))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     // Send our response back
     Ok(Response::new(rpc_out))

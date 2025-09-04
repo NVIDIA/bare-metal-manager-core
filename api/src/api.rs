@@ -3081,14 +3081,12 @@ impl Forge for Api {
         log_request_data(&request);
         let req = request.into_inner();
 
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin enable_infinite_boot",
-                e,
-            ))
-        })?;
+        const DB_TXN_NAME: &str = "enable_infinite_boot";
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
             &mut txn,
@@ -3097,14 +3095,9 @@ impl Forge for Api {
         )
         .await?;
 
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit enable_infinite_boot",
-                e,
-            ))
-        })?;
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         crate::handlers::bmc_endpoint_explorer::enable_infinite_boot(
             self,
@@ -3128,14 +3121,12 @@ impl Forge for Api {
         log_request_data(&request);
         let req = request.into_inner();
 
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin is_infinite_boot_enabled",
-                e,
-            ))
-        })?;
+        const DB_TXN_NAME: &str = "is_infinite_boot_enabled";
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
             &mut txn,
@@ -3144,14 +3135,9 @@ impl Forge for Api {
         )
         .await?;
 
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit is_infinite_boot_enabled",
-                e,
-            ))
-        })?;
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         let response = crate::handlers::bmc_endpoint_explorer::is_infinite_boot_enabled(
             self,

@@ -147,19 +147,13 @@ impl PreingestionManager {
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = PreingestionMetrics::new();
 
+        const DB_TXN_NAME: &str = "PreingestionManager::run_single_iteration";
         let mut txn = self
             .static_info
             .database_connection
             .begin()
             .await
-            .map_err(|e| {
-                DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "begin PreingestionManager::run_single_iteration",
-                    e,
-                )
-            })?;
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         if !sqlx::query_scalar(PreingestionManager::DB_LOCK_QUERY)
             .fetch_one(&mut *txn)
@@ -238,14 +232,9 @@ impl PreingestionManager {
         );
         self.metric_holder.update_metrics(metrics);
 
-        txn.commit().await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "commit PreintegrationManager::run_single_iteration",
-                e,
-            )
-        })?;
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
         Ok(())
     }
 }
@@ -258,14 +247,12 @@ async fn one_endpoint(
     static_info: Arc<PreingestionManagerStatic>,
     endpoint: ExploredEndpoint,
 ) -> CarbideResult<EndpointResult> {
-    let mut txn = static_info.database_connection.begin().await.map_err(|e| {
-        DatabaseError::new(
-            file!(),
-            line!(),
-            "begin PreingestionManager::run_single_iteration",
-            e,
-        )
-    })?;
+    const DB_TXN_NAME: &str = "PreingestionManager::one_endpoint";
+    let mut txn = static_info
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     tracing::debug!("Preingestion on endpoint {:?}", endpoint);
 
@@ -353,14 +340,9 @@ async fn one_endpoint(
         }
     };
 
-    txn.commit().await.map_err(|e| {
-        DatabaseError::new(
-            file!(),
-            line!(),
-            "commit PreintegrationManager::run_single_iteration",
-            e,
-        )
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(EndpointResult { delayed_upgrade })
 }

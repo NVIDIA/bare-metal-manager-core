@@ -1741,9 +1741,9 @@ async fn test_site_explorer_clear_last_known_error(
     dpu_report1.generate_machine_id(false)?;
 
     DbExploredEndpoint::insert(bmc_ip, &dpu_report1, &mut txn).await?;
-    txn.commit().await.map_err(|e| {
-        DatabaseError::new(file!(), line!(), "commit DbExploredEndpoint::insert", e)
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::txn_commit("DbExploredEndpoint::insert", e))?;
 
     txn = env.pool.begin().await?;
     let nodes = DbExploredEndpoint::find_all_by_ip(bmc_ip, &mut txn).await?;

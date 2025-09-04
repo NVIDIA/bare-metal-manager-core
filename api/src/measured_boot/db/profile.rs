@@ -437,23 +437,18 @@ pub(crate) mod test_support {
         name: Option<String>,
         attrs: &HashMap<String, String>,
     ) -> CarbideResult<MeasurementSystemProfile> {
-        let mut txn = db_conn.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "MeasurementSystemProfile.new begin",
-                e,
-            ))
-        })?;
+        const DB_TXN_NAME: &str = "MeasurementSystemProfile.new";
+
+        let mut txn = db_conn
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
+
         let profile = new_with_txn(&mut txn, name, attrs).await?;
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "MeasurementSystemProfile.new commit",
-                e,
-            ))
-        })?;
+
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
         Ok(profile)
     }
 
@@ -486,14 +481,10 @@ pub(crate) mod test_support {
         db_conn: &Pool<Postgres>,
         profile_id: MeasurementSystemProfileId,
     ) -> CarbideResult<MeasurementSystemProfile> {
-        let mut txn = db_conn.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "MeasurementProfile.load_from_id begin",
-                e,
-            ))
-        })?;
+        let mut txn = db_conn
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin("MeasurementProfile.load_from_id", e))?;
         load_from_id_with_txn(&mut txn, profile_id).await
     }
 }

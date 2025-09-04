@@ -296,28 +296,21 @@ impl SiteExplorer {
         metrics: &mut SiteExplorationMetrics,
         matched_expected_machines: &HashMap<IpAddr, ExpectedMachine>,
     ) -> CarbideResult<()> {
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "begin load audit_exploration_results data",
-                e,
-            )
-        })?;
+        const DB_TXN_NAME: &str = "load audit_exploration_results data";
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         // Grab them all because we care about everything,
         // not just the subset in the current run.
         let explored_endpoints = DbExploredEndpoint::find_all(&mut txn).await?;
         let explored_managed_hosts = DbExploredManagedHost::find_all(&mut txn).await?;
 
-        txn.rollback().await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "end load audit_exploration_results data",
-                e,
-            )
-        })?;
+        txn.rollback()
+            .await
+            .map_err(|e| DatabaseError::txn_rollback(DB_TXN_NAME, e))?;
 
         // Go through all the explored endpoints and collect metrics and submit
         // health reports
@@ -328,14 +321,12 @@ impl SiteExplorer {
             }
 
             // We need to find the last health report for the endpoint in order to update it with latest health data
-            let mut txn = self.database_connection.begin().await.map_err(|e| {
-                DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "begin update SiteExplorer Health Report",
-                    e,
-                )
-            })?;
+            const DB_TXN_NAME: &str = "update SiteExplorer Health Report";
+            let mut txn = self
+                .database_connection
+                .begin()
+                .await
+                .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
             let machine_id = db::machine::find_id_by_bmc_ip(&mut txn, &ep.address).await?;
             let machine = match machine_id.as_ref() {
                 Some(id) => db::machine::find(
@@ -469,9 +460,9 @@ impl SiteExplorer {
                     .await?;
             }
 
-            txn.commit().await.map_err(|e| {
-                DatabaseError::new(file!(), line!(), "end update SiteExplorer Health Report", e)
-            })?;
+            txn.commit()
+                .await
+                .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
         }
 
         // Count the total number of explored managed hosts
@@ -580,9 +571,12 @@ impl SiteExplorer {
         pool: &PgPool,
     ) -> CarbideResult<bool> {
         let mut managed_host = ManagedHost::init(explored_host);
-        let mut txn = pool.begin().await.map_err(|e| {
-            DatabaseError::new(file!(), line!(), "begin load create_managed_host", e)
-        })?;
+
+        const DB_TXN_NAME: &str = "create_managed_host";
+        let mut txn = pool
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         let (metadata, sku_id) = match expected_machine {
             Some(m) => (Some(&m.data.metadata), m.data.sku_id.as_ref()),
@@ -625,9 +619,9 @@ impl SiteExplorer {
                 // If the DPU's machine is not attached to its machine interface, do so here.
                 // TODO (sp): is this defensive check really neccessary?
                 if self.configure_dpu_interface(&mut txn, dpu_report).await? {
-                    txn.commit().await.map_err(|e| {
-                        DatabaseError::new(file!(), line!(), "end create_managed_host", e)
-                    })?;
+                    txn.commit()
+                        .await
+                        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
                 }
                 return Ok(false);
             }
@@ -666,7 +660,7 @@ impl SiteExplorer {
 
         txn.commit()
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "end create_managed_host", e))?;
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
         Ok(true)
     }
@@ -681,14 +675,12 @@ impl SiteExplorer {
         HashMap<IpAddr, ExploredEndpoint>,
         HashMap<IpAddr, ExploredEndpoint>,
     )> {
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "load find_all_preingestion_complete data",
-                e,
-            )
-        })?;
+        const DB_TXN_NAME: &str = "find_all_preingestion_complete data";
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         // TODO: We reload the endpoint list even though we just regenerated it
         // Could optimize this by keeping it in memory. But since the manipulations
@@ -696,14 +688,9 @@ impl SiteExplorer {
         let explored_endpoints =
             DbExploredEndpoint::find_all_preingestion_complete(&mut txn).await?;
 
-        txn.commit().await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "end find_all_preingestion_complete data",
-                e,
-            )
-        })?;
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
         let mut explored_dpus = HashMap::new();
         let mut explored_hosts = HashMap::new();
@@ -1022,14 +1009,12 @@ impl SiteExplorer {
             metrics.exploration_identified_managed_hosts += 1;
         }
 
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "begin load update_explored_endpoints data",
-                e,
-            )
-        })?;
+        const DB_TXN_NAME: &str = "load update_explored_managed_host data";
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         DbExploredManagedHost::update(
             &mut txn,
@@ -1041,9 +1026,9 @@ impl SiteExplorer {
         )
         .await?;
 
-        txn.commit().await.map_err(|e| {
-            DatabaseError::new(file!(), line!(), "end update_explored_endpoints data", e)
-        })?;
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
         Ok(managed_hosts)
     }
@@ -1063,27 +1048,20 @@ impl SiteExplorer {
         &self,
         metrics: &mut SiteExplorationMetrics,
     ) -> CarbideResult<HashMap<IpAddr, ExpectedMachine>> {
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "begin load update_explored_endpoints data",
-                e,
-            )
-        })?;
+        const DB_TXN_NAME: &str = "load update_explored_endpoints data";
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         let underlay_segments =
             NetworkSegment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay)).await?;
         let interfaces = db::machine_interface::find_all(&mut txn).await?;
         let explored_endpoints = DbExploredEndpoint::find_all(&mut txn).await?;
-        txn.rollback().await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "end load update_explored_endpoints data",
-                e,
-            )
-        })?;
+        txn.rollback()
+            .await
+            .map_err(|e| DatabaseError::txn_rollback(DB_TXN_NAME, e))?;
 
         // We don't have to scan anything that is on the Tenant or Admin Segments,
         // since we know what those Segments are used for (Forge allocated the IPs on the segments
@@ -1142,9 +1120,12 @@ impl SiteExplorer {
 
         // The unknown endpoints can quickly be cleaned up
         if !delete_endpoints.is_empty() {
-            let mut txn = self.database_connection.begin().await.map_err(|e| {
-                DatabaseError::new(file!(), line!(), "begin delete unknown endpoints", e)
-            })?;
+            const DB_TXN_NAME: &str = "delete unknown endpoints";
+            let mut txn = self
+                .database_connection
+                .begin()
+                .await
+                .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
             // TODO: Explore deleting all old endpoints in a single query, which would be more efficient
             // Since we practically never delete `MachineInterface`s anyway, this however isn't that important.
@@ -1152,9 +1133,9 @@ impl SiteExplorer {
                 DbExploredEndpoint::delete(&mut txn, address).await?;
             }
 
-            txn.commit().await.map_err(|e| {
-                DatabaseError::new(file!(), line!(), "end delete unknown endpoints", e)
-            })?;
+            txn.commit()
+                .await
+                .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
         }
 
         // If there is a MachineInterface and no previously discovered information,
@@ -1234,15 +1215,16 @@ impl SiteExplorer {
             self.config.concurrent_explorations as usize,
         ));
 
+        const DB_TXN_NAME_2: &str = "expected machine find_all";
         let mut txn = self
             .database_connection
             .begin()
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "begin find_all", e))?;
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME_2, e))?;
         let expected = ExpectedMachine::find_all(&mut txn).await?;
         txn.commit()
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "end find_all", e))?;
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME_2, e))?;
 
         let expected_count = expected.len();
         let mut unique_matched_expected_machines: HashSet<MacAddress> = HashSet::new();
@@ -1362,9 +1344,12 @@ impl SiteExplorer {
         }
 
         // All subtasks finished. We now update the database
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            DatabaseError::new(file!(), line!(), "begin update endpoint information", e)
-        })?;
+        const DB_TXN_NAME_3: &str = "update endpoint information";
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME_3, e))?;
 
         for (endpoint, result, exploration_duration) in exploration_results.into_iter() {
             let address = endpoint.address;
@@ -1466,9 +1451,9 @@ impl SiteExplorer {
             }
         }
 
-        txn.commit().await.map_err(|e| {
-            DatabaseError::new(file!(), line!(), "end update endpoint information", e)
-        })?;
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME_3, e))?;
 
         if let Some(err) = last_join_error.take() {
             return Err(err.into());
@@ -2088,15 +2073,18 @@ impl SiteExplorer {
             .await
         {
             Ok(_) => {
-                let mut txn = self.database_connection.begin().await.map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "begin set_last_ipmitool_bmc_reset", e)
-                })?;
+                const DB_TXN_NAME: &str = "set_last_ipmitool_bmc_reset";
+                let mut txn = self
+                    .database_connection
+                    .begin()
+                    .await
+                    .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
                 DbExploredEndpoint::set_last_ipmitool_bmc_reset(endpoint.address, &mut txn).await?;
 
-                txn.commit().await.map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "end set_last_ipmitool_bmc_reset", e)
-                })?;
+                txn.commit()
+                    .await
+                    .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
                 Ok(())
             }
@@ -2120,15 +2108,18 @@ impl SiteExplorer {
             .await
         {
             Ok(_) => {
-                let mut txn = self.database_connection.begin().await.map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "begin set_last_redfish_bmc_reset", e)
-                })?;
+                const DB_TXN_NAME: &str = "set_last_redfish_bmc_reset";
+                let mut txn = self
+                    .database_connection
+                    .begin()
+                    .await
+                    .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
                 DbExploredEndpoint::set_last_redfish_bmc_reset(endpoint.address, &mut txn).await?;
 
-                txn.commit().await.map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "end set_last_redfish_bmc_reset", e)
-                })?;
+                txn.commit()
+                    .await
+                    .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
                 Ok(())
             }
@@ -2192,15 +2183,18 @@ impl SiteExplorer {
             .await
         {
             Ok(()) => {
-                let mut txn = self.database_connection.begin().await.map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "begin set_last_redfish_reboot", e)
-                })?;
+                const DB_TXN_NAME: &str = "set_last_redfish_reboot";
+                let mut txn = self
+                    .database_connection
+                    .begin()
+                    .await
+                    .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
                 DbExploredEndpoint::set_last_redfish_reboot(endpoint.address, &mut txn).await?;
 
-                txn.commit().await.map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "end set_last_redfish_reboot", e)
-                })?;
+                txn.commit()
+                    .await
+                    .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
                 Ok(())
             }
@@ -2215,26 +2209,19 @@ impl SiteExplorer {
         &self,
         bmc_ip_address: IpAddr,
     ) -> CarbideResult<bool> {
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "begin is_managed_host_created_for_endpoint",
-                e,
-            )
-        })?;
+        const DB_TXN_NAME: &str = "is_managed_host_created_for_endpoint";
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         let is_endpoint_in_managed_host =
             is_endpoint_in_managed_host(bmc_ip_address, &mut txn).await?;
 
-        txn.commit().await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "end is_managed_host_created_for_endpoint",
-                e,
-            )
-        })?;
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
         Ok(is_endpoint_in_managed_host)
     }
@@ -2336,35 +2323,36 @@ impl SiteExplorer {
         self.redfish_power_control(bmc_ip_address, libredfish::SystemPowerControl::PowerCycle)
             .await?;
 
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            DatabaseError::new(file!(), line!(), "begin set_last_redfish_powercycle", e)
-        })?;
+        const DB_TXN_NAME: &str = "set_last_redfish_powercycle";
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         DbExploredEndpoint::set_last_redfish_powercycle(bmc_ip_address, &mut txn).await?;
 
-        txn.commit().await.map_err(|e| {
-            CarbideError::DBError(DatabaseError::new(
-                file!(),
-                line!(),
-                "end set_last_redfish_powercycle",
-                e,
-            ))
-        })
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DBError(DatabaseError::txn_commit(DB_TXN_NAME, e)))
     }
 
     async fn find_machine_interface_for_ip(
         &self,
         ip_address: IpAddr,
     ) -> CarbideResult<MachineInterfaceSnapshot> {
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            DatabaseError::new(file!(), line!(), "begin find_machine_interface_for_ip", e)
-        })?;
+        const DB_TXN_NAME: &str = "find_machine_interface_for_ip";
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         let machine_interface = db::machine_interface::find_by_ip(&mut txn, ip_address).await?;
 
-        txn.commit().await.map_err(|e| {
-            DatabaseError::new(file!(), line!(), "end find_machine_interface_for_ip", e)
-        })?;
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
         match machine_interface {
             Some(interface) => Ok(interface),
@@ -2731,9 +2719,11 @@ pub async fn get_machine_state_by_bmc_ip(
     database_connection: &PgPool,
     bmc_ip: &str,
 ) -> Result<String, DatabaseError> {
-    let mut txn = database_connection.begin().await.map_err(|e| {
-        DatabaseError::new(file!(), line!(), "begin get_machine_state_by_bmc_ip", e)
-    })?;
+    const DB_TXN_NAME: &str = "get_machine_state_by_bmc_ip";
+    let mut txn = database_connection
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let state = match MachineTopology::find_machine_id_by_bmc_ip(&mut txn, bmc_ip).await? {
         Some(machine_id) => {
@@ -2747,7 +2737,7 @@ pub async fn get_machine_state_by_bmc_ip(
 
     txn.commit()
         .await
-        .map_err(|e| DatabaseError::new(file!(), line!(), "end get_machine_state_by_bmc_ip", e))?;
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(state)
 }

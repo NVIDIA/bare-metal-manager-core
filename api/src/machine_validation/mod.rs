@@ -79,14 +79,12 @@ impl MachineValidationManager {
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = MachineValidationMetrics::new();
 
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "begin MachineValidationManager::run_single_iteration",
-                e,
-            )
-        })?;
+        const DB_TXN_NAME: &str = "MachineValidationManager::run_single_iteration";
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         metrics.completed_validation = MachineValidation::find_by(
             &mut txn,
@@ -124,14 +122,10 @@ impl MachineValidationManager {
         );
         self.metric_holder.update_metrics(metrics);
 
-        txn.commit().await.map_err(|e| {
-            DatabaseError::new(
-                file!(),
-                line!(),
-                "commit PreintegrationManager::run_single_iteration",
-                e,
-            )
-        })?;
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
+
         Ok(())
     }
 }
