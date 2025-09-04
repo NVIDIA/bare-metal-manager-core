@@ -146,6 +146,12 @@ pub(crate) async fn assign_to_machine(
             ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(_),
             }
+            | ManagedHostState::BomValidating {
+                bom_validating_state: BomValidating::SkuVerificationFailed(_),
+            }
+            | ManagedHostState::BomValidating {
+                bom_validating_state: BomValidating::SkuMissing(_),
+            }
             | ManagedHostState::Ready => {}
             _ => {
                 return Err(CarbideError::FailedPrecondition(
