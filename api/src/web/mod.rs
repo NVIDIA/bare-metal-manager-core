@@ -65,7 +65,7 @@ mod interface;
 mod machine;
 mod machine_state_history;
 mod machine_validation;
-mod managed_host;
+pub mod managed_host;
 mod network_device;
 mod network_security_group;
 mod network_segment;

@@ -33,6 +33,26 @@ pub async fn load_snapshot(
     Ok(snapshots.remove(machine_id))
 }
 
+/// Loads all ManagedHosts, including predicted hosts
+pub async fn load_all(
+    txn: &mut PgConnection,
+    options: LoadSnapshotOptions,
+) -> Result<Vec<ManagedHostStateSnapshot>, DatabaseError> {
+    let query = managed_host_snapshots_query(&options);
+    Ok(sqlx::query_as(&format!(
+        r#"{query} WHERE m.id LIKE 'fm100h%' OR m.id LIKE 'fm100p%'"#
+    ))
+    .fetch_all(txn)
+    .await
+    .map_err(|e| DatabaseError::new(file!(), line!(), "managed_host::load_all", e))?
+    .into_iter()
+    .map(|mut snapshot: ManagedHostStateSnapshot| {
+        snapshot.derive_aggregate_health(options.host_health_config);
+        snapshot
+    })
+    .collect())
+}
+
 /// Loads ManagedHost snapshots from the database for all enumerated machines
 ///
 /// The method works for Host and DPU Machine IDs
