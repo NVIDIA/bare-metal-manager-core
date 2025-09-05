@@ -56,9 +56,9 @@ pub struct AppliedChange {
     /// The fabric the operation has been applied against
     pub fabric: String,
     /// The operation that has been performed
-    pub operation: &'static str,
+    pub operation: UfmOperation,
     /// Whether the operation succeeded or failed
-    pub is_ok: bool,
+    pub status: UfmOperationStatus,
 }
 
 /// Metrics collected for a single fabric
@@ -435,10 +435,76 @@ impl IbFabricMonitorInstruments {
                 &[
                     KeyValue::new("fabric", change.fabric.clone()),
                     KeyValue::new("operation", change.operation),
-                    KeyValue::new("status", if change.is_ok { "ok" } else { "error" }),
+                    KeyValue::new("status", change.status),
                 ],
             );
         }
+    }
+
+    fn init_counters_and_histograms(&self, fabric_ids: &[&str]) {
+        for fabric_id in fabric_ids.iter() {
+            for status in UfmOperationStatus::values() {
+                for operation in UfmOperation::values() {
+                    self.ufm_changes_applied.add(
+                        0u64,
+                        &[
+                            KeyValue::new("fabric", fabric_id.to_string()),
+                            KeyValue::new("operation", operation),
+                            KeyValue::new("status", status),
+                        ],
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[allow(clippy::enum_variant_names)]
+pub enum UfmOperation {
+    BindGuidToPkey,
+    UnbindGuidFromPkey,
+    // If you add anything here, adjust the values function below
+}
+
+impl UfmOperation {
+    pub fn values() -> impl Iterator<Item = Self> {
+        [Self::BindGuidToPkey, Self::UnbindGuidFromPkey].into_iter()
+    }
+}
+
+impl From<UfmOperation> for opentelemetry::Value {
+    fn from(value: UfmOperation) -> Self {
+        let str_value = match value {
+            UfmOperation::BindGuidToPkey => "bind_guid_to_pkey",
+            UfmOperation::UnbindGuidFromPkey => "unbind_guid_from_pkey",
+        };
+
+        Self::from(str_value)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum UfmOperationStatus {
+    Ok,
+    Error,
+    // If you add anything here, adjust the values function below
+}
+
+impl UfmOperationStatus {
+    pub fn values() -> impl Iterator<Item = Self> {
+        [Self::Ok, Self::Error].into_iter()
+    }
+}
+
+impl From<UfmOperationStatus> for opentelemetry::Value {
+    fn from(value: UfmOperationStatus) -> Self {
+        let str_value = match value {
+            UfmOperationStatus::Ok => "ok",
+            UfmOperationStatus::Error => "error",
+        };
+
+        Self::from(str_value)
     }
 }
 
@@ -449,9 +515,10 @@ pub struct MetricHolder {
 }
 
 impl MetricHolder {
-    pub fn new(meter: Meter, hold_period: Duration) -> Self {
+    pub fn new(meter: Meter, hold_period: Duration, fabric_ids: &[&str]) -> Self {
         let last_iteration_metrics = SharedMetricsHolder::with_hold_period(hold_period);
         let instruments = IbFabricMonitorInstruments::new(meter, last_iteration_metrics.clone());
+        instruments.init_counters_and_histograms(fabric_ids);
         Self {
             instruments,
             last_iteration_metrics,
