@@ -143,8 +143,7 @@ pub(crate) async fn find_by_ids(
         instance_ids.as_ref(),
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
     let mut instances = Vec::with_capacity(snapshots.len());
     for snapshot in snapshots.into_iter() {
         instances.push(snapshot_to_instance(snapshot)?);
@@ -203,8 +202,7 @@ pub(crate) async fn find(
         &instance_ids,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     // Convert snapshots to instances via [`snapshot_to_instance`]
     let instances = snapshots
@@ -627,8 +625,7 @@ pub(crate) async fn release(
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let instance = Instance::find_by_id(&mut txn, delete_instance.instance_id)
-        .await
-        .map_err(CarbideError::from)?
+        .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "instance",
             id: delete_instance.instance_id.to_string(),
@@ -654,8 +651,7 @@ pub(crate) async fn release(
                 ..Default::default()
             },
         )
-        .await
-        .map_err(CarbideError::from)?
+        .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "machine",
             id: instance.machine_id.to_string(),
@@ -721,8 +717,7 @@ pub(crate) async fn update_phone_home_last_contact(
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let instance = Instance::find_by_id(&mut txn, instance_id)
-        .await
-        .map_err(CarbideError::from)?
+        .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "instance",
             id: instance_id.to_string(),
@@ -730,9 +725,7 @@ pub(crate) async fn update_phone_home_last_contact(
 
     log_machine_id(&instance.machine_id);
 
-    let res = Instance::update_phone_home_last_contact(&mut txn, instance.id)
-        .await
-        .map_err(CarbideError::from)?;
+    let res = Instance::update_phone_home_last_contact(&mut txn, instance.id).await?;
 
     txn.commit()
         .await
@@ -765,8 +758,7 @@ pub(crate) async fn invoke_power(
         &machine_id,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
-    .await
-    .map_err(CarbideError::from)?
+    .await?
     .ok_or(CarbideError::NotFoundError {
         kind: "machine",
         id: machine_id.to_string(),
@@ -803,8 +795,7 @@ pub(crate) async fn invoke_power(
             request.boot_with_custom_ipxe,
             &mut txn,
         )
-        .await
-        .map_err(CarbideError::from)?;
+        .await?;
     }
 
     // Check if reprovision is requested.
@@ -930,13 +921,13 @@ pub(crate) async fn update_operating_system(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let instance = Instance::find_by_id(&mut txn, instance_id)
-        .await
-        .map_err(CarbideError::from)?
-        .ok_or(CarbideError::NotFoundError {
-            kind: "instance",
-            id: instance_id.to_string(),
-        })?;
+    let instance =
+        Instance::find_by_id(&mut txn, instance_id)
+            .await?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "instance",
+                id: instance_id.to_string(),
+            })?;
 
     log_machine_id(&instance.machine_id);
 
@@ -952,8 +943,7 @@ pub(crate) async fn update_operating_system(
         &instance.machine_id,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
-    .await
-    .map_err(CarbideError::from)?
+    .await?
     .ok_or(CarbideError::NotFoundError {
         kind: "instance",
         id: instance_id.to_string(),
@@ -1005,13 +995,13 @@ pub(crate) async fn update_instance_config(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let instance = Instance::find_by_id(&mut txn, instance_id)
-        .await
-        .map_err(CarbideError::from)?
-        .ok_or(CarbideError::NotFoundError {
-            kind: "instance",
-            id: instance_id.to_string(),
-        })?;
+    let instance =
+        Instance::find_by_id(&mut txn, instance_id)
+            .await?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "instance",
+                id: instance_id.to_string(),
+            })?;
 
     log_machine_id(&instance.machine_id);
 
@@ -1020,8 +1010,7 @@ pub(crate) async fn update_instance_config(
         &instance.machine_id,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
-    .await
-    .map_err(CarbideError::from)?
+    .await?
     .ok_or(CarbideError::NotFoundError {
         kind: "instance",
         id: instance_id.to_string(),
@@ -1079,8 +1068,7 @@ pub(crate) async fn update_instance_config(
         &instance.machine_id,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
-    .await
-    .map_err(CarbideError::from)?
+    .await?
     .ok_or(CarbideError::NotFoundError {
         kind: "instance",
         id: instance_id.to_string(),
@@ -1142,8 +1130,7 @@ async fn update_instance_network_config(
 
     let mh_snapshot =
         db::managed_host::load_snapshot(txn, &instance.machine_id, LoadSnapshotOptions::default())
-            .await
-            .map_err(CarbideError::from)?
+            .await?
             .ok_or(CarbideError::NotFoundError {
                 kind: "machine",
                 id: instance.machine_id.to_string(),
@@ -1163,8 +1150,7 @@ async fn update_instance_network_config(
         &updated_network_config,
         txn,
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     Ok(())
 }
@@ -1195,8 +1181,7 @@ pub async fn force_delete_instance(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> CarbideResult<()> {
     let instance = Instance::find_by_id(txn, instance_id)
-        .await
-        .map_err(CarbideError::from)?
+        .await?
         .ok_or_else(|| {
             CarbideError::internal(format!("Could not find an instance for {instance_id}"))
         })?
@@ -1222,10 +1207,7 @@ pub async fn force_delete_instance(
     response.ufm_unregistration_pending = true;
     // unbind ib ports from UFM
     for (ib_partition_id, guids) in ib_config_map.iter() {
-        if let Some(pkey) = IBPartition::find_pkey_by_partition_id(txn, *ib_partition_id)
-            .await
-            .map_err(CarbideError::from)?
-        {
+        if let Some(pkey) = IBPartition::find_pkey_by_partition_id(txn, *ib_partition_id).await? {
             ib_fabric.unbind_ib_ports(pkey, guids.to_vec()).await?;
             response.ufm_unregistrations += 1;
 
@@ -1261,9 +1243,7 @@ pub async fn force_delete_instance(
                 .flat_map(|x| x.ip_addrs.values().collect_vec()),
         );
 
-        db::instance_address::InstanceAddress::delete_addresses(txn, &addresses)
-            .await
-            .map_err(CarbideError::from)?;
+        db::instance_address::InstanceAddress::delete_addresses(txn, &addresses).await?;
 
         network_segment_ids_with_vpc = update_network_req
             .new_config
@@ -1308,8 +1288,7 @@ pub async fn force_delete_instance(
 
     let snapshot =
         db::managed_host::load_snapshot(txn, &instance.machine_id, LoadSnapshotOptions::default())
-            .await
-            .map_err(CarbideError::from)?
+            .await?
             .ok_or(CarbideError::NotFoundError {
                 kind: "machine",
                 id: instance.machine_id.to_string(),

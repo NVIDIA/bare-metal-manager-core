@@ -1713,8 +1713,7 @@ impl SiteExplorer {
         }
         network_config.use_admin_network = Some(true);
         db::machine::try_update_network_config(txn, &dpu_machine.id, version, &network_config)
-            .await
-            .map_err(CarbideError::from)?;
+            .await?;
 
         Ok(())
     }

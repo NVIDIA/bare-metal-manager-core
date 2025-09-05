@@ -414,7 +414,7 @@ impl IbFabricMonitor {
             },
         )
         .await
-        .map_err(CarbideError::from)
+        .map_err(Into::into)
     }
 }
 
@@ -894,7 +894,7 @@ async fn record_machine_infiniband_status_observation(
         let mut conn = db_pool
             .acquire()
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new("acquire connection", e)))?;
+            .map_err(|e| DatabaseError::new("acquire connection", e))?;
         db::machine::update_infiniband_status_observation(&mut conn, machine_id, &cur).await?;
         metrics.num_machine_ib_status_updates += 1;
         mh_snapshot.host_snapshot.infiniband_status_observation = Some(cur);

@@ -356,8 +356,8 @@ fn metadata_from_request(
         Some(m) => {
             // Note that this is unvalidated Metadata. It can contain non-ASCII names
             // and
-            let m: Metadata = m.try_into().map_err(CarbideError::from)?;
-            m.validate(false).map_err(CarbideError::from)?;
+            let m: Metadata = m.try_into()?;
+            m.validate(false)?;
             m
         }
     })

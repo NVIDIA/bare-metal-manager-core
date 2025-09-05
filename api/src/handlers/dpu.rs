@@ -148,8 +148,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 return Err(CarbideError::NetworkSegmentNotAllocated.into());
             };
             let vpc = Vpc::find_by_segment(txn, network_segment_id)
-                .await
-                .map_err(CarbideError::from)?;
+                .await?;
 
             // So the network_virtualization_type historically didn't come from the VPC table,
             // even though the value was being set there, and we're in the process of changing
@@ -263,8 +262,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 txn,
                 ObjectColumnFilter::List(network_segment::IdColumn, &segment_ids),
                 NetworkSegmentSearchConfig::default(),
-            ).await
-            .map_err(CarbideError::from)?;
+            ).await?;
 
             let segment_details = segment_details.iter().map(|x|(x.id, x)).collect::<HashMap<_,_>>();
 
@@ -277,8 +275,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             let domain = match segment.subdomain_id {
                 Some(domain_id) => {
                     Domain::find_by_uuid(txn, domain_id)
-                        .await
-                        .map_err(CarbideError::from)?
+                        .await?
                         .ok_or_else(|| CarbideError::NotFoundError {
                             kind: "domain",
                             id: domain_id.to_string(),
@@ -554,8 +551,7 @@ pub(crate) async fn get_managed_host_network_config(
         &dpu_machine_id,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
-    .await
-    .map_err(CarbideError::from)?
+    .await?
     .ok_or(CarbideError::NotFoundError {
         kind: "machine",
         id: dpu_machine_id.to_string(),
@@ -590,9 +586,7 @@ pub(crate) async fn update_agent_reported_inventory(
 
         let inventory =
             MachineInventory::try_from(inventory.clone()).map_err(CarbideError::from)?;
-        db::machine::update_agent_reported_inventory(&mut txn, &dpu_machine_id, &inventory)
-            .await
-            .map_err(CarbideError::from)?;
+        db::machine::update_agent_reported_inventory(&mut txn, &dpu_machine_id, &inventory).await?;
 
         txn.commit()
             .await
@@ -648,8 +642,7 @@ pub(crate) async fn record_dpu_network_status(
             ..Default::default()
         },
     )
-    .await
-    .map_err(CarbideError::from)?
+    .await?
     .ok_or_else(|| CarbideError::NotFoundError {
         kind: "machine",
         id: dpu_machine_id.to_string(),
@@ -660,17 +653,13 @@ pub(crate) async fn record_dpu_network_status(
             .map_err(CarbideError::from)?;
         if let Some(agent_version) = obs.agent_version.as_ref() {
             obs.agent_version_superseded_at =
-                db::forge_version::date_superseded(&mut txn, agent_version.as_str())
-                    .await
-                    .map_err(CarbideError::from)?;
+                db::forge_version::date_superseded(&mut txn, agent_version.as_str()).await?;
         }
         obs
     };
 
     // Instance network observation is the part of network observation now.
-    db::machine::update_network_status_observation(&mut txn, &dpu_machine_id, &machine_obs)
-        .await
-        .map_err(CarbideError::from)?;
+    db::machine::update_network_status_observation(&mut txn, &dpu_machine_id, &machine_obs).await?;
     tracing::trace!(
         machine_id = %dpu_machine_id,
         machine_network_config = ?request.network_config_version,
@@ -696,9 +685,7 @@ pub(crate) async fn record_dpu_network_status(
     // Fix the in_alert times based on the previously stored report
     health_report.update_in_alert_since(dpu_machine.dpu_agent_health_report.as_ref());
 
-    db::machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report)
-        .await
-        .map_err(CarbideError::from)?;
+    db::machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report).await?;
 
     for rpc::LastDhcpRequest {
         host_interface_id,
@@ -720,8 +707,7 @@ pub(crate) async fn record_dpu_network_status(
                 Status::invalid_argument(format!("Failed parsing dhcp timestamp: {e}"))
             })?),
         )
-        .await
-        .map_err(CarbideError::from)?;
+        .await?;
     }
 
     txn.commit()
@@ -738,13 +724,11 @@ pub(crate) async fn record_dpu_network_status(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME_2, e))?;
 
-    if let Some(policy) = DpuAgentUpgradePolicy::get(&mut txn)
-        .await
-        .map_err(CarbideError::from)?
-    {
+    if let Some(policy) = DpuAgentUpgradePolicy::get(&mut txn).await? {
         let _needs_upgrade =
             db::machine::apply_agent_upgrade_policy(&mut txn, policy, &dpu_machine_id).await?;
     }
+
     txn.commit()
         .await
         .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME_2, e))?;
@@ -786,9 +770,7 @@ pub(crate) async fn get_all_managed_host_network_status(
         .await
         .map_err(|e| DatabaseError::txn_begin("get_all_managed_host_network_status", e))?;
 
-    let all_status = db::machine::get_all_network_status_observation(&mut txn, 2000)
-        .await
-        .map_err(CarbideError::from)?;
+    let all_status = db::machine::get_all_network_status_observation(&mut txn, 2000).await?;
 
     let mut out = Vec::with_capacity(all_status.len());
     for machine_network_status in all_status {
@@ -834,9 +816,8 @@ pub(crate) async fn dpu_agent_upgrade_check(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
-        .await
-        .map_err(CarbideError::from)?;
+    let machine =
+        db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
     let machine = machine.ok_or(CarbideError::NotFoundError {
         kind: "dpu",
         id: machine_id.to_string(),
@@ -886,16 +867,11 @@ pub(crate) async fn dpu_agent_upgrade_policy_action(
     if let Some(new_policy) = req.new_policy {
         let policy: AgentUpgradePolicy = new_policy.into();
 
-        DpuAgentUpgradePolicy::set(&mut txn, policy)
-            .await
-            .map_err(CarbideError::from)?;
+        DpuAgentUpgradePolicy::set(&mut txn, policy).await?;
         did_change = true;
     }
 
-    let Some(active_policy) = DpuAgentUpgradePolicy::get(&mut txn)
-        .await
-        .map_err(CarbideError::from)?
-    else {
+    let Some(active_policy) = DpuAgentUpgradePolicy::get(&mut txn).await? else {
         return Err(tonic::Status::not_found("No agent upgrade policy"));
     };
     txn.commit()
@@ -939,8 +915,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             host_health_config: api.runtime_config.host_health,
         },
     )
-    .await
-    .map_err(CarbideError::from)?
+    .await?
     .ok_or(CarbideError::NotFoundError {
         kind: "machine",
         id: machine_id.to_string(),
@@ -988,8 +963,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                     initiator,
                     req.update_firmware,
                 )
-                .await
-                .map_err(CarbideError::from)?;
+                .await?;
             } else {
                 for dpu_snapshot in &snapshot.dpu_snapshots {
                     db::machine::trigger_dpu_reprovisioning_request(
@@ -998,21 +972,17 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                         initiator,
                         req.update_firmware,
                     )
-                    .await
-                    .map_err(CarbideError::from)?;
+                    .await?;
                 }
             }
         }
         Mode::Clear => {
             if machine_id.machine_type().is_dpu() {
-                db::machine::clear_dpu_reprovisioning_request(&mut txn, &machine_id, true)
-                    .await
-                    .map_err(CarbideError::from)?;
+                db::machine::clear_dpu_reprovisioning_request(&mut txn, &machine_id, true).await?;
             } else {
                 for dpu_snapshot in &snapshot.dpu_snapshots {
                     db::machine::clear_dpu_reprovisioning_request(&mut txn, &dpu_snapshot.id, true)
-                        .await
-                        .map_err(CarbideError::from)?;
+                        .await?;
                 }
             }
         }
@@ -1049,9 +1019,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                     .into());
             }
 
-            db::machine::restart_dpu_reprovisioning(&mut txn, &ids, req.update_firmware)
-                .await
-                .map_err(CarbideError::from)?;
+            db::machine::restart_dpu_reprovisioning(&mut txn, &ids, req.update_firmware).await?;
         }
     }
 

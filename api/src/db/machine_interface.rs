@@ -173,7 +173,7 @@ pub async fn associate_interface_with_machine(
             {
                 CarbideError::OnePrimaryInterface
             }
-            _ => CarbideError::from(DatabaseError::query(query, err)),
+            _ => DatabaseError::query(query, err).into(),
         })
 }
 
@@ -206,7 +206,7 @@ pub async fn find_by_ip(
 pub async fn find_all(txn: &mut PgConnection) -> CarbideResult<Vec<MachineInterfaceSnapshot>> {
     find_by(txn, ObjectColumnFilter::All::<IdColumn>)
         .await
-        .map_err(CarbideError::from)
+        .map_err(Into::into)
 }
 
 #[cfg(test)] // only used in tests today
@@ -243,9 +243,7 @@ pub async fn find_one(
     txn: &mut PgConnection,
     interface_id: MachineInterfaceId,
 ) -> CarbideResult<MachineInterfaceSnapshot> {
-    let mut interfaces = find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id))
-        .await
-        .map_err(CarbideError::from)?;
+    let mut interfaces = find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id)).await?;
     match interfaces.len() {
         0 => Err(CarbideError::FindOneReturnedNoResultsError(interface_id.0)),
         1 => Ok(interfaces.remove(0)),
@@ -493,10 +491,7 @@ pub async fn find_by_ip_or_id(
     interface_id: Option<MachineInterfaceId>,
 ) -> Result<MachineInterfaceSnapshot, CarbideError> {
     if let Some(remote_ip) = remote_ip {
-        if let Some(interface) = find_by_ip(txn, remote_ip)
-            .await
-            .map_err(CarbideError::from)?
-        {
+        if let Some(interface) = find_by_ip(txn, remote_ip).await? {
             // remove debug message by Apr 2024
             tracing::debug!(
                 interface_id = %interface.id,
@@ -745,9 +740,7 @@ pub async fn create_host_machine_dpu_interface_proactively(
             id: dpu_id.to_string(),
         })??;
 
-    let existing_machine = db::machine::find_existing_machine(txn, host_mac, gateway)
-        .await
-        .map_err(CarbideError::from)?;
+    let existing_machine = db::machine::find_existing_machine(txn, host_mac, gateway).await?;
 
     let machine_interface =
         find_or_create_machine_interface(txn, existing_machine, host_mac, gateway).await?;

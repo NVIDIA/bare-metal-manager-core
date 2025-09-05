@@ -43,26 +43,17 @@ pub async fn discover_dhcp(
     // Use link address if present, else relay address. Link address represents subnet address at
     // first router.
     let address_to_use_for_dhcp = link_address.as_ref().unwrap_or(&relay_address);
-    let parsed_relay = address_to_use_for_dhcp
-        .parse()
-        .map_err(CarbideError::from)?;
-    let relay_ip = IpAddr::from_str(&relay_address).map_err(CarbideError::from)?;
+    let parsed_relay = address_to_use_for_dhcp.parse()?;
+    let relay_ip = IpAddr::from_str(&relay_address)?;
 
-    let parsed_mac: MacAddress = mac_address
-        .parse::<MacAddress>()
-        .map_err(CarbideError::from)?;
+    let parsed_mac: MacAddress = mac_address.parse()?;
 
     let existing_machine_id =
-        match db::machine::find_existing_machine(&mut txn, parsed_mac, parsed_relay)
-            .await
-            .map_err(CarbideError::from)?
-        {
+        match db::machine::find_existing_machine(&mut txn, parsed_mac, parsed_relay).await? {
             Some(existing_machine) => Some(existing_machine),
             None => {
                 if let Some(expected_interface) =
-                    PredictedMachineInterface::find_by_mac_address(&mut txn, parsed_mac)
-                        .await
-                        .map_err(CarbideError::from)?
+                    PredictedMachineInterface::find_by_mac_address(&mut txn, parsed_mac).await?
                 {
                     machine_interface::move_predicted_machine_interface_to_machine(
                         &mut txn,
@@ -129,8 +120,7 @@ pub async fn discover_dhcp(
 
     let record: rpc::DhcpRecord =
         DhcpRecord::find_by_mac_address(&mut txn, &parsed_mac, &machine_interface.segment_id)
-            .await
-            .map_err(CarbideError::from)?
+            .await?
             .into();
 
     txn.commit()

@@ -834,8 +834,7 @@ impl NetworkSegment {
             .bind(self.id)
             .fetch_one(txn)
             .await
-            .map_err(|e| DatabaseError::query(query, e))
-            .map_err(CarbideError::from)?;
+            .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(id)
     }
@@ -960,9 +959,7 @@ impl NetworkSegment {
             )
         };
 
-        NetworkPrefix::set_svi_ip(txn, prefix_id, &svi_ip)
-            .await
-            .map_err(CarbideError::from)?;
+        NetworkPrefix::set_svi_ip(txn, prefix_id, &svi_ip).await?;
 
         Ok(svi_ip)
     }

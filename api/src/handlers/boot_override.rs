@@ -12,7 +12,6 @@
 
 use ::rpc::forge as rpc;
 
-use crate::CarbideError;
 use crate::api::Api;
 use crate::db;
 use crate::db::DatabaseError;
@@ -116,7 +115,7 @@ pub(crate) async fn clear(
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::txn_begin(DB_TXN_NAME, e)))?;
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let machine_id = match db::machine_interface::find_one(&mut txn, machine_interface_id).await {
         Ok(interface) => interface.machine_id,

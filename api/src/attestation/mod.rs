@@ -49,8 +49,7 @@ pub async fn get_ek_cert_by_machine_id(
             ..MachineSearchConfig::default()
         },
     )
-    .await
-    .map_err(CarbideError::from)?
+    .await?
     .ok_or_else(|| CarbideError::internal(format!("Machine with id {machine_id} not found.")))?;
 
     // obtain an ek cert

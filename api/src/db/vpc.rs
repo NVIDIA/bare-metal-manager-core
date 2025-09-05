@@ -251,9 +251,7 @@ impl Vpc {
         // VPC does not have dpa_vni associated with it. Allocate an dpa_vni for VPC now.
 
         self.dpa_vni = Some(api.pool_allocate_dpa_vni(txn, &self.id.to_string()).await?);
-        Vpc::set_dpa_vni(txn, self.id, self.dpa_vni.unwrap())
-            .await
-            .map_err(CarbideError::from)?;
+        Vpc::set_dpa_vni(txn, self.id, self.dpa_vni.unwrap()).await?;
 
         Ok(())
     }
@@ -557,7 +555,7 @@ impl UpdateVpc {
                     current_version.to_string(),
                 ))
             }
-            Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
+            Err(e) => Err(DatabaseError::query(query, e).into()),
         }
     }
 }
@@ -603,7 +601,7 @@ impl UpdateVpcVirtualization {
                     current_version.to_string(),
                 ))
             }
-            Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
+            Err(e) => Err(DatabaseError::query(query, e).into()),
         }?;
 
         // Update SVI IP for stretchable segments.
@@ -735,8 +733,7 @@ impl VpcDpuLoopback {
                 .ethernet
                 .pool_vpc_dpu_loopback_ip
                 .release(txn, ipv4_addr)
-                .await
-                .map_err(CarbideError::from)?;
+                .await?;
         }
 
         Ok(())

@@ -281,9 +281,7 @@ pub(crate) async fn update(
     // should not be updated.  This is another one that could be a subquery, but
     // we want the caller to know the actual reason for failure.
     let existing_associated_machines =
-        db::machine::find_ids_by_instance_type_id(&mut txn, &id, true)
-            .await
-            .map_err(CarbideError::from)?;
+        db::machine::find_ids_by_instance_type_id(&mut txn, &id, true).await?;
 
     // Forge-cloud allows users to change metadata changes (name, description, and label),
     // so we'll need to allow the same here.
@@ -354,9 +352,7 @@ pub(crate) async fn delete(
     //  This will also grab a row lock on the requested machines so we can
     // coordinate with the instance allocation handler.
     let existing_associated_machines =
-        db::machine::find_ids_by_instance_type_id(&mut txn, &id, true)
-            .await
-            .map_err(CarbideError::from)?;
+        db::machine::find_ids_by_instance_type_id(&mut txn, &id, true).await?;
 
     // Check that there are no associated instances for the machines.
     let instances = instance::Instance::find_by_machine_ids(
@@ -366,8 +362,7 @@ pub(crate) async fn delete(
             .map(|v| &v.0)
             .collect::<Vec<_>>(),
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     if !instances.is_empty() {
         return Err(CarbideError::FailedPrecondition(format!(
@@ -384,8 +379,7 @@ pub(crate) async fn delete(
             .map(|v| (&v.0, &v.1))
             .collect::<Vec<_>>(),
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     // Make our DB query to soft delete the instance type
     let _id = instance_type::soft_delete(&mut txn, &id).await?;
@@ -512,8 +506,7 @@ pub(crate) async fn associate_machines(
             ..MachineSearchConfig::default()
         },
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     // Check that there are no associated instances for the machines.
     // I expected machine.has_instance() to handle this, but the data
@@ -521,8 +514,7 @@ pub(crate) async fn associate_machines(
     // the future after an instance is created in the DB.
     let instances =
         instance::Instance::find_by_machine_ids(&mut txn, &machine_ids.iter().collect::<Vec<_>>())
-            .await
-            .map_err(CarbideError::from)?;
+            .await?;
 
     if !instances.is_empty() {
         return Err(CarbideError::FailedPrecondition(
@@ -559,8 +551,7 @@ pub(crate) async fn associate_machines(
         &instance_type_id,
         &machine_versions,
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     if ids.len() != machine_versions.len() {
         tracing::error!(
@@ -612,8 +603,7 @@ pub(crate) async fn remove_machine_association(
             ..MachineSearchConfig::default()
         },
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     let Some(machine) = machines.pop() else {
         return Err(CarbideError::NotFoundError {
@@ -624,9 +614,7 @@ pub(crate) async fn remove_machine_association(
     };
 
     // Check that there are no associated instances for the machines.
-    let instances = instance::Instance::find_by_machine_ids(&mut txn, &[&machine_id])
-        .await
-        .map_err(CarbideError::from)?;
+    let instances = instance::Instance::find_by_machine_ids(&mut txn, &[&machine_id]).await?;
 
     if let Some(instance) = instances.first() {
         if instance.deleted.is_none() {
@@ -643,8 +631,7 @@ pub(crate) async fn remove_machine_association(
         &mut txn,
         &[(&machine.id, &machine.version)],
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     // Prepare the response message
     let rpc_out = rpc::RemoveMachineInstanceTypeAssociationResponse {};

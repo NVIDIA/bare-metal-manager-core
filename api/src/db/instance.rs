@@ -787,7 +787,7 @@ impl NewInstance<'_> {
             Err(sqlx::Error::RowNotFound) => Err(CarbideError::FailedPrecondition(
                 "expected InstanceTypeId does not match source machine".to_string(),
             )),
-            Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
+            Err(e) => Err(DatabaseError::query(query, e).into()),
             Ok(o) => Ok(o),
         }
     }
@@ -804,7 +804,7 @@ impl DeleteInstance {
             .await
             .map(|_| ())
             .map_err(|e| DatabaseError::query(query, e))
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 
     pub async fn mark_as_deleted(&self, txn: &mut PgConnection) -> CarbideResult<()> {

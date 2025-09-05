@@ -134,8 +134,7 @@ pub(crate) async fn identify_serial(
         MachineTopology::find_by_serial(&mut txn, &req.serial_number).await
     } else {
         MachineTopology::find_freetext(&mut txn, &req.serial_number).await
-    }
-    .map_err(CarbideError::from)?;
+    }?;
 
     if machine_ids.len() > 1 {
         tracing::warn!(

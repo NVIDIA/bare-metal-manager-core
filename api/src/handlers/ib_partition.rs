@@ -137,8 +137,7 @@ pub(crate) async fn find_by_ids(
         ObjectColumnFilter::List(ib_partition::IdColumn, &partition_ids),
         IBPartitionSearchConfig {},
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     let mut result = Vec::with_capacity(partitions.len());
     for ibp in partitions {
@@ -184,9 +183,7 @@ pub(crate) async fn find(
     let search_config = search_config
         .map(IBPartitionSearchConfig::from)
         .unwrap_or(IBPartitionSearchConfig::default());
-    let results = IBPartition::find_by(&mut txn, uuid_filter, search_config)
-        .await
-        .map_err(CarbideError::from)?;
+    let results = IBPartition::find_by(&mut txn, uuid_filter, search_config).await?;
     let mut ib_partitions = Vec::with_capacity(results.len());
     for result in results {
         ib_partitions.push(result.try_into()?);
@@ -218,8 +215,7 @@ pub(crate) async fn delete(
         ObjectColumnFilter::One(ib_partition::IdColumn, &uuid),
         IBPartitionSearchConfig::default(),
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     let segment = match segments.len() {
         1 => segments.remove(0),
@@ -270,9 +266,7 @@ pub(crate) async fn for_tenant(
         }
     };
 
-    let results = IBPartition::for_tenant(&mut txn, _tenant_organization_id)
-        .await
-        .map_err(CarbideError::from)?;
+    let results = IBPartition::for_tenant(&mut txn, _tenant_organization_id).await?;
 
     let mut ib_partitions = Vec::with_capacity(results.len());
 

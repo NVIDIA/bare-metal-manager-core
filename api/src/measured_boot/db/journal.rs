@@ -173,9 +173,7 @@ pub async fn get_journal_for_report_id(
 async fn get_measurement_journals(
     txn: &mut PgConnection,
 ) -> CarbideResult<Vec<MeasurementJournal>> {
-    let journal_records: Vec<MeasurementJournalRecord> = common::get_all_objects(txn)
-        .await
-        .map_err(CarbideError::from)?;
+    let journal_records: Vec<MeasurementJournalRecord> = common::get_all_objects(txn).await?;
     let res: Vec<MeasurementJournal> = journal_records
         .iter()
         .map(|record| MeasurementJournal {
@@ -202,7 +200,7 @@ pub async fn get_latest_journal_for_id(
         .bind(machine_id)
         .fetch_optional(txn)
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("get_latest_journal_for_id", e)))?
+        .map_err(|e| DatabaseError::new("get_latest_journal_for_id", e))?
     {
         Some(info) => Ok(Some(MeasurementJournal {
             journal_id: info.journal_id,
@@ -246,8 +244,7 @@ pub(crate) mod test_support {
             crate::measured_boot::interface::journal::get_measurement_journal_records_for_machine_id(
                 txn, machine_id,
             )
-                .await
-                .map_err(CarbideError::from)?;
+                .await?;
         Ok(records
             .iter()
             .map(|record| MeasurementJournal {

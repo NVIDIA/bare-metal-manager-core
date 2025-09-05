@@ -281,7 +281,7 @@ impl MachineValidation {
             "id",
         )
         .await
-        .map_err(CarbideError::from)
+        .map_err(Into::into)
     }
 
     pub async fn find_by_machine_id(
@@ -294,7 +294,7 @@ impl MachineValidation {
             "machine_id",
         )
         .await
-        .map_err(CarbideError::from)
+        .map_err(Into::into)
     }
 
     pub async fn find_active_machine_validation_by_machine_id(
@@ -315,8 +315,7 @@ impl MachineValidation {
     pub async fn find_by_id(txn: &mut PgConnection, validation_id: &Uuid) -> CarbideResult<Self> {
         let machine_validation =
             MachineValidation::find_by(txn, ObjectFilter::One(validation_id.to_string()), "id")
-                .await
-                .map_err(CarbideError::from)?;
+                .await?;
 
         if !machine_validation.is_empty() {
             return Ok(machine_validation[0].clone());
@@ -329,7 +328,7 @@ impl MachineValidation {
     pub async fn find_all(txn: &mut PgConnection) -> CarbideResult<Vec<MachineValidation>> {
         MachineValidation::find_by(txn, ObjectFilter::All, "")
             .await
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 
     pub fn from_state(
@@ -375,13 +374,9 @@ impl MachineValidation {
         status: MachineValidationStatus,
     ) -> CarbideResult<()> {
         //Mark machine validation request to false
-        db::machine::set_machine_validation_request(txn, machine_id, false)
-            .await
-            .map_err(CarbideError::from)?;
+        db::machine::set_machine_validation_request(txn, machine_id, false).await?;
 
-        db::machine::update_machine_validation_time(machine_id, txn)
-            .await
-            .map_err(CarbideError::from)?;
+        db::machine::update_machine_validation_time(machine_id, txn).await?;
 
         //TODO repopulate the status
         Self::update_end_time(txn, uuid, &status).await?;
@@ -460,8 +455,7 @@ impl<'r> FromRow<'r, PgRow> for MachineValidationResult {
 impl TryFrom<rpc::forge::MachineValidationResult> for MachineValidationResult {
     type Error = CarbideError;
     fn try_from(value: rpc::forge::MachineValidationResult) -> CarbideResult<Self> {
-        let val_id =
-            Uuid::try_from(value.validation_id.unwrap_or_default()).map_err(CarbideError::from)?;
+        let val_id = Uuid::try_from(value.validation_id.unwrap_or_default())?;
         let start_time = match value.start_time {
             Some(time) => {
                 DateTime::from_timestamp(time.seconds, time.nanos.try_into().unwrap()).unwrap()
@@ -534,7 +528,7 @@ impl MachineValidationResult {
                 "machine_validation_id",
             )
             .await
-            .map_err(CarbideError::from);
+            .map_err(Into::into);
         };
         let machine =
             match db::machine::find_one(txn, machine_id, MachineSearchConfig::default()).await {
@@ -570,7 +564,7 @@ impl MachineValidationResult {
             "machine_validation_id",
         )
         .await
-        .map_err(CarbideError::from)
+        .map_err(Into::into)
     }
 
     async fn find_by(
@@ -672,8 +666,7 @@ impl MachineValidationResult {
             ObjectFilter::List(&[id.to_string()]),
             "machine_validation_id",
         )
-        .await
-        .map_err(CarbideError::from)?;
+        .await?;
 
         for result in db_results {
             if result.exit_code != 0 {
@@ -693,7 +686,7 @@ impl MachineValidationResult {
             "machine_validation_id",
         )
         .await
-        .map_err(CarbideError::from)
+        .map_err(Into::into)
     }
 }
 

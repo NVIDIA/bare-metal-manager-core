@@ -94,8 +94,7 @@ impl IBFabric for RestIBFabric {
                 include_guids_data: options.include_guids_data,
                 include_qos_conf: options.include_qos_conf,
             })
-            .await
-            .map_err(CarbideError::from)?;
+            .await?;
 
         let mut results = HashMap::with_capacity(partitions.len());
         for (pkey, partition) in partitions.into_iter() {
@@ -113,7 +112,7 @@ impl IBFabric for RestIBFabric {
         pkey: u16,
         options: GetPartitionOptions,
     ) -> Result<IBNetwork, CarbideError> {
-        let pkey = PartitionKey::try_from(pkey).map_err(CarbideError::from)?;
+        let pkey = PartitionKey::try_from(pkey)?;
 
         let partition = self
             .ufm
@@ -124,8 +123,7 @@ impl IBFabric for RestIBFabric {
                     include_qos_conf: options.include_qos_conf,
                 },
             )
-            .await
-            .map_err(CarbideError::from)?;
+            .await?;
 
         IBNetwork::try_from(partition)
     }
@@ -142,7 +140,7 @@ impl IBFabric for RestIBFabric {
         self.ufm
             .bind_ports(partition, ports)
             .await
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 
     /// Update an IB Partitions QoS configuration
@@ -157,17 +155,14 @@ impl IBFabric for RestIBFabric {
         self.ufm
             .update_partition_qos(pkey, qos)
             .await
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 
     /// Delete IBPort
     async fn unbind_ib_ports(&self, pkey: u16, ids: Vec<String>) -> Result<(), CarbideError> {
-        let pkey = PartitionKey::try_from(pkey).map_err(CarbideError::from)?;
+        let pkey = PartitionKey::try_from(pkey)?;
 
-        self.ufm
-            .unbind_ports(pkey, ids)
-            .await
-            .map_err(CarbideError::from)
+        self.ufm.unbind_ports(pkey, ids).await.map_err(Into::into)
     }
 
     /// Find IBPort
@@ -177,7 +172,7 @@ impl IBFabric for RestIBFabric {
             .list_port(filter)
             .await
             .map(|p| p.iter().map(IBPort::from).collect())
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 
     /// Returns IB fabric related versions
@@ -682,7 +677,7 @@ mod tests {
         let result_ports: Result<Vec<Port>, UFMError> = Ok(ports.clone());
         let result: Result<Vec<IBPort>, CarbideError> = result_ports
             .map(|p| p.iter().map(IBPort::from).collect())
-            .map_err(CarbideError::from);
+            .map_err(Into::into);
         assert!(result.is_ok());
         let ibports = result.unwrap();
         assert_eq!(ibports.len(), 3);
@@ -696,7 +691,7 @@ mod tests {
                     .filter(|v| v.state == Some(IBPortState::Active))
                     .collect()
             })
-            .map_err(CarbideError::from);
+            .map_err(Into::into);
         assert!(result.is_ok());
         let ibports = result.unwrap();
         assert_eq!(ibports.len(), 1);

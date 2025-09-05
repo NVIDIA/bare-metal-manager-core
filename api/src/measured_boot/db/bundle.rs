@@ -82,15 +82,13 @@ pub async fn new_with_txn(
                         bundle_name.clone(),
                         db_err
                     )),
-                    _ => CarbideError::from(DatabaseError::new(
-                        "MeasurementBundle.new_with_txn db_err",
-                        sqlx_err,
-                    )),
+                    _ => {
+                        DatabaseError::new("MeasurementBundle.new_with_txn db_err", sqlx_err).into()
+                    }
                 },
-                None => CarbideError::from(DatabaseError::new(
-                    "MeasurementBundle.new_with_txn sqlx_err",
-                    sqlx_err,
-                )),
+                None => {
+                    DatabaseError::new("MeasurementBundle.new_with_txn sqlx_err", sqlx_err).into()
+                }
             }
         })?;
 
@@ -126,9 +124,7 @@ pub async fn from_id_with_txn(
 ) -> CarbideResult<MeasurementBundle> {
     match get_measurement_bundle_by_id(txn, bundle_id).await? {
         Some(info) => {
-            let values = get_measurement_bundle_values_for_bundle_id(txn, info.bundle_id)
-                .await
-                .map_err(CarbideError::from)?;
+            let values = get_measurement_bundle_values_for_bundle_id(txn, info.bundle_id).await?;
             Ok(from_info_and_values(info, values)?)
         }
         None => Err(CarbideError::NotFoundError {
@@ -284,9 +280,7 @@ pub async fn rename_for_id(
     bundle_id: MeasurementBundleId,
     new_bundle_name: String,
 ) -> CarbideResult<MeasurementBundle> {
-    let info = rename_bundle_for_bundle_id(txn, bundle_id, new_bundle_name.clone())
-        .await
-        .map_err(CarbideError::from)?;
+    let info = rename_bundle_for_bundle_id(txn, bundle_id, new_bundle_name.clone()).await?;
     match info {
         Some(info) => from_info_and_values(
             info,
@@ -403,7 +397,7 @@ pub async fn get_machines(
 ) -> CarbideResult<Vec<MachineId>> {
     get_machines_for_bundle_id(txn, measurement_bundle.bundle_id)
         .await
-        .map_err(CarbideError::from)
+        .map_err(Into::into)
 }
 
 /// match_bundle takes a map of k/v pairs and returns a singular matching
@@ -471,10 +465,7 @@ pub async fn set_state_for_bundle_id(
     bundle_id: MeasurementBundleId,
     state: MeasurementBundleState,
 ) -> Result<MeasurementBundleRecord, CarbideError> {
-    match update_state_for_bundle_id(txn, bundle_id, state, false)
-        .await
-        .map_err(CarbideError::from)?
-    {
+    match update_state_for_bundle_id(txn, bundle_id, state, false).await? {
         // Got a record back, which means the state was successfully
         // updated, so return it.
         Some(record) => Ok(record),
