@@ -243,10 +243,7 @@ async fn resolve_bmc_interface(
             .await
             .map_err(|e| DatabaseError::txn_begin("resolve_bmc_interface", e))?;
 
-        if let Some(bmc_machine_interface) = find_by_ip(&mut txn, bmc_addr.ip())
-            .await
-            .map_err(CarbideError::from)?
-        {
+        if let Some(bmc_machine_interface) = find_by_ip(&mut txn, bmc_addr.ip()).await? {
             bmc_mac_address = bmc_machine_interface.mac_address;
         } else {
             return Err(tonic::Status::invalid_argument(format!(

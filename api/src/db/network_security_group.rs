@@ -146,7 +146,7 @@ pub async fn create(
             kind: "NetworkSecurityGroup",
             id: metadata.name.clone(),
         }),
-        Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
+        Err(e) => Err(DatabaseError::query(query, e).into()),
     }
 }
 
@@ -523,7 +523,7 @@ pub(crate) async fn update(
             kind: "NetworkSecurityGroup",
             id: metadata.name.clone(),
         }),
-        Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
+        Err(e) => Err(DatabaseError::query(query, e).into()),
     }
 }
 
@@ -556,6 +556,6 @@ pub(crate) async fn soft_delete(
     {
         Ok(network_security_group) => Ok(Some(network_security_group)),
         Err(sqlx::Error::RowNotFound) => Ok(None),
-        Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
+        Err(e) => Err(DatabaseError::query(query, e).into()),
     }
 }

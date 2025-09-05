@@ -12,7 +12,7 @@
 use sqlx::FromRow;
 use sqlx::PgConnection;
 
-use crate::{CarbideError, CarbideResult, db::DatabaseError};
+use crate::{CarbideResult, db::DatabaseError};
 
 #[derive(FromRow, Debug, sqlx::Encode)]
 pub struct SecretAkPub {
@@ -60,6 +60,6 @@ impl SecretAkPub {
             .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 }

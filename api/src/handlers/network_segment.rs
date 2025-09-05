@@ -106,8 +106,7 @@ pub(crate) async fn find_by_ids(
             include_num_free_ips,
         },
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     let mut result = Vec::with_capacity(segments.len());
     for seg in segments {
@@ -153,9 +152,7 @@ pub(crate) async fn find(
     let search_config = search_config
         .map(NetworkSegmentSearchConfig::from)
         .unwrap_or(NetworkSegmentSearchConfig::default());
-    let results = NetworkSegment::find_by(&mut txn, segment_id_filter, search_config)
-        .await
-        .map_err(CarbideError::from)?;
+    let results = NetworkSegment::find_by(&mut txn, segment_id_filter, search_config).await?;
     let mut network_segments = Vec::with_capacity(results.len());
 
     for result in results {
@@ -215,8 +212,7 @@ pub(crate) async fn create(
                 &mut txn,
                 ObjectColumnFilter::One(crate::db::vpc::IdColumn, &vpc_id),
             )
-            .await
-            .map_err(CarbideError::from)?;
+            .await?;
 
             let vpc = vpcs
                 .first()
@@ -263,7 +259,7 @@ pub(crate) async fn delete(
         NetworkSegmentSearchConfig::default(),
     )
     .await
-    .map_err(|e| Box::new(CarbideError::from(e).into()))?;
+    .map_err(Status::from)?;
 
     let segment = match segments.len() {
         1 => segments.remove(0),
@@ -321,9 +317,7 @@ pub(crate) async fn for_vpc(
         }
     };
 
-    let results = NetworkSegment::for_vpc(&mut txn, uuid)
-        .await
-        .map_err(CarbideError::from)?;
+    let results = NetworkSegment::for_vpc(&mut txn, uuid).await?;
 
     let mut network_segments = Vec::with_capacity(results.len());
 

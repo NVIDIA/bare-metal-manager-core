@@ -87,7 +87,7 @@ pub async fn create(
             kind: "InstanceType",
             id: metadata.name.clone(),
         }),
-        Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
+        Err(e) => Err(DatabaseError::query(query, e).into()),
     }
 }
 
@@ -194,7 +194,7 @@ pub(crate) async fn update(
             kind: "InstanceType",
             id: metadata.name.clone(),
         }),
-        Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
+        Err(e) => Err(DatabaseError::query(query, e).into()),
     }
 }
 
@@ -219,7 +219,7 @@ pub(crate) async fn soft_delete(
     {
         Ok(instance_type) => Ok(Some(instance_type)),
         Err(sqlx::Error::RowNotFound) => Ok(None),
-        Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
+        Err(e) => Err(DatabaseError::query(query, e).into()),
     }
 }
 

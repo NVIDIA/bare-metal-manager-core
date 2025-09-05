@@ -146,7 +146,7 @@ impl MachineBootOverride {
             .await
             .map(|_| ())
             .map_err(|e| DatabaseError::query(query, e))
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 
     pub async fn find_optional(
@@ -157,8 +157,7 @@ impl MachineBootOverride {
             txn,
             ObjectColumnFilter::One(MachineInterfaceIdColumn, &machine_interface_id),
         )
-        .await
-        .map_err(CarbideError::from)?;
+        .await?;
         match interfaces.len() {
             0 => Ok(None),
             1 => Ok(Some(interfaces.remove(0))),

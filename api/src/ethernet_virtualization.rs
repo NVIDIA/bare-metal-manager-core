@@ -102,9 +102,7 @@ pub async fn admin_network(
     fnn_enabled_on_admin: bool,
     common_pools: &CommonPools,
 ) -> Result<(rpc::FlatInterfaceConfig, MachineInterfaceId), tonic::Status> {
-    let admin_segment = NetworkSegment::admin(txn)
-        .await
-        .map_err(CarbideError::from)?;
+    let admin_segment = NetworkSegment::admin(txn).await?;
 
     let prefix = match admin_segment.prefixes.first() {
         Some(p) => p,
@@ -119,8 +117,7 @@ pub async fn admin_network(
     let domain = match admin_segment.subdomain_id {
         Some(domain_id) => {
             Domain::find_by_uuid(txn, domain_id)
-                .await
-                .map_err(CarbideError::from)?
+                .await?
                 .ok_or_else(|| CarbideError::NotFoundError {
                     kind: "domain",
                     id: domain_id.to_string(),
@@ -132,8 +129,7 @@ pub async fn admin_network(
 
     let interfaces =
         db::machine_interface::find_by_machine_and_segment(txn, host_machine_id, admin_segment.id)
-            .await
-            .map_err(CarbideError::from)?;
+            .await?;
 
     let interface = interfaces.into_iter().find(|x| {
         if let Some(id) = &x.attached_dpu_machine_id {
@@ -150,9 +146,7 @@ pub async fn admin_network(
         .into());
     };
 
-    let address = MachineInterfaceAddress::find_ipv4_for_interface(txn, interface.id)
-        .await
-        .map_err(CarbideError::from)?;
+    let address = MachineInterfaceAddress::find_ipv4_for_interface(txn, interface.id).await?;
 
     // On the admin network, the interface_prefix is always
     // just going to be a /32 derived from the machine interface
@@ -186,9 +180,8 @@ pub async fn admin_network(
     } else {
         match admin_segment.vpc_id {
             Some(vpc_id) => {
-                let mut vpcs = Vpc::find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
-                    .await
-                    .map_err(CarbideError::from)?;
+                let mut vpcs =
+                    Vpc::find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
                 if vpcs.is_empty() {
                     return Err(CarbideError::FindOneReturnedNoResultsError(vpc_id.into()).into());
                 }
@@ -315,13 +308,11 @@ pub async fn tenant_network(
     let vpc_prefixes: Vec<String> = match segment.vpc_id {
         Some(vpc_id) => {
             let vpc_prefixes = VpcPrefix::find_by_vpc(txn, vpc_id)
-                .await
-                .map_err(CarbideError::from)?
+                .await?
                 .into_iter()
                 .map(|vpc_prefix| vpc_prefix.prefix.to_string());
             let vpc_segment_prefixes = NetworkPrefix::find_by_vpc(txn, vpc_id)
-                .await
-                .map_err(CarbideError::from)?
+                .await?
                 .into_iter()
                 .map(|segment_prefix| segment_prefix.prefix.to_string());
             vpc_prefixes.chain(vpc_segment_prefixes).collect()
@@ -352,8 +343,7 @@ pub async fn tenant_network(
                         vpc_id,
                         allowed_network_virtualization_types,
                     )
-                    .await
-                    .map_err(CarbideError::from)?;
+                    .await?;
 
                     let vpc_peer_ids = vpc_peers.iter().map(|(vpc_id, _)| *vpc_id).collect();
                     vpc_peer_prefixes = get_prefixes_by_vpcs(txn, &vpc_peer_ids).await?;
@@ -363,9 +353,7 @@ pub async fn tenant_network(
                 }
                 VpcPeeringPolicy::Mixed => {
                     // Any combination of VPC peering allowed
-                    let vpc_peer_ids = VpcPeering::get_vpc_peer_ids(txn, vpc_id)
-                        .await
-                        .map_err(CarbideError::from)?;
+                    let vpc_peer_ids = VpcPeering::get_vpc_peer_ids(txn, vpc_id).await?;
                     vpc_peer_prefixes = get_prefixes_by_vpcs(txn, &vpc_peer_ids).await?;
                     if network_virtualization_type == VpcVirtualizationType::Fnn {
                         // Get vnis of all FNN peers for route import
@@ -374,8 +362,7 @@ pub async fn tenant_network(
                             vpc_id,
                             vec![VpcVirtualizationType::Fnn],
                         )
-                        .await
-                        .map_err(CarbideError::from)?
+                        .await?
                         .iter()
                         .map(|(_, vni)| *vni as u32)
                         .collect();
@@ -388,9 +375,7 @@ pub async fn tenant_network(
 
     let vpc_vni = match segment.vpc_id {
         Some(vpc_id) => {
-            let vpcs = Vpc::find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
-                .await
-                .map_err(CarbideError::from)?;
+            let vpcs = Vpc::find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
             if vpcs.is_empty() {
                 return Err(CarbideError::FindOneReturnedNoResultsError(vpc_id.into()).into());
             }

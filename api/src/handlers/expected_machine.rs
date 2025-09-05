@@ -47,10 +47,7 @@ pub(crate) async fn get(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
-    match ExpectedMachine::find_by_bmc_mac_address(&mut txn, parsed_mac)
-        .await
-        .map_err(CarbideError::from)?
-    {
+    match ExpectedMachine::find_by_bmc_mac_address(&mut txn, parsed_mac).await? {
         Some(expected_machine) => {
             if expected_machine.bmc_mac_address != parsed_mac {
                 return Err(Status::invalid_argument(format!(
@@ -101,13 +98,13 @@ pub(crate) async fn add(
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::txn_begin(DB_TXN_NAME, e)))?;
+        .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     ExpectedMachine::create(&mut txn, parsed_mac, db_data).await?;
 
     txn.commit()
         .await
-        .map_err(|e| CarbideError::from(DatabaseError::txn_commit(DB_TXN_NAME, e)))?;
+        .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
     Ok(tonic::Response::new(()))
 }
@@ -196,9 +193,7 @@ pub(crate) async fn replace_all(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    ExpectedMachine::clear(&mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+    ExpectedMachine::clear(&mut txn).await?;
 
     txn.commit()
         .await
@@ -260,9 +255,7 @@ pub(crate) async fn delete_all(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    ExpectedMachine::clear(&mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+    ExpectedMachine::clear(&mut txn).await?;
 
     txn.commit()
         .await

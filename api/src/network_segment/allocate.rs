@@ -121,8 +121,7 @@ impl Ipv4PrefixAllocator {
                 txn,
                 crate::model::network_segment::NetworkSegmentControllerState::Provisioning,
             )
-            .await
-            .map_err(CarbideError::from)?;
+            .await?;
 
         for prefix in &mut segment.prefixes {
             prefix
@@ -131,8 +130,7 @@ impl Ipv4PrefixAllocator {
                     &self.vpc_prefix_id,
                     &ipnetwork::IpNetwork::V4(self.vpc_prefix),
                 )
-                .await
-                .map_err(CarbideError::from)?;
+                .await?;
         }
 
         Ok((segment.id, prefix))
@@ -141,8 +139,7 @@ impl Ipv4PrefixAllocator {
     pub async fn next_free_prefix(&self, txn: &mut PgConnection) -> CarbideResult<Ipv4Network> {
         let vpc_str = self.vpc_prefix.to_string();
         let used_prefixes = NetworkPrefix::containing_prefix(txn, vpc_str.as_str())
-            .await
-            .map_err(CarbideError::from)?
+            .await?
             .iter()
             .filter_map(|x| match x.prefix {
                 ipnetwork::IpNetwork::V4(ipv4net) => Some(ipv4net),

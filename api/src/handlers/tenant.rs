@@ -70,8 +70,7 @@ pub(crate) async fn create(
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let response = Tenant::create_and_persist(organization_id, metadata, &mut txn)
-        .await
-        .map_err(CarbideError::from)?
+        .await?
         .try_into()
         .map(Response::new)
         .map_err(CarbideError::from)?;
@@ -103,8 +102,7 @@ pub(crate) async fn find(
 
     let response = match Tenant::find(tenant_organization_id, &mut txn)
         .await
-        .map(Response::new)
-        .map_err(CarbideError::from)?
+        .map(Response::new)?
         .into_inner()
     {
         None => rpc::FindTenantResponse { tenant: None },

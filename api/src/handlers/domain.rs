@@ -73,9 +73,8 @@ pub(crate) async fn update(
         }
     };
 
-    let mut domains = Domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &uuid))
-        .await
-        .map_err(CarbideError::from)?;
+    let mut domains =
+        Domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &uuid)).await?;
 
     let mut dom = match domains.len() {
         0 => {
@@ -97,7 +96,6 @@ pub(crate) async fn update(
     let response = Ok(dom
         .update(&mut txn)
         .await
-        .map_err(CarbideError::from)
         .map(rpc::Domain::from)
         .map(Response::new)?);
 
@@ -136,9 +134,8 @@ pub(crate) async fn delete(
         }
     };
 
-    let mut domains = Domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &uuid))
-        .await
-        .map_err(CarbideError::from)?;
+    let mut domains =
+        Domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &uuid)).await?;
 
     let dom = match domains.len() {
         0 => {
@@ -162,7 +159,6 @@ pub(crate) async fn delete(
     let response = Ok(dom
         .delete(&mut txn)
         .await
-        .map_err(CarbideError::from)
         .map(|_| rpc::DomainDeletionResult {})
         .map(Response::new)?);
 

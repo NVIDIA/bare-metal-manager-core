@@ -74,7 +74,7 @@ impl VpcPeering {
                 id: format!("{vpc_id_1} and {vpc_id_2}"),
             }),
 
-            Err(e) => Err(CarbideError::from(DatabaseError::query(query, e))),
+            Err(e) => Err(DatabaseError::query(query, e).into()),
         }
     }
 
@@ -210,13 +210,11 @@ pub async fn get_prefixes_by_vpcs(
     vpcs: &Vec<VpcId>,
 ) -> Result<Vec<String>, CarbideError> {
     let vpc_prefixes = VpcPrefix::find_by_vpcs(txn, vpcs)
-        .await
-        .map_err(CarbideError::from)?
+        .await?
         .into_iter()
         .map(|vpc_prefix| vpc_prefix.prefix.to_string());
     let vpc_segment_prefixes = NetworkPrefix::find_by_vpcs(txn, vpcs)
-        .await
-        .map_err(CarbideError::from)?
+        .await?
         .into_iter()
         .map(|segment_prefix| segment_prefix.prefix.to_string());
 

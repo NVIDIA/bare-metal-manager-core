@@ -152,11 +152,8 @@ pub async fn rename_for_id(
 ) -> CarbideResult<MeasurementSystemProfile> {
     from_info_and_attrs(
         rename_profile_for_profile_id(txn, system_profile_id, new_system_profile_name.clone())
-            .await
-            .map_err(CarbideError::from)?,
-        get_measurement_profile_attrs_for_profile_id(txn, system_profile_id)
-            .await
-            .map_err(CarbideError::from)?,
+            .await?,
+        get_measurement_profile_attrs_for_profile_id(txn, system_profile_id).await?,
     )
 }
 
@@ -171,11 +168,8 @@ pub async fn rename_for_name(
         system_profile_name.clone(),
         new_system_profile_name.clone(),
     )
-    .await
-    .map_err(CarbideError::from)?;
-    let attrs = get_measurement_profile_attrs_for_profile_id(txn, info.profile_id)
-        .await
-        .map_err(CarbideError::from)?;
+    .await?;
+    let attrs = get_measurement_profile_attrs_for_profile_id(txn, info.profile_id).await?;
     from_info_and_attrs(info, attrs)
 }
 
@@ -191,7 +185,7 @@ pub async fn get_machines(
 ) -> CarbideResult<Vec<MachineId>> {
     get_machines_for_profile_id(txn, profile.profile_id)
         .await
-        .map_err(CarbideError::from)
+        .map_err(Into::into)
 }
 
 /// match_profile takes a map of k/v pairs and returns a singular matching
@@ -283,15 +277,15 @@ pub async fn create_measurement_profile(
                         profile_name.clone(),
                         db_err
                     )),
-                    _ => CarbideError::from(DatabaseError::new(
-                        "MeasurementSystemProfile.new_with_txn db_err",
-                        sqlx_err,
-                    )),
+                    _ => {
+                        DatabaseError::new("MeasurementSystemProfile.new_with_txn db_err", sqlx_err)
+                            .into()
+                    }
                 },
-                None => CarbideError::from(DatabaseError::new(
-                    "MeasurementSystemProfile.new_with_txn sqlx_err",
-                    sqlx_err,
-                )),
+                None => {
+                    DatabaseError::new("MeasurementSystemProfile.new_with_txn sqlx_err", sqlx_err)
+                        .into()
+                }
             }
         })?;
 
@@ -335,9 +329,7 @@ pub async fn get_measurement_profile_by_name(
 ) -> CarbideResult<MeasurementSystemProfile> {
     match get_measurement_profile_record_by_name(txn, name.clone()).await? {
         Some(info) => {
-            let attrs = get_measurement_profile_attrs_for_profile_id(txn, info.profile_id)
-                .await
-                .map_err(CarbideError::from)?;
+            let attrs = get_measurement_profile_attrs_for_profile_id(txn, info.profile_id).await?;
             Ok(MeasurementSystemProfile {
                 profile_id: info.profile_id,
                 name: info.name,
@@ -358,13 +350,8 @@ pub async fn delete_profile_for_id(
     txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> CarbideResult<Option<MeasurementSystemProfile>> {
-    let attrs = delete_profile_attr_records_for_id(txn, profile_id)
-        .await
-        .map_err(CarbideError::from)?;
-    match delete_profile_record_for_id(txn, profile_id)
-        .await
-        .map_err(CarbideError::from)?
-    {
+    let attrs = delete_profile_attr_records_for_id(txn, profile_id).await?;
+    match delete_profile_record_for_id(txn, profile_id).await? {
         Some(info) => Ok(Some(MeasurementSystemProfile {
             name: info.name,
             profile_id: info.profile_id,

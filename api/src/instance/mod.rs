@@ -175,8 +175,7 @@ pub async fn allocate_network(
 
     let mut vpc_prefixes: HashMap<VpcPrefixId, VpcPrefix> =
         VpcPrefix::get_by_id_with_row_lock(txn, &vpc_prefix_ids)
-            .await
-            .map_err(CarbideError::from)?
+            .await?
             .iter()
             .map(|x| (x.id, x.clone()))
             .collect::<HashMap<VpcPrefixId, VpcPrefix>>();
@@ -263,9 +262,7 @@ pub async fn allocate_network(
         let Some(last_used_prefix) = vpc_prefix.last_used_prefix else {
             continue;
         };
-        VpcPrefix::update_last_used_prefix(txn, &vpc_prefix.id, last_used_prefix)
-            .await
-            .map_err(CarbideError::from)?;
+        VpcPrefix::update_last_used_prefix(txn, &vpc_prefix.id, last_used_prefix).await?;
     }
 
     Ok(())
@@ -333,8 +330,7 @@ pub async fn allocate_instance(
             ..MachineSearchConfig::default()
         },
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     if machines.is_empty() {
         return Err(CarbideError::NotFoundError {
@@ -441,8 +437,7 @@ pub async fn allocate_instance(
         &machine_id,
         LoadSnapshotOptions::default().with_host_health(host_health_config),
     )
-    .await
-    .map_err(CarbideError::from)?
+    .await?
     .ok_or(CarbideError::NotFoundError {
         kind: "machine",
         id: machine_id.to_string(),

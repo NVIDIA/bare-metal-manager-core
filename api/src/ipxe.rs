@@ -287,8 +287,7 @@ exit ||
             ManagedHostState::Assigned { instance_state } => match instance_state {
                 InstanceState::Ready => {
                     let instance = Instance::find_by_machine_id(txn, &machine_id)
-                        .await
-                        .map_err(CarbideError::from)?
+                        .await?
                         .ok_or(CarbideError::NotFoundError {
                             kind: "machine",
                             id: machine_id.to_string(),
@@ -303,9 +302,7 @@ exit ||
                         if instance.use_custom_pxe_on_boot {
                             // We don't have to reset the flag for `always_boot_with_custom_ipxe`, since
                             // it's not used in this case
-                            Instance::use_custom_ipxe_on_next_boot(&machine_id, false, txn)
-                                .await
-                                .map_err(CarbideError::from)?;
+                            Instance::use_custom_ipxe_on_next_boot(&machine_id, false, txn).await?;
                         }
 
                         match instance.config.os.variant {

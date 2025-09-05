@@ -104,9 +104,7 @@ pub(crate) async fn generate_from_machine(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id)
-        .await
-        .map_err(CarbideError::from)?;
+    let sku = crate::db::sku::generate_sku_from_machine(&mut txn, &machine_id).await?;
 
     Ok(Response::new(sku.into()))
 }
@@ -175,9 +173,7 @@ pub(crate) async fn assign_to_machine(
         )));
     }
 
-    crate::db::machine::assign_sku(&mut txn, &machine_id, &sku.id)
-        .await
-        .map_err(CarbideError::from)?;
+    crate::db::machine::assign_sku(&mut txn, &machine_id, &sku.id).await?;
 
     crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
@@ -203,9 +199,8 @@ pub(crate) async fn verify_for_machine(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
-        .await
-        .map_err(CarbideError::from)?;
+    let machine =
+        db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
 
     let machine = machine.ok_or(CarbideError::NotFoundError {
         kind: "machine",
@@ -229,9 +224,7 @@ pub(crate) async fn verify_for_machine(
 
     sku_status.verify_request_time = Some(Utc::now());
 
-    crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id)
-        .await
-        .map_err(CarbideError::from)?;
+    crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
     txn.commit()
         .await
@@ -255,9 +248,8 @@ pub(crate) async fn remove_sku_association(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
-        .await
-        .map_err(CarbideError::from)?;
+    let machine =
+        db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
 
     let machine = machine.ok_or(CarbideError::NotFoundError {
         kind: "machine",
@@ -277,9 +269,7 @@ pub(crate) async fn remove_sku_association(
         }
     }
 
-    crate::db::machine::unassign_sku(&mut txn, &machine_id)
-        .await
-        .map_err(CarbideError::from)?;
+    crate::db::machine::unassign_sku(&mut txn, &machine_id).await?;
 
     txn.commit()
         .await
@@ -301,9 +291,7 @@ pub(crate) async fn get_all_ids(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let sku_ids = crate::db::sku::get_sku_ids(&mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+    let sku_ids = crate::db::sku::get_sku_ids(&mut txn).await?;
 
     Ok(Response::new(::rpc::forge::SkuIdList {
         ids: sku_ids.into_iter().collect(),

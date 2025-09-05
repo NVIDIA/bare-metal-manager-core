@@ -36,8 +36,7 @@ pub(crate) async fn create(
 
     let new_dpa = NewDpaInterface::try_from(request.into_inner())?
         .persist(&mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+        .await?;
 
     let dpa_out: rpc::forge::DpaInterface = new_dpa.into();
 
@@ -146,11 +145,9 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
         .ids
         .iter()
         .map(|id| {
-            DpaInterfaceId::try_from(id).map_err(|_| {
-                CarbideError::from(RpcDataConversionError::InvalidNetworkSegmentId(
-                    id.value.to_string(),
-                ))
-            })
+            DpaInterfaceId::try_from(id)
+                .map_err(|_| RpcDataConversionError::InvalidNetworkSegmentId(id.value.to_string()))
+                .map_err(CarbideError::from)
         })
         .collect::<Result<Vec<DpaInterfaceId>, CarbideError>>()?;
 

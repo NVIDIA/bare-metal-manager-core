@@ -86,15 +86,11 @@ pub(crate) async fn get_cloud_init_instructions(
         return Err(CarbideError::internal("IPv6 not supported".to_string()).into());
     }
 
-    let instructions = match InstanceAddress::find_by_address(&mut txn, ip)
-        .await
-        .map_err(CarbideError::from)?
-    {
+    let instructions = match InstanceAddress::find_by_address(&mut txn, ip).await? {
         None => {
             // assume there is no instance associated with this IP and check if there is an interface associated with it
             let machine_interface = db::machine_interface::find_by_ip(&mut txn, ip)
-                .await
-                .map_err(CarbideError::from)?
+                .await?
                 .ok_or_else(|| {
                     CarbideError::internal(format!("No machine interface with IP {ip} was found"))
                 })?;
@@ -110,8 +106,7 @@ pub(crate) async fn get_cloud_init_instructions(
                 &mut txn,
                 ObjectColumnFilter::One(domain::IdColumn, &domain_id),
             )
-            .await
-            .map_err(CarbideError::from)?
+            .await?
             .first()
             .ok_or_else(|| {
                 CarbideError::internal(format!("Could not find a domain for {domain_id}"))
@@ -149,8 +144,7 @@ pub(crate) async fn get_cloud_init_instructions(
 
         Some(instance_address) => {
             let instance = Instance::find_by_id(&mut txn, instance_address.instance_id)
-                .await
-                .map_err(CarbideError::from)?
+                .await?
                 .ok_or_else(|| {
                     // Note that this isn't a NotFound error since it indicates an
                     // inconsistent data model

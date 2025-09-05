@@ -19,7 +19,7 @@ use std::{
 
 use crate::db::instance_address::InstanceAddress;
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentType};
-use crate::errors::{CarbideError, CarbideResult};
+use crate::errors::CarbideResult;
 use crate::model::machine::Machine;
 use crate::{db::network_prefix::NetworkPrefixId, model::ConfigValidationError};
 use ::rpc::errors::RpcDataConversionError;
@@ -384,8 +384,7 @@ impl InstanceNetworkConfig {
             machine_id,
             Some(NetworkSegmentType::HostInband),
         )
-        .await
-        .map_err(CarbideError::from)?;
+        .await?;
 
         for host_inband_segment_id in host_inband_segment_ids {
             // Only add it to the instance config if there isn't already an interface in this segment

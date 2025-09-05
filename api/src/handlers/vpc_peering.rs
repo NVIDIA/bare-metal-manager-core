@@ -68,8 +68,7 @@ pub async fn create(
                 &mut txn,
                 ObjectColumnFilter::One(crate::db::vpc::IdColumn, &vpc_id),
             )
-            .await
-            .map_err(CarbideError::from)?;
+            .await?;
             let vpc1 = vpcs1.first().ok_or_else(|| CarbideError::NotFoundError {
                 kind: "VPC",
                 id: vpc_id.clone().to_string(),
@@ -78,8 +77,7 @@ pub async fn create(
                 &mut txn,
                 ObjectColumnFilter::One(crate::db::vpc::IdColumn, &peer_vpc_id),
             )
-            .await
-            .map_err(CarbideError::from)?;
+            .await?;
             let vpc2 = vpcs2.first().ok_or_else(|| CarbideError::NotFoundError {
                 kind: "VPC",
                 id: peer_vpc_id.clone().to_string(),
@@ -133,9 +131,7 @@ pub async fn find_ids(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let vpc_peering_ids = db::VpcPeering::find_ids(&mut txn, vpc_id)
-        .await
-        .map_err(CarbideError::from)?;
+    let vpc_peering_ids = db::VpcPeering::find_ids(&mut txn, vpc_id).await?;
 
     txn.commit()
         .await
@@ -179,9 +175,7 @@ pub async fn find_by_ids(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let vpc_peerings = db::VpcPeering::find_by_ids(&mut txn, vpc_peering_ids)
-        .await
-        .map_err(CarbideError::from)?;
+    let vpc_peerings = db::VpcPeering::find_by_ids(&mut txn, vpc_peering_ids).await?;
 
     txn.commit()
         .await
@@ -215,9 +209,7 @@ pub async fn delete(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let _ = db::VpcPeering::delete(&mut txn, id)
-        .await
-        .map_err(CarbideError::from)?;
+    let _ = db::VpcPeering::delete(&mut txn, id).await?;
 
     txn.commit()
         .await

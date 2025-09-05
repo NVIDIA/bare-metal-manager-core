@@ -49,8 +49,7 @@ pub(crate) async fn lookup_record(
     }
 
     let resource_record = db::resource_record::find_record(&mut txn, &q_name)
-        .await
-        .map_err(CarbideError::from)?
+        .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "dns_record",
             id: q_name,

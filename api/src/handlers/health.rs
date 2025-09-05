@@ -41,8 +41,7 @@ pub async fn record_hardware_health_report(
     };
 
     let host_machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
-        .await
-        .map_err(CarbideError::from)?
+        .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "machine",
             id: machine_id.to_string(),
@@ -54,9 +53,7 @@ pub async fn record_hardware_health_report(
 
     // Fix the in_alert times based on the previously stored report
     report.update_in_alert_since(host_machine.hardware_health_report.as_ref());
-    db::machine::update_hardware_health_report(&mut txn, &machine_id, &report)
-        .await
-        .map_err(CarbideError::from)?;
+    db::machine::update_hardware_health_report(&mut txn, &machine_id, &report).await?;
 
     txn.commit()
         .await
@@ -80,8 +77,7 @@ pub async fn get_hardware_health_report(
     let machine_id = convert_and_log_machine_id(Some(&machine_id))?;
 
     let host_machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
-        .await
-        .map_err(CarbideError::from)?
+        .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "machine",
             id: machine_id.to_string(),
@@ -120,8 +116,7 @@ pub async fn list_health_report_overrides(
     let machine_id = convert_and_log_machine_id(Some(&machine_id.into_inner()))?;
 
     let host_machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
-        .await
-        .map_err(CarbideError::from)?
+        .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "machine",
             id: machine_id.to_string(),
@@ -163,9 +158,7 @@ pub async fn record_log_parser_health_report(
 
     let report = health_report::HealthReport::try_from(report.clone())
         .map_err(|e| CarbideError::internal(e.to_string()))?;
-    db::machine::update_log_parser_health_report(&mut txn, &machine_id, &report)
-        .await
-        .map_err(CarbideError::from)?;
+    db::machine::update_log_parser_health_report(&mut txn, &machine_id, &report).await?;
 
     txn.commit()
         .await
@@ -189,8 +182,7 @@ async fn remove_by_source(
             ..Default::default()
         },
     )
-    .await
-    .map_err(CarbideError::from)?
+    .await?
     .ok_or_else(|| CarbideError::NotFoundError {
         kind: "machine",
         id: machine_id.to_string(),
@@ -218,9 +210,7 @@ async fn remove_by_source(
         });
     };
 
-    db::machine::remove_health_report_override(txn, &machine_id, mode, &source)
-        .await
-        .map_err(CarbideError::from)?;
+    db::machine::remove_health_report_override(txn, &machine_id, mode, &source).await?;
 
     Ok(())
 }
@@ -271,9 +261,7 @@ pub async fn insert_health_report_override(
         Err(e) => return Err(e.into()),
     }
 
-    db::machine::insert_health_report_override(&mut txn, &machine_id, mode, &report, false)
-        .await
-        .map_err(CarbideError::from)?;
+    db::machine::insert_health_report_override(&mut txn, &machine_id, mode, &report, false).await?;
 
     txn.commit()
         .await

@@ -31,7 +31,7 @@ use crate::cfg::file::HostHealthConfig;
 use crate::db::managed_host::LoadSnapshotOptions;
 use crate::model::machine::ManagedHostStateSnapshot;
 use crate::{
-    CarbideError, CarbideResult,
+    CarbideResult,
     cfg::file::{CarbideConfig, MaxConcurrentUpdates},
     db,
     db::{
@@ -165,7 +165,7 @@ impl MachineUpdateManager {
             },
         )
         .await
-        .map_err(CarbideError::from)
+        .map_err(Into::into)
     }
 
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {

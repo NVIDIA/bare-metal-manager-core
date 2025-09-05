@@ -100,7 +100,7 @@ impl Tenant {
                 sqlx::Error::RowNotFound => {
                     CarbideError::ConcurrentModificationError("tenant", current_version.to_string())
                 }
-                error => CarbideError::from(DatabaseError::query(query, error)),
+                error => DatabaseError::query(query, error).into(),
             })
     }
 

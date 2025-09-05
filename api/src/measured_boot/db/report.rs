@@ -70,10 +70,7 @@ pub async fn delete_for_id(
     report_id: MeasurementReportId,
 ) -> CarbideResult<MeasurementReport> {
     let values = delete_report_values_for_id(txn, report_id).await?;
-    match delete_report_for_id(txn, report_id)
-        .await
-        .map_err(CarbideError::from)?
-    {
+    match delete_report_for_id(txn, report_id).await? {
         Some(info) => Ok(MeasurementReport {
             report_id: info.report_id,
             machine_id: info.machine_id,
@@ -135,12 +132,9 @@ pub async fn create_measurement_report(
                 (info, values, false)
             }
             SameOrNot::Different => {
-                let info = insert_measurement_report_record(txn, machine_id)
-                    .await
-                    .map_err(CarbideError::from)?;
-                let values = insert_measurement_report_value_records(txn, info.report_id, values)
-                    .await
-                    .map_err(CarbideError::from)?;
+                let info = insert_measurement_report_record(txn, machine_id).await?;
+                let values =
+                    insert_measurement_report_value_records(txn, info.report_id, values).await?;
                 (info, values, true)
             }
         };
@@ -206,12 +200,8 @@ pub async fn create_measurement_report(
 pub async fn get_all_measurement_reports(
     txn: &mut PgConnection,
 ) -> CarbideResult<Vec<MeasurementReport>> {
-    let report_records: Vec<MeasurementReportRecord> = common::get_all_objects(txn)
-        .await
-        .map_err(CarbideError::from)?;
-    let mut report_values: Vec<MeasurementReportValueRecord> = common::get_all_objects(txn)
-        .await
-        .map_err(CarbideError::from)?;
+    let report_records: Vec<MeasurementReportRecord> = common::get_all_objects(txn).await?;
+    let mut report_values: Vec<MeasurementReportValueRecord> = common::get_all_objects(txn).await?;
 
     let mut values_by_report_id: HashMap<MeasurementReportId, Vec<MeasurementReportValueRecord>> =
         HashMap::new();
@@ -244,10 +234,7 @@ pub async fn get_measurement_report_by_id_with_txn(
     txn: &mut PgConnection,
     report_id: MeasurementReportId,
 ) -> CarbideResult<MeasurementReport> {
-    match get_measurement_report_record_by_id(txn, report_id)
-        .await
-        .map_err(CarbideError::from)?
-    {
+    match get_measurement_report_record_by_id(txn, report_id).await? {
         Some(info) => {
             let values = get_measurement_report_values_for_report_id(txn, info.report_id).await?;
             Ok(MeasurementReport {
@@ -272,14 +259,11 @@ pub async fn get_measurement_reports_for_machine_id(
     machine_id: MachineId,
 ) -> CarbideResult<Vec<MeasurementReport>> {
     let report_records: Vec<MeasurementReportRecord> =
-        common::get_objects_where_id(txn, machine_id)
-            .await
-            .map_err(CarbideError::from)?;
+        common::get_objects_where_id(txn, machine_id).await?;
     let mut res = Vec::<MeasurementReport>::new();
     for report_record in report_records.iter() {
-        let values = get_measurement_report_values_for_report_id(txn, report_record.report_id)
-            .await
-            .map_err(CarbideError::from)?;
+        let values =
+            get_measurement_report_values_for_report_id(txn, report_record.report_id).await?;
         res.push(MeasurementReport {
             report_id: report_record.report_id,
             machine_id: report_record.machine_id,
@@ -342,10 +326,7 @@ async fn maybe_auto_approve_machine(
     txn: &mut PgConnection,
     report: &MeasurementReport,
 ) -> CarbideResult<bool> {
-    match get_approval_for_machine_id(txn, TrustedMachineId::MachineId(report.machine_id))
-        .await
-        .map_err(CarbideError::from)?
-    {
+    match get_approval_for_machine_id(txn, TrustedMachineId::MachineId(report.machine_id)).await? {
         Some(approval) => {
             let pcr_set = match approval.pcr_registers {
                 Some(pcr_registers) => Some(parse_pcr_index_input(pcr_registers.as_str())?),
@@ -356,9 +337,7 @@ async fn maybe_auto_approve_machine(
             // If this is a oneshot approval, then remove the approval
             // entry after this automatic journal promotion.
             if approval.approval_type == MeasurementApprovedType::Oneshot {
-                remove_from_approved_machines_by_approval_id(txn, approval.approval_id)
-                    .await
-                    .map_err(CarbideError::from)?;
+                remove_from_approved_machines_by_approval_id(txn, approval.approval_id).await?;
             }
             Ok(true)
         }
@@ -367,10 +346,7 @@ async fn maybe_auto_approve_machine(
         // machines (which is just a "*"). The permissive approval still
         // has the same rules as a machine-specific approval (oneshot vs.
         // persist, PCR subset limits, etc).
-        None => match get_approval_for_machine_id(txn, TrustedMachineId::Any)
-            .await
-            .map_err(CarbideError::from)?
-        {
+        None => match get_approval_for_machine_id(txn, TrustedMachineId::Any).await? {
             Some(approval) => {
                 let pcr_set = match approval.pcr_registers {
                     Some(pcr_registers) => Some(parse_pcr_index_input(pcr_registers.as_str())?),
@@ -381,9 +357,7 @@ async fn maybe_auto_approve_machine(
                 // If this is a oneshot approval, then remove the approval
                 // entry after this automatic journal promotion.
                 if approval.approval_type == MeasurementApprovedType::Oneshot {
-                    remove_from_approved_machines_by_approval_id(txn, approval.approval_id)
-                        .await
-                        .map_err(CarbideError::from)?;
+                    remove_from_approved_machines_by_approval_id(txn, approval.approval_id).await?;
                 }
                 Ok(true)
             }
@@ -404,10 +378,7 @@ async fn maybe_auto_approve_profile(
     journal: &MeasurementJournal,
     report: &MeasurementReport,
 ) -> CarbideResult<bool> {
-    match get_approval_for_profile_id(txn, journal.profile_id.unwrap())
-        .await
-        .map_err(CarbideError::from)?
-    {
+    match get_approval_for_profile_id(txn, journal.profile_id.unwrap()).await? {
         Some(approval) => {
             let pcr_set = match approval.pcr_registers {
                 Some(pcr_registers) => Some(parse_pcr_index_input(pcr_registers.as_str())?),
@@ -418,9 +389,7 @@ async fn maybe_auto_approve_profile(
             // If this is a oneshot approval, then remove the approval
             // entry after this automatic journal promotion.
             if approval.approval_type == MeasurementApprovedType::Oneshot {
-                remove_from_approved_profiles_by_approval_id(txn, approval.approval_id)
-                    .await
-                    .map_err(CarbideError::from)?;
+                remove_from_approved_profiles_by_approval_id(txn, approval.approval_id).await?;
             }
             Ok(true)
         }

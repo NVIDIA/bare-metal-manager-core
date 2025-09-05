@@ -13,7 +13,7 @@
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, PgConnection};
 
-use crate::{CarbideError, CarbideResult, db::DatabaseError};
+use crate::{CarbideResult, db::DatabaseError};
 use forge_uuid::machine::MachineId;
 
 #[derive(FromRow, Debug, sqlx::Encode)]
@@ -59,7 +59,7 @@ impl TpmCaCert {
             .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 
     pub async fn get_all(txn: &mut PgConnection) -> CarbideResult<Vec<TpmCaCert>> {
@@ -69,7 +69,7 @@ impl TpmCaCert {
             .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 
     pub async fn delete(txn: &mut PgConnection, ca_cert_id: i32) -> CarbideResult<Option<Self>> {
@@ -80,7 +80,7 @@ impl TpmCaCert {
             .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 }
 
@@ -109,7 +109,7 @@ impl EkCertVerificationStatus {
             .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 
     pub async fn get_by_unmatched_ca(txn: &mut PgConnection) -> CarbideResult<Vec<Self>> {
@@ -119,7 +119,7 @@ impl EkCertVerificationStatus {
             .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 
     pub async fn get_by_issuer(txn: &mut PgConnection, issuer: &[u8]) -> CarbideResult<Vec<Self>> {
@@ -130,7 +130,7 @@ impl EkCertVerificationStatus {
             .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 
     pub async fn get_by_machine_id(
@@ -144,7 +144,7 @@ impl EkCertVerificationStatus {
             .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 
     pub async fn update_ca_verification_status(
@@ -161,7 +161,7 @@ impl EkCertVerificationStatus {
             .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 
     pub async fn unmatch_ca_verification_status(
@@ -174,7 +174,7 @@ impl EkCertVerificationStatus {
             .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 
     pub async fn delete_ca_verification_status_by_machine_id(
@@ -187,7 +187,7 @@ impl EkCertVerificationStatus {
             .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -214,7 +214,7 @@ impl EkCertVerificationStatus {
             .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))
-            .map_err(CarbideError::from)
+            .map_err(Into::into)
             .map(Some)
     }
 }

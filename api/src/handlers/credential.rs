@@ -333,10 +333,7 @@ pub(crate) async fn get_dpu_ssh_credential(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let machine_id = match db::machine::find_by_query(&mut txn, &query)
-        .await
-        .map_err(CarbideError::from)?
-    {
+    let machine_id = match db::machine::find_by_query(&mut txn, &query).await? {
         Some(machine) => {
             crate::api::log_machine_id(&machine.id);
             if !machine.is_dpu() {

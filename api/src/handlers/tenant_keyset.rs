@@ -39,10 +39,7 @@ pub(crate) async fn create(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let keyset = keyset_request
-        .create(&mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+    let keyset = keyset_request.create(&mut txn).await?;
 
     txn.commit()
         .await
@@ -69,9 +66,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::TenantKeysetSearchFilter = request.into_inner();
 
-    let keyset_ids = TenantKeyset::find_ids(&mut txn, filter)
-        .await
-        .map_err(CarbideError::from)?;
+    let keyset_ids = TenantKeyset::find_ids(&mut txn, filter).await?;
 
     Ok(Response::new(rpc::TenantKeysetIdList {
         keyset_ids: keyset_ids
@@ -118,8 +113,7 @@ pub(crate) async fn find_by_ids(
         .map(|vpc| rpc::TenantKeySetList {
             keyset: vpc.into_iter().map(rpc::TenantKeyset::from).collect(),
         })
-        .map(Response::new)
-        .map_err(CarbideError::from)?;
+        .map(Response::new)?;
 
     Ok(result)
 }
@@ -158,9 +152,8 @@ pub(crate) async fn find(
         ObjectFilter::All
     };
 
-    let keyset = TenantKeyset::find(organization_id, keyset_ids, include_key_data, &mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+    let keyset =
+        TenantKeyset::find(organization_id, keyset_ids, include_key_data, &mut txn).await?;
 
     txn.commit()
         .await
@@ -222,10 +215,7 @@ pub(crate) async fn delete(
     let keyset_identifier: TenantKeysetIdentifier =
         keyset_identifier.try_into().map_err(CarbideError::from)?;
 
-    if !TenantKeyset::delete(&keyset_identifier, &mut txn)
-        .await
-        .map_err(CarbideError::from)?
-    {
+    if !TenantKeyset::delete(&keyset_identifier, &mut txn).await? {
         return Err(CarbideError::NotFoundError {
             kind: "keyset",
             id: format!("{keyset_identifier:?}"),

@@ -67,9 +67,7 @@ pub(crate) async fn create(
                     .tenant_organization_id
                     .parse()
                     .map_err(|e: InvalidTenantOrg| {
-                        Status::from(CarbideError::from(
-                            RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                        ))
+                        CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
                     })?,
             ),
             true,
@@ -88,16 +86,13 @@ pub(crate) async fn create(
 
     let mut vpc = NewVpc::try_from(request.into_inner())?
         .persist(&mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+        .await?;
 
     vpc.vni = Some(api.allocate_vpc_vni(&mut txn, &vpc.id.to_string()).await?);
 
     // We will allocate an dpa_vni for this VPC when the first instance with DPA NICs gets added
     // to this VPC.
-    Vpc::set_vni(&mut txn, vpc.id, vpc.vni.unwrap())
-        .await
-        .map_err(CarbideError::from)?;
+    Vpc::set_vni(&mut txn, vpc.id, vpc.vni.unwrap()).await?;
 
     let rpc_out: rpc::Vpc = vpc.into();
 
@@ -144,8 +139,7 @@ pub(crate) async fn update(
         // Query for the VPC because we need to do
         // some validation against the request.
         let Some(vpc) = Vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
-            .await
-            .map_err(|e| Status::from(CarbideError::from(e)))?
+            .await?
             .pop()
         else {
             return Err(CarbideError::NotFoundError {
@@ -164,9 +158,7 @@ pub(crate) async fn update(
                 &vpc.tenant_organization_id
                     .parse()
                     .map_err(|e: InvalidTenantOrg| {
-                        Status::from(CarbideError::from(
-                            RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                        ))
+                        CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
                     })?,
             ),
             true,
@@ -262,10 +254,7 @@ pub(crate) async fn delete(
         .try_into()
         .map_err(CarbideError::from)?;
 
-    let vpc = match Vpc::try_delete(&mut txn, vpc_id)
-        .await
-        .map_err(CarbideError::from)?
-    {
+    let vpc = match Vpc::try_delete(&mut txn, vpc_id).await? {
         Some(vpc) => vpc,
         None => {
             // VPC didn't exist or was deleted in the past. We are not allowed
@@ -297,9 +286,7 @@ pub(crate) async fn delete(
     }
 
     // Delete associated VPC peerings
-    VpcPeering::delete_by_vpc_id(&mut txn, vpc_id)
-        .await
-        .map_err(CarbideError::from)?;
+    VpcPeering::delete_by_vpc_id(&mut txn, vpc_id).await?;
 
     txn.commit()
         .await
@@ -379,8 +366,7 @@ pub(crate) async fn find_by_ids(
         .map(|vpc| rpc::VpcList {
             vpcs: vpc.into_iter().map(rpc::Vpc::from).collect(),
         })
-        .map(Response::new)
-        .map_err(CarbideError::from)?;
+        .map(Response::new)?;
 
     Ok(result)
 }
@@ -423,8 +409,7 @@ pub(crate) async fn find(
         .map(|vpc| rpc::VpcList {
             vpcs: vpc.into_iter().map(rpc::Vpc::from).collect(),
         })
-        .map(Response::new)
-        .map_err(CarbideError::from)?;
+        .map(Response::new)?;
 
     Ok(result)
 }

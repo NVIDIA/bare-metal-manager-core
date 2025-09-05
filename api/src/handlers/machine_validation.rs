@@ -60,10 +60,7 @@ pub(crate) async fn mark_machine_validation_complete(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let machine = match db::machine::find_by_validation_id(&mut txn, &uuid)
-        .await
-        .map_err(CarbideError::from)?
-    {
+    let machine = match db::machine::find_by_validation_id(&mut txn, &uuid).await? {
         Some(machine) => machine,
         None => {
             tracing::error!(%uuid, "validation id not found");
@@ -93,8 +90,7 @@ pub(crate) async fn mark_machine_validation_complete(
                     source: FailureSource::Scout,
                 },
             )
-            .await
-            .map_err(CarbideError::from)?;
+            .await?;
 
             // Update the Machine validation health report to include that the
             // validation failed
@@ -121,8 +117,7 @@ pub(crate) async fn mark_machine_validation_complete(
                 &machine.id,
                 &updated_validation_health_report,
             )
-            .await
-            .map_err(CarbideError::from)?;
+            .await?;
             state = MachineValidationState::Failed;
             machine_validation_error
         }
@@ -142,8 +137,7 @@ pub(crate) async fn mark_machine_validation_complete(
                     source: FailureSource::Scout,
                 },
             )
-            .await
-            .map_err(CarbideError::from)?;
+            .await?;
             state = MachineValidationState::Failed;
             error_message
         }
@@ -196,9 +190,7 @@ pub(crate) async fn persist_validation_result(
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
     let machine =
-        match db::machine::find_by_validation_id(&mut txn, &validation_result.validation_id)
-            .await
-            .map_err(CarbideError::from)?
+        match db::machine::find_by_validation_id(&mut txn, &validation_result.validation_id).await?
         {
             Some(machine) => machine,
             None => {
@@ -248,8 +240,7 @@ pub(crate) async fn persist_validation_result(
         &machine.id,
         &updated_validation_health_report,
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     validation_result.create(&mut txn).await?;
     txn.commit().await.unwrap();
@@ -435,8 +426,7 @@ pub(crate) async fn on_demand_machine_validation(
                     ..MachineSearchConfig::default()
                 },
             )
-            .await
-            .map_err(CarbideError::from)?
+            .await?
             .ok_or_else(|| {
                 Status::invalid_argument(format!("Machine id {machine_id} not found."))
             })?;
@@ -474,14 +464,12 @@ pub(crate) async fn on_demand_machine_validation(
                             contexts: Some(req.contexts),
                         },
                     )
-                    .await
-                    .map_err(CarbideError::from)?;
+                    .await?;
                     tracing::trace!(validation_id = %validation_id);
 
                     // Update machine_validation_request.
                     db::machine::set_machine_validation_request(&mut txn, &machine_id, true)
-                        .await
-                        .map_err(CarbideError::from)?;
+                        .await?;
 
                     txn.commit()
                         .await

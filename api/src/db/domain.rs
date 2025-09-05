@@ -312,7 +312,7 @@ impl NewDomain {
             .bind(sqlx::types::Json(&self.soa))
             .fetch_optional(txn)
             .await
-            .map_err(|err: sqlx::Error| match err {
+            .map_err(|err| match err {
                 sqlx::Error::Database(e)
                     if e.constraint() == Some(SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE) =>
                 {
@@ -323,7 +323,7 @@ impl NewDomain {
                 {
                     CarbideError::InvalidArgument("name".to_string())
                 }
-                e => CarbideError::from(DatabaseError::query(query, e)),
+                e => DatabaseError::query(query, e).into(),
             })
     }
 }

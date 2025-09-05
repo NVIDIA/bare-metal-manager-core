@@ -64,10 +64,7 @@ pub async fn create(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let conflicting_vpc_prefixes = new_prefix
-        .probe(&mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+    let conflicting_vpc_prefixes = new_prefix.probe(&mut txn).await?;
     if !conflicting_vpc_prefixes.is_empty() {
         let conflicting_vpc_prefixes = conflicting_vpc_prefixes.into_iter().map(|p| p.prefix);
         let conflicting_vpc_prefixes = itertools::join(conflicting_vpc_prefixes, ", ");
@@ -79,10 +76,7 @@ pub async fn create(
         return Err(CarbideError::InvalidArgument(msg).into());
     }
 
-    let segment_prefixes = new_prefix
-        .probe_segment_prefixes(&mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+    let segment_prefixes = new_prefix.probe_segment_prefixes(&mut txn).await?;
 
     // Check that all the prefixes we found are on segments that belong to our
     // own VPC.
@@ -146,17 +140,13 @@ pub async fn create(
         return Err(CarbideError::InvalidArgument(msg).into());
     }
 
-    let vpc_prefix = new_prefix
-        .persist(&mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+    let vpc_prefix = new_prefix.persist(&mut txn).await?;
 
     // Associate all of the network segment prefixes with the new VPC prefix.
     for mut segment_prefix in segment_prefixes {
         segment_prefix
             .set_vpc_prefix(&mut txn, &vpc_prefix.id, &vpc_prefix.prefix)
-            .await
-            .map_err(CarbideError::from)?;
+            .await?;
     }
 
     txn.commit()
@@ -225,9 +215,7 @@ pub async fn search(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let vpc_prefix_ids = db::VpcPrefix::search(&mut txn, vpc_id, name, prefix_match)
-        .await
-        .map_err(CarbideError::from)?;
+    let vpc_prefix_ids = db::VpcPrefix::search(&mut txn, vpc_id, name, prefix_match).await?;
 
     txn.commit()
         .await
@@ -272,8 +260,7 @@ pub async fn get(
         &mut txn,
         ObjectColumnFilter::List(db::IdColumn, vpc_prefix_ids.as_slice()),
     )
-    .await
-    .map_err(CarbideError::from)?;
+    .await?;
 
     txn.commit()
         .await
@@ -299,10 +286,7 @@ pub async fn update(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let updated = update_prefix
-        .update(&mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+    let updated = update_prefix.update(&mut txn).await?;
 
     txn.commit()
         .await
@@ -332,10 +316,7 @@ pub async fn delete(
     // whatever else might be pointing at them. For now we're just relying on
     // the DB constraints and returning whatever error that results in.
 
-    delete_prefix
-        .delete(&mut txn)
-        .await
-        .map_err(CarbideError::from)?;
+    delete_prefix.delete(&mut txn).await?;
 
     txn.commit()
         .await

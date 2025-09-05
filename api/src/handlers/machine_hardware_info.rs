@@ -51,9 +51,8 @@ pub(crate) async fn handle_machine_hardware_info_update(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let machine_topology = MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id])
-        .await
-        .map_err(CarbideError::from)?;
+    let machine_topology =
+        MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id]).await?;
 
     let machine_topology =
         machine_topology
@@ -80,15 +79,11 @@ pub(crate) async fn handle_machine_hardware_info_update(
     }
 
     // This is kinda messy, but it's this or make MachineTopology::update public.
-    MachineTopology::set_topology_update_needed(&mut txn, &machine_id, true)
-        .await
-        .map_err(CarbideError::from)?;
+    MachineTopology::set_topology_update_needed(&mut txn, &machine_id, true).await?;
     MachineTopology::create_or_update(&mut txn, &machine_id, &new_hardware_info).await?;
 
     // Set this so the next machine discovery overwrites the data?
-    MachineTopology::set_topology_update_needed(&mut txn, &machine_id, true)
-        .await
-        .map_err(CarbideError::from)?;
+    MachineTopology::set_topology_update_needed(&mut txn, &machine_id, true).await?;
 
     txn.commit()
         .await

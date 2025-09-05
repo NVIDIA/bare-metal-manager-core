@@ -18,6 +18,7 @@
 - [MR-4537](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4537): refactor: database error handling unification in the Carbide API: errors with transactions.
 - [MR-4540](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4540): refactor: database error handling unification in the Carbide API: errors with transactions part 2.
 - [MR-4541](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4541): refactor: database error handling unification in the Carbide API: tracking file / line using track_caller Rust feature.
+- [MR-4548](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4548): refactor: remove unnecessary explicit conversions to CarbideError.
 
 ## [v2025.08.29-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc2-0...v2025.08.29-rc2-0)
 
