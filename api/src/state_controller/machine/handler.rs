@@ -40,6 +40,7 @@ use tokio::{
 use tracing::instrument;
 use version_compare::Cmp;
 
+use crate::db::host_machine_update::clear_host_reprovisioning_request;
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::update_restart_verification_status;
 use crate::model::instance::InstanceNetworkSyncStatus;
@@ -484,6 +485,51 @@ impl MachineStateHandler {
         Ok(())
     }
 
+    async fn clear_dpu_reprovision(
+        mh_snaphost: &ManagedHostStateSnapshot,
+        txn: &mut PgConnection,
+    ) -> Result<(), StateHandlerError> {
+        db::machine::remove_health_report_override(
+            txn,
+            &mh_snaphost.host_snapshot.id,
+            health_report::OverrideMode::Merge,
+            crate::machine_update_manager::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE,
+        )
+        .await?;
+
+        for dpu_snapshot in &mh_snaphost.dpu_snapshots {
+            db::machine::clear_dpu_reprovisioning_request(txn, &dpu_snapshot.id, false)
+                .await
+                .map_err(StateHandlerError::from)?;
+        }
+
+        Ok(())
+    }
+
+    async fn clear_host_reprovision(
+        mh_snaphost: &ManagedHostStateSnapshot,
+        txn: &mut PgConnection,
+    ) -> Result<(), StateHandlerError> {
+        // Host fw update health override is not set yet. It is done when host re-provisioning is
+        // started in state handler.
+        clear_host_reprovisioning_request(txn, &mh_snaphost.host_snapshot.id)
+            .await
+            .map_err(StateHandlerError::from)?;
+
+        Ok(())
+    }
+
+    async fn clear_host_update_alert_and_reprov(
+        mh_snaphost: &ManagedHostStateSnapshot,
+        txn: &mut PgConnection,
+    ) -> Result<(), StateHandlerError> {
+        // Clear DPU reprovision
+        Self::clear_dpu_reprovision(mh_snaphost, txn).await?;
+
+        // Clear host reprovision
+        Self::clear_host_reprovision(mh_snaphost, txn).await
+    }
+
     async fn attempt_state_transition(
         &self,
         host_machine_id: &MachineId,
@@ -629,6 +675,49 @@ impl MachineStateHandler {
             }
 
             ManagedHostState::Ready => {
+                // Check if instance to be created.
+                if mh_snapshot.instance.is_some() {
+                    // Instance is requested by user. Let's configure it.
+
+                    // Clear if any reprovision (dpu or host) is set due to race scenario.
+                    Self::clear_host_update_alert_and_reprov(mh_snapshot, txn).await?;
+
+                    // Switch to using the network we just created for the tenant
+                    for dpu_snapshot in &mh_snapshot.dpu_snapshots {
+                        let (mut netconf, version) = dpu_snapshot.network_config.clone().take();
+                        netconf.use_admin_network = Some(false);
+                        db::machine::try_update_network_config(
+                            txn,
+                            &dpu_snapshot.id,
+                            version,
+                            &netconf,
+                        )
+                        .await?;
+                    }
+
+                    // Machine is currently in READY state, and instance is being created.
+                    // So we set use_admin_network to false and tell each DPA interface to
+                    // update its network config. This will cause the DPA state controller
+                    // to transition to the DPAs from READY state to WaitingForSetVNI state
+                    // and send SetVNI commands to the DPA NICs.
+                    for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
+                        let (mut netconf, version) = dpa_interface.network_config.clone().take();
+                        netconf.use_admin_network = Some(false);
+                        db::dpa_interface::try_update_network_config(
+                            txn,
+                            &dpa_interface.id,
+                            version,
+                            &netconf,
+                        )
+                        .await?;
+                    }
+
+                    let next_state = ManagedHostState::Assigned {
+                        instance_state: InstanceState::WaitingForNetworkSegmentToBeReady,
+                    };
+                    return Ok(transition!(next_state));
+                }
+
                 if let Some(outcome) = handle_bom_validation_requested(
                     txn,
                     &self.host_handler.host_handler_params,
@@ -728,67 +817,27 @@ impl MachineStateHandler {
                     }));
                 }
 
-                // Check if instance to be created.
-                if mh_snapshot.instance.is_some() {
-                    // Instance is requested by user. Let's configure it.
-
-                    // Switch to using the network we just created for the tenant
-                    for dpu_snapshot in &mh_snapshot.dpu_snapshots {
-                        let (mut netconf, version) = dpu_snapshot.network_config.clone().take();
-                        netconf.use_admin_network = Some(false);
-                        db::machine::try_update_network_config(
-                            txn,
-                            &dpu_snapshot.id,
-                            version,
-                            &netconf,
-                        )
-                        .await?;
-                    }
-
-                    // Machine is currently in READY state, and instance is being created.
-                    // So we set use_admin_network to false and tell each DPA interface to
-                    // update its network config. This will cause the DPA state controller
-                    // to transition to the DPAs from READY state to WaitingForSetVNI state
-                    // and send SetVNI commands to the DPA NICs.
-                    for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
-                        let (mut netconf, version) = dpa_interface.network_config.clone().take();
-                        netconf.use_admin_network = Some(false);
-                        db::dpa_interface::try_update_network_config(
-                            txn,
-                            &dpa_interface.id,
-                            version,
-                            &netconf,
-                        )
-                        .await?;
-                    }
-
-                    let next_state = ManagedHostState::Assigned {
-                        instance_state: InstanceState::WaitingForNetworkSegmentToBeReady,
-                    };
-                    Ok(transition!(next_state))
-                } else {
-                    // This feature has only been tested thoroughly on Dells and Lenovos
-                    if (mh_snapshot.host_snapshot.bmc_vendor().is_dell()
-                        || mh_snapshot.host_snapshot.bmc_vendor().is_lenovo())
-                        && mh_snapshot.host_snapshot.bios_password_set_time.is_none()
-                    {
-                        tracing::info!(
-                            "transitioning legacy {} host {} to UefiSetupState::UnlockHost while it is in ManagedHostState::Ready so that the BIOS password can be configured",
-                            mh_snapshot.host_snapshot.bmc_vendor(),
-                            mh_snapshot.host_snapshot.id
-                        );
-                        return Ok(transition!(ManagedHostState::HostInit {
-                            machine_state: MachineState::UefiSetup {
-                                uefi_setup_info: UefiSetupInfo {
-                                    uefi_password_jid: None,
-                                    uefi_setup_state: UefiSetupState::UnlockHost,
-                                },
+                // This feature has only been tested thoroughly on Dells and Lenovos
+                if (mh_snapshot.host_snapshot.bmc_vendor().is_dell()
+                    || mh_snapshot.host_snapshot.bmc_vendor().is_lenovo())
+                    && mh_snapshot.host_snapshot.bios_password_set_time.is_none()
+                {
+                    tracing::info!(
+                        "transitioning legacy {} host {} to UefiSetupState::UnlockHost while it is in ManagedHostState::Ready so that the BIOS password can be configured",
+                        mh_snapshot.host_snapshot.bmc_vendor(),
+                        mh_snapshot.host_snapshot.id
+                    );
+                    return Ok(transition!(ManagedHostState::HostInit {
+                        machine_state: MachineState::UefiSetup {
+                            uefi_setup_info: UefiSetupInfo {
+                                uefi_password_jid: None,
+                                uefi_setup_state: UefiSetupState::UnlockHost,
                             },
-                        }));
-                    }
-
-                    Ok(do_nothing!())
+                        },
+                    }));
                 }
+
+                Ok(do_nothing!())
             }
 
             ManagedHostState::Assigned { instance_state: _ } => {

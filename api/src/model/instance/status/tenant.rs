@@ -65,6 +65,8 @@ pub enum TenantState {
     /// an instance might enter a FAILED state before even fully activating, in case
     /// activation failed.
     Failed,
+    /// Not sure what happened. Check log for more info
+    Invalid,
 }
 
 impl TryFrom<TenantState> for rpc::TenantState {
@@ -81,6 +83,7 @@ impl TryFrom<TenantState> for rpc::TenantState {
             TenantState::Failed => rpc::TenantState::Failed,
             TenantState::HostReprovisioning => rpc::TenantState::HostReprovisioning,
             TenantState::Updating => rpc::TenantState::Updating,
+            TenantState::Invalid => rpc::TenantState::Invalid,
         })
     }
 }

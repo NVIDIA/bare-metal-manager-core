@@ -140,9 +140,7 @@ impl InstanceStatus {
             ManagedHostState::ForceDeletion => tenant::TenantState::Terminating,
             _ => {
                 tracing::error!(%machine_state, "Invalid state during state handling");
-                return Err(RpcDataConversionError::InvalidMachineState(
-                    machine_state.to_string(),
-                ));
+                tenant::TenantState::Invalid
             }
         };
 
@@ -276,4 +274,38 @@ pub struct InstanceStatusObservations {
 
     /// Has the instance phoned home?
     pub phone_home_last_contact: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use crate::model::machine::{DpuReprovisionStates, ReprovisionState};
+
+    use super::*;
+
+    #[test]
+    fn test_tenant_state() {
+        let machine_id: MachineId =
+            MachineId::from_str("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
+                .unwrap();
+
+        assert_eq!(
+            InstanceStatus::tenant_state(
+                ManagedHostState::DPUReprovision {
+                    dpu_states: DpuReprovisionStates {
+                        states: HashMap::from([(
+                            machine_id,
+                            ReprovisionState::WaitingForNetworkConfig,
+                        )]),
+                    },
+                },
+                SyncState::Synced,
+                false,
+                None,
+            )
+            .unwrap(),
+            tenant::TenantState::Invalid
+        );
+    }
 }
