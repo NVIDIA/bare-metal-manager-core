@@ -250,10 +250,26 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
     assert_eq!(
         env.test_meter
             .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
-        vec![(
-            "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}".to_string(),
-            "3".to_string()
-        )]
+        vec![
+            (
+                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
+                "0".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
+                "0".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"error\"}"
+                    .to_string(),
+                "0".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}"
+                    .to_string(),
+                "3".to_string()
+            )
+        ]
     );
 
     active_lids.clear();
@@ -406,9 +422,25 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
     assert_eq!(
         env.test_meter
             .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
-        vec![(
-            "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}".to_string(),
-            "3".to_string()
-        )]
+        vec![
+            (
+                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
+                "0".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
+                "0".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"error\"}"
+                    .to_string(),
+                "0".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}"
+                    .to_string(),
+                "3".to_string()
+            )
+        ]
     );
 }

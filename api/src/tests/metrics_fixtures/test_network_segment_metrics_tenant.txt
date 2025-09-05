@@ -21,6 +21,12 @@ carbide_api_db_span_query_time_milliseconds_bucket{operation="network_segments_c
 carbide_api_db_span_query_time_milliseconds_bucket{operation="network_segments_controller",le="+Inf"} 2
 carbide_api_db_span_query_time_milliseconds_sum{operation="network_segments_controller"} 0
 carbide_api_db_span_query_time_milliseconds_count{operation="network_segments_controller"} 2
+# HELP forge_ib_monitor_ufm_changes_applied_total The amount of changes that have been performed at UFM
+# TYPE forge_ib_monitor_ufm_changes_applied_total counter
+forge_ib_monitor_ufm_changes_applied_total{fabric="default",operation="bind_guid_to_pkey",status="error"} 0
+forge_ib_monitor_ufm_changes_applied_total{fabric="default",operation="bind_guid_to_pkey",status="ok"} 0
+forge_ib_monitor_ufm_changes_applied_total{fabric="default",operation="unbind_guid_from_pkey",status="error"} 0
+forge_ib_monitor_ufm_changes_applied_total{fabric="default",operation="unbind_guid_from_pkey",status="ok"} 0
 # HELP forge_machines_handler_latency_in_state_milliseconds The amount of time it took to invoke the state handler for objects of type forge_machines in a certain state
 # TYPE forge_machines_handler_latency_in_state_milliseconds histogram
 forge_machines_handler_latency_in_state_milliseconds_bucket{state="deleting",substate="drainallocatedips",le="0"} 0
