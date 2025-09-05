@@ -20,6 +20,7 @@ use std::{
 use crate::{
     db::{
         self, ObjectColumnFilter,
+        dpu_machine_update::DpuMachineUpdate,
         instance::Instance,
         instance_address::{InstanceAddress, UsedOverlayNetworkIpResolver},
         network_prefix::NetworkPrefix,
@@ -4998,4 +4999,89 @@ async fn test_instance_release_repair_tenant_successful_completion(
     // because the test environment uses separate transaction contexts that can have
     // isolation issues. The fact that both "Successfully removed health override"
     // messages appear in the logs confirms the fix is working correctly.
+}
+
+// Test that if due to race condition instance creation and reprovision is started together,
+// carbide must continue with instance creation, not reprovision.
+#[crate::sqlx_test]
+async fn test_instance_creation_when_reprovision_is_triggered_parallel(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+
+    let mh = create_managed_host(&env).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(segment_id)),
+        infiniband: None,
+        storage: None,
+        network_security_group_id: None,
+    };
+
+    // Step 1: Send a instance allocation request.
+    let allocation_response = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: mh.id.into(),
+            instance_type_id: None,
+            config: Some(config.clone()),
+            metadata: None,
+            allow_unhealthy_machine: false,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    // Step 2: Trigger DPU reprovision.
+    let mut txn = env.db_txn().await;
+    let machine_update = DpuMachineUpdate {
+        host_machine_id: *mh.host().machine_id(),
+        dpu_machine_id: mh.dpu_ids[0],
+        firmware_version: "test".to_string(),
+    };
+
+    DpuMachineUpdate::trigger_reprovisioning_for_managed_host(&mut txn, &[machine_update])
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    advance_created_instance_into_ready_state(&env, &mh).await;
+
+    // Step 3: Check instance state. Should be ready.
+    let instance = env
+        .api
+        .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+            instance_ids: vec![allocation_response.id.unwrap()],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(
+        instance.instances[0]
+            .clone()
+            .status
+            .unwrap()
+            .tenant
+            .unwrap()
+            .state,
+        rpc::forge::TenantState::Ready as i32
+    );
+
+    let reprov_machines = env
+        .api
+        .list_dpu_waiting_for_reprovisioning(tonic::Request::new(
+            rpc::forge::DpuReprovisioningListRequest {},
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(reprov_machines.dpus.is_empty());
 }

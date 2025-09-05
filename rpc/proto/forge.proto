@@ -1058,6 +1058,9 @@ enum TenantState {
 
   // Host or DPU firmware updates
   UPDATING = 8;
+
+  // Something Wrong happened at carbide. Check logs for more info.
+  INVALID = 9;
 }
 
 // Describe the desired configuration of an IBPartition
