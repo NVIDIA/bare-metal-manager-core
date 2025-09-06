@@ -123,6 +123,7 @@ async fn find_by_uuid(state: Arc<Api>, u: uuid::Uuid) -> Response {
             // Domains don't have individual URLs
             Redirect::to("/admin/domain").into_response()
         }
+        DpaInterfaceId => Redirect::to(&format!("/admin/dpa/{u}")).into_response(),
     }
 }
 

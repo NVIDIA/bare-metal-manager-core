@@ -14,6 +14,7 @@ use std::{fmt, net::IpAddr, str::FromStr};
 
 use ::rpc::protos::common as rpc_common;
 use ::rpc::protos::forge as rpc;
+use forge_uuid::dpa_interface::DpaInterfaceId;
 
 use crate::db;
 use crate::db::domain::{self, Domain};
@@ -37,6 +38,8 @@ use forge_uuid::{
     domain::DomainId, instance::InstanceId, machine::MachineInterfaceId, network::NetworkSegmentId,
     vpc::VpcId,
 };
+
+use crate::db::dpa_interface::DpaInterface;
 
 pub(crate) async fn find_ip_address(
     api: &Api,
@@ -435,6 +438,13 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
         let vpcs = Vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
         if vpcs.len() == 1 {
             return Ok(Some(rpc::UuidType::Vpc));
+        }
+    }
+
+    if let Ok(id) = DpaInterfaceId::from_str(&u.clone().value) {
+        let dpas = DpaInterface::find_by_ids(&mut txn, &[id], false).await?;
+        if dpas.len() == 1 {
+            return Ok(Some(rpc::UuidType::DpaInterfaceId));
         }
     }
 

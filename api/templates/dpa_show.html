@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}DPAs{% endblock %}
+
+{% block content %}
+<div id="json"><a id="json-link" href="">JSON</a></div>
+<h1>DPAs</h1>
+
+<table class="sortable overview">
+	<thead>
+		<th>Id</th>
+		<th>Machine Id</th>
+		<th>MacAddr</th>
+		<th>State</th>
+		<th>Created</th>
+	</thead>
+	<tbody>
+		{% for dpa in dpas %}
+		<tr>
+			<td><a href="/admin/dpa/{{ dpa.id }}">{{ dpa.id }}</a></td>
+			<td>{{ dpa.machine_id }}</td>
+			<td>{{ dpa.macaddr }}</td>
+			<td>{{ dpa.state }}</td>
+			<td>{{ dpa.created }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+
+{% endblock %}

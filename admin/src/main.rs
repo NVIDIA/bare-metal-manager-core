@@ -1579,6 +1579,15 @@ async fn main() -> color_eyre::Result<()> {
                             )
                             .await?
                         }
+                        forgerpc::UuidType::DpaInterfaceId => {
+                            dpa::handle_show(
+                                cfg::cli_options::ShowDpa { id: Some(j.id) },
+                                config.format,
+                                &api_client,
+                                1,
+                            )
+                            .await?
+                        }
                     },
                     Err(e) => {
                         color_eyre::eyre::bail!(e);
