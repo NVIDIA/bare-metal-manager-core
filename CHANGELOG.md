@@ -8,6 +8,7 @@
 ### Changed
 
 ### Fixed
+- fixed an issue when running FNN with a legacy admin network where the unused DPU in an instance was configured to use FNN on the admin network.
 
 ### Removed
 
