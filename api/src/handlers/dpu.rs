@@ -87,7 +87,34 @@ pub(crate) async fn get_managed_host_network_config_inner(
             )));
         }
     };
-    let mut use_admin_network = dpu_snapshot.use_admin_network();
+
+    // its ok if there is no locator here.  if there isn't one, then only the primary dpu is allowed to be configred (checked below)
+    let device_locator = snapshot
+        .host_snapshot
+        .get_device_locator_for_dpu_id(&dpu_machine_id)
+        .ok();
+
+    let dpu_has_tenant_interface_config =
+        snapshot
+            .instance
+            .as_ref()
+            .is_some_and(|interface_snapshot| {
+                interface_snapshot
+                    .config
+                    .network
+                    .interfaces
+                    .iter()
+                    .any(|interface_config| {
+                        (interface_config.device_locator.is_none() && is_primary_dpu)
+                            || (interface_config.device_locator.is_some()
+                                && device_locator == interface_config.device_locator)
+                    })
+            });
+
+    // If there is an instance, the state machine sets all DPUs to be on the tenant network.  But if there are
+    // no interfaces configured for this DPU, then override and put it back on the admin network.  This will
+    // prevent the host from using the DPU at all.
+    let use_admin_network = dpu_snapshot.use_admin_network() || !dpu_has_tenant_interface_config;
 
     let mut network_virtualization_type = if api.runtime_config.nvue_enabled {
         VpcVirtualizationType::EthernetVirtualizerWithNvue
@@ -116,7 +143,12 @@ pub(crate) async fn get_managed_host_network_config_inner(
     )
     .await?;
 
-    let mut vpc_vni = None;
+    // If admin network is in use and is fnn, use admin network's vpc_vni.
+    let mut vpc_vni = if use_admin_network && admin_interface_rpc.vpc_vni != 0 {
+        Some(admin_interface_rpc.vpc_vni)
+    } else {
+        None
+    };
 
     let tenant_interfaces = match &snapshot.instance {
         None => vec![],
@@ -316,9 +348,6 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 None
             };
 
-            // its ok if there is no locator here.  if there isn't one, then only the primary dpu is allowed to be configred (checked below)
-            let device_locator = snapshot.host_snapshot.get_device_locator_for_dpu_id(&dpu_machine_id).ok();
-
             // if there is no device then this is a legacy config and only the primary dpu is allowed.
             // all other DPUs don't get interfaces
             for iface in interfaces.iter().filter(|i|
@@ -363,23 +392,6 @@ pub(crate) async fn get_managed_host_network_config_inner(
             tenant_interfaces
         }
     };
-
-    if tenant_interfaces.is_empty() && !use_admin_network {
-        if is_primary_dpu {
-            tracing::warn!("Primary DPU is not configured with network interfaces");
-        }
-        use_admin_network = true;
-    }
-
-    // If admin network is in use, use admin network's vpc_vni.
-    if use_admin_network {
-        // 0 means non-fnn case.
-        vpc_vni = if admin_interface_rpc.vpc_vni != 0 {
-            Some(admin_interface_rpc.vpc_vni)
-        } else {
-            None
-        };
-    }
 
     let network_config = rpc::ManagedHostNetworkConfig {
         loopback_ip: loopback_ip.to_string(),
