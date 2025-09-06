@@ -3399,6 +3399,7 @@ enum UuidType {
   UuidTypeMachineInterface = 2;
   UuidTypeVpc = 3;
   UuidTypeDomain = 4;
+  UuidTypeDpaInterfaceId = 5;
 }
 
 message IdentifyMacRequest {

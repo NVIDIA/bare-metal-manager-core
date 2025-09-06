@@ -241,5 +241,25 @@
 		<th>Machine Attestation Enabled</th>
 		<td>{{ carbide_config.attestation_enabled }}</td>
 	</tr>
+	<tr>
+		<th>DPA Enabled</th>
+		<td>
+			{% match carbide_config.dpa_config %}
+			{% when Some with (val) %}
+			{{ val.enabled }}
+			{% else %}
+			Disabled
+			{% endmatch %}</td>
+	</tr>
+	<tr>
+		<th>MQTT Endpoint</th>
+		<td>
+			{% match carbide_config.dpa_config %}
+			{% when Some with (val) %}
+			{{ val.mqtt_endpoint }}
+			{% else %}
+			N/A
+			{% endmatch %}</td>
+	</tr>
 </table>
 {% endblock %}

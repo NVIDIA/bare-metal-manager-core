@@ -51,6 +51,7 @@ use crate::cfg::file::CarbideConfig;
 mod attestation;
 mod auth;
 mod domain;
+mod dpa;
 mod dpu_versions;
 mod expected_machine;
 mod explored_endpoint;
@@ -223,6 +224,9 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/static/{filename}", get(static_data))
             .route("/domain", get(domain::show_html))
             .route("/domain.json", get(domain::show_all_json))
+            .route("/dpa", get(dpa::show_dpas_html))
+            .route("/dpa.json", get(dpa::show_dpas_json))
+            .route("/dpa/{dpa_id}", get(dpa::detail))
             .route("/dpu", get(machine::show_dpus_html))
             .route("/dpu.json", get(machine::show_dpus_json))
             .route("/dpu/versions", get(dpu_versions::list_html))
