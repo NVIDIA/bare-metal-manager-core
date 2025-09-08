@@ -34,10 +34,10 @@ use crate::resource_pool::common::CommonPools;
 use crate::{CarbideError, CarbideResult};
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
+use ::rpc::uuid::infiniband::IBPartitionId;
+use ::rpc::uuid::instance::InstanceId;
+use ::rpc::uuid::machine::MachineId;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
-use forge_uuid::infiniband::IBPartitionId;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
 };
@@ -215,7 +215,7 @@ pub(crate) async fn find(
 
 pub(crate) async fn find_by_machine_id(
     api: &Api,
-    request: Request<::rpc::common::MachineId>,
+    request: Request<MachineId>,
 ) -> Result<Response<rpc::InstanceList>, Status> {
     log_request_data(&request);
 
@@ -1273,7 +1273,7 @@ pub async fn force_delete_instance(
         },
     ));
 
-    let network_segments_set: std::collections::HashSet<forge_uuid::network::NetworkSegmentId> =
+    let network_segments_set: std::collections::HashSet<::rpc::uuid::network::NetworkSegmentId> =
         network_segment_ids_with_vpc.drain(..).collect();
     network_segment_ids_with_vpc.extend(network_segments_set.into_iter());
 

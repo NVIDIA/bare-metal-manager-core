@@ -17,7 +17,7 @@ use sqlx::PgConnection;
 
 use super::DatabaseError;
 use crate::model::dpa_interface::DpaInterfaceControllerState;
-use forge_uuid::dpa_interface::DpaInterfaceId;
+use ::rpc::uuid::dpa_interface::DpaInterfaceId;
 
 /// A record of a past state of a DpaInterface
 ///

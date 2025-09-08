@@ -29,13 +29,13 @@ use crate::resource_pool::common::VLANID;
 use crate::resource_pool::{DbResourcePool, ResourcePoolStats, ValueType};
 use crate::tests::common::api_fixtures::network_segment::FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS;
 use crate::{db, db_init};
+use ::rpc::uuid::network::NetworkSegmentId;
+use ::rpc::uuid::vpc::VpcId;
 use common::network_segment::{
     NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, get_segments,
     text_history,
 };
 use forge_network::virtualization::VpcVirtualizationType;
-use forge_uuid::network::NetworkSegmentId;
-use forge_uuid::vpc::VpcId;
 use mac_address::MacAddress;
 
 use crate::db::{ObjectColumnFilter, network_segment};

@@ -10,16 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::CarbideClientError;
 use crate::attestation as attest;
 use forge_host_support::{
     hardware_enumeration::enumerate_hardware, registration, registration::RegistrationError,
 };
+use rpc::uuid::machine::MachineId;
 use std::process;
 use tracing::{error, info};
 use tss_esapi::Context;
 use tss_esapi::handles::KeyHandle;
-
-use crate::CarbideClientError;
 
 pub async fn run(
     forge_api: &str,
@@ -27,7 +27,7 @@ pub async fn run(
     machine_interface_id: uuid::Uuid,
     retry: &registration::DiscoveryRetry,
     tpm_path: &str,
-) -> Result<String, CarbideClientError> {
+) -> Result<MachineId, CarbideClientError> {
     let mut hardware_info = enumerate_hardware()?;
     info!("Successfully enumerated hardware");
 

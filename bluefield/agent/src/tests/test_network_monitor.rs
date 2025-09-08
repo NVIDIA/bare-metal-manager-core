@@ -88,13 +88,12 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
 
     let forge_api = agent.forge_system.api_server;
 
-    let machine_id = DPU_ID;
+    let machine_id = DPU_ID.parse()?;
 
     // Initialize the test metric meter
     info!("Initializing test meter");
     let test_meter = TestMeter::default();
-    let metrics_states =
-        NetworkMonitorMetricsState::initialize(test_meter.meter(), machine_id.into());
+    let metrics_states = NetworkMonitorMetricsState::initialize(test_meter.meter(), machine_id);
 
     // Initialize network monitor
     let forge_api_clone = forge_api.clone();
@@ -103,7 +102,7 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
 
     info!("Initializing network monitor");
     let mut network_monitor = NetworkMonitor::new(
-        machine_id.to_string(),
+        machine_id,
         Some(metrics_states.clone()),
         Arc::new(MockPinger),
     );

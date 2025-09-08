@@ -12,7 +12,7 @@
 
 use crate::CarbideError;
 use crate::db::machine_boot_override::MachineBootOverride;
-use forge_uuid::machine::MachineInterfaceId;
+use ::rpc::uuid::machine::MachineInterfaceId;
 
 use crate::tests::common;
 use common::api_fixtures::create_test_env;

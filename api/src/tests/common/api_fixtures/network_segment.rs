@@ -16,7 +16,7 @@
 
 use crate::api::Api;
 use ::rpc::forge::forge_server::Forge;
-use forge_uuid::network::NetworkSegmentId;
+use ::rpc::uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -171,7 +171,7 @@ pub async fn create_network_segment(
             .domains
             .first()
             .and_then(|d| d.id.clone())
-            .map(forge_uuid::domain::DomainId::try_from)
+            .map(::rpc::uuid::domain::DomainId::try_from)
             .unwrap()
             .unwrap();
 

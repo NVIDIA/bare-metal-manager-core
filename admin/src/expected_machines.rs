@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::pin::Pin;
 
+use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use prettytable::{Table, row};
-use utils::admin_cli::{CarbideCliResult, OutputFormat};
 
 use crate::async_write;
 use crate::cfg::cli_options::ShowExpectedMachineQuery;
@@ -78,7 +78,6 @@ pub async fn show_expected_machines(
                 (
                     x.bmc_ip.clone(),
                     x.machine_id
-                        .clone()
                         .map(|x| x.to_string())
                         .unwrap_or("Unlinked".to_string()),
                 )

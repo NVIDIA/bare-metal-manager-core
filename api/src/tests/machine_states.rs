@@ -15,7 +15,6 @@ use crate::db;
 use crate::measured_boot::db as mbdb;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::TpmEkCertificate;
-use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::{
     DpuInitState, FailureDetails, LockdownInfo, LockdownMode, LockdownState, MachineState,
     MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
@@ -23,13 +22,13 @@ use crate::model::machine::{
 use crate::state_controller::machine::handler::{
     MachineStateHandlerBuilder, handler_host_power_control,
 };
+use ::rpc::measured_boot::pcr::PcrRegisterValue;
 use common::api_fixtures::dpu::{
     create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
 };
 use common::api_fixtures::host::{host_discover_dhcp, host_discover_machine, host_uefi_setup};
 use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
 use common::api_fixtures::{TestManagedHost, create_managed_host, create_test_env};
-use measured_boot::pcr::PcrRegisterValue;
 
 use crate::model::machine::{FailureCause, FailureSource};
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
@@ -38,12 +37,12 @@ use crate::tests::common::api_fixtures::{
     dpu::{TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION, TEST_DPU_AGENT_VERSION},
     forge_agent_control, update_time_params,
 };
+use ::rpc::measured_boot::bundle::MeasurementBundle;
+use ::rpc::measured_boot::records::MeasurementBundleState;
+use ::rpc::measured_boot::report::MeasurementReport;
 use chrono::Duration;
 use common::api_fixtures::{create_test_env_with_overrides, get_config};
 use health_report::HealthReport;
-use measured_boot::bundle::MeasurementBundle;
-use measured_boot::records::MeasurementBundleState;
-use measured_boot::report::MeasurementReport;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{HardwareHealthReport, TpmCaCert, TpmCaCertId};
 use rpc::forge_agent_control_response::Action;
@@ -463,7 +462,6 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     ));
 
     txn.commit().await.unwrap();
-    let host_rpc_machine_id: rpc::MachineId = mh.id.into();
     let pxe = env
         .api
         .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
@@ -478,10 +476,10 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
     assert!(pxe.pxe_script.contains("scout.efi"));
 
-    let response = forge_agent_control(&env, host_rpc_machine_id.clone()).await;
+    let response = forge_agent_control(&env, mh.id).await;
     assert_eq!(response.action, Action::Discovery as i32);
 
-    discovery_completed(&env, host_rpc_machine_id.clone()).await;
+    discovery_completed(&env, mh.id).await;
 
     env.run_machine_state_controller_iteration().await;
     assert_eq!(
@@ -553,7 +551,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     );
     txn.commit().await.unwrap();
 
-    let response = forge_agent_control(&env, host_rpc_machine_id.clone()).await;
+    let response = forge_agent_control(&env, mh.id).await;
     assert_eq!(response.action, Action::Noop as i32);
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.id,
@@ -671,10 +669,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     txn.rollback().await.unwrap();
     let _expected_state = ManagedHostState::DPUInit {
         dpu_states: crate::model::machine::DpuInitStates {
-            states: HashMap::from([(
-                *mh.dpu().machine_id(),
-                DpuInitState::WaitingForNetworkConfig,
-            )]),
+            states: HashMap::from([(mh.dpu().id, DpuInitState::WaitingForNetworkConfig)]),
         },
     };
     assert!(matches!(host_machine.current_state(), _expected_state));
@@ -1041,18 +1036,16 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     };
 
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
-    let dpu_machine_id = &try_parse_machine_id(&dpu_machine_id).unwrap();
 
     //--------
     let env = &env;
 
-    let machine_interface_id = host_discover_dhcp(env, &host_config, dpu_machine_id).await;
+    let machine_interface_id = host_discover_dhcp(env, &host_config, &dpu_machine_id).await;
 
     let host_machine_id = host_discover_machine(env, &host_config, machine_interface_id).await;
-    let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
     let mh = TestManagedHost {
         id: host_machine_id,
-        dpu_ids: vec![*dpu_machine_id],
+        dpu_ids: vec![dpu_machine_id],
         api: env.api.clone(),
     };
 

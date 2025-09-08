@@ -1,17 +1,16 @@
 use std::io::Write;
 use std::pin::Pin;
 
-use ::rpc::forge::SkuList;
-use prettytable::{Row, Table};
-use rpc::forge::SkuIdList;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-
 use crate::cfg::cli_options::{
     BulkUpdatyeSkuMetadata, CreateSku, GenerateSku, ReplaceSkuComponents, Sku, UpdateSkuMetadata,
 };
 use crate::rpc::ApiClient;
 use crate::{async_write_table_as_csv, async_writeln};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::forge::SkuList;
+use prettytable::{Row, Table};
+use rpc::forge::SkuIdList;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 struct SkuWrapper {
     sku: ::rpc::forge::Sku,
@@ -271,7 +270,7 @@ async fn show_sku_details(
                 writeln!(output, "Assigned Machines")?;
                 let mut table: Table = create_table(vec!["Machine ID"]);
                 for machine_id in sku.associated_machine_ids {
-                    table.add_row(Row::from(vec![machine_id.id]));
+                    table.add_row(Row::from(vec![machine_id.to_string()]));
                 }
                 table.print(&mut output)?;
             }
@@ -306,7 +305,7 @@ async fn show_machine_table(
         let machines = sku
             .associated_machine_ids
             .into_iter()
-            .map(|id| id.id)
+            .map(|id| id.to_string())
             .collect::<Vec<String>>()
             .join("\n");
         table.add_row(Row::from(vec![sku.id, machines]));
@@ -360,10 +359,7 @@ pub async fn handle_sku_command(
         }
 
         Sku::Generate(GenerateSku { machine_id, id }) => {
-            let mut sku = api_client
-                .0
-                .generate_sku_from_machine(::rpc::common::MachineId { id: machine_id })
-                .await?;
+            let mut sku = api_client.0.generate_sku_from_machine(machine_id).await?;
             if let Some(id) = id {
                 sku.id = id;
             }
@@ -399,20 +395,14 @@ pub async fn handle_sku_command(
             machine_id,
             force,
         } => {
-            let machine_id = ::rpc::common::MachineId { id: machine_id };
-
             api_client
                 .assign_sku_to_machine(sku_id, machine_id, force)
                 .await?;
         }
         Sku::Unassign { machine_id } => {
-            let machine_id = ::rpc::common::MachineId { id: machine_id };
-
             api_client.0.remove_sku_association(machine_id).await?;
         }
         Sku::Verify { machine_id } => {
-            let machine_id = ::rpc::common::MachineId { id: machine_id };
-
             api_client.0.verify_sku_for_machine(machine_id).await?;
         }
         Sku::UpdateMetadata(update_request) => {

@@ -1,12 +1,13 @@
+use crate::duppet::{self, SyncOptions};
+use crate::periodic_config_fetcher::PeriodicConfigFetcher;
+use rpc::uuid::machine::MachineId;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::duppet::{self, SyncOptions};
-use crate::periodic_config_fetcher::PeriodicConfigFetcher;
-
 pub fn main_sync(
     sync_options: SyncOptions,
-    machine_id: &str,
+    machine_id: &MachineId,
     periodic_config_fetcher: &PeriodicConfigFetcher,
 ) {
     // Sync out all duppet-managed config files. This can be called as part of
@@ -37,8 +38,8 @@ pub fn main_sync(
             duppet::FileSpec::new_with_content(build_otel_host_machine_id_file(
                 periodic_config_fetcher
                     .get_host_machine_id()
-                    .as_deref()
-                    .unwrap_or(""),
+                    .map(|id| Cow::Owned(id.to_string()))
+                    .unwrap_or(Cow::Borrowed("")),
             )),
         ),
     ]);
@@ -49,12 +50,12 @@ pub fn main_sync(
 
 // Write "machine.id=<value>" to a file so the OpenTelemetry collector can apply it as a resource
 // attribute.
-pub fn build_otel_machine_id_file(machine_id: &str) -> String {
+pub fn build_otel_machine_id_file(machine_id: &MachineId) -> String {
     format!("machine.id={machine_id}\n")
 }
 
 // Write "host.machine.id=<value>" to a file so the OpenTelemetry collector can apply it as a
 // resource attribute.
-pub fn build_otel_host_machine_id_file(host_machine_id: &str) -> String {
+pub fn build_otel_host_machine_id_file(host_machine_id: Cow<str>) -> String {
     format!("host.machine.id={host_machine_id}\n")
 }

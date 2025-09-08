@@ -11,9 +11,9 @@
  */
 
 use crate::logging::metrics_utils::SharedMetricsHolder;
-use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
-use measured_boot::pcr::PcrRegisterValue;
-use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+use ::rpc::measured_boot::pcr::PcrRegisterValue;
+use ::rpc::measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+use ::rpc::uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use opentelemetry::{KeyValue, metrics::Meter};
 use std::{collections::HashMap, time::Instant};
 

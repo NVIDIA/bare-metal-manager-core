@@ -63,10 +63,7 @@ async fn test_dpu_for_set_clear_reprovisioning(pool: sqlx::PgPool) {
         .into_inner();
 
     assert_eq!(res.dpus.len(), 1);
-    assert_eq!(
-        res.dpus[0].id.clone().unwrap().to_string(),
-        mh.dpu().machine_id().to_string()
-    );
+    assert_eq!(res.dpus[0].id.unwrap().to_string(), mh.dpu().id.to_string());
 
     mh.dpu().trigger_dpu_reprovisioning(Mode::Clear, true).await;
 
@@ -230,7 +227,7 @@ async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgP
             .trigger_dpu_reprovisioning(tonic::Request::new(
                 ::rpc::forge::DpuReprovisioningRequest {
                     dpu_id: None,
-                    machine_id: mh.dpu().machine_id().into(),
+                    machine_id: mh.dpu().id.into(),
                     mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware: true
@@ -413,7 +410,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         TenantState::DpuReprovisioning
     );
 
-    _ = forge_agent_control(&env, rpc_instance.machine_id().into()).await;
+    _ = forge_agent_control(&env, rpc_instance.machine_id()).await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     txn.commit().await.unwrap();
@@ -710,7 +707,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert!(pxe.pxe_script.contains("scout.efi"));
 
-    _ = forge_agent_control(&env, current_instance.inner().machine_id.clone().unwrap()).await;
+    _ = forge_agent_control(&env, current_instance.inner().machine_id.unwrap()).await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     // Since DPU reprovisioning is started, we can't allow user to reboot host in between. It
     // should be prevented from cloud itself.
@@ -824,9 +821,9 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
         .into_inner();
 
     assert_eq!(res.dpus.len(), 1);
-    assert_eq!(res.dpus[0].id, mh.dpu().machine_id().into());
+    assert_eq!(res.dpus[0].id, mh.dpu().id.into());
 
-    db::machine::update_dpu_reprovision_start_time(mh.dpu().machine_id(), &mut txn)
+    db::machine::update_dpu_reprovision_start_time(&mh.dpu().id, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -835,7 +832,7 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
             .trigger_dpu_reprovisioning(tonic::Request::new(
                 ::rpc::forge::DpuReprovisioningRequest {
                     dpu_id: None,
-                    machine_id: mh.dpu().machine_id().into(),
+                    machine_id: mh.dpu().id.into(),
                     mode: rpc::forge::dpu_reprovisioning_request::Mode::Clear as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware: true
@@ -892,7 +889,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         );
     }
 
-    reboot_completed(&env, dpu.id.into()).await;
+    reboot_completed(&env, dpu.id).await;
     let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_eq!(
         dpu.current_state(),
@@ -1033,7 +1030,7 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
 
     txn.commit().await.unwrap();
 
-    reboot_completed(&env, dpu.id.into()).await;
+    reboot_completed(&env, dpu.id).await;
 
     env.run_machine_state_controller_iteration().await;
 
@@ -1132,14 +1129,11 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
     );
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         4,
         ManagedHostState::DPUInit {
             dpu_states: crate::model::machine::DpuInitStates {
-                states: HashMap::from([(
-                    *mh.dpu().machine_id(),
-                    DpuInitState::WaitingForNetworkConfig,
-                )]),
+                states: HashMap::from([(mh.dpu().id, DpuInitState::WaitingForNetworkConfig)]),
             },
         },
     )
@@ -1209,10 +1203,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
 
     let _expected_state = ManagedHostState::DPUReprovision {
         dpu_states: crate::model::machine::DpuReprovisionStates {
-            states: HashMap::from([(
-                *mh.dpu().machine_id(),
-                ReprovisionState::WaitingForNetworkInstall,
-            )]),
+            states: HashMap::from([(mh.dpu().id, ReprovisionState::WaitingForNetworkInstall)]),
         },
     };
     assert!(matches!(dpu.current_state(), _expected_state));
@@ -1559,7 +1550,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     let pxe = host_interface.get_pxe_instructions(host_arch).await;
     assert!(pxe.pxe_script.contains("scout.efi"));
 
-    forge_agent_control(&env, current_instance.inner().machine_id.clone().unwrap()).await;
+    forge_agent_control(&env, current_instance.inner().machine_id.unwrap()).await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Since DPU reprovisioning is started, we can't allow user to reboot host in between. It

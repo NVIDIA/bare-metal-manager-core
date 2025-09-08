@@ -2,7 +2,7 @@ use std::fmt::Write;
 
 use crate::cfg::cli_options::NetworkDeviceShow;
 use crate::rpc::ApiClient;
-use utils::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 
 pub async fn show(
     output_format: OutputFormat,
@@ -59,7 +59,7 @@ fn show_network_devices_info(data: &rpc::forge::NetworkTopologyData) -> CarbideC
             writeln!(
                 &mut lines,
                 "\t\t{} | {:8} | {}",
-                device.id.clone().unwrap_or_default(),
+                device.id.unwrap_or_default(),
                 device.local_port,
                 device
                     .remote_port

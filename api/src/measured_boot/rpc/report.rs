@@ -24,9 +24,9 @@ use crate::measured_boot::interface::report::{
 };
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::MeasurementReportId;
-use measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
+use ::rpc::measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
+use ::rpc::uuid::machine::MachineId;
+use ::rpc::uuid::measured_boot::MeasurementReportId;
 use rpc::protos::measured_boot::list_measurement_report_request;
 use rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, CreateMeasurementReportResponse,

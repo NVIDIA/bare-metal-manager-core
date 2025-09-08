@@ -18,7 +18,7 @@ use crate::tests::common::api_fixtures::{
     create_managed_host,
     instance::{default_os_config, default_tenant_config, single_interface_network_config},
 };
-use forge_uuid::{machine::MachineId, network::NetworkSegmentId};
+use ::rpc::uuid::{machine::MachineId, network::NetworkSegmentId};
 
 use crate::tests::common;
 
@@ -126,7 +126,7 @@ async fn invoke_instance_power(
 ) {
     env.api
         .invoke_instance_power(tonic::Request::new(rpc::forge::InstancePowerRequest {
-            machine_id: Some(host_machine_id.into()),
+            machine_id: Some(host_machine_id),
             operation: rpc::forge::instance_power_request::Operation::PowerReset as _,
             boot_with_custom_ipxe,
             apply_updates_on_reboot: false,

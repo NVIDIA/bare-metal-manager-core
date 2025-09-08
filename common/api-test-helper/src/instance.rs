@@ -14,11 +14,12 @@ use super::{
     grpcurl::{grpcurl, grpcurl_id},
     machine::wait_for_state,
 };
+use rpc::uuid::machine::MachineId;
 use std::net::SocketAddr;
 
 pub async fn create(
     addrs: &[SocketAddr],
-    host_machine_id: &str,
+    host_machine_id: &MachineId,
     segment_id: Option<&str>,
     hostname: Option<&str>,
     phone_home_enable: bool,
@@ -103,7 +104,7 @@ pub async fn create(
 
 pub async fn release(
     addrs: &[SocketAddr],
-    host_machine_id: &str,
+    host_machine_id: &MachineId,
     instance_id: &str,
     wait_until_ready: bool,
 ) -> eyre::Result<()> {

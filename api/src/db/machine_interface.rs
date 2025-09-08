@@ -30,8 +30,8 @@ use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::MachineInterfaceSnapshot;
 use crate::{CarbideError, CarbideResult, db};
-use forge_uuid::machine::MachineId;
-use forge_uuid::{domain::DomainId, machine::MachineInterfaceId, network::NetworkSegmentId};
+use ::rpc::uuid::machine::MachineId;
+use ::rpc::uuid::{domain::DomainId, machine::MachineInterfaceId, network::NetworkSegmentId};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
 const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";

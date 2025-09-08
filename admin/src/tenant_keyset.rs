@@ -14,9 +14,9 @@ use std::fmt::Write;
 
 use super::cfg::cli_options::ShowTenantKeySet;
 use crate::rpc::ApiClient;
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
-use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 pub async fn handle_show(
     args: ShowTenantKeySet,

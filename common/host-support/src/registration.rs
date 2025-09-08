@@ -15,6 +15,7 @@ use std::time::Duration;
 use ::rpc::forge::{AttestQuoteRequest, MachineCertificate};
 use ::rpc::forge_tls_client::{self, ForgeClientConfig, ForgeTlsClient};
 use ::rpc::machine_discovery as rpc_discovery;
+use ::rpc::uuid::machine::MachineId;
 use ::rpc::{MachineDiscoveryInfo, forge as rpc};
 use eyre::WrapErr;
 use forge_tls::client_config::ClientCert;
@@ -41,7 +42,7 @@ pub enum RegistrationError {
 #[derive(Debug, Clone)]
 pub struct RegistrationData {
     /// The machine ID under which this machine is known in Forge
-    pub machine_id: String,
+    pub machine_id: MachineId,
 }
 
 #[derive(Clone)]
@@ -224,11 +225,10 @@ pub async fn register_machine(
         }
     }
 
-    let machine_id: String = response
+    let machine_id = response
         .machine_id
-        .ok_or(RegistrationError::MissingMachineId)?
-        .id;
-    tracing::info!(machine_id, "Registered");
+        .ok_or(RegistrationError::MissingMachineId)?;
+    tracing::info!(%machine_id, "Registered");
 
     Ok((
         RegistrationData { machine_id },

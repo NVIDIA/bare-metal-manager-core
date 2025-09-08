@@ -13,9 +13,9 @@
 use std::str::FromStr;
 use std::time::SystemTime;
 
+use ::rpc::uuid::instance::InstanceId;
+use ::rpc::uuid::machine::MachineId;
 use config_version::ConfigVersion;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
 use rpc::health::HealthReport;
 use tonic::Code;
@@ -64,7 +64,7 @@ async fn update_network_status_observation(
                 }),
                 internal_uuid: Some(internal_uuid.clone()),
             }],
-            dpu_machine_id: dpu_machine_id.into(),
+            dpu_machine_id: Some(*dpu_machine_id),
             network_config_version: Some("V1-T1".to_string()),
             instance_network_config_version: Some("V1-T1".to_string()),
             network_config_error: None,

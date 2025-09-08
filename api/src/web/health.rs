@@ -10,26 +10,26 @@
  * its affiliates is strictly prohibited.
  */
 
+use super::filters;
+use crate::api::Api;
+use ::rpc::uuid::machine::MachineId;
 use askama::Template;
 use axum::extract::{self, Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use forge_uuid::machine::MachineId;
 use health_report::HealthReport;
 use hyper::http::StatusCode;
 use rpc::forge::{
     InsertHealthReportOverrideRequest, MachinesByIdsRequest, OverrideMode,
     RemoveHealthReportOverrideRequest, forge_server::Forge,
 };
+use rpc::uuid::machine::MachineType;
 use std::{str::FromStr, sync::Arc};
-
-use super::{filters, machine::get_machine_type};
-use crate::api::Api;
 
 #[derive(Template)]
 #[template(path = "machine_health.html")]
 struct MachineHealth {
-    id: String,
-    machine_type: String,
+    id: MachineId,
+    machine_type: MachineType,
     overrides: Vec<HealthReportOverride>,
     aggregate_health: LabeledHealthReport,
     component_health: Vec<LabeledHealthReport>,
@@ -72,25 +72,20 @@ pub async fn health(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
 ) -> Response {
-    let Ok(parsed_machine_id) = MachineId::from_str(&machine_id) else {
+    let Ok(machine_id) = MachineId::from_str(&machine_id) else {
         return (StatusCode::BAD_REQUEST, "invalid machine id").into_response();
     };
-    if parsed_machine_id.machine_type().is_dpu() {
+    if machine_id.machine_type().is_dpu() {
         return (
             StatusCode::NOT_FOUND,
             "no health for dpu. see host machine instead",
         )
             .into_response();
     }
-    let machine_id = parsed_machine_id.to_string();
-
-    let rpc_machine_id = ::rpc::common::MachineId {
-        id: machine_id.clone(),
-    };
 
     let machine = match state
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![rpc_machine_id.clone()],
+            machine_ids: vec![machine_id],
             include_history: false,
         }))
         .await
@@ -124,7 +119,7 @@ pub async fn health(
         None => Vec::new(),
     };
 
-    let request = tonic::Request::new(rpc_machine_id.clone());
+    let request = tonic::Request::new(machine_id);
     let mut overrides = match state
         .list_health_report_overrides(request)
         .await
@@ -157,7 +152,7 @@ pub async fn health(
 
     let mut component_health = Vec::new();
 
-    let request = tonic::Request::new(rpc_machine_id.clone());
+    let request = tonic::Request::new(machine_id);
     let hw_report = match state
         .get_hardware_health_report(request)
         .await
@@ -208,7 +203,7 @@ pub async fn health(
         report: Some(o.health_report.clone()),
     }));
 
-    let health_records = match fetch_health_history(&state, &rpc_machine_id).await {
+    let health_records = match fetch_health_history(&state, &machine_id).await {
         Ok(records) => records,
         Err(err) => {
             tracing::error!(%err, %machine_id, "find_machine_health_histories");
@@ -217,8 +212,8 @@ pub async fn health(
     };
 
     let display = MachineHealth {
-        id: machine_id.clone(),
-        machine_type: get_machine_type(&machine_id),
+        id: machine_id,
+        machine_type: machine_id.machine_type(),
         aggregate_health: LabeledHealthReport {
             label: "Aggregate Health".to_string(),
             report: aggregate_health,
@@ -295,10 +290,13 @@ pub async fn add_override(
         Err(e) => return (StatusCode::BAD_REQUEST, e),
     };
 
+    let machine_id = match machine_id.parse::<MachineId>() {
+        Ok(id) => id,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()),
+    };
+
     let request = tonic::Request::new(InsertHealthReportOverrideRequest {
-        machine_id: Some(rpc::common::MachineId {
-            id: machine_id.clone(),
-        }),
+        machine_id: Some(machine_id),
         r#override: Some(report_override),
     });
     match state
@@ -322,10 +320,12 @@ pub async fn remove_override(
     AxumPath(machine_id): AxumPath<String>,
     extract::Json(payload): extract::Json<RemoveOverride>,
 ) -> impl IntoResponse {
+    let machine_id = match machine_id.parse::<MachineId>() {
+        Ok(id) => id,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()),
+    };
     let request = tonic::Request::new(RemoveHealthReportOverrideRequest {
-        machine_id: Some(rpc::common::MachineId {
-            id: machine_id.clone(),
-        }),
+        machine_id: Some(machine_id),
         source: payload.source,
     });
     match state
@@ -353,18 +353,18 @@ fn health_report_from_rpc_convert_invalid(
 
 pub(super) async fn fetch_health_history(
     api: &Api,
-    machine_id: &::rpc::common::MachineId,
+    machine_id: &MachineId,
 ) -> Result<Vec<MachineHealthHistoryRecord>, tonic::Status> {
     let mut records = api
         .find_machine_health_histories(tonic::Request::new(
             ::rpc::forge::MachineHealthHistoriesRequest {
-                machine_ids: vec![machine_id.clone()],
+                machine_ids: vec![*machine_id],
             },
         ))
         .await
         .map(|response| response.into_inner())?
         .histories
-        .remove(&machine_id.id)
+        .remove(&machine_id.to_string())
         .unwrap_or_default()
         .records;
     // History is delivered with the oldest Entry First. Reverse for better display ordering

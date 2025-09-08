@@ -19,34 +19,36 @@ use crate::cfg::cli_options::{
 };
 use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv, async_writeln};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
 use chrono::Utc;
-use forge_uuid::machine::MachineType;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
 };
 use prettytable::{Row, Table, row};
 use rpc::Machine;
+use rpc::uuid::machine::MachineId;
 use std::fmt::Write;
 use std::fs;
 use std::str::FromStr;
 use std::time::Duration;
-use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 fn convert_machine_to_nice_format(
     machine: forgerpc::Machine,
     history_count: u32,
 ) -> CarbideCliResult<String> {
     let mut lines = String::new();
-    let machine_id = machine.id.clone().unwrap_or_default().id;
     let sku = machine.hw_sku.unwrap_or_default();
     let sku_device_type = machine.hw_sku_device_type.unwrap_or_default();
 
     let mut data = vec![
-        ("ID", machine.id.clone().unwrap_or_default().id),
+        (
+            "ID",
+            machine.id.map(|id| id.to_string()).unwrap_or_default(),
+        ),
         ("STATE", machine.state.clone().to_uppercase()),
         ("STATE_VERSION", machine.state_version.clone()),
-        ("MACHINE TYPE", get_machine_type(&machine_id)),
+        ("MACHINE TYPE", get_machine_type(machine.id)),
         (
             "FAILURE",
             machine
@@ -158,7 +160,7 @@ fn convert_machine_to_nice_format(
                     interface
                         .attached_dpu_machine_id
                         .as_ref()
-                        .map(::rpc::common::MachineId::to_string)
+                        .map(MachineId::to_string)
                         .unwrap_or_default(),
                 ),
                 (
@@ -166,7 +168,7 @@ fn convert_machine_to_nice_format(
                     interface
                         .machine_id
                         .as_ref()
-                        .map(::rpc::common::MachineId::to_string)
+                        .map(MachineId::to_string)
                         .unwrap_or_default(),
                 ),
                 (
@@ -213,9 +215,9 @@ fn convert_machine_to_nice_format(
     Ok(lines)
 }
 
-fn get_machine_type(machine_id: &str) -> String {
-    MachineType::from_id_string(machine_id)
-        .map(|t| t.to_string())
+fn get_machine_type(machine_id: Option<MachineId>) -> String {
+    machine_id
+        .map(|id| id.machine_type().to_string())
         .unwrap_or_else(|| "Unknown".to_string())
 }
 
@@ -238,7 +240,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
     ]);
 
     for machine in machines.machines {
-        let machine_id = machine.id.unwrap_or_default().id;
+        let machine_id_string = machine.id.map(|id| id.to_string()).unwrap_or_default();
         let mut machine_interfaces = machine
             .interfaces
             .into_iter()
@@ -273,7 +275,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
                 mi.id.unwrap_or_default().to_string(),
                 mi.address.join(","),
                 mi.mac_address,
-                get_machine_type(&machine_id),
+                get_machine_type(machine.id),
                 dpu_ids.join("\n"),
             )
         };
@@ -304,7 +306,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
 
         table.add_row(row![
             String::from(if is_unhealthy { "U" } else { "H" }),
-            machine_id,
+            machine_id_string,
             machine.state.to_uppercase(),
             machine.state_version.clone(),
             dpu_id,
@@ -359,12 +361,13 @@ async fn show_all_machines(
 }
 
 async fn show_machine_information(
+    machine_id: MachineId,
     args: &ShowMachine,
     output_format: &OutputFormat,
     output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let machine = api_client.get_machine(args.machine.clone()).await?;
+    let machine = api_client.get_machine(machine_id).await?;
     match output_format {
         OutputFormat::Json => {
             async_write!(output_file, "{}", serde_json::to_string_pretty(&machine)?)?
@@ -397,8 +400,8 @@ pub async fn handle_show(
     page_size: usize,
     sort_by: &SortField,
 ) -> CarbideCliResult<()> {
-    if !args.machine.is_empty() {
-        show_machine_information(&args, output_format, output_file, api_client).await?;
+    if let Some(machine_id) = args.machine {
+        show_machine_information(machine_id, &args, output_format, output_file, api_client).await?;
     } else {
         // Show both hosts and DPUs if neither flag is specified
         let show_all_types = !args.dpus && !args.hosts;
@@ -639,17 +642,18 @@ pub async fn force_delete(
     let start = std::time::Instant::now();
     let mut dpu_machine_id = String::new();
 
-    if !api_client
-        .0
-        .find_instance_by_machine_id(query.machine.clone())
-        .await?
-        .instances
-        .is_empty()
-        && !query.allow_delete_with_instance
-    {
-        return Err(CarbideCliError::GenericError(
-            "Machine has an associated instance, use --allow-delete-with-instance to acknowledge that this machine should be deleted with an instance allocated".to_string(),
-        ));
+    if let Ok(id) = MachineId::from_str(&query.machine) {
+        if api_client
+            .0
+            .find_instance_by_machine_id(id)
+            .await
+            .is_ok_and(|i| !i.instances.is_empty())
+            && !query.allow_delete_with_instance
+        {
+            return Err(CarbideCliError::GenericError(
+                "Machine has an associated instance, use --allow-delete-with-instance to acknowledge that this machine should be deleted with an instance allocated".to_string(),
+            ));
+        }
     }
 
     loop {
@@ -702,12 +706,12 @@ pub async fn autoupdate(cfg: MachineAutoupdate, api_client: &ApiClient) -> Carbi
 
 pub async fn get_next_free_machine(
     api_client: &ApiClient,
-    machine_ids: &mut VecDeque<String>,
+    machine_ids: &mut VecDeque<MachineId>,
     min_interface_count: usize,
 ) -> Option<Machine> {
     while let Some(id) = machine_ids.pop_front() {
         tracing::debug!("Checking {}", id);
-        if let Ok(machine) = api_client.get_machine(id.clone()).await {
+        if let Ok(machine) = api_client.get_machine(id).await {
             if machine.state != "Ready" {
                 tracing::debug!("Machine is not ready");
                 continue;
@@ -744,7 +748,7 @@ pub async fn handle_update_machine_hardware_info_gpus(
         serde_json::from_str(&gpu_file_contents)?;
     api_client
         .update_machine_hardware_info(
-            gpus.machine.clone(),
+            gpus.machine,
             forgerpc::MachineHardwareInfoUpdateType::Gpus,
             gpus_from_json,
         )
@@ -755,7 +759,7 @@ pub async fn handle_show_machine_hardware_info(
     _api_client: &ApiClient,
     _output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     _output_format: &OutputFormat,
-    _machine_id: String,
+    _machine_id: MachineId,
 ) -> CarbideCliResult<()> {
     Err(CarbideCliError::NotImplemented(
         "machine hardware output".to_string(),

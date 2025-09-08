@@ -8,7 +8,7 @@ edition.workspace = true
 # local dependencies
 forge-version = { path = "../../common/version" }
 api-test-helper = { path = "../../common/api-test-helper" }
-forge-uuid = { path = "../../common/uuid" }
+rpc = { path = "../../rpc" }
 
 tonic = { version = "0.14", features = ["tls-ring"] }
 tonic-prost="0.14"

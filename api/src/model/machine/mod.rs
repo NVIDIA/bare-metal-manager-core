@@ -27,12 +27,12 @@ use crate::{
     state_controller::state_handler::StateHandlerError,
 };
 use ::rpc::errors::RpcDataConversionError;
-use chrono::{DateTime, Utc};
-use config_version::{ConfigVersion, Versioned};
-use forge_uuid::{
+use ::rpc::uuid::{
     domain::DomainId, instance_type::InstanceTypeId, machine::MachineId,
     machine::MachineInterfaceId, machine::RpcMachineTypeWrapper, network::NetworkSegmentId,
 };
+use chrono::{DateTime, Utc};
+use config_version::{ConfigVersion, Versioned};
 use libredfish::{PowerState, SystemPowerControl};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
@@ -353,8 +353,7 @@ impl ManagedHostStateSnapshot {
                     .find(|dpu| dpu.id == *dpu_machine_id)?;
                 let mut rpc_machine: rpc::forge::Machine = dpu_snapshot.clone().into();
                 // In case the DPU does not know the associated Host - we can backfill the data here
-                rpc_machine.associated_host_machine_id =
-                    Some(self.host_snapshot.id.to_string().into());
+                rpc_machine.associated_host_machine_id = Some(self.host_snapshot.id);
                 Some(rpc_machine)
             }
         }
@@ -451,7 +450,7 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
 
         Ok(Some(rpc::Instance {
             id: Some(instance.id.into()),
-            machine_id: Some(instance.machine_id.to_string().into()),
+            machine_id: Some(instance.machine_id),
             config: Some(instance.config.try_into()?),
             status: Some(status.try_into()?),
             config_version: instance.config_version.version_string(),
@@ -877,16 +876,12 @@ impl From<Machine> for rpc::forge::Machine {
             (None, None)
         };
 
-        let associated_dpu_machine_ids: Vec<rpc::MachineId> = machine
-            .associated_dpu_machine_ids()
-            .iter()
-            .map(Into::into)
-            .collect();
-        let associated_dpu_machine_id = associated_dpu_machine_ids.first().cloned();
+        let associated_dpu_machine_ids = machine.associated_dpu_machine_ids();
+        let associated_dpu_machine_id = associated_dpu_machine_ids.first().copied();
         let instance_network_restrictions = Some(machine.instance_network_restrictions());
 
         rpc::Machine {
-            id: Some(machine.id.into()),
+            id: Some(machine.id),
             state: if machine.is_dpu() {
                 machine.state.value.dpu_state_string(&machine.id)
             } else {
@@ -2139,10 +2134,8 @@ impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
     fn from(machine_interface: MachineInterfaceSnapshot) -> rpc::MachineInterface {
         rpc::MachineInterface {
             id: Some(machine_interface.id.into()),
-            attached_dpu_machine_id: machine_interface
-                .attached_dpu_machine_id
-                .map(|id| id.to_string().into()),
-            machine_id: machine_interface.machine_id.map(|id| id.into()),
+            attached_dpu_machine_id: machine_interface.attached_dpu_machine_id,
+            machine_id: machine_interface.machine_id,
             segment_id: Some(machine_interface.segment_id.into()),
             hostname: machine_interface.hostname,
             domain_id: machine_interface.domain_id.map(|d| d.into()),

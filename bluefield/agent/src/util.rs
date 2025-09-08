@@ -13,6 +13,7 @@ use forge_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
 use hickory_resolver::{Name, config::ResolverConfig};
 use hyper::service::Service;
 use resolv_conf::Config;
+use rpc::uuid::machine::MachineId;
 use rpc::{
     Instance, Timestamp,
     forge::InstancePhoneHomeLastContactRequest,
@@ -155,11 +156,9 @@ pub async fn create_forge_client(
 // get_instance finds the instance associated with this dpu
 pub async fn get_instance(
     client: &mut ForgeClientT,
-    dpu_machine_id: String,
+    dpu_machine_id: &MachineId,
 ) -> Result<Option<Instance>, eyre::Error> {
-    let request = tonic::Request::new(rpc::MachineId {
-        id: dpu_machine_id.clone(),
-    });
+    let request = tonic::Request::new(*dpu_machine_id);
 
     let instances = match client.find_instance_by_machine_id(request).await {
         Ok(response) => response.into_inner().instances,
@@ -200,12 +199,10 @@ pub async fn get_sitename(client: &mut ForgeClientT) -> Result<Option<String>, e
 // Use grpc call GetPeriodicDpuConfig and return the retrieved info
 pub async fn get_periodic_dpu_config(
     client: &mut ForgeClientT,
-    dpu_machine_id: String,
+    dpu_machine_id: &MachineId,
 ) -> Result<rpc::forge::ManagedHostNetworkConfigResponse, eyre::Error> {
     let request = tonic::Request::new(ManagedHostNetworkConfigRequest {
-        dpu_machine_id: Some(rpc::MachineId {
-            id: dpu_machine_id.clone(),
-        }),
+        dpu_machine_id: Some(*dpu_machine_id),
     });
 
     let resp = match client.get_managed_host_network_config(request).await {
@@ -224,9 +221,9 @@ pub async fn get_periodic_dpu_config(
 // phone_home returns the timestamp returned from Carbide as a string
 pub async fn phone_home(
     client: &mut ForgeClientT,
-    dpu_machine_id: String,
+    dpu_machine_id: &MachineId,
 ) -> Result<Timestamp, eyre::Error> {
-    let Some(instance) = get_instance(client, dpu_machine_id.clone()).await? else {
+    let Some(instance) = get_instance(client, dpu_machine_id).await? else {
         return Err(eyre::eyre!(
             "No instance found with dpu_machine {}.",
             dpu_machine_id

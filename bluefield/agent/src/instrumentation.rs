@@ -19,6 +19,7 @@ use tonic::service::AxumBody;
 
 pub mod config;
 pub use config::{get_dpu_agent_meter, get_prometheus_registry};
+use rpc::uuid::machine::MachineId;
 
 pub struct AgentMetricsState {
     meter: Meter,
@@ -83,10 +84,10 @@ pub struct NetworkMonitorMetricsState {
     network_reachable_map: NetworkReachableMap,
 }
 
-type NetworkReachableMap = Arc<Mutex<Option<HashMap<String, bool>>>>;
+type NetworkReachableMap = Arc<Mutex<Option<HashMap<MachineId, bool>>>>;
 
 impl NetworkMonitorMetricsState {
-    pub fn initialize(meter: Meter, machine_id: String) -> Arc<Self> {
+    pub fn initialize(meter: Meter, machine_id: MachineId) -> Arc<Self> {
         let network_reachable_map = NetworkReachableMap::default();
 
         {
@@ -105,8 +106,8 @@ impl NetworkMonitorMetricsState {
                             observer.observe(
                                 reachability,
                                 &[
-                                    KeyValue::new("source_dpu_id", machine_id.clone()),
-                                    KeyValue::new("dest_dpu_id", dpu_id.clone()),
+                                    KeyValue::new("source_dpu_id", machine_id.to_string()),
+                                    KeyValue::new("dest_dpu_id", dpu_id.to_string()),
                                 ],
                             );
                         }
@@ -150,12 +151,12 @@ impl NetworkMonitorMetricsState {
     pub fn record_network_latency(
         &self,
         latency: Duration,
-        source_dpu_id: String,
-        dest_dpu_id: String,
+        source_dpu_id: MachineId,
+        dest_dpu_id: MachineId,
     ) {
         let attributes = [
-            KeyValue::new("source_dpu_id", source_dpu_id),
-            KeyValue::new("dest_dpu_id", dest_dpu_id),
+            KeyValue::new("source_dpu_id", source_dpu_id.to_string()),
+            KeyValue::new("dest_dpu_id", dest_dpu_id.to_string()),
         ];
         self.network_latency
             .record(latency.as_secs_f64() * 1000.0, &attributes);
@@ -170,12 +171,12 @@ impl NetworkMonitorMetricsState {
     pub fn record_network_loss_percent(
         &self,
         loss_percent: f64,
-        source_dpu_id: String,
-        dest_dpu_id: String,
+        source_dpu_id: MachineId,
+        dest_dpu_id: MachineId,
     ) {
         let attributes = [
-            KeyValue::new("source_dpu_id", source_dpu_id),
-            KeyValue::new("dest_dpu_id", dest_dpu_id),
+            KeyValue::new("source_dpu_id", source_dpu_id.to_string()),
+            KeyValue::new("dest_dpu_id", dest_dpu_id.to_string()),
         ];
         self.network_loss_percent.record(loss_percent, &attributes);
     }
@@ -185,7 +186,7 @@ impl NetworkMonitorMetricsState {
     /// # Parameters
     /// - `new_reachable_map`: Records reachability between DPUs where the key is ID of destination DPU
     ///   and value is reachability as bool
-    pub fn update_network_reachable_map(&self, new_reachable_map: HashMap<String, bool>) {
+    pub fn update_network_reachable_map(&self, new_reachable_map: HashMap<MachineId, bool>) {
         *self.network_reachable_map.lock().unwrap() = Some(new_reachable_map);
     }
 
@@ -197,13 +198,13 @@ impl NetworkMonitorMetricsState {
     /// - `error_type`: A string describing the type of communication error.
     pub fn record_communication_error(
         &self,
-        source_dpu_id: String,
-        dest_dpu_id: String,
+        source_dpu_id: MachineId,
+        dest_dpu_id: MachineId,
         error_type: String,
     ) {
         let attributes = [
-            KeyValue::new("source_dpu_id", source_dpu_id),
-            KeyValue::new("dest_dpu_id", dest_dpu_id),
+            KeyValue::new("source_dpu_id", source_dpu_id.to_string()),
+            KeyValue::new("dest_dpu_id", dest_dpu_id.to_string()),
             KeyValue::new("error_type", error_type),
         ];
         self.network_communication_error.add(1, &attributes);
@@ -214,9 +215,9 @@ impl NetworkMonitorMetricsState {
     /// # Parameters
     /// - `machine_id`: The ID of this machine
     /// - `error_type`: A string describing the type of network monitor error.
-    pub fn record_monitor_error(&self, machine_id: String, error_type: String) {
+    pub fn record_monitor_error(&self, machine_id: MachineId, error_type: String) {
         let attributes = [
-            KeyValue::new("dpu_id", machine_id),
+            KeyValue::new("dpu_id", machine_id.to_string()),
             KeyValue::new("error_type", error_type),
         ];
         self.network_monitor_error.add(1, &attributes);

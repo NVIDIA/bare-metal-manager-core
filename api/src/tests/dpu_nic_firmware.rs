@@ -7,7 +7,6 @@ use crate::tests::common::api_fixtures::test_managed_host::TestManagedHostSnapsh
 use crate::tests::dpu_machine_update::{get_all_snapshots, update_nic_firmware_version};
 
 use std::collections::HashSet;
-use std::str::FromStr;
 use std::string::ToString;
 
 use crate::machine_update_manager::{
@@ -15,7 +14,6 @@ use crate::machine_update_manager::{
     machine_update_module::{AutomaticFirmwareUpdateReference, MachineUpdateModule},
 };
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
-use forge_uuid::machine::MachineId;
 
 #[crate::sqlx_test]
 async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
@@ -42,7 +40,7 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         .await?;
 
     assert_eq!(started_count.len(), 1);
-    assert!(!started_count.contains(managed_host.dpu().machine_id()));
+    assert!(!started_count.contains(&managed_host.dpu().id));
     assert!(started_count.contains(&managed_host.id));
 
     // Check if health override is placed
@@ -64,9 +62,9 @@ async fn test_start_updates_with_multidpu(
 
     let mh = create_managed_host_multi_dpu(&env, 2).await;
     let host = mh.host().rpc_machine().await;
-    let rpc_dpu_ids = host.associated_dpu_machine_ids;
-    let dpu_machine_id = MachineId::from_str(&rpc_dpu_ids[0].id).unwrap();
-    let dpu_machine_id2 = MachineId::from_str(&rpc_dpu_ids[1].id).unwrap();
+    let dpu_ids = host.associated_dpu_machine_ids;
+    let dpu_machine_id = dpu_ids[0];
+    let dpu_machine_id2 = dpu_ids[1];
     let mut txn = env.pool.begin().await?;
     update_nic_firmware_version(&mut txn, &dpu_machine_id, "11.10.1000").await?;
     update_nic_firmware_version(&mut txn, &dpu_machine_id2, "11.10.1000").await?;
@@ -92,7 +90,7 @@ async fn test_start_updates_with_multidpu(
     assert_eq!(dpus_started.len(), 1);
     assert!(!dpus_started.contains(&dpu_machine_id));
     assert!(!dpus_started.contains(&dpu_machine_id2));
-    assert!(dpus_started.contains(mh.host().machine_id()));
+    assert!(dpus_started.contains(&mh.host().id));
 
     // Check if health override is placed
     let managed_host = mh.snapshot(&mut txn).await;
@@ -213,7 +211,7 @@ async fn test_clear_completed_updates(
         .start_updates(&mut txn, 10, &HashSet::default(), &snapshots)
         .await?;
 
-    assert!(!started_count.contains(mh.dpu().machine_id()));
+    assert!(!started_count.contains(&mh.dpu().id));
     assert!(started_count.contains(&mh.id));
 
     // Check if health override is placed
@@ -257,13 +255,13 @@ async fn test_clear_completed_updates(
      WHERE machine_id=$2"#;
     sqlx::query::<_>(query)
         .bind(sqlx::types::Json("24.42.1000"))
-        .bind(mh.dpu().machine_id().to_string())
+        .bind(mh.dpu().id.to_string())
         .execute(&mut *txn)
         .await
         .unwrap();
     let query = r#"UPDATE machines set reprovisioning_requested = NULL where id = $1"#;
     sqlx::query(query)
-        .bind(mh.dpu().machine_id().to_string())
+        .bind(mh.dpu().id.to_string())
         .execute(&mut *txn)
         .await
         .unwrap();
@@ -311,6 +309,6 @@ impl TestManagedHost {
         &self,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> CarbideResult<()> {
-        update_nic_firmware_version(txn, self.dpu().machine_id(), "11.10.1000").await
+        update_nic_firmware_version(txn, &self.dpu().id, "11.10.1000").await
     }
 }

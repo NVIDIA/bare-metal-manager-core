@@ -22,7 +22,7 @@ mod vendor_class;
 use std::{error::Error, net::SocketAddr, sync::Arc};
 
 use ::rpc::{
-    MachineId, Uuid,
+    Uuid,
     forge::{DhcpDiscovery, DhcpRecord},
 };
 use cache::CacheEntry;
@@ -245,9 +245,11 @@ pub struct Test {}
 impl Test {
     pub fn dhcp_record() -> Result<DhcpRecord, DhcpError> {
         Ok(DhcpRecord {
-            machine_id: Some(MachineId {
-                id: "fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0".to_string(),
-            }),
+            machine_id: Some(
+                "fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0"
+                    .parse()
+                    .unwrap(),
+            ),
             machine_interface_id: Some(Uuid {
                 value: "0fd6e9a3-06fc-4a22-ad29-aca299677b00".to_string(),
             }),

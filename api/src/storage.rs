@@ -28,7 +28,7 @@ use crate::model::storage::{
     StorageVolumeFilter,
 };
 use crate::model::tenant::TenantOrganizationId;
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StorageError {

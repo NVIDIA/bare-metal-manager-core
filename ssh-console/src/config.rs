@@ -11,9 +11,9 @@
  */
 
 use crate::bmc::vendor::{BmcVendor, SshBmcVendor};
+use ::rpc::uuid::machine::MachineIdParseError;
 use duration_str::deserialize_duration;
 use forge_tls::client_config::ClientCert;
-use forge_uuid::machine::MachineIdParseError;
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use russh::keys::ssh_key::Fingerprint;

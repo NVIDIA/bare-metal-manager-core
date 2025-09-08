@@ -29,7 +29,7 @@ use crate::{
         io::StateControllerIO,
     },
 };
-use forge_uuid::dpa_interface::DpaInterfaceId;
+use ::rpc::uuid::dpa_interface::DpaInterfaceId;
 
 /// State Controller IO implementation for dpa interfaces
 #[derive(Default, Debug)]

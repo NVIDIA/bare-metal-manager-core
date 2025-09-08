@@ -19,23 +19,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use ::rpc::Uuid;
-use ::rpc::forge::ManagedHostNetworkConfigResponse;
-use ::rpc::{forge as rpc, forge_tls_client};
-use eyre::WrapErr;
-use forge_certs::cert_renewal::ClientCertRenewer;
-use forge_host_support::agent_config::AgentConfig;
-use forge_network::virtualization::{DEFAULT_NETWORK_VIRTUALIZATION_TYPE, VpcVirtualizationType};
-use forge_systemd::systemd;
-use ipnetwork::IpNetwork;
-use mac_address::MacAddress;
-use tokio::signal::unix::{SignalKind, signal};
-use tokio::sync::watch;
-use tokio::task::JoinHandle;
-use tracing::log::error;
-use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
-use version_compare::Version;
-
 use crate::dpu::DpuNetworkInterfaces;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
@@ -52,6 +35,23 @@ use crate::{
     machine_inventory_updater, managed_files, mtu, netlink, nvue, periodic_config_fetcher,
     pretty_cmd, sysfs, upgrade,
 };
+use ::rpc::common::Uuid;
+use ::rpc::forge::ManagedHostNetworkConfigResponse;
+use ::rpc::uuid::machine::MachineId;
+use ::rpc::{forge as rpc, forge_tls_client};
+use eyre::WrapErr;
+use forge_certs::cert_renewal::ClientCertRenewer;
+use forge_host_support::agent_config::AgentConfig;
+use forge_network::virtualization::{DEFAULT_NETWORK_VIRTUALIZATION_TYPE, VpcVirtualizationType};
+use forge_systemd::systemd;
+use ipnetwork::IpNetwork;
+use mac_address::MacAddress;
+use tokio::signal::unix::{SignalKind, signal};
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
+use tracing::log::error;
+use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
+use version_compare::Version;
 
 // Main loop when running in daemon mode
 // Before going into its main loop functionality, the
@@ -62,7 +62,7 @@ use crate::{
 // metadata service use the information fetched be the periodic fetcher by reading
 // the information stored by the periodic config fetcher.
 pub async fn setup_and_run(
-    machine_id: String,
+    machine_id: MachineId,
     factory_mac_address: MacAddress,
     forge_client_config: forge_tls_client::ForgeClientConfig,
     agent_config: AgentConfig,
@@ -93,7 +93,7 @@ pub async fn setup_and_run(
 
     let instance_metadata_state = Arc::new(
         instance_metadata_endpoint::InstanceMetadataRouterStateImpl::new(
-            machine_id.to_string(),
+            machine_id,
             forge_api_server.clone(),
             forge_client_config.clone(),
         ),
@@ -164,7 +164,7 @@ pub async fn setup_and_run(
             config_fetch_interval: Duration::from_secs(
                 agent_config.period.network_config_fetch_secs,
             ),
-            machine_id: machine_id.to_string(),
+            machine_id,
             forge_api: forge_api_server.clone(),
             forge_client_config: forge_client_config.clone(),
         },
@@ -180,7 +180,7 @@ pub async fn setup_and_run(
 
     managed_files::main_sync(duppet_options, &machine_id, &periodic_config_fetcher);
 
-    if let Err(e) = lldp::set_lldp_system_description(machine_id.as_str()) {
+    if let Err(e) = lldp::set_lldp_system_description(&machine_id) {
         tracing::warn!("Couldn't update LLDP system description: {e}")
     }
 
@@ -228,7 +228,7 @@ pub async fn setup_and_run(
     let inventory_updater_config = MachineInventoryUpdaterConfig {
         dpu_agent_version: build_version.clone(),
         update_inventory_interval: Duration::from_secs(agent_config.period.inventory_update_secs),
-        machine_id: machine_id.to_string(),
+        machine_id,
         forge_api: forge_api_server.clone(),
         forge_client_config: forge_client_config.clone(),
     };
@@ -246,16 +246,13 @@ pub async fn setup_and_run(
 
     let agent_meter = get_dpu_agent_meter();
     let network_monitor_metrics_state =
-        crate::instrumentation::NetworkMonitorMetricsState::initialize(
-            agent_meter,
-            machine_id.clone(),
-        );
+        crate::instrumentation::NetworkMonitorMetricsState::initialize(agent_meter, machine_id);
 
     let network_monitor_handle: Option<JoinHandle<()>> = match network_pinger_type {
         Some(pinger_type) => {
             tracing::debug!("Starting network monitor with {} pinger", pinger_type);
             let mut network_monitor = network_monitor::NetworkMonitor::new(
-                machine_id.clone(),
+                machine_id,
                 Some(network_monitor_metrics_state),
                 Arc::from(pinger_type),
             );
@@ -284,7 +281,7 @@ pub async fn setup_and_run(
     let mut main_loop = MainLoop {
         forge_client_config,
         build_version,
-        machine_id: machine_id.to_string(),
+        machine_id,
         periodic_config_reader,
         instance_metadata_state,
         client_cert_renewer,
@@ -314,7 +311,7 @@ pub async fn setup_and_run(
 
 struct MainLoop {
     forge_client_config: forge_tls_client::ForgeClientConfig,
-    machine_id: String,
+    machine_id: MachineId,
     factory_mac_address: MacAddress,
     build_version: String,
     periodic_config_reader: Box<periodic_config_fetcher::PeriodicConfigFetcherReader>,
@@ -407,7 +404,7 @@ impl MainLoop {
         });
 
         let mut status_out = rpc::DpuNetworkStatus {
-            dpu_machine_id: Some(self.machine_id.to_string().into()),
+            dpu_machine_id: Some(self.machine_id),
             dpu_health: None,
             dpu_agent_version: Some(self.build_version.clone()),
             observed_at: None, // None makes carbide-api set it on receipt
@@ -1101,13 +1098,13 @@ async fn hack_dpu_os_to_load_atf_uefi_with_specific_versions() -> eyre::Result<(
     // validate the actual strings
     if bfvcheck_output.clone().contains("WARNING: ATF VERSION DOES NOT MATCH RECOMMENDED!") &&
         bfvcheck_output.clone().contains("WARNING: UEFI VERSION DOES NOT MATCH RECOMMENDED!") &&
-        // This is to ensure that the recommended is 4.9.3, meaning its only going to fix this if 
+        // This is to ensure that the recommended is 4.9.3, meaning its only going to fix this if
         // moving to 4.9.3. This is done so that no older DPUs which may be operating under a customer
-        // that have not properly updated but yet somehow became assigned. These DPUS are only in 
-        // this state because they are stuck in reprovisioning as part of the same release with 
+        // that have not properly updated but yet somehow became assigned. These DPUS are only in
+        // this state because they are stuck in reprovisioning as part of the same release with
         // 4.9.3 included. If this check was deployed to production weeks after the update to 4.9.3,
         // there could be a problem with  assigned machines having 2.9.2 recommended but not loaded,
-        // but if both releases drop at the same time, this state will only be seen during 
+        // but if both releases drop at the same time, this state will only be seen during
         // reprovisioning / initial discovery.
         bfvcheck_output.clone().contains(
         "-RECOMMENDED VERSIONS-

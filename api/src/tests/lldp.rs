@@ -1,7 +1,7 @@
 use crate::tests::common;
 use std::collections::HashSet;
 
-use crate::{db, model::machine::machine_id::try_parse_machine_id};
+use crate::db;
 use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
 use itertools::Itertools;
 use rpc::forge::forge_server::Forge;
@@ -110,8 +110,7 @@ async fn test_lldp_topology_force_delete(
 async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let dpu_rpc_machine_id = create_dpu_machine(&env, &host_config).await;
-    let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let topology = env
         .api

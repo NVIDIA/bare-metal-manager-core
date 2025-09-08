@@ -50,7 +50,7 @@ impl From<forgerpc::MachineInterface> for InterfaceRowDisplay {
             machine_id: mi
                 .machine_id
                 .as_ref()
-                .map(::rpc::common::MachineId::to_string)
+                .map(|id| id.to_string())
                 .unwrap_or_default(),
             hostname: mi.hostname,
             vendor: mi.vendor.unwrap_or_default(),
@@ -171,12 +171,12 @@ impl From<forgerpc::MachineInterface> for InterfaceDetail {
             dpu_machine_id: mi
                 .attached_dpu_machine_id
                 .as_ref()
-                .map(::rpc::common::MachineId::to_string)
+                .map(|id| id.to_string())
                 .unwrap_or_default(),
             machine_id: mi
                 .machine_id
                 .as_ref()
-                .map(::rpc::common::MachineId::to_string)
+                .map(|id| id.to_string())
                 .unwrap_or_default(),
             segment_id: mi
                 .segment_id

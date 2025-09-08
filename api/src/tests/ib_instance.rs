@@ -15,13 +15,13 @@ use crate::ib::{DEFAULT_IB_FABRIC_NAME, Filter, IBFabricManager};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::{api::Api, model::machine::ManagedHostState};
+use ::rpc::uuid::infiniband::IBPartitionId;
+use ::rpc::uuid::machine::MachineId;
 use common::api_fixtures::{
     TestEnv, create_managed_host,
     ib_partition::{DEFAULT_TENANT, create_ib_partition},
     instance::{config_for_ib_config, create_instance_with_ib_config},
 };
-use forge_uuid::infiniband::IBPartitionId;
-use forge_uuid::machine::MachineId;
 use rpc::forge::{IbPartitionSearchConfig, IbPartitionStatus, TenantState, forge_server::Forge};
 use tonic::Request;
 
@@ -656,7 +656,7 @@ pub async fn try_allocate_instance(
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: host_machine_id.into(),
+            machine_id: Some(*host_machine_id),
             instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::forge::Metadata {

@@ -19,8 +19,8 @@ use crate::model::ib_partition::PartitionKey;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::tests::common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};
+use ::rpc::uuid::machine::MachineId;
 use common::api_fixtures::create_managed_host;
-use forge_uuid::machine::MachineId;
 
 #[crate::sqlx_test]
 async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPool) {
@@ -50,10 +50,10 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
 
     for host_machine_id in host_machines.iter().copied() {
         println!("Testing host machine {host_machine_id}");
-        let rpc_machine_id: ::rpc::common::MachineId = host_machine_id.into();
+        let rpc_machine_id: MachineId = host_machine_id;
 
         let machine = env
-            .find_machines(Some(rpc_machine_id.clone()), None, false)
+            .find_machines(Some(rpc_machine_id), None, false)
             .await
             .machines
             .remove(0);
@@ -275,10 +275,10 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
     active_lids.clear();
     for host_machine_id in host_machines.iter().copied() {
         println!("Testing host machine {host_machine_id}");
-        let rpc_machine_id: ::rpc::common::MachineId = host_machine_id.into();
+        let rpc_machine_id: MachineId = host_machine_id;
 
         let machine = env
-            .find_machines(Some(rpc_machine_id.clone()), None, false)
+            .find_machines(Some(rpc_machine_id), None, false)
             .await
             .machines
             .remove(0);

@@ -25,8 +25,8 @@ use rpc::forge::forge_server::Forge;
 use uuid::Uuid;
 
 use crate::api::Api;
-use crate::model::machine::machine_id::try_parse_machine_id;
-use forge_uuid::machine::{MachineId, MachineType};
+use ::rpc::uuid::machine::{MachineId, MachineType};
+use rpc::forge::IdentifySerialResponse;
 
 pub async fn find(
     AxumState(state): AxumState<Arc<Api>>,
@@ -174,21 +174,7 @@ async fn find_by_serial(state: Arc<Api>, serial_number: &str) -> Option<MachineI
         .await
         .map(|response| response.into_inner())
     {
-        Ok(resp) if resp.machine_id.is_some() => {
-            match try_parse_machine_id(resp.machine_id.as_ref().unwrap()) {
-                Ok(id) => Some(id),
-                Err(err) => {
-                    tracing::warn!(
-                        invalid_machine_id = ?resp.machine_id,
-                        %err,
-                        "Remote sent invalid machine id"
-                    );
-                    None
-                }
-            }
-        }
-        // resp.machine_id is None
-        Ok(_) => None,
+        Ok(IdentifySerialResponse { machine_id, .. }) => machine_id,
         Err(status) if status.code() == tonic::Code::NotFound => {
             // don't log it
             None

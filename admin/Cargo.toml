@@ -33,13 +33,11 @@ toml = "0.8.8"
 bmc-vendor = { path = "../common/bmc-vendor" }
 forge-network = { path = "../common/network" }
 forge-tls = { path = "../common/tls" }
-forge-uuid = { path = "../common/uuid" }
 forge-version = { path = "../common/version" }
 health-report = { path = "../common/health-report" }
-rpc = { path = "../rpc" }
+rpc = { path = "../rpc", features = ["cli"] }
 utils = { path = "../common/utils" }
 forge_secrets = { path = "../common/secrets" }
-measured-boot = { path = "../common/measured-boot", features = ["cli"] }
 ipnet = "2.10.1"
 forge-ssh = { path = "../common/ssh" }
 

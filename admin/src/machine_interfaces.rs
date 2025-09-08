@@ -19,13 +19,14 @@ use prettytable::Row;
 use tracing::warn;
 
 use super::cfg::cli_options::ShowMachineInterfaces;
-use utils::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 
 use crate::cfg::cli_options::DeleteMachineInterfaces;
 use crate::default_uuid;
 use crate::rpc::ApiClient;
 use ::rpc::forge as forgerpc;
 use prettytable::Table;
+use rpc::uuid::machine::MachineId;
 
 pub async fn handle_show(
     args: ShowMachineInterfaces,
@@ -135,7 +136,7 @@ fn convert_machines_to_nice_table(
             machine_interface
                 .machine_id
                 .as_ref()
-                .map(::rpc::common::MachineId::to_string)
+                .map(MachineId::to_string)
                 .unwrap_or_default(),
             machine_interface.hostname,
             machine_interface.vendor.unwrap_or_default(),
@@ -179,7 +180,7 @@ fn convert_machine_to_nice_format(
             machine_interface
                 .attached_dpu_machine_id
                 .as_ref()
-                .map(::rpc::common::MachineId::to_string)
+                .map(MachineId::to_string)
                 .unwrap_or_default(),
         ),
         (
@@ -187,7 +188,7 @@ fn convert_machine_to_nice_format(
             machine_interface
                 .machine_id
                 .as_ref()
-                .map(::rpc::common::MachineId::to_string)
+                .map(MachineId::to_string)
                 .unwrap_or_default(),
         ),
         (

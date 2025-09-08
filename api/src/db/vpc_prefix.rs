@@ -18,7 +18,7 @@ use sqlx::{FromRow, PgConnection, QueryBuilder, Row};
 use super::{ColumnInfo, DatabaseError, ObjectColumnFilter};
 use crate::db::network_prefix::NetworkPrefix;
 use crate::db::vpc::increment_vpc_version;
-pub use forge_uuid::vpc::{VpcId, VpcPrefixId};
+pub use ::rpc::uuid::vpc::{VpcId, VpcPrefixId};
 
 #[derive(Clone, Debug)]
 pub struct VpcPrefix {

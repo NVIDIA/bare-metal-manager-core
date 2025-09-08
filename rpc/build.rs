@@ -27,6 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .extern_path(".google.protobuf.Duration", "crate::Duration")
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
+        .extern_path(".common.MachineId", "crate::uuid::machine::MachineId")
         .include_file("prost_common.rs")
         .type_attribute(".health", "#[derive(serde::Serialize)]")
         .type_attribute(
@@ -599,6 +600,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         proto_files: vec!["proto/forge.proto".to_string()],
         include_paths: vec!["proto".to_string()],
         generated_types_path_within_crate: "protos".to_string(),
+        extern_paths: vec![(
+            ".common.MachineId".to_string(),
+            "crate::uuid::machine::MachineId".to_string(),
+        )],
     })?;
 
     client_wrapper_generator.write_rpc_client_wrapper("src/protos/forge_api_client.rs")?;

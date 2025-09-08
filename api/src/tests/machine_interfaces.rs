@@ -21,10 +21,7 @@ use crate::{
         domain::{self, Domain},
         network_segment::NetworkSegment,
     },
-    model::machine::{
-        MachineInterfaceSnapshot,
-        machine_id::{from_hardware_info, try_parse_machine_id},
-    },
+    model::machine::{MachineInterfaceSnapshot, machine_id::from_hardware_info},
 };
 
 use itertools::Itertools;
@@ -478,8 +475,7 @@ async fn test_delete_interface_with_machine(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
     let host_config = env.managed_host_config();
-    let rpc_machine_id = create_dpu_machine(&env, &host_config).await;
-    let dpu_machine_id = try_parse_machine_id(&rpc_machine_id).unwrap();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let mut txn = pool.begin().await?;
     let interface = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])

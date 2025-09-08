@@ -12,13 +12,14 @@ use crate::{
     },
 };
 use ::rpc::errors::RpcDataConversionError;
+use ::rpc::uuid::machine::MachineId;
 use health_report::HealthReport;
 
 /// The network status that was last reported by the networking subsystem
 /// Stored in a Postgres JSON field so new fields have to be Option until fully deployed
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MachineNetworkStatusObservation {
-    pub machine_id: String,
+    pub machine_id: MachineId,
     pub agent_version: Option<String>,
     pub observed_at: DateTime<Utc>,
     pub network_config_version: Option<ConfigVersion>,
@@ -36,7 +37,7 @@ impl MachineNetworkStatusObservation {
         let Some(agent_version) = self.agent_version.as_ref() else {
             return Ok(Some(health_report::HealthReport::stale_agent_version(
                 "forge-dpu-agent".to_string(),
-                self.machine_id.clone(),
+                self.machine_id.to_string(),
                 "Agent version is not known".to_string(),
                 prevent_allocations,
             )));
@@ -53,7 +54,7 @@ impl MachineNetworkStatusObservation {
                 if staleness > staleness_threshold {
                     Ok(Some(health_report::HealthReport::stale_agent_version(
                         "forge-dpu-agent".to_string(),
-                        self.machine_id.clone(),
+                        self.machine_id.to_string(),
                         format!(
                             "Agent version is {}, which is out of date for {}",
                             agent_version,
@@ -130,8 +131,7 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
             observed_at,
             machine_id: obs
                 .dpu_machine_id
-                .ok_or(Self::Error::MissingArgument("dpu_machine_id"))?
-                .id,
+                .ok_or(Self::Error::MissingArgument("dpu_machine_id"))?,
             agent_version: obs.dpu_agent_version.clone(),
             network_config_version: obs.network_config_version.and_then(|n| n.parse().ok()),
             client_certificate_expiry: obs.client_certificate_expiry_unix_epoch_secs,
@@ -149,7 +149,7 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
 impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
     fn from(m: MachineNetworkStatusObservation) -> rpc::DpuNetworkStatus {
         rpc::DpuNetworkStatus {
-            dpu_machine_id: Some(m.machine_id.clone().into()),
+            dpu_machine_id: Some(m.machine_id),
             dpu_agent_version: m.agent_version.clone(),
             observed_at: Some(m.observed_at.into()),
             network_config_version: m.network_config_version.map(|v| v.version_string()),

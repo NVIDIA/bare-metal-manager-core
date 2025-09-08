@@ -12,7 +12,8 @@
 
 use crate::cfg::cli_options::MachineQuery;
 use crate::rpc::ApiClient;
-use utils::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::CarbideCliResult;
+use rpc::uuid::machine::MachineId;
 
 pub async fn set_host_uefi_password(
     query: MachineQuery,
@@ -20,7 +21,7 @@ pub async fn set_host_uefi_password(
 ) -> CarbideCliResult<()> {
     let response = api_client
         .0
-        .set_host_uefi_password(query.clone().query)
+        .set_host_uefi_password(query.query.parse::<MachineId>()?)
         .await?;
     println!(
         "successfully set UEFI password for host {query:#?} (jid: {:#?})",
@@ -35,7 +36,7 @@ pub async fn clear_host_uefi_password(
 ) -> CarbideCliResult<()> {
     let response = api_client
         .0
-        .clear_host_uefi_password(query.clone().query)
+        .clear_host_uefi_password(query.query.parse::<MachineId>()?)
         .await?;
     println!(
         "successfully cleared UEFI password for host {query:#?}; (jid: {:#?})",

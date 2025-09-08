@@ -22,10 +22,10 @@ use tracing::{error, trace, warn};
 use config_version::ConfigVersion;
 
 use ::rpc::Instance;
-use ::rpc::MachineId;
 use ::rpc::Uuid as uuid;
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::ForgeClientConfig;
+use ::rpc::uuid::machine::MachineId;
 
 use crate::util::{create_forge_client, get_periodic_dpu_config, get_sitename};
 
@@ -147,21 +147,20 @@ impl PeriodicConfigFetcher {
         })
     }
 
-    pub fn get_host_machine_id(&self) -> Option<String> {
+    pub fn get_host_machine_id(&self) -> Option<MachineId> {
         self.state
             .netconf
             .load()
             .as_ref()
             .and_then(|netconf| netconf.instance.as_ref())
-            .and_then(|instance| instance.machine_id.as_ref())
-            .map(|m| m.id.to_string())
+            .and_then(|instance| instance.machine_id)
     }
 }
 
 pub struct PeriodicConfigFetcherConfig {
     /// The interval in which the config is fetched
     pub config_fetch_interval: Duration,
-    pub machine_id: String,
+    pub machine_id: MachineId,
     pub forge_api: String,
     pub forge_client_config: ForgeClientConfig,
 }
@@ -196,7 +195,7 @@ async fn single_fetch(
     );
 
     match fetch(
-        state.config.machine_id.clone(),
+        &state.config.machine_id,
         &state.config.forge_api,
         forge_client_config,
     )
@@ -240,7 +239,7 @@ async fn single_fetch(
 
 /// Make the network request to get network config
 pub async fn fetch(
-    dpu_machine_id: String,
+    dpu_machine_id: &MachineId,
     forge_api: &str,
     client_config: &ForgeClientConfig,
 ) -> Result<rpc::ManagedHostNetworkConfigResponse, eyre::Report> {
@@ -263,7 +262,7 @@ pub async fn instance_metadata_from_instance(
         None => return Err(eyre::eyre!("host name is not present in tenant config")),
     };
 
-    let machine_id = instance.machine_id.clone();
+    let machine_id = instance.machine_id;
 
     let instance_id = instance.id.clone();
 

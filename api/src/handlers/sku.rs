@@ -14,6 +14,7 @@ use crate::{
 
 use chrono::Utc;
 use rpc::forge::SkuIdList;
+use rpc::uuid::machine::MachineId;
 use tonic::{Request, Response};
 
 pub(crate) async fn create(
@@ -91,7 +92,7 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> CarbideRes
 
 pub(crate) async fn generate_from_machine(
     api: &Api,
-    request: Request<::rpc::common::MachineId>,
+    request: Request<MachineId>,
 ) -> CarbideResult<Response<::rpc::forge::Sku>> {
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
@@ -186,7 +187,7 @@ pub(crate) async fn assign_to_machine(
 
 pub(crate) async fn verify_for_machine(
     api: &Api,
-    request: Request<::rpc::common::MachineId>,
+    request: Request<MachineId>,
 ) -> CarbideResult<Response<()>> {
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
@@ -235,7 +236,7 @@ pub(crate) async fn verify_for_machine(
 
 pub(crate) async fn remove_sku_association(
     api: &Api,
-    request: Request<::rpc::common::MachineId>,
+    request: Request<MachineId>,
 ) -> CarbideResult<Response<()>> {
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
@@ -333,7 +334,6 @@ pub(crate) async fn find_skus_by_ids(
         rpc_sku.associated_machine_ids = find_machine_ids_by_sku_id(&mut txn, &rpc_sku.id)
             .await?
             .into_iter()
-            .map(std::convert::Into::into)
             .collect();
     }
 

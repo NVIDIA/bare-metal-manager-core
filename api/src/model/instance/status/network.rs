@@ -14,9 +14,9 @@ use std::convert::Into;
 use std::{collections::HashMap, net::IpAddr};
 
 use ::rpc::errors::RpcDataConversionError;
+use ::rpc::uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use forge_uuid::machine::MachineId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -613,7 +613,7 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
 mod tests {
     use std::{collections::HashMap, fmt::Write, str::FromStr};
 
-    use forge_uuid::network::NetworkSegmentId;
+    use ::rpc::uuid::network::NetworkSegmentId;
 
     use super::*;
     use crate::{

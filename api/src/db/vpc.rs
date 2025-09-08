@@ -14,10 +14,10 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use ::rpc::uuid::network_security_group::NetworkSecurityGroupIdParseError;
+use ::rpc::uuid::{machine::MachineId, network_security_group::NetworkSecurityGroupId};
 use chrono::prelude::*;
 use config_version::ConfigVersion;
-use forge_uuid::network_security_group::NetworkSecurityGroupIdParseError;
-use forge_uuid::{machine::MachineId, network_security_group::NetworkSecurityGroupId};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
@@ -28,8 +28,8 @@ use super::{
 use crate::api::Api;
 use crate::model::metadata::Metadata;
 use crate::{CarbideError, CarbideResult, db};
+use ::rpc::uuid::{network::NetworkSegmentId, vpc::VpcId};
 use forge_network::virtualization::{DEFAULT_NETWORK_VIRTUALIZATION_TYPE, VpcVirtualizationType};
-use forge_uuid::{network::NetworkSegmentId, vpc::VpcId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vpc {

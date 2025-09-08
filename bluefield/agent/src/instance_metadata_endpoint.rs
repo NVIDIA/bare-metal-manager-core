@@ -29,6 +29,7 @@ use crate::periodic_config_fetcher::InstanceMetadata;
 use crate::util::{create_forge_client, phone_home};
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use rpc::forge::ManagedHostNetworkConfigResponse;
+use rpc::uuid::machine::MachineId;
 
 const PUBLIC_IPV4_CATEGORY: &str = "public-ipv4";
 const HOSTNAME_CATEGORY: &str = "hostname";
@@ -61,7 +62,7 @@ pub trait InstanceMetadataRouterState: Sync + Send {
 pub struct InstanceMetadataRouterStateImpl {
     latest_instance_data: ArcSwapOption<InstanceMetadata>,
     latest_network_config: ArcSwapOption<ManagedHostNetworkConfigResponse>,
-    machine_id: String,
+    machine_id: MachineId,
     forge_api: String,
     forge_client_config: ForgeClientConfig,
     outbound_governor:
@@ -93,10 +94,7 @@ impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
 
         let mut client = create_forge_client(&self.forge_api, &self.forge_client_config).await?;
 
-        let timestamp = phone_home(&mut client, self.machine_id.clone())
-            .await?
-            .to_string()
-            + "\n";
+        let timestamp = phone_home(&mut client, &self.machine_id).await?.to_string() + "\n";
 
         tracing::info!(
             "Successfully phoned home for Machine {} at {}",
@@ -110,7 +108,7 @@ impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
 
 impl InstanceMetadataRouterStateImpl {
     pub fn new(
-        machine_id: String,
+        machine_id: MachineId,
         forge_api: String,
         forge_client_config: ForgeClientConfig,
     ) -> Self {
@@ -468,7 +466,6 @@ mod tests {
     use uuid::uuid;
 
     use ::rpc::Uuid;
-    use rpc::MachineId;
 
     use crate::periodic_config_fetcher::{IBDeviceConfig, IBInstanceConfig, InstanceMetadata};
 
@@ -534,9 +531,11 @@ mod tests {
     async fn test_get_metadata_parameter_public_ipv4_category() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
-            machine_id: Some(MachineId {
-                id: "machine_id".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -565,9 +564,11 @@ mod tests {
     async fn test_get_metadata_parameter_hostname_category() {
         let metadata = InstanceMetadata {
             instance_id: None,
-            machine_id: Some(MachineId {
-                id: "machine_id".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -596,9 +597,11 @@ mod tests {
     async fn test_get_metadata_listing() {
         let metadata = InstanceMetadata {
             instance_id: None,
-            machine_id: Some(MachineId {
-                id: "machine_id".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -639,9 +642,11 @@ mod tests {
     async fn test_get_metadata_parameter_user_data_category() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
-            machine_id: Some(MachineId {
-                id: "machine_id".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -683,9 +688,11 @@ mod tests {
     async fn test_get_ib_devices() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
-            machine_id: Some(MachineId {
-                id: "machine_id".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -731,9 +738,11 @@ mod tests {
     async fn test_get_incorrect_ib_device() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
-            machine_id: Some(MachineId {
-                id: "machine_id".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -769,9 +778,11 @@ mod tests {
     async fn test_get_ib_instances() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
-            machine_id: Some(MachineId {
-                id: "machine_id".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -814,9 +825,11 @@ mod tests {
     async fn test_get_ib_instance() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
-            machine_id: Some(MachineId {
-                id: "machine_id".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -854,9 +867,11 @@ mod tests {
     async fn test_get_ib_instance_not_all_attributes() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
-            machine_id: Some(MachineId {
-                id: "machine_id".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -892,9 +907,11 @@ mod tests {
     async fn test_get_incorrect_ib_instance() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
-            machine_id: Some(MachineId {
-                id: "machine_id".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -930,9 +947,11 @@ mod tests {
     async fn test_get_ib_instance_attribute() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
-            machine_id: Some(MachineId {
-                id: "machine_id".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -968,9 +987,11 @@ mod tests {
     async fn test_get_ib_instance_nonexistent_attribute() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
-            machine_id: Some(MachineId {
-                id: "machine_id".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -1006,9 +1027,11 @@ mod tests {
     async fn test_get_instance_id() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
-            machine_id: Some(MachineId {
-                id: "machine_id".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -1037,9 +1060,11 @@ mod tests {
     async fn test_get_machine_id() {
         let metadata = InstanceMetadata {
             instance_id: None,
-            machine_id: Some(MachineId {
-                id: "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -1068,9 +1093,11 @@ mod tests {
     async fn test_get_asn() {
         let metadata = InstanceMetadata {
             instance_id: None,
-            machine_id: Some(MachineId {
-                id: "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -1095,9 +1122,11 @@ mod tests {
     async fn test_get_sitename() {
         let metadata = InstanceMetadata {
             instance_id: None,
-            machine_id: Some(MachineId {
-                id: "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg".to_string(),
-            }),
+            machine_id: Some(
+                "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
+                    .parse()
+                    .unwrap(),
+            ),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),

@@ -37,11 +37,11 @@ use crate::{
     },
     preingestion_manager::PreingestionManager,
 };
+use ::rpc::uuid::machine::MachineId;
 use common::api_fixtures::{
     self, TestEnv, TestManagedHost, create_test_env_with_overrides, get_config,
     instance::TestInstance,
 };
-use forge_uuid::machine::MachineId;
 use regex::Regex;
 use rpc::forge::DhcpDiscovery;
 use rpc::forge::forge_server::Forge;
@@ -707,7 +707,7 @@ async fn test_host_fw_upgrade_enabledisable_global_enabled(
     pool: sqlx::PgPool,
 ) -> CarbideResult<()> {
     let (env, mh) = test_host_fw_upgrade_enabledisable_generic(pool, true).await?;
-    let host_machine_id = *mh.host().machine_id();
+    let host_machine_id = mh.host().id;
 
     // Check that if it's globally enabled but specifically disabled, we don't request updates.
     let mut txn = env.pool.begin().await.unwrap();
@@ -741,7 +741,7 @@ async fn test_host_fw_upgrade_enabledisable_global_disabled(
     pool: sqlx::PgPool,
 ) -> CarbideResult<()> {
     let (env, mh) = test_host_fw_upgrade_enabledisable_generic(pool, false).await?;
-    let host_machine_id = *mh.host().machine_id();
+    let host_machine_id = mh.host().id;
     // Create and start an update manager
     let update_manager =
         MachineUpdateManager::new(env.pool.clone(), env.config.clone(), env.test_meter.meter());
@@ -1259,7 +1259,7 @@ async fn test_instance_upgrading_actual_part_2(
     );
     txn.commit().await.unwrap();
 
-    let request = Request::new(mh.id.into());
+    let request = Request::new(mh.id);
     env.api.reset_host_reprovisioning(request).await?;
 
     // Next one should start a UEFI upgrade

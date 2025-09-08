@@ -12,7 +12,7 @@
 use crate::db::ObjectColumnFilter;
 use crate::db::domain::{self, Domain, NewDomain, Soa};
 use crate::{CarbideError, CarbideResult};
-use forge_uuid::domain::DomainId;
+use ::rpc::uuid::domain::DomainId;
 
 #[crate::sqlx_test]
 async fn create_delete_valid_domain(pool: sqlx::PgPool) {

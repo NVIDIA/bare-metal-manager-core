@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::uuid::machine::MachineId;
 use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use forge_uuid::machine::MachineId;
 use hyper::http::StatusCode;
 use std::{str::FromStr, sync::Arc};
 
@@ -60,7 +60,7 @@ pub async fn show_state_history(
         .collect();
 
     let display = MachineStateHistory {
-        id: machine_id.id,
+        id: machine_id.to_string(),
         history: MachineStateHistoryTable { records },
     };
 
@@ -82,21 +82,15 @@ pub async fn show_state_history_json(
 pub async fn fetch_state_history_records(
     api: &Api,
     machine_id: &str,
-) -> Result<(::rpc::common::MachineId, Vec<::rpc::forge::MachineEvent>), (http::StatusCode, String)>
-{
-    let Ok(parsed_machine_id) = MachineId::from_str(machine_id) else {
+) -> Result<(MachineId, Vec<::rpc::forge::MachineEvent>), (http::StatusCode, String)> {
+    let Ok(machine_id) = MachineId::from_str(machine_id) else {
         return Err((StatusCode::BAD_REQUEST, "invalid machine id".to_string()));
-    };
-    let machine_id = parsed_machine_id.to_string();
-
-    let rpc_machine_id = ::rpc::common::MachineId {
-        id: machine_id.clone(),
     };
 
     let mut histories = match api
         .find_machine_state_histories(tonic::Request::new(
             ::rpc::forge::MachineStateHistoriesRequest {
-                machine_ids: vec![rpc_machine_id.clone()],
+                machine_ids: vec![machine_id],
             },
         ))
         .await
@@ -111,9 +105,12 @@ pub async fn fetch_state_history_records(
         }
     };
 
-    let mut records = histories.remove(&machine_id).unwrap_or_default().records;
+    let mut records = histories
+        .remove(&machine_id.to_string())
+        .unwrap_or_default()
+        .records;
     // History is delivered with the oldest Entry First. Reverse for better display ordering
     records.reverse();
 
-    Ok((rpc_machine_id, records))
+    Ok((machine_id, records))
 }

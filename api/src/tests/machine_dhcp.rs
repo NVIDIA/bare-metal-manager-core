@@ -14,7 +14,7 @@ use std::str::FromStr;
 
 use crate::CarbideError;
 use crate::db::{self, ObjectColumnFilter, dhcp_entry, dhcp_entry::DhcpEntry};
-use forge_uuid::machine::MachineInterfaceId;
+use ::rpc::uuid::machine::MachineInterfaceId;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use rpc::forge::ManagedHostNetworkConfigRequest;
@@ -232,7 +232,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: mh.dpu().machine_id().into(),
+            dpu_machine_id: Some(mh.dpu().id),
         }))
         .await
         .unwrap()

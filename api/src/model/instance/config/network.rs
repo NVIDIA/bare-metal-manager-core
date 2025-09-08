@@ -23,10 +23,10 @@ use crate::errors::CarbideResult;
 use crate::model::machine::Machine;
 use crate::{db::network_prefix::NetworkPrefixId, model::ConfigValidationError};
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::instance::InstanceId;
+use ::rpc::uuid::instance::InstanceId;
 #[cfg(test)]
-use forge_uuid::machine::MachineId;
-use forge_uuid::network::NetworkSegmentId;
+use ::rpc::uuid::machine::MachineId;
+use ::rpc::uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -377,7 +377,7 @@ impl InstanceNetworkConfig {
     pub async fn with_inband_interfaces_from_machine(
         mut self,
         txn: &mut PgConnection,
-        machine_id: &forge_uuid::machine::MachineId,
+        machine_id: &::rpc::uuid::machine::MachineId,
     ) -> CarbideResult<InstanceNetworkConfig> {
         let host_inband_segment_ids = NetworkSegment::find_ids_by_machine_id(
             txn,

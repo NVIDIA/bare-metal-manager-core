@@ -19,8 +19,8 @@ use crate::measured_boot::db;
 use crate::measured_boot::interface::machine::get_candidate_machine_records;
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::machine::MachineId;
-use measured_boot::pcr::PcrRegisterValue;
+use ::rpc::measured_boot::pcr::PcrRegisterValue;
+use ::rpc::uuid::machine::MachineId;
 use rpc::protos::measured_boot::show_candidate_machine_request;
 use rpc::protos::measured_boot::{
     AttestCandidateMachineRequest, AttestCandidateMachineResponse, ListCandidateMachinesRequest,

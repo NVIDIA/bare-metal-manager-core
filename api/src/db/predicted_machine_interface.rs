@@ -1,6 +1,6 @@
 use crate::db::network_segment::NetworkSegmentType;
 use crate::db::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 use mac_address::MacAddress;
 use sqlx::{FromRow, PgConnection};
 use uuid::Uuid;

@@ -6,7 +6,7 @@ use crate::generated::forge::{
 };
 use crate::generated::{common, forge};
 use forge_version::v;
-use std::str::FromStr;
+use rpc::uuid::machine::MachineId;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -85,9 +85,7 @@ impl Forge for MockApiServer {
             .into_iter()
             .map(|(instance_id, mock_host)| forge::Instance {
                 id: Some(instance_id.clone()),
-                machine_id: Some(common::MachineId {
-                    id: mock_host.machine_id.to_string(),
-                }),
+                machine_id: Some(mock_host.machine_id),
                 ..Default::default()
             })
             .collect::<Vec<_>>();
@@ -95,14 +93,8 @@ impl Forge for MockApiServer {
         Ok(Response::new(forge::InstanceList { instances }))
     }
 
-    async fn get_machine(
-        &self,
-        request: Request<common::MachineId>,
-    ) -> Result<Response<Machine>, Status> {
-        let request = request.into_inner();
-        let Ok(machine_id) = forge_uuid::machine::MachineId::from_str(request.id.as_str()) else {
-            return Err(Status::invalid_argument("Invalid machine ID"));
-        };
+    async fn get_machine(&self, request: Request<MachineId>) -> Result<Response<Machine>, Status> {
+        let machine_id = request.into_inner();
         let Some(mock_host) = self
             .mock_hosts
             .iter()
@@ -123,11 +115,6 @@ impl Forge for MockApiServer {
         let request = request.into_inner();
         let Some(machine_id) = request.machine_id else {
             return Err(Status::invalid_argument("Missing machine ID"));
-        };
-
-        let Ok(machine_id) = forge_uuid::machine::MachineId::from_str(machine_id.id.as_str())
-        else {
-            return Err(Status::invalid_argument("Invalid machine ID"));
         };
 
         let Some(mock_host) = self
@@ -156,9 +143,7 @@ impl Forge for MockApiServer {
             machine_ids: self
                 .mock_hosts
                 .iter()
-                .map(|mock_host| common::MachineId {
-                    id: mock_host.machine_id.to_string(),
-                })
+                .map(|mock_host| mock_host.machine_id)
                 .collect(),
         }))
     }
@@ -171,11 +156,11 @@ impl Forge for MockApiServer {
             machines: request
                 .into_inner()
                 .machine_ids
-                .iter()
+                .into_iter()
                 .filter_map(|machine_id| {
                     self.mock_hosts
                         .iter()
-                        .find(|mock_host| mock_host.machine_id.to_string() == machine_id.id)
+                        .find(|mock_host| mock_host.machine_id == machine_id)
                         .cloned()
                 })
                 .map(Into::into)

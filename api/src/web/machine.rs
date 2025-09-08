@@ -13,14 +13,15 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use ::rpc::uuid::machine::MachineType;
 use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
-use forge_uuid::machine::MachineType;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent, OverrideMode};
+use rpc::uuid::machine::MachineId;
 use serde::Deserialize;
 use utils::managed_host_display::to_time;
 
@@ -120,7 +121,7 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
 
         MachineRowDisplay {
             hostname,
-            id: m.id.unwrap_or_default().id,
+            id: m.id.map(|id| id.to_string()).unwrap_or_default(),
             state: m.state,
             time_in_state: config_version::since_state_change_humanized(&m.state_version),
             time_in_state_above_sla: m
@@ -134,11 +135,11 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
             associated_dpu_ids: m
                 .associated_dpu_machine_ids
                 .into_iter()
-                .map(|i| i.id)
+                .map(|i| i.to_string())
                 .collect(),
             associated_host_id: m
                 .associated_host_machine_id
-                .map(|id| id.id)
+                .map(|id| id.to_string())
                 .unwrap_or_default(),
             sys_vendor,
             product_serial,
@@ -276,12 +277,10 @@ async fn show(
 
 pub async fn fetch_machine(
     api: &Api,
-    machine_id: String,
+    machine_id: MachineId,
 ) -> Result<::rpc::forge::Machine, Response> {
     let request = tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-        machine_ids: vec![rpc::common::MachineId {
-            id: machine_id.clone(),
-        }],
+        machine_ids: vec![machine_id],
         include_history: true,
     });
 
@@ -307,7 +306,7 @@ pub async fn fetch_machine(
         }
         Ok(mut m) => m.machines.remove(0),
         Err(err) if err.code() == tonic::Code::NotFound => {
-            return Err(super::not_found_response(machine_id));
+            return Err(super::not_found_response(machine_id.to_string()));
         }
         Err(err) => {
             tracing::error!(%err, %machine_id, "find_machines_by_ids");
@@ -480,7 +479,7 @@ pub struct ValidationRun {
 
 impl From<forgerpc::Machine> for MachineDetail {
     fn from(m: forgerpc::Machine) -> Self {
-        let machine_id = m.id.unwrap_or_default().id;
+        let machine_id = m.id.map(|id| id.to_string()).unwrap_or_default();
 
         let mut history_records = Vec::new();
         for e in m.events.into_iter().rev() {
@@ -500,8 +499,8 @@ impl From<forgerpc::Machine> for MachineDetail {
                 id: interface.id.unwrap_or_default().to_string(),
                 dpu_id: interface
                     .attached_dpu_machine_id
-                    .unwrap_or_else(super::invalid_machine_id)
-                    .to_string(),
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(super::invalid_machine_id),
                 segment_id: interface
                     .segment_id
                     .unwrap_or_else(super::default_uuid)
@@ -559,8 +558,7 @@ impl From<forgerpc::Machine> for MachineDetail {
                 }
                 if let Some(ib_status) = m.ib_status.as_ref() {
                     iface_display.observed_at =
-                        to_time(ib_status.observed_at, &machine_id.clone().into())
-                            .unwrap_or_default();
+                        to_time(ib_status.observed_at, Some(&machine_id)).unwrap_or_default();
 
                     for iter_status in ib_status.ib_interfaces.iter() {
                         if Some(&iface_display.guid) == iter_status.guid.as_ref() {
@@ -614,7 +612,7 @@ impl From<forgerpc::Machine> for MachineDetail {
                 .as_ref()
                 .map(|sla| sla.time_in_state_above_sla)
                 .unwrap_or_default(),
-            last_reboot: to_time(m.last_reboot_time, &machine_id.clone().into())
+            last_reboot: to_time(m.last_reboot_time, Some(&machine_id))
                 .unwrap_or("N/A".to_string()),
             state_reason: m.state_reason,
             version: m.version,
@@ -640,7 +638,7 @@ impl From<forgerpc::Machine> for MachineDetail {
                 .map(|r| r.starts_with("http"))
                 .unwrap_or_default(),
             maintenance_reference: m.maintenance_reference.unwrap_or_default(),
-            maintenance_start_time: to_time(m.maintenance_start_time, &machine_id.into())
+            maintenance_start_time: to_time(m.maintenance_start_time, Some(&machine_id))
                 .unwrap_or_default(),
             host_id: m
                 .associated_host_machine_id
@@ -742,7 +740,12 @@ pub async fn detail(
         None => (false, machine_id),
     };
 
-    let machine = match fetch_machine(&state, machine_id.clone()).await {
+    let machine_id = match machine_id.parse::<MachineId>() {
+        Ok(machine_id) => machine_id,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+
+    let machine = match fetch_machine(&state, machine_id).await {
         Ok(machine) => machine,
         Err(response) => return response,
     };
@@ -766,9 +769,7 @@ pub async fn detail(
 
     // Get validation results
     let validation_request = tonic::Request::new(rpc::forge::MachineValidationRunListGetRequest {
-        machine_id: Some(rpc::common::MachineId {
-            id: machine_id.clone(),
-        }),
+        machine_id: Some(machine_id),
         include_history: false,
     });
 
@@ -782,7 +783,7 @@ pub async fn detail(
             .into_iter()
             .rev() // Show the most recent run first
             .map(|vr| ValidationRun {
-                machine_id: machine_id.clone(),
+                machine_id: vr.machine_id.map(|id| id.to_string()).unwrap_or_default(),
                 status:format!("{:?}", vr.status.unwrap_or_default().machine_validation_state.unwrap_or(
                     rpc::forge::machine_validation_status::MachineValidationState::Completed(
                         rpc::forge::machine_validation_status::MachineValidationCompleted::Success.into(),
@@ -804,9 +805,7 @@ pub async fn detail(
 
     if !display.is_host {
         let request = tonic::Request::new(forgerpc::ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(::rpc::common::MachineId {
-                id: display.id.clone(),
-            }),
+            dpu_machine_id: Some(machine_id),
         });
         if let Ok(netconf) = state
             .get_managed_host_network_config(request)
@@ -837,29 +836,34 @@ pub async fn maintenance(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     Form(form): Form<MaintenanceAction>,
-) -> impl IntoResponse {
+) -> Response {
     let view_url = format!("/admin/machine/{machine_id}");
+
+    let machine_id = match machine_id.parse::<MachineId>() {
+        Ok(machine_id) => machine_id,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
 
     let req = if form.action == "enter" {
         forgerpc::MaintenanceRequest {
             operation: forgerpc::MaintenanceOperation::Enable.into(),
-            host_id: Some(machine_id.clone().into()),
+            host_id: Some(machine_id),
             reference: form.reference,
         }
     } else if form.action == "exit" {
         forgerpc::MaintenanceRequest {
             operation: forgerpc::MaintenanceOperation::Disable.into(),
-            host_id: Some(machine_id.clone().into()),
+            host_id: Some(machine_id),
             reference: None,
         }
     } else {
         tracing::error!("Expected action to be 'enter' or 'exit' but got neither");
-        return Redirect::to(&view_url);
+        return Redirect::to(&view_url).into_response();
     };
 
-    if MachineType::from_id_string(machine_id.trim()).is_some_and(|t| t.is_dpu()) {
+    if machine_id.machine_type().is_dpu() {
         tracing::error!("Maintenance Mode can not be set on DPUs");
-        return Redirect::to(&view_url);
+        return Redirect::to(&view_url).into_response();
     }
 
     if let Err(err) = state
@@ -867,11 +871,11 @@ pub async fn maintenance(
         .await
         .map(|response| response.into_inner())
     {
-        tracing::error!(%err, machine_id, "set_maintenance");
-        return Redirect::to(&view_url);
+        tracing::error!(%err, %machine_id, "set_maintenance");
+        return Redirect::to(&view_url).into_response();
     }
 
-    Redirect::to(&view_url)
+    Redirect::to(&view_url).into_response()
 }
 
 #[derive(Deserialize, Debug)]
@@ -886,8 +890,12 @@ pub async fn quarantine(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     Form(form): Form<QuarantineAction>,
-) -> impl IntoResponse {
+) -> Response {
     let view_url = format!("/admin/machine/{machine_id}");
+    let machine_id = match machine_id.parse::<MachineId>() {
+        Ok(machine_id) => machine_id,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
 
     let err = match form.action.as_str() {
         "enable" => {
@@ -899,7 +907,7 @@ pub async fn quarantine(
             state
                 .set_managed_host_quarantine_state(tonic::Request::new(
                     forgerpc::SetManagedHostQuarantineStateRequest {
-                        machine_id: Some(machine_id.clone().into()),
+                        machine_id: Some(machine_id),
                         quarantine_state: Some(forgerpc::ManagedHostQuarantineState {
                             mode: mode as i32,
                             reason: form.reason,
@@ -910,20 +918,20 @@ pub async fn quarantine(
                 .map(|_| ())
         }
         "disable" => state
-            .clear_managed_host_quarantine_state(tonic::Request::new(machine_id.clone().into()))
+            .clear_managed_host_quarantine_state(tonic::Request::new(machine_id.into()))
             .await
             .map(|_| ()),
         unknown => {
             tracing::error!("Expected action to be 'enable' or 'disable' but got {unknown}");
-            return Redirect::to(&view_url);
+            return Redirect::to(&view_url).into_response();
         }
     };
 
     if let Err(error) = err {
-        tracing::error!(%error, machine_id, "quarantine");
+        tracing::error!(%error, %machine_id, "quarantine");
     }
 
-    Redirect::to(&view_url)
+    Redirect::to(&view_url).into_response()
 }
 
 #[derive(Deserialize, Debug)]

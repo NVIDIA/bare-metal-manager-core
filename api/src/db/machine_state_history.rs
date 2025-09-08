@@ -17,7 +17,7 @@ use crate::{
     db::DatabaseError,
     model::machine::{MachineStateHistory, ManagedHostState},
 };
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 
 /// History of Machine states for a single Machine
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]

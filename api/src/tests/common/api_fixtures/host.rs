@@ -21,7 +21,7 @@ use crate::model::{hardware_info::HardwareInfo, machine::ManagedHostState};
 use crate::tests::common::api_fixtures::{
     TestEnv, forge_agent_control, managed_host::ManagedHostConfig,
 };
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
@@ -86,7 +86,7 @@ pub async fn host_discover_machine(
     env: &TestEnv,
     host_config: &ManagedHostConfig,
     machine_interface_id: rpc::Uuid,
-) -> ::rpc::common::MachineId {
+) -> MachineId {
     let mut discovery_info = DiscoveryInfo::try_from(HardwareInfo::from(host_config)).unwrap();
 
     discovery_info.attest_key_info = Some(AttestKeyInfo {
@@ -130,7 +130,7 @@ pub async fn host_uefi_setup(env: &TestEnv, host_machine_id: &MachineId) {
         )
         .await;
 
-        let response = forge_agent_control(env, host_machine_id.into()).await;
+        let response = forge_agent_control(env, *host_machine_id).await;
         assert_eq!(response.action, Action::Noop as i32);
     }
 }

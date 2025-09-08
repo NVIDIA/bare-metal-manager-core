@@ -11,9 +11,10 @@
  */
 
 // use std::fmt::Write;
+use crate::errors::CarbideError;
 use crate::model::hardware_info::HardwareInfo;
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::machine::{MachineId, MachineIdSource, MachineType};
+use ::rpc::uuid::machine::{MachineId, MachineIdSource, MachineType};
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 
@@ -101,17 +102,15 @@ pub enum MissingHardwareInfo {
 }
 
 /// Converts a RPC MachineId into the internal data format
-pub fn try_parse_machine_id(
-    id: &rpc::common::MachineId,
-) -> Result<MachineId, RpcDataConversionError> {
-    MachineId::from_str(id.id.as_str())
-        .map_err(|_| RpcDataConversionError::InvalidMachineId(id.id.clone()))
+pub fn try_parse_machine_id(id: &str) -> Result<MachineId, CarbideError> {
+    Ok(MachineId::from_str(id)
+        .map_err(|_| RpcDataConversionError::InvalidMachineId(id.to_string()))?)
 }
 
 #[cfg(test)]
 mod tests {
     use crate::model::hardware_info::TpmEkCertificate;
-    use forge_uuid::machine::MACHINE_ID_LENGTH;
+    use ::rpc::uuid::machine::MACHINE_ID_LENGTH;
 
     use super::*;
 
@@ -229,10 +228,9 @@ mod tests {
 
     #[test]
     fn validate_remote_id() {
-        let dpu_id = try_parse_machine_id(&::rpc::common::MachineId {
-            id: "fm100dsg4ekcb4sdi6hkqn0iojhj18okrr8vct64luh8957lfe8e69vme20".to_string(),
-        })
-        .unwrap();
+        let dpu_id =
+            try_parse_machine_id("fm100dsg4ekcb4sdi6hkqn0iojhj18okrr8vct64luh8957lfe8e69vme20")
+                .unwrap();
 
         assert_eq!(
             "d33nk2ne8p59qr988hssbc84gb2b0s34vcq5j7pm5jnrbnhc6880",

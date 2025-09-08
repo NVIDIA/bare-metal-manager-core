@@ -30,7 +30,7 @@ async fn dpa_api_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     let cr_request = tonic::Request::new(DpaInterfaceCreationRequest {
         mac_addr: "00:11:22:33:44:55".to_string(),
-        machine_id: Some(mh.id.into()),
+        machine_id: Some(mh.id),
     });
 
     let cr_resp = env

@@ -5,6 +5,10 @@ edition.workspace = true
 license-file.workspace = true
 authors.workspace = true
 
+[features]
+sqlx = ["dep:sqlx"]
+cli = ["dep:clap", "dep:prettytable-rs", "dep:serde_yaml"]
+
 [dependencies]
 chrono = { version = "0.4.34", features = ["serde"] }
 eyre = "0.6"
@@ -33,13 +37,18 @@ tryhard = "0.5.1"
 rustls = { workspace = true, features = ["default", "ring"] }
 async-trait = "0.1.88"
 nonempty = "0.11.0"
+clap = { version = "4.5.45", optional = true }
+sqlx = { workspace = true, optional = true }
+prettytable-rs = { version = "^0.10", optional = true }
+serde_yaml = { version = "*", optional = true }
 
 # [local-dependencies]
 forge-http-connector = { path = "../common/http-connector" }
 forge-tls = { path = "../common/tls" }
 health-report = { path = "../common/health-report" }
 tonic-client-wrapper = { path = "../common/tonic-client-wrapper", default-features = false }
-clap = "4.5.45" # don't depend on codegen features at runtime
+data-encoding = "2.9.0"
+sha2 = "0.10.9"
 
 [build-dependencies]
 tonic-prost-build = "0.14"

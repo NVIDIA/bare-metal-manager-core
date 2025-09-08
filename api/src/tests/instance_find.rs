@@ -407,7 +407,7 @@ async fn test_find_instances_by_machine_id_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
-    let request = tonic::Request::new(dpu_machine_id.into());
+    let request = tonic::Request::new(dpu_machine_id);
     let response = env.api.find_instance_by_machine_id(request).await;
     // validate
     assert!(response.is_ok(),);

@@ -23,6 +23,7 @@ use ::rpc::forge::{
     UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest, VpcCreationRequest,
     VpcPeeringDeletionResult, VpcSearchQuery, VpcVirtualizationType,
 };
+use ::rpc::uuid::machine::MachineId;
 use ::rpc::{NetworkSegment, Uuid};
 
 use std::collections::HashMap;
@@ -32,9 +33,9 @@ use crate::cfg::cli_options::{
     self, AllocateInstance, ForceDeleteMachineQuery, MachineAutoupdate, TimeoutConfig,
 };
 use crate::rpc::cli_options::UpdateInstanceOS;
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge_api_client::ForgeApiClient;
 use mac_address::MacAddress;
-use utils::admin_cli::{CarbideCliError, CarbideCliResult};
 
 /// [`ApiClient`] is a thin wrapper around [`ForgeApiClient`], which mainly adds some convenience
 /// methods.
@@ -51,17 +52,17 @@ pub struct ApiClient(pub ForgeApiClient);
 // other conveniences. 90% of these methods no longer justify their existence... we probably don't
 // need to add more.)
 impl ApiClient {
-    pub async fn get_machine(&self, id: String) -> CarbideCliResult<rpc::Machine> {
+    pub async fn get_machine(&self, id: MachineId) -> CarbideCliResult<rpc::Machine> {
         let mut machines = self
             .0
             .find_machines_by_ids(::rpc::forge::MachinesByIdsRequest {
-                machine_ids: vec![id.clone().into()],
+                machine_ids: vec![id],
                 include_history: true,
             })
             .await?;
 
         if machines.machines.is_empty() {
-            return Err(CarbideCliError::MachineNotFound(id.into()));
+            return Err(CarbideCliError::MachineNotFound(id));
         }
 
         let mut machine_details = machines.machines.remove(0);
@@ -71,7 +72,7 @@ impl ApiClient {
         // out of the `associated_dpu_machine_id` field.
         if machine_details.associated_dpu_machine_ids.is_empty() {
             if let Some(ref dpu_id) = machine_details.associated_dpu_machine_id {
-                machine_details.associated_dpu_machine_ids = vec![dpu_id.clone()];
+                machine_details.associated_dpu_machine_ids = vec![*dpu_id];
             }
         }
 
@@ -109,7 +110,7 @@ impl ApiClient {
 
     pub async fn reboot_instance(
         &self,
-        machine_id: ::rpc::common::MachineId,
+        machine_id: MachineId,
         boot_with_custom_ipxe: bool,
         apply_updates_on_reboot: bool,
     ) -> CarbideCliResult<()> {
@@ -205,7 +206,7 @@ impl ApiClient {
         &self,
         serial_number: String,
         exact: bool,
-    ) -> CarbideCliResult<::rpc::common::MachineId> {
+    ) -> CarbideCliResult<MachineId> {
         let serial_details = match self
             .0
             .identify_serial(IdentifySerialRequest {
@@ -373,12 +374,12 @@ impl ApiClient {
 
     pub async fn machine_insert_health_report_override(
         &self,
-        id: String,
+        id: MachineId,
         report: ::rpc::health::HealthReport,
         replace: bool,
     ) -> CarbideCliResult<()> {
         let request = ::rpc::forge::InsertHealthReportOverrideRequest {
-            machine_id: Some(::rpc::MachineId { id }),
+            machine_id: Some(id),
             r#override: Some(rpc::HealthReportOverride {
                 report: Some(report),
                 mode: if replace {
@@ -396,11 +397,11 @@ impl ApiClient {
 
     pub async fn machine_remove_health_report_override(
         &self,
-        id: String,
+        id: MachineId,
         source: String,
     ) -> CarbideCliResult<()> {
         let request = ::rpc::forge::RemoveHealthReportOverrideRequest {
-            machine_id: Some(::rpc::MachineId { id }),
+            machine_id: Some(id),
             source,
         };
         self.0
@@ -427,13 +428,13 @@ impl ApiClient {
 
     pub async fn trigger_dpu_reprovisioning(
         &self,
-        id: String,
+        id: MachineId,
         mode: ::rpc::forge::dpu_reprovisioning_request::Mode,
         update_firmware: bool,
     ) -> CarbideCliResult<()> {
         let request = rpc::DpuReprovisioningRequest {
-            dpu_id: Some(::rpc::common::MachineId { id: id.clone() }),
-            machine_id: Some(::rpc::common::MachineId { id }),
+            dpu_id: Some(id),
+            machine_id: Some(id),
             mode: mode as i32,
             initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
             update_firmware,
@@ -446,11 +447,11 @@ impl ApiClient {
 
     pub async fn trigger_host_reprovisioning(
         &self,
-        id: String,
+        id: MachineId,
         mode: ::rpc::forge::host_reprovisioning_request::Mode,
     ) -> CarbideCliResult<()> {
         let request = rpc::HostReprovisioningRequest {
-            machine_id: Some(::rpc::common::MachineId { id }),
+            machine_id: Some(id),
             mode: mode as i32,
             initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
         };
@@ -679,7 +680,7 @@ impl ApiClient {
 
     pub async fn get_machines_by_ids(
         &self,
-        machine_ids: &[::rpc::common::MachineId],
+        machine_ids: &[MachineId],
     ) -> CarbideCliResult<rpc::MachineList> {
         let request = ::rpc::forge::MachinesByIdsRequest {
             machine_ids: Vec::from(machine_ids),
@@ -1156,9 +1157,7 @@ impl ApiClient {
             ::rpc::forge::machine_set_auto_update_request::SetAutoupdateAction::Clear
         };
         let request = ::rpc::forge::MachineSetAutoUpdateRequest {
-            machine_id: Some(::rpc::MachineId {
-                id: req.machine.to_string(),
-            }),
+            machine_id: Some(req.machine),
             action: action.into(),
         };
         self.0
@@ -1443,9 +1442,7 @@ impl ApiClient {
 
         let instance_request = rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: Some(::rpc::common::MachineId {
-                id: machine.id.unwrap_or_default().id,
-            }),
+            machine_id: machine.id,
 
             instance_type_id: allocate_instance.instance_type_id.clone(),
             config: Some(instance_config),
@@ -1541,14 +1538,10 @@ impl ApiClient {
 
     pub async fn get_machine_validation_results(
         &self,
-        arg_machine_id: Option<String>,
+        machine_id: Option<MachineId>,
         history: bool,
         arg_validation_id: Option<String>,
     ) -> CarbideCliResult<rpc::MachineValidationResultList> {
-        let mut machine_id: Option<::rpc::common::MachineId> = None;
-        if let Some(id) = arg_machine_id {
-            machine_id = Some(::rpc::common::MachineId { id })
-        }
         let mut validation_id: Option<::rpc::common::Uuid> = None;
         if let Some(value) = arg_validation_id {
             validation_id = Some(::rpc::common::Uuid { value })
@@ -1617,13 +1610,9 @@ impl ApiClient {
 
     pub async fn get_machine_validation_runs(
         &self,
-        arg_machine_id: Option<String>,
+        machine_id: Option<MachineId>,
         include_history: bool,
     ) -> CarbideCliResult<rpc::MachineValidationRunList> {
-        let mut machine_id: Option<::rpc::common::MachineId> = None;
-        if let Some(id) = arg_machine_id {
-            machine_id = Some(::rpc::common::MachineId { id })
-        }
         let request = rpc::MachineValidationRunListGetRequest {
             machine_id,
             include_history,
@@ -1636,14 +1625,14 @@ impl ApiClient {
 
     pub async fn on_demand_machine_validation(
         &self,
-        machine_id: String,
+        machine_id: MachineId,
         tags: Option<Vec<String>>,
         allowed_tests: Option<Vec<String>>,
         run_unverfied_tests: bool,
         contexts: Option<Vec<String>>,
     ) -> CarbideCliResult<rpc::MachineValidationOnDemandResponse> {
         let request = rpc::MachineValidationOnDemandRequest {
-            machine_id: Some(::rpc::common::MachineId { id: machine_id }),
+            machine_id: Some(machine_id),
             tags: tags.unwrap_or_default(),
             allowed_tests: allowed_tests.unwrap_or_default(),
             action: rpc::machine_validation_on_demand_request::Action::Start.into(),
@@ -1923,7 +1912,7 @@ impl ApiClient {
 
     pub async fn update_machine_metadata(
         &self,
-        machine_id: ::rpc::common::MachineId,
+        machine_id: MachineId,
         metadata: ::rpc::forge::Metadata,
         current_version: String,
     ) -> CarbideCliResult<()> {
@@ -1941,7 +1930,7 @@ impl ApiClient {
     pub async fn assign_sku_to_machine(
         &self,
         sku_id: String,
-        machine_id: ::rpc::common::MachineId,
+        machine_id: MachineId,
         force: bool,
     ) -> CarbideCliResult<()> {
         let request = ::rpc::forge::SkuMachinePair {
@@ -2105,14 +2094,14 @@ impl ApiClient {
     // TODO: add other hardware info
     pub async fn update_machine_hardware_info(
         &self,
-        id: String,
+        id: MachineId,
         hardware_info_update_type: MachineHardwareInfoUpdateType,
         gpus: Vec<::rpc::machine_discovery::Gpu>,
     ) -> CarbideCliResult<()> {
         let hardware_info = MachineHardwareInfo { gpus };
         self.0
             .update_machine_hardware_info(UpdateMachineHardwareInfoRequest {
-                machine_id: Some(::rpc::common::MachineId { id }),
+                machine_id: Some(id),
                 info: Some(hardware_info),
                 update_type: hardware_info_update_type as i32,
             })
@@ -2166,11 +2155,14 @@ impl ApiClient {
 
     pub async fn remove_instance_type_association(
         &self,
-        machine_id: String,
+        machine_id: MachineId,
     ) -> CarbideCliResult<()> {
         self.0
             .remove_machine_instance_type_association(
-                rpc::RemoveMachineInstanceTypeAssociationRequest { machine_id },
+                // Note: This RPC method actually takes a string machine_id. It should have been using a MachineId instead.
+                rpc::RemoveMachineInstanceTypeAssociationRequest {
+                    machine_id: machine_id.to_string(),
+                },
             )
             .await
             .map_err(CarbideCliError::ApiInvocationError)?;
@@ -2180,16 +2172,11 @@ impl ApiClient {
 
     pub async fn get_power_options(
         &self,
-        machine_id: Vec<String>,
+        machine_id: Vec<MachineId>,
     ) -> CarbideCliResult<Vec<rpc::PowerOptions>> {
         let all_options = self
             .0
-            .get_power_options(rpc::PowerOptionRequest {
-                machine_id: machine_id
-                    .into_iter()
-                    .map(|x| ::rpc::common::MachineId { id: x })
-                    .collect::<Vec<::rpc::common::MachineId>>(),
-            })
+            .get_power_options(rpc::PowerOptionRequest { machine_id })
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
             .response;
@@ -2199,13 +2186,13 @@ impl ApiClient {
 
     pub async fn update_power_options(
         &self,
-        machine_id: String,
+        machine_id: MachineId,
         power_state: PowerState,
     ) -> CarbideCliResult<Vec<rpc::PowerOptions>> {
         let power_options = self
             .0
             .update_power_option(rpc::PowerOptionUpdateRequest {
-                machine_id: Some(::rpc::common::MachineId { id: machine_id }),
+                machine_id: Some(machine_id),
                 power_state: power_state as i32,
             })
             .await

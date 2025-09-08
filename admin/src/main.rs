@@ -35,11 +35,13 @@ use crate::cfg::storage::{
 use crate::rpc::ApiClient;
 use ::rpc::CredentialType;
 use ::rpc::Uuid;
+use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
 use ::rpc::forge as forgerpc;
 use ::rpc::forge::ConfigSetting;
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use ::rpc::uuid::machine::MachineId;
 use cfg::cli_options::AgentUpgrade;
 use cfg::cli_options::AgentUpgradePolicyChoice;
 use cfg::cli_options::BmcAction;
@@ -92,7 +94,6 @@ use serde::Deserialize;
 use serde::Serialize;
 use site_explorer::show_site_explorer_discovered_managed_host;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
-use utils::admin_cli::{CarbideCliError, OutputFormat};
 
 mod async_write;
 mod cfg;
@@ -136,10 +137,8 @@ pub fn default_uuid() -> ::rpc::common::Uuid {
     }
 }
 
-pub fn invalid_machine_id() -> ::rpc::common::MachineId {
-    ::rpc::common::MachineId {
-        id: "INVALID_MACHINE".to_string(),
-    }
+pub fn invalid_machine_id() -> String {
+    "INVALID_MACHINE".to_string()
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -239,7 +238,7 @@ async fn main() -> color_eyre::Result<()> {
             Machine::Metadata(metadata_command) => match metadata_command {
                 MachineMetadataCommand::Show(cmd) => {
                     let mut machines = api_client
-                        .get_machines_by_ids(&[cmd.machine.clone().into()])
+                        .get_machines_by_ids(&[cmd.machine])
                         .await?
                         .machines;
                     let Some(machine) = machines.pop() else {
@@ -255,7 +254,7 @@ async fn main() -> color_eyre::Result<()> {
                 }
                 MachineMetadataCommand::Set(cmd) => {
                     let mut machines = api_client
-                        .get_machines_by_ids(&[cmd.machine.clone().into()])
+                        .get_machines_by_ids(&[cmd.machine])
                         .await?
                         .machines;
                     if machines.len() != 1 {
@@ -279,7 +278,7 @@ async fn main() -> color_eyre::Result<()> {
                 }
                 MachineMetadataCommand::FromExpectedMachine(cmd) => {
                     let mut machines = api_client
-                        .get_machines_by_ids(&[cmd.machine.clone().into()])
+                        .get_machines_by_ids(&[cmd.machine])
                         .await?
                         .machines;
                     if machines.len() != 1 {
@@ -320,7 +319,7 @@ async fn main() -> color_eyre::Result<()> {
                     if cmd.replace_all {
                         // Configure the Machines metadata in the same way as if the Machine was freshly ingested
                         metadata.name = if expected_machine_metadata.name.is_empty() {
-                            machine.id.clone().unwrap().id
+                            machine.id.unwrap().to_string()
                         } else {
                             expected_machine_metadata.name
                         };
@@ -331,7 +330,8 @@ async fn main() -> color_eyre::Result<()> {
                         // result of previous changed to the Machine.
                         // This operation is lossless for existing Metadata.
                         if !expected_machine_metadata.name.is_empty()
-                            && (metadata.name.is_empty() || metadata.name == cmd.machine)
+                            && (metadata.name.is_empty()
+                                || metadata.name == cmd.machine.to_string())
                         {
                             metadata.name = expected_machine_metadata.name;
                         };
@@ -353,7 +353,7 @@ async fn main() -> color_eyre::Result<()> {
                 }
                 MachineMetadataCommand::AddLabel(cmd) => {
                     let mut machines = api_client
-                        .get_machines_by_ids(&[cmd.machine.clone().into()])
+                        .get_machines_by_ids(&[cmd.machine])
                         .await?
                         .machines;
                     if machines.len() != 1 {
@@ -376,7 +376,7 @@ async fn main() -> color_eyre::Result<()> {
                 }
                 MachineMetadataCommand::RemoveLabels(cmd) => {
                     let mut machines = api_client
-                        .get_machines_by_ids(&[cmd.machine.clone().into()])
+                        .get_machines_by_ids(&[cmd.machine])
                         .await?
                         .machines;
                     if machines.len() != 1 {
@@ -398,7 +398,10 @@ async fn main() -> color_eyre::Result<()> {
                 }
             },
             Machine::DpuSshCredentials(query) => {
-                let cred = api_client.0.get_dpu_ssh_credential(query.query).await?;
+                let cred = api_client
+                    .0
+                    .get_dpu_ssh_credential(query.query.to_string())
+                    .await?;
                 if config.format == OutputFormat::Json {
                     println!("{}", serde_json::to_string_pretty(&cred)?);
                 } else {
@@ -535,11 +538,7 @@ async fn main() -> color_eyre::Result<()> {
                 }
 
                 let mut machine_ids: VecDeque<_> = if !allocate_request.machine_id.is_empty() {
-                    allocate_request
-                        .machine_id
-                        .iter()
-                        .map(std::string::ToString::to_string)
-                        .collect()
+                    allocate_request.machine_id.clone().into()
                 } else {
                     api_client
                         .0
@@ -549,9 +548,7 @@ async fn main() -> color_eyre::Result<()> {
                         })
                         .await?
                         .machine_ids
-                        .into_iter()
-                        .map(|id| id.to_string())
-                        .collect()
+                        .into()
                 };
 
                 let min_interface_count = if !allocate_request.vpc_prefix_id.is_empty() {
@@ -641,7 +638,7 @@ async fn main() -> color_eyre::Result<()> {
                 MaintenanceAction::On(maint_on) => {
                     let req = forgerpc::MaintenanceRequest {
                         operation: forgerpc::MaintenanceOperation::Enable.into(),
-                        host_id: Some(maint_on.host.into()),
+                        host_id: Some(maint_on.host),
                         reference: Some(maint_on.reference),
                     };
                     api_client.0.set_maintenance(req).await?;
@@ -649,7 +646,7 @@ async fn main() -> color_eyre::Result<()> {
                 MaintenanceAction::Off(maint_off) => {
                     let req = forgerpc::MaintenanceRequest {
                         operation: forgerpc::MaintenanceOperation::Disable.into(),
-                        host_id: Some(maint_off.host.into()),
+                        host_id: Some(maint_off.host),
                         reference: None,
                     };
                     api_client.0.set_maintenance(req).await?;
@@ -657,9 +654,9 @@ async fn main() -> color_eyre::Result<()> {
             },
             ManagedHost::Quarantine(quarantine_action) => match quarantine_action {
                 QuarantineAction::On(quarantine_on) => {
-                    let host = quarantine_on.host.clone();
+                    let host = quarantine_on.host;
                     let req = forgerpc::SetManagedHostQuarantineStateRequest {
-                        machine_id: Some(quarantine_on.host.into()),
+                        machine_id: Some(quarantine_on.host),
                         quarantine_state: Some(forgerpc::ManagedHostQuarantineState {
                             mode: forgerpc::ManagedHostQuarantineMode::BlockAllTraffic as i32,
                             reason: Some(quarantine_on.reason),
@@ -672,9 +669,9 @@ async fn main() -> color_eyre::Result<()> {
                     );
                 }
                 QuarantineAction::Off(quarantine_off) => {
-                    let host = quarantine_off.host.clone();
+                    let host = quarantine_off.host;
                     let req = forgerpc::ClearManagedHostQuarantineStateRequest {
-                        machine_id: Some(quarantine_off.host.into()),
+                        machine_id: Some(host),
                     };
                     let prior_state = api_client
                         .0
@@ -687,10 +684,10 @@ async fn main() -> color_eyre::Result<()> {
                 }
             },
             ManagedHost::ResetHostReprovisioning(machine_id) => {
-                let machine_id = ::rpc::common::MachineId {
-                    id: machine_id.machine,
-                };
-                api_client.0.reset_host_reprovisioning(machine_id).await?;
+                api_client
+                    .0
+                    .reset_host_reprovisioning(machine_id.machine)
+                    .await?;
             }
             ManagedHost::PowerOptions(options) => match options {
                 cfg::cli_options::PowerOptions::Show(show_power_options) => {
@@ -1369,10 +1366,10 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::Jump(j) => {
             // Is it a machine ID?
             // Grab the machine details.
-            if forge_uuid::machine::MachineId::from_str(&j.id).is_ok() {
+            if let Ok(machine_id) = j.id.parse::<MachineId>() {
                 machine::handle_show(
                     cfg::cli_options::ShowMachine {
-                        machine: j.id,
+                        machine: Some(machine_id),
                         help: None,
                         hosts: false,
                         all: false,
@@ -1442,9 +1439,9 @@ async fn main() -> color_eyre::Result<()> {
                         MachineAddress | BmcIp | LoopbackIp => {
                             machine::handle_show(
                                 cfg::cli_options::ShowMachine {
-                                    machine: m.owner_id.ok_or(CarbideCliError::GenericError(
+                                    machine: Some(m.owner_id.and_then(|id| id.parse::<MachineId>().ok()).ok_or(CarbideCliError::GenericError(
                                         "failed to unwrap owner_id after finding machine for IP".to_string(),
-                                    ))?,
+                                    ))?),
                                     help: None,
                                     hosts: false,
                                     all: false,
@@ -1638,7 +1635,7 @@ async fn main() -> color_eyre::Result<()> {
             if let Ok(machine_id) = api_client.identify_serial(j.id, false).await {
                 machine::handle_show(
                     cfg::cli_options::ShowMachine {
-                        machine: machine_id.to_string(),
+                        machine: Some(machine_id),
                         help: None,
                         hosts: false,
                         all: false,

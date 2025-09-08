@@ -26,10 +26,12 @@ use crate::measured_boot::interface::profile::{
 };
 use crate::measured_boot::interface::{common, common::acquire_advisory_txn_lock};
 use crate::{CarbideError, CarbideResult};
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::MeasurementSystemProfileId;
-use measured_boot::profile::MeasurementSystemProfile;
-use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
+use ::rpc::measured_boot::profile::MeasurementSystemProfile;
+use ::rpc::measured_boot::records::{
+    MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord,
+};
+use ::rpc::uuid::machine::MachineId;
+use ::rpc::uuid::measured_boot::MeasurementSystemProfileId;
 use sqlx::PgConnection;
 use std::collections::HashMap;
 
@@ -406,7 +408,7 @@ fn attr_map_to_string(attr_map: &HashMap<String, String>) -> String {
 /// Code used by tests but nothing else (kept separate to avoid dead code in production)
 pub(crate) mod test_support {
     use super::*;
-    use forge_uuid::measured_boot::MeasurementSystemProfileId;
+    use ::rpc::uuid::measured_boot::MeasurementSystemProfileId;
     use sqlx::{Pool, Postgres};
     use std::collections::HashMap;
 
@@ -476,8 +478,8 @@ pub(crate) mod test_support {
 mod tests {
     use super::test_support::*;
     use super::*;
+    use ::rpc::uuid::measured_boot::MeasurementSystemProfileAttrId;
     use chrono::Utc;
-    use forge_uuid::measured_boot::MeasurementSystemProfileAttrId;
     use std::str::FromStr;
 
     #[test]

@@ -14,16 +14,16 @@
 //! `measurement mock-machine` subcommand dispatcher + backing functions.
 //!
 
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
+use ::rpc::measured_boot::pcr::PcrRegisterValue;
+use ::rpc::measured_boot::{machine::CandidateMachine, report::MeasurementReport};
 use ::rpc::protos::measured_boot::show_candidate_machine_request;
 use ::rpc::protos::measured_boot::{AttestCandidateMachineRequest, ShowCandidateMachineRequest};
-use measured_boot::pcr::PcrRegisterValue;
-use measured_boot::{machine::CandidateMachine, report::MeasurementReport};
-use utils::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
 
 use crate::measurement::global;
 use crate::measurement::machine::args::{Attest, CmdMachine, Show};
 use crate::rpc::ApiClient;
-use measured_boot::records::CandidateMachineSummary;
+use ::rpc::measured_boot::records::CandidateMachineSummary;
 use serde::Serialize;
 
 /// dispatch matches + dispatches the correct command
@@ -37,7 +37,7 @@ pub async fn dispatch(
             cli_output(
                 attest(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                utils::admin_cli::Destination::Stdout(),
+                ::rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdMachine::Show(local_args) => {
@@ -45,13 +45,13 @@ pub async fn dispatch(
                 cli_output(
                     show_by_id(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    utils::admin_cli::Destination::Stdout(),
+                    ::rpc::admin_cli::Destination::Stdout(),
                 )?;
             } else {
                 cli_output(
                     show_all(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    utils::admin_cli::Destination::Stdout(),
+                    ::rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
         }
@@ -59,7 +59,7 @@ pub async fn dispatch(
             cli_output(
                 list(cli.grpc_conn).await?,
                 &cli.args.format,
-                utils::admin_cli::Destination::Stdout(),
+                ::rpc::admin_cli::Destination::Stdout(),
             )?;
         }
     }

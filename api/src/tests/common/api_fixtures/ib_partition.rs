@@ -14,7 +14,7 @@ use super::TestEnv;
 use crate::api::rpc::{
     IbPartitionConfig, IbPartitionCreationRequest, IbPartitionSearchConfig, forge_server::Forge,
 };
-use forge_uuid::infiniband::IBPartitionId;
+use ::rpc::uuid::infiniband::IBPartitionId;
 use tonic::Request;
 
 pub const DEFAULT_TENANT: &str = "Tenant1";

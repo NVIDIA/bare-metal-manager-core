@@ -17,7 +17,7 @@ use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
 
 use super::DatabaseError;
 use crate::model::network_segment::NetworkSegmentControllerState;
-use forge_uuid::network::NetworkSegmentId;
+use ::rpc::uuid::network::NetworkSegmentId;
 
 /// A record of a past state of a NetworkSegment
 ///

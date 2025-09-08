@@ -52,7 +52,7 @@ pub(crate) async fn get(
     let bmc_endpoint_request = crate::api::validate_and_complete_bmc_endpoint_request(
         &mut txn,
         request.bmc_endpoint_request,
-        request.machine_id.clone().map(|id| id.id),
+        request.machine_id,
     )
     .await?;
 

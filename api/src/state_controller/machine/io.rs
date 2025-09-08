@@ -32,7 +32,7 @@ use crate::{
         machine::{context::MachineStateHandlerContextObjects, metrics::MachineMetricsEmitter},
     },
 };
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 
 // This should be updated on each new model introdunction
 pub const CURRENT_STATE_MODEL_VERSION: i16 = 2;

@@ -90,7 +90,7 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let loopback_ip = dpu::loopback_ip(&mut txn, mh.dpu().machine_id()).await;
+    let loopback_ip = dpu::loopback_ip(&mut txn, &mh.dpu().id).await;
     test_inner(
         &loopback_ip.to_string(),
         IpType::LoopbackIp,
@@ -231,7 +231,7 @@ async fn test_identify_mac(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let res = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![host_machine_id.to_string().into()],
+            machine_ids: vec![host_machine_id],
             ..Default::default()
         }))
         .await
@@ -267,8 +267,8 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let config = ManagedHostConfig::default();
     let dpu_config = config.get_and_assert_single_dpu().clone();
     let mh = create_managed_host_with_config(&env, config).await;
-    let host_machine_id = *mh.host().machine_id();
-    let dpu_machine_id = *mh.dpu().machine_id();
+    let host_machine_id = mh.host().id;
+    let dpu_machine_id = mh.dpu().id;
 
     let res = mh.dpu().rpc_machine().await;
     assert_eq!(

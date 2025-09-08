@@ -17,15 +17,15 @@
 
 use crate::db::DatabaseError;
 use crate::measured_boot::interface::common;
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::{
+use ::rpc::measured_boot::records::{
+    MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
+};
+use ::rpc::measured_boot::site::MachineAttestationSummary;
+use ::rpc::uuid::machine::MachineId;
+use ::rpc::uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     TrustedMachineId,
 };
-use measured_boot::records::{
-    MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
-};
-use measured_boot::site::MachineAttestationSummary;
 use sqlx::PgConnection;
 
 pub async fn insert_into_approved_machines(

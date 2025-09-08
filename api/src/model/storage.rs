@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use crate::model::tenant::TenantOrganizationId;
 
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 
 /// This file is just for the struct definitions and grpc proto object conversions
 /// methods are implemented in api/src/db/storage.rs and callers in api/src/storage.rs
@@ -598,7 +598,7 @@ impl TryFrom<StorageVolumeFilter> for rpc::forge::StorageVolumeFilter {
         let cluster_id = filter.cluster_id.map(rpc::Uuid::from);
         let pool_id = filter.pool_id.map(rpc::Uuid::from);
         let volume_id = filter.volume_id.map(rpc::Uuid::from);
-        let machine_id = filter.machine_id.map(rpc::MachineId::from);
+        let machine_id = filter.machine_id;
         let instance_id = filter.instance_id.map(rpc::Uuid::from);
         let source_id = filter.source_id.map(rpc::Uuid::from);
         Ok(Self {
@@ -678,7 +678,7 @@ impl TryFrom<StorageVolume> for rpc::forge::StorageVolume {
             let id = rpc::Uuid::from(*i);
             instance_id.push(id);
         }
-        let dpu_machine_id = vol.dpu_machine_id.iter().map(Into::into).collect();
+        let dpu_machine_id = vol.dpu_machine_id;
         Ok(Self {
             nvmesh_uuid: Some(nvmesh_uuid),
             attributes: Some(rpc::forge::StorageVolumeAttributes::try_from(

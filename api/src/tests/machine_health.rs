@@ -500,7 +500,7 @@ async fn test_attempt_dpu_override(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .api
         .insert_health_report_override(Request::new(
             rpc::forge::InsertHealthReportOverrideRequest {
-                machine_id: Some(dpu_machine_id.to_string().into()),
+                machine_id: Some(dpu_machine_id),
                 r#override: Some(rpc::forge::HealthReportOverride {
                     report: Some(health_report::HealthReport::empty("".to_string()).into()),
                     mode: health_report::OverrideMode::Replace as i32,
@@ -530,7 +530,7 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         .api
         .insert_health_report_override(Request::new(
             rpc::forge::InsertHealthReportOverrideRequest {
-                machine_id: Some(host_machine_id.to_string().into()),
+                machine_id: Some(host_machine_id),
                 r#override: Some(rpc::forge::HealthReportOverride {
                     report: Some(health_report::HealthReport::empty("over".to_string()).into()),
                     mode: health_report::OverrideMode::Replace as i32,
@@ -552,7 +552,7 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         .api
         .insert_health_report_override(Request::new(
             rpc::forge::InsertHealthReportOverrideRequest {
-                machine_id: Some(host_machine_id.to_string().into()),
+                machine_id: Some(host_machine_id),
                 r#override: Some(rpc::forge::HealthReportOverride {
                     report: Some(merge_hr.clone().into()),
                     mode: health_report::OverrideMode::Merge as i32,
@@ -703,7 +703,7 @@ fn hr(
 /// Loads machine snapshot
 async fn load_snapshot(
     env: &TestEnv,
-    host_machine_id: &forge_uuid::machine::MachineId,
+    host_machine_id: &::rpc::uuid::machine::MachineId,
 ) -> Result<crate::model::machine::ManagedHostStateSnapshot, Box<dyn std::error::Error>> {
     let mut txn = env.pool.begin().await?;
     let host_health_config = HostHealthConfig {
@@ -723,9 +723,9 @@ async fn load_snapshot(
 }
 
 /// Calls get_machine api
-async fn get_machine(env: &TestEnv, machine_id: &forge_uuid::machine::MachineId) -> rpc::Machine {
+async fn get_machine(env: &TestEnv, machine_id: &::rpc::uuid::machine::MachineId) -> rpc::Machine {
     env.api
-        .get_machine(Request::new(machine_id.to_string().into()))
+        .get_machine(Request::new(*machine_id))
         .await
         .unwrap()
         .into_inner()
@@ -733,12 +733,12 @@ async fn get_machine(env: &TestEnv, machine_id: &forge_uuid::machine::MachineId)
 
 async fn load_host_health_history(
     env: &TestEnv,
-    machine_id: &forge_uuid::machine::MachineId,
+    machine_id: &::rpc::uuid::machine::MachineId,
 ) -> Vec<::rpc::forge::MachineHealthHistoryRecord> {
     env.api
         .find_machine_health_histories(tonic::Request::new(
             ::rpc::forge::MachineHealthHistoriesRequest {
-                machine_ids: vec![machine_id.to_string().into()],
+                machine_ids: vec![*machine_id],
             },
         ))
         .await
@@ -758,11 +758,11 @@ fn aggregate(m: rpc::Machine) -> Option<health_report::HealthReport> {
 /// Loads aggregate health via FindMachinesByIds api
 async fn load_health_via_find_machines_by_ids(
     env: &TestEnv,
-    machine_id: &forge_uuid::machine::MachineId,
+    machine_id: &::rpc::uuid::machine::MachineId,
 ) -> Option<health_report::HealthReport> {
     env.api
         .find_machines_by_ids(Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![machine_id.to_string().into()],
+            machine_ids: vec![*machine_id],
             include_history: false,
         }))
         .await
@@ -777,11 +777,11 @@ async fn load_health_via_find_machines_by_ids(
 /// Loads aggregate health via FindMachines api
 async fn load_health_via_find_machines(
     env: &TestEnv,
-    machine_id: &forge_uuid::machine::MachineId,
+    machine_id: &::rpc::uuid::machine::MachineId,
 ) -> Option<health_report::HealthReport> {
     env.api
         .find_machines(Request::new(rpc::forge::MachineSearchQuery {
-            id: Some(machine_id.to_string().into()),
+            id: Some(*machine_id),
             fqdn: None,
             search_config: Some(rpc::forge::MachineSearchConfig {
                 include_dpus: true,

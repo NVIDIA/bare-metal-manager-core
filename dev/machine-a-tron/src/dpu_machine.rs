@@ -15,8 +15,8 @@ use crate::machine_state_machine::{LiveState, MachineStateMachine, OsImage, Pers
 use crate::tui::HostDetails;
 use crate::{MachineConfig, config::MachineATronContext, saturating_add_duration_to_instant};
 use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult};
-use rpc::MachineId;
 use rpc::forge::IdentifySerialRequest;
+use rpc::uuid::machine::MachineId;
 
 #[derive(Debug)]
 pub struct DpuMachine {
@@ -195,7 +195,7 @@ impl DpuMachine {
             _ = tokio::time::sleep_until(self.sleep_until.into()) => {},
             _ = self.api_refresh_interval.tick() => {
                 // Wake up to refresh the API state and UI
-                if let Some(machine_id) = self.live_state.read().unwrap().observed_machine_id.clone() {
+                if let Some(machine_id) = self.live_state.read().unwrap().observed_machine_id {
                     let actor_message_tx = actor_message_tx.clone();
                     self.app_context.api_throttler.get_machine(machine_id, move |machine| {
                         if let Some(machine) = machine {
@@ -358,12 +358,7 @@ impl DpuMachineHandle {
     }
 
     pub async fn observed_machine_id(&self) -> Option<MachineId> {
-        self.0
-            .live_state
-            .read()
-            .unwrap()
-            .observed_machine_id
-            .clone()
+        self.0.live_state.read().unwrap().observed_machine_id
     }
 
     pub async fn wait_until_machine_up_with_api_state(

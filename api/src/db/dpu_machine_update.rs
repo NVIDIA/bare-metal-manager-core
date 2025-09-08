@@ -8,7 +8,7 @@ use crate::{
     },
     model::machine::{ManagedHostState, ManagedHostStateSnapshot, ReprovisionRequest},
 };
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 use sqlx::{Acquire, FromRow, PgConnection};
 use std::collections::HashMap;
 use std::ops::DerefMut;

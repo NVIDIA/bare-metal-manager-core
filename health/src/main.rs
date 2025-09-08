@@ -17,9 +17,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ::rpc::common::MachineId;
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use ::rpc::uuid::machine::MachineId;
 use cfg::{ConcurrencyOption, Options};
 use chrono::{DateTime, Utc};
 use eyre::Result;
@@ -184,7 +184,7 @@ pub async fn get_machine_bmc_data(
     histogram: Histogram<f64>,
 ) -> Result<libredfish::Endpoint, HealthError> {
     let request = rpc::BmcMetaDataGetRequest {
-        machine_id: Some(id.clone()),
+        machine_id: Some(*id),
         bmc_endpoint_request: None,
         role: rpc::UserRoles::Administrator.into(),
         request_type: rpc::BmcRequestType::Ipmi.into(),
@@ -273,10 +273,9 @@ pub async fn scrape_single_machine(
     provider: SdkMeterProvider,
     logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
 ) {
-    let Some(id) = machine.id.as_ref() else {
+    let Some(machine_id) = machine.id.as_ref() else {
         return;
     };
-    let machine_id = id.id.as_str();
 
     let machine_serial = machine
         .discovery_info
@@ -308,7 +307,7 @@ pub async fn scrape_single_machine(
         // initial empty hash, get host bmc creds from api-server
         let endpoint = match get_machine_bmc_data(
             grpc_client.clone(),
-            id,
+            machine_id,
             get_bmc_metadata_latency_histogram.clone(),
         )
         .await
@@ -449,7 +448,7 @@ pub async fn scrape_single_machine(
 
 async fn scrape_machines_concurrent(
     machines: Arc<Mutex<Vec<Machine>>>,
-    machines_map: Arc<Mutex<HashMap<String, Arc<Mutex<HealthHashData>>>>>,
+    machines_map: Arc<Mutex<HashMap<MachineId, Arc<Mutex<HealthHashData>>>>>,
     mut grpc_clients: Vec<ForgeApiClient>,
     get_bmc_metadata_latency_histogram: Histogram<f64>,
     provider: SdkMeterProvider,
@@ -474,15 +473,11 @@ async fn scrape_machines_concurrent(
 
                     match machine {
                         Some(machine) => {
-                            let Some(machine_id) = machine.id.as_ref() else {
+                            let Some(machine_id) = machine.id else {
                                 continue;
                             };
-                            let pending_health_data = map
-                                .lock()
-                                .await
-                                .entry(machine_id.to_string())
-                                .or_default()
-                                .clone();
+                            let pending_health_data =
+                                map.lock().await.entry(machine_id).or_default().clone();
                             scrape_single_machine(
                                 &machine,
                                 pending_health_data.lock().await,
@@ -535,7 +530,7 @@ pub async fn scrape_machines_health(
     let mut grpc_clients: Vec<ForgeApiClient> =
         (0..concurrency).map(|_| grpc_client.clone()).collect();
 
-    let machines_map: Arc<Mutex<HashMap<String, Arc<Mutex<HealthHashData>>>>> =
+    let machines_map: Arc<Mutex<HashMap<MachineId, Arc<Mutex<HealthHashData>>>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
     // build a meter for carbide api response time
@@ -583,10 +578,10 @@ pub async fn scrape_machines_health(
         }
 
         // Only keep active machines in machines_map
-        let active_ids: HashSet<String> = machines
+        let active_ids: HashSet<&MachineId> = machines
             .machines
             .iter()
-            .filter_map(|m| m.id.as_ref().map(|machine_id| machine_id.id.clone()))
+            .filter_map(|m| m.id.as_ref())
             .collect();
 
         {
@@ -693,8 +688,8 @@ fn attached_dpu_machine_id_for_primary_interface(machine: &Machine) -> Option<&M
     let machine_id = machine
         .id
         .as_ref()
-        .map(|id| id.id.as_str())
-        .unwrap_or("<unknown>");
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "<unknown>".to_string());
     let Some(primary_interface) = machine.interfaces.iter().find(|i| i.primary_interface) else {
         tracing::warn!(%machine_id, interfaces = ?machine.interfaces, "machine has no primary interface, health data will not include DPU info.");
         return None;

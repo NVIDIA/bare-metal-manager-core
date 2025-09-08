@@ -14,10 +14,10 @@ use crate::cfg::cli_options::{
     ShowMachineValidationRunsOptions, ShowMachineValidationTestOptions,
 };
 use crate::rpc::ApiClient;
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
 use std::fmt::Write;
-use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 pub async fn external_config_show(
     api_client: &ApiClient,

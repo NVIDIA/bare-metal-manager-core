@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 use sqlx::{FromRow, PgConnection};
 
 use crate::{CarbideResult, db::DatabaseError};
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 
 #[derive(FromRow, Debug, sqlx::Encode)]
 pub struct TpmCaCert {

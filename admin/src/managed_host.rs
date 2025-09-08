@@ -13,7 +13,8 @@
 use crate::cfg::cli_options::{ShowManagedHost, ShowPowerOptions, SortField, UpdatePowerOptions};
 use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv};
-use ::rpc::{Machine, MachineId};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::{Machine, uuid::machine::MachineId};
 use prettytable::{Cell, Row, Table};
 use rpc::forge::PowerOptions;
 use serde::Serialize;
@@ -21,7 +22,6 @@ use std::collections::HashSet;
 use std::fmt::Write;
 use std::pin::Pin;
 use tracing::warn;
-use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 const UNKNOWN: &str = "Unknown";
 
@@ -452,32 +452,17 @@ pub async fn handle_show(
     // Use tracing::warn for this so its both a little more
     // noticeable, and a little more annoying/naggy. If people
     // complain, it means its working.
-    if args.all && args.machine.is_empty() {
+    if args.all && args.machine.is_none() {
         warn!("redundant `--all` with basic `show` is deprecated. just do `mh show`")
     }
 
-    let show_all_machines = args.all || args.machine.is_empty();
+    let show_all_machines = args.all || args.machine.is_none();
 
-    let machines: Vec<Machine> = if show_all_machines {
-        // Get all machines: DPUs will arrive as part of this request
-        api_client
-            .get_all_machines(
-                rpc::forge::MachineSearchConfig {
-                    include_dpus: true,
-                    only_maintenance: args.fix,
-                    only_quarantine: args.quarantine,
-                    include_predicted_host: true,
-                    ..Default::default()
-                },
-                page_size,
-            )
-            .await?
-            .machines
-    } else {
+    let machines: Vec<Machine> = if let Some(machine_id) = args.machine {
         // Get a single managed host: We need to find associated DPU IDs along with the machine ID,
         // so make a few RPC fetches to get everything in the managed host.
         // Start by getting the requested machine
-        let requested_machine = api_client.get_machine(args.machine).await?;
+        let requested_machine = api_client.get_machine(machine_id).await?;
 
         if !requested_machine.associated_dpu_machine_ids.is_empty() {
             // If requested machine is a host, get the DPUs too.
@@ -489,7 +474,7 @@ pub async fn handle_show(
         } else if let Some(ref host_id) = requested_machine.associated_host_machine_id {
             // the requested machine is a DPU, get the host machine...
             if let Some(host_machine) = api_client
-                .get_machines_by_ids(&[host_id.clone()])
+                .get_machines_by_ids(&[*host_id])
                 .await?
                 .machines
                 .into_iter()
@@ -509,12 +494,27 @@ pub async fn handle_show(
             // Host has no associated DPUs nor associated host, it must not be completely set up.
             vec![requested_machine]
         }
+    } else {
+        // Get all machines: DPUs will arrive as part of this request
+        api_client
+            .get_all_machines(
+                rpc::forge::MachineSearchConfig {
+                    include_dpus: true,
+                    only_maintenance: args.fix,
+                    only_quarantine: args.quarantine,
+                    include_predicted_host: true,
+                    ..Default::default()
+                },
+                page_size,
+            )
+            .await?
+            .machines
     };
 
     // Find connected devices for all machines
     let dpu_machine_ids = machines
         .iter()
-        .filter_map(|m| m.id.clone())
+        .filter_map(|m| m.id)
         .collect::<Vec<MachineId>>();
 
     let connected_devices = api_client
@@ -569,9 +569,7 @@ pub async fn handle_power_options_show(
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     if let Some(machine_id) = args.machine {
-        let mut power_options = api_client
-            .get_power_options(vec![machine_id.clone()])
-            .await?;
+        let mut power_options = api_client.get_power_options(vec![machine_id]).await?;
         if power_options.len() != 1 {
             return Err(CarbideCliError::GenericError(format!(
                 "More than one entry is received for id: {machine_id}; Data: {power_options:?}"
@@ -603,7 +601,6 @@ pub async fn handle_power_options_show_one(
         "Host ID",
         power_option
             .host_id
-            .clone()
             .map(|x| x.to_string())
             .unwrap_or_default()
     )?;
@@ -716,7 +713,6 @@ pub async fn handle_power_options_show_all(
         table.add_row(prettytable::row![
             power_option
                 .host_id
-                .clone()
                 .map(|x| x.to_string())
                 .unwrap_or_default(),
             format!(

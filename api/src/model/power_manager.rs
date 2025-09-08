@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use crate::model::machine::{DpuInitState, ManagedHostState, ManagedHostStateSnapshot};
@@ -119,9 +119,7 @@ impl From<PowerOptions> for ::rpc::forge::PowerOptions {
             desired_state_updated_at: Some(value.desired_power_state_version.timestamp().into()),
             actual_state: rpc::forge::PowerState::from(value.last_fetched_power_state) as i32,
             actual_state_updated_at: Some(value.last_fetched_updated_at.into()),
-            host_id: Some(rpc::common::MachineId {
-                id: value.host_id.to_string(),
-            }),
+            host_id: Some(value.host_id),
             desired_power_state_version: value.desired_power_state_version.to_string(),
             next_power_state_fetch_at: Some(value.last_fetched_next_try_at.into()),
             off_counter: value.last_fetched_off_counter,

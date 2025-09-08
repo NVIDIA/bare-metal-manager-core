@@ -18,9 +18,9 @@ use crate::cfg::storage::{
     UpdateStorageVolume,
 };
 use crate::rpc::ApiClient;
+use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge as forgerpc;
-use utils::admin_cli::CarbideCliResult;
-use utils::admin_cli::OutputFormat;
 
 fn str_to_rpc_uuid(id: &str) -> CarbideCliResult<::rpc::common::Uuid> {
     let id: ::rpc::common::Uuid = uuid::Uuid::parse_str(id)

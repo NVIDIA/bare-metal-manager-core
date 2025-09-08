@@ -1,17 +1,17 @@
 use std::time::Duration;
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-
 use crate::containerd::container;
 use crate::containerd::container::ContainerSummary;
+use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
+use ::rpc::uuid::machine::MachineId;
 
 #[derive(Debug, Clone)]
 pub struct MachineInventoryUpdaterConfig {
     pub dpu_agent_version: String,
     /// How often to update the inventory
     pub update_inventory_interval: Duration,
-    pub machine_id: String,
+    pub machine_id: MachineId,
     pub forge_api: String,
     pub forge_client_config: ForgeClientConfig,
 }
@@ -28,7 +28,7 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
 
     tracing::trace!("Containers: {:?}", containers);
 
-    let machine_id = config.machine_id.clone();
+    let machine_id = config.machine_id;
 
     let mut result: Vec<ContainerSummary> = Vec::new();
 
@@ -66,7 +66,7 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
     };
 
     let agent_report = rpc::DpuAgentInventoryReport {
-        machine_id: Some(::rpc::common::MachineId { id: machine_id }),
+        machine_id: Some(machine_id),
         inventory: Some(inventory),
     };
 

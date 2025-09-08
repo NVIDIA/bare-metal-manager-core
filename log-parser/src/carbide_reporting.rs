@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 use crate::Event;
-use ::rpc::common::MachineId;
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig, ForgeClientT};
+use ::rpc::uuid::machine::MachineId;
 use forge_tls::client_config::ClientCert;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
@@ -118,9 +118,7 @@ async fn send_one_report(
     }
 
     let request = tonic::Request::new(rpc::HardwareHealthReport {
-        machine_id: Some(MachineId {
-            id: machine_id.to_string(),
-        }),
+        machine_id: MachineId::from_str(machine_id).ok(),
         report: Some(report.clone().into()),
     });
     client

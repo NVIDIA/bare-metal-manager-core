@@ -18,6 +18,7 @@ use axum::response::{Html, IntoResponse, Response};
 use http::HeaderMap;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
+use rpc::uuid::machine::MachineId;
 use serde::Deserialize;
 use std::sync::Arc;
 use url::Url;
@@ -137,7 +138,7 @@ pub async fn query(
 
     // Informational only. The data is not used for accessing the BMC
     browser.machine_id = match find_machine_id(state.clone(), bmc_ip).await {
-        Ok(Some(machine_id)) => machine_id.id,
+        Ok(Some(machine_id)) => machine_id.to_string(),
         Ok(None) => String::new(),
         Err(err) => {
             tracing::error!(%err, url = browser.url, "find_machine_id");
@@ -248,7 +249,7 @@ pub async fn query(
 async fn find_machine_id(
     api: Arc<Api>,
     bmc_ip: std::net::IpAddr,
-) -> Result<Option<rpc::common::MachineId>, tonic::Status> {
+) -> Result<Option<MachineId>, tonic::Status> {
     let machines = super::machine::fetch_machines(api, true, false).await?;
 
     for machine in machines.machines {

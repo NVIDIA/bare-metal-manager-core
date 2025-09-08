@@ -19,13 +19,13 @@ use crate::{
         },
     },
 };
+use ::rpc::uuid::machine::MachineId;
 use async_trait::async_trait;
 use common::api_fixtures::create_test_env;
 use figment::{
     Figment,
     providers::{Format, Toml},
 };
-use forge_uuid::machine::MachineId;
 use sqlx::PgConnection;
 use std::{
     collections::{HashMap, HashSet},

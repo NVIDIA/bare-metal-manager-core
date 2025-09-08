@@ -19,8 +19,8 @@ use crate::model::machine::ManagedHostStateSnapshot;
 use crate::model::machine::ReprovisionState;
 use crate::tests::common::api_fixtures::instance::TestInstanceBuilder;
 use crate::tests::common::api_fixtures::{Api, TestEnv, TestMachine};
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::instance::InstanceId;
+use ::rpc::uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -70,7 +70,7 @@ impl TestManagedHost {
     pub fn new_dpu_reprovision_state(&self, state: ReprovisionState) -> ManagedHostState {
         ManagedHostState::DPUReprovision {
             dpu_states: crate::model::machine::DpuReprovisionStates {
-                states: HashMap::from([(*self.dpu().machine_id(), state)]),
+                states: HashMap::from([(self.dpu().id, state)]),
             },
         }
     }
@@ -93,7 +93,7 @@ impl TestManagedHost {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 dpu_states: crate::model::machine::DpuReprovisionStates {
-                    states: HashMap::from([(*self.dpu().machine_id(), state)]),
+                    states: HashMap::from([(self.dpu().id, state)]),
                 },
             },
         }

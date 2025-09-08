@@ -21,8 +21,8 @@ use crate::model::{
 };
 use crate::{db, resource_pool};
 use ::rpc::errors::RpcDataConversionError;
+use ::rpc::uuid::machine::MachineId;
 use config_version::ConfigVersionParseError;
-use forge_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use tonic::Status;
 
@@ -227,8 +227,8 @@ fn test_carbide_error() {
     );
 }
 
-impl From<::measured_boot::Error> for CarbideError {
-    fn from(value: ::measured_boot::Error) -> Self {
+impl From<::rpc::measured_boot::Error> for CarbideError {
+    fn from(value: ::rpc::measured_boot::Error) -> Self {
         CarbideError::internal(value.to_string())
     }
 }

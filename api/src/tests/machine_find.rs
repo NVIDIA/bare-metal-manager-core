@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use ::rpc::uuid::machine::MachineType;
 use data_encoding::BASE32_DNSSEC;
-use forge_uuid::machine::MachineType;
 use std::net::IpAddr;
 
 use crate::model::hardware_info::HardwareInfo;
@@ -18,9 +18,9 @@ use crate::tests::sku::tests::FULL_SKU_DATA;
 use crate::{
     db,
     db::{ObjectFilter, machine::MachineSearchConfig},
-    model::machine::machine_id::{host_id_from_dpu_hardware_info, try_parse_machine_id},
+    model::machine::machine_id::host_id_from_dpu_hardware_info,
 };
-use forge_uuid::machine::{MACHINE_ID_PREFIX_LENGTH, MachineId};
+use ::rpc::uuid::machine::{MACHINE_ID_PREFIX_LENGTH, MachineId};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use sha2::{Digest, Sha256};
@@ -44,8 +44,7 @@ use rpc::forge::{
 async fn test_find_machine_by_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
     let mut txn = env.pool.begin().await.unwrap();
 
     let machine = db::machine::find_by_query(&mut txn, &dpu_machine_id.to_string())
@@ -75,8 +74,7 @@ async fn test_find_machine_by_id(pool: sqlx::PgPool) {
 async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine =
@@ -140,8 +138,7 @@ async fn test_find_machine_with_sku(pool: sqlx::PgPool) {
 async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = db::machine::find_one(
@@ -182,8 +179,7 @@ async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
 async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = db::machine::find_one(
@@ -220,8 +216,7 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
 async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine =
         db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -244,10 +239,7 @@ async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
         .machines;
     let machine = machines.remove(0);
     assert!(machines.is_empty());
-    assert_eq!(
-        machine.id.clone().unwrap().to_string(),
-        dpu_machine_id.to_string()
-    );
+    assert_eq!(machine.id.unwrap().to_string(), dpu_machine_id.to_string());
 
     // We shouldn't find a machine that doesn't exist
     let fqdn2 = format!("a{fqdn}");
@@ -327,8 +319,7 @@ async fn test_find_machine_ids(pool: sqlx::PgPool) {
 
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
     let host_machine_id = host_id_from_dpu_hardware_info(&HardwareInfo::from(
         host_config.get_and_assert_single_dpu(),
     ))
@@ -395,8 +386,7 @@ async fn test_find_dpu_machine_ids(pool: sqlx::PgPool) {
 
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
     let host_machine_id = host_id_from_dpu_hardware_info(&HardwareInfo::from(
         host_config.get_and_assert_single_dpu(),
     ))
@@ -421,8 +411,7 @@ async fn test_find_predicted_host_machine_ids(pool: sqlx::PgPool) {
 
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
     let host_machine_id = host_id_from_dpu_hardware_info(&HardwareInfo::from(
         host_config.get_and_assert_single_dpu(),
     ))
@@ -444,8 +433,7 @@ async fn test_find_host_machine_ids_when_predicted(pool: sqlx::PgPool) {
 
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let _dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+    let _dpu_machine_id = create_dpu_machine(&env, &host_config).await;
     let mut txn = env.pool.begin().await.unwrap();
 
     let machine_ids = db::machine::find_machine_ids(&mut txn, config)
@@ -544,9 +532,9 @@ async fn test_find_machines_by_ids_over_max(pool: sqlx::PgPool) {
             let serial = format!("machine_{index}");
             let hash: [u8; 32] = Sha256::new_with_prefix(serial.as_bytes()).finalize().into();
             let encoded = BASE32_DNSSEC.encode(&hash);
-            ::rpc::common::MachineId {
-                id: format!("{}s{}", MachineType::Dpu.id_prefix(), encoded),
-            }
+            format!("{}s{}", MachineType::Dpu.id_prefix(), encoded)
+                .parse()
+                .unwrap()
         })
         .collect();
     //build request
@@ -616,7 +604,7 @@ async fn test_machine_capabilities_response(
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
             include_history: false,
-            machine_ids: vec![mh.host_snapshot.id.to_string().into()],
+            machine_ids: vec![mh.host_snapshot.id],
         }))
         .await
         .unwrap()
@@ -712,7 +700,7 @@ async fn test_find_machine_by_instance_type(
 
     // Confirm that what we found is the right
     // machine
-    assert_eq!(machines[0].id, tmp_machine_id.to_string());
+    assert_eq!(machines[0], tmp_machine_id);
 
     Ok(())
 }

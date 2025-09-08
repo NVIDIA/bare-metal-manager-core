@@ -25,12 +25,12 @@
 
 use crate::cfg::measurement::parse_pcr_register_values;
 use crate::measurement::global::cmds::IdNameIdentifier;
-use clap::Parser;
-use forge_uuid::measured_boot::{
+use ::rpc::measured_boot::pcr::PcrRegisterValue;
+use ::rpc::measured_boot::records::MeasurementBundleState;
+use ::rpc::uuid::measured_boot::{
     MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId,
 };
-use measured_boot::pcr::PcrRegisterValue;
-use measured_boot::records::MeasurementBundleState;
+use clap::Parser;
 
 /// CmdBundle provides a container for the `bundle` subcommand, which itself
 /// contains other subcommands for working with profiles.

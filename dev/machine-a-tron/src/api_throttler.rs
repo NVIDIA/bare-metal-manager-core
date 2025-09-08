@@ -1,6 +1,7 @@
 use crate::api_client::ApiClient;
 use crate::api_throttler::ApiCommand::GetMachine;
-use rpc::{Machine, MachineId};
+use rpc::Machine;
+use rpc::uuid::machine::MachineId;
 use std::collections::{HashMap, HashSet};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Interval;
@@ -14,7 +15,7 @@ pub fn run(mut interval: Interval, api_client: ApiClient) -> ApiThrottler {
     tokio::task::Builder::new()
         .name("ApiThrottler")
         .spawn(async move {
-            let mut get_machine_callers: HashMap<String, Vec<oneshot::Sender<Option<Machine>>>> =
+            let mut get_machine_callers: HashMap<MachineId, Vec<oneshot::Sender<Option<Machine>>>> =
                 HashMap::new();
             loop {
                 tokio::select! {
@@ -34,16 +35,15 @@ pub fn run(mut interval: Interval, api_client: ApiClient) -> ApiThrottler {
                             let mut machines_by_id = HashMap::new();
                             for chunk in machine_ids.chunks(100) {
                                 let machines = api_client.get_machines(
-                                    chunk,
-
+                                    chunk.iter().map(|id| **id).collect(),
                                 )
                                 .await
                                 .inspect_err(|e| tracing::error!("API failure getting machines: {e}")).unwrap_or_default();
 
                                 // Index the result by ID
                                 for m in machines {
-                                    if let Some(id) = m.id.as_ref() {
-                                        machines_by_id.insert(id.id.clone(), m);
+                                    if let Some(id) = m.id {
+                                        machines_by_id.insert(id, m);
                                     }
                                 }
                             }
@@ -67,7 +67,7 @@ pub fn run(mut interval: Interval, api_client: ApiClient) -> ApiThrottler {
                     }
                     Some(cmd) = control_rx.recv() => {
                         match cmd {
-                            ApiCommand::GetMachine(machine_id, reply) => get_machine_callers.entry(machine_id.id).or_default().push(reply),
+                            ApiCommand::GetMachine(machine_id, reply) => get_machine_callers.entry(machine_id).or_default().push(reply),
                         };
                     }
                 }

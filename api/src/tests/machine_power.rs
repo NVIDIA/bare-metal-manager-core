@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use rpc::MachineId;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{MaintenanceOperation, MaintenanceRequest, PowerOptionUpdateRequest};
 
@@ -40,18 +39,14 @@ async fn test_power_manager_create_entry_on_host_creation(
     env.api
         .set_maintenance(tonic::Request::new(MaintenanceRequest {
             operation: MaintenanceOperation::Enable as i32,
-            host_id: Some(MachineId {
-                id: host_machine_id.to_string(),
-            }),
+            host_id: Some(host_machine_id),
             reference: Some("testing".to_string()),
         }))
         .await?;
 
     env.api
         .update_power_option(tonic::Request::new(PowerOptionUpdateRequest {
-            machine_id: Some(MachineId {
-                id: host_machine_id.to_string(),
-            }),
+            machine_id: Some(host_machine_id),
             power_state: rpc::forge::PowerState::Off as i32,
         }))
         .await?;
@@ -87,9 +82,7 @@ async fn test_power_manager_update_fail_since_no_maintenance_set(
     let res = env
         .api
         .update_power_option(tonic::Request::new(PowerOptionUpdateRequest {
-            machine_id: Some(MachineId {
-                id: host_machine_id.to_string(),
-            }),
+            machine_id: Some(host_machine_id),
             power_state: rpc::forge::PowerState::Off as i32,
         }))
         .await;
@@ -106,7 +99,7 @@ async fn test_power_manager_update_fail_since_no_maintenance_set(
 }
 
 pub async fn update_next_try_now(
-    host_id: &forge_uuid::machine::MachineId,
+    host_id: &::rpc::uuid::machine::MachineId,
     txn: &mut sqlx::PgConnection,
 ) {
     let query = "UPDATE power_options SET 

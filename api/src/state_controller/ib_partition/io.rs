@@ -31,7 +31,7 @@ use crate::{
         metrics::NoopMetricsEmitter,
     },
 };
-use forge_uuid::infiniband::IBPartitionId;
+use ::rpc::uuid::infiniband::IBPartitionId;
 
 /// State Controller IO implementation for Infiniband Partitions
 #[derive(Default, Debug)]

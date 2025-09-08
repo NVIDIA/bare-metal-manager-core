@@ -36,6 +36,7 @@ use opentelemetry::metrics::Meter;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use report::HealthCheck;
 use rpc::forge_api_client::ForgeApiClient;
+use rpc::uuid::machine::MachineId;
 use sha2::{Digest, Sha256};
 use tokio::sync::MutexGuard;
 
@@ -84,7 +85,7 @@ pub struct HealthHashData {
 /// must be `&'static str`s. But we want machine_id's to be in the meter names, which are not static.
 /// This converts a `&str` to `&'static str` by "leaking" its memory a maximum of one time per unique
 /// machine ID, storing it in a global HashMap so we only leak it once.
-fn get_static_machine_id_str(machine_id: &str) -> &'static str {
+fn get_static_machine_id_str(machine_id: &MachineId) -> &'static str {
     STATIC_MACHINE_ID_STRS
         .lock()
         .unwrap()
@@ -146,7 +147,7 @@ pub async fn get_dpu_metrics(redfish: Box<dyn Redfish>) -> Result<Thermal, Healt
 fn export_temperatures(
     meter: Meter,
     temperatures: Vec<Temperature>,
-    machine_id: &str,
+    machine_id: &MachineId,
     is_dpu: bool,
 ) -> Result<(), HealthError> {
     let gauge_name = if is_dpu {
@@ -179,7 +180,7 @@ fn export_temperatures(
 fn export_leak_sensors(
     meter: Meter,
     leak_detectors: Vec<LeakDetector>,
-    machine_id: &str,
+    machine_id: &MachineId,
     machine_serial: Option<String>,
 ) -> Result<(), HealthError> {
     let leak_detector_gauge = meter
@@ -210,7 +211,7 @@ fn export_leak_sensors(
     Ok(())
 }
 
-fn export_fans(meter: Meter, fans: Vec<Fan>, machine_id: &str) -> Result<(), HealthError> {
+fn export_fans(meter: Meter, fans: Vec<Fan>, machine_id: &MachineId) -> Result<(), HealthError> {
     let fan_sensors = meter
         .f64_gauge("hw.fan.speed")
         .with_description("Fans for this hardware")
@@ -238,7 +239,7 @@ fn export_fans(meter: Meter, fans: Vec<Fan>, machine_id: &str) -> Result<(), Hea
 fn export_voltages(
     meter: Meter,
     voltages: Option<Vec<Voltages>>,
-    machine_id: &str,
+    machine_id: &MachineId,
 ) -> Result<(), HealthError> {
     if voltages.is_none() {
         return Ok(());
@@ -268,7 +269,7 @@ fn export_power_supplies(
     meter: Meter,
     power_supplies: Option<Vec<PowerSupply>>,
     power_state: PowerState,
-    machine_id: &str,
+    machine_id: &MachineId,
 ) -> Result<(), HealthError> {
     if power_supplies.is_none() {
         return Ok(());
@@ -347,7 +348,7 @@ fn export_power_control(
     meter: Meter,
     power_control: Vec<PowerControl>,
     power_state: PowerState,
-    machine_id: &str,
+    machine_id: &MachineId,
 ) -> Result<(), HealthError> {
     let power_state_value: i64 = match power_state {
         PowerState::On => 1,
@@ -448,7 +449,7 @@ fn export_power_control(
 fn export_gpu_sensors(
     meter: Meter,
     gpu_sensors: Vec<GPUSensors>,
-    machine_id: &str,
+    machine_id: &MachineId,
 ) -> Result<(), HealthError> {
     let [mut voltage, mut temp, mut power, mut energy] = [
         ("voltage", "V"),
@@ -498,7 +499,7 @@ fn export_localstorage(
     meter: Meter,
     localstorage: Vec<Drives>,
     power_state: PowerState,
-    machine_id: &str,
+    machine_id: &MachineId,
 ) -> Result<(), HealthError> {
     let power_state_value: i64 = match power_state {
         PowerState::On => 1,
@@ -530,7 +531,7 @@ fn export_otel_logs(
     logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
     firmwares: Vec<SoftwareInventory>,
     logs: Vec<LogEntry>,
-    machine_id: &str,
+    machine_id: &MachineId,
     description: &str,
 ) -> Result<(), HealthError> {
     let dt = SystemTime::now();
@@ -612,7 +613,7 @@ pub struct ExportedHealthMetrics<'a> {
     pub last_sel_count: usize,
     pub last_recorded_ts: i64,
     pub description: &'a String,
-    pub machine_id: &'a str,
+    pub machine_id: &'a MachineId,
     pub machine_serial: Option<String>,
 }
 
@@ -703,7 +704,7 @@ pub async fn scrape_machine_health(
     client: ForgeApiClient,
     provider: SdkMeterProvider,
     logger: Arc<dyn Logger<LogRecord = opentelemetry_sdk::logs::SdkLogRecord> + Send + Sync>,
-    machine_id: &str,
+    machine_id: &MachineId,
     machine_serial: Option<String>,
     health_data: &MutexGuard<'_, HealthHashData>,
 ) -> Result<(String, usize, i64, i64, bool, bool), HealthError> {
@@ -796,7 +797,7 @@ pub async fn scrape_machine_health(
 async fn export_health_report(
     client: ForgeApiClient,
     health: &HardwareHealth,
-    machine_id: &str,
+    machine_id: &MachineId,
     model: String,
 ) -> Result<(), HealthError> {
     let mut report = HealthReport {
@@ -923,9 +924,7 @@ async fn export_health_report(
     }
 
     let request = rpc::forge::HardwareHealthReport {
-        machine_id: Some(rpc::MachineId {
-            id: machine_id.to_string(),
-        }),
+        machine_id: Some(*machine_id),
         report: Some(report.into()),
     };
 

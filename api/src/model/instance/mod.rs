@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 
 pub mod config;
 pub mod snapshot;

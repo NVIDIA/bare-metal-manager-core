@@ -48,7 +48,7 @@ impl From<forgerpc::Machine> for Row {
         };
 
         Row {
-            id: machine.id.unwrap_or_default().id,
+            id: machine.id.map(|id| id.to_string()).unwrap_or_default(),
             dpu_type: machine
                 .discovery_info
                 .as_ref()

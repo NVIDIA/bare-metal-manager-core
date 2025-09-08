@@ -18,7 +18,7 @@ use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials}
 use std::net::IpAddr;
 use utils::cmd::{CmdError, CmdResult, TokioCmd};
 
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 
 #[async_trait]
 pub trait IPMITool: Send + Sync + 'static {

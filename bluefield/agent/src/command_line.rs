@@ -15,6 +15,7 @@ use clap::Parser;
 
 use crate::network_monitor::NetworkPingerType;
 use forge_network::virtualization::VpcVirtualizationType;
+use rpc::uuid::machine::MachineId;
 
 #[derive(Parser)]
 #[clap(name = "forge-dpu-agent")]
@@ -222,7 +223,7 @@ pub struct RunOptions {
         long,
         help = "Use this machine id instead of building it from hardware enumeration. Development/testing only"
     )]
-    pub override_machine_id: Option<String>,
+    pub override_machine_id: Option<MachineId>,
     #[clap(
         long,
         help = "Use this network_virtualization_type for both service network and all instances."

@@ -30,7 +30,7 @@ use crate::{
         types::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel},
     },
 };
-use forge_uuid::infiniband::IBPartitionId;
+use ::rpc::uuid::infiniband::IBPartitionId;
 use rpc::forge::{TenantState, forge_server::Forge};
 use tonic::Request;
 

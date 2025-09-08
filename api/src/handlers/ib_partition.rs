@@ -18,7 +18,7 @@ use crate::api::{Api, log_request_data};
 use crate::db::ib_partition::{self, IBPartition, IBPartitionSearchConfig, NewIBPartition};
 use crate::db::{DatabaseError, ObjectColumnFilter};
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::infiniband::IBPartitionId;
+use ::rpc::uuid::infiniband::IBPartitionId;
 
 pub(crate) async fn create(
     api: &Api,

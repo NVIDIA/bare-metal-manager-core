@@ -1,3 +1,4 @@
+use rpc::uuid::machine::MachineId;
 use std::fmt::Write;
 use std::path::PathBuf;
 use std::process::Command;
@@ -6,7 +7,7 @@ use std::process::Command;
 // file.
 const SITE_OPERATOR: &str = "Forge-SRE (ngc-forge-sre@exchange.nvidia.com)";
 
-pub fn set_lldp_system_description(machine_id: &str) -> eyre::Result<()> {
+pub fn set_lldp_system_description(machine_id: &MachineId) -> eyre::Result<()> {
     let system_description = format!("{SITE_OPERATOR}, {machine_id}");
     let lldp_config = LldpConfig {
         system_description: Some(system_description),

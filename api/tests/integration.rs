@@ -237,7 +237,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                 let vpc_id = vpc::create(&carbide_api_addrs).await?;
                 let domain_id = domain::create(&carbide_api_addrs, "tenant-1.local").await?;
                 let segment_id = subnet::create(&carbide_api_addrs, &vpc_id, &domain_id, 10, false).await?;
-                let host_machine_id = machine_handle.observed_machine_id().expect("Should have gotten a machine ID by now").id;
+                let host_machine_id = machine_handle.observed_machine_id().expect("Should have gotten a machine ID by now");
 
                 // Create instance with phone_home enabled
                 let instance_id = instance::create(
@@ -354,8 +354,7 @@ async fn test_machine_a_tron_multidpu(
                     .await?;
                 let machine_id = machine_handle
                     .observed_machine_id()
-                    .expect("Machine ID should be set if host is ready")
-                    .to_string();
+                    .expect("Machine ID should be set if host is ready");
                 tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
                 let instance_id = instance::create(
                     carbide_api_addrs,

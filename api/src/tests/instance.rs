@@ -46,7 +46,6 @@ use crate::{
         machine::{
             CleanupState, FailureDetails, InstanceState, MachineState, MachineValidatingState,
             ManagedHostState, MeasuringState, NetworkConfigUpdateState, ValidationState,
-            machine_id::try_parse_machine_id,
         },
         metadata::Metadata,
         network_security_group::NetworkSecurityGroupStatusObservation,
@@ -71,7 +70,7 @@ use common::api_fixtures::{
     tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED},
 };
 
-use forge_uuid::{instance::InstanceId, machine::MachineId};
+use ::rpc::uuid::{instance::InstanceId, machine::MachineId};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -88,7 +87,7 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures::{
     TestEnv, create_managed_host_with_ek, update_time_params,
 };
-use forge_uuid::vpc::VpcPrefixId;
+use ::rpc::uuid::vpc::VpcPrefixId;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
@@ -197,7 +196,7 @@ async fn test_allocate_and_release_instance_impl(
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
-    assert_eq!(&fetched_instance.machine_id, mh.host().machine_id());
+    assert_eq!(&fetched_instance.machine_id, &mh.host().id);
     for (segment_index, segment_id) in segment_ids.iter().enumerate() {
         let expected_count = if segment_index < instance_interface_count {
             1
@@ -230,7 +229,7 @@ async fn test_allocate_and_release_instance_impl(
     assert!(!fetched_instance.observations.network.is_empty());
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
-    let _ = Instance::use_custom_ipxe_on_next_boot(mh.host().machine_id(), false, &mut txn).await;
+    let _ = Instance::use_custom_ipxe_on_next_boot(&mh.host().id, false, &mut txn).await;
     let snapshot = mh.snapshot(&mut txn).await;
     let fetched_instance = snapshot.instance.unwrap();
     txn.commit().await.unwrap();
@@ -339,7 +338,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     txn.commit().await.unwrap();
 
     let device_locator = host_machine
-        .get_device_locator_for_dpu_id(mh.dpu().machine_id())
+        .get_device_locator_for_dpu_id(&mh.dpu().id)
         .unwrap();
     let tinstance = mh
         .instance_builer(&env)
@@ -378,7 +377,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
-    assert_eq!(&fetched_instance.machine_id, mh.host().machine_id());
+    assert_eq!(fetched_instance.machine_id, mh.host().id);
     assert_eq!(
         InstanceAddress::count_by_segment_id(&mut txn, &segment_id)
             .await
@@ -405,7 +404,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     assert!(!fetched_instance.observations.network.is_empty());
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
-    let _ = Instance::use_custom_ipxe_on_next_boot(mh.host().machine_id(), false, &mut txn).await;
+    let _ = Instance::use_custom_ipxe_on_next_boot(&mh.host().id, false, &mut txn).await;
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
@@ -474,7 +473,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         1,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::BootingWithDiscoveryImage {
@@ -497,7 +496,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     // First DeletingManagedResource updates use_admin_network, transitions to WaitingForNetworkReconfig
     // Second to discover we are now in WaitingForNetworkReconfig
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         2,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::WaitingForNetworkReconfig,
@@ -510,7 +509,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     // now we should be in waiting for measurument state
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         2,
         ManagedHostState::PostAssignedMeasuring {
             measuring_state: MeasuringState::WaitingForMeasurements,
@@ -528,7 +527,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .await
         .unwrap();
 
-    inject_machine_measurements(&env, mh.host().machine_id().into()).await;
+    inject_machine_measurements(&env, mh.host().id).await;
 
     for _ in 0..5 {
         env.run_machine_state_controller_iteration().await;
@@ -560,7 +559,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .expect("Failed to add CA cert");
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         3,
         ManagedHostState::WaitingForCleanup {
             cleanup_state: CleanupState::HostCleanup {
@@ -581,7 +580,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     txn.commit().await.unwrap();
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         3,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -621,13 +620,13 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     persist_machine_validation_result(&env, machine_validation_result.clone()).await;
 
     let mut txn = env.db_txn().await;
-    db::machine::update_machine_validation_time(mh.host().machine_id(), &mut txn)
+    db::machine::update_machine_validation_time(&mh.host().id, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         3,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
@@ -645,7 +644,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     txn.commit().await.unwrap();
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         3,
         ManagedHostState::Ready,
     )
@@ -730,7 +729,7 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
-    assert_eq!(&fetched_instance.machine_id, mh.host().machine_id());
+    assert_eq!(fetched_instance.machine_id, mh.host().id);
 
     assert_eq!(fetched_instance.metadata.name, "test_instance_with_labels");
     assert_eq!(
@@ -771,10 +770,7 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
                 metadata
             });
 
-    assert_eq!(
-        instance_matched_by_label.machine_id.unwrap().id,
-        mh.host().machine_id().to_string()
-    );
+    assert_eq!(instance_matched_by_label.machine_id.unwrap(), mh.host().id);
 
     assert_eq!(instance_matched_by_label.metadata, Some(instance_metadata));
 }
@@ -915,7 +911,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
         .api
         .get_managed_host_network_config(tonic::Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: mh.dpu().machine_id().into(),
+                dpu_machine_id: mh.dpu().id.into(),
             },
         ))
         .await
@@ -971,7 +967,7 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
         .api
         .get_managed_host_network_config(tonic::Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: mh.dpu().machine_id().into(),
+                dpu_machine_id: mh.dpu().id.into(),
             },
         ))
         .await
@@ -1163,7 +1159,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: mh.host().machine_id().into(),
+            machine_id: mh.host().id.into(),
             instance_type_id: None,
             config: Some(config),
             metadata: Some(rpc::Metadata {
@@ -1349,7 +1345,7 @@ async fn test_instance_cloud_init_metadata(
         panic!("The value for metadata should not have been None");
     };
 
-    assert_eq!(metadata.instance_id, mh.host().machine_id().to_string());
+    assert_eq!(metadata.instance_id, mh.host().id.to_string());
 
     let (tinstance, instance) = mh
         .instance_builer(&env)
@@ -1436,12 +1432,8 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         observed_at: Utc::now(),
     };
 
-    update_instance_network_status_observation(
-        mh.dpu().machine_id(),
-        &updated_network_status,
-        &mut txn,
-    )
-    .await;
+    update_instance_network_status_observation(&mh.dpu().id, &updated_network_status, &mut txn)
+        .await;
 
     let snapshot = mh.snapshot(&mut txn).await;
 
@@ -1475,12 +1467,8 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     let mut txn = env.db_txn().await;
     updated_network_status.interfaces[0].mac_address =
         Some(MacAddress::new([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]).into());
-    update_instance_network_status_observation(
-        mh.dpu().machine_id(),
-        &updated_network_status,
-        &mut txn,
-    )
-    .await;
+    update_instance_network_status_observation(&mh.dpu().id, &updated_network_status, &mut txn)
+        .await;
 
     let snapshot = mh.snapshot(&mut txn).await;
 
@@ -1574,12 +1562,8 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             internal_uuid: None,
         });
 
-    update_instance_network_status_observation(
-        mh.dpu().machine_id(),
-        &updated_network_status,
-        &mut txn,
-    )
-    .await;
+    update_instance_network_status_observation(&mh.dpu().id, &updated_network_status, &mut txn)
+        .await;
     let snapshot = mh.snapshot(&mut txn).await;
 
     let snapshot = snapshot.instance.unwrap();
@@ -1616,13 +1600,13 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     let prefixes_query = "UPDATE machines SET network_status_observation=jsonb_strip_nulls(jsonb_set(network_status_observation, '{instance_network_observation,interfaces,0,prefixes}', 'null', false)) where id = $1 returning id";
 
     let (_,): (MachineId,) = sqlx::query_as(gateways_query)
-        .bind(mh.dpu().machine_id())
+        .bind(mh.dpu().id)
         .fetch_one(txn.deref_mut())
         .await
         .expect("Database error rewriting JSON");
 
     let (_,): (MachineId,) = sqlx::query_as(prefixes_query)
-        .bind(mh.dpu().machine_id())
+        .bind(mh.dpu().id)
         .fetch_one(txn.deref_mut())
         .await
         .expect("Database error rewriting JSON");
@@ -1655,7 +1639,6 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let host_config = env.managed_host_config();
     let dpu_machine_id = dpu::create_dpu_machine(&env, &host_config).await;
-    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
     let request = InstanceAllocationRequest {
         instance_id: InstanceId::from(uuid::Uuid::new_v4()),
         machine_id: dpu_machine_id,
@@ -1792,7 +1775,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         .api
         .get_managed_host_network_config(tonic::Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: mh.dpu().machine_id().into(),
+                dpu_machine_id: mh.dpu().id.into(),
             },
         ))
         .await
@@ -2020,7 +2003,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         .expect("Delete instance failed.");
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         1,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::BootingWithDiscoveryImage {
@@ -2044,7 +2027,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
 
     update_time_params(&env.pool, &host, 1, None).await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         1,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::BootingWithDiscoveryImage {
@@ -2503,10 +2486,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     }
     assert_eq!(
         network_config_no_addresses,
-        InstanceNetworkConfig::for_vpc_prefix_id(
-            vpc_prefix_id.into(),
-            Some(*mh.dpu().machine_id())
-        )
+        InstanceNetworkConfig::for_vpc_prefix_id(vpc_prefix_id.into(), Some(mh.dpu().id))
     );
 
     assert!(!fetched_instance.observations.network.is_empty());
@@ -2662,7 +2642,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .await
         .unwrap()
         .into_inner();
-    let vpc_id: forge_uuid::vpc::VpcId = vpc.id.as_ref().unwrap().clone().try_into().unwrap();
+    let vpc_id: ::rpc::uuid::vpc::VpcId = vpc.id.as_ref().unwrap().clone().try_into().unwrap();
     let vpc_prefix_id = create_tenant_overlay_prefix(&env, vpc_id).await;
 
     let mut txn = env.db_txn().await;
@@ -2791,7 +2771,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
 
 async fn create_tenant_overlay_prefix(
     env: &TestEnv,
-    vpc_id: forge_uuid::vpc::VpcId,
+    vpc_id: ::rpc::uuid::vpc::VpcId,
 ) -> VpcPrefixId {
     let mut txn = env.db_txn().await;
     let vpc_prefix_id = crate::db::vpc_prefix::NewVpcPrefix {
@@ -5041,7 +5021,7 @@ async fn test_instance_creation_when_reprovision_is_triggered_parallel(
     // Step 2: Trigger DPU reprovision.
     let mut txn = env.db_txn().await;
     let machine_update = DpuMachineUpdate {
-        host_machine_id: *mh.host().machine_id(),
+        host_machine_id: mh.host().id,
         dpu_machine_id: mh.dpu_ids[0],
         firmware_version: "test".to_string(),
     };

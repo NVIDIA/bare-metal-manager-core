@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use super::network::{InterfaceFunctionId, InterfaceFunctionType};
 use crate::model::ConfigValidationError;
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::infiniband::IBPartitionId;
+use ::rpc::uuid::infiniband::IBPartitionId;
 
 /// Desired infiniband configuration for an instance
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

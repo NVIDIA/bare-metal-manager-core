@@ -22,8 +22,8 @@ use crate::measured_boot::interface::profile::{
     get_machines_for_profile_id, get_machines_for_profile_name,
 };
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
-use forge_uuid::measured_boot::MeasurementSystemProfileId;
-use measured_boot::profile::MeasurementSystemProfile;
+use ::rpc::measured_boot::profile::MeasurementSystemProfile;
+use ::rpc::uuid::measured_boot::MeasurementSystemProfileId;
 use rpc::protos::measured_boot::delete_measurement_system_profile_request;
 use rpc::protos::measured_boot::list_measurement_system_profile_bundles_request;
 use rpc::protos::measured_boot::list_measurement_system_profile_machines_request;

@@ -51,7 +51,7 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .api
         .update_machine_metadata(tonic::Request::new(
             ::rpc::forge::MachineMetadataUpdateRequest {
-                machine_id: host_machine.id.clone(),
+                machine_id: host_machine.id,
                 if_version_match: None,
                 metadata: None,
             },
@@ -64,7 +64,7 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     env.api
         .update_machine_metadata(tonic::Request::new(
             ::rpc::forge::MachineMetadataUpdateRequest {
-                machine_id: host_machine.id.clone(),
+                machine_id: host_machine.id,
                 if_version_match: None,
                 metadata: Some(new_metadata.clone()),
             },
@@ -98,7 +98,7 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .api
         .update_machine_metadata(tonic::Request::new(
             ::rpc::forge::MachineMetadataUpdateRequest {
-                machine_id: host_machine.id.clone(),
+                machine_id: host_machine.id,
                 if_version_match: Some(version1.to_string()),
                 metadata: Some(new_metadata.clone()),
             },
@@ -114,7 +114,7 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     env.api
         .update_machine_metadata(tonic::Request::new(
             ::rpc::forge::MachineMetadataUpdateRequest {
-                machine_id: host_machine.id.clone(),
+                machine_id: host_machine.id,
                 if_version_match: Some(version2.to_string()),
                 metadata: Some(new_metadata.clone()),
             },
@@ -140,7 +140,7 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
             .api
             .update_machine_metadata(tonic::Request::new(
                 ::rpc::forge::MachineMetadataUpdateRequest {
-                    machine_id: host_machine.id.clone(),
+                    machine_id: host_machine.id,
                     if_version_match: None,
                     metadata: Some(invalid_metadata.clone()),
                 },

@@ -17,13 +17,13 @@
 
 use crate::db::DatabaseError;
 use crate::measured_boot::interface::common;
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
-use forge_uuid::{DbPrimaryUuid, DbTable};
-use measured_boot::pcr::PcrRegisterValue;
-use measured_boot::records::{
+use ::rpc::measured_boot::pcr::PcrRegisterValue;
+use ::rpc::measured_boot::records::{
     MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleValueRecord,
 };
+use ::rpc::uuid::machine::MachineId;
+use ::rpc::uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use ::rpc::uuid::{DbPrimaryUuid, DbTable};
 use sqlx::PgConnection;
 
 /// insert_measurement_bundle_record is a very basic insert of a

@@ -22,9 +22,9 @@ use crate::cfg::network_security_group::{
     UpdateNetworkSecurityGroup,
 };
 use crate::rpc::ApiClient;
+use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge as forgerpc;
-use utils::admin_cli::CarbideCliResult;
-use utils::admin_cli::OutputFormat;
 
 /// Produces a table for printing a non-JSON representation of a
 /// network security group to standard out.

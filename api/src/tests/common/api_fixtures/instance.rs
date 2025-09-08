@@ -23,7 +23,7 @@ use crate::model::machine::{
 };
 use crate::tests::common::api_fixtures::RpcInstance;
 use crate::tests::common::api_fixtures::TestManagedHost;
-use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
+use ::rpc::uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
 use rpc::{
     InstanceReleaseRequest, Timestamp,
     forge::{forge_server::Forge, instance_interface_config::NetworkDetails},
@@ -103,7 +103,7 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
             .api
             .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
                 instance_id: None,
-                machine_id: self.mh.host().machine_id().into(),
+                machine_id: Some(self.mh.host().id),
                 instance_type_id: None,
                 config: Some(self.config),
                 metadata: self.metadata,
@@ -309,14 +309,14 @@ pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &TestM
     // - simulate that the host's hardware is reported healthy
     super::simulate_hardware_health_report(
         env,
-        mh.host().machine_id(),
+        &mh.host().id,
         health_report::HealthReport::empty("hardware-health".to_string()),
     )
     .await;
 
     // - third run: state controller runs again, advances state to Ready
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         10,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::Ready,
@@ -340,7 +340,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
     assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         1,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::BootingWithDiscoveryImage {
@@ -377,7 +377,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &Te
     // First DeletingManagedResource updates use_admin_network, transitions to WaitingForNetworkReconfig
     // Second to discover we are now in WaitingForNetworkReconfig
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         2,
         ManagedHostState::Assigned {
             instance_state: crate::model::machine::InstanceState::WaitingForNetworkReconfig,
@@ -399,11 +399,11 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &Te
     }
 
     if env.attestation_enabled {
-        inject_machine_measurements(env, mh.host().machine_id().into()).await;
+        inject_machine_measurements(env, mh.host().id).await;
     }
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         3,
         ManagedHostState::WaitingForCleanup {
             cleanup_state: CleanupState::HostCleanup {
@@ -424,7 +424,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &Te
     txn.commit().await.unwrap();
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         3,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -464,13 +464,13 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &Te
     persist_machine_validation_result(env, machine_validation_result.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    db::machine::update_machine_validation_time(mh.host().machine_id(), &mut txn)
+    db::machine::update_machine_validation_time(&mh.host().id, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         3,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
@@ -488,7 +488,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &Te
     txn.commit().await.unwrap();
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         3,
         ManagedHostState::Ready,
     )

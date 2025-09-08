@@ -25,8 +25,8 @@ use sqlx::{Encode, PgConnection, Postgres};
 
 use crate::db::DatabaseError;
 use crate::{CarbideError, CarbideResult};
-use forge_uuid::{DbPrimaryUuid, DbTable};
-use measured_boot::pcr::PcrRegisterValue;
+use ::rpc::measured_boot::pcr::PcrRegisterValue;
+use ::rpc::uuid::{DbPrimaryUuid, DbTable};
 
 // DISCOVERY_PROFILE_ATTRS are the attributes we pull
 // from DiscoveryInfo for a given machine when

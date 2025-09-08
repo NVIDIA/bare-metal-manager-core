@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::uuid::{instance_type::InstanceTypeId, machine::MachineId};
 use ::rpc::{errors::RpcDataConversionError, forge as rpc};
 use config_version::ConfigVersion;
-use forge_uuid::{instance_type::InstanceTypeId, machine::MachineId};
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 

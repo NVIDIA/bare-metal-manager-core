@@ -17,7 +17,7 @@ use crate::bmc::{client, connection};
 use crate::config::Config;
 use crate::shutdown_handle::{ReadyHandle, ShutdownHandle};
 use crate::ssh_server::ServerMetrics;
-use forge_uuid::machine::{MachineId, MachineIdParseError};
+use ::rpc::uuid::machine::MachineId;
 use futures_util::future::join_all;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Gauge, Meter, ObservableGauge};
@@ -128,7 +128,7 @@ impl BmcConnectionStore {
                 }) {
                 machine_id
             } else {
-                let machine_id = forge_api_client
+                forge_api_client
                     .find_instances(forge::InstanceSearchQuery {
                         id: Some(rpc::Uuid {
                             value: instance_id.to_string(),
@@ -146,15 +146,6 @@ impl BmcConnectionStore {
                     .ok_or_else(|| GetConnectionError::CouldNotFindInstanceId { instance_id })?
                     .machine_id
                     .ok_or_else(|| GetConnectionError::InstanceMissingMachineId { instance_id })?
-                    .id;
-
-                machine_id.parse().map_err(|error| {
-                    GetConnectionError::InstanceHasInvalidMachineId {
-                        instance_id,
-                        machine_id,
-                        error,
-                    }
-                })?
             };
 
             self.0
@@ -184,12 +175,6 @@ pub enum GetConnectionError {
     CouldNotFindInstanceId { instance_id: Uuid },
     #[error("Instance {instance_id} has no machine ID")]
     InstanceMissingMachineId { instance_id: Uuid },
-    #[error("Instance {instance_id} has an invalid machine ID: {machine_id}: {error}")]
-    InstanceHasInvalidMachineId {
-        instance_id: Uuid,
-        machine_id: String,
-        error: MachineIdParseError,
-    },
     #[error("no machine with instance_id {instance_id}")]
     NoMachineWithInstanceId { instance_id: Uuid },
 }
@@ -330,7 +315,7 @@ impl BmcPool {
     }
 
     async fn refresh_bmcs(&mut self) -> Result<(), RefreshBmcsError> {
-        // Get all machine ID's from forge, parsing them into forge_uuid::MachineId.
+        // Get all machine ID's from forge, parsing them into ::rpc::uuid::MachineId.
         let machine_ids: HashSet<MachineId> = match &self.config.override_bmcs {
                 Some(override_bmcs) => {
                     override_bmcs
@@ -359,19 +344,6 @@ impl BmcPool {
                         .map_err(|e| RefreshBmcsError::FetchingMachineIdsFailure { tonic_status: e })?
                         .machine_ids
                         .into_iter()
-                        .filter_map(|rpc_machine_id| {
-                            rpc_machine_id
-                                .id
-                                .parse()
-                                .inspect_err(|error| {
-                                    tracing::error!(
-                                    %error,
-                                    machine_id = rpc_machine_id.id,
-                                    "invalid machine ID, will not do console logging on this machine"
-                                )
-                                })
-                                .ok()
-                        })
                         .collect()
                 }
             };

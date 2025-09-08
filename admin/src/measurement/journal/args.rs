@@ -20,10 +20,10 @@
  *  - `journal promote`: Promote the report from a journal entry into a bundle.
 */
 
+use ::rpc::measured_boot::pcr::{PcrSet, parse_pcr_index_input};
+use ::rpc::uuid::machine::MachineId;
+use ::rpc::uuid::measured_boot::MeasurementJournalId;
 use clap::Parser;
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::MeasurementJournalId;
-use measured_boot::pcr::{PcrSet, parse_pcr_index_input};
 
 /// CmdJournal provides a container for the `journal` subcommand, which itself
 /// contains other subcommands for working with journals.

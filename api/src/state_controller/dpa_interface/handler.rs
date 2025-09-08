@@ -27,7 +27,7 @@ use crate::{
         },
     },
 };
-use forge_uuid::dpa_interface::DpaInterfaceId;
+use ::rpc::uuid::dpa_interface::DpaInterfaceId;
 use sqlx::PgConnection;
 use std::sync::Arc;
 

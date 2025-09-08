@@ -26,6 +26,7 @@ use bmc_mock::{
     SystemPowerControl,
 };
 use rpc::forge::IdentifySerialRequest;
+use rpc::uuid::machine::MachineId;
 
 #[derive(Debug)]
 pub struct HostMachine {
@@ -262,7 +263,7 @@ impl HostMachine {
             _ = tokio::time::sleep_until(self.sleep_until.into()) => {}
             _ = self.api_refresh_interval.tick() => {
                 // Wake up to refresh the API state and UI
-                if let Some(machine_id) = self.live_state.read().unwrap().observed_machine_id.clone() {
+                if let Some(machine_id) = self.live_state.read().unwrap().observed_machine_id {
                     let actor_message_tx = actor_message_tx.clone();
                     self.app_context.api_throttler.get_machine(machine_id, move |machine| {
                         if let Some(machine) = machine {
@@ -512,7 +513,7 @@ impl HostMachineHandle {
         self.0.mat_id
     }
 
-    pub fn observed_machine_id(&self) -> Option<rpc::MachineId> {
+    pub fn observed_machine_id(&self) -> Option<MachineId> {
         self.0
             .live_state
             .read()
@@ -581,7 +582,7 @@ impl HostMachineHandle {
             serial: self.0.host_info.serial.clone(),
             dpus: self.0.dpus.iter().map(|d| d.persisted()).collect(),
             non_dpu_mac_address: self.0.host_info.non_dpu_mac_address,
-            observed_machine_id: live_state.observed_machine_id.clone(),
+            observed_machine_id: live_state.observed_machine_id,
             installed_os: live_state.installed_os,
             tpm_ek_certificate: live_state.tpm_ek_certificate.clone(),
             machine_dhcp_id: self.0.machine_dhcp_id,

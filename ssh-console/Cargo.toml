@@ -14,7 +14,6 @@ path = "src/main.rs"
 # local dependencies
 rpc = { path = "../rpc" }
 forge-tls = { path = "../common/tls" }
-forge-uuid = { path = "../common/uuid" }
 
 ctor = "0.4.2"
 lazy_static = "1.5.0"
@@ -59,7 +58,6 @@ temp-dir = "0.1.14"
 futures = "0.3.31"
 api-test-helper = { path = "../common/api-test-helper" }
 ssh_console_mock_api_server = { path = "mock_api_server" }
-forge-uuid = { path = "../common/uuid" }
 eyre = "0.6.12"
 
 [lints]

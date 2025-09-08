@@ -21,8 +21,8 @@ use super::DatabaseError;
 use crate::CarbideError;
 use crate::CarbideResult;
 use crate::model::metadata::Metadata;
-use forge_uuid::machine::MachineId;
-use forge_uuid::machine::MachineInterfaceId;
+use ::rpc::uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineInterfaceId;
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key";
 
@@ -86,7 +86,7 @@ impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
             bmc_mac_address: m.bmc_mac_address.to_string(),
             interface_id: m.interface_id.map(|u| u.to_string()),
             explored_endpoint_address: m.address,
-            machine_id: m.machine_id.map(|id| id.into()),
+            machine_id: m.machine_id,
         }
     }
 }
