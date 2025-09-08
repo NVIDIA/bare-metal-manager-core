@@ -204,7 +204,7 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
     let instance = crate::handlers::instance::allocate(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
-            machine_id: Some(zero_dpu_host.host_snapshot.id.into()),
+            machine_id: Some(zero_dpu_host.host_snapshot.id),
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
@@ -245,7 +245,7 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
     // the static_vpc_id field to determine where allocation should happen.
     let rpc_machine: forge::Machine = env
         .api
-        .get_machine(tonic::Request::new(zero_dpu_host.host_snapshot.id.into()))
+        .get_machine(tonic::Request::new(zero_dpu_host.host_snapshot.id))
         .await?
         .into_inner();
 
@@ -296,7 +296,7 @@ async fn test_zero_dpu_instance_allocation_no_network_config(
     let instance = crate::handlers::instance::allocate(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
-            machine_id: Some(zero_dpu_host.host_snapshot.id.into()),
+            machine_id: Some(zero_dpu_host.host_snapshot.id),
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
@@ -385,7 +385,7 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
     let instance = crate::handlers::instance::allocate(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
-            machine_id: Some(zero_dpu_host.host_snapshot.id.into()),
+            machine_id: Some(zero_dpu_host.host_snapshot.id),
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
@@ -511,7 +511,7 @@ async fn test_reject_single_dpu_instance_allocation_no_network_config(
     let result = crate::handlers::instance::allocate(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
-            machine_id: Some(single_dpu_host.host_snapshot.id.into()),
+            machine_id: Some(single_dpu_host.host_snapshot.id),
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
@@ -566,7 +566,7 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
     let result = crate::handlers::instance::allocate(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
-            machine_id: Some(single_dpu_host.host_snapshot.id.into()),
+            machine_id: Some(single_dpu_host.host_snapshot.id),
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
@@ -707,7 +707,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
     let result = crate::handlers::instance::allocate(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
-            machine_id: Some(zero_dpu_host.host_snapshot.id.into()),
+            machine_id: Some(zero_dpu_host.host_snapshot.id),
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 network_security_group_id: None,
@@ -764,7 +764,7 @@ async fn test_single_dpu_instance_allocation(
     let result = crate::handlers::instance::allocate(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
-            machine_id: Some(single_dpu_host.host_snapshot.id.into()),
+            machine_id: Some(single_dpu_host.host_snapshot.id),
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
@@ -807,7 +807,7 @@ async fn test_single_dpu_instance_allocation(
     let mut machine = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![mid.clone()],
+            machine_ids: vec![mid],
             ..Default::default()
         }))
         .await

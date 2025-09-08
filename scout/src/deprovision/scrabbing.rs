@@ -22,6 +22,7 @@ use crate::IN_QEMU_VM;
 use crate::cfg::Options;
 use crate::client::create_forge_client;
 use crate::deprovision::cmdrun;
+use ::rpc::uuid::machine::MachineId;
 use forge_host_support::hardware_enumeration::discovery_ibs;
 
 fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
@@ -372,9 +373,9 @@ fn reset_ib_devices() -> Result<(), CarbideClientError> {
     Ok(())
 }
 
-async fn do_cleanup(machine_id: &str) -> CarbideClientResult<rpc::MachineCleanupInfo> {
+async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineCleanupInfo> {
     let mut cleanup_result = rpc::MachineCleanupInfo {
-        machine_id: Some(machine_id.to_string().into()),
+        machine_id: Some(*machine_id),
         nvme: None,
         ram: None,
         mem_overwrite: None,
@@ -479,7 +480,7 @@ fn is_host() -> bool {
     }
 }
 
-pub(crate) async fn run(config: &Options, machine_id: &str) -> CarbideClientResult<()> {
+pub(crate) async fn run(config: &Options, machine_id: &MachineId) -> CarbideClientResult<()> {
     tracing::info!("full deprovision starts.");
     if !is_host() {
         tracing::info!("full deprovision skipped, we are not running on a host.");

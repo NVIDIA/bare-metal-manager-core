@@ -12,10 +12,10 @@
 use std::collections::HashMap;
 use std::pin::Pin;
 
+use ::rpc::Machine;
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::{BuildInfo, ManagedHostNetworkConfigResponse};
-use ::rpc::{Machine, MachineId};
-use forge_uuid::machine::MachineType;
+use ::rpc::uuid::machine::MachineType;
 use prettytable::{Row, Table, format, row};
 use serde::Serialize;
 
@@ -23,10 +23,11 @@ use crate::cfg::cli_options::{AgentUpgradePolicyChoice, HealthOverrideTemplates}
 use crate::machine::get_health_report;
 use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv};
-use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use rpc::uuid::machine::MachineId;
 
 pub async fn trigger_reprovisioning(
-    id: String,
+    id: MachineId,
     mode: Mode,
     update_firmware: bool,
     api_client: &ApiClient,
@@ -34,11 +35,11 @@ pub async fn trigger_reprovisioning(
 ) -> CarbideCliResult<()> {
     if let (Mode::Set, Some(update_message)) = (mode, &update_message) {
         // Set a HostUpdateInProgress health override on the Host
-        let host_id = match MachineType::from_id_string(&id) {
-            Some(MachineType::Host) => Some(::rpc::MachineId { id: id.clone() }),
-            Some(MachineType::Dpu) => {
+        let host_id = match id.machine_type() {
+            MachineType::Host => Some(id),
+            MachineType::Dpu => {
                 let machine = api_client
-                    .get_machines_by_ids(&[::rpc::MachineId { id: id.clone() }])
+                    .get_machines_by_ids(&[id])
                     .await?
                     .machines
                     .into_iter()
@@ -54,7 +55,7 @@ pub async fn trigger_reprovisioning(
             }
             _ => {
                 return Err(CarbideCliError::GenericError(format!(
-                    "Invalid machine ID for reprevisioning, only Hosts and DPUs are supported: {update_message}",
+                    "Invalid machine ID for reprevisioning, only Hosts and DPUs are supported: {update_message}"
                 )));
             }
         };
@@ -62,7 +63,7 @@ pub async fn trigger_reprovisioning(
         // Check host must not have host-update override
         if let Some(host_machine_id) = &host_id {
             let host_machine = api_client
-                .get_machines_by_ids(&[host_machine_id.clone()])
+                .get_machines_by_ids(&[*host_machine_id])
                 .await?
                 .machines
                 .into_iter()
@@ -87,16 +88,12 @@ pub async fn trigger_reprovisioning(
             );
 
             api_client
-                .machine_insert_health_report_override(
-                    host_machine_id.to_string(),
-                    report.into(),
-                    false,
-                )
+                .machine_insert_health_report_override(*host_machine_id, report.into(), false)
                 .await?;
         }
     }
     api_client
-        .trigger_dpu_reprovisioning(id.clone(), mode, update_firmware)
+        .trigger_dpu_reprovisioning(id, mode, update_firmware)
         .await?;
 
     Ok(())
@@ -549,10 +546,10 @@ fn deny_prefix(config: &ManagedHostNetworkConfigResponse) -> String {
 pub async fn show_dpu_network_config(
     api_client: &ApiClient,
     output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
-    dpu_id: String,
+    dpu_id: MachineId,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
-    if !matches!(MachineType::from_id_string(&dpu_id), Some(MachineType::Dpu)) {
+    if !dpu_id.machine_type().is_dpu() {
         return Err(CarbideCliError::GenericError(
             "Only DPU id is allowed.".to_string(),
         ));
@@ -707,13 +704,13 @@ pub async fn show_dpu_status(
     } else {
         let all_ids: Vec<MachineId> = all_status
             .iter()
-            .filter_map(|status| status.dpu_machine_id.clone())
+            .filter_map(|status| status.dpu_machine_id)
             .collect();
         let all_dpus = api_client.get_machines_by_ids(&all_ids).await?.machines;
         let mut dpus_by_id = HashMap::new();
         for dpu in all_dpus.into_iter() {
-            if let Some(id) = dpu.id.clone() {
-                dpus_by_id.insert(id.id, dpu);
+            if let Some(id) = dpu.id {
+                dpus_by_id.insert(id, dpu);
             }
         }
 
@@ -727,10 +724,10 @@ pub async fn show_dpu_status(
             "Agent version",
         ]);
         for st in all_status.into_iter() {
-            let Some(dpu_id) = st.dpu_machine_id.clone() else {
+            let Some(dpu_id) = st.dpu_machine_id else {
                 continue;
             };
-            let Some(dpu) = dpus_by_id.get(&dpu_id.id) else {
+            let Some(dpu) = dpus_by_id.get(&dpu_id) else {
                 continue;
             };
             let observed_at = st

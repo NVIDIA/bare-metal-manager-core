@@ -11,8 +11,8 @@
  */
 use std::collections::HashMap;
 
+use ::rpc::uuid::instance_type::InstanceTypeId;
 use config_version::ConfigVersion;
-use forge_uuid::instance_type::InstanceTypeId;
 use sqlx::{PgConnection, Postgres, Row, postgres::PgRow};
 
 use crate::{

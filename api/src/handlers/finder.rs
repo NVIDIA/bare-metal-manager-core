@@ -14,7 +14,7 @@ use std::{fmt, net::IpAddr, str::FromStr};
 
 use ::rpc::protos::common as rpc_common;
 use ::rpc::protos::forge as rpc;
-use forge_uuid::dpa_interface::DpaInterfaceId;
+use ::rpc::uuid::dpa_interface::DpaInterfaceId;
 
 use crate::db;
 use crate::db::domain::{self, Domain};
@@ -34,7 +34,7 @@ use crate::{
     },
     model::resource_pool::ResourcePoolEntryState,
 };
-use forge_uuid::{
+use ::rpc::uuid::{
     domain::DomainId, instance::InstanceId, machine::MachineInterfaceId, network::NetworkSegmentId,
     vpc::VpcId,
 };
@@ -149,7 +149,7 @@ pub(crate) async fn identify_serial(
 
     Ok(tonic::Response::new(rpc::IdentifySerialResponse {
         serial_number: req.serial_number,
-        machine_id: machine_ids.into_iter().next().map(Into::into),
+        machine_id: machine_ids.into_iter().next(),
     }))
 }
 

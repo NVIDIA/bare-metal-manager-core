@@ -14,7 +14,6 @@ members = [
     "common/host-support",
     "common/http-connector",
     "common/logfmt",
-    "common/measured-boot",
     "common/metrics-endpoint",
     "common/mlxconfig/registry",
     "common/mlxconfig/variables",

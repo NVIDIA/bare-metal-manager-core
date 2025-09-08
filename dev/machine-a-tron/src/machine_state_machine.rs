@@ -29,6 +29,7 @@ use rpc::forge::{
     MachineArchitecture, MachineDiscoveryResult, MachineType, ManagedHostNetworkConfigResponse,
 };
 use rpc::forge_agent_control_response::Action;
+use rpc::uuid::machine::MachineId;
 
 /// MachineStateMachine (yo dawg) models the state machine of a machine endpoint
 ///
@@ -68,7 +69,7 @@ impl HostnameQuerying for LiveStateHostnameQuery {
             .unwrap()
             .observed_machine_id
             .as_ref()
-            .map(|id| Cow::Owned(id.id.clone()))
+            .map(|id| Cow::Owned(id.to_string()))
             .unwrap_or(Cow::Borrowed("localhost"))
     }
 }
@@ -79,7 +80,7 @@ impl HostnameQuerying for LiveStateHostnameQuery {
 pub struct LiveState {
     pub is_up: bool,
     pub power_state: MockPowerState, // reflects the "desired" power state of the machine. Affects whether next_state will boot the machine or not.
-    pub observed_machine_id: Option<rpc::MachineId>,
+    pub observed_machine_id: Option<MachineId>,
     pub machine_ip: Option<Ipv4Addr>,
     pub bmc_ip: Option<Ipv4Addr>,
     pub booted_os: MaybeOsImage,
@@ -133,7 +134,7 @@ enum MachineState {
     MachineDown(MachineDownState),
     Init(InitState),
     DhcpComplete(DhcpCompleteState),
-    MachineUp(MachineUpState),
+    MachineUp(Box<MachineUpState>), // avoid large enum variants
 }
 
 enum NextState {
@@ -276,7 +277,7 @@ impl MachineStateMachine {
             live_state.installed_os = self.installed_os();
             if let Some(machine_id) = self.machine_id() {
                 if live_state.observed_machine_id.as_ref() != Some(machine_id) {
-                    live_state.observed_machine_id = Some(machine_id.clone())
+                    live_state.observed_machine_id = Some(*machine_id)
                 }
             }
             live_state.state_string = self.state.to_string();
@@ -494,7 +495,7 @@ impl MachineStateMachine {
 
         // Ask the API server what to do next
         let start = Instant::now();
-        let control_response = forge_agent_control(&self.app_context, machine_id.clone()).await;
+        let control_response = forge_agent_control(&self.app_context, *machine_id).await;
         let action = get_fac_action(&control_response);
         tracing::trace!(
             "get action took {}ms; action={:?}",
@@ -516,7 +517,7 @@ impl MachineStateMachine {
         let network_config = self
             .app_context
             .forge_api_client
-            .get_managed_host_network_config(machine_id.clone())
+            .get_managed_host_network_config(*machine_id)
             .await?;
 
         // DPUs send network status periodically
@@ -531,7 +532,11 @@ impl MachineStateMachine {
             // The relay will stop when this is dropped (ie. when we move out of `MachineUp`)
             let relay_handle = dhcp_relay.spawn(network_config.clone());
             Ok(NextState::AdvanceAndSleepFor(
-                MachineState::MachineUp(machine_up_state.with_dpu_dhcp_relay_handle(relay_handle)),
+                MachineState::MachineUp(
+                    machine_up_state
+                        .with_dpu_dhcp_relay_handle(relay_handle)
+                        .into(),
+                ),
                 self.config.network_status_run_interval,
             ))
         } else {
@@ -578,7 +583,7 @@ impl MachineStateMachine {
             // Inform the API that we have finished our reboot (ie. scout is now running)
             self.app_context
                 .forge_api_client
-                .reboot_completed(machine_id.clone())
+                .reboot_completed(*machine_id)
                 .await?;
 
             return Ok(NextState::Advance(
@@ -594,7 +599,7 @@ impl MachineStateMachine {
 
         // Ask the API server what to do next
         let start = Instant::now();
-        let control_response = forge_agent_control(&self.app_context, machine_id.clone()).await;
+        let control_response = forge_agent_control(&self.app_context, *machine_id).await;
         let action = get_fac_action(&control_response);
         tracing::trace!(
             "get action took {}ms; action={:?}",
@@ -681,7 +686,7 @@ impl MachineStateMachine {
 
     async fn send_network_status_observation(
         &self,
-        machine_id: rpc::MachineId,
+        machine_id: MachineId,
         network_config: &ManagedHostNetworkConfigResponse,
     ) -> Result<(), MachineStateError> {
         let mut instance_network_config_version: Option<String> = None;
@@ -730,7 +735,7 @@ impl MachineStateMachine {
         self.app_context
             .api_client()
             .record_dpu_network_status(DpuNetworkStatusArgs {
-                dpu_machine_id: machine_id.clone(),
+                dpu_machine_id: machine_id,
                 network_config_version: network_config.managed_host_config_version.clone(),
                 instance_network_config_version,
                 instance_config_version,
@@ -825,7 +830,7 @@ impl MachineStateMachine {
         Ok(())
     }
 
-    pub fn machine_id(&self) -> Option<&rpc::MachineId> {
+    pub fn machine_id(&self) -> Option<&MachineId> {
         match &self.state {
             MachineState::BmcInit | MachineState::BmcOnly(_) => None,
             MachineState::MachineDown(_) => None,
@@ -916,14 +921,11 @@ impl MachineStateMachine {
         Ok(maybe_bmc_mock_handle)
     }
 
-    async fn send_discovery_complete(
-        &self,
-        machine_id: &rpc::MachineId,
-    ) -> Result<(), ClientApiError> {
+    async fn send_discovery_complete(&self, machine_id: &MachineId) -> Result<(), ClientApiError> {
         let start = Instant::now();
         self.app_context
             .forge_api_client
-            .discovery_completed(machine_id.clone())
+            .discovery_completed(*machine_id)
             .await
             .map_err(ClientApiError::InvocationError)?;
         tracing::trace!("discovery_complete took {}ms", start.elapsed().as_millis());
@@ -988,14 +990,17 @@ struct DhcpCompleteState {
 
 impl DhcpCompleteState {
     fn machine_up(&self, os: OsImage) -> MachineState {
-        MachineState::MachineUp(MachineUpState {
-            machine_dhcp_info: self.machine_dhcp_info.clone(),
-            bmc_state: self.bmc_state.clone(),
-            machine_discovery_result: None,
-            booted_os: os,
-            installed_os: self.installed_os,
-            dpu_dhcp_relay_handle: None,
-        })
+        MachineState::MachineUp(
+            MachineUpState {
+                machine_dhcp_info: self.machine_dhcp_info.clone(),
+                bmc_state: self.bmc_state.clone(),
+                machine_discovery_result: None,
+                booted_os: os,
+                installed_os: self.installed_os,
+                dpu_dhcp_relay_handle: None,
+            }
+            .into(),
+        )
     }
 }
 
@@ -1028,14 +1033,17 @@ impl MachineUpState {
         installed_os: OsImage,
         machine_discovery_result: MachineDiscoveryResult,
     ) -> MachineState {
-        MachineState::MachineUp(MachineUpState {
-            machine_dhcp_info: self.machine_dhcp_info.clone(),
-            bmc_state: self.bmc_state.clone(),
-            booted_os: self.booted_os,
-            installed_os,
-            machine_discovery_result: Some(machine_discovery_result),
-            dpu_dhcp_relay_handle: None,
-        })
+        MachineState::MachineUp(
+            MachineUpState {
+                machine_dhcp_info: self.machine_dhcp_info.clone(),
+                bmc_state: self.bmc_state.clone(),
+                booted_os: self.booted_os,
+                installed_os,
+                machine_discovery_result: Some(machine_discovery_result),
+                dpu_dhcp_relay_handle: None,
+            }
+            .into(),
+        )
     }
 }
 

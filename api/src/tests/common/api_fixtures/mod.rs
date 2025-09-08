@@ -84,21 +84,21 @@ use crate::{
     },
     storage::{NvmeshClientPool, test_support::NvmeshSimClient},
 };
+use ::rpc::measured_boot::pcr::PcrRegisterValue;
+use ::rpc::uuid::{
+    instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId,
+    network::NetworkSegmentId, vpc::VpcId,
+};
 use arc_swap::ArcSwap;
 use chrono::{DateTime, Duration, Utc};
 use dpu::DpuConfig;
 use forge_secrets::credentials::{
     CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
 };
-use forge_uuid::{
-    instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId,
-    network::NetworkSegmentId, vpc::VpcId,
-};
 use futures::FutureExt as _;
 use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
-use measured_boot::pcr::PcrRegisterValue;
 use rcgen::{CertifiedKey, generate_simple_self_signed};
 use regex::Regex;
 use rpc::forge::{
@@ -499,7 +499,7 @@ impl TestEnv {
     // Returns all machines using FindMachines call.
     pub async fn find_machines(
         &self,
-        id: Option<rpc::common::MachineId>,
+        id: Option<rpc::uuid::machine::MachineId>,
         fqdn: Option<String>,
         include_dpus: bool,
     ) -> rpc::forge::MachineList {
@@ -1293,7 +1293,7 @@ pub async fn create_test_env_with_overrides(
         .unwrap()
         .into_inner()
         .id
-        .map(forge_uuid::domain::DomainId::try_from)
+        .map(::rpc::uuid::domain::DomainId::try_from)
         .unwrap()
         .unwrap()
         .into();
@@ -1603,7 +1603,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
 }
 
 /// Emulates the `DiscoveryCompleted` request of a DPU/Host
-pub async fn discovery_completed(env: &TestEnv, machine_id: rpc::common::MachineId) {
+pub async fn discovery_completed(env: &TestEnv, machine_id: rpc::uuid::machine::MachineId) {
     let _response = env
         .api
         .discovery_completed(Request::new(rpc::forge::MachineDiscoveryCompletedRequest {
@@ -1632,7 +1632,7 @@ pub async fn network_configured_with_health(
         .api
         .get_managed_host_network_config(Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+                dpu_machine_id: Some(*dpu_machine_id),
             },
         ))
         .await
@@ -1647,7 +1647,7 @@ pub async fn network_configured_with_health(
         };
     let instance: Option<rpc::Instance> = env
         .api
-        .find_instance_by_machine_id(Request::new(dpu_machine_id.to_string().into()))
+        .find_instance_by_machine_id(Request::new(*dpu_machine_id))
         .await
         .unwrap()
         .into_inner()
@@ -1708,7 +1708,7 @@ pub async fn network_configured_with_health(
     });
 
     let status = rpc::forge::DpuNetworkStatus {
-        dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+        dpu_machine_id: Some(*dpu_machine_id),
         dpu_agent_version: Some(dpu::TEST_DPU_AGENT_VERSION.to_string()),
         observed_at: None,
         dpu_health: Some(dpu_health),
@@ -1746,7 +1746,7 @@ pub async fn simulate_hardware_health_report(
     let _ = env
         .api
         .record_hardware_health_report(Request::new(HardwareHealthReport {
-            machine_id: Some(host_machine_id.to_string().into()),
+            machine_id: Some(*host_machine_id),
             report: Some(health_report.into()),
         }))
         .await
@@ -1764,7 +1764,7 @@ pub async fn send_health_report_override(
     let _ = env
         .api
         .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
-            machine_id: Some(machine_id.to_string().into()),
+            machine_id: Some(*machine_id),
             r#override: Some(HealthReportOverride {
                 report: Some(r#override.0.into()),
                 mode: r#override.1 as i32,
@@ -1781,7 +1781,7 @@ pub async fn remove_health_report_override(env: &TestEnv, machine_id: &MachineId
     let _ = env
         .api
         .remove_health_report_override(Request::new(RemoveHealthReportOverrideRequest {
-            machine_id: Some(machine_id.to_string().into()),
+            machine_id: Some(*machine_id),
             source,
         }))
         .await
@@ -1790,9 +1790,9 @@ pub async fn remove_health_report_override(env: &TestEnv, machine_id: &MachineId
 
 pub async fn forge_agent_control(
     env: &TestEnv,
-    machine_id: rpc::common::MachineId,
+    machine_id: rpc::uuid::machine::MachineId,
 ) -> rpc::forge::ForgeAgentControlResponse {
-    let _ = reboot_completed(env, machine_id.clone()).await;
+    let _ = reboot_completed(env, machine_id).await;
 
     env.api
         .forge_agent_control(Request::new(rpc::forge::ForgeAgentControlRequest {
@@ -1928,7 +1928,7 @@ pub async fn update_time_params(
 
 pub async fn reboot_completed(
     env: &TestEnv,
-    machine_id: rpc::common::MachineId,
+    machine_id: rpc::uuid::machine::MachineId,
 ) -> rpc::forge::MachineRebootCompletedResponse {
     tracing::info!("Machine ={} rebooted", machine_id);
     env.api
@@ -1946,14 +1946,14 @@ pub async fn machine_validation_completed(
     machine_id: &MachineId,
     machine_validation_error: Option<String>,
 ) {
-    let response = forge_agent_control(env, machine_id.into()).await;
+    let response = forge_agent_control(env, *machine_id).await;
     let uuid = &response.data.unwrap().pair[1].value;
 
     let _response = env
         .api
         .machine_validation_completed(Request::new(
             rpc::forge::MachineValidationCompletedRequest {
-                machine_id: machine_id.into(),
+                machine_id: Some(*machine_id),
                 machine_validation_error,
                 validation_id: Some(rpc::Uuid {
                     value: uuid.to_owned(),
@@ -1968,7 +1968,7 @@ pub async fn machine_validation_completed(
 /// inject_machine_measurements injects auto-approved measurements
 /// for a machine. This also will create a new profile and bundle,
 /// if needed, as part of the auto-approval process.
-pub async fn inject_machine_measurements(env: &TestEnv, machine_id: rpc::common::MachineId) {
+pub async fn inject_machine_measurements(env: &TestEnv, machine_id: rpc::uuid::machine::MachineId) {
     let _response = env
         .api
         .add_measurement_trusted_machine(Request::new(
@@ -2033,7 +2033,7 @@ pub async fn get_machine_validation_results(
 ) -> rpc::forge::MachineValidationResultList {
     env.api
         .get_machine_validation_results(Request::new(rpc::forge::MachineValidationGetRequest {
-            machine_id: machine_id.map(Into::into),
+            machine_id: machine_id.copied(),
             include_history,
             validation_id,
         }))
@@ -2051,7 +2051,7 @@ pub async fn get_machine_validation_runs(
     env.api
         .get_machine_validation_runs(Request::new(
             rpc::forge::MachineValidationRunListGetRequest {
-                machine_id: machine_id.into(),
+                machine_id: Some(*machine_id),
                 include_history,
             },
         ))
@@ -2063,7 +2063,7 @@ pub async fn get_machine_validation_runs(
 // Emulates the `OnDemandMachineValidation` request of a Host
 pub async fn on_demand_machine_validation(
     env: &TestEnv,
-    machine_id: rpc::common::MachineId,
+    machine_id: rpc::uuid::machine::MachineId,
     tags: Vec<String>,
     allowed_tests: Vec<String>,
     run_unverfied_tests: bool,

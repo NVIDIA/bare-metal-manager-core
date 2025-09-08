@@ -38,6 +38,7 @@ use std::vec::Vec;
 use crate::CarbideClientError;
 use ::rpc::forge as rpc;
 use ::rpc::machine_discovery as rpc_md;
+use ::rpc::uuid::machine::MachineId;
 
 pub(crate) fn create_context_from_path(path: &str) -> Result<Context, Box<dyn std::error::Error>> {
     let tcti = TctiNameConf::from_str(path)?;
@@ -319,7 +320,7 @@ pub(crate) fn create_quote_request(
     signature: Signature,
     pcr_values: Vec<Digest>,
     credential: &Digest,
-    machine_id: &str,
+    machine_id: &MachineId,
     tpm_eventlog: &Option<Vec<u8>>,
 ) -> Result<rpc::AttestQuoteRequest, Box<dyn std::error::Error>> {
     let request = rpc::AttestQuoteRequest {
@@ -330,7 +331,7 @@ pub(crate) fn create_quote_request(
             .iter()
             .map(|digest| Vec::from(digest.value()))
             .collect(),
-        machine_id: Some(machine_id.to_string().into()),
+        machine_id: Some(*machine_id),
         event_log: tpm_eventlog.clone(),
     };
 

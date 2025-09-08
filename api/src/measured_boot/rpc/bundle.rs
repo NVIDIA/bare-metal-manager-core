@@ -33,11 +33,11 @@ use rpc::protos::measured_boot::{
 use sqlx::{Pool, Postgres};
 
 use crate::measured_boot::db::{self, bundle};
-use forge_uuid::measured_boot::{
+use ::rpc::measured_boot::pcr::PcrRegisterValue;
+use ::rpc::measured_boot::records::MeasurementBundleState;
+use ::rpc::uuid::measured_boot::{
     MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId,
 };
-use measured_boot::pcr::PcrRegisterValue;
-use measured_boot::records::MeasurementBundleState;
 use rpc::protos::measured_boot::delete_measurement_bundle_request;
 use rpc::protos::measured_boot::list_measurement_bundle_machines_request;
 use rpc::protos::measured_boot::rename_measurement_bundle_request;

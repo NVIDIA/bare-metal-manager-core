@@ -7,6 +7,7 @@ use rpc::forge::{
     ConfigSetting, ExpectedMachine, MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
+use rpc::uuid::machine::MachineId;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 #[derive(thiserror::Error, Debug)]
@@ -47,7 +48,7 @@ impl From<ForgeApiClient> for ApiClient {
 }
 
 pub struct DpuNetworkStatusArgs<'a> {
-    pub dpu_machine_id: rpc::MachineId,
+    pub dpu_machine_id: MachineId,
     pub network_config_version: String,
     pub instance_network_config_version: Option<String>,
     pub instance_config_version: Option<String>,
@@ -199,10 +200,10 @@ impl ApiClient {
 
     pub async fn get_machines(
         &self,
-        machine_ids: &[&String],
+        machine_ids: Vec<MachineId>,
     ) -> ClientApiResult<Vec<rpc::Machine>> {
         let request = MachinesByIdsRequest {
-            machine_ids: machine_ids.iter().map(|i| i.to_string().into()).collect(),
+            machine_ids,
             include_history: false,
         };
         let out = self
@@ -270,7 +271,7 @@ impl ApiClient {
 
     pub async fn allocate_instance(
         &self,
-        host_machine_id: &str,
+        host_machine_id: MachineId,
         network_segment_name: &str,
     ) -> ClientApiResult<rpc::forge::Instance> {
         let segment_request = rpc::forge::NetworkSegmentSearchFilter {
@@ -333,9 +334,7 @@ impl ApiClient {
 
         let instance_request = rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: Some(rpc::MachineId {
-                id: host_machine_id.to_owned(),
-            }),
+            machine_id: Some(host_machine_id),
             //  None here means the allocation will simply inherit the
             // instance_type_id of the machine in the request, whatever it is.
             instance_type_id: None,
@@ -449,12 +448,12 @@ impl ApiClient {
 
     pub async fn machine_validation_complete(
         &self,
-        machine_id: &rpc::MachineId,
+        machine_id: &MachineId,
         validation_id: rpc::common::Uuid,
     ) -> ClientApiResult<()> {
         self.0
             .machine_validation_completed(rpc::forge::MachineValidationCompletedRequest {
-                machine_id: Some(machine_id.clone()),
+                machine_id: Some(*machine_id),
                 machine_validation_error: None,
                 validation_id: Some(validation_id),
             })
@@ -463,9 +462,9 @@ impl ApiClient {
             .map(|_| ())
     }
 
-    pub async fn cleanup_complete(&self, machine_id: &rpc::MachineId) -> ClientApiResult<()> {
+    pub async fn cleanup_complete(&self, machine_id: &MachineId) -> ClientApiResult<()> {
         let cleanup_info = rpc::MachineCleanupInfo {
-            machine_id: Some(machine_id.to_string().into()),
+            machine_id: Some(*machine_id),
             nvme: Some(CleanupStepResult {
                 result: 0,
                 message: "".to_string(),

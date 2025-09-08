@@ -14,6 +14,7 @@ use byte_unit::UnitType;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt::Display;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tracing::warn;
@@ -26,7 +27,8 @@ use rpc::forge::{
 };
 use rpc::machine_discovery::MemoryDevice;
 use rpc::site_explorer::{EndpointExplorationReport, ExploredEndpoint, ExploredManagedHost};
-use rpc::{DiscoveryInfo, Machine, MachineId, Timestamp};
+use rpc::uuid::machine::MachineId;
+use rpc::{DiscoveryInfo, Machine, Timestamp};
 
 macro_rules! get_dmi_data_from_machine {
     ($m:ident, $d:ident) => {
@@ -229,18 +231,15 @@ impl From<&Machine> for ManagedHostOutput {
                 .and_then(|di| get_memory_details(&di.memory_devices)),
             failure_details: machine.failure_details.clone(),
             maintenance_reference: machine.maintenance_reference.clone(),
-            maintenance_start_time: machine
-                .id
-                .as_ref()
-                .and_then(|id| to_time(machine.maintenance_start_time, id)),
+            maintenance_start_time: to_time(machine.maintenance_start_time, machine.id),
             host_last_reboot_time: machine
                 .id
                 .as_ref()
-                .and_then(|id| to_time(machine.last_reboot_time, id)),
+                .and_then(|id| to_time(machine.last_reboot_time, Some(id))),
             host_last_reboot_requested_time_and_mode: machine.id.as_ref().map(|id| {
                 format!(
                     "{}/{}",
-                    to_time(machine.last_reboot_requested_time, id)
+                    to_time(machine.last_reboot_requested_time, Some(id))
                         .unwrap_or("Unknown".to_string()),
                     machine.last_reboot_requested_mode()
                 )
@@ -330,15 +329,15 @@ impl ManagedHostAttachedDpu {
             bmc_mac: get_bmc_info_from_machine!(dpu_machine, mac),
             bmc_version: get_bmc_info_from_machine!(dpu_machine, version),
             bmc_firmware_version: get_bmc_info_from_machine!(dpu_machine, firmware_version),
-            last_reboot_time: to_time(dpu_machine.last_reboot_time, dpu_machine_id),
+            last_reboot_time: to_time(dpu_machine.last_reboot_time, Some(dpu_machine_id)),
             exploration_report: exploration_map.cloned(),
             last_reboot_requested_time_and_mode: Some(format!(
                 "{}/{}",
-                to_time(dpu_machine.last_reboot_requested_time, dpu_machine_id)
+                to_time(dpu_machine.last_reboot_requested_time, Some(dpu_machine_id))
                     .unwrap_or("Unknown".to_string()),
                 dpu_machine.last_reboot_requested_mode()
             )),
-            last_observation_time: to_time(dpu_machine.last_observation_time, dpu_machine_id),
+            last_observation_time: to_time(dpu_machine.last_observation_time, Some(dpu_machine_id)),
             oob_ip,
             oob_mac,
             switch_connections: connected_devices
@@ -393,9 +392,9 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
         }
     }
 
-    let mut connected_device_map = HashMap::<String, Vec<ConnectedDevice>>::new();
+    let mut connected_device_map = HashMap::<MachineId, Vec<ConnectedDevice>>::new();
     for d in source.connected_devices.iter() {
-        let Some(id) = d.id.as_ref().map(MachineId::to_string) else {
+        let Some(id) = d.id else {
             continue;
         };
         connected_device_map.entry(id).or_default().push(d.clone());
@@ -405,11 +404,11 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
         .iter()
         .map(|n| (n.id.clone(), n.clone()))
         .collect();
-    let dpu_map: HashMap<String, &Machine> = source
+    let dpu_map: HashMap<MachineId, &Machine> = source
         .machines
         .iter()
         .filter(|m| m.machine_type() == MachineType::Dpu)
-        .filter_map(|m| m.id.as_ref().map(|i| (i.id.clone(), m)))
+        .filter_map(|m| m.id.map(|i| (i, m)))
         .collect();
 
     for machine in source
@@ -432,7 +431,7 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
                 .iter()
                 .filter_map(|i| {
                     if i.primary_interface {
-                        Some(i.attached_dpu_machine_id.clone())
+                        Some(i.attached_dpu_machine_id)
                     } else {
                         None
                     }
@@ -442,10 +441,10 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
         };
 
         for dpu_machine_id in dpu_machine_ids {
-            let Some(dpu_machine) = dpu_map.get(&dpu_machine_id.id) else {
+            let Some(dpu_machine) = dpu_map.get(&dpu_machine_id) else {
                 tracing::warn!(
                     "Could not find DPU for associated_dpu_machine_id {}",
-                    dpu_machine_id.id
+                    dpu_machine_id
                 );
                 continue;
             };
@@ -469,9 +468,7 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
 
             if let Some(attached_dpu) = ManagedHostAttachedDpu::new_from_dpu_machine(
                 dpu_machine,
-                connected_device_map
-                    .get(&dpu_machine_id.id)
-                    .unwrap_or(&vec![]),
+                connected_device_map.get(&dpu_machine_id).unwrap_or(&vec![]),
                 &network_device_map,
                 // This should always have value. If no, lets crash to find out why.
                 is_primary.expect("Interface type is missing for host."),
@@ -561,7 +558,7 @@ pub fn get_memory_details(memory_devices: &Vec<MemoryDevice>) -> Option<String> 
 // - Parse the timestamp into a chrono::Time and format as string.
 // - Or return empty string
 // machine_id is only for logging a more useful error.
-pub fn to_time(t: Option<Timestamp>, machine_id: &MachineId) -> Option<String> {
+pub fn to_time<M: Display>(t: Option<Timestamp>, machine_id: Option<M>) -> Option<String> {
     match t {
         None => None,
         Some(tt) => match SystemTime::try_from(tt) {
@@ -570,7 +567,13 @@ pub fn to_time(t: Option<Timestamp>, machine_id: &MachineId) -> Option<String> {
                 Some(dt.to_string())
             }
             Err(err) => {
-                warn!("get_managed_host_output {machine_id}, invalid timestamp: {err}");
+                warn!(
+                    "get_managed_host_output {}, invalid timestamp: {}",
+                    machine_id
+                        .map(|x| x.to_string())
+                        .unwrap_or_else(|| "(no machine ID)".to_string()),
+                    err
+                );
                 None
             }
         },

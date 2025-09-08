@@ -5,7 +5,7 @@ use ::rpc::site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExploratio
 use prettytable::{Cell, Row, Table, format, row};
 
 use crate::rpc::ApiClient;
-use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 fn get_endpoints_for_managed_host<'a>(
     managedhost: &'a ExploredManagedHost,

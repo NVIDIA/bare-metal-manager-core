@@ -24,7 +24,7 @@ use crate::db::instance_address::InstanceAddress;
 use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::{DatabaseError, ObjectColumnFilter};
 use crate::ipxe::PxeInstructions;
-use forge_uuid::machine::MachineInterfaceId;
+use ::rpc::uuid::machine::MachineInterfaceId;
 
 // The carbide pxe server makes this RPC call
 pub(crate) async fn get_pxe_instructions(

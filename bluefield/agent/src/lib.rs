@@ -41,6 +41,7 @@ mod daemons;
 mod dhcp;
 mod ethernet_virtualization;
 pub use ethernet_virtualization::FPath;
+use rpc::uuid::machine::MachineId;
 
 pub mod duppet;
 mod frr;
@@ -119,12 +120,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             let Registration {
                 machine_id,
                 factory_mac_address,
-            } = match &options.override_machine_id {
+            } = match options.override_machine_id {
                 // Normal case
                 None => register(&agent).await.wrap_err("registration error")?,
                 // Dev / test override
-                Some(id) => Registration {
-                    machine_id: id.to_string(),
+                Some(machine_id) => Registration {
+                    machine_id,
                     factory_mac_address: "11:22:33:44:55:66".parse().unwrap(),
                 },
             };
@@ -185,7 +186,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             let pinger: Arc<dyn Ping> = Arc::from(pinger_type);
 
             let mut network_monitor =
-                network_monitor::NetworkMonitor::new(machine_id.to_string(), None, pinger);
+                network_monitor::NetworkMonitor::new(machine_id, None, pinger);
 
             network_monitor
                 .run_onetime(&agent.forge_system.api_server, &forge_client_config)
@@ -218,7 +219,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     config_fetch_interval: Duration::from_secs(
                         agent.period.network_config_fetch_secs,
                     ),
-                    machine_id: machine_id.to_string(),
+                    machine_id,
                     forge_api: forge_api_server.clone(),
                     forge_client_config: forge_client_config.clone(),
                 },
@@ -399,7 +400,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 }
 
 struct Registration {
-    machine_id: String,
+    machine_id: MachineId,
     factory_mac_address: MacAddress,
 }
 

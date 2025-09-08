@@ -18,9 +18,9 @@ use crate::{
         network_segment::NetworkSegment,
     },
     model::hardware_info::{Cpu, CpuInfo, HardwareInfo, HardwareInfoV1},
-    model::machine::machine_id::{from_hardware_info, try_parse_machine_id},
+    model::machine::machine_id::from_hardware_info,
 };
-use forge_uuid::machine::{MachineId, MachineType};
+use ::rpc::uuid::machine::{MachineId, MachineType};
 
 use crate::db::{ObjectColumnFilter, network_segment};
 use crate::tests::common;
@@ -41,14 +41,13 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
     let host_machine_id = dpu_machine_id
-        .id
+        .to_string()
         .replace(
             MachineType::Dpu.id_prefix(),
             MachineType::PredictedHost.id_prefix(),
         )
-        .into();
-    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
-    let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
+        .parse::<MachineId>()
+        .unwrap();
 
     let iface = db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
         .await
@@ -116,7 +115,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let rpc_machine = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![machine.id.to_string().into()],
+            machine_ids: vec![machine.id],
             ..Default::default()
         }))
         .await
@@ -165,7 +164,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let rpc_machine = env
         .api
         .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![machine.id.to_string().into()],
+            machine_ids: vec![machine.id],
             ..Default::default()
         }))
         .await
@@ -194,14 +193,13 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
 
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
     let host_machine_id = dpu_machine_id
-        .id
+        .to_string()
         .replace(
             MachineType::Dpu.id_prefix(),
             MachineType::PredictedHost.id_prefix(),
         )
-        .into();
-    let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
-    let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
+        .parse::<MachineId>()
+        .unwrap();
 
     let iface = db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
         .await

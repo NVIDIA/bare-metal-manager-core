@@ -178,26 +178,28 @@ pub fn get_router(path_prefix: &str) -> Router<AppState> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use super::*;
+    use rand::random;
+    use rpc::uuid::machine::{MachineId, MachineIdSource, MachineType};
+    use std::fs;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test_data");
 
     #[test]
     fn forge_agent_config() {
         let interface_id = "91609f10-c91d-470d-a260-6293ea0c1234".to_string();
+        let machine_id = MachineId::new(
+            MachineIdSource::ProductBoardChassisSerial,
+            random(),
+            MachineType::Host,
+        );
 
         let interface = rpc::forge::MachineInterface {
             id: Some(rpc::Uuid {
                 value: interface_id,
             }),
-            attached_dpu_machine_id: Some(rpc::MachineId {
-                id: "91609f10-c91d-470d-a260-6293ea0c0000".to_string(),
-            }),
-            machine_id: Some(rpc::MachineId {
-                id: "91609f10-c91d-470d-a260-6293ea0c0000".to_string(),
-            }),
+            attached_dpu_machine_id: Some(machine_id),
+            machine_id: Some(machine_id),
             segment_id: None,
             hostname: "abc".to_string(),
             domain_id: None,

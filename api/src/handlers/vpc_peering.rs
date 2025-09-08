@@ -19,8 +19,8 @@ use crate::{
     db::DatabaseError,
 };
 use ::rpc::forge as rpc;
+use ::rpc::uuid::vpc::VpcId;
 use forge_network::virtualization::VpcVirtualizationType;
-use forge_uuid::vpc::VpcId;
 use tonic::{Request, Response, Status};
 
 pub async fn create(

@@ -11,7 +11,7 @@ use crate::{
     db::{self, instance::Instance, machine::MachineSearchConfig},
     model::machine::{InstanceState, ManagedHostState},
 };
-use forge_uuid::machine::{MachineInterfaceId, MachineType};
+use ::rpc::uuid::machine::{MachineInterfaceId, MachineType};
 use mac_address::MacAddress;
 
 const QCOW_IMAGER_IPXE: &str =

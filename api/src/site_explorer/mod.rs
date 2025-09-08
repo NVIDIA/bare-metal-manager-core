@@ -57,8 +57,8 @@ use crate::{
     },
     resource_pool::common::CommonPools,
 };
+use ::rpc::uuid::machine::{MachineId, MachineType};
 use forge_network::sanitized_mac;
-use forge_uuid::machine::{MachineId, MachineType};
 
 mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;

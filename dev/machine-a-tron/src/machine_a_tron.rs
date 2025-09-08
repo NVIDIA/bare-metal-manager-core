@@ -207,7 +207,7 @@ impl MachineATron {
                     match self
                         .app_context
                         .api_client()
-                        .allocate_instance(&hid_for_instance.to_string(), "subnet_0")
+                        .allocate_instance(hid_for_instance, "subnet_0")
                         .await
                     {
                         Ok(_) => {

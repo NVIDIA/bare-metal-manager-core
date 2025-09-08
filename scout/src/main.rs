@@ -18,6 +18,7 @@ use rpc::forge::ForgeAgentControlResponse;
 use rpc::forge::forge_agent_control_response::Action;
 use rpc::forge_agent_control_response::ForgeAgentControlExtraInfo;
 use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
+use rpc::uuid::machine::MachineId;
 use rpc::{ForgeScoutErrorReport, forge as rpc_forge};
 pub use scout::{CarbideClientError, CarbideClientResult};
 use std::fs::File;
@@ -83,7 +84,7 @@ async fn main() -> Result<(), eyre::Report> {
     Ok(())
 }
 
-async fn initial_setup(config: &Options) -> Result<String, eyre::Report> {
+async fn initial_setup(config: &Options) -> Result<MachineId, eyre::Report> {
     // we use the same retry params for both: retrying the discover_machine
     // call, as well as retrying the whole attestation sequence: discover_machine + attest_quote
     let retry = registration::DiscoveryRetry {
@@ -243,7 +244,7 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
 
 async fn handle_action(
     controller_response: rpc_forge::ForgeAgentControlResponse,
-    machine_id: &str,
+    machine_id: &MachineId,
     machine_interface_id: uuid::Uuid,
     config: &Options,
 ) -> Result<(), CarbideClientError> {
@@ -376,13 +377,13 @@ async fn logerror_to_carbide(
 
 async fn report_scout_error(
     config: &Options,
-    machine_id: Option<String>,
+    machine_id: Option<MachineId>,
     machine_interface_id: uuid::Uuid,
     error: &impl std::error::Error,
 ) -> CarbideClientResult<()> {
     let request: tonic::Request<ForgeScoutErrorReport> =
         tonic::Request::new(ForgeScoutErrorReport {
-            machine_id: machine_id.map(|id| id.into()),
+            machine_id,
             machine_interface_id: Some(machine_interface_id.into()),
             error: format!("{error:#}"), // Alternate representation also prints inner errors
         });
@@ -395,7 +396,7 @@ async fn report_scout_error(
 /// Ask API if we need to do anything after discovery.
 async fn query_api(
     config: &Options,
-    machine_id: &str,
+    machine_id: &MachineId,
     action_attempt: u64,
     query_attempt: u64,
 ) -> CarbideClientResult<rpc_forge::ForgeAgentControlResponse> {
@@ -405,7 +406,7 @@ async fn query_api(
         query_attempt,
     );
     let query = rpc_forge::ForgeAgentControlRequest {
-        machine_id: Some(machine_id.to_string().into()),
+        machine_id: Some(*machine_id),
     };
     let request = tonic::Request::new(query);
     let mut client = client::create_forge_client(config).await?;
@@ -424,7 +425,7 @@ async fn query_api(
 
 async fn query_api_with_retries(
     config: &Options,
-    machine_id: &str,
+    machine_id: &MachineId,
 ) -> CarbideClientResult<rpc_forge::ForgeAgentControlResponse> {
     let mut action_attempt = 0;
     const MAX_RETRY_COUNT: u64 = 5;

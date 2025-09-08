@@ -52,11 +52,11 @@ async fn test_upgrade_check() -> eyre::Result<()> {
         "echo apt-get install --yes --only-upgrade --reinstall forge-dpu-agent > {}",
         marker.path().display()
     );
-    let machine_id = "test_machine_id";
+    let machine_id = "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg".parse()?;
     crate::upgrade::upgrade(
         &format!("https://{addr}"),
         &client_config,
-        machine_id,
+        &machine_id,
         Some(upgrade_cmd).as_deref(),
     )
     .await?;

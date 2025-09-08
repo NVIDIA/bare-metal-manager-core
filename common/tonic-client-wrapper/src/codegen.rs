@@ -46,7 +46,13 @@ pub struct Config {
 
     /// Include paths for types referenced by `proto_files`:w
     pub include_paths: Vec<String>,
+
+    /// List of protobuf types to override with specific rust types. This should mirror any types you are customizing via [`tonic_prost_build::Builder::extern_path`] to make the generated code match.
+    pub extern_paths: Vec<(ProtobufType, RustType)>,
 }
+
+pub type ProtobufType = String;
+pub type RustType = String;
 
 pub struct CodeGenerator {
     inner_rpc_client_type: TokenStream,
@@ -54,6 +60,7 @@ pub struct CodeGenerator {
     proto_fds: Vec<FileDescriptorProto>,
     generated_types_path_within_crate: TokenStream,
     message_types: HashMap<String, MessageWithPackage>,
+    pub extern_paths: HashMap<ProtobufType, RustType>,
 }
 
 impl CodeGenerator {
@@ -103,12 +110,15 @@ impl CodeGenerator {
             })
             .collect();
 
+        let extern_paths = config.extern_paths.into_iter().collect();
+
         Ok(Self {
             inner_rpc_client_type,
             wrapper_name,
             proto_fds,
             generated_types_path_within_crate,
             message_types,
+            extern_paths,
         })
     }
 
@@ -235,18 +245,25 @@ impl CodeGenerator {
         message_with_package: &MessageWithPackage,
     ) -> Result<Option<TokenStream>> {
         let message = &message_with_package.message;
+        let qualified_name = message_with_package.qualified_name();
 
         if message.field.len() > 1 {
             // We only make convenience converters for messages with 1 or 0 fields
             return Ok(None);
         }
 
+        if base_types.contains_key(&qualified_name) {
+            // Except we can't create convenience converters for primitives
+            return Ok(None);
+        }
+
+        if self.extern_paths.contains_key(&qualified_name) {
+            // Nor do we create them for extern types
+            return Ok(None);
+        }
+
         // No fields in the message means we can convert from `()`
         let Some(field) = message.field.first() else {
-            if base_types.contains_key(&message_with_package.qualified_name()) {
-                // Except we can't create convenience converters for primitives
-                return Ok(None);
-            }
             return Ok(Some(
                 self.make_convenience_converter_from_void(message_with_package)?,
             ));
@@ -424,6 +441,10 @@ impl CodeGenerator {
             return Ok(base_type.to_owned());
         }
 
+        if let Some(extern_type) = self.extern_paths.get(t) {
+            return Ok(extern_type.to_owned());
+        }
+
         let components = t
             .strip_prefix(".")
             .ok_or_else(|| Error::InvalidProtobufType(t.to_string()))?
@@ -494,6 +515,10 @@ mod tests {
                     .to_string(),
             ],
             include_paths: vec![proto_dir.path().to_string_lossy().to_string()],
+            extern_paths: vec![(
+                ".ExternType".to_string(),
+                "crate::CustomExternType".to_string(),
+            )],
         };
 
         CodeGenerator::new(cfg).expect("Could not build CodeGenerator")
@@ -617,6 +642,25 @@ mod tests {
                             .connection()
                             .await?
                             .multi_rpc(tonic::Request::new(request.into()))
+                            .await?
+                            .into_inner())
+                    }
+                }
+                    .to_string()
+            );
+        }
+
+        {
+            let rpc = methods.get("ExternRpc").unwrap();
+            let wrapper = generator.make_rpc_wrapper_method(rpc).unwrap();
+            assert_eq!(
+                wrapper.to_string(),
+                quote! {
+                    pub async fn extern_rpc<T: Into<crate::test::ExternRequest>>(&self, request: T) -> Result<crate::test::SomeResponse, tonic::Status> {
+                        Ok(self
+                            .connection()
+                            .await?
+                            .extern_rpc(tonic::Request::new(request.into()))
                             .await?
                             .into_inner())
                     }
@@ -793,6 +837,27 @@ mod tests {
             assert!(
                 converter.is_none(),
                 "Messages with multiple elements don't get convenience converters"
+            );
+        }
+
+        {
+            let message_with_package = generator.message_types.get(".ExternRequest").unwrap();
+            let converter = generator
+                .make_convenience_converter(message_with_package)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                converter.to_string(),
+                quote! {
+                    impl<T: Into<crate::CustomExternType>> From<T> for crate::test::ExternRequest {
+                        fn from(t: T) -> Self {
+                            Self {
+                                value: Some(t.into())
+                            }
+                        }
+                    }
+                }
+                .to_string()
             );
         }
     }

@@ -14,9 +14,9 @@ use std::fmt::Write;
 
 use crate::cfg::cli_options::{SetVpcVirt, ShowVpc};
 use crate::rpc::ApiClient;
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::{self as forgerpc};
 use prettytable::{Table, row};
-use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 pub async fn handle_show(
     args: ShowVpc,

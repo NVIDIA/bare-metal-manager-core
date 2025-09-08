@@ -25,7 +25,7 @@ use crate::{
         },
     },
 };
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo, forge::forge_server::Forge};
 use sqlx::PgConnection;
 use std::{

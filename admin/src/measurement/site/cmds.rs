@@ -20,12 +20,15 @@ use crate::measurement::site::args::{
     RemoveMachineByApprovalId, RemoveMachineByMachineId, RemoveProfile, RemoveProfileByApprovalId,
     RemoveProfileByProfileId, TrustedMachine, TrustedProfile,
 };
-use measured_boot::site::{ImportResult, SiteModel};
-use utils::admin_cli::cli_output;
+use ::rpc::admin_cli::cli_output;
+use ::rpc::measured_boot::site::{ImportResult, SiteModel};
 
-use measured_boot::records::{MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord};
+use ::rpc::measured_boot::records::{
+    MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord,
+};
 
 use crate::rpc::ApiClient;
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, set_summary};
 use ::rpc::protos::measured_boot::remove_measurement_trusted_machine_request;
 use ::rpc::protos::measured_boot::remove_measurement_trusted_profile_request;
 use ::rpc::protos::measured_boot::{
@@ -36,7 +39,6 @@ use ::rpc::protos::measured_boot::{
 use serde::Serialize;
 use std::fs::File;
 use std::io::BufReader;
-use utils::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, set_summary};
 
 /// dispatch matches + dispatches the correct command
 /// for this subcommand.
@@ -49,13 +51,13 @@ pub async fn dispatch(
             cli_output(
                 import(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                utils::admin_cli::Destination::Stdout(),
+                ::rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdSite::Export(local_args) => {
-            let dest: utils::admin_cli::Destination = match &local_args.path {
-                Some(path) => utils::admin_cli::Destination::Path(path.clone()),
-                None => utils::admin_cli::Destination::Stdout(),
+            let dest: ::rpc::admin_cli::Destination = match &local_args.path {
+                Some(path) => ::rpc::admin_cli::Destination::Path(path.clone()),
+                None => ::rpc::admin_cli::Destination::Stdout(),
             };
             cli_output(
                 export(cli.grpc_conn, local_args).await?,
@@ -68,7 +70,7 @@ pub async fn dispatch(
                 cli_output(
                     approve_machine(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    utils::admin_cli::Destination::Stdout(),
+                    ::rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
             TrustedMachine::Remove(selector) => match selector {
@@ -76,14 +78,14 @@ pub async fn dispatch(
                     cli_output(
                         remove_machine_by_approval_id(cli.grpc_conn, local_args).await?,
                         &cli.args.format,
-                        utils::admin_cli::Destination::Stdout(),
+                        ::rpc::admin_cli::Destination::Stdout(),
                     )?;
                 }
                 RemoveMachine::ByMachineId(local_args) => {
                     cli_output(
                         remove_machine_by_machine_id(cli.grpc_conn, local_args).await?,
                         &cli.args.format,
-                        utils::admin_cli::Destination::Stdout(),
+                        ::rpc::admin_cli::Destination::Stdout(),
                     )?;
                 }
             },
@@ -91,7 +93,7 @@ pub async fn dispatch(
                 cli_output(
                     list_machines(cli.grpc_conn).await?,
                     &cli.args.format,
-                    utils::admin_cli::Destination::Stdout(),
+                    ::rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
         },
@@ -100,7 +102,7 @@ pub async fn dispatch(
                 cli_output(
                     approve_profile(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    utils::admin_cli::Destination::Stdout(),
+                    ::rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
             TrustedProfile::Remove(selector) => match selector {
@@ -108,14 +110,14 @@ pub async fn dispatch(
                     cli_output(
                         remove_profile_by_approval_id(cli.grpc_conn, local_args).await?,
                         &cli.args.format,
-                        utils::admin_cli::Destination::Stdout(),
+                        ::rpc::admin_cli::Destination::Stdout(),
                     )?;
                 }
                 RemoveProfile::ByProfileId(local_args) => {
                     cli_output(
                         remove_profile_by_profile_id(cli.grpc_conn, local_args).await?,
                         &cli.args.format,
-                        utils::admin_cli::Destination::Stdout(),
+                        ::rpc::admin_cli::Destination::Stdout(),
                     )?;
                 }
             },
@@ -123,7 +125,7 @@ pub async fn dispatch(
                 cli_output(
                     list_profiles(cli.grpc_conn).await?,
                     &cli.args.format,
-                    utils::admin_cli::Destination::Stdout(),
+                    ::rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
         },

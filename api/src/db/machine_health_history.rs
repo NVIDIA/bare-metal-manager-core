@@ -14,7 +14,7 @@ use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
 use std::hash::Hasher;
 
 use crate::{db::DatabaseError, model::machine::MachineHealthHistoryRecord};
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 
 /// History of Machine health for a single Machine
 #[derive(Debug, Clone)]

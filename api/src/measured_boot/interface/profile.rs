@@ -17,10 +17,12 @@
 
 use crate::db::DatabaseError;
 use crate::measured_boot::interface::common;
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
-use forge_uuid::{DbPrimaryUuid, DbTable};
-use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
+use ::rpc::measured_boot::records::{
+    MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord,
+};
+use ::rpc::uuid::machine::MachineId;
+use ::rpc::uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use ::rpc::uuid::{DbPrimaryUuid, DbTable};
 use sqlx::query_builder::QueryBuilder;
 use sqlx::{PgConnection, Postgres};
 use std::collections::HashMap;

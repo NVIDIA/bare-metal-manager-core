@@ -25,7 +25,7 @@ use crate::{
     resource_pool::ResourcePoolError,
     storage::NvmeshClientPool,
 };
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 use libredfish::RedfishError;
 use sqlx::PgConnection;
 

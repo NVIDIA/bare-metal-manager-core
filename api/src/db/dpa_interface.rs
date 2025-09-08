@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 
 use super::DatabaseError;
 use crate::CarbideError;
@@ -22,10 +22,10 @@ use crate::{
         DpaInterfaceNetworkStatusObservation,
     },
 };
+use ::rpc::uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use config_version::Versioned;
-use forge_uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
@@ -118,8 +118,7 @@ impl TryFrom<rpc::forge::DpaInterfaceCreationRequest> for NewDpaInterface {
     fn try_from(value: rpc::forge::DpaInterfaceCreationRequest) -> Result<Self, Self::Error> {
         let machine_id = value
             .machine_id
-            .ok_or(CarbideError::MissingArgument("id"))?
-            .try_into()?;
+            .ok_or(CarbideError::MissingArgument("id"))?;
         let mac_address = MacAddress::from_str(&value.mac_addr)?;
         Ok(NewDpaInterface {
             machine_id,
@@ -406,7 +405,7 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
             updated: Some(src.updated.into()),
             deleted: src.deleted.map(|t| t.into()),
             mac_addr: src.mac_address.to_string(),
-            machine_id: Some(src.machine_id.into()),
+            machine_id: Some(src.machine_id),
             controller_state: controller_state.to_string(),
             controller_state_version: controller_state_version.to_string(),
             network_config: network_config.to_string(),
@@ -425,7 +424,7 @@ mod test {
         db::dpa_interface::NewDpaInterface,
         model::{machine::ManagedHostState, metadata::Metadata},
     };
-    use forge_uuid::machine::MachineId;
+    use ::rpc::uuid::machine::MachineId;
     use mac_address::MacAddress;
     use std::str::FromStr;
 

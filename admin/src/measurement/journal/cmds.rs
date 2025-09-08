@@ -20,17 +20,17 @@ use crate::measurement::report::{
     args::Promote as ReportPromoteArgs, cmds::promote as report_promote,
 };
 use crate::rpc::ApiClient;
+use ::rpc::admin_cli::{
+    CarbideCliError, CarbideCliResult, ToTable, cli_output, just_print_summary,
+};
+use ::rpc::measured_boot::records::MeasurementJournalRecord;
+use ::rpc::measured_boot::{bundle::MeasurementBundle, journal::MeasurementJournal};
 use ::rpc::protos::measured_boot::list_measurement_journal_request;
 use ::rpc::protos::measured_boot::show_measurement_journal_request;
 use ::rpc::protos::measured_boot::{
     DeleteMeasurementJournalRequest, ListMeasurementJournalRequest, ShowMeasurementJournalRequest,
 };
-use measured_boot::records::MeasurementJournalRecord;
-use measured_boot::{bundle::MeasurementBundle, journal::MeasurementJournal};
 use serde::Serialize;
-use utils::admin_cli::{
-    CarbideCliError, CarbideCliResult, ToTable, cli_output, just_print_summary,
-};
 
 /// dispatch matches + dispatches the correct command for
 /// the `journal` subcommand.
@@ -43,7 +43,7 @@ pub async fn dispatch(
             cli_output(
                 delete(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                utils::admin_cli::Destination::Stdout(),
+                ::rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdJournal::Show(local_args) => {
@@ -51,13 +51,13 @@ pub async fn dispatch(
                 cli_output(
                     show_by_id(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    utils::admin_cli::Destination::Stdout(),
+                    ::rpc::admin_cli::Destination::Stdout(),
                 )?;
             } else {
                 cli_output(
                     show_all(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    utils::admin_cli::Destination::Stdout(),
+                    ::rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
         }
@@ -65,14 +65,14 @@ pub async fn dispatch(
             cli_output(
                 list(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                utils::admin_cli::Destination::Stdout(),
+                ::rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdJournal::Promote(local_args) => {
             cli_output(
                 promote(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                utils::admin_cli::Destination::Stdout(),
+                ::rpc::admin_cli::Destination::Stdout(),
             )?;
         }
     }

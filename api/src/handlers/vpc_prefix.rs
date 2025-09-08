@@ -19,7 +19,7 @@ use crate::db::network_prefix::NetworkPrefix;
 use crate::db::vpc_prefix as db;
 use crate::db::{DatabaseError, ObjectColumnFilter};
 use ::rpc::forge as rpc;
-use forge_uuid::vpc::{VpcId, VpcPrefixId};
+use ::rpc::uuid::vpc::{VpcId, VpcPrefixId};
 
 pub async fn create(
     api: &Api,

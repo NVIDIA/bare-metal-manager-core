@@ -17,7 +17,7 @@ use crate::CarbideError;
 use crate::api::Api;
 use crate::db::domain::{self, Domain, NewDomain};
 use crate::db::{DatabaseError, ObjectColumnFilter};
-use forge_uuid::domain::DomainId;
+use ::rpc::uuid::domain::DomainId;
 
 pub(crate) async fn create(
     api: &Api,

@@ -11,8 +11,8 @@
  */
 
 use super::common::api_fixtures::{create_managed_host_multi_dpu, create_test_env};
+use rpc::common::MachineIdList;
 use rpc::forge::forge_server::Forge;
-use rpc::{MachineId, common::MachineIdList};
 
 #[crate::sqlx_test]
 async fn test_find_connected_devices_by_machine_ids_single_id(pool: sqlx::PgPool) {
@@ -27,7 +27,7 @@ async fn test_find_connected_devices_by_machine_ids_single_id(pool: sqlx::PgPool
     let response = env
         .api
         .find_connected_devices_by_dpu_machine_ids(tonic::Request::new(MachineIdList {
-            machine_ids: vec![expected_machine_id.clone()],
+            machine_ids: vec![expected_machine_id],
         }))
         .await
         .expect("Response should have been successful");
@@ -79,10 +79,12 @@ async fn test_find_connected_devices_by_machine_ids_missing_id(pool: sqlx::PgPoo
     let response = env
         .api
         .find_connected_devices_by_dpu_machine_ids(tonic::Request::new(MachineIdList {
-            machine_ids: vec![MachineId {
+            machine_ids: vec![
                 // Is a host, not a DPU.
-                id: String::from("fm100htkod0q440bpcnjnsp50qsl3l5sr4htnhckhhb596r0qm3btnqt63g"),
-            }],
+                "fm100htkod0q440bpcnjnsp50qsl3l5sr4htnhckhhb596r0qm3btnqt63g"
+                    .parse()
+                    .unwrap(),
+            ],
         }))
         .await
         .expect("Response should have been successful");

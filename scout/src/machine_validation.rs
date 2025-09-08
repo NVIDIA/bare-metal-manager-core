@@ -10,21 +10,21 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::{CarbideClientError, cfg::Options, client::create_forge_client};
 use ::rpc::forge as rpc;
+use ::rpc::uuid::machine::MachineId;
 use regex::Regex;
 use tokio::process::Command;
 
-use crate::{CarbideClientError, cfg::Options, client::create_forge_client};
-
 pub(crate) async fn completed(
     config: &Options,
-    machine_id: &str,
+    machine_id: &MachineId,
     uuid: String,
     machine_validation_error: Option<String>,
 ) -> Result<(), CarbideClientError> {
     let mut client = create_forge_client(config).await?;
     let request = tonic::Request::new(rpc::MachineValidationCompletedRequest {
-        machine_id: Some(machine_id.to_string().into()),
+        machine_id: Some(*machine_id),
         machine_validation_error,
         validation_id: Some(::rpc::common::Uuid { value: uuid }),
     });
@@ -61,7 +61,7 @@ pub async fn get_system_manufacturer_name() -> String {
 
 pub(crate) async fn run(
     cmd_config: &Options,
-    machine_id: &str,
+    machine_id: &MachineId,
     uuid: String,
     context: String,
     machine_validation_filter: machine_validation::MachineValidationFilter,

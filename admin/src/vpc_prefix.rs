@@ -19,14 +19,14 @@ use serde::Serialize;
 
 use crate::cfg::cli_options::{VpcPrefixCreate, VpcPrefixDelete, VpcPrefixShow};
 use crate::rpc::ApiClient;
-use forge_uuid::vpc::VpcPrefixId;
+use ::rpc::admin_cli::CarbideCliError::GenericError;
+use ::rpc::admin_cli::output::{FormattedOutput, IntoTable, OutputFormat};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::uuid::vpc::VpcPrefixId;
 use rpc::forge::{
     PrefixMatchType, VpcPrefix, VpcPrefixCreationRequest, VpcPrefixDeletionRequest,
     VpcPrefixSearchQuery,
 };
-use utils::admin_cli::CarbideCliError::GenericError;
-use utils::admin_cli::output::{FormattedOutput, IntoTable, OutputFormat};
-use utils::admin_cli::{CarbideCliError, CarbideCliResult};
 
 pub async fn handle_show(
     args: VpcPrefixShow,
@@ -38,7 +38,7 @@ pub async fn handle_show(
     let output = fetch(api_client, batch_size, show_method).await?;
 
     output
-        .write_output(output_format, utils::admin_cli::Destination::Stdout())
+        .write_output(output_format, ::rpc::admin_cli::Destination::Stdout())
         .map_err(CarbideCliError::from)
 }
 
@@ -50,7 +50,7 @@ pub async fn handle_create(
     let output = create(api_client, args).await?;
 
     output
-        .write_output(output_format, utils::admin_cli::Destination::Stdout())
+        .write_output(output_format, ::rpc::admin_cli::Destination::Stdout())
         .map_err(CarbideCliError::from)
 }
 

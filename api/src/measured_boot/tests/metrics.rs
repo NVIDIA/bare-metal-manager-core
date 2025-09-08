@@ -1,8 +1,8 @@
 use crate::measured_boot::metrics_collector::metrics::MeasuredBootMetricsCollectorMetrics;
 use crate::measured_boot::metrics_collector::metrics::MetricHolder;
+use ::rpc::measured_boot::pcr::PcrRegisterValue;
+use ::rpc::measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 use api_test_helper::prometheus_text_parser::ParsedPrometheusMetrics;
-use measured_boot::pcr::PcrRegisterValue;
-use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;

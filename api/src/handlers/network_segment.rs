@@ -25,7 +25,7 @@ use crate::db::vpc::Vpc;
 use crate::db::{DatabaseError, ObjectColumnFilter, network_segment};
 use crate::model::network_segment::NetworkSegmentControllerState;
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::network::NetworkSegmentId;
+use ::rpc::uuid::network::NetworkSegmentId;
 
 pub(crate) async fn find_ids(
     api: &Api,

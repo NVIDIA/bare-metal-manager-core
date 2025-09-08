@@ -11,12 +11,12 @@
  */
 use std::fmt;
 
+use ::rpc::uuid::{
+    instance::InstanceId, network_security_group::NetworkSecurityGroupId, vpc::VpcId,
+};
 use ::rpc::{errors::RpcDataConversionError, forge as rpc};
 use chrono::prelude::*;
 use config_version::ConfigVersion;
-use forge_uuid::{
-    instance::InstanceId, network_security_group::NetworkSecurityGroupId, vpc::VpcId,
-};
 use ipnetwork;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

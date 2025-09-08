@@ -12,8 +12,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use ::rpc::uuid::vpc::VpcPrefixId;
 use config_version::ConfigVersion;
-use forge_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use sqlx::{PgConnection, PgPool};
@@ -41,7 +41,7 @@ use crate::{
         instance::config::{
             InstanceConfig, infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
         },
-        machine::{ManagedHostStateSnapshot, machine_id::try_parse_machine_id},
+        machine::ManagedHostStateSnapshot,
         metadata::Metadata,
         os::OperatingSystemVariant,
         storage::OsImage,
@@ -49,7 +49,7 @@ use crate::{
     },
 };
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::{instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId};
+use ::rpc::uuid::{instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId};
 
 /// User parameters for creating an instance
 #[derive(Debug)]
@@ -77,11 +77,9 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
     type Error = CarbideError;
 
     fn try_from(request: rpc::InstanceAllocationRequest) -> Result<Self, Self::Error> {
-        let machine_id = try_parse_machine_id(
-            &request
-                .machine_id
-                .ok_or(RpcDataConversionError::MissingArgument("machine_id"))?,
-        )?;
+        let machine_id = request
+            .machine_id
+            .ok_or(RpcDataConversionError::MissingArgument("machine_id"))?;
 
         let instance_type_id = request
             .instance_type_id

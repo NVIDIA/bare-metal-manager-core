@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use clap::Parser;
+use rpc::uuid::machine::MachineId;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab_case")]
@@ -50,7 +51,7 @@ pub struct AssociateInstanceType {
 #[derive(Parser, Debug, Clone)]
 pub struct DisassociateInstanceType {
     #[clap(help = "Machine Id")]
-    pub machine_id: String,
+    pub machine_id: MachineId,
 }
 
 #[derive(Parser, Debug, Clone)]

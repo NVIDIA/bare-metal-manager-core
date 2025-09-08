@@ -25,14 +25,13 @@ use std::str::FromStr;
 
 use chrono::DateTime;
 use chrono::Utc;
-use clap::ValueEnum;
 use errors::RpcDataConversionError;
 use mac_address::{MacAddress, MacParseError};
 use prost::Message;
 use prost::UnknownEnumValue;
 use serde::ser::Error;
 
-pub use crate::protos::common::{self, MachineId, Uuid};
+pub use crate::protos::common::{self, Uuid};
 pub use crate::protos::forge::{
     self, CredentialType, Domain, DomainList, ForgeScoutErrorReport, ForgeScoutErrorReportResult,
     Instance, InstanceAllocationRequest, InstanceConfig, InstanceInterfaceConfig,
@@ -58,7 +57,12 @@ pub use crate::protos::site_explorer;
 
 pub mod errors;
 pub mod forge_tls_client;
+pub mod measured_boot;
 pub mod protos;
+pub mod uuid;
+
+#[cfg(feature = "cli")]
+pub mod admin_cli;
 
 pub mod forge_api_client;
 pub mod forge_resolver;
@@ -338,56 +342,26 @@ impl prost::Message for Duration {
     }
 }
 
-impl TryFrom<common::Uuid> for uuid::Uuid {
-    type Error = uuid::Error;
+impl TryFrom<common::Uuid> for ::uuid::Uuid {
+    type Error = ::uuid::Error;
     fn try_from(uuid: Uuid) -> Result<Self, Self::Error> {
-        uuid::Uuid::parse_str(&uuid.value)
+        ::uuid::Uuid::parse_str(&uuid.value)
     }
 }
 
-impl TryFrom<&common::Uuid> for uuid::Uuid {
-    type Error = uuid::Error;
+impl TryFrom<&common::Uuid> for ::uuid::Uuid {
+    type Error = ::uuid::Error;
     fn try_from(uuid: &Uuid) -> Result<Self, Self::Error> {
-        uuid::Uuid::parse_str(&uuid.value)
+        ::uuid::Uuid::parse_str(&uuid.value)
     }
 }
 
 impl Display for common::Uuid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match uuid::Uuid::try_from(self) {
+        match ::uuid::Uuid::try_from(self) {
             Ok(uuid) => write!(f, "{uuid}"),
             Err(err) => write!(f, "<uuid error: {err}>"),
         }
-    }
-}
-
-impl Display for common::MachineId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.id.fmt(f)
-    }
-}
-
-/// Custom Serializer implementation which omits the notion of the wrapper in gRPC
-/// and just serializes the common::MachineId itself
-impl serde::Serialize for common::MachineId {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.id.serialize(serializer)
-    }
-}
-
-/// Custom Deserializer implementation which omits the notion of the wrapper in gRPC
-/// and just serializes the common::MachineId itself
-impl<'de> serde::Deserialize<'de> for common::MachineId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let id = serde::Deserialize::deserialize(deserializer)?;
-
-        Ok(common::MachineId { id })
     }
 }
 
@@ -729,10 +703,11 @@ impl forge::MachineCapabilityDeviceType {
     }
 }
 
+#[cfg(feature = "cli")]
 // This impl allows us to use the RPC RouteServerSourceType type
 // as a first class enum with clap, for the purpose of allowing
 // users to set --source-type with the forge-admin-cli.
-impl ValueEnum for forge::RouteServerSourceType {
+impl clap::ValueEnum for forge::RouteServerSourceType {
     fn value_variants<'a>() -> &'a [Self] {
         &[Self::AdminApi, Self::ConfigFile]
     }
@@ -747,10 +722,10 @@ impl ValueEnum for forge::RouteServerSourceType {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use self::forge::{IpxeOperatingSystem, OperatingSystem, operating_system::Variant};
     use super::*;
+    use crate::uuid::machine::MachineId;
+    use std::time::Duration;
 
     #[test]
     fn test_serialize_timestamp() {
@@ -776,8 +751,12 @@ mod tests {
 
     #[test]
     fn test_serialize_machine_id_as_json() {
-        let id = common::MachineId::from("fms100ABCD".to_string());
-        assert_eq!("\"fms100ABCD\"", serde_json::to_string(&id).unwrap());
+        let id = MachineId::from_str("fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g")
+            .unwrap();
+        assert_eq!(
+            "\"fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g\"",
+            serde_json::to_string(&id).unwrap()
+        );
     }
 
     #[test]
@@ -801,7 +780,7 @@ mod tests {
     /// Test to check that serializing a type with a custom Timestamp implementation works
     #[test]
     fn test_serialize_domain() {
-        let uuid = uuid::uuid!("91609f10-c91d-470d-a260-1234560c0000");
+        let uuid = ::uuid::uuid!("91609f10-c91d-470d-a260-1234560c0000");
         let ts = std::time::SystemTime::now();
         let ts2 = ts.checked_add(Duration::from_millis(1500)).unwrap();
 
@@ -816,7 +795,7 @@ mod tests {
         let encoded = domain.encode_to_vec();
         let decoded = Domain::decode(&encoded[..]).unwrap();
 
-        let deserialized_uuid: uuid::Uuid = decoded.id.unwrap().try_into().unwrap();
+        let deserialized_uuid: ::uuid::Uuid = decoded.id.unwrap().try_into().unwrap();
         let created_system_time: std::time::SystemTime =
             decoded.created.unwrap().try_into().unwrap();
         let updated_system_time: std::time::SystemTime =

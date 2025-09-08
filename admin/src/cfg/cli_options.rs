@@ -19,17 +19,18 @@ use clap::{ArgGroup, Parser, ValueEnum, ValueHint};
 use ipnet::IpNet;
 use mac_address::MacAddress;
 
+use ::rpc::uuid::machine::MachineId;
+use ::rpc::uuid::vpc::{VpcId, VpcPrefixId};
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_ssh::ssh::{
     DEFAULT_SSH_SESSION_TIMEOUT, DEFAULT_TCP_CONNECTION_TIMEOUT, DEFAULT_TCP_READ_TIMEOUT,
     DEFAULT_TCP_WRITE_TIMEOUT, SshConfig,
 };
-use forge_uuid::machine::MachineId;
-use forge_uuid::vpc::{VpcId, VpcPrefixId};
 use libredfish::model::update_service::ComponentType;
+use rpc::admin_cli::OutputFormat;
 use rpc::forge::{OperatingSystem, RouteServerSourceType, SshTimeoutConfig};
 use serde::{Deserialize, Serialize};
-use utils::{admin_cli::OutputFormat, has_duplicates};
+use utils::has_duplicates;
 
 use crate::cfg::instance_type;
 use crate::cfg::measurement;
@@ -355,7 +356,7 @@ pub struct DpuReprovisionSet {
         long,
         help = "DPU Machine ID for which reprovisioning is needed, or host machine id if all DPUs should be reprovisioned."
     )]
-    pub id: String,
+    pub id: MachineId,
 
     #[clap(short, long, action)]
     pub update_firmware: bool,
@@ -375,7 +376,7 @@ pub struct DpuReprovisionClear {
         long,
         help = "DPU Machine ID for which reprovisioning should be cleared, or host machine id if all DPUs should be cleared."
     )]
-    pub id: String,
+    pub id: MachineId,
 
     #[clap(short, long, action)]
     pub update_firmware: bool,
@@ -388,7 +389,7 @@ pub struct DpuReprovisionRestart {
         long,
         help = "Host Machine ID for which reprovisioning should be restarted."
     )]
-    pub id: String,
+    pub id: MachineId,
 
     #[clap(short, long, action)]
     pub update_firmware: bool,
@@ -426,7 +427,7 @@ pub enum HostReprovision {
 #[derive(Parser, Debug)]
 pub struct HostReprovisionSet {
     #[clap(short, long, help = "Machine ID for which reprovisioning is needed.")]
-    pub id: String,
+    pub id: MachineId,
 
     #[clap(short, long, action)]
     pub update_firmware: bool,
@@ -446,7 +447,7 @@ pub struct HostReprovisionClear {
         long,
         help = "Machine ID for which reprovisioning should be cleared."
     )]
-    pub id: String,
+    pub id: MachineId,
 
     #[clap(short, long, action)]
     pub update_firmware: bool,
@@ -1230,14 +1231,14 @@ pub enum NetworkCommand {
 #[derive(Parser, Debug)]
 pub enum OverrideCommand {
     #[clap(about = "List the health reports overrides")]
-    Show { machine_id: String },
+    Show { machine_id: MachineId },
     #[clap(about = "Insert a health report override")]
     Add(HealthAddOptions),
     #[clap(about = "Print a empty health override template, which user can modify and use")]
     PrintEmptyTemplate,
     #[clap(about = "Remove a health report override")]
     Remove {
-        machine_id: String,
+        machine_id: MachineId,
         report_source: String,
     },
 }
@@ -1245,7 +1246,7 @@ pub enum OverrideCommand {
 #[derive(Parser, Debug)]
 #[clap(group(ArgGroup::new("override_health").required(true).args(&["health_report", "template"])))]
 pub struct HealthAddOptions {
-    pub machine_id: String,
+    pub machine_id: MachineId,
     #[clap(long, help = "New health report as json")]
     pub health_report: Option<String>,
     #[clap(
@@ -1305,13 +1306,13 @@ pub enum PowerOptions {
 #[derive(Parser, Debug)]
 pub struct ShowPowerOptions {
     #[clap(help = "ID of the host or nothing for all")]
-    pub machine: Option<String>,
+    pub machine: Option<MachineId>,
 }
 
 #[derive(Parser, Debug)]
 pub struct UpdatePowerOptions {
     #[clap(help = "ID of the host")]
-    pub machine: String,
+    pub machine: MachineId,
     #[clap(long, short, help = "Desired Power State")]
     pub desired_power_state: DesiredPowerState,
 }
@@ -1421,13 +1422,13 @@ pub enum MachineMetadataCommand {
 #[derive(Parser, Debug, Clone)]
 pub struct MachineMetadataCommandShow {
     #[clap(help = "The machine which should get updated metadata")]
-    pub machine: String,
+    pub machine: MachineId,
 }
 
 #[derive(Parser, Debug, Clone)]
 pub struct MachineMetadataCommandSet {
     #[clap(help = "The machine which should get updated metadata")]
-    pub machine: String,
+    pub machine: MachineId,
     #[clap(long, help = "The updated name of the Machine")]
     pub name: Option<String>,
     #[clap(long, help = "The updated description of the Machine")]
@@ -1437,7 +1438,7 @@ pub struct MachineMetadataCommandSet {
 #[derive(Parser, Debug, Clone)]
 pub struct MachineMetadataCommandAddLabel {
     #[clap(help = "The machine which should get updated metadata")]
-    pub machine: String,
+    pub machine: MachineId,
     #[clap(long, help = "The key to add")]
     pub key: String,
     #[clap(long, help = "The optional value to add")]
@@ -1447,7 +1448,7 @@ pub struct MachineMetadataCommandAddLabel {
 #[derive(Parser, Debug, Clone)]
 pub struct MachineMetadataCommandRemoveLabels {
     #[clap(help = "The machine which should get updated metadata")]
-    pub machine: String,
+    pub machine: MachineId,
     #[clap(long, help = "The keys to remove")]
     pub keys: Vec<String>,
 }
@@ -1455,7 +1456,7 @@ pub struct MachineMetadataCommandRemoveLabels {
 #[derive(Parser, Debug, Clone)]
 pub struct MachineMetadataCommandFromExpectedMachine {
     #[clap(help = "The machine which should get updated metadata")]
-    pub machine: String,
+    pub machine: MachineId,
     /// Whether to fully replace the Metadata that is currently stored on the Machine.
     /// - If not set, existing Metadata on the Machine will not be touched by executing
     ///   the command:
@@ -1482,7 +1483,7 @@ pub enum MachineHardwareInfoCommand {
 #[derive(Parser, Debug)]
 pub struct ShowMachineHardwareInfo {
     #[clap(long, help = "Show the hardware info of this Machine ID")]
-    pub machine: String,
+    pub machine: MachineId,
 }
 
 #[derive(Parser, Debug)]
@@ -1500,7 +1501,7 @@ pub enum MachineHardwareInfo {
 #[derive(Parser, Debug)]
 pub struct MachineHardwareInfoGpus {
     #[clap(long, help = "Machine ID of the server containing the GPUs")]
-    pub machine: String,
+    pub machine: MachineId,
     #[clap(
         long,
         help = "JSON file containing GPU info. It should contain an array of JSON objects like this:
@@ -1590,7 +1591,7 @@ pub struct MachineAutoupdate {
 #[derive(Parser, Debug, Clone)]
 pub struct NetworkConfigQuery {
     #[clap(long, required(true), help = "DPU machine id")]
-    pub machine_id: String,
+    pub machine_id: MachineId,
 }
 
 #[derive(Parser, Debug)]
@@ -1642,7 +1643,7 @@ pub struct ShowMachine {
         default_value(""),
         help = "The machine to query, leave empty for all (default)"
     )]
-    pub machine: String,
+    pub machine: Option<MachineId>,
 
     #[clap(
         short = 'c',
@@ -1669,10 +1670,10 @@ pub struct ShowManagedHost {
     pub all: bool,
 
     #[clap(
-        default_value(""),
+        default_value(None),
         help = "Show managed host specific details (using host or dpu machine id), leave empty for all"
     )]
-    pub machine: String,
+    pub machine: Option<MachineId>,
 
     #[clap(
         short,
@@ -1730,13 +1731,13 @@ pub enum QuarantineAction {
 #[derive(Parser, Debug)]
 pub struct ResetHostReprovisioning {
     #[clap(long, required(true), help = "Machine ID to reset host reprovision on")]
-    pub machine: String,
+    pub machine: MachineId,
 }
 
 #[derive(Parser, Debug)]
 pub struct QuarantineOn {
     #[clap(long, required(true), help = "Managed Host ID")]
-    pub host: String,
+    pub host: MachineId,
 
     #[clap(
         long,
@@ -1750,13 +1751,13 @@ pub struct QuarantineOn {
 #[derive(Parser, Debug)]
 pub struct QuarantineOff {
     #[clap(long, required(true), help = "Managed Host ID")]
-    pub host: String,
+    pub host: MachineId,
 }
 
 #[derive(Parser, Debug)]
 pub struct MaintenanceOn {
     #[clap(long, required(true), help = "Managed Host ID")]
-    pub host: String,
+    pub host: MachineId,
 
     #[clap(
         long,
@@ -1770,7 +1771,7 @@ pub struct MaintenanceOn {
 #[derive(Parser, Debug)]
 pub struct MaintenanceOff {
     #[clap(long, required(true), help = "Managed Host ID")]
-    pub host: String,
+    pub host: MachineId,
 }
 
 #[derive(Parser, Debug)]
@@ -1842,7 +1843,7 @@ pub struct ReleaseInstance {
     pub instance: Option<String>,
 
     #[clap(short, long)]
-    pub machine: Option<String>,
+    pub machine: Option<MachineId>,
 
     #[clap(long, help = "The key of label instance to query")]
     pub label_key: Option<String>,
@@ -2680,7 +2681,7 @@ pub enum MachineValidationRunsCommand {
 #[derive(Parser, Debug)]
 pub struct ShowMachineValidationRunsOptions {
     #[clap(short = 'm', long, help = "Show machine validation runs of a machine")]
-    pub machine: Option<String>,
+    pub machine: Option<MachineId>,
 
     #[clap(long, default_value = "false", help = "run history")]
     pub history: bool,
@@ -2704,7 +2705,7 @@ pub struct ShowMachineValidationResultsOptions {
         group = "group",
         help = "Show machine validation result of a machine"
     )]
-    pub machine: Option<String>,
+    pub machine: Option<MachineId>,
 
     #[clap(short = 'v', long, group = "group", help = "Machine validation id")]
     pub validation_id: Option<String>,
@@ -2735,7 +2736,7 @@ pub struct MachineValidationOnDemandOptions {
     help: Option<bool>,
 
     #[clap(short, long, help = "Machine id for start validation")]
-    pub machine: String,
+    pub machine: MachineId,
 
     #[clap(long, help = "Results history")]
     pub tags: Option<Vec<String>>,
@@ -2968,14 +2969,14 @@ pub enum Sku {
     #[clap(about = "Assign a SKU to a machine", visible_alias = "a")]
     Assign {
         sku_id: String,
-        machine_id: String,
+        machine_id: MachineId,
         #[clap(long)]
         force: bool,
     },
     #[clap(about = "Unassign a SKU from a machine", visible_alias = "u")]
-    Unassign { machine_id: String },
+    Unassign { machine_id: MachineId },
     #[clap(about = "Verify a machine against its SKU", visible_alias = "v")]
-    Verify { machine_id: String },
+    Verify { machine_id: MachineId },
     #[clap(about = "Update the metadata of a SKU")]
     UpdateMetadata(UpdateSkuMetadata),
     #[clap(about = "Update multiple SKU's metadata from a file")]
@@ -3068,7 +3069,7 @@ pub struct ShowSku {
 #[derive(Parser, Debug)]
 pub struct GenerateSku {
     #[clap(help = "The filename of the SKU data")]
-    pub machine_id: String,
+    pub machine_id: MachineId,
     #[clap(help = "override the ID of the SKU", long)]
     pub id: Option<String>,
 }

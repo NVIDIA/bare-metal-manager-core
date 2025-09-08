@@ -17,10 +17,9 @@ use crate::bmc::message_proxy::{ToBmcMessage, ToFrontendMessage};
 use crate::bmc::vendor::{BmcVendor, BmcVendorDetectionError, SshBmcVendor};
 use crate::config::{Config, ConfigError};
 use crate::shutdown_handle::ShutdownHandle;
-use forge_uuid::machine::{MachineId, MachineIdParseError, MachineType};
+use ::rpc::uuid::machine::MachineId;
 use rpc::forge;
 use rpc::forge_api_client::ForgeApiClient;
-use std::borrow::Cow;
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -113,32 +112,27 @@ pub async fn lookup(
         return Ok(connection_details);
     }
 
-    let maybe_machine_id = MachineId::from_str(machine_or_instance_id).ok();
-
-    let machine_id_str = if maybe_machine_id.is_some() {
-        Cow::Borrowed(machine_or_instance_id)
+    let machine_id: MachineId = if let Ok(id) = machine_or_instance_id.parse() {
+        id
     } else if let Ok(instance_id) = Uuid::from_str(machine_or_instance_id) {
-        Cow::Owned(
-            forge_api_client
-                .find_instances(forge::InstanceSearchQuery {
-                    id: Some(rpc::Uuid {
-                        value: instance_id.to_string(),
-                    }),
-                    label: None,
-                })
-                .await
-                .map_err(|e| LookupError::InstanceIdLookup {
-                    instance_id,
-                    tonic_status: e,
-                })?
-                .instances
-                .into_iter()
-                .next()
-                .ok_or_else(|| LookupError::CouldNotFindInstance { instance_id })?
-                .machine_id
-                .ok_or_else(|| LookupError::InstanceHasNoMachineId { instance_id })?
-                .id,
-        )
+        forge_api_client
+            .find_instances(forge::InstanceSearchQuery {
+                id: Some(rpc::Uuid {
+                    value: instance_id.to_string(),
+                }),
+                label: None,
+            })
+            .await
+            .map_err(|e| LookupError::InstanceIdLookup {
+                instance_id,
+                tonic_status: e,
+            })?
+            .instances
+            .into_iter()
+            .next()
+            .ok_or_else(|| LookupError::CouldNotFindInstance { instance_id })?
+            .machine_id
+            .ok_or_else(|| LookupError::InstanceHasNoMachineId { instance_id })?
     } else {
         return Err(LookupError::CouldNotParseId {
             machine_or_instance_id: machine_or_instance_id.to_owned(),
@@ -146,39 +140,22 @@ pub async fn lookup(
     };
 
     let machine = forge_api_client
-        .get_machine(&*machine_id_str)
+        .get_machine(machine_id)
         .await
         .map_err(|tonic_status| LookupError::MachineIdLookup {
-            machine_id: machine_id_str.to_string(),
+            machine_id: machine_id.to_string(),
             tonic_status,
         })?;
-    let is_dpu =
-        maybe_machine_id.is_some_and(|machine_id| machine_id.machine_type() == MachineType::Dpu);
 
-    let machine_id = &machine
+    let machine_id = machine
         .id
-        .as_ref()
-        .ok_or_else(|| LookupError::MachineMissingId {
-            machine_id: machine_id_str.to_string(),
-        })?
-        .id;
-    let machine_id: MachineId =
-        machine_id
-            .parse()
-            .map_err(|error| LookupError::InvalidMachineId {
-                machine_id: machine_id.to_string(),
-                error,
-            })?;
+        .ok_or_else(|| LookupError::MachineMissingId { machine_id })?;
 
-    let bmc_vendor = if is_dpu {
+    let bmc_vendor = if machine_id.machine_type().is_dpu() {
         BmcVendor::Ssh(SshBmcVendor::Dpu)
     } else {
-        BmcVendor::detect_from_api_machine(&machine).map_err(|error| {
-            LookupError::BmcVendorDetection {
-                machine_id: machine_id_str.to_string(),
-                error,
-            }
-        })?
+        BmcVendor::detect_from_api_machine(&machine)
+            .map_err(|error| LookupError::BmcVendorDetection { machine_id, error })?
     };
 
     let forge::BmcMetaDataGetResponse {
@@ -191,9 +168,7 @@ pub async fn lookup(
         ipmi_port,
     } = forge_api_client
         .get_bmc_meta_data(forge::BmcMetaDataGetRequest {
-            machine_id: Some(rpc::MachineId {
-                id: machine_id_str.into_owned(),
-            }),
+            machine_id: Some(machine_id),
             role: 0,
             request_type: forge::BmcRequestType::Ipmi.into(),
             bmc_endpoint_request: None,
@@ -282,15 +257,10 @@ pub enum LookupError {
         tonic_status: tonic::Status,
     },
     #[error("API machine has no id? (looked up via machine_id={machine_id})")]
-    MachineMissingId { machine_id: String },
-    #[error("Invalid machine ID {machine_id}: {error}")]
-    InvalidMachineId {
-        machine_id: String,
-        error: MachineIdParseError,
-    },
+    MachineMissingId { machine_id: MachineId },
     #[error("Cannot detect BMC vendor for machine: {machine_id}: {error}")]
     BmcVendorDetection {
-        machine_id: String,
+        machine_id: MachineId,
         error: BmcVendorDetectionError,
     },
     #[error("Error calling forge.GetBmcMetaData for {machine_id}: {tonic_status}")]

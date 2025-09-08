@@ -17,8 +17,8 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, Query as AxumQuery, State as AxumState};
 use axum::response::{Html, IntoResponse};
 
-use measured_boot::site::{MachineAttestationSummary, MachineAttestationSummaryList};
-use measured_boot::{
+use ::rpc::measured_boot::site::{MachineAttestationSummary, MachineAttestationSummaryList};
+use ::rpc::measured_boot::{
     bundle as mbbundle, journal as mbjournal, profile as mbprofile, report as mbreport,
 };
 use rpc::protos::measured_boot as mbprotos;

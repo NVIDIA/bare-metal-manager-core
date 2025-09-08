@@ -18,8 +18,8 @@
 use std::collections::BTreeSet;
 use std::fmt::Display;
 
+use ::rpc::uuid::machine::MachineId;
 use askama_escape::Escaper;
-use forge_uuid::machine::MachineId;
 use std::fmt::Write;
 use std::str::FromStr;
 

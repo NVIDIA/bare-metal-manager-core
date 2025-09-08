@@ -20,6 +20,7 @@ use std::time::SystemTime;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
+use ::rpc::uuid::machine::MachineId;
 use data_encoding::BASE64;
 use eyre::WrapErr;
 use tokio::process::Command as TokioCommand;
@@ -37,7 +38,7 @@ DEBIAN_FRONTEND=noninteractive ip vrf exec mgmt apt-get install --yes --only-upg
 pub async fn upgrade(
     forge_api: &str,
     client_config: &ForgeClientConfig,
-    machine_id: &str,
+    machine_id: &MachineId,
     // allow integration test to replace UPGRADE_CMD
     override_upgrade_cmd: Option<&str>,
 ) -> eyre::Result<bool> {
@@ -123,7 +124,7 @@ pub async fn upgrade(
 async fn upgrade_check(
     forge_api: &str,
     client_config: &ForgeClientConfig,
-    machine_id: &str,
+    machine_id: &MachineId,
 ) -> eyre::Result<UpgradeCheckResult> {
     let binary_path = env::current_exe()?;
     let binary_mtime = mtime(binary_path.as_path())?;
@@ -182,7 +183,7 @@ struct UpgradeCheckResult {
 async fn network_upgrade_check(
     forge_api: &str,
     client_config: &ForgeClientConfig,
-    machine_id: &str,
+    machine_id: &MachineId,
     binary_mtime: SystemTime,
     binary_hash: String,
 ) -> eyre::Result<UpgradeCheckResult> {

@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{net::SocketAddr, thread, time};
-
 use crate::grpcurl::grpcurl;
+use rpc::uuid::machine::MachineId;
+use std::{net::SocketAddr, thread, time};
 
 const MAX_RETRY: usize = 30; // Equal to 30s wait time
 
@@ -20,7 +20,7 @@ const MAX_RETRY: usize = 30; // Equal to 30s wait time
 /// If the Machine does not reach the state within 30s, the function will fail.
 pub async fn wait_for_state(
     addrs: &[SocketAddr],
-    machine_id: &str,
+    machine_id: &MachineId,
     target_state: &str,
 ) -> eyre::Result<()> {
     let data = serde_json::json!({

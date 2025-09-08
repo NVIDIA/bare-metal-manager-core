@@ -24,7 +24,7 @@ use crate::{
         Inventory, PowerState, Service,
     },
 };
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 
 pub async fn insert_endpoint_version(
     txn: &mut PgConnection,

@@ -11,7 +11,7 @@
  */
 use crate::db::{self};
 use crate::model::machine::MachineStateHistory;
-use crate::model::machine::{ManagedHostState, machine_id::try_parse_machine_id};
+use crate::model::machine::ManagedHostState;
 use crate::model::power_manager::PowerOptions;
 use common::api_fixtures::create_managed_host;
 use config_version::ConfigVersion;
@@ -90,7 +90,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         // - FindMachineStateHistories returns the expected history
         let rpc_machine = env
             .api
-            .get_machine(tonic::Request::new(machine_id.to_string().into()))
+            .get_machine(tonic::Request::new(*machine_id))
             .await?
             .into_inner();
         let rpc_history: Vec<serde_json::Value> = rpc_machine
@@ -106,7 +106,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let rpc_machine = env
             .api
             .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
-                id: Some(machine_id.to_string().into()),
+                id: Some(*machine_id),
                 fqdn: None,
                 search_config: Some(rpc::forge::MachineSearchConfig {
                     include_dpus: true,
@@ -135,7 +135,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let rpc_machine = env
             .api
             .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-                machine_ids: vec![machine_id.to_string().into()],
+                machine_ids: vec![*machine_id],
                 include_history: true,
             }))
             .await?
@@ -156,7 +156,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             .api
             .find_machine_state_histories(tonic::Request::new(
                 rpc::forge::MachineStateHistoriesRequest {
-                    machine_ids: vec![machine_id.to_string().into()],
+                    machine_ids: vec![*machine_id],
                 },
             ))
             .await?
@@ -252,7 +252,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .api
         .find_machine_state_histories(tonic::Request::new(
             rpc::forge::MachineStateHistoriesRequest {
-                machine_ids: vec![host_machine_id.to_string().into()],
+                machine_ids: vec![host_machine_id],
             },
         ))
         .await?
@@ -276,8 +276,7 @@ async fn test_old_machine_state_history(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let mut txn = env.pool.begin().await?;
 

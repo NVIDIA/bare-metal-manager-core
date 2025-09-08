@@ -25,7 +25,7 @@ use std::time::SystemTime;
 async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
 
-    let dpu_machine_id = *create_managed_host(&env).await.dpu().machine_id();
+    let dpu_machine_id = create_managed_host(&env).await.dpu().id;
 
     // Set the upgrade policy
     let response = env
@@ -161,7 +161,7 @@ async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), e
         .api
         .get_managed_host_network_config(tonic::Request::new(
             rpc::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: mh.dpu().machine_id().into(),
+                dpu_machine_id: mh.dpu().id.into(),
             },
         ))
         .await?
@@ -180,7 +180,7 @@ async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), e
         alert.message,
         format!("Agent version is {stale_version}, which is out of date for 1 day and 1 hour")
     );
-    assert_eq!(alert.target, Some(mh.dpu().machine_id().to_string()));
+    assert_eq!(alert.target, Some(mh.dpu().id.to_string()));
     assert_eq!(
         alert.classifications,
         vec![HealthAlertClassification::prevent_allocations()]
@@ -208,7 +208,7 @@ async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), e
         .await
         .expect("Should have caused a health alert");
     assert_eq!(alert.message, "Agent version is not known");
-    assert_eq!(alert.target, Some(mh.dpu().machine_id().to_string()),);
+    assert_eq!(alert.target, Some(mh.dpu().id.to_string()),);
     assert_eq!(
         alert.classifications,
         vec![HealthAlertClassification::prevent_allocations()]
@@ -239,7 +239,7 @@ impl TestManagedHost {
         test_env
             .api
             .record_dpu_network_status(tonic::Request::new(rpc::DpuNetworkStatus {
-                dpu_machine_id: self.dpu().machine_id().into(),
+                dpu_machine_id: self.dpu().id.into(),
                 dpu_agent_version: agent_version.map(Into::into),
                 observed_at: None,
                 dpu_health: Some(::rpc::health::HealthReport {
@@ -275,7 +275,7 @@ impl TestManagedHost {
         let alerts = test_env
             .api
             .find_machines_by_ids(tonic::Request::new(rpc::MachinesByIdsRequest {
-                machine_ids: vec![self.id.into()],
+                machine_ids: vec![self.id],
                 include_history: false,
             }))
             .await

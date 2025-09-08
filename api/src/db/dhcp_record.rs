@@ -11,7 +11,7 @@
  */
 
 use ::rpc::forge as rpc;
-use forge_uuid::{
+use ::rpc::uuid::{
     domain::DomainId, machine::MachineId, machine::MachineInterfaceId, network::NetworkSegmentId,
 };
 use ipnetwork::IpNetwork;
@@ -50,7 +50,7 @@ pub struct DhcpRecord {
 impl From<DhcpRecord> for rpc::DhcpRecord {
     fn from(record: DhcpRecord) -> Self {
         Self {
-            machine_id: record.machine_id.map(|id| id.into()),
+            machine_id: record.machine_id,
             machine_interface_id: Some(record.machine_interface_id.into()),
             segment_id: Some(record.segment_id.into()),
             subdomain_id: record.subdomain_id.map(::rpc::common::Uuid::from),

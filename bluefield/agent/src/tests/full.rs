@@ -380,8 +380,8 @@ async fn handle_discover(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl
     common::respond(rpc::forge::MachineDiscoveryResult {
         machine_id: Some(
             "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g"
-                .to_string()
-                .into(),
+                .parse()
+                .unwrap(),
         ),
         machine_certificate: None,
         attest_key_challenge: None,
@@ -601,9 +601,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         id: Some(rpc::Uuid {
             value: "9afaedd3-b36e-4603-a029-8b94a82b89a0".to_string(),
         }),
-        machine_id: Some(rpc::MachineId {
-            id: "fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g".to_string(),
-        }),
+        machine_id: Some("fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g".parse().unwrap()),
         metadata: None,
         instance_type_id: None,
         config: Some(rpc::InstanceConfig {

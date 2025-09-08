@@ -30,14 +30,12 @@ dependencies = [
  "forge-network",
  "forge-ssh",
  "forge-tls",
- "forge-uuid",
  "forge-version",
  "forge_secrets",
  "health-report",
  "ipnet",
  "libredfish",
  "mac_address",
- "measured-boot",
  "prettytable-rs",
  "rpc",
  "serde",
@@ -1296,7 +1294,6 @@ dependencies = [
  "forge-host-support",
  "forge-network",
  "forge-ssh",
- "forge-uuid",
  "forge-version",
  "forge_secrets",
  "futures",
@@ -1319,7 +1316,6 @@ dependencies = [
  "mac_address",
  "machine-a-tron",
  "md5",
- "measured-boot",
  "names",
  "num-bigint-dig",
  "num_cpus",
@@ -1424,6 +1420,7 @@ dependencies = [
  "metrics-exporter-prometheus",
  "mime",
  "pin-project-lite",
+ "rand 0.8.5",
  "rpc",
  "serde",
  "tempfile",
@@ -3022,22 +3019,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "forge-uuid"
-version = "0.0.1"
-dependencies = [
- "data-encoding",
- "eyre",
- "rpc",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sqlx",
- "thiserror 2.0.14",
- "tonic 0.14.1",
- "uuid",
-]
-
-[[package]]
 name = "forge-version"
 version = "0.1.0"
 
@@ -4594,23 +4575,6 @@ name = "md5"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
-
-[[package]]
-name = "measured-boot"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "eyre",
- "forge-uuid",
- "prettytable-rs",
- "rpc",
- "serde",
- "sqlx",
- "thiserror 2.0.14",
- "tonic 0.14.1",
- "utils",
-]
 
 [[package]]
 name = "memchr"
@@ -6702,6 +6666,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
+ "data-encoding",
  "eyre",
  "forge-http-connector",
  "forge-tls",
@@ -6713,6 +6678,7 @@ dependencies = [
  "log",
  "mac_address",
  "nonempty",
+ "prettytable-rs",
  "prost 0.14.1",
  "prost-types 0.14.1",
  "resolv-conf",
@@ -6720,6 +6686,9 @@ dependencies = [
  "rustls-pemfile",
  "serde",
  "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "sqlx",
  "thiserror 2.0.14",
  "tokio",
  "tonic 0.14.1",
@@ -7943,7 +7912,6 @@ dependencies = [
  "duration-str 0.17.0",
  "eyre",
  "forge-tls",
- "forge-uuid",
  "futures",
  "futures-util",
  "http",
@@ -8011,10 +7979,10 @@ version = "0.1.0"
 dependencies = [
  "api-test-helper",
  "eyre",
- "forge-uuid",
  "forge-version",
  "prost 0.14.1",
  "prost-types 0.14.1",
+ "rpc",
  "rustls 0.23.31",
  "rustls-pemfile",
  "tokio",

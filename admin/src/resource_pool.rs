@@ -12,7 +12,7 @@
 use prettytable::{Table, row};
 
 use crate::rpc::ApiClient;
-use utils::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::CarbideCliResult;
 
 pub async fn list(api_client: &ApiClient) -> CarbideCliResult<()> {
     let response = api_client.0.admin_list_resource_pools().await?;

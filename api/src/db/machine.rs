@@ -20,12 +20,12 @@ use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, DpuInfo};
-use chrono::prelude::*;
-use config_version::{ConfigVersion, Versioned};
-use forge_uuid::{
+use ::rpc::uuid::{
     instance_type::InstanceTypeId,
     machine::{MachineId, MachineType},
 };
+use chrono::prelude::*;
+use config_version::{ConfigVersion, Versioned};
 use health_report::{HealthReport, OverrideMode};
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -2315,7 +2315,7 @@ mod test {
         db::machine::MachineSearchConfig, model::machine::ManagedHostState,
         model::metadata::Metadata,
     };
-    use forge_uuid::machine::MachineId;
+    use ::rpc::uuid::machine::MachineId;
     use std::str::FromStr;
 
     #[crate::sqlx_test]

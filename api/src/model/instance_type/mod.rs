@@ -10,10 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::uuid::instance_type::InstanceTypeId;
 use ::rpc::{common as rpc_common, errors::RpcDataConversionError, forge as rpc};
 use chrono::prelude::*;
 use config_version::ConfigVersion;
-use forge_uuid::instance_type::InstanceTypeId;
 use serde::{Deserialize, Serialize};
 
 use crate::{CarbideError, model::metadata::Metadata};

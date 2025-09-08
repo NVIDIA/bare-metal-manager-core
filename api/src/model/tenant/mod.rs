@@ -18,7 +18,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::model::metadata::Metadata;
-use forge_uuid::instance::InstanceId;
+use ::rpc::uuid::instance::InstanceId;
 use rpc::errors::RpcDataConversionError;
 
 #[derive(thiserror::Error, Debug)]

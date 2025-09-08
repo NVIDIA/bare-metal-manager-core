@@ -18,7 +18,7 @@ use crate::{
 
 use crate::db::{DatabaseError, dpa_interface::NewDpaInterface};
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::dpa_interface::DpaInterfaceId;
+use ::rpc::uuid::dpa_interface::DpaInterfaceId;
 use tonic::{Request, Response};
 
 pub(crate) async fn create(

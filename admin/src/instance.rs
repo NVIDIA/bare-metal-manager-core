@@ -21,8 +21,8 @@ use super::{default_uuid, invalid_machine_id};
 use crate::cfg::cli_options::{RebootInstance, SortField};
 use crate::rpc::ApiClient;
 use crate::{async_write, async_writeln};
-use forge_uuid::machine::MachineId;
-use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::uuid::machine::MachineId;
 
 fn convert_instance_to_nice_format(
     instance: &forgerpc::Instance,
@@ -35,7 +35,10 @@ fn convert_instance_to_nice_format(
         ("ID", instance.id.clone().unwrap_or_default().value),
         (
             "MACHINE ID",
-            instance.machine_id.clone().unwrap_or_default().id,
+            instance
+                .machine_id
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
         ),
         (
             "TENANT ORG",
@@ -357,7 +360,10 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
 
         table.add_row(row![
             instance.id.unwrap_or_default(),
-            instance.machine_id.unwrap_or_else(invalid_machine_id),
+            instance
+                .machine_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(invalid_machine_id),
             tenant_org,
             tenant_state,
             instance.instance_type_id.unwrap_or_default(),
@@ -377,7 +383,7 @@ async fn show_instance_details(
     api_client: &ApiClient,
     extrainfo: bool,
 ) -> CarbideCliResult<()> {
-    let instance = if MachineId::from_str(&id).is_ok() {
+    let instance = if let Ok(id) = MachineId::from_str(&id) {
         api_client.0.find_instance_by_machine_id(id).await?
     } else {
         let instance_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
@@ -508,17 +514,12 @@ pub async fn handle_reboot(args: RebootInstance, api_client: &ApiClient) -> Carb
         .last()
         .ok_or_else(|| CarbideCliError::GenericError("Unknown UUID".to_string()))?
         .machine_id
-        .clone()
         .ok_or_else(|| {
             CarbideCliError::GenericError("Instance has no machine associated.".to_string())
         })?;
 
     api_client
-        .reboot_instance(
-            machine_id.clone(),
-            args.custom_pxe,
-            args.apply_updates_on_reboot,
-        )
+        .reboot_instance(machine_id, args.custom_pxe, args.apply_updates_on_reboot)
         .await?;
     println!(
         "Reboot for instance {} (machine {}) is requested successfully!",

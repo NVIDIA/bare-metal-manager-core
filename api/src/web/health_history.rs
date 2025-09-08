@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::uuid::machine::MachineId;
 use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use forge_uuid::machine::MachineId;
 use hyper::http::StatusCode;
 use std::{str::FromStr, sync::Arc};
 
@@ -39,7 +39,7 @@ pub async fn show_health_history(
     };
 
     let display = MachineHealth {
-        id: machine_id.id,
+        id: machine_id.to_string(),
         history: MachineHealthHistoryTable { records },
     };
 
@@ -60,24 +60,18 @@ pub async fn show_health_history_json(
 pub async fn fetch_health_records(
     api: &Api,
     machine_id: &str,
-) -> Result<(::rpc::common::MachineId, Vec<MachineHealthHistoryRecord>), (http::StatusCode, String)>
-{
-    let Ok(parsed_machine_id) = MachineId::from_str(machine_id) else {
+) -> Result<(MachineId, Vec<MachineHealthHistoryRecord>), (http::StatusCode, String)> {
+    let Ok(machine_id) = MachineId::from_str(machine_id) else {
         return Err((StatusCode::BAD_REQUEST, "invalid machine id".to_string()));
     };
-    if parsed_machine_id.machine_type().is_dpu() {
+    if machine_id.machine_type().is_dpu() {
         return Err((
             StatusCode::NOT_FOUND,
             "no health for dpu. see host machine instead".to_string(),
         ));
     }
-    let machine_id = parsed_machine_id.to_string();
 
-    let rpc_machine_id = ::rpc::common::MachineId {
-        id: machine_id.clone(),
-    };
-
-    let health_records = match fetch_health_history(api, &rpc_machine_id).await {
+    let health_records = match fetch_health_history(api, &machine_id).await {
         Ok(records) => records,
         Err(err) => {
             tracing::error!(%err, %machine_id, "find_machine_health_histories");
@@ -85,5 +79,5 @@ pub async fn fetch_health_records(
         }
     };
 
-    Ok((rpc_machine_id, health_records))
+    Ok((machine_id, health_records))
 }

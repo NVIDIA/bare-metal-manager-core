@@ -14,7 +14,7 @@ use crate::{
     db,
     tests::common::api_fixtures::{create_managed_host, create_test_env},
 };
-use forge_uuid::{machine::MachineId, vpc::VpcId};
+use ::rpc::uuid::{machine::MachineId, vpc::VpcId};
 use rpc::{
     Uuid,
     forge::{
@@ -291,13 +291,7 @@ async fn create_vpc_peering(
         .build()
         .await;
 
-    Ok((
-        vpc_id,
-        peer_vpc_id,
-        vpc_vni,
-        peer_vpc_vni,
-        *mh.dpu().machine_id(),
-    ))
+    Ok((vpc_id, peer_vpc_id, vpc_vni, peer_vpc_vni, mh.dpu().id))
 }
 
 #[crate::sqlx_test]
@@ -311,7 +305,7 @@ async fn test_vpc_peering_network_config(
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            dpu_machine_id: Some(dpu_machine_id),
         }))
         .await
         .unwrap()
@@ -358,7 +352,7 @@ async fn test_vpc_peering_network_config_exclusive_etv(
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            dpu_machine_id: Some(dpu_machine_id),
         }))
         .await
         .unwrap()
@@ -387,7 +381,7 @@ async fn test_vpc_peering_network_config_exclusive_etv_with_nvue(
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            dpu_machine_id: Some(dpu_machine_id),
         }))
         .await
         .unwrap()
@@ -420,7 +414,7 @@ async fn test_vpc_peering_deletion_upon_vpc_deletion(
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            dpu_machine_id: Some(dpu_machine_id),
         }))
         .await
         .unwrap()
@@ -447,7 +441,7 @@ async fn test_vpc_peering_deletion_upon_vpc_deletion(
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            dpu_machine_id: Some(dpu_machine_id),
         }))
         .await
         .unwrap()

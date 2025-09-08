@@ -28,13 +28,12 @@ use crate::{
         machine::{
             DpuInitState, FailureCause, FailureDetails, FailureSource, LockdownInfo, LockdownMode,
             LockdownState, MachineState, ManagedHostState, ManagedHostStateSnapshot,
-            machine_id::try_parse_machine_id,
         },
         site_explorer::EndpointExplorationReport,
     },
 };
+use ::rpc::uuid::machine::MachineId;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
-use forge_uuid::machine::MachineId;
 use futures_util::FutureExt;
 use health_report::HealthReport;
 use rpc::machine_discovery::AttestKeyInfo;
@@ -43,7 +42,6 @@ use rpc::{
     forge::{self, HardwareHealthReport, forge_server::Forge},
     forge_agent_control_response::Action,
 };
-use std::str::FromStr;
 use std::{collections::HashMap, future::Future, iter, net::IpAddr};
 use tonic::Request;
 
@@ -64,8 +62,7 @@ impl MockExploredHost<'_> {
     pub fn discovered_machine_id(&self) -> Option<MachineId> {
         self.machine_discovery_response
             .as_ref()
-            .and_then(|r| r.machine_id.as_ref())
-            .map(|id| MachineId::from_str(&id.id).unwrap())
+            .and_then(|r| r.machine_id)
     }
 }
 
@@ -332,7 +329,7 @@ impl<'a> MockExploredHost<'a> {
                 .id;
 
         for machine_id in self.dpu_machine_ids.values() {
-            create_machine_inventory(self.test_env, machine_id).await;
+            create_machine_inventory(self.test_env, *machine_id).await;
         }
 
         self.test_env
@@ -375,13 +372,13 @@ impl<'a> MockExploredHost<'a> {
         }
 
         for machine_id in self.dpu_machine_ids.values() {
-            let response = forge_agent_control(self.test_env, (*machine_id).into()).await;
+            let response = forge_agent_control(self.test_env, *machine_id).await;
             assert_eq!(
                 response.action,
                 rpc::forge_agent_control_response::Action::Discovery as i32
             );
 
-            discovery_completed(self.test_env, (*machine_id).into()).await;
+            discovery_completed(self.test_env, *machine_id).await;
         }
 
         self.test_env
@@ -437,7 +434,7 @@ impl<'a> MockExploredHost<'a> {
                 .id;
 
         for machine_id in self.dpu_machine_ids.values() {
-            create_machine_inventory(self.test_env, machine_id).await;
+            create_machine_inventory(self.test_env, *machine_id).await;
         }
 
         self.test_env
@@ -480,7 +477,7 @@ impl<'a> MockExploredHost<'a> {
         }
 
         for machine_id in self.dpu_machine_ids.values() {
-            discovery_completed(self.test_env, (*machine_id).into()).await;
+            discovery_completed(self.test_env, *machine_id).await;
         }
 
         self.test_env
@@ -506,15 +503,13 @@ impl<'a> MockExploredHost<'a> {
     }
 
     pub async fn host_state_controller_iterations(self) -> Self {
-        let rpc_host_machine_id = self
+        let host_machine_id = self
             .machine_discovery_response
             .as_ref()
             .unwrap()
             .machine_id
-            .clone()
             .unwrap();
 
-        let host_machine_id = try_parse_machine_id(&rpc_host_machine_id).unwrap();
         let expected_state = self.managed_host.expected_state.clone();
 
         if self.test_env.attestation_enabled {
@@ -542,7 +537,7 @@ impl<'a> MockExploredHost<'a> {
                 return self;
             }
 
-            inject_machine_measurements(self.test_env, rpc_host_machine_id.clone()).await;
+            inject_machine_measurements(self.test_env, host_machine_id).await;
         }
 
         self.test_env
@@ -558,13 +553,13 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .api
             .record_hardware_health_report(Request::new(HardwareHealthReport {
-                machine_id: Some(host_machine_id.to_string().into()),
+                machine_id: Some(host_machine_id),
                 report: Some(HealthReport::empty("hardware-health".to_string()).into()),
             }))
             .await
             .expect("Failed to add hardware health report to newly created machine");
 
-        discovery_completed(self.test_env, host_machine_id.into()).await;
+        discovery_completed(self.test_env, host_machine_id).await;
         self.test_env.run_ib_fabric_monitor_iteration().await;
         host_uefi_setup(self.test_env, &host_machine_id).await;
 
@@ -691,7 +686,7 @@ impl<'a> MockExploredHost<'a> {
             return self;
         }
 
-        let response = forge_agent_control(self.test_env, host_machine_id.into()).await;
+        let response = forge_agent_control(self.test_env, host_machine_id).await;
         assert_eq!(
             response.action,
             rpc::forge_agent_control_response::Action::Noop as i32
@@ -733,14 +728,12 @@ impl<'a> MockExploredHost<'a> {
         machine_validation_result_data: Option<rpc::forge::MachineValidationResult>,
         error: Option<String>,
     ) -> Self {
-        let rpc_host_machine_id = self
+        let host_machine_id = self
             .machine_discovery_response
             .as_ref()
             .unwrap()
             .machine_id
-            .clone()
             .unwrap();
-        let host_machine_id = try_parse_machine_id(&rpc_host_machine_id).unwrap();
         let mut machine_validation_result = machine_validation_result_data.unwrap_or_default();
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
@@ -755,13 +748,13 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .api
             .record_hardware_health_report(Request::new(HardwareHealthReport {
-                machine_id: Some(host_machine_id.to_string().into()),
+                machine_id: Some(host_machine_id),
                 report: Some(HealthReport::empty("hardware-health".to_string()).into()),
             }))
             .await
             .expect("Failed to add hardware health report to newly created machine");
 
-        discovery_completed(self.test_env, host_machine_id.into()).await;
+        discovery_completed(self.test_env, host_machine_id).await;
         self.test_env.run_ib_fabric_monitor_iteration().await;
         host_uefi_setup(self.test_env, &host_machine_id).await;
 
@@ -806,7 +799,7 @@ impl<'a> MockExploredHost<'a> {
             )
             .await;
 
-        let response = forge_agent_control(self.test_env, host_machine_id.into()).await;
+        let response = forge_agent_control(self.test_env, host_machine_id).await;
         if self.test_env.config.machine_validation_config.enabled {
             let uuid = &response.data.unwrap().pair[1].value;
             let validation_id = Some(rpc::Uuid {
@@ -879,7 +872,7 @@ impl<'a> MockExploredHost<'a> {
 
                 txn.commit().await.unwrap();
             } else if machine_validation_result.exit_code == 0 {
-                let _ = forge_agent_control(self.test_env, host_machine_id.into()).await;
+                let _ = forge_agent_control(self.test_env, host_machine_id).await;
 
                 self.test_env
                     .run_machine_state_controller_iteration_until_state_matches(
@@ -893,7 +886,7 @@ impl<'a> MockExploredHost<'a> {
                     )
                     .await;
 
-                let response = forge_agent_control(self.test_env, host_machine_id.into()).await;
+                let response = forge_agent_control(self.test_env, host_machine_id).await;
                 assert_eq!(response.action, Action::Noop as i32);
                 self.test_env
                     .run_machine_state_controller_iteration_until_state_matches(
@@ -1203,14 +1196,12 @@ pub async fn new_host_with_machine_validation(
         .finish(|mock| async move {
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
             let mut txn = mock.test_env.pool.begin().await.unwrap();
-            Ok(db::managed_host::load_snapshot(
-                &mut txn,
-                &try_parse_machine_id(&machine_id).unwrap(),
-                Default::default(),
+            Ok(
+                db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
+                    .await
+                    .transpose()
+                    .unwrap()?,
             )
-            .await
-            .transpose()
-            .unwrap()?)
         })
         .boxed()
         .await

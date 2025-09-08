@@ -11,7 +11,7 @@
  */
 use std::{net::IpAddr, str::FromStr};
 
-use crate::{db, model::machine::machine_id::try_parse_machine_id};
+use crate::db;
 use itertools::Itertools;
 use mac_address::MacAddress;
 
@@ -103,8 +103,7 @@ async fn test_reject_host_machine_with_disabled_tpm(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let host_machine_interface_id = host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
 

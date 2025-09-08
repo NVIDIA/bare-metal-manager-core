@@ -6,8 +6,11 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::hbn;
+use crate::instrumentation::NetworkMonitorMetricsState;
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, ForgeTlsClient};
+use ::rpc::uuid::machine::MachineId;
 use chrono::Utc;
 use clap::ValueEnum;
 use eyre::{Context, Result};
@@ -22,9 +25,6 @@ use tokio::task;
 use tokio::time::{self, Duration, Instant};
 use tonic::async_trait;
 
-use crate::hbn;
-use crate::instrumentation::NetworkMonitorMetricsState;
-
 // @TODO: this should be able to be configured
 const MAX_PINGS_PER_DPU: u32 = 5; // Number of pings for each DPU in each check cycle
 const DPU_LIST_FETCH_INTERVAL: u64 = 30 * 60; // Interval in seconds for fetching DPU list from API
@@ -32,7 +32,7 @@ const DPU_LIST_FETCH_INTERVAL: u64 = 30 * 60; // Interval in seconds for fetchin
 /// Structure to store peer DPU information
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Serialize)]
 pub struct DpuInfo {
-    pub id: String,
+    pub id: MachineId,
     pub ip: IpAddr,
 }
 
@@ -43,12 +43,13 @@ impl fmt::Display for DpuInfo {
 }
 
 impl TryFrom<rpc::DpuInfo> for DpuInfo {
-    type Error = std::net::AddrParseError;
+    type Error = eyre::Error;
 
     fn try_from(rpc_info: rpc::DpuInfo) -> Result<Self, Self::Error> {
         let ip = IpAddr::from_str(&rpc_info.loopback_ip)?;
+        // Note: DpuInfo uses a string for machine_id, not a real MachineId, which is wrong.
         Ok(DpuInfo {
-            id: rpc_info.id,
+            id: rpc_info.id.parse()?,
             ip,
         })
     }
@@ -74,14 +75,14 @@ impl DpuPingResult {
 
 /// Network monitor struct handles network connectivity checks
 pub struct NetworkMonitor {
-    machine_id: String,                               // DPU id
+    machine_id: MachineId,                            // DPU id
     metrics: Option<Arc<NetworkMonitorMetricsState>>, // Metrics for monitoring
     pinger: Arc<dyn Ping>,                            // Pinger that help ping DPUs and get results
 }
 
 impl NetworkMonitor {
     pub fn new(
-        machine_id: String,
+        machine_id: MachineId,
         metrics: Option<Arc<NetworkMonitorMetricsState>>,
         pinger: Arc<dyn Ping>,
     ) -> Self {
@@ -166,17 +167,17 @@ impl NetworkMonitor {
                     if let Some(metrics) = self.metrics.clone() {
                         let mut reachable_map = HashMap::new();
                         for result in results {
-                            reachable_map.insert(result.dpu_info.id.clone(), result.reachable());
+                            reachable_map.insert(result.dpu_info.id, result.reachable());
                             if let Some(latency) = result.average_latency {
                                 metrics.record_network_latency(
                                     latency,
-                                    self.machine_id.clone(),
-                                    result.dpu_info.id.clone(),
+                                    self.machine_id,
+                                    result.dpu_info.id,
                                 );
                                 metrics.record_network_loss_percent(
                                     result.loss_percent(),
-                                    self.machine_id.clone(),
-                                    result.dpu_info.id.clone(),
+                                    self.machine_id,
+                                    result.dpu_info.id,
                                 );
                             }
                         }
@@ -239,7 +240,7 @@ impl NetworkMonitor {
         // Concurrent jobs to ping DPUs and get results
         stream::iter(peer_dpus)
             .for_each_concurrent(concurrent_limit, |peer_dpu| {
-                let peer_dpu_id = peer_dpu.id.clone();
+                let peer_dpu_id = peer_dpu.id;
                 let tx_clone = tx.clone();
                 async move {
                     match self.pinger.ping_dpu(peer_dpu.clone(), loopback_ip).await {
@@ -253,7 +254,7 @@ impl NetworkMonitor {
                             }
                         }
                         Err((error_type, _report)) => {
-                            self.record_error_metrics(error_type, Some(peer_dpu_id.clone()));
+                            self.record_error_metrics(error_type, Some(peer_dpu_id));
                         }
                     }
                 }
@@ -316,7 +317,7 @@ impl NetworkMonitor {
     /// Finds id and loopback IP of this DPU and list of peer dpus using gRPC call to API
     pub async fn find_all_dpu_info(
         &self,
-        dpu_machine_id: &str,
+        dpu_machine_id: &MachineId,
         forge_api: &str,
         client_config: &ForgeClientConfig,
     ) -> Result<(DpuInfo, Vec<DpuInfo>), eyre::Report> {
@@ -331,7 +332,7 @@ impl NetworkMonitor {
         let mut dpu_info: Option<DpuInfo> = None;
         let mut peer_dpus: Vec<DpuInfo> = Vec::new();
         for dpu in dpu_info_list.dpu_list {
-            if dpu.id == dpu_machine_id {
+            if dpu.id == dpu_machine_id.to_string() {
                 dpu_info = Some(dpu.clone().try_into().inspect_err(|_| {
                     self.record_error_metrics(NetworkMonitorError::DpuNotFound, None);
                 })?);
@@ -350,17 +351,19 @@ impl NetworkMonitor {
     }
 
     /// Helper function for recording different types of error metrics
-    fn record_error_metrics(&self, error_type: NetworkMonitorError, dest_dpu_id: Option<String>) {
+    fn record_error_metrics(
+        &self,
+        error_type: NetworkMonitorError,
+        dest_dpu_id: Option<MachineId>,
+    ) {
         if let Some(metrics) = &self.metrics.clone() {
             match dest_dpu_id {
                 Some(dest_dpu_id) => metrics.record_communication_error(
-                    self.machine_id.clone(),
+                    self.machine_id,
                     dest_dpu_id,
                     error_type.to_string(),
                 ),
-                None => {
-                    metrics.record_monitor_error(self.machine_id.clone(), error_type.to_string())
-                }
+                None => metrics.record_monitor_error(self.machine_id, error_type.to_string()),
             };
         }
     }

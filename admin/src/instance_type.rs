@@ -24,9 +24,10 @@ use crate::cfg::instance_type::{
     ShowInstanceType, UpdateInstanceType,
 };
 use crate::rpc::ApiClient;
+use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge::{self as forgerpc, FindInstanceTypesByIdsRequest};
-use utils::admin_cli::CarbideCliResult;
-use utils::admin_cli::OutputFormat;
+use rpc::uuid::machine::MachineId;
 
 /// Produces a table for printing a non-JSON representation of a
 /// instance type to standard out.
@@ -320,7 +321,7 @@ pub async fn remove_association(
 ) -> CarbideCliResult<()> {
     let instance = api_client
         .0
-        .find_instance_by_machine_id(disassociate_instance_type.machine_id.clone())
+        .find_instance_by_machine_id(disassociate_instance_type.machine_id)
         .await?;
 
     if let Some(instance) = instance.instances.first() {
@@ -354,7 +355,7 @@ pub async fn remove_association(
 
 async fn remove_association_api(
     api_client: &ApiClient,
-    machine_id: String,
+    machine_id: MachineId,
 ) -> Result<(), CarbideCliError> {
     api_client
         .remove_instance_type_association(machine_id)

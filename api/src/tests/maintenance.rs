@@ -12,6 +12,7 @@
 
 use rpc::forge as rpcf;
 use rpc::forge::forge_server::Forge;
+use rpc::uuid::machine::MachineId;
 
 use crate::tests::common;
 use common::api_fixtures::{
@@ -29,12 +30,12 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Create a machine
     let (host_id, _dpu_machine_id) = create_managed_host(&env).await.into();
     let (_host_id_2, _dpu_machine_id_2) = create_managed_host(&env).await.into();
-    let rpc_host_id: rpc::MachineId = host_id.into();
+    let rpc_host_id: MachineId = host_id;
 
     // enable maintenance mode
     let req = rpcf::MaintenanceRequest {
         operation: rpcf::MaintenanceOperation::Enable.into(),
-        host_id: Some(rpc_host_id.clone()),
+        host_id: Some(rpc_host_id),
         reference: Some("https://jira.example.com/ABC-123".to_string()),
     };
     env.api
@@ -44,7 +45,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // Check that the expected alert is set on the Machine
     let mut host_machine = env
-        .find_machines(Some(rpc_host_id.clone()), None, false)
+        .find_machines(Some(rpc_host_id), None, false)
         .await
         .machines
         .remove(0);
@@ -85,7 +86,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // allocate: should fail
     let req = rpcf::InstanceAllocationRequest {
         instance_id: None,
-        machine_id: Some(rpc_host_id.clone()),
+        machine_id: Some(rpc_host_id),
         instance_type_id: None,
         config: Some(instance_config.clone()),
         metadata: Some(rpcf::Metadata {
@@ -132,14 +133,14 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // disable maintenance
     let req = tonic::Request::new(rpcf::MaintenanceRequest {
         operation: rpcf::MaintenanceOperation::Disable.into(),
-        host_id: Some(rpc_host_id.clone()),
+        host_id: Some(rpc_host_id),
         reference: None,
     });
     env.api.set_maintenance(req).await.unwrap();
 
     // Maintenance reference is cleared and there's no alarm anymore
     let host_machine = env
-        .find_machines(Some(rpc_host_id.clone()), None, false)
+        .find_machines(Some(rpc_host_id), None, false)
         .await
         .machines
         .remove(0);
@@ -168,7 +169,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // allocate: should succeed
     let req = rpcf::InstanceAllocationRequest {
         instance_id: None,
-        machine_id: Some(rpc_host_id.clone()),
+        machine_id: Some(rpc_host_id),
         instance_type_id: None,
         config: Some(instance_config),
         metadata: Some(rpc::Metadata {
@@ -193,7 +194,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
     // enable maintenance mode
     let req = rpcf::MaintenanceRequest {
         operation: rpcf::MaintenanceOperation::Enable.into(),
-        host_id: mh.host().machine_id().into(),
+        host_id: Some(mh.host().id),
         reference: Some("https://jira.example.com/ABC-123".to_string()),
     };
     env.api
@@ -213,7 +214,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
     // allocate: should fail
     let req = rpcf::InstanceAllocationRequest {
         instance_id: None,
-        machine_id: mh.host().machine_id().into(),
+        machine_id: Some(mh.host().id),
         instance_type_id: None,
         config: Some(instance_config.clone()),
         metadata: Some(rpcf::Metadata {
@@ -253,14 +254,14 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
     assert_eq!(machines.len(), 1); // Host
     assert_eq!(
         *machines[0].id.as_ref().unwrap(),
-        mh.host().machine_id().into(),
+        mh.host().id,
         "Listing maintenance machines return incorrectly machines"
     );
 
     // disable maintenance
     let req = tonic::Request::new(rpcf::MaintenanceRequest {
         operation: rpcf::MaintenanceOperation::Disable.into(),
-        host_id: mh.host().machine_id().into(),
+        host_id: Some(mh.host().id),
         reference: None,
     });
     env.api.set_maintenance(req).await.unwrap();
@@ -285,7 +286,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
     // allocate: should succeed
     let req = rpcf::InstanceAllocationRequest {
         instance_id: None,
-        machine_id: mh.host().machine_id().into(),
+        machine_id: Some(mh.host().id),
         instance_type_id: None,
         config: Some(instance_config),
         metadata: Some(rpc::Metadata {

@@ -25,7 +25,7 @@ use crate::model::{
     metadata::Metadata,
 };
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::{instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId};
+use ::rpc::uuid::{instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId};
 
 use super::config::network::InstanceNetworkConfigUpdate;
 

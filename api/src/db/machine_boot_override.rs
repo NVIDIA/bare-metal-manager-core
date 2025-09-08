@@ -18,7 +18,7 @@ use crate::{
     CarbideError, CarbideResult,
     db::{ColumnInfo, DatabaseError, ObjectColumnFilter},
 };
-use forge_uuid::machine::MachineInterfaceId;
+use ::rpc::uuid::machine::MachineInterfaceId;
 
 ///
 /// A custom boot response is a representation of custom data for booting machines, either with pxe or user-data

@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use ::rpc::uuid::machine::MachineId;
 use ::rpc::{InstanceList, MachineList, site_explorer::ExploredManagedHost};
-use ::rpc::{MachineId, forge::MachineType};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, hash_map::RandomState},
@@ -19,7 +19,7 @@ use std::{
 
 use crate::cfg::cli_options::InventoryAction;
 use crate::rpc::ApiClient;
-use utils::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 
 // Expected output
 // x86_host_bmcs:
@@ -92,7 +92,6 @@ fn get_host_machine_info(machines: &[&::rpc::Machine]) -> HashMap<String, HostMa
             let address = primary_interface.address[0].clone();
             let primary_dpu = primary_interface
                 .attached_dpu_machine_id
-                .clone()
                 .unwrap_or_default()
                 .to_string();
 
@@ -100,18 +99,13 @@ fn get_host_machine_info(machines: &[&::rpc::Machine]) -> HashMap<String, HostMa
                 hostname,
                 HostMachineInfo {
                     ansible_host: address,
-                    machine_id: machine.id.clone().unwrap_or_default().to_string(),
+                    machine_id: machine.id.unwrap_or_default().to_string(),
                     dpu_machine_id: primary_dpu.clone(),
                     primary_dpu_machine_id: primary_dpu,
                     all_dpu_machine_ids: machine
                         .interfaces
                         .iter()
-                        .map(|x| {
-                            x.attached_dpu_machine_id
-                                .clone()
-                                .unwrap_or_default()
-                                .to_string()
-                        })
+                        .map(|x| x.attached_dpu_machine_id.unwrap_or_default().to_string())
                         .collect::<Vec<String>>(),
                 },
             );
@@ -141,7 +135,7 @@ fn get_dpu_machine_info(machines: &[&::rpc::Machine]) -> HashMap<String, DpuMach
                 hostname,
                 DpuMachineInfo {
                     ansible_host: address,
-                    machine_id: machine.id.clone().unwrap_or_default().to_string(),
+                    machine_id: machine.id.unwrap_or_default().to_string(),
                 },
             );
         }
@@ -217,18 +211,6 @@ fn get_bmc_info(
     bmc_element
 }
 
-fn machine_type(machine_id: &Option<MachineId>) -> MachineType {
-    let Some(machine_id) = machine_id else {
-        return MachineType::Unknown;
-    };
-
-    match machine_id.id.as_bytes()[5] as char {
-        'd' => MachineType::Dpu,
-        'p' | 'h' => MachineType::Host,
-        _ => MachineType::Unknown,
-    }
-}
-
 /// Main entry function which print inventory.
 pub async fn print_inventory(
     api_client: &ApiClient,
@@ -278,13 +260,13 @@ pub async fn print_inventory(
     let all_hosts = all_machines
         .machines
         .iter()
-        .filter(|x| machine_type(&x.id) == MachineType::Host)
+        .filter(|m| m.id.is_some_and(|id| id.machine_type().is_host()))
         .collect::<Vec<&::rpc::Machine>>();
 
     let all_dpus = all_machines
         .machines
         .iter()
-        .filter(|x| machine_type(&x.id) == MachineType::Dpu)
+        .filter(|m| m.id.is_some_and(|id| id.machine_type().is_dpu()))
         .collect::<Vec<&::rpc::Machine>>();
 
     final_group.insert(
@@ -340,7 +322,7 @@ struct InstanceDetails {
 
 type CreateInventoryReturnType = (
     HashMap<String, Vec<InstanceDetails>>,
-    Vec<Option<::rpc::common::MachineId>>,
+    Vec<Option<MachineId>>,
 );
 
 /// Generate inventory item for instances.
@@ -379,7 +361,7 @@ fn create_inventory_for_instances(
                 ))
             })?;
 
-        used_machines.push(machine.id.clone());
+        used_machines.push(machine.id);
 
         let bmc_ip = machine
             .bmc_info

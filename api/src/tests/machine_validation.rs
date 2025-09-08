@@ -166,7 +166,7 @@ async fn test_machine_validation_with_error(
     )
     .await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         3,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -183,7 +183,7 @@ async fn test_machine_validation_with_error(
     .await;
     mh.machine_validation_completed().await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         1,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
@@ -247,7 +247,7 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     )
     .await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         3,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -264,7 +264,7 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     .await;
     mh.machine_validation_completed().await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         3,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
@@ -307,7 +307,7 @@ async fn test_machine_validation_get_results(
         .build()
         .await;
 
-    let runs = get_machine_validation_runs(&env, mh.host().machine_id(), false).await;
+    let runs = get_machine_validation_runs(&env, &mh.host().id, false).await;
     assert_eq!(runs.runs.len(), 1);
     assert_eq!(
         runs.runs[0].context.clone().unwrap_or_default(),
@@ -317,11 +317,10 @@ async fn test_machine_validation_get_results(
     tinstance.delete().await;
 
     // one for cleanup and one for discovery
-    let runs = get_machine_validation_runs(&env, mh.host().machine_id(), false).await;
+    let runs = get_machine_validation_runs(&env, &mh.host().id, false).await;
     assert_eq!(runs.runs.len(), 2);
 
-    let results =
-        get_machine_validation_results(&env, Some(mh.host().machine_id()), true, None).await;
+    let results = get_machine_validation_results(&env, Some(&mh.host().id), true, None).await;
     assert_eq!(results.results.len(), 2);
     assert_eq!(results.results[0].name, machine_validation_result.name);
     assert_eq!(results.results[1].name, "instance".to_owned());
@@ -333,13 +332,9 @@ async fn test_machine_validation_get_results(
     assert_eq!(results.results[0].name, machine_validation_result.name);
 
     // find using machine and validation id
-    let results = get_machine_validation_results(
-        &env,
-        Some(mh.host().machine_id()),
-        true,
-        cleanup_validation_id,
-    )
-    .await;
+    let results =
+        get_machine_validation_results(&env, Some(&mh.host().id), true, cleanup_validation_id)
+            .await;
     assert_eq!(results.results.len(), 1);
     assert_eq!(results.results[0].name, "instance".to_owned());
 
@@ -503,7 +498,7 @@ async fn test_machine_validation_test_on_demand_filter(
     let validation_id =
         uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default()).unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         1,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -515,7 +510,7 @@ async fn test_machine_validation_test_on_demand_filter(
 
     let _ = mh.host().reboot_completed().await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         1,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -547,7 +542,7 @@ async fn test_machine_validation_test_on_demand_filter(
 
     mh.machine_validation_completed().await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         3,
         ManagedHostState::HostInit {
             machine_state: MachineState::Discovered {
@@ -571,7 +566,7 @@ async fn test_machine_validation_disabled(
 
     let mh = create_host_with_machine_validation(&env, None, None).await;
 
-    let runs = get_machine_validation_runs(&env, mh.host().machine_id(), true).await;
+    let runs = get_machine_validation_runs(&env, &mh.host().id, true).await;
     let skipped_state_int =
         rpc::forge::machine_validation_status::MachineValidationState::Completed(
             rpc::forge::machine_validation_status::MachineValidationCompleted::Skipped.into(),
@@ -599,7 +594,7 @@ async fn test_machine_validation_disabled(
     )
     .await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         3,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -616,7 +611,7 @@ async fn test_machine_validation_disabled(
     .await;
     let _ = mh.host().reboot_completed().await;
 
-    let runs = get_machine_validation_runs(&env, mh.host().machine_id(), true).await;
+    let runs = get_machine_validation_runs(&env, &mh.host().id, true).await;
     let started_state_int = rpc::forge::machine_validation_status::MachineValidationState::Started(
         rpc::forge::machine_validation_status::MachineValidationStarted::Started.into(),
     );
@@ -638,14 +633,14 @@ async fn test_machine_validation_disabled(
     assert!(status_asserted);
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         3,
         ManagedHostState::Ready,
     )
     .await;
 
     status_asserted = false;
-    let runs = get_machine_validation_runs(&env, mh.host().machine_id(), true).await;
+    let runs = get_machine_validation_runs(&env, &mh.host().id, true).await;
     for run in runs.runs {
         if run.validation_id.unwrap_or_default()
             == on_demand_response.validation_id.clone().unwrap_or_default()
@@ -1054,7 +1049,7 @@ async fn test_on_demant_un_verified_machine_validation(
     let validation_id =
         uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default()).unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         1,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -1066,7 +1061,7 @@ async fn test_on_demant_un_verified_machine_validation(
     let _ = mh.host().reboot_completed().await;
 
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         1,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -1223,7 +1218,7 @@ async fn test_on_demant_machine_validation_all_contexts(
     assert_eq!(success.message, "Success".to_string());
     machine_validation_result.validation_id = on_demand_response.clone().validation_id;
 
-    let runs = get_machine_validation_runs(&env, mh.host().machine_id(), true).await;
+    let runs = get_machine_validation_runs(&env, &mh.host().id, true).await;
     for run in runs.runs {
         if run.validation_id == on_demand_response.clone().validation_id {
             assert_eq!(run.status.unwrap_or_default().total, 0);
@@ -1235,7 +1230,7 @@ async fn test_on_demant_machine_validation_all_contexts(
     let validation_id =
         uuid::Uuid::try_from(on_demand_response.validation_id.unwrap_or_default()).unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         1,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
@@ -1246,7 +1241,7 @@ async fn test_on_demant_machine_validation_all_contexts(
     .await;
     let _ = mh.host().reboot_completed().await;
     env.run_machine_state_controller_iteration_until_state_matches(
-        mh.host().machine_id(),
+        &mh.host().id,
         1,
         ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {

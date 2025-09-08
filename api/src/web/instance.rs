@@ -101,8 +101,8 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             metadata: instance.metadata.unwrap_or_default(),
             machine_id: instance
                 .machine_id
-                .unwrap_or_else(super::invalid_machine_id)
-                .to_string(),
+                .map(|id| id.to_string())
+                .unwrap_or_else(super::invalid_machine_id),
             tenant_org,
             tenant_state,
             configs_synced,
@@ -366,7 +366,10 @@ impl From<forgerpc::Instance> for InstanceDetail {
 
         Self {
             id: instance.id.clone().unwrap_or_default().value,
-            machine_id: instance.machine_id.clone().unwrap_or_default().id,
+            machine_id: instance
+                .machine_id
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
             tenant_org: instance
                 .config
                 .as_ref()

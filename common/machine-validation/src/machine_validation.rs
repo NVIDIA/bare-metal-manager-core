@@ -23,9 +23,6 @@ use tracing::info;
 use tracing::trace;
 use utils::cmd::TokioCmd;
 
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
-
 use crate::IMAGE_LIST_FILE;
 use crate::MACHINE_VALIDATION_IMAGE_FILE;
 use crate::MACHINE_VALIDATION_IMAGE_PATH;
@@ -38,6 +35,9 @@ use crate::MachineValidationFilter;
 use crate::MachineValidationManager;
 use crate::MachineValidationOptions;
 use crate::SCHME;
+use chrono::Utc;
+use rpc::uuid::machine::MachineId;
+use serde::{Deserialize, Serialize};
 pub const MAX_STRING_STD_SIZE: usize = 1024 * 1024; // 1MB in bytes;
 pub const DEFAULT_TIMEOUT: u64 = 3600;
 
@@ -230,7 +230,7 @@ impl MachineValidation {
     }
     async fn execute_machinevalidation_command(
         self,
-        machine_id: &str,
+        machine_id: &MachineId,
         test: &rpc::forge::MachineValidationTest,
         in_context: String,
         uuid: rpc::common::Uuid,
@@ -410,7 +410,7 @@ impl MachineValidation {
     }
     pub async fn run(
         self,
-        machine_id: &str,
+        machine_id: &MachineId,
         tests: Vec<rpc::forge::MachineValidationTest>,
         context: String,
         uuid: String,

@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::uuid::instance::InstanceId;
+use ::rpc::uuid::machine::MachineId;
 use config_version::ConfigVersion;
-use forge_uuid::instance::InstanceId;
-use forge_uuid::machine::MachineId;
 
 // Represents Instance returned via RPC call.
 // Adds some widely used helpers.
@@ -29,7 +29,7 @@ impl RpcInstance {
     }
 
     pub fn machine_id(&self) -> MachineId {
-        self.0.machine_id.as_ref().unwrap().id.parse().unwrap()
+        self.0.machine_id.unwrap()
     }
 
     pub fn rpc_id(&self) -> Option<rpc::Uuid> {

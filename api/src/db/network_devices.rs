@@ -20,7 +20,7 @@ use crate::model::{
         DpuLocalPorts, DpuToNetworkDeviceMap, LldpError, NetworkDevice, NetworkTopologyData,
     },
 };
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 
 pub struct NetworkDeviceSearchConfig {
     include_dpus: bool,
@@ -246,13 +246,12 @@ impl DpuToNetworkDeviceMap {
 
     pub async fn find_by_dpu_ids(
         txn: &mut PgConnection,
-        dpu_ids: &[String],
+        dpu_ids: &[MachineId],
     ) -> Result<Vec<Self>, DatabaseError> {
         let base_query = "SELECT * FROM port_to_network_device_map l WHERE dpu_id=ANY($1)";
 
-        let str_list: Vec<String> = dpu_ids.iter().map(|id| id.to_string()).collect();
         sqlx::query_as(base_query)
-            .bind(str_list)
+            .bind(dpu_ids)
             .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new("port_to_network_device_map", e))

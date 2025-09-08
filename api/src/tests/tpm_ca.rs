@@ -11,7 +11,6 @@ pub mod tests {
     use crate::db::{ObjectColumnFilter, network_segment};
     use crate::model::hardware_info::{HardwareInfo, TpmEkCertificate};
     use crate::model::machine::machine_id::from_hardware_info;
-    use crate::model::machine::machine_id::try_parse_machine_id;
     use crate::tests::common;
 
     use common::api_fixtures::TestEnv;
@@ -26,7 +25,7 @@ pub mod tests {
     use sha2::{Digest, Sha256};
 
     use crate::db;
-    use forge_uuid::machine::MachineId;
+    use ::rpc::uuid::machine::MachineId;
 
     use rpc::forge::TpmCaCert;
     use rpc::forge::forge_server::Forge;
@@ -974,8 +973,7 @@ pub mod tests {
         //          insert ca
         let env = create_test_env(pool).await;
         let host_config = env.managed_host_config();
-        let dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+        let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
         let host_machine_interface_id =
             host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
@@ -1028,8 +1026,7 @@ pub mod tests {
         // set up - create dpu and hw info
         let env = create_test_env(pool).await;
         let host_config = env.managed_host_config();
-        let dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+        let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
         let host_machine_interface_id =
             host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
@@ -1077,8 +1074,7 @@ pub mod tests {
         //          insert ca
         let env = create_test_env(pool).await;
         let host_config = env.managed_host_config();
-        let dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+        let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
         let host_machine_interface_id =
             host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;

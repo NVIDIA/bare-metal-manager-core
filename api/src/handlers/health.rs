@@ -21,7 +21,7 @@ use crate::{
     db::{self, DatabaseError, machine::MachineSearchConfig},
     handlers::utils::convert_and_log_machine_id,
 };
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 
 pub async fn record_hardware_health_report(
     api: &Api,
@@ -64,7 +64,7 @@ pub async fn record_hardware_health_report(
 
 pub async fn get_hardware_health_report(
     api: &Api,
-    request: Request<::rpc::common::MachineId>,
+    request: Request<MachineId>,
 ) -> Result<Response<rpc::OptionalHealthReport>, Status> {
     const DB_TXN_NAME: &str = "get_hardware_health_report";
     let mut txn = api
@@ -104,7 +104,7 @@ pub async fn get_hardware_health_report(
 
 pub async fn list_health_report_overrides(
     api: &Api,
-    machine_id: Request<::rpc::common::MachineId>,
+    machine_id: Request<MachineId>,
 ) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
     const DB_TXN_NAME: &str = "list_health_report_overrides";
     let mut txn = api

@@ -14,9 +14,9 @@ use std::fmt::Write;
 
 use crate::cfg::cli_options::ShowDpa;
 use crate::rpc::ApiClient;
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::{self as forgerpc};
 use prettytable::{Table, row};
-use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 pub async fn handle_show(
     args: ShowDpa,
@@ -77,7 +77,7 @@ fn convert_dpas_to_nice_table(dpas: forgerpc::DpaInterfaceList) -> Box<Table> {
     for dpa in dpas.interfaces {
         table.add_row(row![
             dpa.id.unwrap_or_default(),
-            dpa.machine_id.clone().unwrap_or_default().id,
+            dpa.machine_id.map(|id| id.to_string()).unwrap_or_default(),
             dpa.controller_state,
             dpa.created.unwrap_or_default().to_string(),
         ]);
@@ -92,7 +92,10 @@ fn convert_dpa_to_nice_format(dpa: &forgerpc::DpaInterface) -> CarbideCliResult<
 
     let data = vec![
         ("ID", dpa.id.clone().unwrap_or_default().value),
-        ("MACHINE ID", dpa.machine_id.clone().unwrap_or_default().id),
+        (
+            "MACHINE ID",
+            dpa.machine_id.map(|id| id.to_string()).unwrap_or_default(),
+        ),
         ("CREATED", dpa.created.unwrap_or_default().to_string()),
         ("UPDATED", dpa.updated.unwrap_or_default().to_string()),
         (

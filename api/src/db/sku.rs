@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, fmt::Write};
 
+use ::rpc::uuid::machine::MachineId;
 use chrono::Utc;
-use forge_uuid::machine::MachineId;
 use futures_util::stream::StreamExt;
 use itertools::Itertools;
 use sqlx::{Acquire, PgConnection};

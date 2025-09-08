@@ -97,8 +97,8 @@ use crate::{
     redfish::RedfishClientPool,
 };
 use ::rpc::errors::RpcDataConversionError;
-use forge_uuid::machine::MachineInterfaceId;
-use forge_uuid::machine::{MachineId, MachineType};
+use ::rpc::uuid::machine::MachineInterfaceId;
+use ::rpc::uuid::machine::{MachineId, MachineType};
 use utils::HostPortPair;
 
 pub struct Api {
@@ -408,7 +408,7 @@ impl Forge for Api {
 
     async fn find_instance_by_machine_id(
         &self,
-        request: Request<::rpc::common::MachineId>,
+        request: Request<MachineId>,
     ) -> Result<Response<rpc::InstanceList>, Status> {
         crate::handlers::instance::find_by_machine_id(self, request).await
     }
@@ -471,7 +471,7 @@ impl Forge for Api {
 
     async fn get_hardware_health_report(
         &self,
-        request: Request<::rpc::common::MachineId>,
+        request: Request<MachineId>,
     ) -> Result<Response<rpc::OptionalHealthReport>, tonic::Status> {
         crate::handlers::health::get_hardware_health_report(self, request).await
     }
@@ -485,7 +485,7 @@ impl Forge for Api {
 
     async fn list_health_report_overrides(
         &self,
-        request: Request<::rpc::common::MachineId>,
+        request: Request<MachineId>,
     ) -> Result<Response<rpc::ListHealthReportOverrideResponse>, tonic::Status> {
         crate::handlers::health::list_health_report_overrides(self, request).await
     }
@@ -867,8 +867,6 @@ impl Forge for Api {
             }
         }
 
-        let id_str = stable_machine_id.to_string();
-
         // if attestation is enabled and it is not a DPU, then we create a random nonce (auth token)
         // and create a decrypting challenge (make credential) out of it.
         // Whoever was able to decrypt it (activate credential), possesses
@@ -912,14 +910,14 @@ impl Forge for Api {
                 "Attestation enabled is {}. Is_DPU is {}. Vending certs to machine with id {}",
                 self.runtime_config.attestation_enabled,
                 hardware_info.is_dpu(),
-                id_str
+                stable_machine_id,
             );
 
             let certificate = if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {
                 forge_secrets::certificates::Certificate::default()
             } else {
                 self.certificate_provider
-                    .get_certificate(id_str.as_str(), None, None)
+                    .get_certificate(&stable_machine_id.to_string(), None, None)
                     .await
                     .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?
             };
@@ -927,7 +925,7 @@ impl Forge for Api {
         }
 
         let response = Ok(Response::new(rpc::MachineDiscoveryResult {
-            machine_id: Some(id_str.into()),
+            machine_id: Some(stable_machine_id),
             machine_certificate: machine_certificate_opt,
             attest_key_challenge: attest_key_bind_challenge_opt,
         }));
@@ -1065,7 +1063,7 @@ impl Forge for Api {
 
     async fn get_machine(
         &self,
-        request: Request<::rpc::common::MachineId>,
+        request: Request<MachineId>,
     ) -> Result<Response<rpc::Machine>, Status> {
         log_request_data(&request);
         let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
@@ -1128,7 +1126,7 @@ impl Forge for Api {
         let machine_ids = db::machine::find_machine_ids(&mut txn, search_config).await?;
 
         Ok(tonic::Response::new(::rpc::common::MachineIdList {
-            machine_ids: machine_ids.into_iter().map(|id| id.into()).collect(),
+            machine_ids: machine_ids.into_iter().collect(),
         }))
     }
 
@@ -1146,11 +1144,7 @@ impl Forge for Api {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        let machine_ids = request
-            .machine_ids
-            .iter()
-            .map(|id| try_parse_machine_id(id).map_err(CarbideError::from))
-            .collect::<Result<Vec<MachineId>, crate::errors::CarbideError>>()?;
+        let machine_ids = request.machine_ids;
 
         let max_find_by_ids = self.runtime_config.max_find_by_ids as usize;
         if machine_ids.len() > max_find_by_ids {
@@ -1192,11 +1186,7 @@ impl Forge for Api {
         log_request_data(&request);
         let request = request.into_inner();
 
-        let machine_ids = request
-            .machine_ids
-            .iter()
-            .map(|id| try_parse_machine_id(id).map_err(CarbideError::from))
-            .collect::<Result<Vec<MachineId>, crate::errors::CarbideError>>()?;
+        let machine_ids = request.machine_ids;
 
         let max_find_by_ids = self.runtime_config.max_find_by_ids as usize;
         if machine_ids.len() > max_find_by_ids {
@@ -1245,11 +1235,7 @@ impl Forge for Api {
         log_request_data(&request);
         let request = request.into_inner();
 
-        let machine_ids = request
-            .machine_ids
-            .iter()
-            .map(|id| try_parse_machine_id(id).map_err(CarbideError::from))
-            .collect::<Result<Vec<MachineId>, crate::errors::CarbideError>>()?;
+        let machine_ids = request.machine_ids;
 
         let max_find_by_ids = self.runtime_config.max_find_by_ids as usize;
         if machine_ids.len() > max_find_by_ids {
@@ -1484,7 +1470,7 @@ impl Forge for Api {
                 };
                 match MachineTopology::find_machine_id_by_bmc_ip(&mut txn, ip).await {
                     Ok(Some(machine_id)) => {
-                        let rpc_machine_id = Some(machine_id.into());
+                        let rpc_machine_id = Some(machine_id);
                         interface.is_bmc = Some(true);
                         match machine_id.machine_type() {
                             MachineType::Dpu => interface.attached_dpu_machine_id = rpc_machine_id,
@@ -2400,7 +2386,7 @@ impl Forge for Api {
                 crate::handlers::health::insert_health_report_override(
                     self,
                     tonic::Request::new(rpc::InsertHealthReportOverrideRequest {
-                        machine_id: req.host_id.clone(),
+                        machine_id: req.host_id,
                         r#override: Some(::rpc::forge::HealthReportOverride {
                             report: Some(health_report::HealthReport {
                                 source: "maintenance".to_string(),
@@ -2438,7 +2424,7 @@ impl Forge for Api {
                 match crate::handlers::health::remove_health_report_override(
                     self,
                     tonic::Request::new(rpc::RemoveHealthReportOverrideRequest {
-                        machine_id: req.host_id.clone(),
+                        machine_id: req.host_id,
                         source: "maintenance".to_string(),
                     }),
                 )
@@ -2492,11 +2478,6 @@ impl Forge for Api {
     ) -> Result<tonic::Response<rpc::PowerOptionResponse>, tonic::Status> {
         log_request_data(&request);
         let req = request.into_inner();
-        let mut machine_ids = vec![];
-        for machine_id in &req.machine_id {
-            let machine_id = try_parse_machine_id(machine_id).map_err(CarbideError::from)?;
-            machine_ids.push(machine_id);
-        }
 
         const DB_TXN_NAME: &str = "get_power_options";
         let mut txn = self
@@ -2505,10 +2486,10 @@ impl Forge for Api {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-        let power_options = if machine_ids.is_empty() {
+        let power_options = if req.machine_id.is_empty() {
             PowerOptions::get_all(&mut txn).await
         } else {
-            PowerOptions::get_by_ids(&machine_ids, &mut txn).await
+            PowerOptions::get_by_ids(&req.machine_id, &mut txn).await
         }?;
 
         txn.commit()
@@ -2530,12 +2511,9 @@ impl Forge for Api {
         log_request_data(&request);
         let req = request.into_inner();
 
-        let machine_id = req.machine_id.as_ref();
-
-        let machine_id = try_parse_machine_id(
-            machine_id.ok_or_else(|| Status::invalid_argument("Machine ID is missing"))?,
-        )
-        .map_err(CarbideError::from)?;
+        let machine_id = req
+            .machine_id
+            .ok_or_else(|| Status::invalid_argument("Machine ID is missing"))?;
 
         if machine_id.machine_type().is_dpu() {
             return Err(tonic::Status::invalid_argument(
@@ -2648,9 +2626,7 @@ impl Forge for Api {
             .into_iter()
             .map(
                 |x| rpc::dpu_reprovisioning_list_response::DpuReprovisioningListItem {
-                    id: Some(::rpc::common::MachineId {
-                        id: x.id.to_string(),
-                    }),
+                    id: Some(x.id),
                     state: x.current_state().to_string(),
                     requested_at: x
                         .reprovision_requested
@@ -2756,9 +2732,7 @@ impl Forge for Api {
             .into_iter()
             .map(
                 |x| rpc::host_reprovisioning_list_response::HostReprovisioningListItem {
-                    id: Some(::rpc::common::MachineId {
-                        id: x.id.to_string(),
-                    }),
+                    id: Some(x.id),
                     state: x.current_state().to_string(),
                     requested_at: x
                         .reprovision_requested
@@ -2868,6 +2842,13 @@ impl Forge for Api {
         log_request_data(&request);
         let req = request.into_inner();
 
+        // Note: AdminBmcResetRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+        let machine_id = req
+            .machine_id
+            .as_ref()
+            .map(|id| try_parse_machine_id(id))
+            .transpose()?;
+
         const DB_TXN_NAME: &str = "admin_bmc_reset";
         let mut txn = self
             .database_connection
@@ -2878,7 +2859,7 @@ impl Forge for Api {
         let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
-            req.machine_id,
+            machine_id,
         )
         .await?;
 
@@ -2954,6 +2935,13 @@ impl Forge for Api {
         log_request_data(&request);
         let req = request.into_inner();
 
+        // Note: EnableInfiniteBootRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+        let machine_id = req
+            .machine_id
+            .as_ref()
+            .map(|id| try_parse_machine_id(id))
+            .transpose()?;
+
         const DB_TXN_NAME: &str = "enable_infinite_boot";
         let mut txn = self
             .database_connection
@@ -2964,7 +2952,7 @@ impl Forge for Api {
         let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
-            req.machine_id,
+            machine_id,
         )
         .await?;
 
@@ -2994,6 +2982,13 @@ impl Forge for Api {
         log_request_data(&request);
         let req = request.into_inner();
 
+        // Note: IsInfiniteBootEnabledRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+        let machine_id = req
+            .machine_id
+            .as_ref()
+            .map(|id| try_parse_machine_id(id))
+            .transpose()?;
+
         const DB_TXN_NAME: &str = "is_infinite_boot_enabled";
         let mut txn = self
             .database_connection
@@ -3004,7 +2999,7 @@ impl Forge for Api {
         let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
-            req.machine_id,
+            machine_id,
         )
         .await?;
 
@@ -3037,6 +3032,13 @@ impl Forge for Api {
         log_request_data(&request);
         let req = request.into_inner();
 
+        // Note: ForgeSetupRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+        let machine_id = req
+            .machine_id
+            .as_ref()
+            .map(|id| try_parse_machine_id(id))
+            .transpose()?;
+
         const DB_TXN_NAME: &str = "forge_setup";
         let mut txn = self
             .database_connection
@@ -3047,7 +3049,7 @@ impl Forge for Api {
         let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
-            req.machine_id.clone(),
+            machine_id,
         )
         .await?;
 
@@ -3081,6 +3083,13 @@ impl Forge for Api {
         log_request_data(&request);
         let req = request.into_inner();
 
+        // Note: SetDpuFirstBootOrderRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+        let machine_id = req
+            .machine_id
+            .as_ref()
+            .map(|id| try_parse_machine_id(id))
+            .transpose()?;
+
         const DB_TXN_NAME: &str = "set_dpu_first_boot_order";
         let mut txn = self
             .database_connection
@@ -3091,7 +3100,7 @@ impl Forge for Api {
         let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
-            req.machine_id.clone(),
+            machine_id,
         )
         .await?;
 
@@ -3482,12 +3491,7 @@ impl Forge for Api {
             DatabaseError::txn_begin("find_connected_devices_by_dpu_machine_ids", e)
         })?;
 
-        let dpu_ids: Vec<String> = request
-            .into_inner()
-            .machine_ids
-            .into_iter()
-            .map(|id| id.id)
-            .collect();
+        let dpu_ids = request.into_inner().machine_ids;
 
         let connected_devices = DpuToNetworkDeviceMap::find_by_dpu_ids(&mut txn, &dpu_ids).await?;
 
@@ -3543,7 +3547,7 @@ impl Forge for Api {
             pairs: pairs
                 .into_iter()
                 .map(|(machine_id, bmc_ip)| rpc::MachineIdBmcIp {
-                    machine_id: Some(machine_id.into()),
+                    machine_id: Some(machine_id),
                     bmc_ip,
                 })
                 .collect(),
@@ -3660,7 +3664,7 @@ impl Forge for Api {
         // off the PCR values as a MeasurementReport.
         db_attest::SecretAkPub::delete(&mut txn, &request.get_ref().credential).await?;
 
-        let pcr_values: ::measured_boot::pcr::PcrRegisterValueVec = request
+        let pcr_values: ::rpc::measured_boot::pcr::PcrRegisterValueVec = request
             .into_inner()
             .pcr_values
             .drain(..)
@@ -4554,6 +4558,13 @@ impl Forge for Api {
         log_request_data(&request);
         let req = request.into_inner();
 
+        // Note: AdminPowerControlRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+        let machine_id = req
+            .machine_id
+            .as_ref()
+            .map(|id| try_parse_machine_id(id))
+            .transpose()?;
+
         let action = req.action();
 
         const DB_TXN_NAME: &str = "admin_power_control";
@@ -4566,7 +4577,7 @@ impl Forge for Api {
         let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
-            req.machine_id,
+            machine_id,
         )
         .await?;
 
@@ -4838,7 +4849,7 @@ impl Forge for Api {
     }
     async fn generate_sku_from_machine(
         &self,
-        request: Request<::rpc::common::MachineId>,
+        request: Request<MachineId>,
     ) -> Result<Response<rpc::Sku>, Status> {
         crate::handlers::sku::generate_from_machine(self, request)
             .await
@@ -4846,7 +4857,7 @@ impl Forge for Api {
     }
     async fn verify_sku_for_machine(
         &self,
-        request: Request<::rpc::common::MachineId>,
+        request: Request<MachineId>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::sku::verify_for_machine(self, request)
             .await
@@ -4863,7 +4874,7 @@ impl Forge for Api {
 
     async fn remove_sku_association(
         &self,
-        request: Request<::rpc::common::MachineId>,
+        request: Request<MachineId>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::sku::remove_sku_association(self, request)
             .await
@@ -5006,7 +5017,7 @@ impl Forge for Api {
 
     async fn reset_host_reprovisioning(
         &self,
-        request: Request<::rpc::common::MachineId>,
+        request: Request<MachineId>,
     ) -> Result<Response<()>, Status> {
         log_request_data(&request);
         let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
@@ -5149,6 +5160,13 @@ impl Forge for Api {
         log_request_data(&request);
         let req = request.into_inner();
 
+        // Note: CreateBmcUserRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+        let machine_id = req
+            .machine_id
+            .as_ref()
+            .map(|id| try_parse_machine_id(id))
+            .transpose()?;
+
         const DB_TXN_NAME: &str = "create_bmc_user";
         let mut txn = self
             .database_connection
@@ -5159,7 +5177,7 @@ impl Forge for Api {
         let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
-            req.machine_id,
+            machine_id,
         )
         .await?;
 
@@ -5211,6 +5229,13 @@ impl Forge for Api {
         log_request_data(&request);
         let req = request.into_inner();
 
+        // Note: DeleteBmcUserRequest uses a string for machine_id instead of a real MachineId, which is wrong.
+        let machine_id = req
+            .machine_id
+            .as_ref()
+            .map(|id| try_parse_machine_id(id))
+            .transpose()?;
+
         const DB_TXN_NAME: &str = "delete_bmc_user";
         let mut txn = self
             .database_connection
@@ -5221,7 +5246,7 @@ impl Forge for Api {
         let bmc_endpoint_request = validate_and_complete_bmc_endpoint_request(
             &mut txn,
             req.bmc_endpoint_request,
-            req.machine_id,
+            machine_id,
         )
         .await?;
 
@@ -5286,7 +5311,7 @@ fn truncate(mut s: String, len: usize) -> String {
 pub(crate) async fn validate_and_complete_bmc_endpoint_request(
     txn: &mut PgConnection,
     bmc_endpoint_request: Option<rpc::BmcEndpointRequest>,
-    machine_id: Option<String>,
+    machine_id: Option<MachineId>,
 ) -> Result<rpc::BmcEndpointRequest, tonic::Status> {
     match (bmc_endpoint_request, machine_id) {
         (Some(bmc_endpoint_request), _) => {
@@ -5330,9 +5355,6 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
         }
         // User provided machine_id
         (_, Some(machine_id)) => {
-            let machine_id = MachineId::from_str(&machine_id).map_err(|_| {
-                CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_id.clone()))
-            })?;
             log_machine_id(&machine_id);
 
             let mut topologies =

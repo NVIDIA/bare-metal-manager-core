@@ -19,8 +19,8 @@ use crate::measured_boot::interface::journal::{
     get_measurement_journal_records, get_measurement_journal_records_for_machine_id,
 };
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
-use forge_uuid::machine::MachineId;
-use forge_uuid::measured_boot::MeasurementJournalId;
+use ::rpc::uuid::machine::MachineId;
+use ::rpc::uuid::measured_boot::MeasurementJournalId;
 use rpc::protos::measured_boot::{
     DeleteMeasurementJournalRequest, DeleteMeasurementJournalResponse,
     ListMeasurementJournalRequest, ListMeasurementJournalResponse, ShowMeasurementJournalRequest,

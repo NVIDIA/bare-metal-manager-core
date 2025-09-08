@@ -22,7 +22,7 @@ use crate::{
         },
     },
 };
-use forge_uuid::infiniband::IBPartitionId;
+use ::rpc::uuid::infiniband::IBPartitionId;
 use sqlx::PgConnection;
 
 /// The actual IBPartition State handler

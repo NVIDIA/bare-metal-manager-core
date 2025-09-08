@@ -34,9 +34,9 @@ use crate::{
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use ::rpc::protos::forge::TenantState;
+use ::rpc::uuid::{domain::DomainId, network::NetworkSegmentId, vpc::VpcId};
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
-use forge_uuid::{domain::DomainId, network::NetworkSegmentId, vpc::VpcId};
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
@@ -643,7 +643,7 @@ impl NetworkSegment {
     /// Find network segments attached to a machine through machine_interfaces, optionally of a certain type
     pub async fn find_ids_by_machine_id(
         txn: &mut PgConnection,
-        machine_id: &forge_uuid::machine::MachineId,
+        machine_id: &::rpc::uuid::machine::MachineId,
         network_segment_type: Option<NetworkSegmentType>,
     ) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
         let mut query = sqlx::QueryBuilder::new(

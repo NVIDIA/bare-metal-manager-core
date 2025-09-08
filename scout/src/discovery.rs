@@ -10,25 +10,28 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::forge as rpc;
-
 use crate::{CarbideClientError, cfg::Options, client::create_forge_client};
+use ::rpc::forge as rpc;
+use ::rpc::uuid::machine::MachineId;
 
 pub(crate) async fn completed(
     config: &Options,
-    machine_id: &str,
+    machine_id: &MachineId,
 ) -> Result<(), CarbideClientError> {
     let mut client = create_forge_client(config).await?;
     let request = tonic::Request::new(rpc::MachineDiscoveryCompletedRequest {
-        machine_id: Some(machine_id.to_string().into()),
+        machine_id: Some(*machine_id),
     });
     client.discovery_completed(request).await?;
     Ok(())
 }
-pub(crate) async fn rebooted(config: &Options, machine_id: &str) -> Result<(), CarbideClientError> {
+pub(crate) async fn rebooted(
+    config: &Options,
+    machine_id: &MachineId,
+) -> Result<(), CarbideClientError> {
     let mut client = create_forge_client(config).await?;
     let request = tonic::Request::new(rpc::MachineRebootCompletedRequest {
-        machine_id: Some(machine_id.to_string().into()),
+        machine_id: Some(*machine_id),
     });
     client.reboot_completed(request).await?;
     Ok(())

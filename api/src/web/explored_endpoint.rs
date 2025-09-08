@@ -27,7 +27,6 @@ use serde::Deserialize;
 
 use super::filters;
 use crate::api::Api;
-use crate::model::machine::machine_id;
 
 #[derive(Template)]
 #[template(path = "explored_endpoints_show.html")]
@@ -488,9 +487,6 @@ pub async fn detail(
                         report.machine_id = pair
                             .machine_id
                             .as_ref()
-                            .and_then(|rpc_machine_id| {
-                                machine_id::try_parse_machine_id(rpc_machine_id).ok()
-                            })
                             .map(|machine_id| machine_id.to_string());
                     }
                 }

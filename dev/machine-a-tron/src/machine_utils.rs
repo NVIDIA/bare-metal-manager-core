@@ -9,6 +9,7 @@ use lazy_static::lazy_static;
 use rcgen::{CertifiedKey, generate_simple_self_signed};
 use reqwest::{ClientBuilder, StatusCode};
 use rpc::forge::MachineArchitecture;
+use rpc::uuid::machine::MachineId;
 use std::collections::HashSet;
 use std::path::Path;
 use tempfile::TempDir;
@@ -40,7 +41,7 @@ pub enum PxeError {
 
 pub async fn forge_agent_control(
     app_context: &MachineATronContext,
-    machine_id: rpc::common::MachineId,
+    machine_id: MachineId,
 ) -> ForgeAgentControlResponse {
     app_context
         .forge_api_client

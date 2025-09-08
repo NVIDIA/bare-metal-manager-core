@@ -366,7 +366,7 @@ pub async fn runs(AxumState(state): AxumState<Arc<Api>>) -> Response {
             .into_iter()
             .rev()
             .map(|vr| ValidationRun {
-                machine_id: vr.machine_id.unwrap_or_default().to_string(),
+                machine_id: vr.machine_id.map(|id| id.to_string()).unwrap_or_default(),
                 status:format!("{:?}", vr.status.unwrap_or_default().machine_validation_state.unwrap_or(
                     rpc::forge::machine_validation_status::MachineValidationState::Completed(
                         rpc::forge::machine_validation_status::MachineValidationCompleted::Success.into(),

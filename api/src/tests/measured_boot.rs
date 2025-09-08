@@ -17,10 +17,10 @@ pub mod tests {
     use crate::attestation::do_compare_pub_key_against_cert;
     use crate::model::hardware_info::HardwareInfo;
     use crate::model::hardware_info::TpmEkCertificate;
-    use crate::model::machine::machine_id::try_parse_machine_id;
     use crate::tests::common;
     use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
     use crate::tests::common::api_fixtures::host::host_discover_dhcp;
+    use ::rpc::uuid::machine::MachineId;
     use common::api_fixtures::TestEnvOverrides;
     use common::api_fixtures::create_test_env;
     use common::api_fixtures::create_test_env_with_overrides;
@@ -31,7 +31,6 @@ pub mod tests {
         EK_PUB_SERIALIZED, PCR_VALUES, PCR_VALUES_SHORT, SESSION_KEY, SIGNATURE_SERIALIZED,
         SIGNATURE_SERIALIZED_2, SIGNATURE_SERIALIZED_INVALID,
     };
-    use forge_uuid::machine::MachineId;
     use rpc::DiscoveryData;
     use rpc::DiscoveryInfo;
     use rpc::MachineDiscoveryInfo;
@@ -47,8 +46,7 @@ pub mod tests {
         let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
         let host_config = env.managed_host_config();
-        let dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+        let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
         let host_machine_interface_id =
             host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
@@ -111,8 +109,7 @@ pub mod tests {
         let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
         let host_config = env.managed_host_config();
-        let dpu_machine_id =
-            try_parse_machine_id(&create_dpu_machine(&env, &host_config).await).unwrap();
+        let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
         let host_machine_interface_id =
             host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
@@ -184,7 +181,7 @@ pub mod tests {
             signature: SIGNATURE_SERIALIZED.to_vec(),
             credential: Vec::from(cred_serialized_invalid),
             pcr_values: PCR_VALUES.iter().map(|x| x.to_vec()).collect(),
-            machine_id: Some(host_id.to_string().into()),
+            machine_id: Some(host_id),
             event_log: None,
         });
 
@@ -214,7 +211,7 @@ pub mod tests {
             signature: SIGNATURE_SERIALIZED.to_vec(),
             credential: Vec::from(CRED_SERIALIZED),
             pcr_values: PCR_VALUES.iter().map(|x| x.to_vec()).collect(),
-            machine_id: Some(host_id.to_string().into()),
+            machine_id: Some(host_id),
             event_log: None,
         });
 
@@ -247,7 +244,7 @@ pub mod tests {
             signature: SIGNATURE_SERIALIZED.to_vec(),
             credential: Vec::from(CRED_SERIALIZED),
             pcr_values: PCR_VALUES.iter().map(|x| x.to_vec()).collect(),
-            machine_id: Some(host_id.to_string().into()),
+            machine_id: Some(host_id),
             event_log: None,
         });
 
@@ -280,7 +277,7 @@ pub mod tests {
             signature: signature_invalid.to_vec(),
             credential: Vec::from(CRED_SERIALIZED),
             pcr_values: PCR_VALUES.iter().map(|x| x.to_vec()).collect(),
-            machine_id: Some(host_id.to_string().into()),
+            machine_id: Some(host_id),
             event_log: None,
         });
 
@@ -325,7 +322,7 @@ pub mod tests {
             signature: Signature::marshall(&signature_invalid).unwrap(),
             credential: Vec::from(CRED_SERIALIZED),
             pcr_values: PCR_VALUES.iter().map(|x| x.to_vec()).collect(),
-            machine_id: Some(host_id.to_string().into()),
+            machine_id: Some(host_id),
             event_log: None,
         });
 
@@ -354,7 +351,7 @@ pub mod tests {
             signature: SIGNATURE_SERIALIZED_INVALID.to_vec(), // invalid signature
             credential: Vec::from(CRED_SERIALIZED),
             pcr_values: PCR_VALUES.iter().map(|x| x.to_vec()).collect(),
-            machine_id: Some(host_id.to_string().into()),
+            machine_id: Some(host_id),
             event_log: None,
         });
 
@@ -388,7 +385,7 @@ pub mod tests {
             signature: SIGNATURE_SERIALIZED.to_vec(),
             credential: Vec::from(CRED_SERIALIZED),
             pcr_values: pcr_values_invalid.iter().map(|x| x.to_vec()).collect(),
-            machine_id: Some(host_id.to_string().into()),
+            machine_id: Some(host_id),
             event_log: None,
         });
 
@@ -422,7 +419,7 @@ pub mod tests {
             signature: SIGNATURE_SERIALIZED_INVALID.to_vec(), // invalid signature
             credential: Vec::from(CRED_SERIALIZED),
             pcr_values: pcr_values_invalid.iter().map(|x| x.to_vec()).collect(),
-            machine_id: Some(host_id.to_string().into()),
+            machine_id: Some(host_id),
             event_log: None,
         });
 

@@ -12,7 +12,7 @@
 
 use crate::model::machine::Machine;
 use crate::tests::common::api_fixtures::{Api, TestEnv};
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
 use std::sync::Arc;
 use tonic::Request;
@@ -22,7 +22,7 @@ pub mod interface;
 pub type TestMachineInterface = interface::TestMachineInterface;
 
 pub struct TestMachine {
-    id: MachineId,
+    pub id: MachineId,
     api: Arc<Api>,
 }
 
@@ -31,10 +31,6 @@ type Txn<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 impl TestMachine {
     pub fn new(id: MachineId, api: Arc<Api>) -> Self {
         Self { id, api }
-    }
-
-    pub fn machine_id(&self) -> &MachineId {
-        &self.id
     }
 
     pub async fn rpc_machine(&self) -> rpc::Machine {

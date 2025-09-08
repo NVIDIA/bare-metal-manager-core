@@ -7,6 +7,7 @@ service my_service {
   rpc SingleOneOfMessageRpc(SingleOneOfMessageRequest) returns (SomeResponse);
   rpc SingleOneOfPrimitiveRpc(SingleOneOfPrimitiveRequest) returns (SomeResponse);
   rpc MultiRpc(MultiRequest) returns (SomeResponse);
+  rpc ExternRpc(ExternRequest) returns (SomeResponse);
 }
 
 message VoidRequest { }
@@ -44,3 +45,11 @@ message MultiRequest {
 }
 
 message SomeResponse { }
+
+message ExternRequest {
+  ExternType value = 1;
+}
+
+message ExternType {
+  string value = 1;
+}

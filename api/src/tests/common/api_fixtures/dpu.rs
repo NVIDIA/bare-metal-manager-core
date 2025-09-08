@@ -37,7 +37,7 @@ use crate::{
         },
     },
 };
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 use libredfish::{OData, PCIeDevice, model::oem::nvidia_dpu::NicMode};
 use mac_address::MacAddress;
 use rpc::{
@@ -243,11 +243,13 @@ impl From<DpuConfig> for EndpointExplorationReport {
 /// Creates a Machine Interface and Machine for a DPU
 ///
 /// Returns the ID of the created machine
-pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) -> rpc::MachineId {
-    let dpu_id = site_explorer::new_dpu(env, host_config.clone())
+pub async fn create_dpu_machine(
+    env: &TestEnv,
+    host_config: &ManagedHostConfig,
+) -> rpc::uuid::machine::MachineId {
+    site_explorer::new_dpu(env, host_config.clone())
         .await
-        .unwrap();
-    dpu_id.into()
+        .unwrap()
 }
 
 pub async fn create_dpu_machine_in_waiting_for_network_install(
@@ -259,11 +261,11 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
         .unwrap()
 }
 
-pub async fn create_machine_inventory(env: &TestEnv, machine_id: &MachineId) {
+pub async fn create_machine_inventory(env: &TestEnv, machine_id: MachineId) {
     tracing::debug!("Creating machine inventory for {}", machine_id);
     env.api
         .update_agent_reported_inventory(Request::new(rpc::forge::DpuAgentInventoryReport {
-            machine_id: machine_id.into(),
+            machine_id: Some(machine_id),
             inventory: Some(rpc::forge::MachineInventory {
                 components: vec![
                     rpc::forge::MachineInventorySoftwareComponent {
@@ -312,7 +314,7 @@ pub async fn dpu_discover_machine(
     env: &TestEnv,
     dpu_config: &DpuConfig,
     machine_interface_id: rpc::Uuid,
-) -> rpc::MachineId {
+) -> rpc::uuid::machine::MachineId {
     let response = env
         .api
         .discover_machine(Request::new(MachineDiscoveryInfo {

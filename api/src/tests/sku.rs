@@ -1,7 +1,7 @@
 pub mod tests {
     use std::time::Duration;
 
-    use forge_uuid::machine::MachineId;
+    use ::rpc::uuid::machine::MachineId;
     use sqlx::PgConnection;
 
     use crate::{
@@ -145,7 +145,7 @@ pub mod tests {
 
     pub async fn handle_inventory_update(pool: &sqlx::PgPool, env: &TestEnv, mh: &TestManagedHost) {
         env.run_machine_state_controller_iteration_until_state_condition(
-            mh.host().machine_id(),
+            &mh.host().id,
             3,
             |machine| {
                 tracing::info!("waiting for inventory update: {}", machine.current_state());
@@ -160,7 +160,7 @@ pub mod tests {
         .await;
 
         let mut txn = pool.begin().await.unwrap();
-        crate::db::machine::update_discovery_time(mh.host().machine_id(), &mut txn)
+        crate::db::machine::update_discovery_time(&mh.host().id, &mut txn)
             .await
             .unwrap();
         txn.commit().await.unwrap();
@@ -385,7 +385,7 @@ pub mod tests {
             });
 
         let mh = create_managed_host_with_config(&env, managed_host_config).await;
-        let machine_id = *mh.host().machine_id();
+        let machine_id = mh.host().id;
 
         let mut txn = pool.begin().await?;
 
@@ -432,7 +432,7 @@ pub mod tests {
             });
 
         let mh = create_managed_host_with_config(&env, managed_host_config).await;
-        let machine_id = *mh.host().machine_id();
+        let machine_id = mh.host().id;
 
         let mut txn = pool.begin().await?;
 
@@ -494,7 +494,7 @@ pub mod tests {
         let mut txn = pool.begin().await?;
 
         let machine = mh.host().db_machine(&mut txn).await;
-        let machine_id = *mh.host().machine_id();
+        let machine_id = mh.host().id;
 
         crate::db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
@@ -551,7 +551,7 @@ pub mod tests {
         let mut txn = pool.begin().await?;
 
         let machine = mh.host().db_machine(&mut txn).await;
-        let machine_id = *mh.host().machine_id();
+        let machine_id = mh.host().id;
 
         let original_sku = crate::db::sku::find(&mut txn, &[machine.hw_sku.clone().unwrap()])
             .await?
@@ -669,7 +669,7 @@ pub mod tests {
             });
 
         let mh = create_managed_host_with_config(&env, managed_host_config).await;
-        let machine_id = *mh.host().machine_id();
+        let machine_id = mh.host().id;
 
         let mut txn = pool.begin().await?;
 
@@ -914,7 +914,7 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
         let machine = mh.host().db_machine(&mut txn).await;
-        let machine_id = *mh.host().machine_id();
+        let machine_id = mh.host().id;
 
         assert!(matches!(
             machine.current_state(),
@@ -984,7 +984,7 @@ pub mod tests {
         txn.commit().await?;
 
         let mh = create_managed_host_with_config(&env, managed_host_config).await;
-        let machine_id = *mh.host().machine_id();
+        let machine_id = mh.host().id;
 
         let mut txn = pool.begin().await?;
         let machine = mh.host().db_machine(&mut txn).await;

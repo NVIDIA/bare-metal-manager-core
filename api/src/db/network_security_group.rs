@@ -11,10 +11,10 @@
  */
 use std::collections::HashMap;
 
-use config_version::ConfigVersion;
-use forge_uuid::{
+use ::rpc::uuid::{
     instance::InstanceId, network_security_group::NetworkSecurityGroupId, vpc::VpcId,
 };
+use config_version::ConfigVersion;
 use sqlx::{PgConnection, Postgres, Row, postgres::PgRow};
 
 use crate::{

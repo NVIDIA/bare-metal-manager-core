@@ -14,7 +14,7 @@ use std::net::IpAddr;
  * its affiliates is strictly prohibited.
  */
 use crate::model::site_explorer::ExploredManagedHost;
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 
 /// ManagedHost wraps an ExploredManagedHost along with a machine id.
 /// This helper structure is used by the create_managed_host to create a managed host

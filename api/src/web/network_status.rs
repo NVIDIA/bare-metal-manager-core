@@ -14,6 +14,8 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use super::filters;
+use crate::api::Api;
 use askama::Template;
 use axum::Json;
 use axum::extract::{Query, State as AxumState};
@@ -21,9 +23,7 @@ use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
-
-use super::filters;
-use crate::api::Api;
+use rpc::uuid::machine::MachineId;
 
 const DEFAULT_PAGE_RECORD_LIMIT: usize = 50;
 
@@ -183,9 +183,9 @@ async fn fetch_network_status(
         .map(|response| response.into_inner())?
         .all;
 
-    let all_ids: Vec<rpc::MachineId> = all_status
+    let all_ids: Vec<MachineId> = all_status
         .iter()
-        .filter_map(|status| status.dpu_machine_id.clone())
+        .filter_map(|status| status.dpu_machine_id)
         .collect();
 
     // Handling the case of getting a nonsensical limit.
@@ -206,7 +206,7 @@ async fn fetch_network_status(
         return Ok((pages, vec![]));
     }
 
-    let ids_for_page: Vec<rpc::MachineId> = all_ids
+    let ids_for_page: Vec<MachineId> = all_ids
         .into_iter()
         .skip(current_record_cnt_seen)
         .take(limit)
@@ -222,18 +222,18 @@ async fn fetch_network_status(
         .machines;
     let mut dpus_by_id = HashMap::new();
     for dpu in all_dpus.into_iter() {
-        if let Some(id) = dpu.id.clone() {
-            dpus_by_id.insert(id.id, dpu);
+        if let Some(id) = dpu.id {
+            dpus_by_id.insert(id, dpu);
         }
     }
 
     let mut result = Vec::new();
 
     for status in all_status.into_iter() {
-        let Some(dpu_id) = status.dpu_machine_id.clone() else {
+        let Some(dpu_id) = status.dpu_machine_id else {
             continue;
         };
-        let Some(dpu) = dpus_by_id.get(&dpu_id.id) else {
+        let Some(dpu) = dpus_by_id.get(&dpu_id) else {
             continue;
         };
 
@@ -265,7 +265,7 @@ async fn fetch_network_status(
                     dt.format("%Y-%m-%d %H:%M:%S.%3f").to_string()
                 })
                 .unwrap_or_default(),
-            dpu_machine_id: dpu_id.id.clone(),
+            dpu_machine_id: dpu_id.to_string(),
             network_config_version: status.network_config_version.unwrap_or_default(),
             is_healthy: health.alerts.is_empty(),
             health,

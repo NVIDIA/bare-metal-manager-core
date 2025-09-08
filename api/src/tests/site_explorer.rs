@@ -53,8 +53,8 @@ use crate::{
     site_explorer::SiteExplorer,
     state_controller::machine::handler::MachineStateHandlerBuilder,
 };
+use ::rpc::uuid::{machine::MachineId, network::NetworkSegmentId};
 use common::api_fixtures::{TestEnv, endpoint_explorer::MockEndpointExplorer};
-use forge_uuid::{machine::MachineId, network::NetworkSegmentId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -1629,7 +1629,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
             .api
             .get_managed_host_network_config(Request::new(
                 rpc::forge::ManagedHostNetworkConfigRequest {
-                    dpu_machine_id: Some((dpu_machine.id).into()),
+                    dpu_machine_id: Some(dpu_machine.id),
                 },
             ))
             .await?;
@@ -2548,14 +2548,10 @@ async fn test_site_explorer_fixtures_singledpu(
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
             let mut txn = mock.test_env.pool.begin().await.unwrap();
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
-                db::managed_host::load_snapshot(
-                    &mut txn,
-                    &MachineId::from_str(&machine_id.id)?,
-                    Default::default(),
-                )
-                .await
-                .transpose()
-                .unwrap()?,
+                db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
+                    .await
+                    .transpose()
+                    .unwrap()?,
             )
         })
         .await?;
@@ -2626,14 +2622,10 @@ async fn test_site_explorer_fixtures_multidpu(
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
             let mut txn = mock.test_env.pool.begin().await.unwrap();
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
-                db::managed_host::load_snapshot(
-                    &mut txn,
-                    &MachineId::from_str(&machine_id.id)?,
-                    Default::default(),
-                )
-                .await
-                .transpose()
-                .unwrap()?,
+                db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
+                    .await
+                    .transpose()
+                    .unwrap()?,
             )
         })
         .await?;
@@ -2713,14 +2705,10 @@ async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
             let mut txn = mock.test_env.pool.begin().await.unwrap();
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
-                db::managed_host::load_snapshot(
-                    &mut txn,
-                    &MachineId::from_str(&machine_id.id)?,
-                    Default::default(),
-                )
-                .await
-                .transpose()
-                .unwrap()?,
+                db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
+                    .await
+                    .transpose()
+                    .unwrap()?,
             )
         })
         .await?;
@@ -2843,14 +2831,10 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
             let mut txn = mock.test_env.pool.begin().await.unwrap();
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
-                db::managed_host::load_snapshot(
-                    &mut txn,
-                    &MachineId::from_str(&machine_id.id)?,
-                    Default::default(),
-                )
-                .await
-                .transpose()
-                .unwrap()?,
+                db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
+                    .await
+                    .transpose()
+                    .unwrap()?,
             )
         })
         .await?;

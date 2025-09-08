@@ -19,7 +19,7 @@ use serde::Deserialize;
 use super::cfg::cli_options::ShowNetwork;
 use super::default_uuid;
 use crate::rpc::ApiClient;
-use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 #[derive(Deserialize)]
 struct NetworkState {

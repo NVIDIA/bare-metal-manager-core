@@ -21,7 +21,7 @@ use crate::{
 
 use super::{ObjectFilter, machine::MachineSearchConfig, machine_validation_suites};
 
-use forge_uuid::machine::MachineId;
+use ::rpc::uuid::machine::MachineId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, strum_macros::EnumString)]
 pub enum MachineValidationState {
@@ -398,9 +398,7 @@ impl From<MachineValidation> for rpc::forge::MachineValidationRun {
             start_time,
             end_time,
             context: value.context,
-            machine_id: Some(rpc::common::MachineId {
-                id: value.machine_id.to_string(),
-            }),
+            machine_id: Some(value.machine_id),
             status: Some(rpc::forge::MachineValidationStatus {
                 machine_validation_state: MachineValidation::from_state(status.state).into(),
                 total: status.total.try_into().unwrap_or(0),

@@ -16,22 +16,20 @@ use prettytable::{Table, row};
 use crate::{
     cfg::cli_options::HealthOverrideTemplates, machine::get_health_report, rpc::ApiClient,
 };
-use utils::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::uuid::machine::MachineId;
 
 pub async fn trigger_reprovisioning(
-    host_id: String,
+    host_id: MachineId,
     mode: Mode,
     api_client: &ApiClient,
     update_message: Option<String>,
 ) -> CarbideCliResult<()> {
-    let machine_id = ::rpc::MachineId {
-        id: host_id.clone(),
-    };
     if let (Mode::Set, Some(update_message)) = (mode, &update_message) {
         // Set a HostUpdateInProgress health override on the Host
 
         let host_machine = api_client
-            .get_machines_by_ids(&[machine_id.clone()])
+            .get_machines_by_ids(&[host_id])
             .await?
             .machines
             .into_iter()
@@ -56,11 +54,11 @@ pub async fn trigger_reprovisioning(
         );
 
         api_client
-            .machine_insert_health_report_override(machine_id.to_string(), report.into(), false)
+            .machine_insert_health_report_override(host_id, report.into(), false)
             .await?;
     }
     api_client
-        .trigger_host_reprovisioning(host_id.clone(), mode)
+        .trigger_host_reprovisioning(host_id, mode)
         .await?;
 
     Ok(())

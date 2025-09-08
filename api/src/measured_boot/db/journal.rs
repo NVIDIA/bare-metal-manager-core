@@ -23,14 +23,14 @@ use crate::measured_boot::interface::journal::{
     update_measurement_journal_record,
 };
 use crate::{CarbideError, CarbideResult};
-use forge_uuid::{
+use ::rpc::measured_boot::journal::MeasurementJournal;
+use ::rpc::measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
+use ::rpc::uuid::{
     machine::MachineId,
     measured_boot::{
         MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
     },
 };
-use measured_boot::journal::MeasurementJournal;
-use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
 use sqlx::PgConnection;
 
 pub async fn new_with_txn(

@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::min;
 use std::time::Duration;
 
+use rpc::uuid::machine::MachineId;
 use std::io::Write;
 
 mod errors;
@@ -107,7 +108,7 @@ impl MachineValidationManager {
     }
 
     pub async fn run(
-        machine_id: &str,
+        machine_id: &MachineId,
         platform_name: String,
         options: MachineValidationOptions,
         context: String,
