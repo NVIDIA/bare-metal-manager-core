@@ -20,7 +20,7 @@ use crate::{
     model::hardware_info::{Cpu, CpuInfo, HardwareInfo, HardwareInfoV1},
     model::machine::machine_id::{from_hardware_info, try_parse_machine_id},
 };
-use forge_uuid::machine::MachineId;
+use forge_uuid::machine::{MachineId, MachineType};
 
 use crate::db::{ObjectColumnFilter, network_segment};
 use crate::tests::common;
@@ -40,7 +40,13 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut txn = env.pool.begin().await?;
 
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
-    let host_machine_id = dpu_machine_id.id.replace("fm100d", "fm100p").into();
+    let host_machine_id = dpu_machine_id
+        .id
+        .replace(
+            MachineType::Dpu.id_prefix(),
+            MachineType::PredictedHost.id_prefix(),
+        )
+        .into();
     let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
 
@@ -187,7 +193,13 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     let mut txn = env.pool.begin().await?;
 
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
-    let host_machine_id = dpu_machine_id.id.replace("fm100d", "fm100p").into();
+    let host_machine_id = dpu_machine_id
+        .id
+        .replace(
+            MachineType::Dpu.id_prefix(),
+            MachineType::PredictedHost.id_prefix(),
+        )
+        .into();
     let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
 

@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use data_encoding::BASE32_DNSSEC;
+use forge_uuid::machine::MachineType;
 use std::net::IpAddr;
 
 use crate::model::hardware_info::HardwareInfo;
@@ -544,7 +545,7 @@ async fn test_find_machines_by_ids_over_max(pool: sqlx::PgPool) {
             let hash: [u8; 32] = Sha256::new_with_prefix(serial.as_bytes()).finalize().into();
             let encoded = BASE32_DNSSEC.encode(&hash);
             ::rpc::common::MachineId {
-                id: format!("fm100ds{encoded}"),
+                id: format!("{}s{}", MachineType::Dpu.id_prefix(), encoded),
             }
         })
         .collect();

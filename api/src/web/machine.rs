@@ -17,6 +17,7 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
+use forge_uuid::machine::MachineType;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent, OverrideMode};
@@ -820,14 +821,9 @@ pub async fn detail(
 }
 
 pub fn get_machine_type(machine_id: &str) -> String {
-    if machine_id.starts_with("fm100p") {
-        "Host (Predicted)"
-    } else if machine_id.starts_with("fm100h") {
-        "Host"
-    } else {
-        "DPU"
-    }
-    .to_string()
+    MachineType::from_id_string(machine_id)
+        .map(|t| t.to_string())
+        .unwrap_or_else(|| "Unknown".to_string())
 }
 
 #[derive(Deserialize, Debug)]
@@ -861,7 +857,7 @@ pub async fn maintenance(
         return Redirect::to(&view_url);
     };
 
-    if machine_id.trim().starts_with("fm100d") {
+    if MachineType::from_id_string(machine_id.trim()).is_some_and(|t| t.is_dpu()) {
         tracing::error!("Maintenance Mode can not be set on DPUs");
         return Redirect::to(&view_url);
     }

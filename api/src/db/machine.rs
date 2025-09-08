@@ -1782,24 +1782,34 @@ pub async fn find_machine_ids(
         // If we're including DPU's, don't filter them out (DPU's don't get the quarantine state,
         // only the managed host does.)
         if search_config.include_dpus {
-            qb.push(
-                "(starts_with(id, 'fm100d') OR network_config->>'quarantine_state' IS NOT NULL) ",
-            );
+            qb.push(format!(
+                "(starts_with(id, '{}') OR network_config->>'quarantine_state' IS NOT NULL) ",
+                MachineType::Dpu.id_prefix(),
+            ));
         } else {
             qb.push("network_config->>'quarantine_state' IS NOT NULL ");
         }
     }
 
     if !search_config.include_dpus {
-        qb.push(" AND NOT starts_with(id, 'fm100d')");
+        qb.push(format!(
+            " AND NOT starts_with(id, '{}')",
+            MachineType::Dpu.id_prefix(),
+        ));
     }
 
     if search_config.exclude_hosts {
-        qb.push(" AND NOT starts_with(id, 'fm100h')");
+        qb.push(format!(
+            " AND NOT starts_with(id, '{}')",
+            MachineType::Host.id_prefix(),
+        ));
     }
 
     if !search_config.include_predicted_host {
-        qb.push(" AND NOT starts_with(id, 'fm100p')");
+        qb.push(format!(
+            " AND NOT starts_with(id, '{}')",
+            MachineType::PredictedHost.id_prefix(),
+        ));
     }
 
     if search_config.for_update {
@@ -2057,12 +2067,15 @@ pub async fn update_dpu_asns(
         return Ok(());
     }
     // Get all DPU IP addresses except the requester DPU machine
-    let query = "SELECT id FROM machines WHERE starts_with(id, 'fm100d') AND asn IS NULL";
+    let query = format!(
+        "SELECT id FROM machines WHERE starts_with(id, '{}') AND asn IS NULL",
+        MachineType::Dpu.id_prefix(),
+    );
 
-    let dpu_ids: Vec<MachineId> = sqlx::query_as(query)
+    let dpu_ids: Vec<MachineId> = sqlx::query_as(&query)
         .fetch_all(txn.deref_mut())
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+        .map_err(|e| DatabaseError::query(&query, e))?;
 
     if !dpu_ids.is_empty() {
         tracing::info!(dpu_count = dpu_ids.len(), "Updating missing ASN of DPUs");
@@ -2091,7 +2104,7 @@ pub async fn update_dpu_asns(
 
     txn.commit()
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+        .map_err(|e| DatabaseError::query(&query, e))?;
 
     Ok(())
 }

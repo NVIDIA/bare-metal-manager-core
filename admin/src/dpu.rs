@@ -15,6 +15,7 @@ use std::pin::Pin;
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::{BuildInfo, ManagedHostNetworkConfigResponse};
 use ::rpc::{Machine, MachineId};
+use forge_uuid::machine::MachineType;
 use prettytable::{Row, Table, format, row};
 use serde::Serialize;
 
@@ -33,22 +34,27 @@ pub async fn trigger_reprovisioning(
 ) -> CarbideCliResult<()> {
     if let (Mode::Set, Some(update_message)) = (mode, &update_message) {
         // Set a HostUpdateInProgress health override on the Host
+        let host_id = match MachineType::from_id_string(&id) {
+            Some(MachineType::Host) => Some(::rpc::MachineId { id: id.clone() }),
+            Some(MachineType::Dpu) => {
+                let machine = api_client
+                    .get_machines_by_ids(&[::rpc::MachineId { id: id.clone() }])
+                    .await?
+                    .machines
+                    .into_iter()
+                    .next();
 
-        let host_id = if id.starts_with("fm100h") {
-            Some(::rpc::MachineId { id: id.clone() })
-        } else {
-            let machine = api_client
-                .get_machines_by_ids(&[::rpc::MachineId { id: id.clone() }])
-                .await?
-                .machines
-                .into_iter()
-                .next();
-
-            if let Some(host_id) = machine.map(|x| x.associated_host_machine_id) {
-                host_id
-            } else {
+                if let Some(host_id) = machine.map(|x| x.associated_host_machine_id) {
+                    host_id
+                } else {
+                    return Err(CarbideCliError::GenericError(format!(
+                        "Could not find host attached with dpu {id}",
+                    )));
+                }
+            }
+            _ => {
                 return Err(CarbideCliError::GenericError(format!(
-                    "Could not find host attached with dpu {id}",
+                    "Invalid machine ID for reprevisioning, only Hosts and DPUs are supported: {update_message}",
                 )));
             }
         };
@@ -546,7 +552,7 @@ pub async fn show_dpu_network_config(
     dpu_id: String,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
-    if !dpu_id.starts_with("fm100d") {
+    if !matches!(MachineType::from_id_string(&dpu_id), Some(MachineType::Dpu)) {
         return Err(CarbideCliError::GenericError(
             "Only DPU id is allowed.".to_string(),
         ));

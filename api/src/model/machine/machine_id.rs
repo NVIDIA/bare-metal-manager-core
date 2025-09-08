@@ -144,11 +144,8 @@ mod tests {
                 "{serialized} is not a valid DNS name"
             );
 
-            let expected_prefix = format!(
-                "fm100{}{}",
-                expected_type.id_char(),
-                expected_source.id_char()
-            );
+            let expected_prefix =
+                format!("{}{}", expected_type.id_prefix(), expected_source.id_char());
 
             assert!(serialized.starts_with(&expected_prefix));
             assert_eq!(serialized.len(), MACHINE_ID_LENGTH);

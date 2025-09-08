@@ -21,6 +21,7 @@ use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv, async_writeln};
 use ::rpc::forge as forgerpc;
 use chrono::Utc;
+use forge_uuid::machine::MachineType;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
 };
@@ -213,14 +214,9 @@ fn convert_machine_to_nice_format(
 }
 
 fn get_machine_type(machine_id: &str) -> String {
-    if machine_id.starts_with("fm100p") {
-        "Host (Predicted)"
-    } else if machine_id.starts_with("fm100h") {
-        "Host"
-    } else {
-        "DPU"
-    }
-    .to_string()
+    MachineType::from_id_string(machine_id)
+        .map(|t| t.to_string())
+        .unwrap_or_else(|| "Unknown".to_string())
 }
 
 fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table> {
