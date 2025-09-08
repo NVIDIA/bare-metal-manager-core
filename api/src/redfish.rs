@@ -719,8 +719,8 @@ pub async fn redfish_browse(
 pub mod test_support {
     use super::*;
     use libredfish::{
-        Chassis, Collection, EnabledDisabled, JobState, NetworkAdapter, PowerState, Redfish,
-        RedfishError, Resource, SystemPowerControl,
+        Assembly, Chassis, Collection, EnabledDisabled, JobState, NetworkAdapter, PowerState,
+        Redfish, RedfishError, Resource, SystemPowerControl,
         model::{
             ODataId, ODataLinks,
             oem::nvidia_dpu::NicMode,
@@ -1120,6 +1120,10 @@ pub mod test_support {
               }
             "##)
                 .unwrap())
+        }
+
+        async fn get_chassis_assembly(&self, _id: &str) -> Result<Assembly, RedfishError> {
+            todo!()
         }
 
         async fn get_manager_ethernet_interfaces(

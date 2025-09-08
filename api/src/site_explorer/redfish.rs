@@ -758,10 +758,9 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
             .await
             .or_else(|err| match err {
                 RedfishError::NotSupported(_) => Ok(vec![]),
-                // CBC_0 is the chassis subsystem that WIWYNN suggested as the source of truth
-                // for retrieving GB200's chassis serial number. All other chassis subsystems with
-                // network adapters reflect a different serial number.
-                RedfishError::MissingKey { .. } if chassis_id == "CBC_0" => Ok(vec![]),
+                // Nautobot uses Chassis_0 as the source of truth for the GB200 chassis serial number.
+                // Other chassis subsystems with network adapters may report different serial numbers.
+                RedfishError::MissingKey { .. } if chassis_id == "Chassis_0" => Ok(vec![]),
                 _ => Err(err),
             })
         else {
@@ -792,12 +791,30 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
             net_adapters.push(net_adapter);
         }
 
+        // For GB200s, use the Chassis_0 assembly serial number to match Nautobot.
+        let serial_number = if chassis_id == "Chassis_0" {
+            client
+                .get_chassis_assembly("Chassis_0")
+                .await
+                .ok()
+                .and_then(|assembly| {
+                    assembly
+                        .assemblies
+                        .iter()
+                        .find(|asm| asm.model.as_deref() == Some("GB200 NVL"))
+                        .and_then(|asm| asm.serial_number.clone())
+                })
+                .or(desc.serial_number)
+        } else {
+            desc.serial_number
+        };
+
         chassis.push(Chassis {
             id: chassis_id.to_string(),
             manufacturer: desc.manufacturer,
             model: desc.model,
             part_number: desc.part_number,
-            serial_number: desc.serial_number,
+            serial_number,
             network_adapters: net_adapters,
         });
     }
