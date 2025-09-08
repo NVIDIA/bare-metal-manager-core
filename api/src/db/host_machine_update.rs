@@ -14,7 +14,7 @@ use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;
 use crate::model::machine::HostReprovisionRequest;
-use forge_uuid::machine::MachineId;
+use forge_uuid::machine::{MachineId, MachineType};
 
 #[derive(Debug, FromRow)]
 pub struct HostMachineUpdate {
@@ -38,6 +38,8 @@ impl HostMachineUpdate {
             ""
         };
 
+        let host_prefix = MachineType::Host.id_prefix();
+
         // Both desired_firmware.versions and explored_endpoints.exploration_report->>'Versions' are sorted, and will have their keys
         // defined based on the firmware config.  If a new key (component type) is added to the configuration, we would initally flag
         // everything, but nothing would happen to them and the next time site explorer runs on those hosts they will be made to match.
@@ -51,7 +53,7 @@ impl HostMachineUpdate {
             ON machine_topologies.machine_id = machines.id
         INNER JOIN desired_firmware
             ON explored_endpoints.exploration_report->>'Vendor' = desired_firmware.vendor AND explored_endpoints.exploration_report->>'Model' = desired_firmware.model
-        WHERE machines.id LIKE 'fm100h%'
+        WHERE starts_with(machines.id, '{host_prefix}')
             {ready_only}
             AND machines.host_reprovisioning_requested IS NULL
             AND desired_firmware.versions->>'Versions' != explored_endpoints.exploration_report->>'Versions'

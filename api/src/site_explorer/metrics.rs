@@ -252,7 +252,7 @@ impl SiteExplorerInstruments {
                                     attrs,
                                     &[
                                         KeyValue::new("expectation", expected.to_string()),
-                                        KeyValue::new("machine_type", machine_type.to_string().to_lowercase()),
+                                        KeyValue::new("machine_type", machine_type.metrics_value()),
                                     ]
                                 ].concat()
                             );
@@ -278,7 +278,7 @@ impl SiteExplorerInstruments {
                                 count as u64,
                                 &[
                                     attrs,
-                                    &[KeyValue::new("machine_type", machine_type.to_string().to_lowercase())],
+                                    &[KeyValue::new("machine_type", machine_type.metrics_value())],
                                 ].concat(),
                             );
                         }
@@ -304,10 +304,7 @@ impl SiteExplorerInstruments {
                                     attrs,
                                     &[
                                         KeyValue::new("expectation", expected.to_string()),
-                                        KeyValue::new(
-                                            "machine_type",
-                                            machine_type.to_string().to_lowercase(),
-                                        ),
+                                        KeyValue::new("machine_type", machine_type.metrics_value()),
                                     ],
                                 ]
                                 .concat(),

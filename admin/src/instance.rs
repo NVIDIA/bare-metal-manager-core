@@ -11,6 +11,7 @@
  */
 use std::fmt::Write;
 use std::pin::Pin;
+use std::str::FromStr;
 
 use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
@@ -20,6 +21,7 @@ use super::{default_uuid, invalid_machine_id};
 use crate::cfg::cli_options::{RebootInstance, SortField};
 use crate::rpc::ApiClient;
 use crate::{async_write, async_writeln};
+use forge_uuid::machine::MachineId;
 use utils::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 fn convert_instance_to_nice_format(
@@ -375,7 +377,7 @@ async fn show_instance_details(
     api_client: &ApiClient,
     extrainfo: bool,
 ) -> CarbideCliResult<()> {
-    let instance = if id.starts_with("fm100") {
+    let instance = if MachineId::from_str(&id).is_ok() {
         api_client.0.find_instance_by_machine_id(id).await?
     } else {
         let instance_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)

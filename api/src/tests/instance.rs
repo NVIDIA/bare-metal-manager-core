@@ -1683,7 +1683,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
     let result = allocate_instance(&env.api, request, &env.pool, env.config.host_health).await;
     let error = result.expect_err("expected allocation to fail").to_string();
     assert!(
-        error.contains("is of type Dpu and can not be converted into an instance"),
+        error.contains("is of type DPU and can not be converted into an instance"),
         "Error message should contain 'is of type Dpu and can not be converted into an instance', but is {error}"
     );
 }

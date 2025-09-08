@@ -16,6 +16,7 @@
 use crate::cfg::file::HostHealthConfig;
 use crate::db::queries;
 use crate::{db::DatabaseError, model::machine::ManagedHostStateSnapshot};
+use forge_uuid::machine::MachineType;
 use forge_uuid::{instance::InstanceId, machine::MachineId};
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -40,7 +41,8 @@ pub async fn load_all(
 ) -> Result<Vec<ManagedHostStateSnapshot>, DatabaseError> {
     let query = managed_host_snapshots_query(&options);
     Ok(sqlx::query_as(&format!(
-        r#"{query} WHERE m.id LIKE 'fm100h%' OR m.id LIKE 'fm100p%'"#
+        r#"{query} WHERE NOT starts_with(m.id, '{}')"#,
+        MachineType::Dpu.id_prefix(),
     ))
     .fetch_all(txn)
     .await

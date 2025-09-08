@@ -21,6 +21,8 @@ use std::fmt::{Debug, Display, Formatter};
 use std::{fmt::Write, ops::Deref, str::FromStr};
 use tonic::Status;
 
+static MACHINE_ID_PREFIX: &str = "fm100";
+
 #[cfg(feature = "sqlx")]
 use sqlx::{
     encode::IsNull,
@@ -337,6 +339,11 @@ impl MachineType {
         self == MachineType::Dpu
     }
 
+    /// Returns the [`MachineType`] this ID string matches, if any.
+    pub fn from_id_string(s: &str) -> Option<Self> {
+        MachineId::from_str(s).ok().map(|i| i.ty)
+    }
+
     /// Returns `true` if the Machine is a Host
     ///
     /// This only returns `true` for hosts which actually have been discovered,
@@ -348,14 +355,31 @@ impl MachineType {
     pub fn is_predicted_host(self) -> bool {
         self == MachineType::PredictedHost
     }
+
+    /// Description of this machine type when used by metrics (lowercased, intended to be machine-readable)
+    pub fn metrics_value(&self) -> &'static str {
+        match self {
+            MachineType::Dpu => "dpu",
+            MachineType::Host => "host",
+            MachineType::PredictedHost => "predictedhost",
+        }
+    }
+
+    pub fn id_prefix(self) -> &'static str {
+        match self {
+            MachineType::Dpu => "fm100d",
+            MachineType::Host => "fm100h",
+            MachineType::PredictedHost => "fm100p",
+        }
+    }
 }
 
 impl std::fmt::Display for MachineType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MachineType::Dpu => f.write_str("Dpu"),
+            MachineType::Dpu => f.write_str("DPU"),
             MachineType::Host => f.write_str("Host"),
-            MachineType::PredictedHost => f.write_str("PredictedHost"),
+            MachineType::PredictedHost => f.write_str("Host (Predicted)"),
         }
     }
 }
@@ -404,7 +428,7 @@ impl std::fmt::Display for MachineId {
         // `fm` is for forge-machine
         // `1` is a version identifier
         // The next 2 bytes `00` are reserved
-        f.write_str("fm100")?;
+        f.write_str(MACHINE_ID_PREFIX)?;
         // Write the machine type
         f.write_char(self.ty.id_char())?;
         // The next character determines how the MachineId is derived (`MachineIdSource`)
@@ -479,7 +503,7 @@ impl FromStr for MachineId {
             return Err(MachineIdParseError::Length(s.len()));
         }
         // Check for version 1 and 2 reserved bytes
-        if !s.starts_with("fm100") {
+        if !s.starts_with(MACHINE_ID_PREFIX) {
             return Err(MachineIdParseError::Prefix(s.to_string()));
         }
 

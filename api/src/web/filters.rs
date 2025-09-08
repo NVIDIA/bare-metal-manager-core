@@ -19,7 +19,9 @@ use std::collections::BTreeSet;
 use std::fmt::Display;
 
 use askama_escape::Escaper;
+use forge_uuid::machine::MachineId;
 use std::fmt::Write;
+use std::str::FromStr;
 
 /// Generates HTML links for Machine IDs
 pub fn machine_id_link(id: impl Display) -> ::askama::Result<String> {
@@ -29,10 +31,7 @@ pub fn machine_id_link(id: impl Display) -> ::askama::Result<String> {
 /// Generates a formatted link for Machine IDs to a predefined path
 fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String> {
     let id = id.to_string();
-    let short_id = if id.len() < 25
-        || !id.starts_with("fm100")
-        || id.chars().any(|c| !c.is_ascii_alphanumeric())
-    {
+    let short_id = if MachineId::from_str(&id).is_err() {
         // Not a Machine ID. Escape HTML to make it safe for post processing with safe filter
         let mut output = String::new();
         askama_escape::Html.write_escaped(&mut output, &id)?;
