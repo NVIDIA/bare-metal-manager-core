@@ -1640,7 +1640,7 @@ pub struct ShowMachine {
     pub instance_type_id: Option<String>,
 
     #[clap(
-        default_value(""),
+        default_value(None),
         help = "The machine to query, leave empty for all (default)"
     )]
     pub machine: Option<MachineId>,
