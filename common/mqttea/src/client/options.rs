@@ -55,6 +55,10 @@ pub struct ClientOptions {
     // for using TLS, and optionally, mTLS. This can be used
     // with or without credentials.
     pub tls_config: Option<ClientTlsConfig>,
+    // max_concurrency is the maximum number of messages that can be
+    // processed concurrently. If unset, defaults to 1, which is
+    // effectively sequential processing.
+    pub max_concurrency: Option<usize>,
 }
 
 impl ClientOptions {
@@ -86,6 +90,11 @@ impl ClientOptions {
 
     pub fn with_publish_options(mut self, publish_options: PublishOptions) -> Self {
         self.publish_options = Some(publish_options);
+        self
+    }
+
+    pub fn with_max_concurrency(mut self, max_concurrency: usize) -> Self {
+        self.max_concurrency = Some(max_concurrency);
         self
     }
 }
