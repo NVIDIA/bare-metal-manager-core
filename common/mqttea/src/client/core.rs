@@ -20,7 +20,7 @@
 use rumqttc::{AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock, Semaphore};
 use tracing::{debug, error, info, warn};
 
 use crate::errors::MqtteaClientError;
@@ -65,6 +65,13 @@ pub struct MqtteaClient {
     // registry encapsulates all message type registration and routing logic.
     // Made pub(crate) so trait implementations in registry.rs can access it.
     pub(crate) registry: Arc<RwLock<MqttRegistry>>,
+    // concurrency_semaphore is the semaphore used for
+    // managing processing concurrency. Messages are pulled
+    // from the message queue, and then we fire off a handler
+    // for the message. By setting this to > 1, you can achieve
+    // parallel processing of messages (the default is to
+    // just process messages sequentially).
+    concurrency_semaphore: Arc<Semaphore>,
 }
 
 impl MqtteaClient {
@@ -109,12 +116,19 @@ impl MqtteaClient {
         // Create client-scoped registry instead of using global static.
         let registry = Arc::new(RwLock::new(MqttRegistry::new()));
 
+        let concurrency_limit = client_options
+            .as_ref()
+            .and_then(|opts| opts.max_concurrency)
+            .unwrap_or(1)
+            .max(1);
+
         info!("Created MQTT client for {}:{}", broker_host, broker_port);
 
         Ok(Arc::new(Self {
             client: Arc::new(client),
             client_id: client_id.into(),
             event_loop: Arc::new(Mutex::new(Some(event_loop))),
+            concurrency_semaphore: Arc::new(Semaphore::new(concurrency_limit)),
             client_options,
             handlers,
             queue_stats,
@@ -263,9 +277,57 @@ impl MqtteaClient {
         Ok(())
     }
 
-    // on_message provides convenient closure-based handler registration
-    // with type inference.
+    // on_message is used for registering handler callbacks, wrapping
+    // on_message_internal with support for parallel processing, and
+    // as a side effect, supporting handlers which need to be run safely
+    // within their own tokio task (and not a shared Send + Sync handler).
     pub async fn on_message<T, F, Fut>(&self, handler: F)
+    where
+        T: Send + Sync + 'static,
+        F: Fn(Arc<MqtteaClient>, T, String) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let handler_cb = Arc::new(handler);
+        let concurrency_semaphore = self.concurrency_semaphore.clone();
+
+        self.on_message_internal(move |client, message, topic| {
+            let handler_internal = handler_cb.clone();
+            let semaphore_internal = concurrency_semaphore.clone();
+            async move {
+                tokio::spawn(async move {
+                    // Acquire a SemaphorePermit and hold it -- it
+                    // will drop when it drops out of scope; no need
+                    // to use the variable anywhere. This will only
+                    // be acquired if the number of tasks is less than
+                    // max_concurrency. Requests to acquire the semaphore
+                    // will be granted in they order they were requested.
+                    let _permit = match semaphore_internal.acquire().await {
+                        Ok(permit) => permit,
+                        Err(e) => {
+                            // TODO(chet): Totally need to export a metric here,
+                            // since we're dropping messages at this point.
+                            error!(
+                                "failed to acquire semaphore permit for message_type={}: {e}",
+                                std::any::type_name::<T>().to_string()
+                            );
+                            return;
+                        }
+                    };
+                    handler_internal(client, message, topic).await;
+                });
+            }
+        })
+        .await;
+    }
+
+    // on_message_internal provides basic closure-based handler registration
+    // with type inference. Technically, for handlers that support Send + Sync,
+    // we could just use this, and not on_message. This *used* to be on_message,
+    // until it was decided we wanted to add support for parallel processing of
+    // messages, as well as being able to handle non-Sync-safe handlers, such
+    // as handlers which were opening database transactions (and needed to be
+    // run within a tokio::spawn task anyway).
+    async fn on_message_internal<T, F, Fut>(&self, handler: F)
     where
         T: Send + Sync + 'static,
         F: Fn(Arc<MqtteaClient>, T, String) -> Fut + Send + Sync + 'static,
