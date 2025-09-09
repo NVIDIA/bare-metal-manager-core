@@ -2440,16 +2440,8 @@ async fn handle_dpu_reprovision(
             next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?
         )),
         ReprovisionState::VerifyFirmareVersions => {
-            if let Some(outcome) = check_fw_component_version(
-                ctx.services,
-                dpu_snapshot,
-                txn,
-                hardware_models,
-                true,
-                state,
-                reachability_params,
-            )
-            .await?
+            if let Some(outcome) =
+                check_fw_component_version(ctx.services, dpu_snapshot, txn, hardware_models).await?
             {
                 return Ok(outcome);
             }
@@ -2667,9 +2659,6 @@ async fn check_fw_component_version(
     dpu_snapshot: &Machine,
     txn: &mut PgConnection,
     hardware_models: &FirmwareConfig,
-    host_power_cycle_done: bool,
-    state: &ManagedHostStateSnapshot,
-    reachability_params: &ReachabilityParams,
 ) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
     let redfish_client = services
         .redfish_client_pool
@@ -2746,7 +2735,6 @@ async fn check_fw_component_version(
         if cur_version != expected_version {
             // CEC_MIN_RESET_VERSION="00.02.0180.0000"
             if component == FirmwareComponentType::Cec
-                && !host_power_cycle_done
                 && version_compare::compare_to(&cur_version, "00.02.0180.0000", Cmp::Lt)
                     .is_ok_and(|x| x)
             {
@@ -2757,37 +2745,6 @@ async fn check_fw_component_version(
                     expected_version
                 );
                 return Ok(None);
-            }
-
-            /*
-            https://nvbugspro.nvidia.com/bug/5322000
-            Try rebooting the ARM to complete the NIC firmware update.
-            Sometimes the NIC firmware fails to get updated in the DPU provisioning flow with the following error:
-
-            (Starting NIC FW: 24.41.1000. Trying to go to 24.42.1000 )
-            [03:43:20] INFO: Rebooting...
-
-            [03:43:33] INFO: NIC Firmware reset failed
-
-            [03:43:33] INFO: NIC Firmware reset failed
-            */
-            if component == FirmwareComponentType::Nic {
-                let status = trigger_reboot_if_needed(
-                    dpu_snapshot,
-                    state,
-                    None,
-                    reachability_params,
-                    services,
-                    txn,
-                )
-                .await?;
-
-                tracing::info!(
-                    "The NIC firmware on DPU {} hasnt updated succesfully. Expected version: {}, Current version: {}. Reboot Status: {status:#?}",
-                    dpu_snapshot.id,
-                    expected_version,
-                    cur_version
-                );
             }
 
             tracing::warn!(
@@ -3250,9 +3207,6 @@ impl DpuMachineStateHandler {
                     dpu_snapshot,
                     txn,
                     &self.hardware_models,
-                    true,
-                    state,
-                    &self.reachability_params,
                 )
                 .await?
                 {
