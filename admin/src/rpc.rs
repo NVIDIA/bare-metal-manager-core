@@ -32,7 +32,6 @@ use std::path::Path;
 use crate::cfg::cli_options::{
     self, AllocateInstance, ForceDeleteMachineQuery, MachineAutoupdate, TimeoutConfig,
 };
-use crate::rpc::cli_options::UpdateInstanceOS;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::uuid::dpa_interface::DpaInterfaceId;
@@ -1444,30 +1443,39 @@ impl ApiClient {
             .map_err(CarbideCliError::ApiInvocationError)
     }
 
-    pub async fn update_instance_os(
+    /// Applies patches to a running instances configuration
+    /// The function fetches the current configuration, and then calls the two
+    /// `modify` closures to apply updates to the configuration.
+    /// It then calls the `UpdateInstanceConfig` API to submit the updates
+    /// to carbide.
+    pub async fn update_instance_config_with(
         &self,
-        update_instance: UpdateInstanceOS,
+        instance_id: InstanceId,
+        modify_config: impl FnOnce(&mut rpc::InstanceConfig),
+        modify_metadata: impl FnOnce(&mut rpc::Metadata),
         modified_by: Option<String>,
     ) -> CarbideCliResult<rpc::Instance> {
         let find_response = self
             .0
-            .find_instances_by_ids(vec![update_instance.instance])
+            .find_instances_by_ids(vec![instance_id])
             .await
             .map_err(CarbideCliError::ApiInvocationError)?;
 
         let instance = find_response
             .instances
             .first()
-            .ok_or_else(|| CarbideCliError::InstanceNotFound(update_instance.instance))?;
+            .ok_or_else(|| CarbideCliError::InstanceNotFound(instance_id))?;
 
         let config = instance.config.clone().map(|mut c| {
-            c.os = Some(update_instance.os);
+            modify_config(&mut c);
             c
         });
 
-        tracing::info!("{:?}", config);
+        tracing::info!("{}", serde_json::to_string(&config).unwrap_or_default());
 
         let metadata = instance.metadata.clone().map(|mut m| {
+            modify_metadata(&mut m);
+
             let mut labels: Vec<rpc::Label> = m
                 .labels
                 .into_iter()
@@ -1487,7 +1495,7 @@ impl ApiClient {
         });
 
         let update_instance_request = rpc::InstanceConfigUpdateRequest {
-            instance_id: Some(update_instance.instance),
+            instance_id: Some(instance_id),
             if_version_match: Some(instance.config_version.clone()),
             config,
             metadata,
