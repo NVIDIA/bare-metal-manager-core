@@ -475,29 +475,29 @@ pub async fn detail(
 
     // Site Explorer doesn't link Host Explored Endpoints with their machine, only DPUs.
     // So do it here.
-    if let Some(ref mut report) = endpoint.report {
-        if report.machine_id.is_none() {
-            let req = tonic::Request::new(forgerpc::BmcIpList {
-                bmc_ips: vec![endpoint.address.clone()],
-            });
-            match state.find_machine_ids_by_bmc_ips(req).await {
-                Ok(res) => {
-                    if let Some(pair) = res.into_inner().pairs.first() {
-                        // we found a matching machine
-                        report.machine_id = pair
-                            .machine_id
-                            .as_ref()
-                            .map(|machine_id| machine_id.to_string());
-                    }
+    if let Some(ref mut report) = endpoint.report
+        && report.machine_id.is_none()
+    {
+        let req = tonic::Request::new(forgerpc::BmcIpList {
+            bmc_ips: vec![endpoint.address.clone()],
+        });
+        match state.find_machine_ids_by_bmc_ips(req).await {
+            Ok(res) => {
+                if let Some(pair) = res.into_inner().pairs.first() {
+                    // we found a matching machine
+                    report.machine_id = pair
+                        .machine_id
+                        .as_ref()
+                        .map(|machine_id| machine_id.to_string());
                 }
-                Err(err) => {
-                    tracing::error!(%err, "find_machine_ids_by_bmc_ips");
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Error find_machine_ids_by_bmc_ips",
-                    )
-                        .into_response();
-                }
+            }
+            Err(err) => {
+                tracing::error!(%err, "find_machine_ids_by_bmc_ips");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Error find_machine_ids_by_bmc_ips",
+                )
+                    .into_response();
             }
         }
     }
@@ -786,15 +786,15 @@ pub async fn forge_setup(
         .map(|mac| mac.trim().to_string());
 
     // Validate MAC address format if provided
-    if let Some(ref mac) = boot_interface_mac {
-        if mac.parse::<mac_address::MacAddress>().is_err() {
-            tracing::error!(endpoint_ip = %endpoint_ip, mac_address = %mac, "Invalid MAC address format");
-            return (
-                StatusCode::BAD_REQUEST,
-                "Invalid MAC address format. Expected format: 00:11:22:33:44:55",
-            )
-                .into_response();
-        }
+    if let Some(ref mac) = boot_interface_mac
+        && mac.parse::<mac_address::MacAddress>().is_err()
+    {
+        tracing::error!(endpoint_ip = %endpoint_ip, mac_address = %mac, "Invalid MAC address format");
+        return (
+            StatusCode::BAD_REQUEST,
+            "Invalid MAC address format. Expected format: 00:11:22:33:44:55",
+        )
+            .into_response();
     }
 
     if let Err(err) = state
@@ -830,15 +830,15 @@ pub async fn set_dpu_first_boot_order(
         .map(|mac| mac.trim().to_string());
 
     // Validate MAC address format if provided
-    if let Some(ref mac) = boot_interface_mac {
-        if mac.parse::<mac_address::MacAddress>().is_err() {
-            tracing::error!(endpoint_ip = %endpoint_ip, mac_address = %mac, "Invalid MAC address format");
-            return (
-                StatusCode::BAD_REQUEST,
-                "Invalid MAC address format. Expected format - 00:11:22:33:44:55",
-            )
-                .into_response();
-        }
+    if let Some(ref mac) = boot_interface_mac
+        && mac.parse::<mac_address::MacAddress>().is_err()
+    {
+        tracing::error!(endpoint_ip = %endpoint_ip, mac_address = %mac, "Invalid MAC address format");
+        return (
+            StatusCode::BAD_REQUEST,
+            "Invalid MAC address format. Expected format - 00:11:22:33:44:55",
+        )
+            .into_response();
     }
 
     if let Err(err) = state

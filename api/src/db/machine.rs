@@ -1462,7 +1462,7 @@ pub async fn create(
 
     if machine_id != *stable_machine_id {
         return Err(CarbideError::internal(format!(
-            "Mmachine {stable_machine_id} was just created, but database failed to return any rows"
+            "Machine {stable_machine_id} was just created, but database failed to return any rows"
         )));
     }
 

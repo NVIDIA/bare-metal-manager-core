@@ -209,6 +209,9 @@ pub enum CarbideError {
 
     #[error("Failed to map device to dpu: {0}")]
     DpuMappingError(String),
+
+    #[error("Client certificate presented has missing information: {0}.")]
+    ClientCertificateMissingInformation(String),
 }
 
 impl CarbideError {

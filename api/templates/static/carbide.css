@@ -385,7 +385,7 @@ tr:last-child td {
 
 /* Nested tables for sub-data */
 td table {
-  margin: 1.5rem !important;
+  margin: 1.5rem;
   box-shadow: var(--shadow-sm);
   background-color: var(--bg-tertiary);
   border-radius: 8px;
@@ -596,7 +596,12 @@ input[type="submit"] {
   box-sizing: border-box;
 }
 
-button:hover,
+button[disabled] {
+  background-color: gray;
+  border: 1px solid gray;
+}
+
+button:hover:enabled,
 input[type="submit"]:hover {
   background-color: var(--accent-green);
   box-shadow: var(--shadow-md);

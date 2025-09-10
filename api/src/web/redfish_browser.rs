@@ -10,23 +10,25 @@
  * its affiliates is strictly prohibited.
  */
 
-use super::filters;
+use super::Oauth2Layer;
 use crate::api::Api;
+use crate::handlers::redfish::NUM_REQUIRED_APPROVALS;
 use askama::Template;
+use axum::Extension;
 use axum::extract::{Query as AxumQuery, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use axum_extra::extract::PrivateCookieJar;
 use http::HeaderMap;
 use hyper::http::StatusCode;
+use rpc::forge::RedfishAction;
 use rpc::forge::forge_server::Forge;
 use rpc::uuid::machine::MachineId;
 use serde::Deserialize;
 use std::sync::Arc;
-use url::Url;
-use utils::HostPortPair;
 
 #[derive(Template)]
 #[template(path = "redfish_browser.html")]
-struct RefishBrowser {
+struct RedfishBrowser {
     url: String,
     base_bmc_url: String,
     bmc_ip: String,
@@ -36,6 +38,9 @@ struct RefishBrowser {
     status_code: u16,
     status_string: String,
     response_headers: Vec<Header>,
+    action_requests: Vec<RedfishAction>,
+    required_approvals: usize,
+    current_user_name: Option<String>,
 }
 
 struct Header {
@@ -53,8 +58,13 @@ pub struct QueryParams {
 pub async fn query(
     AxumState(state): AxumState<Arc<Api>>,
     AxumQuery(query): AxumQuery<QueryParams>,
+    Extension(oauth2_layer): Extension<Option<Oauth2Layer>>,
+    request_headers: HeaderMap,
 ) -> Response {
-    let mut browser = RefishBrowser {
+    let cookiejar = oauth2_layer
+        .map(|layer| PrivateCookieJar::from_headers(&request_headers, layer.private_cookiejar_key));
+
+    let mut browser = RedfishBrowser {
         url: query.url.clone().unwrap_or_default(),
         base_bmc_url: "".to_string(),
         bmc_ip: "".to_string(),
@@ -64,6 +74,12 @@ pub async fn query(
         error: "".to_string(),
         status_code: 0,
         status_string: "".to_string(),
+        action_requests: vec![],
+        required_approvals: NUM_REQUIRED_APPROVALS,
+        current_user_name: cookiejar.and_then(|jar| {
+            jar.get("unique_name")
+                .map(|cookie| cookie.value().to_string())
+        }),
     };
 
     if browser.url.is_empty() {
@@ -109,34 +125,20 @@ pub async fn query(
         }
     };
 
-    let metadata = match state
-        .get_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
-            machine_id: None,
-            bmc_endpoint_request: Some(rpc::forge::BmcEndpointRequest {
-                ip_address: bmc_ip.to_string(),
-                mac_address: None,
-            }),
-            role: rpc::forge::UserRoles::Administrator.into(),
-            request_type: rpc::forge::BmcRequestType::Ipmi.into(),
+    let response = match state
+        .redfish_browse(tonic::Request::new(rpc::forge::RedfishBrowseRequest {
+            uri: browser.url.clone(),
         }))
         .await
     {
-        Ok(meta) => meta.into_inner(),
+        Ok(r) => r.into_inner(),
         Err(err) => {
-            browser.error = match err.code() {
-                tonic::Code::NotFound => {
-                    format!("No BMC Credentials are available for URL {}", browser.url)
-                }
-                _ => {
-                    tracing::error!(%err, %bmc_ip, "get_bmc_meta_data");
-                    format!("Failed to retrieve BMC Metadata for URL {}", browser.url)
-                }
-            };
+            tracing::error!(%err, %bmc_ip, %browser.url, "redfish_browse");
+            browser.error = format!("Failed to retrieve Redfish from API {err}");
             return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
     };
 
-    // Informational only. The data is not used for accessing the BMC
     browser.machine_id = match find_machine_id(state.clone(), bmc_ip).await {
         Ok(Some(machine_id)) => machine_id.to_string(),
         Ok(None) => String::new(),
@@ -147,101 +149,44 @@ pub async fn query(
         }
     };
 
-    let http_client = {
-        let builder = reqwest::Client::builder();
-        let builder = builder
-            .danger_accept_invalid_certs(true)
-            .redirect(reqwest::redirect::Policy::limited(5))
-            .connect_timeout(std::time::Duration::from_secs(5)) // Limit connections to 5 seconds
-            .timeout(std::time::Duration::from_secs(60)); // Limit the overall request to 60 seconds
-
-        match builder.build() {
-            Ok(client) => client,
-            Err(err) => {
-                tracing::error!(%err, "build_http_client");
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Html(format!(
-                        "Failed to build HTTP client for requesting {}",
-                        browser.url
-                    )),
-                )
-                    .into_response();
-            }
-        }
-    };
-
-    let (url, headers) = match state.dynamic_settings.bmc_proxy.load().as_ref().clone() {
-        Some(proxy) => {
-            // We're configured for a proxy for talking to BMC's: Talk to the proxy URL and use a forwarded: header to specify the original host.
-
-            // Unwrap safety: It's a valid `Uri`, so parsing/setting fields on a Url must work.
-            let mut proxy_url: Url = uri.to_string().parse().unwrap();
-            let orig_host = browser.bmc_ip.clone();
-            // See api/src/redfish.rs for the other redfish API client implementation.
-            let add_custom_header = match proxy {
-                HostPortPair::HostOnly(h) => {
-                    proxy_url.set_host(Some(&h)).unwrap();
-                    true
-                }
-                HostPortPair::PortOnly(p) => {
-                    proxy_url.set_port(Some(p)).unwrap();
-                    false
-                }
-                HostPortPair::HostAndPort(h, p) => {
-                    proxy_url.set_host(Some(&h)).unwrap();
-                    proxy_url.set_port(Some(p)).unwrap();
-                    true
-                }
-            };
-
-            let mut headers = HeaderMap::new();
-            if add_custom_header {
-                headers.insert("forwarded", format!("host={orig_host}",).parse().unwrap());
-            }
-            (proxy_url, headers)
-        }
-        None => (browser.url.clone().parse().unwrap(), HeaderMap::new()),
-    };
-
-    let response = match http_client
-        .request(http::Method::GET, url)
-        .basic_auth(metadata.user.clone(), Some(metadata.password.clone()))
-        .headers(headers)
-        .send()
+    let requests = match state
+        .redfish_list_actions(tonic::Request::new(rpc::forge::RedfishListActionsRequest {
+            machine_ip: Some(bmc_ip.to_string()),
+        }))
         .await
     {
-        Ok(response) => response,
-        Err(e) => {
-            browser.error = format!("Error sending request:\n{e:?}");
-            if let Some(status) = e.status() {
-                browser.status_code = status.as_u16();
-                browser.status_string = status.canonical_reason().unwrap_or_default().to_string();
-            }
+        Ok(results) => results
+            .into_inner()
+            .actions
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>(),
+        Err(err) => {
+            tracing::error!(%err, bmc_ip = browser.bmc_ip, "fetch_action_requests");
+            browser.error = format!(
+                "Failed to look up action requests for bmc_ip {}",
+                browser.bmc_ip
+            );
             return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
     };
-    browser.status_code = response.status().as_u16();
-    browser.status_string = response
-        .status()
-        .canonical_reason()
-        .unwrap_or_default()
-        .to_string();
-    for (name, value) in response.headers() {
-        browser.response_headers.push(Header {
-            name: name.to_string(),
-            value: String::from_utf8_lossy(value.as_bytes()).to_string(),
-        })
-    }
-
-    match response.text().await {
-        Ok(response) => {
-            browser.response = response;
-        }
-        Err(e) => {
-            browser.error = format!("Error reading response body:\n{e:?}");
+    browser.action_requests = match requests {
+        Ok(ok) => ok,
+        Err(err) => {
+            tracing::error!(%err, bmc_ip = browser.bmc_ip, "fetch_action_requests");
+            browser.error = format!(
+                "Failed to deserialize action requests for bmc_ip {}",
+                browser.bmc_ip
+            );
+            return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
     };
+
+    for (name, value) in response.headers {
+        browser.response_headers.push(Header { name, value })
+    }
+
+    browser.response = response.text;
 
     (StatusCode::OK, Html(browser.render().unwrap())).into_response()
 }
@@ -268,4 +213,9 @@ async fn find_machine_id(
     }
 
     Ok(None)
+}
+
+pub mod filters {
+    pub use super::super::filters::*;
+    pub use super::super::redfish_actions::filters::*;
 }

@@ -4719,7 +4719,37 @@ impl Forge for Api {
         &self,
         request: tonic::Request<rpc::RedfishBrowseRequest>,
     ) -> Result<tonic::Response<rpc::RedfishBrowseResponse>, Status> {
-        crate::redfish::redfish_browse(self, request).await
+        crate::handlers::redfish::redfish_browse(self, request).await
+    }
+    async fn redfish_list_actions(
+        &self,
+        request: tonic::Request<rpc::RedfishListActionsRequest>,
+    ) -> Result<tonic::Response<rpc::RedfishListActionsResponse>, Status> {
+        crate::handlers::redfish::redfish_list_actions(self, request).await
+    }
+    async fn redfish_create_action(
+        &self,
+        request: tonic::Request<rpc::RedfishCreateActionRequest>,
+    ) -> Result<tonic::Response<rpc::RedfishCreateActionResponse>, Status> {
+        crate::handlers::redfish::redfish_create_action(self, request).await
+    }
+    async fn redfish_approve_action(
+        &self,
+        request: tonic::Request<rpc::RedfishActionId>,
+    ) -> Result<tonic::Response<rpc::RedfishApproveActionResponse>, Status> {
+        crate::handlers::redfish::redfish_approve_action(self, request).await
+    }
+    async fn redfish_apply_action(
+        &self,
+        request: tonic::Request<rpc::RedfishActionId>,
+    ) -> Result<tonic::Response<rpc::RedfishApplyActionResponse>, Status> {
+        crate::handlers::redfish::redfish_apply_action(self, request).await
+    }
+    async fn redfish_cancel_action(
+        &self,
+        request: tonic::Request<rpc::RedfishActionId>,
+    ) -> Result<tonic::Response<rpc::RedfishCancelActionResponse>, Status> {
+        crate::handlers::redfish::redfish_cancel_action(self, request).await
     }
     async fn ufm_browse(
         &self,

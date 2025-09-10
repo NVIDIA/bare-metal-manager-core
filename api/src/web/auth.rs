@@ -254,14 +254,6 @@ pub async fn callback(
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     };
 
-    // The token we got back from MS is a JWT.  We can ignore the header
-    // and signature and just grab the claims portion because we only want the
-    // user ID to save us an extra call to MS for https://graph.microsoft.com/v1.0/me.
-    // We will _only_ use the ID to make a call to MS to grab the groups of the user,
-    // and that requires sending the original token along for authorization, so we
-    // don't have to worry about trusting the data in the token in order to pull the ID
-    // because the subsequent call to pull groups can only work if this is a
-    // valid token that hasn't been tampered with.
     let user = match token.access_token().secret().split(".").nth(1) {
         None => {
             return (
@@ -381,17 +373,24 @@ pub async fn callback(
     // `groups` should be extremely small with the search filter applied and
     // id_list is likely only ever going to be one or two items, and it should
     // very likely be exactly one item after security cleans up how we use DLs,
-    if !groups
+    //
+    // We're using the first group name.
+    let Some(group_name) = groups
         .value
         .iter()
-        .any(|group| oauth2_layer.allowed_access_groups_ids.contains(&group.id))
-    {
+        .filter_map(|group| {
+            oauth2_layer
+                .allowed_access_groups_ids_to_name
+                .get(&group.id)
+        })
+        .next()
+    else {
         return (
             StatusCode::UNAUTHORIZED,
             "user not found in any permitted groups",
         )
             .into_response();
-    }
+    };
 
     // Grab the previous page cookie so we can send the human back to the original
     // page they wanted.
@@ -404,13 +403,44 @@ pub async fn callback(
     // When someone tries to access carbide-web, we just need to see that they have the cookie
     // and that it's not expired and hasn't been tampered with, which we'll know when we decrypt it,
     // so we don't have a use for storing the actual token secret for later use at the moment.
-    let cookie = Cookie::build(("sid", format!("{}", now_seconds + exp_secs)))
+    //
+    // TODO: figure out what to do if no identity provider (e.g. when using admin + local dev password)
+    let sid_cookie = Cookie::build(("sid", format!("{}", now_seconds + exp_secs)))
         .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
         .max_age(Duration::seconds(secs))
         .build();
+    let name_cookie = Cookie::build(("name", user.name))
+        .domain(hostname.clone())
+        .path("/")
+        .secure(true)
+        .http_only(true)
+        .max_age(Duration::seconds(secs))
+        .build();
+    let group_cookie = Cookie::build(("group_name", group_name.to_string()))
+        .domain(hostname.clone())
+        .path("/")
+        .secure(true)
+        .http_only(true)
+        .max_age(Duration::seconds(secs))
+        .build();
+    // It appears NVIDIA fills this out with email in MS Entra.
+    let unique_name = user.unique_name.clone();
+    let unique_name_cookie = Cookie::build((
+        "unique_name",
+        unique_name
+            .strip_suffix("@nvidia.com")
+            .unwrap_or(&user.unique_name)
+            .to_owned(),
+    ))
+    .domain(hostname.clone())
+    .path("/")
+    .secure(true)
+    .http_only(true)
+    .max_age(Duration::seconds(secs))
+    .build();
 
     (
         // Strip out any old cookies that might possibly exist,
@@ -418,8 +448,14 @@ pub async fn callback(
         cookiejar
             .remove(pkce_cookie)
             .remove(csrf_cookie)
-            .remove(cookie.clone())
-            .add(cookie),
+            .remove(sid_cookie.clone())
+            .remove(name_cookie.clone())
+            .remove(group_cookie.clone())
+            .remove(unique_name_cookie.clone())
+            .add(sid_cookie)
+            .add(name_cookie)
+            .add(group_cookie)
+            .add(unique_name_cookie),
         Redirect::to(&requested_page),
     )
         .into_response()
@@ -433,6 +469,8 @@ pub async fn callback(
 #[derive(Debug, Deserialize)]
 pub struct OauthUserData {
     oid: String,
+    name: String,
+    unique_name: String,
 }
 
 /// A container for the list of groups return in

@@ -32,6 +32,7 @@ pub mod measured_boot;
 pub mod network_security_group;
 pub mod network_segment;
 pub mod pxe;
+pub mod redfish;
 pub mod resource_pool;
 pub mod route_server;
 pub mod site_explorer;
