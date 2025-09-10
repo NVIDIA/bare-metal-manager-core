@@ -42,15 +42,9 @@ const DHCP_RESPONSE_ADDR_PREFIX: &str = "172.20.0";
 pub fn base_dhcp_response(mac_address: MacAddress) -> rpc::DhcpRecord {
     rpc::DhcpRecord {
         machine_id: None,
-        machine_interface_id: Some(::rpc::common::Uuid {
-            value: "88750d14-00fa-4d21-9fbc-d562046bc194".to_string(),
-        }),
-        segment_id: Some(::rpc::common::Uuid {
-            value: "267d40d1-75ba-4fee-bf76-a2ec2ce293fd".to_string(),
-        }),
-        subdomain_id: Some(::rpc::common::Uuid {
-            value: "023138e1-ebf1-4ef7-8a2c-bbce928a1601".to_string(),
-        }),
+        machine_interface_id: Some("88750d14-00fa-4d21-9fbc-d562046bc194".parse().unwrap()),
+        segment_id: Some("267d40d1-75ba-4fee-bf76-a2ec2ce293fd".parse().unwrap()),
+        subdomain_id: Some("023138e1-ebf1-4ef7-8a2c-bbce928a1601".parse().unwrap()),
         fqdn: DHCP_RESPONSE_FQDN.to_string(),
         mac_address: mac_address.to_string(),
         address: address_to_offer(mac_address),

@@ -37,15 +37,14 @@ pub async fn create_ib_partition(
         .unwrap()
         .into_inner();
 
-    let ib_partition_id =
-        IBPartitionId::try_from(ib_partition.id.clone().expect("Missing ib partition ID")).unwrap();
+    let ib_partition_id = ib_partition.id.expect("Missing ib partition ID");
 
     env.run_ib_partition_controller_iteration().await;
 
     let ib_partition = env
         .api
         .find_ib_partitions(Request::new(rpc::forge::IbPartitionQuery {
-            id: Some(ib_partition_id.into()),
+            id: Some(ib_partition_id),
             search_config: Some(IbPartitionSearchConfig {
                 include_history: false,
             }),

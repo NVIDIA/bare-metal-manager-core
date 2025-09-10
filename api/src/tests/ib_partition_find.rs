@@ -15,6 +15,7 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::tests::common::api_fixtures::{create_test_env, ib_partition::create_ib_partition};
 use ::rpc::forge as rpc;
+use ::rpc::uuid::infiniband::IBPartitionId;
 use rpc::forge_server::Forge;
 
 #[crate::sqlx_test]
@@ -166,10 +167,8 @@ async fn test_find_ib_partitions_by_ids_over_max(pool: sqlx::PgPool) {
     // create vector of IDs with more than max allowed
     // it does not matter if these are real or not, since we are testing an error back for passing more than max
     let end_index: u32 = env.config.max_find_by_ids + 1;
-    let ib_partition_ids: Vec<::rpc::common::Uuid> = (1..=end_index)
-        .map(|_| ::rpc::common::Uuid {
-            value: uuid::Uuid::new_v4().to_string(),
-        })
+    let ib_partition_ids: Vec<IBPartitionId> = (1..=end_index)
+        .map(|_| uuid::Uuid::new_v4().into())
         .collect();
 
     let request = tonic::Request::new(rpc::IbPartitionsByIdsRequest {

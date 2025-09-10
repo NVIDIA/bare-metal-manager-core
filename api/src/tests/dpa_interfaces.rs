@@ -55,7 +55,7 @@ async fn dpa_api_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     assert!(get_all_resp.ids[0] == intf_id);
 
     let find_by_id_req = tonic::Request::new(DpaInterfacesByIdsRequest {
-        ids: vec![intf_id.clone()],
+        ids: vec![intf_id],
         include_history: false,
     });
 
@@ -70,7 +70,7 @@ async fn dpa_api_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     let find_resp = &find_by_id_resp.interfaces[0];
 
-    assert!(find_resp.id.clone().unwrap() == intf_id);
+    assert!(find_resp.id.unwrap() == intf_id);
     assert!(find_resp.mac_addr == cr_resp.mac_addr);
 
     Ok(())

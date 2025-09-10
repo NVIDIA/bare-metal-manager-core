@@ -26,7 +26,7 @@ pub async fn handle_create(
     let is_json = output_format == OutputFormat::Json;
 
     let vpc_peering = match api_client
-        .create_vpc_peering(Some(args.vpc1_id.into()), Some(args.vpc2_id.into()))
+        .create_vpc_peering(Some(args.vpc1_id), Some(args.vpc2_id))
         .await
     {
         Ok(vpc_peering) => vpc_peering,
@@ -54,10 +54,10 @@ pub async fn handle_show(
 
     let vpc_peering_ids = match (&args.id, &args.vpc_id) {
         (Some(id), None) => VpcPeeringIdList {
-            vpc_peering_ids: vec![rpc::common::Uuid { value: id.into() }],
+            vpc_peering_ids: vec![*id],
         },
         (None, _) => {
-            let vpc_id = args.vpc_id.map(Into::into);
+            let vpc_id = args.vpc_id;
             api_client.find_vpc_peering_ids(vpc_id).await?
         }
         _ => unreachable!(
@@ -86,13 +86,8 @@ pub async fn handle_delete(
     _output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let id = args.id.clone();
-    api_client
-        .delete_vpc_peering(Some(rpc::Uuid { value: args.id }))
-        .await?;
-
-    println!("Deleted VPC peering {id} successfully");
-
+    api_client.0.delete_vpc_peering(args.id).await?;
+    println!("Deleted VPC peering {} successfully", args.id);
     Ok(())
 }
 
@@ -102,11 +97,7 @@ fn convert_vpc_peerings_to_table(vpc_peerings: &[VpcPeering]) -> CarbideCliResul
     table.set_titles(row!["Id", "VPC1 ID", "VPC2 ID"]);
 
     for vpc_peering in vpc_peerings {
-        let id = vpc_peering
-            .id
-            .as_ref()
-            .map(|id| id.value.as_str())
-            .unwrap_or("");
+        let id = vpc_peering.id.map(|id| id.to_string()).unwrap_or_default();
         let vpc_id = vpc_peering
             .vpc_id
             .as_ref()

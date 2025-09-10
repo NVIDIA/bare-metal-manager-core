@@ -13,7 +13,6 @@ pub mod network_security_group;
 pub mod typed_uuids;
 pub mod vpc;
 pub mod vpc_peering;
-
 #[derive(Debug)]
 pub struct UuidEmptyStringError;
 
@@ -45,4 +44,52 @@ pub trait DbPrimaryUuid {
 /// generics (and lived in src/measured_boot/), but moved here.
 pub trait DbTable {
     fn db_table_name() -> &'static str;
+}
+
+/// Implements `prost::Message` for a Uuid wrapper that is wire-compatible
+/// with common.UUID (`{ string value = 1; }`).
+///
+/// Usage:
+///     grpc_uuid_message!(uuid::machine::DomainId);
+#[macro_export]
+macro_rules! grpc_uuid_message {
+    ($ty:ty) => {
+        impl ::prost::Message for $ty {
+            fn encode_raw(&self, buf: &mut impl ::prost::bytes::BufMut) {
+                let tmp = $crate::common::Uuid {
+                    value: self.0.to_string(),
+                };
+                // Delegate to prost for the actual encoding of the shim.
+                ::prost::Message::encode_raw(&tmp, buf);
+            }
+
+            fn merge_field(
+                &mut self,
+                tag: u32,
+                wire_type: ::prost::encoding::WireType,
+                buf: &mut impl ::prost::bytes::Buf,
+                ctx: ::prost::encoding::DecodeContext,
+            ) -> Result<(), ::prost::DecodeError> {
+                // Decode through the shim type, which has the identical wire layout.
+                let mut tmp = <$crate::common::Uuid>::default();
+                ::prost::Message::merge_field(&mut tmp, tag, wire_type, buf, ctx)?;
+                let parsed = ::uuid::Uuid::parse_str(&tmp.value).map_err(|_| {
+                    ::prost::DecodeError::new(format!("invalid UUID: {}", tmp.value))
+                })?;
+                *self = Self(parsed);
+                Ok(())
+            }
+
+            fn encoded_len(&self) -> usize {
+                let tmp = $crate::common::Uuid {
+                    value: self.0.to_string(),
+                };
+                ::prost::Message::encoded_len(&tmp)
+            }
+
+            fn clear(&mut self) {
+                *self = Self::default();
+            }
+        }
+    };
 }

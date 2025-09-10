@@ -18,8 +18,9 @@ use crate::api::{Api, log_request_data};
 use crate::db::network_prefix::NetworkPrefix;
 use crate::db::vpc_prefix as db;
 use crate::db::{DatabaseError, ObjectColumnFilter};
+use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
-use ::rpc::uuid::vpc::{VpcId, VpcPrefixId};
+use ::rpc::uuid::vpc::VpcPrefixId;
 
 pub async fn create(
     api: &Api,
@@ -179,10 +180,6 @@ pub async fn search(
         })
         .transpose()?;
 
-    let vpc_id = vpc_id
-        .map(VpcId::try_from)
-        .transpose()
-        .map_err(CarbideError::from)?;
     // If prefix_match was specified, we'll combine it with prefix_match_type to
     // determine the match semantics.
     let prefix_match = prefix_match
@@ -221,7 +218,6 @@ pub async fn search(
         .await
         .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
-    let vpc_prefix_ids = vpc_prefix_ids.into_iter().map(|id| id.into()).collect();
     Ok(tonic::Response::new(rpc::VpcPrefixIdList {
         vpc_prefix_ids,
     }))
@@ -241,12 +237,6 @@ pub async fn get(
         );
         return Err(CarbideError::InvalidArgument(msg).into());
     }
-
-    let vpc_prefix_ids = vpc_prefix_ids
-        .into_iter()
-        .map(db::VpcPrefixId::try_from)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(CarbideError::from)?;
 
     const DB_TXN_NAME: &str = "vpc_prefix::get";
 
@@ -336,12 +326,8 @@ impl TryFrom<rpc::VpcPrefixCreationRequest> for db::NewVpcPrefix {
             vpc_id,
         } = value;
 
-        let id = id
-            .map(VpcPrefixId::try_from)
-            .transpose()?
-            .unwrap_or_else(|| VpcPrefixId::from(uuid::Uuid::new_v4()));
+        let id = id.unwrap_or_else(|| VpcPrefixId::from(uuid::Uuid::new_v4()));
         let vpc_id = vpc_id.ok_or_else(|| CarbideError::MissingArgument("vpc_id"))?;
-        let vpc_id = VpcId::try_from(vpc_id)?;
         let prefix =
             IpNetwork::try_from(prefix.as_str()).map_err(CarbideError::NetworkParseError)?;
         // let id = VpcPrefixId::from(uuid::Uuid::new_v4());
@@ -365,9 +351,9 @@ impl From<db::VpcPrefix> for rpc::VpcPrefix {
             ..
         } = db_vpc_prefix;
 
-        let id = Some(id.into());
+        let id = Some(id);
         let prefix = prefix.to_string();
-        let vpc_id = Some(vpc_id.into());
+        let vpc_id = Some(vpc_id);
 
         Self {
             id,
@@ -393,7 +379,7 @@ impl TryFrom<rpc::VpcPrefixUpdateRequest> for db::UpdateVpcPrefix {
                 ))
             })
             .transpose()?;
-        let id = db::VpcPrefixId::from_required_rpc_uuid_field(id, "id")?;
+        let id = id.ok_or(RpcDataConversionError::MissingArgument("id"))?;
         let name = name.ok_or_else(|| {
             CarbideError::InvalidArgument("At least one updated field must be set".to_owned())
         })?;
@@ -406,7 +392,9 @@ impl TryFrom<rpc::VpcPrefixDeletionRequest> for db::DeleteVpcPrefix {
     type Error = CarbideError;
 
     fn try_from(rpc_delete_prefix: rpc::VpcPrefixDeletionRequest) -> Result<Self, Self::Error> {
-        let id = db::VpcPrefixId::from_required_rpc_uuid_field(rpc_delete_prefix.id, "id")?;
+        let id = rpc_delete_prefix
+            .id
+            .ok_or(RpcDataConversionError::MissingArgument("id"))?;
         Ok(Self { id })
     }
 }

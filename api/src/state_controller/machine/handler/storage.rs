@@ -59,7 +59,7 @@ pub(crate) async fn attach_storage_volumes(
             let _ = detach_volume_from_client(
                 txn,
                 attr.id,
-                instance_id.into(),
+                instance_id,
                 dpu_machine_id,
                 nvmesh_api.as_ref(),
             )
@@ -69,7 +69,7 @@ pub(crate) async fn attach_storage_volumes(
             let _ = attach_volume_to_client(
                 txn,
                 attr.id,
-                instance_id.into(),
+                instance_id,
                 dpu_machine_id,
                 nvmesh_api.as_ref(),
             )

@@ -306,10 +306,7 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
             ));
         }
 
-        let id = match value.id {
-            Some(v) => NetworkSegmentId::try_from(v)?,
-            None => uuid::Uuid::new_v4().into(),
-        };
+        let id = value.id.unwrap_or_else(|| uuid::Uuid::new_v4().into());
 
         let segment_type: NetworkSegmentType = value.segment_type.try_into()?;
         if segment_type == NetworkSegmentType::Tenant
@@ -328,14 +325,8 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
         Ok(NewNetworkSegment {
             id,
             name: value.name,
-            subdomain_id: match value.subdomain_id {
-                Some(v) => Some(DomainId::try_from(v)?),
-                None => None,
-            },
-            vpc_id: match value.vpc_id {
-                Some(v) => Some(VpcId::try_from(v)?),
-                None => None,
-            },
+            subdomain_id: value.subdomain_id,
+            vpc_id: value.vpc_id,
             mtu: value.mtu.unwrap_or(match segment_type {
                 NetworkSegmentType::Tenant => DEFAULT_MTU_TENANT,
                 _ => DEFAULT_MTU_OTHER,
@@ -405,10 +396,10 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
         };
 
         Ok(rpc::NetworkSegment {
-            id: Some(src.id.into()),
+            id: Some(src.id),
             version: src.version.version_string(),
             name: src.name,
-            subdomain_id: src.subdomain_id.map(::rpc::common::Uuid::from),
+            subdomain_id: src.subdomain_id,
             mtu: Some(src.mtu),
             created: Some(src.created.into()),
             updated: Some(src.updated.into()),
@@ -418,7 +409,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
                 .into_iter()
                 .map(rpc::NetworkPrefix::from)
                 .collect_vec(),
-            vpc_id: src.vpc_id.map(::rpc::common::Uuid::from),
+            vpc_id: src.vpc_id,
             state: state as i32,
             state_reason: src.controller_state_outcome.map(|r| r.into()),
             state_sla: Some(
@@ -519,7 +510,7 @@ impl NewNetworkSegment {
 impl NetworkSegment {
     pub async fn for_vpc(
         txn: &mut PgConnection,
-        vpc_id: uuid::Uuid,
+        vpc_id: VpcId,
     ) -> Result<Vec<Self>, DatabaseError> {
         lazy_static! {
             static ref query: String = format!(

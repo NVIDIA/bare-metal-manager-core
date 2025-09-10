@@ -23,6 +23,7 @@ use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Gauge, Meter, ObservableGauge};
 use rpc::forge;
 use rpc::forge_api_client::ForgeApiClient;
+use rpc::uuid::instance::InstanceId;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
@@ -30,7 +31,6 @@ use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
-use uuid::Uuid;
 
 /// Spawn a background task that connects to all BMC's in the environment, reconnecting if they fail.
 pub fn spawn(config: Arc<Config>, forge_api_client: ForgeApiClient, meter: &Meter) -> Handle {
@@ -104,7 +104,7 @@ impl BmcConnectionStore {
                 .ok_or_else(|| GetConnectionError::InvalidMachineId {
                     machine_or_instance_id: machine_or_instance_id.to_string(),
                 })
-        } else if let Ok(instance_id) = Uuid::from_str(machine_or_instance_id) {
+        } else if let Ok(instance_id) = InstanceId::from_str(machine_or_instance_id) {
             let machine_id_candidate = if let Some(machine_id) =
                 config.override_bmcs.iter().flatten().find_map(|bmc| {
                     if bmc
@@ -130,9 +130,7 @@ impl BmcConnectionStore {
             } else {
                 forge_api_client
                     .find_instances(forge::InstanceSearchQuery {
-                        id: Some(rpc::Uuid {
-                            value: instance_id.to_string(),
-                        }),
+                        id: Some(instance_id),
                         label: None,
                     })
                     .await
@@ -168,15 +166,15 @@ pub enum GetConnectionError {
     InvalidMachineId { machine_or_instance_id: String },
     #[error("Error looking up instance ID {instance_id}: {tonic_status}")]
     InstanceIdLookupFailure {
-        instance_id: Uuid,
+        instance_id: InstanceId,
         tonic_status: tonic::Status,
     },
     #[error("Could not find instance with id {instance_id}")]
-    CouldNotFindInstanceId { instance_id: Uuid },
+    CouldNotFindInstanceId { instance_id: InstanceId },
     #[error("Instance {instance_id} has no machine ID")]
-    InstanceMissingMachineId { instance_id: Uuid },
+    InstanceMissingMachineId { instance_id: InstanceId },
     #[error("no machine with instance_id {instance_id}")]
-    NoMachineWithInstanceId { instance_id: Uuid },
+    NoMachineWithInstanceId { instance_id: InstanceId },
 }
 
 /// A BmcPool runs in a background Task and maintains a single BmcSession handle to each

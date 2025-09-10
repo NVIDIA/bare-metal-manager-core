@@ -286,13 +286,13 @@ impl<'a> MockExploredHost<'a> {
             .api
             .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
                 machine_interface_id: Some(
-                    self.host_dhcp_response
+                    *self
+                        .host_dhcp_response
                         .as_ref()
                         .unwrap()
                         .machine_interface_id
                         .as_ref()
-                        .unwrap()
-                        .clone(),
+                        .unwrap(),
                 ),
                 create_machine: true,
                 discovery_data: Some(DiscoveryData::Info(discovery_info)),
@@ -362,7 +362,7 @@ impl<'a> MockExploredHost<'a> {
                 .test_env
                 .api
                 .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
-                    machine_interface_id: Some(primary_interface.id.into()),
+                    machine_interface_id: Some(primary_interface.id),
                     create_machine: true,
                     discovery_data: Some(DiscoveryData::Info(
                         DiscoveryInfo::try_from(HardwareInfo::from(&dpu)).unwrap(),
@@ -467,7 +467,7 @@ impl<'a> MockExploredHost<'a> {
                 .test_env
                 .api
                 .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
-                    machine_interface_id: Some(primary_interface.id.into()),
+                    machine_interface_id: Some(primary_interface.id),
                     create_machine: true,
                     discovery_data: Some(DiscoveryData::Info(
                         DiscoveryInfo::try_from(HardwareInfo::from(&dpu)).unwrap(),

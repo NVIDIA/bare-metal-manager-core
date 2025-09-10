@@ -18,6 +18,7 @@ use sqlx::{Pool, Postgres};
 
 use crate::forge::MachineType;
 use crate::forge_tls_client::ForgeTlsClientError;
+use crate::uuid::instance::InstanceId;
 use crate::uuid::machine::{MachineId, MachineIdParseError};
 pub use output::{Destination, OutputFormat};
 
@@ -106,7 +107,7 @@ pub enum CarbideCliError {
     MachineNotFound(MachineId),
 
     #[error("Instance with id {0} not found")]
-    InstanceNotFound(crate::common::Uuid),
+    InstanceNotFound(InstanceId),
 
     #[error("I/O error. Does the file exist? {0}")]
     IOError(#[from] std::io::Error),

@@ -45,6 +45,43 @@ pub struct TypedUuid<T: UuidSubtype> {
     _marker: std::marker::PhantomData<T>,
 }
 
+impl<T: UuidSubtype + Send + Sync> prost::Message for TypedUuid<T> {
+    fn encode_raw(&self, buf: &mut impl prost::bytes::BufMut) {
+        let tmp = crate::common::Uuid {
+            value: self.uuid.to_string(),
+        };
+        // Delegate to prost for the actual encoding of the shim.
+        prost::Message::encode_raw(&tmp, buf);
+    }
+
+    fn merge_field(
+        &mut self,
+        tag: u32,
+        wire_type: prost::encoding::WireType,
+        buf: &mut impl prost::bytes::Buf,
+        ctx: prost::encoding::DecodeContext,
+    ) -> Result<(), prost::DecodeError> {
+        // Decode through the shim type, which has the identical wire layout.
+        let mut tmp = crate::common::Uuid::default();
+        prost::Message::merge_field(&mut tmp, tag, wire_type, buf, ctx)?;
+        let parsed = uuid::Uuid::parse_str(&tmp.value)
+            .map_err(|_| prost::DecodeError::new(format!("invalid UUID: {}", tmp.value)))?;
+        *self = parsed.into();
+        Ok(())
+    }
+
+    fn encoded_len(&self) -> usize {
+        let tmp = crate::common::Uuid {
+            value: self.uuid.to_string(),
+        };
+        prost::Message::encoded_len(&tmp)
+    }
+
+    fn clear(&mut self) {
+        *self = uuid::Uuid::default().into();
+    }
+}
+
 impl<T> TypedUuid<T>
 where
     T: UuidSubtype,
@@ -83,6 +120,15 @@ where
 {
     fn clone(&self) -> Self {
         *self
+    }
+}
+
+impl<T> Default for TypedUuid<T>
+where
+    T: UuidSubtype,
+{
+    fn default() -> Self {
+        uuid::Uuid::default().into()
     }
 }
 

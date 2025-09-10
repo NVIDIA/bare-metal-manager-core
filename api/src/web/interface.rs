@@ -44,7 +44,7 @@ struct InterfaceRowDisplay {
 impl From<forgerpc::MachineInterface> for InterfaceRowDisplay {
     fn from(mi: forgerpc::MachineInterface) -> Self {
         Self {
-            id: mi.id.unwrap_or_default().value,
+            id: mi.id.unwrap_or_default().to_string(),
             mac_address: mi.mac_address,
             ip_address: mi.address.join(","),
             machine_id: mi
@@ -91,13 +91,13 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let domainlist_map = domain_list
         .domains
         .into_iter()
-        .map(|x| (x.id.unwrap_or_default().value, x.name))
+        .map(|x| (x.id.unwrap_or_default(), x.name))
         .collect::<BTreeMap<_, _>>();
 
     let mut interfaces = Vec::new();
     for iface in machine_interfaces {
         let domain_name = domainlist_map
-            .get(&iface.domain_id.clone().unwrap_or_default().value)
+            .get(&iface.domain_id.unwrap_or_default())
             .cloned()
             .unwrap_or_default();
         let mut display: InterfaceRowDisplay = iface.into();
@@ -167,7 +167,7 @@ impl From<forgerpc::MachineInterface> for InterfaceDetail {
             Some(d) => d.try_into().ok(),
         };
         Self {
-            id: mi.id.unwrap_or_default().value,
+            id: mi.id.unwrap_or_default().to_string(),
             dpu_machine_id: mi
                 .attached_dpu_machine_id
                 .as_ref()
@@ -178,11 +178,7 @@ impl From<forgerpc::MachineInterface> for InterfaceDetail {
                 .as_ref()
                 .map(|id| id.to_string())
                 .unwrap_or_default(),
-            segment_id: mi
-                .segment_id
-                .clone()
-                .unwrap_or_else(super::default_uuid)
-                .to_string(),
+            segment_id: mi.segment_id.unwrap_or_default().to_string(),
             mac_address: mi.mac_address,
             ip_address: mi.address.join(","),
             hostname: mi.hostname,
@@ -206,15 +202,24 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(interface_id): AxumPath<String>,
 ) -> Response {
-    let (show_json, interface_id) = match interface_id.strip_suffix(".json") {
+    let (show_json, interface_id_string) = match interface_id.strip_suffix(".json") {
         Some(interface_id) => (true, interface_id.to_string()),
         None => (false, interface_id),
     };
 
+    let interface_id = match interface_id_string.parse() {
+        Ok(id) => id,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid interface ID: {e}"),
+            )
+                .into_response();
+        }
+    };
+
     let request = tonic::Request::new(forgerpc::InterfaceSearchQuery {
-        id: Some(::rpc::common::Uuid {
-            value: interface_id.clone(),
-        }),
+        id: Some(interface_id),
         ip: None,
     });
     let mut machine_interfaces = match state
@@ -224,7 +229,7 @@ pub async fn detail(
     {
         Ok(n) => n,
         Err(err) if err.code() == tonic::Code::NotFound => {
-            return super::not_found_response(interface_id);
+            return super::not_found_response(interface_id_string);
         }
         Err(err) => {
             tracing::error!(%err, "find_interfaces");

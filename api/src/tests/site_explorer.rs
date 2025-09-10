@@ -1409,7 +1409,7 @@ async fn test_site_explorer_creates_managed_host(
     let response = env
         .api
         .discover_machine(Request::new(MachineDiscoveryInfo {
-            machine_interface_id: Some(machine_interfaces[0].id.into()),
+            machine_interface_id: Some(machine_interfaces[0].id),
             discovery_data: Some(DiscoveryData::Info(discovery_info.clone())),
             create_machine: true,
         }))
@@ -1708,7 +1708,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         let response = env
             .api
             .discover_machine(Request::new(MachineDiscoveryInfo {
-                machine_interface_id: Some(oob_interfaces[i].id.into()),
+                machine_interface_id: Some(oob_interfaces[i].id),
                 discovery_data: Some(DiscoveryData::Info(discovery_info.clone())),
                 create_machine: true,
             }))
@@ -1810,7 +1810,7 @@ async fn test_disable_machine_creation_outside_site_explorer(
     let _dm_response = env
         .api
         .discover_machine(Request::new(MachineDiscoveryInfo {
-            machine_interface_id: response.machine_interface_id.clone(),
+            machine_interface_id: response.machine_interface_id,
             discovery_data: Some(DiscoveryData::Info(discovery_info)),
             create_machine: true,
         }))

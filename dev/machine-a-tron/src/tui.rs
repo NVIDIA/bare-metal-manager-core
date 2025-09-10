@@ -7,15 +7,6 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 
-use futures::StreamExt;
-use libredfish::PowerState;
-use ratatui::{prelude::*, symbols::DOT, widgets::*};
-use tokio::{
-    select,
-    sync::mpsc::{Receiver, Sender},
-};
-use uuid::Uuid;
-
 use crate::{
     TuiHostLogs,
     machine_a_tron::AppEvent,
@@ -23,9 +14,19 @@ use crate::{
     tabs::{MachinesTab, Tab},
     vpc::Vpc,
 };
+use futures::StreamExt;
+use libredfish::PowerState;
+use ratatui::{prelude::*, symbols::DOT, widgets::*};
+use rpc::uuid::network::NetworkSegmentId;
+use rpc::uuid::vpc::VpcId;
+use tokio::{
+    select,
+    sync::mpsc::{Receiver, Sender},
+};
+use uuid::Uuid;
 
 pub struct VpcDetails {
-    pub vpc_id: Uuid,
+    pub vpc_id: VpcId,
     pub vpc_name: Option<String>,
 }
 
@@ -49,7 +50,7 @@ impl VpcDetails {
 }
 
 pub struct SubnetDetails {
-    pub segment_id: Uuid,
+    pub segment_id: NetworkSegmentId,
     pub prefix: Option<String>,
 }
 
@@ -146,8 +147,8 @@ pub struct TuiData {
     pub quit_rx: Receiver<()>,
     pub app_tx: Sender<AppEvent>,
     pub machine_cache: HashMap<Uuid, HostDetails>,
-    pub vpc_cache: HashMap<Uuid, VpcDetails>,
-    pub subnet_cache: HashMap<Uuid, SubnetDetails>,
+    pub vpc_cache: HashMap<VpcId, VpcDetails>,
+    pub subnet_cache: HashMap<NetworkSegmentId, SubnetDetails>,
     pub machine_details: String,
     pub machine_logs: String,
     pub overrides: Vec<String>,

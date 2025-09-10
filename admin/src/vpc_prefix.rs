@@ -14,7 +14,6 @@ use std::borrow::Cow;
 use std::str::FromStr;
 
 use ipnet::IpNet;
-use rpc::Uuid;
 use serde::Serialize;
 
 use crate::cfg::cli_options::{VpcPrefixCreate, VpcPrefixDelete, VpcPrefixShow};
@@ -91,7 +90,7 @@ impl From<VpcPrefixShow> for ShowMethod {
             Some(selector) => ShowMethod::Get(selector),
             None => {
                 let mut search = match_all();
-                search.vpc_id = vpc_id.map(|vpc_id| vpc_id.into());
+                search.vpc_id = vpc_id;
                 if let Some(prefix) = contains {
                     search.prefix_match_type = Some(PrefixMatchType::PrefixContains as i32);
                     search.prefix_match = Some(prefix.to_string());
@@ -117,10 +116,10 @@ async fn create(
         vpc_prefix_id,
     } = create_args;
     let new_prefix = VpcPrefixCreationRequest {
-        id: vpc_prefix_id.map(|vpc_prefix_id| vpc_prefix_id.into()),
+        id: vpc_prefix_id,
         prefix: prefix.to_string(),
         name,
-        vpc_id: Some(vpc_id.into()),
+        vpc_id: Some(vpc_id),
     };
     api_client
         .0
@@ -136,7 +135,7 @@ async fn delete(
 ) -> Result<(), CarbideCliError> {
     let VpcPrefixDelete { vpc_prefix_id } = delete_args;
     let delete_prefix = VpcPrefixDeletionRequest {
-        id: Some(vpc_prefix_id.into()),
+        id: Some(vpc_prefix_id),
     };
     api_client
         .0
@@ -165,7 +164,7 @@ async fn fetch(
 async fn search(
     api_client: &ApiClient,
     query: VpcPrefixSearchQuery,
-) -> Result<Vec<Uuid>, CarbideCliError> {
+) -> Result<Vec<VpcPrefixId>, CarbideCliError> {
     api_client
         .0
         .search_vpc_prefixes(query)
@@ -177,7 +176,7 @@ async fn search(
 async fn get_by_ids(
     api_client: &ApiClient,
     batch_size: usize,
-    ids: &[Uuid],
+    ids: &[VpcPrefixId],
 ) -> Result<Vec<VpcPrefix>, CarbideCliError> {
     let mut vpc_prefixes = Vec::with_capacity(ids.len());
     for ids in ids.chunks(batch_size) {
@@ -199,7 +198,7 @@ async fn get_one_by_id(
     api_client: &ApiClient,
     id: VpcPrefixId,
 ) -> Result<VpcPrefix, CarbideCliError> {
-    let mut prefixes = get_by_ids(api_client, 1, &[id.into()]).await?;
+    let mut prefixes = get_by_ids(api_client, 1, &[id]).await?;
     match (prefixes.len(), prefixes.pop()) {
         (1, Some(prefix)) => Ok(prefix),
         (0, None) => Err(CarbideCliError::GenericError(format!(
@@ -329,20 +328,15 @@ impl IntoTable for ShowOutput {
     }
 
     fn row_values(row: &Self::Row) -> Vec<Cow<str>> {
-        let vpc_prefix_id = row.id.as_ref().map(|id| id.value.as_str()).unwrap_or("");
-        let vpc_id = row
+        let vpc_prefix_id: Cow<str> = row.id.map(|id| id.to_string().into()).unwrap_or("".into());
+        let vpc_id: Cow<str> = row
             .vpc_id
             .as_ref()
-            .map(|id| id.value.as_str())
-            .unwrap_or("");
+            .map(|id| id.to_string().into())
+            .unwrap_or("".into());
         let prefix = row.prefix.as_str();
         let name = row.name.as_str();
-        let mut r = vec![
-            vpc_prefix_id.into(),
-            vpc_id.into(),
-            prefix.into(),
-            name.into(),
-        ];
+        let mut r = vec![vpc_prefix_id, vpc_id, prefix.into(), name.into()];
 
         if row.total_31_segments != 0 {
             r.push(row.total_31_segments.to_string().into());

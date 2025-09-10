@@ -17,9 +17,10 @@ use prettytable::{Table, row};
 use serde::Deserialize;
 
 use super::cfg::cli_options::ShowNetwork;
-use super::default_uuid;
 use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use rpc::uuid::domain::DomainId;
+use rpc::uuid::network::NetworkSegmentId;
 
 #[derive(Deserialize)]
 struct NetworkState {
@@ -34,7 +35,10 @@ async fn convert_network_to_nice_format(
     let mut lines = String::new();
 
     let data = vec![
-        ("ID", segment.id.clone().unwrap_or_default().value),
+        (
+            "ID",
+            segment.id.map(|id| id.to_string()).unwrap_or_default(),
+        ),
         ("NAME", segment.name.clone()),
         ("CREATED", segment.created.unwrap_or_default().to_string()),
         ("UPDATED", segment.updated.unwrap_or_default().to_string()),
@@ -52,20 +56,13 @@ async fn convert_network_to_nice_format(
                 forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
             ),
         ),
-        (
-            "VPC",
-            segment
-                .vpc_id
-                .clone()
-                .unwrap_or_else(default_uuid)
-                .to_string(),
-        ),
+        ("VPC", segment.vpc_id.unwrap_or_default().to_string()),
         (
             "DOMAIN",
             format!(
                 "{}/{}",
-                segment.subdomain_id.clone().unwrap_or_else(default_uuid),
-                get_domain_name(segment.subdomain_id.clone(), api_client).await
+                segment.subdomain_id.unwrap_or_default(),
+                get_domain_name(segment.subdomain_id, api_client).await
             ),
         ),
         (
@@ -90,7 +87,7 @@ async fn convert_network_to_nice_format(
             let range = format!("{} - {}", net.network(), net.broadcast());
             let data = vec![
                 ("SN", i.to_string()),
-                ("ID", prefix.id.clone().unwrap_or_default().to_string()),
+                ("ID", prefix.id.unwrap_or_default().to_string()),
                 ("Prefix", prefix.prefix),
                 ("Range", range),
                 (
@@ -142,7 +139,7 @@ async fn convert_network_to_nice_format(
     Ok(lines)
 }
 
-async fn get_domain_name(domain_id: Option<::rpc::common::Uuid>, api_client: &ApiClient) -> String {
+async fn get_domain_name(domain_id: Option<DomainId>, api_client: &ApiClient) -> String {
     match domain_id {
         Some(id) => match api_client.get_domains(Some(id)).await {
             Ok(domain_list) => {
@@ -178,7 +175,7 @@ async fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -
                 "{:?}",
                 forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
             ),
-            segment.vpc_id.map(|x| x.value).unwrap_or_default(),
+            segment.vpc_id.unwrap_or_default(),
             segment.mtu.unwrap_or(-1),
             segment
                 .prefixes
@@ -221,13 +218,10 @@ async fn show_all_segments(
 }
 
 async fn show_network_information(
-    id: String,
+    segment_id: NetworkSegmentId,
     json: bool,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let segment_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
-        .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
-        .into();
     let segment = match api_client.get_one_segment(segment_id).await {
         Ok(instances) => instances,
         Err(e) => return Err(e),
@@ -258,7 +252,9 @@ pub async fn handle_show(
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
-    if args.network.is_empty() {
+    if let Some(network) = args.network {
+        show_network_information(network, is_json, api_client).await?;
+    } else {
         show_all_segments(
             is_json,
             api_client,
@@ -267,8 +263,6 @@ pub async fn handle_show(
             page_size,
         )
         .await?;
-        return Ok(());
     }
-    show_network_information(args.network, is_json, api_client).await?;
     Ok(())
 }

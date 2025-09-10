@@ -24,8 +24,6 @@ use crate::db::network_segment::NewNetworkSegment;
 use crate::db::vpc::Vpc;
 use crate::db::{DatabaseError, ObjectColumnFilter, network_segment};
 use crate::model::network_segment::NetworkSegmentControllerState;
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::uuid::network::NetworkSegmentId;
 
 pub(crate) async fn find_ids(
     api: &Api,
@@ -42,15 +40,10 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::NetworkSegmentSearchFilter = request.into_inner();
 
-    let segment_ids = NetworkSegment::find_ids(&mut txn, filter).await?;
+    let network_segments_ids = NetworkSegment::find_ids(&mut txn, filter).await?;
 
     Ok(Response::new(rpc::NetworkSegmentIdList {
-        network_segments_ids: segment_ids
-            .into_iter()
-            .map(|id| ::rpc::common::Uuid {
-                value: id.to_string(),
-            })
-            .collect(),
+        network_segments_ids,
     }))
 }
 
@@ -73,18 +66,6 @@ pub(crate) async fn find_by_ids(
         include_num_free_ips,
         ..
     } = request.into_inner();
-
-    let network_segments_ids: Result<Vec<NetworkSegmentId>, CarbideError> = network_segments_ids
-        .iter()
-        .map(|id| {
-            NetworkSegmentId::try_from(id).map_err(|_| {
-                CarbideError::from(RpcDataConversionError::InvalidNetworkSegmentId(
-                    id.value.to_string(),
-                ))
-            })
-        })
-        .collect();
-    let network_segments_ids = network_segments_ids?;
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if network_segments_ids.len() > max_find_by_ids {
@@ -136,15 +117,9 @@ pub(crate) async fn find(
         id, search_config, ..
     } = request.into_inner();
 
-    let mut binding = None;
-    let segment_id_filter = match id {
-        Some(id) => {
-            let network_segment_id = NetworkSegmentId::try_from(id)
-                .map_err(|e| Status::invalid_argument(format!("Supplied invalid UUID: {e}",)))?;
-            ObjectColumnFilter::One(
-                network_segment::IdColumn,
-                binding.insert(network_segment_id),
-            )
+    let segment_id_filter = match id.as_ref() {
+        Some(network_segment_id) => {
+            ObjectColumnFilter::One(network_segment::IdColumn, network_segment_id)
         }
         None => ObjectColumnFilter::All,
     };
@@ -251,7 +226,7 @@ pub(crate) async fn delete(
 
     let rpc::NetworkSegmentDeletionRequest { id, .. } = request.into_inner();
 
-    let segment_id = NetworkSegmentId::from_grpc(id)?;
+    let segment_id = id.ok_or_else(|| Box::new(CarbideError::MissingArgument("id").into()))?;
 
     let mut segments = NetworkSegment::find_by(
         &mut txn,
@@ -305,17 +280,7 @@ pub(crate) async fn for_vpc(
 
     let rpc::VpcSearchQuery { id, .. } = request.into_inner();
 
-    let uuid = match id {
-        Some(id) => match uuid::Uuid::try_from(id) {
-            Ok(uuid) => uuid,
-            Err(_) => {
-                return Err(CarbideError::MissingArgument("id").into());
-            }
-        },
-        None => {
-            return Err(CarbideError::InvalidArgument("id".to_string()).into());
-        }
-    };
+    let uuid = id.ok_or_else(|| CarbideError::InvalidArgument("id".to_string()))?;
 
     let results = NetworkSegment::for_vpc(&mut txn, uuid).await?;
 

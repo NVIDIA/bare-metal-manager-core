@@ -20,6 +20,7 @@ use uuid::Uuid;
 use crate::model::tenant::TenantOrganizationId;
 
 use ::rpc::uuid::machine::MachineId;
+use rpc::uuid::instance::InstanceId;
 
 /// This file is just for the struct definitions and grpc proto object conversions
 /// methods are implemented in api/src/db/storage.rs and callers in api/src/storage.rs
@@ -139,7 +140,7 @@ pub struct StorageVolume {
     pub attributes: StorageVolumeAttributes,
     pub status: StorageVolumeStatus,
     /// volume can be used on one or more instances
-    pub instance_id: Vec<Uuid>,
+    pub instance_id: Vec<InstanceId>,
     /// client for a volume on the nvmesh fabric is the dpu
     pub dpu_machine_id: Vec<MachineId>,
     pub created_at: Option<String>,
@@ -149,7 +150,7 @@ pub struct StorageVolume {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageVolumeFilter {
     pub volume_id: Option<Uuid>,         // one volume
-    pub instance_id: Option<Uuid>,       // upto 8 volumes
+    pub instance_id: Option<InstanceId>, // upto 8 volumes
     pub machine_id: Option<MachineId>,   // upto 8 volumes
     pub pool_id: Option<Uuid>,           // large collection of volumes
     pub cluster_id: Option<Uuid>,        // very large collection of volumes
@@ -599,15 +600,14 @@ impl TryFrom<StorageVolumeFilter> for rpc::forge::StorageVolumeFilter {
         let pool_id = filter.pool_id.map(rpc::Uuid::from);
         let volume_id = filter.volume_id.map(rpc::Uuid::from);
         let machine_id = filter.machine_id;
-        let instance_id = filter.instance_id.map(rpc::Uuid::from);
         let source_id = filter.source_id.map(rpc::Uuid::from);
         Ok(Self {
             cluster_id,
             pool_id,
             machine_id,
-            instance_id,
             volume_id,
             source_id,
+            instance_id: filter.instance_id,
             boot_volumes: filter.boot_volumes,
             os_images: filter.os_images,
             exclude_snapshots: filter.exclude_snapshots,
@@ -642,13 +642,6 @@ impl TryFrom<rpc::forge::StorageVolumeFilter> for StorageVolumeFilter {
             })?),
             None => None,
         };
-        let instance_id =
-            match filter.instance_id {
-                Some(x) => Some(Uuid::try_from(x.clone()).map_err(|_e| {
-                    RpcDataConversionError::InvalidInstanceId(x.clone().to_string())
-                })?),
-                None => None,
-            };
         let source_id = match filter.source_id {
             Some(x) => Some(Uuid::try_from(x.clone()).map_err(|_e| {
                 RpcDataConversionError::InvalidUuid("source id", x.clone().to_string())
@@ -657,11 +650,11 @@ impl TryFrom<rpc::forge::StorageVolumeFilter> for StorageVolumeFilter {
         };
         Ok(Self {
             volume_id,
-            instance_id,
             machine_id,
             pool_id,
             cluster_id,
             source_id,
+            instance_id: filter.instance_id,
             boot_volumes: filter.boot_volumes,
             os_images: filter.os_images,
             exclude_snapshots: filter.exclude_snapshots,
@@ -673,11 +666,6 @@ impl TryFrom<StorageVolume> for rpc::forge::StorageVolume {
     type Error = RpcDataConversionError;
     fn try_from(vol: StorageVolume) -> Result<Self, Self::Error> {
         let nvmesh_uuid = rpc::Uuid::from(vol.nvmesh_uuid);
-        let mut instance_id: Vec<rpc::Uuid> = Vec::new();
-        for i in vol.instance_id.iter() {
-            let id = rpc::Uuid::from(*i);
-            instance_id.push(id);
-        }
         let dpu_machine_id = vol.dpu_machine_id;
         Ok(Self {
             nvmesh_uuid: Some(nvmesh_uuid),
@@ -685,7 +673,7 @@ impl TryFrom<StorageVolume> for rpc::forge::StorageVolume {
                 vol.attributes,
             )?),
             status: Some(rpc::forge::StorageVolumeStatus::try_from(vol.status)?),
-            instance_id,
+            instance_id: vol.instance_id,
             dpu_machine_id,
             created_at: vol.created_at,
             modified_at: vol.modified_at,
@@ -713,24 +701,12 @@ impl TryFrom<rpc::forge::StorageVolume> for StorageVolume {
                 ));
             }
         };
-        let mut instance_id: Vec<Uuid> = Vec::new();
-        for i in vol.instance_id.iter() {
-            let id = Uuid::try_from(i.clone())
-                .map_err(|_e| RpcDataConversionError::InvalidInstanceId(i.to_string()))?;
-            instance_id.push(id);
-        }
-        let mut dpu_machine_id: Vec<MachineId> = Vec::new();
-        for dpu in vol.dpu_machine_id.iter() {
-            let dpu_id = MachineId::from_str(dpu.to_string().as_str())
-                .map_err(|_e| RpcDataConversionError::InvalidMachineId(dpu.to_string()))?;
-            dpu_machine_id.push(dpu_id);
-        }
         Ok(Self {
             nvmesh_uuid,
             attributes: StorageVolumeAttributes::try_from(vol.attributes.unwrap())?,
             status: StorageVolumeStatus::try_from(vol.status.unwrap())?,
-            instance_id,
-            dpu_machine_id,
+            instance_id: vol.instance_id,
+            dpu_machine_id: vol.dpu_machine_id,
             created_at: vol.created_at,
             modified_at: vol.modified_at,
         })

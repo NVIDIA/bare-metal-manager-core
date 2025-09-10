@@ -24,7 +24,6 @@ use crate::db::instance_address::InstanceAddress;
 use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::{DatabaseError, ObjectColumnFilter};
 use crate::ipxe::PxeInstructions;
-use ::rpc::uuid::machine::MachineInterfaceId;
 
 // The carbide pxe server makes this RPC call
 pub(crate) async fn get_pxe_instructions(
@@ -43,13 +42,9 @@ pub(crate) async fn get_pxe_instructions(
 
     let request = request.into_inner();
 
-    let interface_id = match request.interface_id {
-        None => {
-            return Err(Status::invalid_argument("Interface ID is missing."));
-        }
-        Some(interface_id) => MachineInterfaceId::try_from(interface_id)
-            .map_err(|e| Status::invalid_argument(format!("Interface ID is invalid: {e}")))?,
-    };
+    let interface_id = request
+        .interface_id
+        .ok_or_else(|| Status::invalid_argument("Interface ID is missing."))?;
 
     let arch = rpc::MachineArchitecture::try_from(request.arch)
         .map_err(|_| Status::invalid_argument("Unknown arch received."))?;

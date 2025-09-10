@@ -12,6 +12,8 @@
 
 use std::sync::Arc;
 
+use super::filters;
+use crate::api::Api;
 use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
@@ -19,9 +21,8 @@ use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
-
-use super::filters;
-use crate::api::Api;
+use rpc::uuid::domain::DomainId;
+use rpc::uuid::network::NetworkSegmentId;
 
 #[derive(Template)]
 #[template(path = "network_segment_show.html")]
@@ -169,9 +170,9 @@ async fn fetch_network_segments(
     Ok(segments)
 }
 
-async fn get_domain_name(state: Arc<Api>, domain_id: &::rpc::common::Uuid) -> eyre::Result<String> {
+async fn get_domain_name(state: Arc<Api>, domain_id: &DomainId) -> eyre::Result<String> {
     let request = tonic::Request::new(forgerpc::DomainSearchQuery {
-        id: Some(domain_id.clone()),
+        id: Some(*domain_id),
         name: None,
     });
     let domain_list = state
@@ -228,7 +229,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
         for (i, p) in segment.prefixes.into_iter().enumerate() {
             prefixes.push(NetworkSegmentPrefix {
                 index: i,
-                id: p.id.clone().unwrap_or_default().to_string(),
+                id: p.id.unwrap_or_default().to_string(),
                 prefix: p.prefix,
                 gateway: p
                     .gateway
@@ -276,10 +277,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
                 .map(|sla| sla.time_in_state_above_sla)
                 .unwrap_or_default(),
             state_reason: segment.state_reason,
-            domain_id: segment
-                .subdomain_id
-                .unwrap_or_else(super::default_uuid)
-                .to_string(),
+            domain_id: segment.subdomain_id.unwrap_or_default().to_string(),
             domain_name: String::new(), // filled in later
             segment_type: format!(
                 "{:?}",
@@ -296,15 +294,24 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(segment_id): AxumPath<String>,
 ) -> Response {
-    let (show_json, segment_id) = match segment_id.strip_suffix(".json") {
+    let (show_json, segment_id_string) = match segment_id.strip_suffix(".json") {
         Some(segment_id) => (true, segment_id.to_string()),
         None => (false, segment_id),
     };
 
+    let segment_id = match segment_id_string.parse::<NetworkSegmentId>() {
+        Ok(id) => id,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid network segment ID {segment_id_string}: {e}"),
+            )
+                .into_response();
+        }
+    };
+
     let request = tonic::Request::new(forgerpc::NetworkSegmentsByIdsRequest {
-        network_segments_ids: vec![rpc::Uuid {
-            value: segment_id.clone(),
-        }],
+        network_segments_ids: vec![segment_id],
         include_history: true,
         include_num_free_ips: true,
     });
@@ -314,7 +321,7 @@ pub async fn detail(
         .map(|response| response.into_inner())
     {
         Ok(n) if n.network_segments.is_empty() => {
-            return super::not_found_response(segment_id);
+            return super::not_found_response(segment_id_string);
         }
         Ok(n) if n.network_segments.len() != 1 => {
             return (

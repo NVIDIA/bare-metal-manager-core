@@ -34,7 +34,7 @@ use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
 use crate::model::machine::{InstanceState, ManagedHostState};
 use crate::{CarbideError, ethernet_virtualization};
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::uuid::{machine::MachineId, machine::MachineInterfaceId};
+use ::rpc::uuid::machine::MachineId;
 use ::rpc::{common as rpc_common, forge as rpc};
 use forge_network::virtualization::VpcVirtualizationType;
 use itertools::Itertools;
@@ -439,10 +439,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
     };
 
     let resp = rpc::ManagedHostNetworkConfigResponse {
-        instance_id: snapshot
-            .instance
-            .as_ref()
-            .map(|instance| instance.id.into()),
+        instance_id: snapshot.instance.as_ref().map(|instance| instance.id),
         asn,
         dhcp_servers: api.eth_data.dhcp_servers.clone(),
         // Strip the source_type for the route servers that
@@ -712,9 +709,7 @@ pub(crate) async fn record_dpu_network_status(
         };
         db::machine_interface::update_last_dhcp(
             &mut txn,
-            MachineInterfaceId(
-                uuid::Uuid::try_from(host_interface_id).map_err(CarbideError::from)?,
-            ),
+            *host_interface_id,
             Some(timestamp.parse().map_err(|e| {
                 Status::invalid_argument(format!("Failed parsing dhcp timestamp: {e}"))
             })?),

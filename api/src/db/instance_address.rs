@@ -33,6 +33,7 @@ use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::{CarbideError, CarbideResult};
 use ::rpc::uuid::{instance::InstanceId, network::NetworkSegmentId};
 use forge_network::virtualization::get_host_ip;
+use rpc::uuid::network::NetworkPrefixId;
 
 #[derive(Debug, FromRow, Clone)]
 pub struct InstanceAddress {
@@ -509,7 +510,7 @@ impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
             ));
         };
 
-        self.ip_addrs.insert(network_prefix.id.into(), address);
+        self.ip_addrs.insert(network_prefix.id, address);
 
         self.host_inband_mac_address = Some(inband_host_interface.mac_address);
 
@@ -529,7 +530,7 @@ impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
             let gateway_as_network =
                 IpNetwork::new(prefix_gateway, network_prefix.prefix.prefix())?;
             self.network_segment_gateways
-                .insert(network_prefix.id.into(), gateway_as_network);
+                .insert(network_prefix.id, gateway_as_network);
         }
 
         Ok(vec![IpNetwork::new(
@@ -551,9 +552,8 @@ impl AssignIpsFrom<IpAllocator> for InstanceInterfaceConfig {
             // will grab the 4th IP (the 2nd IP of the 2nd /31) to be handed back
             // as the visibly-assigned IP address for the instance.
             let host_ip = get_host_ip(&allocated_prefix)?;
-            self.ip_addrs.insert(prefix_id.into(), host_ip);
-            self.interface_prefixes
-                .insert(prefix_id.into(), allocated_prefix);
+            self.ip_addrs.insert(prefix_id, host_ip);
+            self.interface_prefixes.insert(prefix_id, allocated_prefix);
 
             addresses.push(IpNetwork::new(host_ip, allocated_prefix.prefix())?);
         }
@@ -565,7 +565,7 @@ impl AssignIpsFrom<IpAllocator> for InstanceInterfaceConfig {
 pub async fn allocate_svi_ip(
     txn: &mut PgConnection,
     segment: &NetworkSegment,
-) -> CarbideResult<(uuid::Uuid, IpAddr)> {
+) -> CarbideResult<(NetworkPrefixId, IpAddr)> {
     let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedOverlayNetworkIpResolver {
         segment_id: segment.id,
         busy_ips: vec![],

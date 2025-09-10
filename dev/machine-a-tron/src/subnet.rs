@@ -1,19 +1,20 @@
 use ::rpc::Timestamp;
 use std::fmt::Debug;
 use std::sync::Arc;
-use uuid::Uuid;
 
 use crate::{
     config::MachineATronContext,
     tui::{SubnetDetails, UiUpdate},
 };
+use rpc::uuid::network::NetworkSegmentId;
+use rpc::uuid::vpc::VpcId;
 use tonic::Status;
 
 #[derive(Debug, Clone)]
 pub struct Subnet {
-    pub segment_id: Uuid,
+    pub segment_id: NetworkSegmentId,
 
-    pub vpc_id: Uuid,
+    pub vpc_id: VpcId,
     pub prefixes: Vec<String>,
     pub logs: Vec<String>,
 
@@ -36,10 +37,8 @@ impl Subnet {
             })?;
 
         let new_subnet = Subnet {
-            segment_id: uuid::Uuid::parse_str(&network_segment.id.unwrap().value)
-                .expect("Segment must have an ID."),
-            vpc_id: uuid::Uuid::parse_str(&network_segment.vpc_id.unwrap().value)
-                .expect("Segment must have a VPC_ID."),
+            segment_id: network_segment.id.expect("Segment must have an ID."),
+            vpc_id: network_segment.vpc_id.expect("Segment must have a VPC_ID."),
             prefixes: network_segment
                 .prefixes
                 .iter()

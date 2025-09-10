@@ -17,6 +17,7 @@ use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
+use rpc::uuid::infiniband::IBPartitionId;
 
 pub async fn handle_show(
     args: ShowIbPartition,
@@ -25,7 +26,9 @@ pub async fn handle_show(
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
-    if args.id.is_empty() {
+    if let Some(id) = args.id {
+        show_ib_partition_details(id, is_json, api_client).await?;
+    } else {
         show_ib_partitions(
             is_json,
             api_client,
@@ -34,9 +37,7 @@ pub async fn handle_show(
             args.name,
         )
         .await?;
-        return Ok(());
     }
-    show_ib_partition_details(args.id, is_json, api_client).await?;
     Ok(())
 }
 
@@ -63,14 +64,11 @@ async fn show_ib_partitions(
 }
 
 async fn show_ib_partition_details(
-    id: String,
+    id: IBPartitionId,
     json: bool,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let ib_partition_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
-        .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
-        .into();
-    let ib_partitions = match api_client.get_one_ib_partition(ib_partition_id).await {
+    let ib_partitions = match api_client.get_one_ib_partition(id).await {
         Ok(instances) => instances,
         Err(e) => return Err(e),
     };
@@ -133,7 +131,10 @@ fn convert_ib_partition_to_nice_format(
     let status = ib_partition.status.clone().unwrap_or_default();
     let state_reason = status.state_reason.unwrap_or_default();
     let data = vec![
-        ("ID", ib_partition.id.clone().unwrap_or_default().value),
+        (
+            "ID",
+            ib_partition.id.map(|id| id.to_string()).unwrap_or_default(),
+        ),
         ("NAME", config.name),
         ("TENANT ORG", config.tenant_organization_id),
         (

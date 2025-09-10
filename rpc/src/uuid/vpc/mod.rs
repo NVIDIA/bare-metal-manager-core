@@ -12,25 +12,26 @@
 
 use crate::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 
+use super::typed_uuids::{TypedUuid, UuidSubtype};
+use crate::grpc_uuid_message;
 #[cfg(feature = "sqlx")]
 use sqlx::{
     postgres::{PgHasArrayType, PgTypeInfo},
     {FromRow, Type},
 };
 
-use super::typed_uuids::{TypedUuid, UuidSubtype};
-
 /// VpcId is a strongly typed UUID specific to a VPC ID, with
 /// trait implementations allowing it to be passed around as
 /// a UUID, an RPC UUID, bound to sqlx queries, etc.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, Default)]
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct VpcId(pub uuid::Uuid);
+
+grpc_uuid_message!(VpcId);
 
 impl From<VpcId> for uuid::Uuid {
     fn from(id: VpcId) -> Self {
@@ -56,31 +57,6 @@ impl FromStr for VpcId {
 impl fmt::Display for VpcId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-impl From<VpcId> for crate::common::Uuid {
-    fn from(val: VpcId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<crate::common::Uuid> for VpcId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: crate::common::Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<crate::common::Uuid>> for VpcId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<crate::common::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
-        let Some(input_uuid) = msg else {
-            return Err(eyre::eyre!("missing vpc_id argument").into());
-        };
-        Ok(Self::try_from(input_uuid)?)
     }
 }
 

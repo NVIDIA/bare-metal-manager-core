@@ -40,16 +40,8 @@ async fn test_network_segment_lifecycle_impl(
     assert!(segment.deleted.is_none());
     assert_eq!(segment.state(), rpc::forge::TenantState::Provisioning);
     assert_eq!(segment.segment_type, seg_type);
-    let segment_id: NetworkSegmentId = segment.id.clone().unwrap().try_into().unwrap();
-    let _: uuid::Uuid = segment
-        .prefixes
-        .first()
-        .unwrap()
-        .id
-        .clone()
-        .unwrap()
-        .try_into()
-        .unwrap();
+    let segment_id: NetworkSegmentId = segment.id.unwrap();
+    let _: uuid::Uuid = segment.prefixes.first().unwrap().id.unwrap().into();
 
     assert_eq!(
         get_segment_state(&env.api, segment_id).await,
@@ -68,7 +60,7 @@ async fn test_network_segment_lifecycle_impl(
         let segments = env
             .api
             .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
-                id: segment.id.clone(),
+                id: segment.id,
                 search_config: Some(rpc::forge::NetworkSegmentSearchConfig {
                     include_history: false,
                     include_num_free_ips: true,
@@ -89,7 +81,7 @@ async fn test_network_segment_lifecycle_impl(
 
     env.api
         .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
-            id: segment.id.clone(),
+            id: segment.id,
         }))
         .await
         .expect("expect deletion to succeed");
@@ -103,7 +95,7 @@ async fn test_network_segment_lifecycle_impl(
     // Calling the API again in this state should be a noop
     env.api
         .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
-            id: segment.id.clone(),
+            id: segment.id,
         }))
         .await
         .expect("expect deletion to succeed");
@@ -121,7 +113,7 @@ async fn test_network_segment_lifecycle_impl(
     let segments = env
         .api
         .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
-            id: segment.id.clone(),
+            id: segment.id,
             search_config: None,
         }))
         .await
@@ -135,7 +127,7 @@ async fn test_network_segment_lifecycle_impl(
     let err = env
         .api
         .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
-            id: segment.id.clone(),
+            id: segment.id,
         }))
         .await
         .expect_err("expect deletion to fail");

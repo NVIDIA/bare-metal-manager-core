@@ -34,13 +34,13 @@ use crate::cfg::storage::{
 };
 use crate::rpc::ApiClient;
 use ::rpc::CredentialType;
-use ::rpc::Uuid;
 use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
 use ::rpc::forge as forgerpc;
 use ::rpc::forge::ConfigSetting;
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use ::rpc::uuid::instance::InstanceId;
 use ::rpc::uuid::machine::MachineId;
 use cfg::cli_options::AgentUpgrade;
 use cfg::cli_options::AgentUpgradePolicyChoice;
@@ -486,7 +486,7 @@ async fn main() -> color_eyre::Result<()> {
                     .into());
                 }
 
-                let mut instance_ids: Vec<::rpc::common::Uuid> = Vec::new();
+                let mut instance_ids: Vec<InstanceId> = Vec::new();
 
                 match (
                     release_request.instance,
@@ -502,7 +502,7 @@ async fn main() -> color_eyre::Result<()> {
                         if instances.instances.is_empty() {
                             color_eyre::eyre::bail!("No instances assigned to that machine");
                         }
-                        instance_ids.push(instances.instances[0].id.clone().unwrap());
+                        instance_ids.push(instances.instances[0].id.unwrap());
                     }
                     (_, _, Some(key)) => {
                         let instances = api_client
@@ -521,7 +521,7 @@ async fn main() -> color_eyre::Result<()> {
                         instance_ids = instances
                             .instances
                             .iter()
-                            .filter_map(|instance| instance.id.clone())
+                            .filter_map(|instance| instance.id)
                             .collect();
                     }
                     _ => {}
@@ -866,9 +866,7 @@ async fn main() -> color_eyre::Result<()> {
             BootOverrideAction::Get(boot_override) => {
                 let mbo = api_client
                     .0
-                    .get_machine_boot_override(Uuid {
-                        value: boot_override.interface_id,
-                    })
+                    .get_machine_boot_override(boot_override.interface_id)
                     .await?;
 
                 tracing::info!(
@@ -892,9 +890,7 @@ async fn main() -> color_eyre::Result<()> {
 
                 api_client
                     .set_boot_override(
-                        Uuid {
-                            value: boot_override_set.interface_id,
-                        },
+                        boot_override_set.interface_id,
                         custom_pxe_path.as_deref(),
                         custom_user_data_path.as_deref(),
                     )
@@ -903,9 +899,7 @@ async fn main() -> color_eyre::Result<()> {
             BootOverrideAction::Clear(boot_override) => {
                 api_client
                     .0
-                    .clear_machine_boot_override(Uuid {
-                        value: boot_override.interface_id,
-                    })
+                    .clear_machine_boot_override(boot_override.interface_id)
                     .await?;
             }
         },
@@ -1480,9 +1474,9 @@ async fn main() -> color_eyre::Result<()> {
                         NetworkSegment => {
                             network::handle_show(
                                 cfg::cli_options::ShowNetwork {
-                                    network: m.owner_id.ok_or(CarbideCliError::GenericError(
+                                    network: Some(m.owner_id.ok_or(CarbideCliError::GenericError(
                                         "failed to unwrap owner_id after finding network segment for IP".to_string(),
-                                    ))?,
+                                    ))?.parse()?),
                                     tenant_org_id: None,
                                     name: None,
                                 },
@@ -1509,7 +1503,7 @@ async fn main() -> color_eyre::Result<()> {
                         forgerpc::UuidType::NetworkSegment => {
                             network::handle_show(
                                 cfg::cli_options::ShowNetwork {
-                                    network: j.id,
+                                    network: Some(j.id.parse()?),
                                     tenant_org_id: None,
                                     name: None,
                                 },
@@ -1541,7 +1535,7 @@ async fn main() -> color_eyre::Result<()> {
                         forgerpc::UuidType::MachineInterface => {
                             machine_interfaces::handle_show(
                                 cfg::cli_options::ShowMachineInterfaces {
-                                    interface_id: j.id,
+                                    interface_id: Some(j.id.parse()?),
                                     all: false,
                                     more: true,
                                 },
@@ -1553,7 +1547,7 @@ async fn main() -> color_eyre::Result<()> {
                         forgerpc::UuidType::Vpc => {
                             vpc::handle_show(
                                 cfg::cli_options::ShowVpc {
-                                    id: j.id,
+                                    id: Some(j.id.parse()?),
                                     tenant_org_id: None,
                                     name: None,
                                     label_key: None,
@@ -1568,7 +1562,7 @@ async fn main() -> color_eyre::Result<()> {
                         forgerpc::UuidType::Domain => {
                             domain::handle_show(
                                 cfg::cli_options::ShowDomain {
-                                    domain: j.id,
+                                    domain: Some(j.id.parse()?),
                                     all: false,
                                 },
                                 config.format,
@@ -1578,7 +1572,9 @@ async fn main() -> color_eyre::Result<()> {
                         }
                         forgerpc::UuidType::DpaInterfaceId => {
                             dpa::handle_show(
-                                cfg::cli_options::ShowDpa { id: Some(j.id) },
+                                cfg::cli_options::ShowDpa {
+                                    id: Some(j.id.parse()?),
+                                },
                                 config.format,
                                 &api_client,
                                 1,
@@ -1598,11 +1594,11 @@ async fn main() -> color_eyre::Result<()> {
             // Grab the details for the interface it's associated with.
             if let Ok(m) = MacAddress::from_str(&j.id) {
                 match api_client.identify_mac(m).await {
-                    Ok((mac_owner, mac_type)) => match mac_owner {
+                    Ok((mac_owner, primary_key)) => match mac_owner {
                         forgerpc::MacOwner::MachineInterface => {
                             machine_interfaces::handle_show(
                                 cfg::cli_options::ShowMachineInterfaces {
-                                    interface_id: mac_type,
+                                    interface_id: Some(primary_key.parse()?),
                                     all: false,
                                     more: true,
                                 },

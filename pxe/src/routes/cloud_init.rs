@@ -15,13 +15,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use crate::common::{AppState, Machine};
 use axum::{Router, extract::State, response::IntoResponse, routing::get};
 use axum_template::TemplateEngine;
 use base64::Engine as _;
 use forge_host_support::agent_config;
 use rpc::forge;
-
-use crate::common::{AppState, Machine};
+use rpc::uuid::machine::MachineInterfaceId;
 
 /// Generates the content of the /etc/forge/config.toml file
 //
@@ -29,7 +29,7 @@ use crate::common::{AppState, Machine};
 // then agent_config (which is in host-support), would need to import forge-api,
 // which I think would then make it so scout + the agent start having a dep on
 // api/ -- I don't think it's a problem, but I'll propose it in a separate MR.
-fn generate_forge_agent_config(machine_interface_id: &rpc::Uuid) -> String {
+fn generate_forge_agent_config(machine_interface_id: MachineInterfaceId) -> String {
     let interface_id = uuid::Uuid::parse_str(&machine_interface_id.to_string()).unwrap();
     let config = agent_config::AgentConfigFromPxe {
         machine: agent_config::MachineConfigFromPxe { interface_id },
@@ -49,13 +49,13 @@ fn print_and_generate_generic_error(error: String) -> (String, HashMap<String, S
 }
 
 fn user_data_handler(
-    machine_interface_id: rpc::Uuid,
+    machine_interface_id: MachineInterfaceId,
     machine_interface: forge::MachineInterface,
     domain: forge::Domain,
     state: State<AppState>,
 ) -> (String, HashMap<String, String>) {
     let config = state.runtime_config.clone();
-    let forge_agent_config = generate_forge_agent_config(&machine_interface_id);
+    let forge_agent_config = generate_forge_agent_config(machine_interface_id);
 
     let mut context: HashMap<String, String> = HashMap::new();
     context.insert("mac_address".to_string(), machine_interface.mac_address);
@@ -106,7 +106,7 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
                 discovery_instructions.machine_interface,
                 discovery_instructions.domain,
             ) {
-                (Some(interface), Some(domain)) => match interface.id.clone() {
+                (Some(interface), Some(domain)) => match interface.id {
                     Some(machine_interface_id) => {
                         user_data_handler(machine_interface_id, interface, domain, state.clone())
                     }
@@ -179,41 +179,14 @@ pub fn get_router(path_prefix: &str) -> Router<AppState> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::random;
-    use rpc::uuid::machine::{MachineId, MachineIdSource, MachineType};
     use std::fs;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test_data");
 
     #[test]
     fn forge_agent_config() {
-        let interface_id = "91609f10-c91d-470d-a260-6293ea0c1234".to_string();
-        let machine_id = MachineId::new(
-            MachineIdSource::ProductBoardChassisSerial,
-            random(),
-            MachineType::Host,
-        );
-
-        let interface = rpc::forge::MachineInterface {
-            id: Some(rpc::Uuid {
-                value: interface_id,
-            }),
-            attached_dpu_machine_id: Some(machine_id),
-            machine_id: Some(machine_id),
-            segment_id: None,
-            hostname: "abc".to_string(),
-            domain_id: None,
-            primary_interface: true,
-            mac_address: "01:02:03:AA:BB:CC".to_string(),
-            address: vec!["192.123.184.244".to_string()],
-            vendor: Some("xyz".to_string()),
-            created: None,
-            last_dhcp: None,
-            is_bmc: None,
-        };
-
-        let interface_id: rpc::Uuid = interface.id.unwrap();
-        let config = generate_forge_agent_config(&interface_id);
+        let interface_id = "91609f10-c91d-470d-a260-6293ea0c1234".parse().unwrap();
+        let config = generate_forge_agent_config(interface_id);
 
         // The intent here is to actually test what the written
         // configuration file looks like, so we can visualize to
@@ -233,7 +206,7 @@ mod tests {
                 .unwrap()
                 .as_str()
                 .unwrap(),
-            "91609f10-c91d-470d-a260-6293ea0c1234"
+            interface_id.to_string().as_str(),
         );
 
         // Check to make sure is_fake_dpu gets skipped

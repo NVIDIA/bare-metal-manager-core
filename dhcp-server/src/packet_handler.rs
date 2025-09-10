@@ -458,7 +458,7 @@ fn create_dhcp_reply_packet(
     let mut vendor_option: Vec<u8> = vec![6, 4, 0, 0, 0, 8, 70];
     let mut machine_id = forge_response
         .machine_interface_id
-        .map(|x| x.value)
+        .map(|x| x.to_string())
         .unwrap_or_default()
         .as_bytes()
         .to_vec();

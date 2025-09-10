@@ -13,7 +13,6 @@ use std::collections::VecDeque;
 use std::pin::Pin;
 
 use super::cfg::cli_options::{HealthOverrideTemplates, MachineHardwareInfoGpus, ShowMachine};
-use super::default_uuid;
 use crate::cfg::cli_options::{
     ForceDeleteMachineQuery, MachineAutoupdate, OverrideCommand, SortField,
 };
@@ -154,7 +153,7 @@ fn convert_machine_to_nice_format(
         for (i, interface) in machine.interfaces.into_iter().enumerate() {
             let data = vec![
                 ("SN", i.to_string()),
-                ("ID", interface.id.clone().unwrap_or_default().to_string()),
+                ("ID", interface.id.unwrap_or_default().to_string()),
                 (
                     "DPU ID",
                     interface
@@ -173,19 +172,11 @@ fn convert_machine_to_nice_format(
                 ),
                 (
                     "Segment ID",
-                    interface
-                        .segment_id
-                        .clone()
-                        .unwrap_or_else(default_uuid)
-                        .to_string(),
+                    interface.segment_id.unwrap_or_default().to_string(),
                 ),
                 (
                     "Domain ID",
-                    interface
-                        .domain_id
-                        .clone()
-                        .unwrap_or_else(default_uuid)
-                        .to_string(),
+                    interface.domain_id.unwrap_or_default().to_string(),
                 ),
                 ("Hostname", interface.hostname.clone()),
                 ("Primary", interface.primary_interface.to_string()),

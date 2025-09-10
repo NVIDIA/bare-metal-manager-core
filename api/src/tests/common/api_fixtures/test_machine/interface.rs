@@ -31,7 +31,7 @@ impl TestMachineInterface {
         self.api
             .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
                 arch: arch as i32,
-                interface_id: Some(self.id.into()),
+                interface_id: Some(self.id),
             }))
             .await
             .unwrap()

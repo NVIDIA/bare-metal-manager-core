@@ -127,14 +127,9 @@ pub(crate) async fn update(
             ))
         })?;
 
-        let vpc_id = match vpc_update_request.id {
-            None => {
-                return Err(CarbideError::InvalidArgument("VPC ID is required".to_string()).into());
-            }
-            Some(ref i) => VpcId::try_from(i.clone()).map_err(|_| {
-                CarbideError::from(RpcDataConversionError::InvalidVpcId(i.value.to_string()))
-            })?,
-        };
+        let vpc_id = vpc_update_request
+            .id
+            .ok_or_else(|| CarbideError::InvalidArgument("VPC ID is required".to_string()))?;
 
         // Query for the VPC because we need to do
         // some validation against the request.
@@ -250,9 +245,7 @@ pub(crate) async fn delete(
     let vpc_id: VpcId = request
         .into_inner()
         .id
-        .ok_or(CarbideError::MissingArgument("id"))?
-        .try_into()
-        .map_err(CarbideError::from)?;
+        .ok_or(CarbideError::MissingArgument("id"))?;
 
     let vpc = match Vpc::try_delete(&mut txn, vpc_id).await? {
         Some(vpc) => vpc,
@@ -313,14 +306,7 @@ pub(crate) async fn find_ids(
 
     let vpc_ids = Vpc::find_ids(&mut txn, filter).await?;
 
-    Ok(Response::new(rpc::VpcIdList {
-        vpc_ids: vpc_ids
-            .into_iter()
-            .map(|id| ::rpc::common::Uuid {
-                value: id.to_string(),
-            })
-            .collect(),
-    }))
+    Ok(Response::new(rpc::VpcIdList { vpc_ids }))
 }
 
 pub(crate) async fn find_by_ids(
@@ -336,17 +322,7 @@ pub(crate) async fn find_by_ids(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let vpc_ids: Result<Vec<VpcId>, CarbideError> = request
-        .into_inner()
-        .vpc_ids
-        .iter()
-        .map(|id| {
-            VpcId::try_from(id.clone()).map_err(|_| {
-                CarbideError::from(RpcDataConversionError::InvalidVpcId(id.value.to_string()))
-            })
-        })
-        .collect();
-    let vpc_ids = vpc_ids?;
+    let vpc_ids = request.into_inner().vpc_ids;
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if vpc_ids.len() > max_find_by_ids {
@@ -389,18 +365,7 @@ pub(crate) async fn find(
     let rpc::VpcSearchQuery { id, name, .. } = request.into_inner();
 
     let vpcs = match (id, name) {
-        (Some(id), _) => {
-            let mut binding = None;
-            let uuid = match VpcId::try_from(id) {
-                Ok(uuid) => ObjectColumnFilter::One(vpc::IdColumn, binding.insert(uuid)),
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Supplied invalid UUID: {err}"
-                    )));
-                }
-            };
-            Vpc::find_by(&mut txn, uuid).await
-        }
+        (Some(id), _) => Vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &id)).await,
         (None, Some(name)) => Vpc::find_by_name(&mut txn, &name).await,
         (None, None) => Vpc::find_by(&mut txn, ObjectColumnFilter::<vpc::IdColumn>::All).await,
     };

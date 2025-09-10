@@ -598,9 +598,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     };
 
     let instance = rpc::Instance {
-        id: Some(rpc::Uuid {
-            value: "9afaedd3-b36e-4603-a029-8b94a82b89a0".to_string(),
-        }),
+        id: Some("9afaedd3-b36e-4603-a029-8b94a82b89a0".parse().unwrap()),
         machine_id: Some("fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g".parse().unwrap()),
         metadata: None,
         instance_type_id: None,
@@ -626,12 +624,10 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             network: Some(rpc::InstanceNetworkConfig {
                 interfaces: vec![rpc::InstanceInterfaceConfig {
                     function_type: rpc::InterfaceFunctionType::Physical.into(),
-                    network_segment_id: Some(rpc::Uuid {
-                        value: "a7cdeab1-84ec-48a2-ab59-62863d311f26".to_string(),
-                    }),
-                    network_details: Some(rpc::forge::instance_interface_config::NetworkDetails::SegmentId(rpc::Uuid {
-                        value: "a7cdeab1-84ec-48a2-ab59-62863d311f26".to_string(),
-                    })),
+                    network_segment_id: Some("a7cdeab1-84ec-48a2-ab59-62863d311f26".parse().unwrap()),
+                    network_details: Some(rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+                        "a7cdeab1-84ec-48a2-ab59-62863d311f26".parse().unwrap(),
+                    )),
                     device: None,
                     device_instance: 0,
                     virtual_function_id: None

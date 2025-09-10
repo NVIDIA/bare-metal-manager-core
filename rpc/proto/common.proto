@@ -29,3 +29,36 @@ message RouteTarget {
   uint32 asn = 1;
   uint32 vni = 2;
 }
+
+// Placeholder ID types: These are not code-generated, but overridden by our own type-safe UUID wrappers. They are
+// identical to common.UUID over the wire, for backwards compatibility.
+message DomainId {
+  string value = 1;
+}
+message MachineInterfaceId {
+  string value = 1;
+}
+message VpcId {
+  string value = 1;
+}
+message VpcPrefixId {
+  string value = 1;
+}
+message VpcPeeringId {
+  string value = 1;
+}
+message IBPartitionId {
+  string value = 1;
+}
+message InstanceId {
+  string value = 1;
+}
+message NetworkSegmentId {
+  string value = 1;
+}
+message DpaInterfaceId {
+  string value = 1;
+}
+message NetworkPrefixId {
+  string value = 1;
+}

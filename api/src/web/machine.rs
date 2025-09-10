@@ -501,14 +501,8 @@ impl From<forgerpc::Machine> for MachineDetail {
                     .attached_dpu_machine_id
                     .map(|id| id.to_string())
                     .unwrap_or_else(super::invalid_machine_id),
-                segment_id: interface
-                    .segment_id
-                    .unwrap_or_else(super::default_uuid)
-                    .to_string(),
-                domain_id: interface
-                    .domain_id
-                    .unwrap_or_else(super::default_uuid)
-                    .to_string(),
+                segment_id: interface.segment_id.unwrap_or_default().to_string(),
+                domain_id: interface.domain_id.unwrap_or_default().to_string(),
                 hostname: interface.hostname,
                 primary: interface.primary_interface.to_string(),
                 mac_address: interface.mac_address,

@@ -137,7 +137,7 @@ async fn create_test_env_for_instance_allocation(
 
     create_tenant_network_segment(
         &env.api,
-        vpc_1.id.clone(),
+        vpc_1.id,
         FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[0],
         "TENANT",
         true,
@@ -146,14 +146,14 @@ async fn create_test_env_for_instance_allocation(
 
     create_tenant_network_segment(
         &env.api,
-        vpc_2.id.clone(),
+        vpc_2.id,
         FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[1],
         "TENANT_2",
         true,
     )
     .await;
 
-    create_host_inband_network_segment(&env.api, vpc_1.id.clone()).await;
+    create_host_inband_network_segment(&env.api, vpc_1.id).await;
     // Make sure second host_inband network segment has the same VPC ID
     create_network_segment(
         &env.api,
@@ -169,9 +169,9 @@ async fn create_test_env_for_instance_allocation(
         forge::NetworkSegmentType::HostInband,
         // One test asserts that allocation should fail if each segment is in a different VPC
         if options.host_inband_segments_in_different_vpcs {
-            vpc_2.id.clone()
+            vpc_2.id
         } else {
-            vpc_1.id.clone()
+            vpc_1.id
         },
         true,
     )
@@ -269,7 +269,7 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
     );
     assert_eq!(
         interfaces[0].network_segment_id,
-        Some(host_inband_segment.id.into()),
+        Some(host_inband_segment.id),
         "New instance should have an interface on the HOST_INBAND network"
     );
 
@@ -331,7 +331,7 @@ async fn test_zero_dpu_instance_allocation_no_network_config(
     );
     assert_eq!(
         interfaces[0].network_segment_id,
-        Some(host_inband_segment.id.into()),
+        Some(host_inband_segment.id),
         "New instance should have an interface on the HOST_INBAND network"
     );
 
@@ -481,7 +481,7 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
             .iter()
             .all(
                 |(prefix_id, addr)| host_inband_segment_1.prefixes[0].prefix.contains(*addr)
-                    && prefix_id.0.eq(&host_inband_segment_1.prefixes[0].id)
+                    && prefix_id.eq(&host_inband_segment_1.prefixes[0].id)
             )
     );
 
@@ -491,7 +491,7 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
             .iter()
             .all(
                 |(prefix_id, addr)| host_inband_segment_2.prefixes[0].prefix.contains(*addr)
-                    && prefix_id.0.eq(&host_inband_segment_2.prefixes[0].id)
+                    && prefix_id.eq(&host_inband_segment_2.prefixes[0].id)
             )
     );
 
@@ -582,7 +582,7 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
                 network: Some(forge::InstanceNetworkConfig {
                     interfaces: vec![forge::InstanceInterfaceConfig {
                         function_type: forge::InterfaceFunctionType::Physical as i32,
-                        network_segment_id: Some(host_inband_segment.id.into()),
+                        network_segment_id: Some(host_inband_segment.id),
                         network_details: None,
                         device: None,
                         device_instance: 0u32,
@@ -690,7 +690,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
         instance_network_restrictions
             .network_segment_ids
             .iter()
-            .contains(&rpc::Uuid::from(host_inband_segment.id)),
+            .contains(&host_inband_segment.id),
         "Machine that was just ingested should have instance network restrictions showing host_inband_segment {}",
         host_inband_segment.id.0,
     );
@@ -698,7 +698,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
         instance_network_restrictions
             .network_segment_ids
             .iter()
-            .contains(&rpc::Uuid::from(host_inband_2_segment.id)),
+            .contains(&host_inband_2_segment.id),
         "Machine that was just ingested should have instance network restrictions showing host_inband_2_segment {}",
         host_inband_2_segment.id.0,
     );
@@ -780,7 +780,7 @@ async fn test_single_dpu_instance_allocation(
                 network: Some(forge::InstanceNetworkConfig {
                     interfaces: vec![forge::InstanceInterfaceConfig {
                         function_type: forge::InterfaceFunctionType::Physical as i32,
-                        network_segment_id: Some(tenant_segment.id.into()),
+                        network_segment_id: Some(tenant_segment.id),
                         network_details: None,
                         device: None,
                         device_instance: 0,

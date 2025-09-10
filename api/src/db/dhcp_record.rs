@@ -51,9 +51,9 @@ impl From<DhcpRecord> for rpc::DhcpRecord {
     fn from(record: DhcpRecord) -> Self {
         Self {
             machine_id: record.machine_id,
-            machine_interface_id: Some(record.machine_interface_id.into()),
-            segment_id: Some(record.segment_id.into()),
-            subdomain_id: record.subdomain_id.map(::rpc::common::Uuid::from),
+            machine_interface_id: Some(record.machine_interface_id),
+            segment_id: Some(record.segment_id),
+            subdomain_id: record.subdomain_id,
             fqdn: record.fqdn,
             mac_address: record.mac_address.to_string(),
             address: record.address.to_string(),

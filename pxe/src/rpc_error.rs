@@ -16,6 +16,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use axum_client_ip::Rejection;
+use rpc::errors::RpcDataConversionError;
 
 pub enum PxeRequestError {
     CarbideApiError(tonic::Status),
@@ -25,6 +26,7 @@ pub enum PxeRequestError {
     InvalidBuildArch,
     MalformedMachineId(String),
     MalformedBuildArch(String),
+    RpcConversion(RpcDataConversionError),
 }
 
 impl IntoResponse for PxeRequestError {
@@ -59,6 +61,7 @@ impl Display for PxeRequestError {
                 Self::MalformedMachineId(err) => format!("Malformed Machine UUID: {err}"),
                 Self::MalformedBuildArch(err) => format!("Malformed build arch: {err}"),
                 Self::MissingIp(err) => format!("Source IP is missing. Error: {err:?}"),
+                Self::RpcConversion(err) => format!("Error converting RPC data: {err:?}"),
             }
         )
     }

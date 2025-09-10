@@ -12,6 +12,7 @@
 use clap::Parser;
 use rpc::errors::RpcDataConversionError;
 use rpc::forge::StorageRaidLevels;
+use rpc::uuid::instance::InstanceId;
 use std::fmt;
 use std::str::FromStr;
 
@@ -316,7 +317,7 @@ pub struct ListStorageVolume {
     #[clap(short = 'm', long, help = "Machine id to filter volumes listing.")]
     pub machine_id: Option<String>,
     #[clap(short = 'n', long, help = "Instance id to filter volumes listing.")]
-    pub instance_id: Option<String>,
+    pub instance_id: Option<InstanceId>,
     #[clap(
         short = 'r',
         long,

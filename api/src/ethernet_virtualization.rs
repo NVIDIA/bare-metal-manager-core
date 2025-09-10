@@ -9,8 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::borrow::Borrow;
-
 use ::rpc::forge as rpc;
 use ipnetwork::{IpNetwork, Ipv4Network};
 use sqlx::PgConnection;
@@ -277,15 +275,12 @@ pub async fn tenant_network(
             ))
         })?;
 
-    let address = iface
-        .ip_addrs
-        .get(&v4_prefix.id.borrow().into())
-        .ok_or_else(|| {
-            Status::internal(format!(
-                "No IPv4 address is available for instance {} on segment {}",
-                instance_id, segment.id
-            ))
-        })?;
+    let address = iface.ip_addrs.get(&v4_prefix.id).ok_or_else(|| {
+        Status::internal(format!(
+            "No IPv4 address is available for instance {} on segment {}",
+            instance_id, segment.id
+        ))
+    })?;
 
     // Assuming an `address` was found above, look to see if a prefix
     // is explicitly configured here. If not, default to a /32, which
@@ -302,7 +297,7 @@ pub async fn tenant_network(
 
     let interface_prefix = iface
         .interface_prefixes
-        .get(&v4_prefix.id.borrow().into())
+        .get(&v4_prefix.id)
         .unwrap_or(&default_prefix);
 
     let vpc_prefixes: Vec<String> = match segment.vpc_id {

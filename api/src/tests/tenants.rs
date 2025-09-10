@@ -769,7 +769,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         env.api
             .validate_tenant_public_key(tonic::Request::new(
                 rpc::forge::ValidateTenantPublicKeyRequest {
-                    instance_id: tinstance.id().to_string(),
+                    instance_id: tinstance.id.to_string(),
                     tenant_public_key: "mykey1".to_string()
                 },
             ))
@@ -782,7 +782,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         env.api
             .validate_tenant_public_key(tonic::Request::new(
                 rpc::forge::ValidateTenantPublicKeyRequest {
-                    instance_id: tinstance.id().to_string(),
+                    instance_id: tinstance.id.to_string(),
                     tenant_public_key: "some_long_key_base64_encoded".to_string()
                 },
             ))
@@ -794,7 +794,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         env.api
             .validate_tenant_public_key(tonic::Request::new(
                 rpc::forge::ValidateTenantPublicKeyRequest {
-                    instance_id: tinstance.id().to_string(),
+                    instance_id: tinstance.id.to_string(),
                     tenant_public_key: "my_another_key".to_string()
                 },
             ))
@@ -807,7 +807,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         env.api
             .validate_tenant_public_key(tonic::Request::new(
                 rpc::forge::ValidateTenantPublicKeyRequest {
-                    instance_id: tinstance.id().to_string(),
+                    instance_id: tinstance.id.to_string(),
                     tenant_public_key: "my_another_keyset3".to_string()
                 },
             ))
@@ -819,7 +819,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         env.api
             .validate_tenant_public_key(tonic::Request::new(
                 rpc::forge::ValidateTenantPublicKeyRequest {
-                    instance_id: tinstance.id().to_string(),
+                    instance_id: tinstance.id.to_string(),
                     tenant_public_key: "some_long_key_base64_encoded_1".to_string()
                 },
             ))
@@ -831,7 +831,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         env.api
             .validate_tenant_public_key(tonic::Request::new(
                 rpc::forge::ValidateTenantPublicKeyRequest {
-                    instance_id: tinstance.id().to_string(),
+                    instance_id: tinstance.id.to_string(),
                     tenant_public_key: "unknown_key1".to_string()
                 },
             ))
@@ -855,7 +855,7 @@ async fn test_keyset_in_instance(pool: sqlx::PgPool) {
     let instance = env
         .api
         .find_instances(tonic::Request::new(::rpc::forge::InstanceSearchQuery {
-            id: tinstance.id().into(),
+            id: Some(tinstance.id),
             label: None,
         }))
         .await

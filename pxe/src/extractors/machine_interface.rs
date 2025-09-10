@@ -9,26 +9,24 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::HashMap;
-
-use axum::{
-    extract::{FromRequestParts, Path, Query},
-    http::request::Parts,
-};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
 use crate::{
     common::MachineInterface, extractors::machine_architecture::MachineArchitecture,
     rpc_error::PxeRequestError,
 };
+use axum::{
+    extract::{FromRequestParts, Path, Query},
+    http::request::Parts,
+};
+use rpc::uuid::machine::MachineInterfaceId;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct MaybeMachineInterface {
     #[serde(rename(deserialize = "buildarch"))]
     build_architecture: String,
     #[serde(default)]
-    uuid: Option<String>,
+    uuid: Option<MachineInterfaceId>,
     #[serde(default)]
     uuid_as_param: Option<String>,
 }
@@ -41,12 +39,9 @@ impl TryFrom<MaybeMachineInterface> for MachineInterface {
 
         let uuid = match (value.uuid, value.uuid_as_param) {
             (Some(uuid), _) => Ok(uuid),
-            (None, Some(uuid)) => Ok(uuid),
+            (None, Some(uuid)) => uuid.parse().map_err(PxeRequestError::RpcConversion),
             _ => Err(PxeRequestError::MissingMachineId),
         }?;
-
-        let uuid = Uuid::parse_str(uuid.as_str())
-            .map_err(|err| PxeRequestError::MalformedMachineId(err.to_string()))?;
 
         Ok(MachineInterface {
             architecture: Some(build_architecture),

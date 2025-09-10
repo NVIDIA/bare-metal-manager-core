@@ -1,12 +1,11 @@
-use std::str::FromStr;
 use std::sync::Arc;
 use std::{fmt::Debug, net::Ipv4Addr};
-use uuid::Uuid;
 
 use crate::api_client::ApiClient;
 use crate::api_client::ClientApiError;
 use mac_address::MacAddress;
 use rpc::forge::ManagedHostNetworkConfigResponse;
+use rpc::uuid::machine::MachineInterfaceId;
 use tokio::sync::{RwLock, mpsc, oneshot};
 
 pub type DhcpRelayResult<T> = Result<T, DhcpRelayError>;
@@ -20,7 +19,7 @@ pub struct DhcpRequestInfo {
 
 #[derive(Clone, Debug)]
 pub struct DhcpResponseInfo {
-    pub interface_id: Option<Uuid>,
+    pub interface_id: Option<MachineInterfaceId>,
     pub ip_address: Ipv4Addr,
 }
 
@@ -55,7 +54,7 @@ pub async fn request_ip(
     })?;
 
     let response_info = DhcpResponseInfo {
-        interface_id: Some(Uuid::try_from(interface_uuid).unwrap()),
+        interface_id: Some(interface_uuid),
         ip_address: dhcp_record.address.parse::<Ipv4Addr>().map_err(|e| {
             DhcpRelayError::InvalidDhcpRecord(format!(
                 "{} is not an IPv4 address: {}",
@@ -170,8 +169,8 @@ fn synthesize_dhcp_response_for_host(
     Ok(DhcpResponseInfo {
         interface_id: managed_host_config
             .host_interface_id
-            .clone()
-            .and_then(|x| Uuid::from_str(&x).ok()),
+            .as_ref()
+            .and_then(|x| x.parse().ok()),
         ip_address: ip,
     })
 }

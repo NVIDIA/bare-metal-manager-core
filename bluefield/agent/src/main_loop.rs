@@ -35,7 +35,6 @@ use crate::{
     machine_inventory_updater, managed_files, mtu, netlink, nvue, periodic_config_fetcher,
     pretty_cmd, sysfs, upgrade,
 };
-use ::rpc::common::Uuid;
 use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::uuid::machine::MachineId;
 use ::rpc::{forge as rpc, forge_tls_client};
@@ -429,9 +428,7 @@ impl MainLoop {
         }
         for (host_interface_id, timestamp) in dhcp_timestamps.into_iter() {
             last_dhcp_requests.push(rpc::LastDhcpRequest {
-                host_interface_id: Some(Uuid {
-                    value: host_interface_id.to_string(),
-                }),
+                host_interface_id: Some(host_interface_id),
                 timestamp: timestamp.to_string(),
             });
         }
@@ -567,7 +564,7 @@ impl MainLoop {
                             // Tell the server about the applied version.
                             status_out.network_config_version =
                                 Some(conf.managed_host_config_version.clone());
-                            status_out.instance_id = conf.instance_id.clone();
+                            status_out.instance_id = conf.instance_id;
                             // On the admin network we don't have to report the instance network config version
                             if !conf.instance_network_config_version.is_empty() {
                                 status_out.instance_network_config_version = Some(

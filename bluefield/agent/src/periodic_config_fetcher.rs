@@ -21,13 +21,13 @@ use tracing::{error, trace, warn};
 
 use config_version::ConfigVersion;
 
+use crate::util::{create_forge_client, get_periodic_dpu_config, get_sitename};
 use ::rpc::Instance;
-use ::rpc::Uuid as uuid;
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::ForgeClientConfig;
+use ::rpc::uuid::infiniband::IBPartitionId;
+use ::rpc::uuid::instance::InstanceId;
 use ::rpc::uuid::machine::MachineId;
-
-use crate::util::{create_forge_client, get_periodic_dpu_config, get_sitename};
 
 pub struct PeriodicFetcherState {
     config: PeriodicConfigFetcherConfig,
@@ -53,7 +53,7 @@ pub struct InstanceMetadata {
     pub address: String,
     pub hostname: String,
     pub sitename: Option<String>,
-    pub instance_id: Option<uuid>,
+    pub instance_id: Option<InstanceId>,
     pub machine_id: Option<MachineId>,
     pub user_data: String,
     pub ib_devices: Option<Vec<IBDeviceConfig>>,
@@ -69,11 +69,7 @@ pub struct IBDeviceConfig {
 
 #[derive(Clone, Debug)]
 pub struct IBInstanceConfig {
-    // TODO(chet): This should become an IBPartitionId, but
-    // doing so would bring in all of `api/` as a dependency,
-    // which I don't think we want (since it's not one yet).
-    // Soooo, TBD on that.
-    pub ib_partition_id: Option<uuid>,
+    pub ib_partition_id: Option<IBPartitionId>,
     pub ib_guid: Option<String>,
     pub lid: u32,
 }
@@ -257,14 +253,14 @@ pub async fn instance_metadata_from_instance(
         None => return Ok(None),
     };
 
-    let hostname = match instance.id.clone() {
+    let hostname = match instance.id {
         Some(name) => name.to_string(),
         None => return Err(eyre::eyre!("host name is not present in tenant config")),
     };
 
     let machine_id = instance.machine_id;
 
-    let instance_id = instance.id.clone();
+    let instance_id = instance.id;
 
     let pf_address = instance
         .status
@@ -336,7 +332,7 @@ fn extract_instance_ib_config(instance: &Instance) -> Result<Vec<IBDeviceConfig>
         let status = &ib_interface_statuses[index];
 
         let instance: IBInstanceConfig = IBInstanceConfig {
-            ib_partition_id: config.ib_partition_id.clone(),
+            ib_partition_id: config.ib_partition_id,
             ib_guid: status.guid.clone(),
             lid: status.lid,
         };

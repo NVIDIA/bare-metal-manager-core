@@ -224,14 +224,13 @@ pub async fn volume_show(
     } else {
         let cluster_id = opt_str_to_rpc_uuid(args.cluster_id)?;
         let pool_id = opt_str_to_rpc_uuid(args.pool_id)?;
-        let instance_id = opt_str_to_rpc_uuid(args.instance_id)?;
         let source_id = opt_str_to_rpc_uuid(args.source_volume)?;
 
         let filter = forgerpc::StorageVolumeFilter {
             cluster_id,
             pool_id,
             machine_id: None,
-            instance_id,
+            instance_id: args.instance_id,
             volume_id: None,
             source_id,
             boot_volumes: args.boot_volumes,

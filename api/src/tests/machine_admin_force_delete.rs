@@ -48,7 +48,7 @@ use common::api_fixtures::{
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
     let segment = api
         .find_ib_partitions(Request::new(rpc::forge::IbPartitionQuery {
-            id: Some(ib_partition_id.into()),
+            id: Some(ib_partition_id),
             search_config: Some(IbPartitionSearchConfig {
                 include_history: false,
             }),
@@ -239,7 +239,7 @@ async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::P
     let mut ifaces = env
         .api
         .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
-            id: Some(host_machine_interface_id.clone()),
+            id: Some(host_machine_interface_id),
             ip: None,
         }))
         .await
@@ -481,7 +481,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
         ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
             function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
             virtual_function_id: None,
-            ib_partition_id: Some(ib_partition_id.into()),
+            ib_partition_id: Some(ib_partition_id),
             device: "MT2910 Family [ConnectX-7]".to_string(),
             vendor: None,
             device_instance: 1,
@@ -668,7 +668,7 @@ async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
 
     // 3) verify instance's tenant state is rpc::forge::TenantState::Terminating
     let request_instances = tonic::Request::new(InstancesByIdsRequest {
-        instance_ids: vec![tinstance.id().into()],
+        instance_ids: vec![tinstance.id],
     });
     let mut instance_list = env
         .api

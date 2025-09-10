@@ -416,14 +416,7 @@ impl MachineStateMachine {
                 ))
             }
             MachineState::DhcpComplete(inner_state) => {
-                let Some(machine_interface_id) = inner_state
-                    .machine_dhcp_info
-                    .interface_id
-                    .as_ref()
-                    .map(|u| rpc::Uuid {
-                        value: u.to_string(),
-                    })
-                else {
+                let Some(machine_interface_id) = inner_state.machine_dhcp_info.interface_id else {
                     return Err(MachineStateError::MissingInterfaceId);
                 };
 
@@ -435,7 +428,7 @@ impl MachineStateMachine {
                 let pxe_response = send_pxe_boot_request(
                     &self.app_context,
                     architecture,
-                    machine_interface_id.clone(),
+                    machine_interface_id,
                     Some(inner_state.machine_dhcp_info.ip_address.to_string()),
                 )
                 .await?;
@@ -643,11 +636,7 @@ impl MachineStateMachine {
         &self,
         machine_dhcp_info: &DhcpResponseInfo,
     ) -> Result<MachineDiscoveryResult, MachineStateError> {
-        let Some(machine_interface_id) =
-            machine_dhcp_info.interface_id.as_ref().map(|u| rpc::Uuid {
-                value: u.to_string(),
-            })
-        else {
+        let Some(machine_interface_id) = machine_dhcp_info.interface_id else {
             return Err(MachineStateError::MissingInterfaceId);
         };
 
@@ -739,7 +728,7 @@ impl MachineStateMachine {
                 network_config_version: network_config.managed_host_config_version.clone(),
                 instance_network_config_version,
                 instance_config_version,
-                instance_id: network_config.instance_id.clone(),
+                instance_id: network_config.instance_id,
                 interfaces,
                 machine_config: &self.config,
             })

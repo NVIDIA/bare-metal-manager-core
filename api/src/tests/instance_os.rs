@@ -96,7 +96,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         .api
         .update_instance_operating_system(tonic::Request::new(
             rpc::forge::InstanceOperatingSystemUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: None,
                 os: Some(updated_os_1.clone()),
             },
@@ -129,7 +129,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         .api
         .update_instance_operating_system(tonic::Request::new(
             rpc::forge::InstanceOperatingSystemUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: Some(initial_config_version.version_string()),
                 os: Some(updated_os_2.clone()),
             },
@@ -152,7 +152,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         .api
         .update_instance_operating_system(tonic::Request::new(
             rpc::forge::InstanceOperatingSystemUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: Some(updated_config_version.version_string()),
                 os: Some(updated_os_2.clone()),
             },
@@ -206,7 +206,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         .api
         .update_instance_operating_system(tonic::Request::new(
             rpc::forge::InstanceOperatingSystemUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: None,
                 os: Some(invalid_os),
             },

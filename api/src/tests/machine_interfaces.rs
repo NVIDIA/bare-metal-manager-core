@@ -274,7 +274,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let response = env
         .api
         .find_interfaces(tonic::Request::new(InterfaceSearchQuery {
-            id: Some(new_interface.id.into()),
+            id: Some(new_interface.id),
             ip: None,
         }))
         .await
@@ -426,22 +426,19 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .into_inner()
         .interfaces
         .remove(0);
-    let interface_id = interface.id.clone().unwrap();
+    let interface_id = interface.id.unwrap();
 
     env.api
         .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
-            id: Some(rpc::Uuid {
-                value: interface_id.to_string(),
-            }),
+            id: Some(interface_id),
         }))
         .await
         .unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let _interface =
-        db::machine_interface::find_one(&mut txn, interface_id.clone().try_into().unwrap()).await;
+    let _interface = db::machine_interface::find_one(&mut txn, interface_id).await;
     assert!(matches!(
-        CarbideError::FindOneReturnedNoResultsError(interface_id.clone().try_into().unwrap()),
+        CarbideError::FindOneReturnedNoResultsError(interface_id.into()),
         _interface
     ));
 
@@ -488,9 +485,7 @@ async fn test_delete_interface_with_machine(
     let response = env
         .api
         .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
-            id: Some(rpc::Uuid {
-                value: interface.id.to_string(),
-            }),
+            id: Some(interface.id),
         }))
         .await;
 
@@ -540,9 +535,7 @@ async fn test_delete_bmc_interface_with_machine(
     let response = env
         .api
         .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
-            id: Some(rpc::Uuid {
-                value: bmc_interface.id.to_string(),
-            }),
+            id: Some(bmc_interface.id),
         }))
         .await;
 

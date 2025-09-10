@@ -30,7 +30,6 @@ use crate::resource_pool::{DbResourcePool, ResourcePoolStats, ValueType};
 use crate::tests::common::api_fixtures::network_segment::FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS;
 use crate::{db, db_init};
 use ::rpc::uuid::network::NetworkSegmentId;
-use ::rpc::uuid::vpc::VpcId;
 use common::network_segment::{
     NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, get_segments,
     text_history,
@@ -71,7 +70,7 @@ async fn test_advance_network_prefix_state(
         .unwrap()
         .into_inner();
 
-    let parsed_uuid = uuid::Uuid::parse_str(&vpc.id.unwrap().value).unwrap();
+    let vpc_id = vpc.id.unwrap();
 
     let id: NetworkSegmentId = uuid::Uuid::new_v4().into();
     let segment: NetworkSegment = NewNetworkSegment {
@@ -79,7 +78,7 @@ async fn test_advance_network_prefix_state(
         name: "integration_test".to_string(),
         subdomain_id: None,
         mtu: 1500i32,
-        vpc_id: Some(VpcId::from(parsed_uuid)),
+        vpc_id: Some(vpc_id),
         segment_type: NetworkSegmentType::Admin,
 
         prefixes: vec![
@@ -138,10 +137,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
     let mut txn = env.pool.begin().await?;
     let db_segment = NetworkSegment::find_by(
         &mut txn,
-        ObjectColumnFilter::One(
-            network_segment::IdColumn,
-            &segment.id.clone().unwrap().try_into().unwrap(),
-        ),
+        ObjectColumnFilter::One(network_segment::IdColumn, &segment.id.unwrap()),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
@@ -162,7 +158,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
     let delete_result = env
         .api
         .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
-            id: segment.id.clone(),
+            id: segment.id,
         }))
         .await;
 
@@ -237,7 +233,7 @@ async fn test_network_segment_max_history_length(
         1,
     )
     .await;
-    let segment_id: NetworkSegmentId = segment.id.clone().unwrap().try_into().unwrap();
+    let segment_id: NetworkSegmentId = segment.id.unwrap();
 
     env.run_network_segment_controller_iteration().await;
     env.run_network_segment_controller_iteration().await;
@@ -394,7 +390,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     // Delete the segment, releasing the VNI back to the pool
     env.api
         .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
-            id: segment.id.clone(),
+            id: segment.id,
         }))
         .await?;
     // Ready
@@ -521,7 +517,7 @@ async fn test_find_segment_ids(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         1,
     )
     .await;
-    let segment_id: NetworkSegmentId = segment.id.unwrap().try_into().unwrap();
+    let segment_id: NetworkSegmentId = segment.id.unwrap();
 
     let mut txn = env.pool.begin().await?;
     let mut segments = NetworkSegment::list_segment_ids(&mut txn, None).await?;
@@ -547,21 +543,18 @@ async fn test_find_segment_ids(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 async fn test_segment_creation_with_id(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
 
-    let id = uuid::Uuid::new_v4();
+    let id: NetworkSegmentId = uuid::Uuid::new_v4().into();
     let segment = create_network_segment_with_api(
         &env,
         false,
         false,
-        Some(::rpc::Uuid {
-            value: id.to_string(),
-        }),
+        Some(id),
         rpc::forge::NetworkSegmentType::Admin as i32,
         1,
     )
     .await;
-    let segment_id: uuid::Uuid = segment.id.unwrap().try_into().unwrap();
 
-    assert_eq!(segment_id, id);
+    assert_eq!(segment.id, Some(id));
 
     Ok(())
 }
@@ -654,7 +647,7 @@ async fn test_network_segment_metrics(
     let segment =
         create_network_segment_with_api(&env, true, true, None, test_type.segment_type() as i32, 1)
             .await;
-    let segment_id: NetworkSegmentId = segment.id.clone().unwrap().try_into().unwrap();
+    let segment_id: NetworkSegmentId = segment.id.unwrap();
 
     env.run_network_segment_controller_iteration().await;
 
@@ -732,7 +725,7 @@ async fn test_network_segment_metrics(
     // Delete the segment, releasing the VNI back to the pool
     env.api
         .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
-            id: segment.id.clone(),
+            id: segment.id,
         }))
         .await?;
 
@@ -927,9 +920,7 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     // Newly created segments should have SVI allocated once created.
     let _ = common::api_fixtures::network_segment::create_tenant_network_segment(
         &env.api,
-        Some(::rpc::common::Uuid {
-            value: vpc_id.to_string(),
-        }),
+        Some(vpc_id),
         FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[1],
         "TENANT",
         true,

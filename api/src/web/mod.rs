@@ -697,9 +697,3 @@ pub(crate) fn not_found_response(resource: String) -> Response {
 pub(crate) fn invalid_machine_id() -> String {
     "INVALID_MACHINE".to_string()
 }
-
-pub(crate) fn default_uuid() -> rpc::common::Uuid {
-    rpc::common::Uuid {
-        value: "00000000-0000-0000-0000-000000000000".to_string(),
-    }
-}

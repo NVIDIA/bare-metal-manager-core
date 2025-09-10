@@ -41,7 +41,7 @@ struct IbPartitionRowDisplay {
 impl From<forgerpc::IbPartition> for IbPartitionRowDisplay {
     fn from(partition: forgerpc::IbPartition) -> Self {
         Self {
-            id: partition.id.map(|id| id.value).unwrap_or_default(),
+            id: partition.id.map(|id| id.to_string()).unwrap_or_default(),
             tenant_organization_id: partition
                 .config
                 .as_ref()
@@ -151,7 +151,7 @@ async fn fetch_ib_partitions(api: Arc<Api>) -> Result<Vec<forgerpc::IbPartition>
             }
         }
         if let (Some(id1), Some(id2)) = (p1.id.as_ref(), p2.id.as_ref()) {
-            return id1.value.cmp(&id2.value);
+            return id1.cmp(id2);
         }
         // This path should never be taken, since ID is always set
         (p1 as *const rpc::IbPartition).cmp(&(p2 as *const rpc::IbPartition))
@@ -180,7 +180,7 @@ struct IbPartitionDetail {
 impl From<forgerpc::IbPartition> for IbPartitionDetail {
     fn from(partition: forgerpc::IbPartition) -> Self {
         Self {
-            id: partition.id.map(|id| id.value).unwrap_or_default(),
+            id: partition.id.map(|id| id.to_string()).unwrap_or_default(),
             config_version: partition.config_version,
             tenant_organization_id: partition
                 .config
@@ -257,15 +257,24 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(partition_id): AxumPath<String>,
 ) -> Response {
-    let (show_json, partition_id) = match partition_id.strip_suffix(".json") {
+    let (show_json, partition_id_string) = match partition_id.strip_suffix(".json") {
         Some(partition_id) => (true, partition_id.to_string()),
         None => (false, partition_id),
     };
 
+    let partition_id = match partition_id_string.parse() {
+        Ok(id) => id,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid IBPartitionId {partition_id_string}: {e}"),
+            )
+                .into_response();
+        }
+    };
+
     let request = tonic::Request::new(forgerpc::IbPartitionsByIdsRequest {
-        ib_partition_ids: vec![rpc::Uuid {
-            value: partition_id.clone(),
-        }],
+        ib_partition_ids: vec![partition_id],
         include_history: true,
     });
     let partition = match state
@@ -274,7 +283,7 @@ pub async fn detail(
         .map(|response| response.into_inner())
     {
         Ok(p) if p.ib_partitions.is_empty() => {
-            return super::not_found_response(partition_id);
+            return super::not_found_response(partition_id_string);
         }
         Ok(p) if p.ib_partitions.len() != 1 => {
             return (
@@ -288,7 +297,7 @@ pub async fn detail(
         }
         Ok(mut p) => p.ib_partitions.remove(0),
         Err(err) if err.code() == tonic::Code::NotFound => {
-            return super::not_found_response(partition_id);
+            return super::not_found_response(partition_id_string);
         }
         Err(err) => {
             tracing::error!(%err, "find_ib_partitions");

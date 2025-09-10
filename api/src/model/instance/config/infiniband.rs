@@ -103,7 +103,6 @@ impl TryFrom<rpc::InstanceInfinibandConfig> for InstanceInfinibandConfig {
                     .ok_or(RpcDataConversionError::MissingArgument(
                         "InstanceIbInterfaceConfig::ib_partition_id",
                     ))?;
-            let ib_partition_id = IBPartitionId::try_from(ib_partition_id.clone())?;
 
             ib_interfaces.push(InstanceIbInterfaceConfig {
                 function_id,
@@ -133,7 +132,7 @@ impl TryFrom<InstanceInfinibandConfig> for rpc::InstanceInfinibandConfig {
             ib_interfaces.push(rpc::InstanceIbInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::from(function_type) as i32,
                 virtual_function_id: None,
-                ib_partition_id: Some(iface.ib_partition_id.into()),
+                ib_partition_id: Some(iface.ib_partition_id),
                 device: iface.device,
                 vendor: iface.vendor,
                 device_instance: iface.device_instance,

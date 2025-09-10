@@ -148,15 +148,24 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(vpc_id): AxumPath<String>,
 ) -> Response {
-    let (show_json, vpc_id) = match vpc_id.strip_suffix(".json") {
+    let (show_json, vpc_id_string) = match vpc_id.strip_suffix(".json") {
         Some(vpc_id) => (true, vpc_id.to_string()),
         None => (false, vpc_id),
     };
 
+    let vpc_id = match vpc_id_string.parse() {
+        Ok(id) => id,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid VPC ID {vpc_id_string}: {e}"),
+            )
+                .into_response();
+        }
+    };
+
     let request = tonic::Request::new(forgerpc::VpcsByIdsRequest {
-        vpc_ids: vec![rpc::Uuid {
-            value: vpc_id.clone(),
-        }],
+        vpc_ids: vec![vpc_id],
     });
     let vpc = match state
         .find_vpcs_by_ids(request)
@@ -164,7 +173,7 @@ pub async fn detail(
         .map(|response| response.into_inner())
     {
         Ok(x) if x.vpcs.is_empty() => {
-            return super::not_found_response(vpc_id);
+            return super::not_found_response(vpc_id_string);
         }
         Ok(x) if x.vpcs.len() != 1 => {
             return (

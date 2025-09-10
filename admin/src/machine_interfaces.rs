@@ -13,7 +13,6 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use ::rpc::Uuid;
 use prettytable::Cell;
 use prettytable::Row;
 use tracing::warn;
@@ -22,11 +21,10 @@ use super::cfg::cli_options::ShowMachineInterfaces;
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 
 use crate::cfg::cli_options::DeleteMachineInterfaces;
-use crate::default_uuid;
 use crate::rpc::ApiClient;
 use ::rpc::forge as forgerpc;
 use prettytable::Table;
-use rpc::uuid::machine::MachineId;
+use rpc::uuid::machine::{MachineId, MachineInterfaceId};
 
 pub async fn handle_show(
     args: ShowMachineInterfaces,
@@ -34,8 +32,9 @@ pub async fn handle_show(
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
-    if args.all || args.interface_id.is_empty() {
-        show_all_machine_interfaces(is_json, args.more, api_client).await?;
+    if let (false, Some(interface_id)) = (args.all, args.interface_id) {
+        show_machine_interfaces_information(Some(interface_id), is_json, api_client).await?;
+    } else {
         // TODO(chet): Remove this ~March 2024.
         // Use tracing::warn for this so its both a little more
         // noticeable, and a little more annoying/naggy. If people
@@ -45,9 +44,8 @@ pub async fn handle_show(
                 "redundant `--all` with basic `show` is deprecated. just do `machine-interfaces show`"
             )
         }
-        return Ok(());
+        show_all_machine_interfaces(is_json, args.more, api_client).await?;
     }
-    show_machine_interfaces_information(args.interface_id, is_json, api_client).await?;
     Ok(())
 }
 
@@ -69,11 +67,10 @@ async fn show_all_machine_interfaces(
 }
 
 async fn show_machine_interfaces_information(
-    id: String,
+    interface_id: Option<MachineInterfaceId>,
     is_json: bool,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let interface_id = Some(Uuid { value: id });
     let machine_interfaces = api_client.get_all_machines_interfaces(interface_id).await?;
     if !machine_interfaces.interfaces.is_empty() {
         if is_json {
@@ -83,7 +80,7 @@ async fn show_machine_interfaces_information(
             );
         } else {
             let interface = machine_interfaces.interfaces.first().unwrap().to_owned();
-            let domain_list = api_client.get_domains(interface.domain_id.clone()).await?;
+            let domain_list = api_client.get_domains(interface.domain_id).await?;
             println!(
                 "{}",
                 convert_machine_to_nice_format(interface, domain_list)
@@ -104,7 +101,7 @@ fn convert_machines_to_nice_table(
     let domainlist_map = domain_list
         .domains
         .into_iter()
-        .map(|x| (x.id.clone().unwrap_or_default().value, x.name))
+        .map(|x| (x.id.unwrap_or_default(), x.name))
         .collect::<BTreeMap<_, _>>();
     let mut headers = vec![
         "Id",
@@ -122,15 +119,9 @@ fn convert_machines_to_nice_table(
     ));
 
     for machine_interface in machine_interfaces.interfaces {
-        let domain_name = domainlist_map.get(
-            &machine_interface
-                .domain_id
-                .clone()
-                .unwrap_or_default()
-                .value,
-        );
+        let domain_name = domainlist_map.get(&machine_interface.domain_id.unwrap_or_default());
         let mut row = vec![
-            machine_interface.id.unwrap_or_default().value,
+            machine_interface.id.unwrap_or_default().to_string(),
             machine_interface.mac_address,
             machine_interface.address.join(","),
             machine_interface
@@ -158,23 +149,14 @@ fn convert_machine_to_nice_format(
     let domainlist_map = domain_list
         .domains
         .into_iter()
-        .map(|x| (x.id.clone().unwrap_or_default().value, x.name))
+        .map(|x| (x.id.unwrap_or_default(), x.name))
         .collect::<BTreeMap<_, _>>();
-    let domain_name = domainlist_map.get(
-        &machine_interface
-            .domain_id
-            .clone()
-            .unwrap_or_default()
-            .value,
-    );
+    let domain_name = domainlist_map.get(&machine_interface.domain_id.unwrap_or_default());
 
     let width = 13;
 
     let data = vec![
-        (
-            "ID",
-            machine_interface.id.clone().unwrap_or_default().to_string(),
-        ),
+        ("ID", machine_interface.id.unwrap_or_default().to_string()),
         (
             "DPU ID",
             machine_interface
@@ -193,11 +175,7 @@ fn convert_machine_to_nice_format(
         ),
         (
             "Segment ID",
-            machine_interface
-                .segment_id
-                .clone()
-                .unwrap_or_else(default_uuid)
-                .to_string(),
+            machine_interface.segment_id.unwrap_or_default().to_string(),
         ),
         (
             "Domain Id",
@@ -225,9 +203,6 @@ pub async fn handle_delete(
     args: DeleteMachineInterfaces,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let interface_id = Uuid {
-        value: args.interface_id,
-    };
-    api_client.0.delete_interface(interface_id).await?;
+    api_client.0.delete_interface(args.interface_id).await?;
     Ok(())
 }

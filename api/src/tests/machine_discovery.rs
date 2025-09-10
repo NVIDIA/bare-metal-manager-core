@@ -113,7 +113,7 @@ async fn test_reject_host_machine_with_disabled_tpm(
     let response = env
         .api
         .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
-            machine_interface_id: Some(host_machine_interface_id.clone()),
+            machine_interface_id: Some(host_machine_interface_id),
             discovery_data: Some(rpc::DiscoveryData::Info(
                 rpc::DiscoveryInfo::try_from(hardware_info).unwrap(),
             )),

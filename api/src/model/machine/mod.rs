@@ -449,7 +449,7 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
         )?;
 
         Ok(Some(rpc::Instance {
-            id: Some(instance.id.into()),
+            id: Some(instance.id),
             machine_id: Some(instance.machine_id),
             config: Some(instance.config.try_into()?),
             status: Some(status.try_into()?),
@@ -759,10 +759,7 @@ impl Machine {
         rpc::forge::InstanceNetworkRestrictions {
             network_segment_membership_type:
                 rpc::forge::InstanceNetworkSegmentMembershipType::Static as i32,
-            network_segment_ids: inband_network_segment_ids
-                .into_iter()
-                .map(Into::into)
-                .collect(),
+            network_segment_ids: inband_network_segment_ids.into_iter().collect(),
         }
     }
 
@@ -2133,12 +2130,12 @@ impl MachineInterfaceSnapshot {
 impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
     fn from(machine_interface: MachineInterfaceSnapshot) -> rpc::MachineInterface {
         rpc::MachineInterface {
-            id: Some(machine_interface.id.into()),
+            id: Some(machine_interface.id),
             attached_dpu_machine_id: machine_interface.attached_dpu_machine_id,
             machine_id: machine_interface.machine_id,
-            segment_id: Some(machine_interface.segment_id.into()),
+            segment_id: Some(machine_interface.segment_id),
             hostname: machine_interface.hostname,
-            domain_id: machine_interface.domain_id.map(|d| d.into()),
+            domain_id: machine_interface.domain_id,
             mac_address: machine_interface.mac_address.to_string(),
             primary_interface: machine_interface.primary_interface,
             address: machine_interface

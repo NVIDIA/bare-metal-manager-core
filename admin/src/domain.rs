@@ -17,6 +17,7 @@ use super::cfg::cli_options::ShowDomain;
 use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::{Timestamp, forge as forgerpc};
+use rpc::uuid::domain::DomainId;
 
 // timestamp_or_default returns a String representation of
 // the given timestamp Option, or, if the Option is None,
@@ -37,16 +38,15 @@ fn convert_domain_to_nice_format(domain: &forgerpc::Domain) -> CarbideCliResult<
     let width = 10;
     let mut lines = String::new();
 
-    let domain_default = &::rpc::common::Uuid::default();
     let timestamp_default = &Timestamp::default();
 
-    let domain_id = domain.id.as_ref().unwrap_or(domain_default).value.as_str();
+    let domain_id = domain.id.unwrap_or_default().to_string();
     let domain_created = timestamp_or_default(&domain.created, timestamp_default);
     let domain_updated = timestamp_or_default(&domain.updated, timestamp_default);
     let domain_deleted = timestamp_or_default(&domain.deleted, timestamp_default);
 
     let data = vec![
-        ("ID", domain_id),
+        ("ID", domain_id.as_str()),
         ("NAME", domain.name.as_str()),
         ("CREATED", domain_created.as_str()),
         ("UPDATED", domain_updated.as_str()),
@@ -86,17 +86,11 @@ async fn show_all_domains(json: bool, api_client: &ApiClient) -> CarbideCliResul
 }
 
 async fn show_domain_information(
-    id: String,
+    id: DomainId,
     json: bool,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let domains = api_client
-        .get_domains(Some(
-            uuid::Uuid::parse_str(&id)
-                .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
-                .into(),
-        ))
-        .await?;
+    let domains = api_client.get_domains(Some(id)).await?;
     if domains.domains.is_empty() {
         return Err(CarbideCliError::DomainNotFound);
     }
@@ -119,8 +113,9 @@ pub async fn handle_show(
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
-    if args.all || args.domain.is_empty() {
-        show_all_domains(is_json, api_client).await?;
+    if let (false, Some(domain_id)) = (args.all, args.domain) {
+        show_domain_information(domain_id, is_json, api_client).await?;
+    } else {
         // TODO(chet): Remove this ~March 2024.
         // Use tracing::warn for this so its both a little more
         // noticeable, and a little more annoying/naggy. If people
@@ -128,8 +123,7 @@ pub async fn handle_show(
         if args.all && output_format == OutputFormat::AsciiTable {
             warn!("redundant `--all` with basic `show` is deprecated. just do `domain show`.")
         }
-        return Ok(());
+        show_all_domains(is_json, api_client).await?;
     }
-    show_domain_information(args.domain, is_json, api_client).await?;
     Ok(())
 }

@@ -17,8 +17,6 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::db::ib_partition::{self, IBPartition, IBPartitionSearchConfig, NewIBPartition};
 use crate::db::{DatabaseError, ObjectColumnFilter};
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::uuid::infiniband::IBPartitionId;
 
 pub(crate) async fn create(
     api: &Api,
@@ -81,14 +79,7 @@ pub(crate) async fn find_ids(
 
     let ib_partition_ids = IBPartition::find_ids(&mut txn, filter).await?;
 
-    Ok(Response::new(rpc::IbPartitionIdList {
-        ib_partition_ids: ib_partition_ids
-            .into_iter()
-            .map(|id| ::rpc::common::Uuid {
-                value: id.to_string(),
-            })
-            .collect(),
-    }))
+    Ok(Response::new(rpc::IbPartitionIdList { ib_partition_ids }))
 }
 
 pub(crate) async fn find_by_ids(
@@ -108,25 +99,13 @@ pub(crate) async fn find_by_ids(
         ib_partition_ids, ..
     } = request.into_inner();
 
-    let partition_ids: Result<Vec<IBPartitionId>, CarbideError> = ib_partition_ids
-        .iter()
-        .map(|id| {
-            IBPartitionId::try_from(id.clone()).map_err(|_| {
-                CarbideError::from(RpcDataConversionError::InvalidIbPartitionId(
-                    id.value.to_string(),
-                ))
-            })
-        })
-        .collect();
-    let partition_ids = partition_ids?;
-
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
-    if partition_ids.len() > max_find_by_ids {
+    if ib_partition_ids.len() > max_find_by_ids {
         return Err(CarbideError::InvalidArgument(format!(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
-    } else if partition_ids.is_empty() {
+    } else if ib_partition_ids.is_empty() {
         return Err(
             CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
@@ -134,7 +113,7 @@ pub(crate) async fn find_by_ids(
 
     let partitions = IBPartition::find_by(
         &mut txn,
-        ObjectColumnFilter::List(ib_partition::IdColumn, &partition_ids),
+        ObjectColumnFilter::List(ib_partition::IdColumn, &ib_partition_ids),
         IBPartitionSearchConfig {},
     )
     .await?;
@@ -167,16 +146,8 @@ pub(crate) async fn find(
         id, search_config, ..
     } = request.into_inner();
 
-    let mut binding = None;
-    let uuid_filter = match id {
-        Some(id) => match IBPartitionId::try_from(id) {
-            Ok(uuid) => ObjectColumnFilter::One(ib_partition::IdColumn, binding.insert(uuid)),
-            Err(err) => {
-                return Err(Status::invalid_argument(format!(
-                    "Supplied invalid UUID: {err}"
-                )));
-            }
-        },
+    let uuid_filter = match id.as_ref() {
+        Some(id) => ObjectColumnFilter::One(ib_partition::IdColumn, id),
         None => ObjectColumnFilter::All,
     };
 
@@ -208,7 +179,7 @@ pub(crate) async fn delete(
 
     let rpc::IbPartitionDeletionRequest { id, .. } = request.into_inner();
 
-    let uuid = IBPartitionId::from_grpc(id)?;
+    let uuid = id.ok_or(CarbideError::MissingArgument("id"))?;
 
     let mut segments = IBPartition::find_by(
         &mut txn,

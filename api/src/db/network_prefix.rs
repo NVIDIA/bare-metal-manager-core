@@ -9,11 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{
-    collections::HashMap,
-    fmt::{Display, Formatter},
-    net::IpAddr,
-};
+use std::{collections::HashMap, net::IpAddr};
 
 use ::rpc::forge as rpc;
 use ipnetwork::IpNetwork;
@@ -24,12 +20,13 @@ use sqlx::{Acquire, FromRow, PgConnection, Row};
 
 use super::DatabaseError;
 use crate::CarbideError;
+use ::rpc::uuid::network::NetworkPrefixId;
 use ::rpc::uuid::network::NetworkSegmentId;
 use ::rpc::uuid::vpc::{VpcId, VpcPrefixId};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkPrefix {
-    pub id: uuid::Uuid,
+    pub id: NetworkPrefixId,
     pub segment_id: NetworkSegmentId,
     pub prefix: IpNetwork,
     pub gateway: Option<IpAddr>,
@@ -102,7 +99,7 @@ impl TryFrom<rpc::NetworkPrefix> for NewNetworkPrefix {
 impl From<NetworkPrefix> for rpc::NetworkPrefix {
     fn from(src: NetworkPrefix) -> Self {
         rpc::NetworkPrefix {
-            id: Some(src.id.into()),
+            id: Some(src.id),
             prefix: src.prefix.to_string(),
             gateway: src.gateway.map(|v| v.to_string()),
             reserve_first: src.num_reserved,
@@ -172,7 +169,7 @@ impl NetworkPrefix {
     #[cfg(test)]
     pub async fn find(
         txn: &mut PgConnection,
-        uuid: uuid::Uuid,
+        uuid: NetworkPrefixId,
     ) -> Result<NetworkPrefix, DatabaseError> {
         let query = "select * from network_prefixes where id=$1";
         sqlx::query_as(query)
@@ -347,7 +344,7 @@ impl NetworkPrefix {
     // Update the SVI IP.
     pub async fn set_svi_ip(
         txn: &mut PgConnection,
-        prefix_id: uuid::Uuid,
+        prefix_id: NetworkPrefixId,
         svi_ip: &IpAddr,
     ) -> Result<(), DatabaseError> {
         let query = "UPDATE network_prefixes SET svi_ip=$1::inet WHERE id=$2 RETURNING *";
@@ -359,41 +356,5 @@ impl NetworkPrefix {
             .map_err(|e| DatabaseError::query(query, e))?;
 
         Ok(())
-    }
-}
-
-// Note: we don't implement Serialize/Deserialize intentionally. We don't want to accidentally
-// serialize the NewType itself, only the uuid.
-#[derive(Debug, Clone, Copy, FromRow, Hash, PartialOrd, Ord, Eq, PartialEq)]
-#[repr(transparent)]
-pub struct NetworkPrefixId(pub uuid::Uuid);
-
-impl Display for NetworkPrefixId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl From<NetworkPrefixId> for uuid::Uuid {
-    fn from(id: NetworkPrefixId) -> Self {
-        id.0
-    }
-}
-
-impl From<&NetworkPrefixId> for uuid::Uuid {
-    fn from(id: &NetworkPrefixId) -> Self {
-        id.0
-    }
-}
-
-impl From<uuid::Uuid> for NetworkPrefixId {
-    fn from(value: uuid::Uuid) -> Self {
-        NetworkPrefixId(value)
-    }
-}
-
-impl From<&uuid::Uuid> for NetworkPrefixId {
-    fn from(value: &uuid::Uuid) -> Self {
-        NetworkPrefixId(*value)
     }
 }

@@ -19,7 +19,6 @@ use crate::{
     db::DatabaseError,
 };
 use ::rpc::forge as rpc;
-use ::rpc::uuid::vpc::VpcId;
 use forge_network::virtualization::VpcVirtualizationType;
 use tonic::{Request, Response, Status};
 
@@ -34,21 +33,10 @@ pub async fn create(
         peer_vpc_id,
     } = request.into_inner();
 
-    let vpc_id = vpc_id
-        .ok_or_else(|| CarbideError::MissingArgument("vpc_id cannot be null"))
-        .and_then(|id| {
-            VpcId::try_from(id).map_err(|_| {
-                CarbideError::InvalidArgument("Fail to convert vpc_id into uuid".into())
-            })
-        })?;
+    let vpc_id = vpc_id.ok_or_else(|| CarbideError::MissingArgument("vpc_id cannot be null"))?;
 
-    let peer_vpc_id = peer_vpc_id
-        .ok_or_else(|| CarbideError::MissingArgument("peer_vpc_id cannot be null"))
-        .and_then(|id| {
-            VpcId::try_from(id).map_err(|_| {
-                CarbideError::InvalidArgument("Fail to convert peer_vpc_id into uuid".into())
-            })
-        })?;
+    let peer_vpc_id =
+        peer_vpc_id.ok_or_else(|| CarbideError::MissingArgument("peer_vpc_id cannot be null"))?;
 
     const DB_TXN_NAME: &str = "vpc_peering::create";
 
@@ -116,13 +104,6 @@ pub async fn find_ids(
 
     let rpc::VpcPeeringSearchFilter { vpc_id } = request.into_inner();
 
-    let vpc_id = match vpc_id {
-        Some(id) => Some(VpcId::try_from(id).map_err(|_| {
-            CarbideError::InvalidArgument("Fail to convert vpc_id to type VpcId".into())
-        })?),
-        None => None,
-    };
-
     const DB_TXN_NAME: &str = "vpc_peering::find_ids";
 
     let mut txn = api
@@ -137,13 +118,6 @@ pub async fn find_ids(
         .await
         .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME, e))?;
 
-    let vpc_peering_ids = vpc_peering_ids
-        .into_iter()
-        .map(|id| ::rpc::common::Uuid {
-            value: id.to_string(),
-        })
-        .collect();
-
     Ok(tonic::Response::new(rpc::VpcPeeringIdList {
         vpc_peering_ids,
     }))
@@ -156,16 +130,6 @@ pub async fn find_by_ids(
     log_request_data(&request);
 
     let rpc::VpcPeeringsByIdsRequest { vpc_peering_ids } = request.into_inner();
-
-    let vpc_peering_ids: Result<Vec<uuid::Uuid>, CarbideError> = vpc_peering_ids
-        .into_iter()
-        .map(|id| {
-            uuid::Uuid::parse_str(&id.value).map_err(|_| {
-                CarbideError::InvalidArgument("Invalid UUID in vpc_peering_ids".into())
-            })
-        })
-        .collect();
-    let vpc_peering_ids = vpc_peering_ids?;
 
     const DB_TXN_NAME: &str = "vpc_peering::find_by_ids";
 
@@ -194,12 +158,7 @@ pub async fn delete(
 
     let rpc::VpcPeeringDeletionRequest { id } = request.into_inner();
 
-    let id = id
-        .ok_or_else(|| CarbideError::MissingArgument("id cannot be null"))
-        .and_then(|id| {
-            uuid::Uuid::try_from(id)
-                .map_err(|_| CarbideError::InvalidArgument("Fail to convert id".into()))
-        })?;
+    let id = id.ok_or_else(|| CarbideError::MissingArgument("id cannot be null"))?;
 
     const DB_TXN_NAME: &str = "vpc_peering::delete";
 

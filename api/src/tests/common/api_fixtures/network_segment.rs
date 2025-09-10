@@ -21,6 +21,7 @@ use ipnetwork::IpNetwork;
 use std::net::{IpAddr, Ipv4Addr};
 
 use lazy_static::lazy_static;
+use rpc::uuid::vpc::VpcId;
 
 lazy_static! {
     pub static ref FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY: IpNetwork =
@@ -102,7 +103,7 @@ pub async fn create_admin_network_segment(api: &Api) -> NetworkSegmentId {
 
 pub async fn create_host_inband_network_segment(
     api: &Api,
-    vpc_id: Option<rpc::Uuid>,
+    vpc_id: Option<VpcId>,
 ) -> NetworkSegmentId {
     let prefix = IpNetwork::new(
         FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
@@ -126,7 +127,7 @@ pub async fn create_host_inband_network_segment(
 
 pub async fn create_tenant_network_segment(
     api: &Api,
-    vpc_id: Option<rpc::Uuid>,
+    vpc_id: Option<VpcId>,
     network: IpNetwork,
     name: &str,
     include_subdomain: bool,
@@ -154,7 +155,7 @@ pub async fn create_network_segment(
     prefix: &str,
     gateway: &str,
     segment_type: rpc::forge::NetworkSegmentType,
-    vpc_id: Option<rpc::Uuid>,
+    vpc_id: Option<VpcId>,
     include_subdomain: bool,
 ) -> NetworkSegmentId {
     let subdomain_id = if include_subdomain {
@@ -170,12 +171,12 @@ pub async fn create_network_segment(
             .into_inner()
             .domains
             .first()
-            .and_then(|d| d.id.clone())
+            .and_then(|d| d.id)
             .map(::rpc::uuid::domain::DomainId::try_from)
             .unwrap()
             .unwrap();
 
-        Some(domain.into())
+        Some(domain)
     } else {
         None
     };
@@ -204,7 +205,7 @@ pub async fn create_network_segment(
         .await
         .expect("Unable to create network segment")
         .into_inner();
-    let segment_id: NetworkSegmentId = segment.id.unwrap().try_into().unwrap();
+    let segment_id: NetworkSegmentId = segment.id.unwrap();
 
     segment_id
 }

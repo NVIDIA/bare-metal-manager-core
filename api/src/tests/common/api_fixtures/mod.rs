@@ -519,7 +519,7 @@ impl TestEnv {
     }
 
     // Returns all instances using FindInstances call.
-    pub async fn find_instances(&self, id: Option<rpc::common::Uuid>) -> rpc::forge::InstanceList {
+    pub async fn find_instances(&self, id: Option<InstanceId>) -> rpc::forge::InstanceList {
         self.api
             .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery {
                 id,
@@ -534,7 +534,7 @@ impl TestEnv {
         let mut result = self
             .api
             .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery {
-                id: Some(id.into()),
+                id: Some(id),
                 label: None,
             }))
             .await
@@ -588,7 +588,7 @@ impl TestEnv {
             segment_ids.push(
                 create_tenant_network_segment(
                     &self.api,
-                    vpc.id.clone(),
+                    vpc.id,
                     FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[segment_index],
                     "TENANT",
                     true,
@@ -608,10 +608,10 @@ impl TestEnv {
         vtype1: VpcVirtualizationType,
         vtype2: VpcVirtualizationType,
     ) -> (
-        Option<rpc::Uuid>,
+        Option<VpcId>,
         Option<u32>,
         NetworkSegmentId,
-        Option<rpc::Uuid>,
+        Option<VpcId>,
         Option<u32>,
         NetworkSegmentId,
     ) {
@@ -634,7 +634,7 @@ impl TestEnv {
 
         let tenant_network_id = create_tenant_network_segment(
             &self.api,
-            vpc.id.clone(),
+            vpc.id,
             FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[0],
             "TENANT1",
             true,
@@ -664,7 +664,7 @@ impl TestEnv {
 
         let peer_tenant_network_id = create_tenant_network_segment(
             &self.api,
-            peer_vpc.id.clone(),
+            peer_vpc.id,
             FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[1],
             "TENANT2",
             true,
@@ -735,7 +735,7 @@ impl TestEnv {
 
         let tenant_network_id_1 = create_tenant_network_segment(
             &self.api,
-            vpc.id.clone(),
+            vpc.id,
             FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[0],
             "TENANT",
             true,
@@ -1713,7 +1713,7 @@ pub async fn network_configured_with_health(
         observed_at: None,
         dpu_health: Some(dpu_health),
         network_config_version: Some(network_config.managed_host_config_version.clone()),
-        instance_id: network_config.instance_id.clone(),
+        instance_id: network_config.instance_id,
         instance_config_version: instance_config_version.clone(),
         instance_network_config_version: instance_network_config_version.clone(),
         interfaces,

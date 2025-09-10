@@ -20,6 +20,7 @@ use crate::shutdown_handle::ShutdownHandle;
 use ::rpc::uuid::machine::MachineId;
 use rpc::forge;
 use rpc::forge_api_client::ForgeApiClient;
+use rpc::uuid::instance::InstanceId;
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -27,7 +28,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
-use uuid::Uuid;
 
 pub async fn spawn(
     connection_details: ConnectionDetails,
@@ -114,12 +114,10 @@ pub async fn lookup(
 
     let machine_id: MachineId = if let Ok(id) = machine_or_instance_id.parse() {
         id
-    } else if let Ok(instance_id) = Uuid::from_str(machine_or_instance_id) {
+    } else if let Ok(instance_id) = InstanceId::from_str(machine_or_instance_id) {
         forge_api_client
             .find_instances(forge::InstanceSearchQuery {
-                id: Some(rpc::Uuid {
-                    value: instance_id.to_string(),
-                }),
+                id: Some(instance_id),
                 label: None,
             })
             .await
@@ -242,13 +240,13 @@ pub enum LookupError {
     Config(#[from] ConfigError),
     #[error("Error looking up instance ID {instance_id}: {tonic_status}")]
     InstanceIdLookup {
-        instance_id: Uuid,
+        instance_id: InstanceId,
         tonic_status: tonic::Status,
     },
     #[error("Could not find instance with id {instance_id}")]
-    CouldNotFindInstance { instance_id: Uuid },
+    CouldNotFindInstance { instance_id: InstanceId },
     #[error("Instance {instance_id} has no machine_id")]
-    InstanceHasNoMachineId { instance_id: Uuid },
+    InstanceHasNoMachineId { instance_id: InstanceId },
     #[error("Could not parse {machine_or_instance_id} into a machine ID or instance ID")]
     CouldNotParseId { machine_or_instance_id: String },
     #[error("Error getting machine {machine_id}: {tonic_status}")]

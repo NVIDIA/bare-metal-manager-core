@@ -17,7 +17,6 @@ use crate::CarbideError;
 use crate::api::Api;
 use crate::db::domain::{self, Domain, NewDomain};
 use crate::db::{DatabaseError, ObjectColumnFilter};
-use ::rpc::uuid::domain::DomainId;
 
 pub(crate) async fn create(
     api: &Api,
@@ -60,18 +59,7 @@ pub(crate) async fn update(
 
     let rpc::Domain { id, name, .. } = request.into_inner();
 
-    // TODO(jdg): Move this out into a function and share it with delete
-    let uuid = match id {
-        Some(id) => match DomainId::try_from(id) {
-            Ok(uuid) => uuid,
-            Err(_err) => {
-                return Err(CarbideError::InvalidArgument("id".to_string()).into());
-            }
-        },
-        None => {
-            return Err(CarbideError::MissingArgument("id").into());
-        }
-    };
+    let uuid = id.ok_or_else(|| CarbideError::MissingArgument("id"))?;
 
     let mut domains =
         Domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &uuid)).await?;
@@ -122,17 +110,7 @@ pub(crate) async fn delete(
     let rpc::DomainDeletion { id, .. } = request.into_inner();
 
     // load from find from domain.rs
-    let uuid = match id {
-        Some(id) => match DomainId::try_from(id) {
-            Ok(uuid) => uuid,
-            Err(_err) => {
-                return Err(CarbideError::InvalidArgument("id".to_string()).into());
-            }
-        },
-        None => {
-            return Err(CarbideError::MissingArgument("id").into());
-        }
-    };
+    let uuid = id.ok_or_else(|| CarbideError::MissingArgument("id"))?;
 
     let mut domains =
         Domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &uuid)).await?;
@@ -184,13 +162,7 @@ pub(crate) async fn find(
     let rpc::DomainSearchQuery { id, name, .. } = request.into_inner();
     let domains = match (id, name) {
         (Some(id), _) => {
-            let domain_id = DomainId::try_from(id)
-                .map_err(|e| Status::invalid_argument(format!("Invalid UUID supplied: {e}")))?;
-            Domain::find_by(
-                &mut txn,
-                ObjectColumnFilter::One(domain::IdColumn, &domain_id),
-            )
-            .await
+            Domain::find_by(&mut txn, ObjectColumnFilter::One(domain::IdColumn, &id)).await
         }
         (None, Some(name)) => Domain::find_by_name(&mut txn, &name).await,
         (None, None) => {
