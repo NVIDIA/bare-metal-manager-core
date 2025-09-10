@@ -46,7 +46,7 @@ async fn get_pxe_instructions(
     env.api
         .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
             arch: arch as i32,
-            interface_id: Some(interface_id.into()),
+            interface_id: Some(interface_id),
         }))
         .await
         .unwrap()
@@ -144,10 +144,8 @@ async fn test_dpu_pxe_gets_correct_os_when_machine_is_not_created(
         .await;
 
     // Discover DHCP from the DPU's OOB
-    let dpu_interface_id: MachineInterfaceId =
-        common::api_fixtures::dpu::dpu_discover_dhcp(&env, &dpu_oob_mac.to_string())
-            .await
-            .try_into()?;
+    let dpu_interface_id =
+        common::api_fixtures::dpu::dpu_discover_dhcp(&env, &dpu_oob_mac.to_string()).await;
 
     let instructions =
         get_pxe_instructions(&env, dpu_interface_id, rpc::forge::MachineArchitecture::Arm).await;
@@ -167,13 +165,11 @@ async fn test_dpu_pxe_gets_correct_os_when_machine_is_not_created(
 #[crate::sqlx_test]
 async fn test_pxe_when_machine_is_not_ingested(pool: sqlx::PgPool) -> eyre::Result<()> {
     let env = create_test_env(pool).await;
-    let dpu_interface_id: MachineInterfaceId = common::api_fixtures::dpu::dpu_discover_dhcp(
+    let dpu_interface_id = common::api_fixtures::dpu::dpu_discover_dhcp(
         &env,
         &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string(),
     )
-    .await
-    .try_into()
-    .unwrap();
+    .await;
 
     let instructions =
         get_pxe_instructions(&env, dpu_interface_id, rpc::forge::MachineArchitecture::Arm).await;

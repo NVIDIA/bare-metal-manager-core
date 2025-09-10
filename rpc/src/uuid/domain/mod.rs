@@ -12,11 +12,10 @@
 
 use crate::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
-use tonic::Status;
 
+use crate::grpc_uuid_message;
 #[cfg(feature = "sqlx")]
 use sqlx::{
     postgres::{PgHasArrayType, PgTypeInfo},
@@ -28,10 +27,14 @@ use sqlx::{
 /// around as a UUID, an RPC UUID, bound to sqlx queries, etc. This
 /// is similar to what we do for MachineId, VpcId, InstanceId,
 /// NetworkSegmentId, and basically all of the IDs in measured boot.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default, PartialOrd, Ord,
+)]
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct DomainId(pub uuid::Uuid);
+
+grpc_uuid_message!(DomainId);
 
 impl From<DomainId> for uuid::Uuid {
     fn from(id: DomainId) -> Self {
@@ -57,49 +60,6 @@ impl FromStr for DomainId {
 impl fmt::Display for DomainId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-impl From<DomainId> for crate::common::Uuid {
-    fn from(val: DomainId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<crate::common::Uuid> for DomainId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: crate::common::Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<&crate::common::Uuid> for DomainId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: &crate::common::Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<crate::common::Uuid>> for DomainId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<crate::common::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
-        let Some(input_uuid) = msg else {
-            // TODO(chet): Maybe this isn't the right place for this, since
-            // depending on the proto message, the field name can differ (which
-            // should actually probably be standardized anyway), or we can just
-            // take a similar approach to ::InvalidUuid can say "field of type"?
-            return Err(eyre::eyre!("missing domain_id argument").into());
-        };
-        Ok(Self::try_from(input_uuid)?)
-    }
-}
-
-impl DomainId {
-    pub fn from_grpc(msg: Option<crate::common::Uuid>) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad grpc domain ID: {e}")))
     }
 }
 

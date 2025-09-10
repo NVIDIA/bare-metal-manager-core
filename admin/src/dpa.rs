@@ -17,6 +17,7 @@ use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::{self as forgerpc};
 use prettytable::{Table, row};
+use rpc::uuid::dpa_interface::DpaInterfaceId;
 
 pub async fn handle_show(
     args: ShowDpa,
@@ -25,10 +26,10 @@ pub async fn handle_show(
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
-    if args.id.is_none() {
-        show_dpas(is_json, api_client, page_size).await?
+    if let Some(id) = args.id {
+        show_dpa_details(id, is_json, api_client).await?
     } else {
-        show_dpa_details(args.id.unwrap(), is_json, api_client).await?
+        show_dpas(is_json, api_client, page_size).await?
     }
     Ok(())
 }
@@ -46,11 +47,11 @@ async fn show_dpas(json: bool, api_client: &ApiClient, page_size: usize) -> Carb
 }
 
 // Show detailed information about the DPA interface specified by id
-async fn show_dpa_details(id: String, json: bool, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let dpa_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
-        .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
-        .into();
-
+async fn show_dpa_details(
+    dpa_id: DpaInterfaceId,
+    json: bool,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
     let dpas = api_client.get_one_dpa(dpa_id).await?;
 
     let dpa = match dpas.interfaces.len() {
@@ -91,7 +92,7 @@ fn convert_dpa_to_nice_format(dpa: &forgerpc::DpaInterface) -> CarbideCliResult<
     let mut lines = String::new();
 
     let data = vec![
-        ("ID", dpa.id.clone().unwrap_or_default().value),
+        ("ID", dpa.id.map(|id| id.to_string()).unwrap_or_default()),
         (
             "MACHINE ID",
             dpa.machine_id.map(|id| id.to_string()).unwrap_or_default(),

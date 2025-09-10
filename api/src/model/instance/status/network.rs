@@ -616,10 +616,8 @@ mod tests {
     use ::rpc::uuid::network::NetworkSegmentId;
 
     use super::*;
-    use crate::{
-        db::network_prefix::NetworkPrefixId,
-        model::instance::config::network::InstanceInterfaceConfig,
-    };
+    use crate::model::instance::config::network::InstanceInterfaceConfig;
+    use ::rpc::uuid::network::NetworkPrefixId;
 
     #[test]
     fn deserialize_old_network_status_observation() {

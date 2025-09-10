@@ -10,8 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::str::FromStr;
+use rpc::uuid::vpc::VpcId;
 use std::time::SystemTime;
+use uuid::uuid;
 
 use ::rpc::uuid::instance::InstanceId;
 use ::rpc::uuid::machine::MachineId;
@@ -19,7 +20,6 @@ use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
 use rpc::health::HealthReport;
 use tonic::Code;
-use uuid::Uuid;
 
 use crate::cfg::file::default_max_network_security_group_size;
 use crate::model::instance::config::network::DeviceLocator;
@@ -36,7 +36,7 @@ use super::common::api_fixtures::TestEnv;
 
 async fn update_network_status_observation(
     env: &TestEnv,
-    instance_id: &str,
+    instance_id: &InstanceId,
     good_network_security_group_id: &str,
     security_version: &str,
     dpu_machine_id: &MachineId,
@@ -46,9 +46,7 @@ async fn update_network_status_observation(
     let _ = env
         .api
         .record_dpu_network_status(tonic::Request::new(rpc::forge::DpuNetworkStatus {
-            instance_id: Some(rpc::Uuid {
-                value: instance_id.to_string(),
-            }),
+            instance_id: Some(*instance_id),
             observed_at: Some(SystemTime::now().into()),
             interfaces: vec![rpc::forge::InstanceInterfaceStatusObservation {
                 gateways: vec!["10.180.125.1/27".to_string()],
@@ -1078,8 +1076,8 @@ async fn test_network_security_group_propagation_impl(
     // Our known fixture network security group
     let good_network_security_group_id = "fd3ab096-d811-11ef-8fe9-7be4b2483448";
 
-    let vpc_id = "2ff5ba26-da6a-11ef-9c48-5b78e547a5e7";
-    let instance_id = "46c555e0-da6a-11ef-b86d-db132142d068";
+    let vpc_id: VpcId = uuid!("2ff5ba26-da6a-11ef-9c48-5b78e547a5e7").into();
+    let instance_id: InstanceId = uuid!("46c555e0-da6a-11ef-b86d-db132142d068").into();
 
     let good_network_security_group = env
         .api
@@ -1144,9 +1142,7 @@ async fn test_network_security_group_propagation_impl(
     let segment_ids = env
         .create_vpc_and_tenant_segments_with_vpc_details(
             rpc::forge::VpcCreationRequest {
-                id: Some(rpc::Uuid {
-                    value: vpc_id.to_string(),
-                }),
+                id: Some(vpc_id),
                 name: "Tenant1".to_string(),
                 tenant_organization_id: default_tenant_org.to_string(),
                 tenant_keyset_id: None,
@@ -1210,9 +1206,7 @@ async fn test_network_security_group_propagation_impl(
                 storage: None,
                 network_security_group_id: Some(good_network_security_group_id.to_string()),
             }),
-            instance_id: Some(rpc::Uuid {
-                value: instance_id.to_string(),
-            }),
+            instance_id: Some(instance_id),
             instance_type_id: None,
             metadata: Some(rpc::forge::Metadata {
                 name: "newinstance".to_string(),
@@ -1255,13 +1249,10 @@ async fn test_network_security_group_propagation_impl(
     // peek into the db to get the internal id.  note that the state machine has not processed the instance yet
     // so getting the network via the api will not work.
     let mut txn = pool.clone().begin().await.unwrap();
-    let instance = crate::db::instance::Instance::find_by_id(
-        &mut txn,
-        InstanceId(Uuid::from_str(instance_id).unwrap()),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let instance = crate::db::instance::Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     txn.rollback().await.unwrap();
 
     let internal_interface_ids: Vec<_> = instance
@@ -1280,7 +1271,7 @@ async fn test_network_security_group_propagation_impl(
     {
         update_network_status_observation(
             &env,
-            instance_id,
+            &instance_id,
             good_network_security_group_id,
             &good_network_security_group.version,
             &dpu_machine_id,
@@ -1337,9 +1328,7 @@ async fn test_network_security_group_propagation_impl(
                     storage: None,
                     network_security_group_id: None,
                 }),
-                instance_id: Some(rpc::Uuid {
-                    value: instance_id.to_string(),
-                }),
+                instance_id: Some(instance_id),
                 metadata: Some(rpc::forge::Metadata {
                     name: "newinstance".to_string(),
                     description: "desc".to_string(),
@@ -1390,7 +1379,7 @@ async fn test_network_security_group_propagation_impl(
     {
         update_network_status_observation(
             &env,
-            instance_id,
+            &instance_id,
             good_network_security_group_id,
             &good_network_security_group.version,
             &dpu_machine_id,
@@ -1433,7 +1422,7 @@ async fn test_network_security_group_propagation_impl(
         .await
         .unwrap();
 
-    let instance_id2 = "16faf95e-dcb9-11ef-96b1-d3941046d310";
+    let instance_id2: InstanceId = uuid!("16faf95e-dcb9-11ef-96b1-d3941046d310").into();
     // Create an Instance
     let _ = env
         .api
@@ -1449,9 +1438,7 @@ async fn test_network_security_group_propagation_impl(
                 storage: None,
                 network_security_group_id: None,
             }),
-            instance_id: Some(rpc::Uuid {
-                value: instance_id2.to_string(),
-            }),
+            instance_id: Some(instance_id2),
             instance_type_id: None,
             metadata: Some(rpc::forge::Metadata {
                 name: "newinstance2".to_string(),
@@ -1466,13 +1453,10 @@ async fn test_network_security_group_propagation_impl(
     // peek into the db to get the internal id.  note that the state machine has not processed the instance yet
     // so getting the network via the api will not work.
     let mut txn = pool.clone().begin().await.unwrap();
-    let instance = crate::db::instance::Instance::find_by_id(
-        &mut txn,
-        InstanceId(Uuid::from_str(instance_id2).unwrap()),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let instance = crate::db::instance::Instance::find_by_id(&mut txn, instance_id2)
+        .await
+        .unwrap()
+        .unwrap();
     txn.rollback().await.unwrap();
 
     let internal_interface_ids2: Vec<_> = instance
@@ -1525,7 +1509,7 @@ async fn test_network_security_group_propagation_impl(
     {
         update_network_status_observation(
             &env,
-            instance_id2,
+            &instance_id2,
             good_network_security_group_id,
             &good_network_security_group.version,
             &dpu_machine_id,
@@ -1653,7 +1637,7 @@ async fn test_network_security_group_propagation_impl(
     {
         update_network_status_observation(
             &env,
-            instance_id,
+            &instance_id,
             good_network_security_group_id,
             &nsg_version,
             &dpu_machine_id,
@@ -1700,7 +1684,7 @@ async fn test_network_security_group_propagation_impl(
     {
         update_network_status_observation(
             &env,
-            instance_id2,
+            &instance_id2,
             good_network_security_group_id,
             &nsg_version,
             &dpu_machine_id,
@@ -1757,8 +1741,8 @@ async fn test_network_security_group_get_attachments(
     // Our known fixture network security group
     let good_network_security_group_id = "fd3ab096-d811-11ef-8fe9-7be4b2483448";
 
-    let vpc_id = "2ff5ba26-da6a-11ef-9c48-5b78e547a5e7";
-    let instance_id = "46c555e0-da6a-11ef-b86d-db132142d068";
+    let vpc_id: VpcId = uuid!("2ff5ba26-da6a-11ef-9c48-5b78e547a5e7").into();
+    let instance_id: InstanceId = uuid!("46c555e0-da6a-11ef-b86d-db132142d068").into();
 
     // Check attachments before doing anything else.
     // There should be no objects with any attached NSG.
@@ -1788,9 +1772,7 @@ async fn test_network_security_group_get_attachments(
     // Create a VPC
     let segment_id = env
         .create_vpc_and_tenant_segment_with_vpc_details(rpc::forge::VpcCreationRequest {
-            id: Some(rpc::Uuid {
-                value: vpc_id.to_string(),
-            }),
+            id: Some(vpc_id),
             name: "Tenant1".to_string(),
             tenant_organization_id: default_tenant_org.to_string(),
             tenant_keyset_id: None,
@@ -1818,9 +1800,7 @@ async fn test_network_security_group_get_attachments(
                 storage: None,
                 network_security_group_id: Some(good_network_security_group_id.to_string()),
             }),
-            instance_id: Some(rpc::Uuid {
-                value: instance_id.to_string(),
-            }),
+            instance_id: Some(instance_id),
             instance_type_id: None,
             metadata: Some(rpc::forge::Metadata {
                 name: "newinstance".to_string(),
@@ -1857,9 +1837,7 @@ async fn test_network_security_group_get_attachments(
     // Delete the instance
     env.api
         .release_instance(tonic::Request::new(rpc::forge::InstanceReleaseRequest {
-            id: Some(rpc::Uuid {
-                value: instance_id.to_string(),
-            }),
+            id: Some(instance_id),
             issue: None,
             is_repair_tenant: None,
         }))
@@ -1868,9 +1846,7 @@ async fn test_network_security_group_get_attachments(
     // Delete the VPC
     env.api
         .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
-            id: Some(rpc::Uuid {
-                value: vpc_id.to_string(),
-            }),
+            id: Some(vpc_id),
         }))
         .await
         .unwrap();

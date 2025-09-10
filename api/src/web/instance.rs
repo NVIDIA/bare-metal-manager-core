@@ -277,11 +277,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
                         .virtual_function_id
                         .map(|id| id.to_string())
                         .unwrap_or_default(),
-                    segment_id: interface
-                        .network_segment_id
-                        .clone()
-                        .unwrap_or_else(super::default_uuid)
-                        .to_string(),
+                    segment_id: interface.network_segment_id.unwrap_or_default().to_string(),
                     mac_address,
                     addresses: status.addresses.clone().join(", "),
                     gateways: status.gateways.clone().join(", "),
@@ -365,7 +361,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
             .unwrap_or_default();
 
         Self {
-            id: instance.id.clone().unwrap_or_default().value,
+            id: instance.id.map(|id| id.to_string()).unwrap_or_default(),
             machine_id: instance
                 .machine_id
                 .map(|id| id.to_string())
@@ -426,15 +422,24 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(instance_id): AxumPath<String>,
 ) -> Response {
-    let (show_json, instance_id) = match instance_id.strip_suffix(".json") {
+    let (show_json, instance_id_string) = match instance_id.strip_suffix(".json") {
         Some(instance_id) => (true, instance_id.to_string()),
         None => (false, instance_id),
     };
 
+    let instance_id = match instance_id_string.parse() {
+        Ok(id) => id,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid Instance ID {instance_id_string}: {e}"),
+            )
+                .into_response();
+        }
+    };
+
     let request = tonic::Request::new(forgerpc::InstancesByIdsRequest {
-        instance_ids: vec![rpc::Uuid {
-            value: instance_id.clone(),
-        }],
+        instance_ids: vec![instance_id],
     });
     let instance = match state
         .find_instances_by_ids(request)
@@ -442,7 +447,7 @@ pub async fn detail(
         .map(|response| response.into_inner())
     {
         Ok(x) if x.instances.is_empty() => {
-            return super::not_found_response(instance_id);
+            return super::not_found_response(instance_id_string);
         }
         Ok(x) if x.instances.len() != 1 => {
             return (
@@ -456,7 +461,7 @@ pub async fn detail(
         }
         Ok(mut x) => x.instances.remove(0),
         Err(err) if err.code() == tonic::Code::NotFound => {
-            return super::not_found_response(instance_id);
+            return super::not_found_response(instance_id_string);
         }
         Err(err) => {
             tracing::error!(%err, %instance_id, "find_instances");

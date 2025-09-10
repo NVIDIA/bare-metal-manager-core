@@ -25,6 +25,7 @@ use crate::model::storage::{
 };
 use crate::model::tenant::TenantOrganizationId;
 use ::rpc::uuid::machine::MachineId;
+use rpc::uuid::instance::InstanceId;
 
 /// actual carbide storage objects handling happens here
 /// calls go to api/src/storage.rs for nvmesh cluster mgmt api
@@ -349,18 +350,12 @@ impl StorageVolume {
     pub async fn create(
         txn: &mut PgConnection,
         attrs: &StorageVolumeAttributes,
-        instance_id: Option<Uuid>,
-        dpu_id: Option<&MachineId>,
+        instance_id: Option<InstanceId>,
+        dpu_id: Option<MachineId>,
         nvmesh_vol: &nvmesh::Volume,
     ) -> Result<Self, DatabaseError> {
-        let mut instance_ids: Vec<Uuid> = Vec::new();
-        if let Some(instance_id) = instance_id {
-            instance_ids.push(instance_id);
-        }
-        let mut machine_ids: Vec<MachineId> = Vec::new();
-        if let Some(dpu_id) = dpu_id {
-            machine_ids.push(*dpu_id);
-        }
+        let instance_id = instance_id.map(|id| vec![id]).unwrap_or_default();
+        let dpu_machine_id = dpu_id.map(|id| vec![id]).unwrap_or_default();
         let nvmesh_uuid: Uuid = Uuid::try_from(nvmesh_vol.uuid.as_str()).map_err(|e| {
             DatabaseError::new(
                 "storage_volume create",
@@ -375,8 +370,8 @@ impl StorageVolume {
                 attached: false,
                 status_message: None,
             },
-            instance_id: instance_ids,
-            dpu_machine_id: machine_ids,
+            instance_id,
+            dpu_machine_id,
             created_at: nvmesh_vol.date_created.clone(),
             modified_at: nvmesh_vol.date_modified.clone(),
         };
@@ -400,7 +395,7 @@ impl StorageVolume {
     pub async fn attach(
         &mut self,
         txn: &mut PgConnection,
-        instance_id: &Uuid,
+        instance_id: &InstanceId,
         dpu_machine_id: &MachineId,
     ) -> Result<Self, DatabaseError> {
         self.status.attached = true;
@@ -418,11 +413,11 @@ impl StorageVolume {
     pub async fn detach(
         &mut self,
         txn: &mut PgConnection,
-        instance_id: &Uuid,
+        instance_id: &InstanceId,
         dpu_machine_id: &MachineId,
     ) -> Result<Self, DatabaseError> {
-        self.instance_id.retain(|id| *id != *instance_id);
-        self.dpu_machine_id.retain(|id| *id != *dpu_machine_id);
+        self.instance_id.retain(|id| id != instance_id);
+        self.dpu_machine_id.retain(|id| id != dpu_machine_id);
         if self.dpu_machine_id.is_empty() {
             self.status.attached = false;
         }

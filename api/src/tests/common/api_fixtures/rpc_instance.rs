@@ -25,15 +25,15 @@ impl RpcInstance {
     }
 
     pub fn id(&self) -> InstanceId {
-        self.0.id.as_ref().unwrap().value.parse().unwrap()
+        self.0.id.unwrap()
     }
 
     pub fn machine_id(&self) -> MachineId {
         self.0.machine_id.unwrap()
     }
 
-    pub fn rpc_id(&self) -> Option<rpc::Uuid> {
-        self.0.id.clone()
+    pub fn rpc_id(&self) -> Option<InstanceId> {
+        self.0.id
     }
 
     pub fn inner(&self) -> &rpc::forge::Instance {

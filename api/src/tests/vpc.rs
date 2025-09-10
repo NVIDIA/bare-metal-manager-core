@@ -88,7 +88,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .await
         .expect("Unable to create transaction on database pool");
 
-    let no_org_vpc_id: VpcId = no_org_vpc.id.expect("should have id").try_into()?;
+    let no_org_vpc_id: VpcId = no_org_vpc.id.expect("should have id");
 
     // Try to update to invalid metadata
     for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(true) {
@@ -96,7 +96,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
             .api
             .update_vpc(tonic::Request::new(rpc::forge::VpcUpdateRequest {
                 name: "".to_string(),
-                id: Some(no_org_vpc_id.into()),
+                id: Some(no_org_vpc_id),
                 if_version_match: None,
                 metadata: Some(invalid_metadata.clone()),
                 network_security_group_id: None,
@@ -251,7 +251,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let mut txn = env.pool.begin().await?;
     let vpcs = Vpc::find_by(&mut txn, ObjectColumnFilter::<vpc::IdColumn>::All).await?;
     assert_eq!(vpcs.len(), 1);
-    let forge_vpc_id: VpcId = forge_vpc.id.expect("should have id").try_into()?;
+    let forge_vpc_id: VpcId = forge_vpc.id.expect("should have id");
     assert_eq!(vpcs[0].id, forge_vpc_id);
 
     let vpc = Vpc::try_delete(&mut txn, forge_vpc_id).await?.unwrap();
@@ -298,7 +298,7 @@ async fn create_vpc_with_labels(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         .unwrap()
         .into_inner();
 
-    let vpc_id: VpcId = forge_vpc.id.expect("should have id").try_into()?;
+    let vpc_id: VpcId = forge_vpc.id.expect("should have id");
 
     assert_eq!(
         &forge_vpc.metadata.clone().unwrap().name,
@@ -335,7 +335,7 @@ async fn create_vpc_with_labels(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     );
 
     let request_vpcs = tonic::Request::new(rpc::forge::VpcsByIdsRequest {
-        vpc_ids: vec![vpc_id.into()],
+        vpc_ids: vec![vpc_id],
     });
 
     let vpc_list = env
@@ -530,7 +530,7 @@ async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     assert!(forge_vpc_2.vni.is_some());
     assert_ne!(forge_vpc_1.vni, forge_vpc_2.vni);
 
-    let vpc_2_id = forge_vpc_2.id.unwrap().try_into()?;
+    let vpc_2_id = forge_vpc_2.id.unwrap();
 
     // We can only update the VNI on a VPC that doesn't already have one, so clear it first
     let mut txn = env.pool.begin().await?;
@@ -571,15 +571,13 @@ async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Er
 #[crate::sqlx_test]
 async fn test_vpc_with_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let id = uuid::Uuid::new_v4();
+    let id = VpcId::from(uuid::Uuid::new_v4());
 
     // No network_virtualization_type, should default
     let forge_vpc = env
         .api
         .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-            id: Some(::rpc::Uuid {
-                value: id.to_string(),
-            }),
+            id: Some(id),
             name: "".to_string(),
             tenant_organization_id: String::new(),
             tenant_keyset_id: None,
@@ -595,7 +593,7 @@ async fn test_vpc_with_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
         .unwrap()
         .into_inner();
 
-    assert_eq!(forge_vpc.id.unwrap().value, id.to_string());
+    assert_eq!(forge_vpc.id.unwrap(), id);
     Ok(())
 }
 
@@ -623,20 +621,20 @@ async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Repo
         .unwrap()
         .into_inner();
 
-    let vpc_id = resp.id.clone().unwrap();
+    let vpc_id = resp.id.unwrap();
     assert_eq!(resp.name, "test_vpc");
 
     let vpc_list = env
         .api
         .find_vpcs(tonic::Request::new(rpc::forge::VpcSearchQuery {
-            id: Some(vpc_id.clone()),
+            id: Some(vpc_id),
             name: None,
         }))
         .await
         .unwrap()
         .into_inner();
     assert_eq!(vpc_list.vpcs.len(), 1);
-    assert_eq!(vpc_list.vpcs[0].id, Some(vpc_id.clone()));
+    assert_eq!(vpc_list.vpcs[0].id, Some(vpc_id));
     assert_eq!(vpc_list.vpcs[0].name, "test_vpc");
 
     let vpc_list = env
@@ -649,13 +647,13 @@ async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Repo
         .unwrap()
         .into_inner();
     assert_eq!(vpc_list.vpcs.len(), 1);
-    assert_eq!(vpc_list.vpcs[0].id, Some(vpc_id.clone()));
+    assert_eq!(vpc_list.vpcs[0].id, Some(vpc_id));
     assert_eq!(vpc_list.vpcs[0].name, "test_vpc");
 
     // Delete the first time. Queries should now yield no results
     env.api
         .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
-            id: Some(vpc_id.clone()),
+            id: Some(vpc_id),
         }))
         .await
         .unwrap()
@@ -664,7 +662,7 @@ async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Repo
     let vpc_list = env
         .api
         .find_vpcs(tonic::Request::new(rpc::forge::VpcSearchQuery {
-            id: Some(vpc_id.clone()),
+            id: Some(vpc_id),
             name: None,
         }))
         .await
@@ -686,7 +684,7 @@ async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Repo
     let delete_result = env
         .api
         .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
-            id: Some(vpc_id.clone()),
+            id: Some(vpc_id),
         }))
         .await;
     let err = delete_result.expect_err("Deletion should fail");
@@ -786,7 +784,7 @@ async fn create_update_network_security_group_for_vpc(
     let _ = env
         .api
         .update_vpc(tonic::Request::new(rpc::forge::VpcUpdateRequest {
-            id: vpc_id.clone(),
+            id: vpc_id,
             if_version_match: None,
             name: "".to_string(),
             network_security_group_id: bad_network_security_group_id.clone(),
@@ -803,7 +801,7 @@ async fn create_update_network_security_group_for_vpc(
     let vpc = env
         .api
         .update_vpc(tonic::Request::new(rpc::forge::VpcUpdateRequest {
-            id: vpc_id.clone(),
+            id: vpc_id,
             if_version_match: None,
             name: "".to_string(),
             network_security_group_id: good_network_security_group_id.clone(),
@@ -829,7 +827,7 @@ async fn create_update_network_security_group_for_vpc(
     let vpc = env
         .api
         .update_vpc(tonic::Request::new(rpc::forge::VpcUpdateRequest {
-            id: vpc_id.clone(),
+            id: vpc_id,
             if_version_match: None,
             name: "".to_string(),
             network_security_group_id: None,

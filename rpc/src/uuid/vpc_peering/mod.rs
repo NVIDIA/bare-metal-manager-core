@@ -13,26 +13,24 @@
 use std::{fmt, str::FromStr};
 
 use crate::errors::RpcDataConversionError;
+use crate::grpc_uuid_message;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
-use sqlx::{FromRow, Type};
+use sqlx::{
+    FromRow, Type,
+    postgres::{PgHasArrayType, PgTypeInfo},
+};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, Default)]
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct VpcPeeringId(pub uuid::Uuid);
 
+grpc_uuid_message!(VpcPeeringId);
+
 impl From<VpcPeeringId> for uuid::Uuid {
     fn from(id: VpcPeeringId) -> Self {
         id.0
-    }
-}
-
-impl From<VpcPeeringId> for crate::common::Uuid {
-    fn from(id: VpcPeeringId) -> Self {
-        crate::common::Uuid {
-            value: id.0.to_string(),
-        }
     }
 }
 
@@ -51,15 +49,19 @@ impl FromStr for VpcPeeringId {
     }
 }
 
-impl TryFrom<crate::common::Uuid> for VpcPeeringId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: crate::common::Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
 impl fmt::Display for VpcPeeringId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl PgHasArrayType for VpcPeeringId {
+    fn array_type_info() -> PgTypeInfo {
+        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
+    }
+
+    fn array_compatible(ty: &PgTypeInfo) -> bool {
+        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
     }
 }

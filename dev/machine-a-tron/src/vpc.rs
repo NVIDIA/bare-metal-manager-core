@@ -1,16 +1,15 @@
-use ::rpc::Timestamp;
-use std::fmt::Debug;
-use std::sync::Arc;
-use uuid::Uuid;
-
 use crate::{
     config::MachineATronContext,
     tui::{UiUpdate, VpcDetails},
 };
+use ::rpc::Timestamp;
+use rpc::uuid::vpc::VpcId;
+use std::fmt::Debug;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct Vpc {
-    pub vpc_id: Uuid,
+    pub vpc_id: VpcId,
     pub app_context: Arc<MachineATronContext>,
 
     pub vpc_name: String,
@@ -29,7 +28,7 @@ impl Vpc {
         let vpc = app_context.api_client().create_vpc().await.unwrap();
 
         let new_vpc = Vpc {
-            vpc_id: uuid::Uuid::parse_str(&vpc.id.unwrap().value).expect("VPC must have an ID."),
+            vpc_id: vpc.id.expect("VPC must have an ID."),
             app_context,
             vpc_name: vpc.name,
             logs: Vec::default(),

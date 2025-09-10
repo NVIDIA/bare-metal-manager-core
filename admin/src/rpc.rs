@@ -11,6 +11,7 @@
  */
 
 use ::rpc::Machine;
+use ::rpc::NetworkSegment;
 use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
     self as rpc, BmcCredentialStatusResponse, BmcEndpointRequest,
@@ -21,10 +22,9 @@ use ::rpc::forge::{
     MachineHardwareInfoUpdateType, NetworkPrefix, NetworkSecurityGroupAttributes,
     NetworkSegmentCreationRequest, NetworkSegmentType, PowerState, SshRequest,
     UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest, VpcCreationRequest,
-    VpcPeeringDeletionResult, VpcSearchQuery, VpcVirtualizationType,
+    VpcSearchQuery, VpcVirtualizationType,
 };
 use ::rpc::uuid::machine::MachineId;
-use ::rpc::{NetworkSegment, Uuid};
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -35,6 +35,13 @@ use crate::cfg::cli_options::{
 use crate::rpc::cli_options::UpdateInstanceOS;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge_api_client::ForgeApiClient;
+use ::rpc::uuid::dpa_interface::DpaInterfaceId;
+use ::rpc::uuid::infiniband::IBPartitionId;
+use ::rpc::uuid::instance::InstanceId;
+use ::rpc::uuid::machine::MachineInterfaceId;
+use ::rpc::uuid::network::NetworkSegmentId;
+use ::rpc::uuid::vpc::VpcId;
+use ::rpc::uuid::vpc_peering::VpcPeeringId;
 use mac_address::MacAddress;
 
 /// [`ApiClient`] is a thin wrapper around [`ForgeApiClient`], which mainly adds some convenience
@@ -126,10 +133,7 @@ impl ApiClient {
         Ok(())
     }
 
-    pub async fn release_instances(
-        &self,
-        instance_ids: Vec<::rpc::common::Uuid>,
-    ) -> CarbideCliResult<()> {
+    pub async fn release_instances(&self, instance_ids: Vec<InstanceId>) -> CarbideCliResult<()> {
         for instance_id in instance_ids {
             let request = rpc::InstanceReleaseRequest {
                 id: Some(instance_id),
@@ -264,12 +268,9 @@ impl ApiClient {
 
     pub async fn get_one_instance(
         &self,
-        instance_id: ::rpc::common::Uuid,
+        instance_id: InstanceId,
     ) -> CarbideCliResult<rpc::InstanceList> {
-        let instances = self
-            .0
-            .find_instances_by_ids(vec![instance_id.clone()])
-            .await?;
+        let instances = self.0.find_instances_by_ids(vec![instance_id]).await?;
 
         Ok(instances)
     }
@@ -324,9 +325,9 @@ impl ApiClient {
 
     pub async fn get_one_segment(
         &self,
-        segment_id: ::rpc::common::Uuid,
+        segment_id: NetworkSegmentId,
     ) -> CarbideCliResult<rpc::NetworkSegmentList> {
-        let segments = self.get_segments_by_ids(&[segment_id.clone()]).await?;
+        let segments = self.get_segments_by_ids(&[segment_id]).await?;
 
         Ok(segments)
     }
@@ -348,11 +349,11 @@ impl ApiClient {
 
     async fn get_segments_by_ids(
         &self,
-        segment_ids: &[::rpc::common::Uuid],
+        network_segments_ids: &[NetworkSegmentId],
     ) -> CarbideCliResult<rpc::NetworkSegmentList> {
         let request = rpc::NetworkSegmentsByIdsRequest {
-            network_segments_ids: Vec::from(segment_ids),
-            include_history: segment_ids.len() == 1, // only request it when getting data for single resource
+            network_segments_ids: network_segments_ids.to_vec(),
+            include_history: network_segments_ids.len() == 1, // only request it when getting data for single resource
             include_num_free_ips: true,
         };
         self.0
@@ -363,7 +364,7 @@ impl ApiClient {
 
     pub async fn get_domains(
         &self,
-        id: Option<::rpc::common::Uuid>,
+        id: Option<::rpc::uuid::domain::DomainId>,
     ) -> CarbideCliResult<rpc::DomainList> {
         let request = rpc::DomainSearchQuery { id, name: None };
         self.0
@@ -462,7 +463,7 @@ impl ApiClient {
 
     pub async fn set_boot_override(
         &self,
-        machine_interface_id: ::rpc::common::Uuid,
+        machine_interface_id: MachineInterfaceId,
         custom_pxe_path: Option<&Path>,
         custom_user_data_path: Option<&Path>,
     ) -> CarbideCliResult<()> {
@@ -524,7 +525,7 @@ impl ApiClient {
 
     pub async fn get_all_machines_interfaces(
         &self,
-        id: Option<::rpc::common::Uuid>,
+        id: Option<MachineInterfaceId>,
     ) -> CarbideCliResult<rpc::InterfaceList> {
         let request = rpc::InterfaceSearchQuery { id, ip: None };
         self.0
@@ -844,7 +845,7 @@ impl ApiClient {
     // Given an DPA inteface ID, fetch it from Carbide and return it
     pub async fn get_one_dpa(
         &self,
-        dpa_id: ::rpc::common::Uuid,
+        dpa_id: DpaInterfaceId,
     ) -> CarbideCliResult<rpc::DpaInterfaceList> {
         let request = rpc::DpaInterfacesByIdsRequest {
             ids: vec![dpa_id],
@@ -852,12 +853,6 @@ impl ApiClient {
         };
 
         Ok(self.0.find_dpa_interfaces_by_ids(request).await?)
-    }
-
-    pub async fn get_one_vpc(&self, vpc_id: ::rpc::common::Uuid) -> CarbideCliResult<rpc::VpcList> {
-        let vpcs = self.0.find_vpcs_by_ids(&[vpc_id.clone()]).await?;
-
-        Ok(vpcs)
     }
 
     pub async fn get_vpc_by_name(&self, name: &str) -> CarbideCliResult<rpc::VpcList> {
@@ -872,7 +867,7 @@ impl ApiClient {
         Ok(vpcs)
     }
 
-    pub async fn create_vpc(&self, name: &str, vpc_id: ::rpc::Uuid) -> CarbideCliResult<rpc::Vpc> {
+    pub async fn create_vpc(&self, name: &str, vpc_id: VpcId) -> CarbideCliResult<rpc::Vpc> {
         let vpc = match self
             .0
             .create_vpc(VpcCreationRequest {
@@ -901,8 +896,8 @@ impl ApiClient {
 
     pub async fn create_network_segment(
         &self,
-        id: Uuid,
-        vpc_id: Option<Uuid>,
+        id: NetworkSegmentId,
+        vpc_id: Option<VpcId>,
         name: String,
         prefix: String,
         gateway: Option<String>,
@@ -986,8 +981,8 @@ impl ApiClient {
 
     pub async fn create_vpc_peering(
         &self,
-        vpc_id: Option<::rpc::common::Uuid>,
-        peer_vpc_id: Option<::rpc::common::Uuid>,
+        vpc_id: Option<VpcId>,
+        peer_vpc_id: Option<VpcId>,
     ) -> CarbideCliResult<rpc::VpcPeering> {
         let request = rpc::VpcPeeringCreationRequest {
             vpc_id,
@@ -1001,7 +996,7 @@ impl ApiClient {
 
     pub async fn find_vpc_peering_ids(
         &self,
-        vpc_id: Option<::rpc::common::Uuid>,
+        vpc_id: Option<VpcId>,
     ) -> CarbideCliResult<rpc::VpcPeeringIdList> {
         let request = rpc::VpcPeeringSearchFilter { vpc_id };
         self.0
@@ -1012,22 +1007,11 @@ impl ApiClient {
 
     pub async fn find_vpc_peerings_by_ids(
         &self,
-        vpc_peering_ids: Vec<::rpc::common::Uuid>,
+        vpc_peering_ids: Vec<VpcPeeringId>,
     ) -> CarbideCliResult<rpc::VpcPeeringList> {
         let request = rpc::VpcPeeringsByIdsRequest { vpc_peering_ids };
         self.0
             .find_vpc_peerings_by_ids(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
-    }
-
-    pub async fn delete_vpc_peering(
-        &self,
-        id: Option<::rpc::common::Uuid>,
-    ) -> CarbideCliResult<VpcPeeringDeletionResult> {
-        let request = rpc::VpcPeeringDeletionRequest { id };
-        self.0
-            .delete_vpc_peering(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)
     }
@@ -1055,11 +1039,9 @@ impl ApiClient {
 
     pub async fn get_one_ib_partition(
         &self,
-        ib_partition_id: ::rpc::common::Uuid,
+        ib_partition_id: IBPartitionId,
     ) -> CarbideCliResult<rpc::IbPartitionList> {
-        let partitions = self
-            .get_ib_partitions_by_ids(&[ib_partition_id.clone()])
-            .await?;
+        let partitions = self.get_ib_partitions_by_ids(&[ib_partition_id]).await?;
 
         Ok(partitions)
     }
@@ -1081,7 +1063,7 @@ impl ApiClient {
 
     async fn get_ib_partitions_by_ids(
         &self,
-        ids: &[::rpc::common::Uuid],
+        ids: &[IBPartitionId],
     ) -> CarbideCliResult<rpc::IbPartitionList> {
         let request = rpc::IbPartitionsByIdsRequest {
             ib_partition_ids: Vec::from(ids),
@@ -1166,7 +1148,10 @@ impl ApiClient {
             .map_err(CarbideCliError::ApiInvocationError)
     }
 
-    async fn get_subnet_ids_for_names(&self, subnets: &Vec<String>) -> CarbideCliResult<Vec<Uuid>> {
+    async fn get_subnet_ids_for_names(
+        &self,
+        subnets: &Vec<String>,
+    ) -> CarbideCliResult<Vec<NetworkSegmentId>> {
         // find all the segment ids for the specified subnets.
         let mut network_segment_ids = Vec::default();
         for network_segment_name in subnets {
@@ -1264,7 +1249,7 @@ impl ApiClient {
 
                 interface_config.push(rpc::InstanceInterfaceConfig {
                     function_type: rpc::InterfaceFunctionType::Physical as i32,
-                    network_segment_id: Some(network_segment_id.clone()), // to support legacy.
+                    network_segment_id: Some(network_segment_id), // to support legacy.
                     network_details: Some(NetworkDetails::SegmentId(network_segment_id)),
                     device: device.clone(),
                     device_instance,
@@ -1275,9 +1260,9 @@ impl ApiClient {
                     for vf_network_segment_id in vf_network_segment_chunks {
                         interface_config.push(rpc::InstanceInterfaceConfig {
                             function_type: rpc::InterfaceFunctionType::Virtual as i32,
-                            network_segment_id: Some(vf_network_segment_id.clone()), // to support legacy.
+                            network_segment_id: Some(*vf_network_segment_id), // to support legacy.
                             network_details: Some(NetworkDetails::SegmentId(
-                                vf_network_segment_id.clone(),
+                                *vf_network_segment_id,
                             )),
                             device: device.clone(),
                             device_instance,
@@ -1339,9 +1324,7 @@ impl ApiClient {
                     let new_interface = rpc::InstanceInterfaceConfig {
                         function_type: rpc::InterfaceFunctionType::Physical as i32,
                         network_segment_id: None,
-                        network_details: Some(NetworkDetails::VpcPrefixId(::rpc::Uuid {
-                            value: vpc_prefix_id.clone(),
-                        })),
+                        network_details: Some(NetworkDetails::VpcPrefixId(*vpc_prefix_id)),
                         device: Some(pci_properties.device.clone()),
                         device_instance,
                         virtual_function_id: None,
@@ -1355,9 +1338,9 @@ impl ApiClient {
                             let new_interface = rpc::InstanceInterfaceConfig {
                                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
                                 network_segment_id: None,
-                                network_details: Some(NetworkDetails::VpcPrefixId(::rpc::Uuid {
-                                    value: vf_vpc_prefix_id.clone(),
-                                })),
+                                network_details: Some(NetworkDetails::VpcPrefixId(
+                                    *vf_vpc_prefix_id,
+                                )),
                                 device: Some(pci_properties.device.clone()),
                                 device_instance,
                                 virtual_function_id: Some(vf_function_id),
@@ -1466,20 +1449,16 @@ impl ApiClient {
         update_instance: UpdateInstanceOS,
         modified_by: Option<String>,
     ) -> CarbideCliResult<rpc::Instance> {
-        let instance_uuid = ::rpc::Uuid {
-            value: update_instance.instance,
-        };
-
         let find_response = self
             .0
-            .find_instances_by_ids(vec![instance_uuid.clone()])
+            .find_instances_by_ids(vec![update_instance.instance])
             .await
             .map_err(CarbideCliError::ApiInvocationError)?;
 
         let instance = find_response
             .instances
             .first()
-            .ok_or_else(|| CarbideCliError::InstanceNotFound(instance_uuid.clone()))?;
+            .ok_or_else(|| CarbideCliError::InstanceNotFound(update_instance.instance))?;
 
         let config = instance.config.clone().map(|mut c| {
             c.os = Some(update_instance.os);
@@ -1508,7 +1487,7 @@ impl ApiClient {
         });
 
         let update_instance_request = rpc::InstanceConfigUpdateRequest {
-            instance_id: Some(instance_uuid),
+            instance_id: Some(update_instance.instance),
             if_version_match: Some(instance.config_version.clone()),
             config,
             metadata,
@@ -1807,13 +1786,13 @@ impl ApiClient {
 
     pub async fn update_instance_config(
         &self,
-        instance_id: String,
+        instance_id: InstanceId,
         version: String,
         config: rpc::InstanceConfig,
         metadata: Option<rpc::Metadata>,
     ) -> CarbideCliResult<rpc::Instance> {
         let request = rpc::InstanceConfigUpdateRequest {
-            instance_id: Some(::rpc::Uuid { value: instance_id }),
+            instance_id: Some(instance_id),
             if_version_match: Some(version),
             config: Some(config),
             metadata,
@@ -1826,7 +1805,7 @@ impl ApiClient {
 
     pub async fn update_vpc_config(
         &self,
-        vpc_id: String,
+        vpc_id: VpcId,
         version: String,
         name: String,
         metadata: Option<rpc::Metadata>,
@@ -1834,7 +1813,7 @@ impl ApiClient {
     ) -> CarbideCliResult<rpc::Vpc> {
         let request = rpc::VpcUpdateRequest {
             name,
-            id: Some(::rpc::Uuid { value: vpc_id }),
+            id: Some(vpc_id),
             if_version_match: Some(version),
             metadata,
             network_security_group_id,

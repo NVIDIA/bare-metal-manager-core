@@ -134,11 +134,7 @@ async fn test_find_vpcs_by_ids_over_max(pool: sqlx::PgPool) {
     // create vector of IDs with more than max allowed
     // it does not matter if these are real or not, since we are testing an error back for passing more than max
     let end_index: u32 = env.config.max_find_by_ids + 1;
-    let vpc_ids: Vec<::rpc::common::Uuid> = (1..=end_index)
-        .map(|_| ::rpc::common::Uuid {
-            value: uuid::Uuid::new_v4().to_string(),
-        })
-        .collect();
+    let vpc_ids = (1..=end_index).map(|_| VpcId::default()).collect();
 
     let request = tonic::Request::new(rpc::VpcsByIdsRequest { vpc_ids });
 

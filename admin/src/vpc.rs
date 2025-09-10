@@ -17,6 +17,7 @@ use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::{self as forgerpc};
 use prettytable::{Table, row};
+use rpc::uuid::vpc::VpcId;
 
 pub async fn handle_show(
     args: ShowVpc,
@@ -25,7 +26,9 @@ pub async fn handle_show(
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
-    if args.id.is_empty() {
+    if let Some(id) = args.id {
+        show_vpc_details(id, is_json, api_client).await?;
+    } else {
         show_vpcs(
             is_json,
             api_client,
@@ -36,9 +39,7 @@ pub async fn handle_show(
             args.label_value,
         )
         .await?;
-        return Ok(());
     }
-    show_vpc_details(args.id, is_json, api_client).await?;
     Ok(())
 }
 
@@ -72,14 +73,12 @@ async fn show_vpcs(
     Ok(())
 }
 
-async fn show_vpc_details(id: String, json: bool, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let vpc_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
-        .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
-        .into();
-    let vpcs = match api_client.get_one_vpc(vpc_id).await {
-        Ok(vpcs) => vpcs,
-        Err(e) => return Err(e),
-    };
+async fn show_vpc_details(
+    vpc_id: VpcId,
+    json: bool,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    let vpcs = api_client.0.find_vpcs_by_ids(vec![vpc_id]).await?;
 
     if vpcs.vpcs.len() != 1 {
         return Err(CarbideCliError::GenericError("Unknown VPC ID".to_string()));
@@ -151,7 +150,7 @@ fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
     let mut lines = String::new();
 
     let data = vec![
-        ("ID", vpc.id.clone().unwrap_or_default().value),
+        ("ID", vpc.id.unwrap_or_default().to_string()),
         ("NAME", vpc.name.clone()),
         ("TENANT ORG", vpc.tenant_organization_id.clone()),
         (
@@ -203,20 +202,13 @@ pub async fn set_network_virtualization_type(
     api_client: &ApiClient,
     args: SetVpcVirt,
 ) -> CarbideCliResult<()> {
-    let vpc_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&args.id)
-        .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
-        .into();
-
     // TODO(chet): This should probably just be implied
     // and handled as part of set_vpc_network_virtualization_type,
     // and if it's not found, just return that. BUT, since if_version_match
     // comes into play, an `fetch_one` error might be returned if
     // the VPC doesn't exist, OR if there's a version mismatch, so
     // it can be kind of misleading. For now, just do this.
-    let mut vpcs = match api_client.get_one_vpc(vpc_id).await {
-        Ok(vpcs) => vpcs,
-        Err(e) => return Err(e),
-    };
+    let mut vpcs = api_client.0.find_vpcs_by_ids(&[args.id]).await?;
 
     if vpcs.vpcs.len() != 1 {
         return Err(CarbideCliError::GenericError("Unknown VPC ID".to_string()));

@@ -29,6 +29,7 @@ use crate::model::storage::{
 };
 use crate::model::tenant::TenantOrganizationId;
 use ::rpc::uuid::machine::MachineId;
+use rpc::uuid::instance::InstanceId;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StorageError {
@@ -189,7 +190,7 @@ pub async fn create_volume(
 pub async fn attach_volume_to_client(
     txn: &mut PgConnection,
     volume_id: Uuid,
-    instance_id: Uuid,
+    instance_id: InstanceId,
     dpu_machine_id: &MachineId,
     nvmesh_api: &dyn Nvmesh,
 ) -> Result<StorageVolume, StorageError> {
@@ -222,7 +223,7 @@ pub async fn attach_volume_to_client(
 pub async fn detach_volume_from_client(
     txn: &mut PgConnection,
     volume_id: Uuid,
-    instance_id: Uuid,
+    instance_id: InstanceId,
     dpu_machine_id: &MachineId,
     nvmesh_api: &dyn Nvmesh,
 ) -> Result<StorageVolume, StorageError> {

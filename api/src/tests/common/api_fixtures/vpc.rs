@@ -13,6 +13,7 @@
 use super::TestEnv;
 use crate::tests::common::api_fixtures::instance::default_tenant_config;
 use ::rpc::forge as rpc;
+use ::rpc::uuid::vpc::VpcId;
 use rpc::forge_server::Forge;
 
 pub async fn create_vpc(
@@ -20,19 +21,17 @@ pub async fn create_vpc(
     name: String,
     tenant_org_id: Option<String>,
     vpc_metadata: Option<rpc::Metadata>,
-) -> (uuid::Uuid, rpc::Vpc) {
+) -> (VpcId, rpc::Vpc) {
     let tenant_config = default_tenant_config();
 
-    let vpc_id = uuid::Uuid::new_v4();
+    let vpc_id = VpcId::from(uuid::Uuid::new_v4());
     let config = rpc::VpcCreationRequest {
         name: "".to_string(),
         tenant_organization_id: tenant_org_id.unwrap_or(tenant_config.tenant_organization_id),
         tenant_keyset_id: None,
         network_virtualization_type: None,
         network_security_group_id: None,
-        id: Some(::rpc::common::Uuid {
-            value: vpc_id.to_string(),
-        }),
+        id: Some(vpc_id),
         metadata: Some(rpc::Metadata {
             name,
             description: vpc_metadata

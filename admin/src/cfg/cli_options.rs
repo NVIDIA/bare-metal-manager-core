@@ -29,6 +29,13 @@ use forge_ssh::ssh::{
 use libredfish::model::update_service::ComponentType;
 use rpc::admin_cli::OutputFormat;
 use rpc::forge::{OperatingSystem, RouteServerSourceType, SshTimeoutConfig};
+use rpc::uuid::domain::DomainId;
+use rpc::uuid::dpa_interface::DpaInterfaceId;
+use rpc::uuid::infiniband::IBPartitionId;
+use rpc::uuid::instance::InstanceId;
+use rpc::uuid::machine::MachineInterfaceId;
+use rpc::uuid::network::NetworkSegmentId;
+use rpc::uuid::vpc_peering::VpcPeeringId;
 use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
 
@@ -793,12 +800,12 @@ pub enum BootOverrideAction {
 
 #[derive(Parser, Debug)]
 pub struct BootOverride {
-    pub interface_id: String,
+    pub interface_id: MachineInterfaceId,
 }
 
 #[derive(Parser, Debug)]
 pub struct BootOverrideSet {
-    pub interface_id: String,
+    pub interface_id: MachineInterfaceId,
     #[clap(short = 'p', long)]
     pub custom_pxe: Option<String>,
     #[clap(short = 'u', long)]
@@ -1824,7 +1831,7 @@ pub struct ShowInstance {
 #[derive(Parser, Debug)]
 pub struct RebootInstance {
     #[clap(short, long)]
-    pub instance: String,
+    pub instance: InstanceId,
 
     #[clap(short, long, action)]
     pub custom_pxe: bool,
@@ -1862,7 +1869,7 @@ pub struct AllocateInstance {
     pub subnet: Vec<String>,
 
     #[clap(short, long, help = "The VPC prefix to assign to a PF")]
-    pub vpc_prefix_id: Vec<String>,
+    pub vpc_prefix_id: Vec<VpcPrefixId>,
 
     #[clap(short, long)]
     // This will not be needed after vpc_prefix implementation.
@@ -1897,7 +1904,7 @@ pub struct AllocateInstance {
     pub vf_subnet: Vec<String>,
 
     #[clap(long, help = "The VPC prefix to assign to a VF")]
-    pub vf_vpc_prefix_id: Vec<String>,
+    pub vf_vpc_prefix_id: Vec<VpcPrefixId>,
 
     #[clap(
         long,
@@ -1909,7 +1916,7 @@ pub struct AllocateInstance {
 #[derive(Parser, Debug)]
 pub struct UpdateInstanceOS {
     #[clap(short, long, required(true))]
-    pub instance: String,
+    pub instance: InstanceId,
     #[clap(
         long,
         required(true),
@@ -1937,10 +1944,10 @@ pub struct ShowDomain {
     pub all: bool,
 
     #[clap(
-        default_value(""),
+        default_value(None),
         help = "The domain to query, leave empty for all (default)"
     )]
-    pub domain: String,
+    pub domain: Option<DomainId>,
 }
 
 #[derive(Parser, Debug)]
@@ -1952,10 +1959,10 @@ pub enum NetworkSegment {
 #[derive(Parser, Debug)]
 pub struct ShowNetwork {
     #[clap(
-        default_value(""),
+        default_value(None),
         help = "The network segment to query, leave empty for all (default)"
     )]
-    pub network: String,
+    pub network: Option<NetworkSegmentId>,
 
     #[clap(short, long, help = "The Tenant Org ID to query")]
     pub tenant_org_id: Option<String>,
@@ -2192,10 +2199,10 @@ pub struct ShowMachineInterfaces {
     pub all: bool,
 
     #[clap(
-        default_value(""),
+        default_value(None),
         help = "The interface ID to query, leave empty for all (default)"
     )]
-    pub interface_id: String,
+    pub interface_id: Option<MachineInterfaceId>,
 
     #[clap(long, action)]
     pub more: bool,
@@ -2204,7 +2211,7 @@ pub struct ShowMachineInterfaces {
 #[derive(Parser, Debug)]
 pub struct DeleteMachineInterfaces {
     #[clap(help = "The interface ID to delete. Redeploy kea after deleting machine interfaces.")]
-    pub interface_id: String,
+    pub interface_id: MachineInterfaceId,
 }
 
 #[derive(Parser, Debug)]
@@ -2407,10 +2414,10 @@ pub enum VpcOptions {
 #[derive(Parser, Debug)]
 pub struct ShowVpc {
     #[clap(
-        default_value(""),
+        default_value(None),
         help = "The VPC ID to query, leave empty for all (default)"
     )]
-    pub id: String,
+    pub id: Option<VpcId>,
 
     #[clap(short, long, help = "The Tenant Org ID to query")]
     pub tenant_org_id: Option<String>,
@@ -2428,7 +2435,7 @@ pub struct ShowVpc {
 #[derive(Parser, Debug)]
 pub struct SetVpcVirt {
     #[clap(help = "The VPC ID for the VPC to update")]
-    pub id: String,
+    pub id: VpcId,
     #[clap(help = "The virtualizer to use for this VPC")]
     pub virtualizer: VpcVirtualizationType,
 }
@@ -2459,7 +2466,7 @@ pub struct VpcPeeringShow {
         conflicts_with = "vpc_id",
         help = "Search by ID of the VPC peering"
     )]
-    pub id: Option<String>,
+    pub id: Option<VpcPeeringId>,
 
     #[clap(
         long,
@@ -2472,7 +2479,7 @@ pub struct VpcPeeringShow {
 #[derive(Parser, Debug)]
 pub struct VpcPeeringDelete {
     #[clap(long, required(true), help = "The ID of the VPC peering to delete")]
-    pub id: String,
+    pub id: VpcPeeringId,
 }
 
 #[derive(Parser, Debug)]
@@ -2570,7 +2577,7 @@ pub enum DpaOptions {
 #[derive(Parser, Debug)]
 pub struct ShowDpa {
     #[clap(help = "The DPA Interface ID to query, leave empty for all (default)")]
-    pub id: Option<String>,
+    pub id: Option<DpaInterfaceId>,
 }
 
 #[derive(Parser, Debug)]
@@ -2582,10 +2589,10 @@ pub enum IbPartitionOptions {
 #[derive(Parser, Debug)]
 pub struct ShowIbPartition {
     #[clap(
-        default_value(""),
+        default_value(None),
         help = "The InfiniBand Partition ID to query, leave empty for all (default)"
     )]
-    pub id: String,
+    pub id: Option<IBPartitionId>,
 
     #[clap(short, long, help = "The Tenant Org ID to query")]
     pub tenant_org_id: Option<String>,

@@ -78,10 +78,7 @@ impl TryFrom<rpc::IbPartitionCreationRequest> for NewIBPartition {
             }
         };
 
-        let id = match value.id {
-            Some(v) => IBPartitionId::try_from(v)?,
-            None => uuid::Uuid::new_v4().into(),
-        };
+        let id = value.id.unwrap_or(uuid::Uuid::new_v4().into());
 
         Ok(NewIBPartition {
             id,
@@ -278,7 +275,7 @@ impl TryFrom<IBPartition> for rpc::IbPartition {
         });
 
         Ok(rpc::IbPartition {
-            id: Some(src.id.into()),
+            id: Some(src.id),
             config_version: src.version.version_string(),
             config,
             status,

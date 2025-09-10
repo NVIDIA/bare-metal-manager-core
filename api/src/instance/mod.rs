@@ -97,10 +97,9 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
 
         // If the Tenant provides an instance ID use this one
         // Otherwise create a random ID
-        let instance_id = match request.instance_id {
-            Some(id) => id.try_into()?,
-            None => InstanceId::from(uuid::Uuid::new_v4()),
-        };
+        let instance_id = request
+            .instance_id
+            .unwrap_or_else(|| uuid::Uuid::new_v4().into());
 
         let metadata = match request.metadata {
             Some(metadata) => metadata.try_into()?,
@@ -160,7 +159,7 @@ pub async fn allocate_network(
         .iter()
         .filter_map(|x| {
             if let Some(NetworkDetails::VpcPrefixId(id)) = x.network_details {
-                Some(id.into())
+                Some(id)
             } else {
                 None
             }

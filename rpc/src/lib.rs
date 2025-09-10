@@ -795,7 +795,7 @@ mod tests {
         let encoded = domain.encode_to_vec();
         let decoded = Domain::decode(&encoded[..]).unwrap();
 
-        let deserialized_uuid: ::uuid::Uuid = decoded.id.unwrap().try_into().unwrap();
+        let deserialized_uuid: ::uuid::Uuid = decoded.id.unwrap().into();
         let created_system_time: std::time::SystemTime =
             decoded.created.unwrap().try_into().unwrap();
         let updated_system_time: std::time::SystemTime =

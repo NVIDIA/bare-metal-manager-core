@@ -32,7 +32,6 @@ use crate::model::os::OperatingSystem;
 use crate::redfish::RedfishAuth;
 use crate::resource_pool::common::CommonPools;
 use crate::{CarbideError, CarbideResult};
-use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
 use ::rpc::uuid::infiniband::IBPartitionId;
 use ::rpc::uuid::instance::InstanceId;
@@ -88,14 +87,7 @@ pub(crate) async fn find_ids(
 
     let instance_ids = Instance::find_ids(&mut txn, filter).await?;
 
-    Ok(tonic::Response::new(rpc::InstanceIdList {
-        instance_ids: instance_ids
-            .into_iter()
-            .map(|id| ::rpc::common::Uuid {
-                value: id.to_string(),
-            })
-            .collect(),
-    }))
+    Ok(tonic::Response::new(rpc::InstanceIdList { instance_ids }))
 }
 
 pub(crate) async fn find_by_ids(
@@ -104,19 +96,7 @@ pub(crate) async fn find_by_ids(
 ) -> Result<Response<rpc::InstanceList>, Status> {
     log_request_data(&request);
 
-    let instance_ids: Result<Vec<InstanceId>, CarbideError> = request
-        .into_inner()
-        .instance_ids
-        .iter()
-        .map(|id| {
-            InstanceId::from_str(id.value.as_str()).map_err(|_| {
-                CarbideError::from(RpcDataConversionError::InvalidInstanceId(
-                    id.value.to_string(),
-                ))
-            })
-        })
-        .collect();
-    let instance_ids = instance_ids?;
+    let instance_ids = request.into_inner().instance_ids;
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if instance_ids.len() > max_find_by_ids {
@@ -170,14 +150,8 @@ pub(crate) async fn find(
 
     let rpc::InstanceSearchQuery { id, label, .. } = request.into_inner();
     let instance_ids = match (id, label) {
-        (Some(id), None) => {
-            vec![
-                InstanceId::try_from(id)
-                    .map_err(|_| CarbideError::InvalidArgument("id".to_string()))?,
-            ]
-        }
+        (Some(id), None) => vec![id],
         (None, None) => Instance::find_ids(&mut txn, Default::default()).await?,
-
         (None, Some(label)) => {
             Instance::find_ids(
                 &mut txn,
@@ -706,7 +680,9 @@ pub(crate) async fn update_phone_home_last_contact(
 ) -> Result<Response<rpc::InstancePhoneHomeLastContactResponse>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
-    let instance_id = InstanceId::from_grpc(request.instance_id.clone())?;
+    let instance_id = request
+        .instance_id
+        .ok_or(CarbideError::MissingArgument("id"))?;
 
     const DB_TXN_NAME: &str = "update_instance_phone_home_last_contact";
 
@@ -905,7 +881,9 @@ pub(crate) async fn update_operating_system(
     log_request_data(&request);
 
     let request = request.into_inner();
-    let instance_id = InstanceId::from_grpc(request.instance_id.clone())?;
+    let instance_id = request
+        .instance_id
+        .ok_or(CarbideError::MissingArgument("id"))?;
 
     let os: OperatingSystem = match request.os {
         None => return Err(CarbideError::MissingArgument("os").into()),
@@ -965,7 +943,9 @@ pub(crate) async fn update_instance_config(
 
     let request = request.into_inner();
 
-    let instance_id = InstanceId::from_grpc(request.instance_id.clone())?;
+    let instance_id = request
+        .instance_id
+        .ok_or(CarbideError::MissingArgument("id"))?;
 
     let mut config: InstanceConfig = match request.config {
         None => return Err(CarbideError::MissingArgument("config").into()),

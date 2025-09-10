@@ -401,9 +401,7 @@ pub async fn nsg_attach(
     // Grab the instance for the ID if requested.
     if let Some(instance_id) = args.instance_id {
         let instance = api_client
-            .get_one_instance(rpc::Uuid {
-                value: instance_id.clone(),
-            })
+            .get_one_instance(instance_id)
             .await?
             .instances
             .pop()
@@ -423,7 +421,7 @@ pub async fn nsg_attach(
         // Resubmit the data back to the system.
         let _instance = api_client
             .update_instance_config(
-                instance_id.clone(),
+                instance_id,
                 instance.config_version,
                 config,
                 instance.metadata,
@@ -440,7 +438,8 @@ pub async fn nsg_attach(
     // Grab the VPC for the ID if requested.
     if let Some(v) = args.vpc_id {
         let vpc = api_client
-            .get_one_vpc(rpc::Uuid { value: v.clone() })
+            .0
+            .find_vpcs_by_ids(&[v])
             .await?
             .vpcs
             .pop()
@@ -450,7 +449,7 @@ pub async fn nsg_attach(
         // NSG ID value.
         let _vpc = api_client
             .update_vpc_config(
-                v.clone(),
+                v,
                 vpc.version,
                 vpc.name,
                 vpc.metadata,
@@ -484,9 +483,7 @@ pub async fn nsg_detach(
     // Grab the instance for the ID if requested.
     if let Some(instance_id) = args.instance_id {
         let instance = api_client
-            .get_one_instance(rpc::Uuid {
-                value: instance_id.clone(),
-            })
+            .get_one_instance(instance_id)
             .await?
             .instances
             .pop()
@@ -506,7 +503,7 @@ pub async fn nsg_detach(
         // Submit the config to the system.
         let _instance = api_client
             .update_instance_config(
-                instance_id.clone(),
+                instance_id,
                 instance.config_version,
                 config,
                 instance.metadata,
@@ -519,7 +516,8 @@ pub async fn nsg_detach(
     // Grab the instance for the ID if requested.
     if let Some(v) = args.vpc_id {
         let vpc = api_client
-            .get_one_vpc(rpc::Uuid { value: v.clone() })
+            .0
+            .find_vpcs_by_ids(&[v])
             .await?
             .vpcs
             .pop()
@@ -529,7 +527,7 @@ pub async fn nsg_detach(
         // VPC details we just grabbed and only clear
         // the NSG ID field.
         let _vpc = api_client
-            .update_vpc_config(v.clone(), vpc.version, vpc.name, vpc.metadata, None)
+            .update_vpc_config(v, vpc.version, vpc.name, vpc.metadata, None)
             .await?;
 
         println!("Network security group successfully detached from VPC {v}");

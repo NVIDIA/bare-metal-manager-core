@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use clap::Parser;
+use rpc::uuid::instance::InstanceId;
+use rpc::uuid::vpc::VpcId;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab_case")]
@@ -167,14 +169,14 @@ pub struct AttachNetworkSecurityGroup {
         long,
         help = "Optional, VPC ID that should have the network security group applied"
     )]
-    pub vpc_id: Option<String>,
+    pub vpc_id: Option<VpcId>,
 
     #[clap(
         short = 'i',
         long,
         help = "Optional, Instance ID that should have the network security group applied"
     )]
-    pub instance_id: Option<String>,
+    pub instance_id: Option<InstanceId>,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -184,12 +186,12 @@ pub struct DetachNetworkSecurityGroup {
         long,
         help = "Optional, VPC ID that should have the network security group removed"
     )]
-    pub vpc_id: Option<String>,
+    pub vpc_id: Option<VpcId>,
 
     #[clap(
         short = 'i',
         long,
         help = "Optional, Instance ID that should have the network security group removed"
     )]
-    pub instance_id: Option<String>,
+    pub instance_id: Option<InstanceId>,
 }

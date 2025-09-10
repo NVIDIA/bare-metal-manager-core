@@ -55,7 +55,7 @@ async fn create_ib_partition_with_api(
 async fn get_partition_state(api: &Api, ib_partition_id: IBPartitionId) -> TenantState {
     let segment = api
         .find_ib_partitions(Request::new(rpc::forge::IbPartitionQuery {
-            id: Some(ib_partition_id.into()),
+            id: Some(ib_partition_id),
             search_config: Some(IbPartitionSearchConfig {
                 include_history: false,
             }),
@@ -91,7 +91,7 @@ async fn test_ib_partition_lifecycle_impl(
             .unwrap()
             .into_inner();
 
-    let partition_id: IBPartitionId = partition.id.clone().unwrap().try_into().unwrap();
+    let partition_id: IBPartitionId = partition.id.unwrap();
     // The TenantState only switches after the state controller recognized the update
     assert_eq!(
         get_partition_state(&env.api, partition_id).await,
@@ -116,7 +116,7 @@ async fn test_ib_partition_lifecycle_impl(
 
     env.api
         .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
-            id: partition.id.clone(),
+            id: partition.id,
         }))
         .await
         .expect("expect deletion to succeed");
@@ -130,7 +130,7 @@ async fn test_ib_partition_lifecycle_impl(
     // Deletion is idempotent
     env.api
         .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
-            id: partition.id.clone(),
+            id: partition.id,
         }))
         .await
         .expect("expect deletion to succeed");
@@ -142,7 +142,7 @@ async fn test_ib_partition_lifecycle_impl(
     let segments = env
         .api
         .find_ib_partitions(Request::new(rpc::forge::IbPartitionQuery {
-            id: partition.id.clone(),
+            id: partition.id,
             search_config: None,
         }))
         .await
@@ -157,7 +157,7 @@ async fn test_ib_partition_lifecycle_impl(
     let err = env
         .api
         .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
-            id: partition.id.clone(),
+            id: partition.id,
         }))
         .await
         .expect_err("expect deletion to fail");
@@ -196,8 +196,7 @@ async fn test_find_ib_partition_for_tenant(
             .await
             .unwrap()
             .into_inner();
-    let created_ib_partition_id: IBPartitionId =
-        created_ib_partition.id.clone().unwrap().try_into().unwrap();
+    let created_ib_partition_id: IBPartitionId = created_ib_partition.id.unwrap();
 
     let find_ib_partition = env
         .api
@@ -209,7 +208,7 @@ async fn test_find_ib_partition_for_tenant(
         .into_inner()
         .ib_partitions
         .remove(0);
-    let find_ib_partition_id: IBPartitionId = find_ib_partition.id.unwrap().try_into().unwrap();
+    let find_ib_partition_id: IBPartitionId = find_ib_partition.id.unwrap();
 
     assert_eq!(created_ib_partition_id, find_ib_partition_id);
     Ok(())
@@ -271,9 +270,7 @@ async fn create_ib_partition_with_api_with_id(
 
     let id = IBPartitionId::from(uuid::Uuid::new_v4());
     let request = rpc::forge::IbPartitionCreationRequest {
-        id: Some(::rpc::Uuid {
-            value: id.to_string(),
-        }),
+        id: Some(id),
         config: Some(IbPartitionConfig {
             name: "partition1".to_string(),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
@@ -287,7 +284,7 @@ async fn create_ib_partition_with_api_with_id(
         .unwrap()
         .into_inner();
 
-    assert_eq!(partition.id.unwrap().value, id.to_string());
+    assert_eq!(partition.id, Some(id));
     Ok(())
 }
 

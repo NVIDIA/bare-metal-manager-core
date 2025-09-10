@@ -17,12 +17,13 @@ use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
 
 use super::cfg::cli_options::ShowInstance;
-use super::{default_uuid, invalid_machine_id};
+use super::invalid_machine_id;
 use crate::cfg::cli_options::{RebootInstance, SortField};
 use crate::rpc::ApiClient;
 use crate::{async_write, async_writeln};
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::uuid::machine::MachineId;
+use rpc::uuid::instance::InstanceId;
 
 fn convert_instance_to_nice_format(
     instance: &forgerpc::Instance,
@@ -32,7 +33,10 @@ fn convert_instance_to_nice_format(
     let mut lines = String::new();
 
     let mut data = vec![
-        ("ID", instance.id.clone().unwrap_or_default().value),
+        (
+            "ID",
+            instance.id.map(|id| id.to_string()).unwrap_or_default(),
+        ),
         (
             "MACHINE ID",
             instance
@@ -186,11 +190,7 @@ fn convert_instance_to_nice_format(
                 ),
                 (
                     "SEGMENT ID",
-                    interface
-                        .network_segment_id
-                        .clone()
-                        .unwrap_or_else(default_uuid)
-                        .to_string(),
+                    interface.network_segment_id.unwrap_or_default().to_string(),
                 ),
                 (
                     "VPC PREFIX ID",
@@ -200,7 +200,7 @@ fn convert_instance_to_nice_format(
                         }
                         Some(forgerpc::instance_interface_config::NetworkDetails::VpcPrefixId(
                             x,
-                        )) => x.value.clone(),
+                        )) => x.to_string(),
                         None => "NA".to_string(),
                     },
                 ),
@@ -256,7 +256,6 @@ fn convert_instance_to_nice_format(
                         "PARTITION ID",
                         interface
                             .ib_partition_id
-                            .clone()
                             .map(|x| x.to_string())
                             .unwrap_or_default(),
                     ),
@@ -386,9 +385,8 @@ async fn show_instance_details(
     let instance = if let Ok(id) = MachineId::from_str(&id) {
         api_client.0.find_instance_by_machine_id(id).await?
     } else {
-        let instance_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
-            .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
-            .into();
+        let instance_id = InstanceId::from_str(&id)
+            .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?;
         match api_client.get_one_instance(instance_id).await {
             Ok(instance) => instance,
             Err(e) => return Err(e),
@@ -504,11 +502,8 @@ pub async fn handle_show(
 }
 
 pub async fn handle_reboot(args: RebootInstance, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let instance_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&args.instance)
-        .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
-        .into();
     let machine_id = api_client
-        .get_one_instance(instance_id)
+        .get_one_instance(args.instance)
         .await?
         .instances
         .last()

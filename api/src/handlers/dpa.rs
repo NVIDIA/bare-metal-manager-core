@@ -17,8 +17,6 @@ use crate::{
 };
 
 use crate::db::{DatabaseError, dpa_interface::NewDpaInterface};
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::uuid::dpa_interface::DpaInterfaceId;
 use tonic::{Request, Response};
 
 pub(crate) async fn create(
@@ -55,16 +53,9 @@ pub(crate) async fn delete(
 
     let req = request.into_inner();
 
-    let rpc_id = match req.id {
-        Some(id) => id,
-        None => {
-            return Err(CarbideError::InvalidArgument(
-                "at least one ID must be provided to delete dpa interface".to_string(),
-            ));
-        }
-    };
-
-    let id = DpaInterfaceId::try_from(&rpc_id)?;
+    let id = req.id.ok_or(CarbideError::InvalidArgument(
+        "at least one ID must be provided to delete dpa interface".to_string(),
+    ))?;
 
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
     const DB_TXN_NAME: &str = "delete dpa interface";
@@ -106,16 +97,9 @@ pub(crate) async fn get_all_ids(
         .await
         .map_err(|e| DatabaseError::txn_begin("dpa get_all_ids", e))?;
 
-    let dpa_ids = DpaInterface::find_ids(&mut txn).await?;
+    let ids = DpaInterface::find_ids(&mut txn).await?;
 
-    Ok(Response::new(::rpc::forge::DpaInterfaceIdList {
-        ids: dpa_ids
-            .into_iter()
-            .map(|id| ::rpc::common::Uuid {
-                value: id.to_string(),
-            })
-            .collect(),
-    }))
+    Ok(Response::new(::rpc::forge::DpaInterfaceIdList { ids }))
 }
 
 pub(crate) async fn find_dpa_interfaces_by_ids(
@@ -139,18 +123,6 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
         ));
     }
 
-    // Convert the IDs in the request to a list of DpaInterfaceId
-    // we can send to the DB.
-    let dpa_ids = req
-        .ids
-        .iter()
-        .map(|id| {
-            DpaInterfaceId::try_from(id)
-                .map_err(|_| RpcDataConversionError::InvalidNetworkSegmentId(id.value.to_string()))
-                .map_err(CarbideError::from)
-        })
-        .collect::<Result<Vec<DpaInterfaceId>, CarbideError>>()?;
-
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
     const DB_TXN_NAME: &str = "find_dpa_interfaces_by_ids";
     let mut txn = api
@@ -159,7 +131,7 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
         .await
         .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
-    let dpa_ifs_int = DpaInterface::find_by_ids(&mut txn, &dpa_ids, req.include_history).await?;
+    let dpa_ifs_int = DpaInterface::find_by_ids(&mut txn, &req.ids, req.include_history).await?;
 
     let rpc_dpa_ifs = dpa_ifs_int
         .into_iter()
@@ -187,16 +159,9 @@ pub(crate) async fn set_dpa_network_observation_status(
 
     let req = request.into_inner();
 
-    let rpc_id = match req.id {
-        Some(id) => id,
-        None => {
-            return Err(CarbideError::InvalidArgument(
-                "at least one ID must be provided to find_dpa_interfaces_by_ids".to_string(),
-            ));
-        }
-    };
-
-    let id = DpaInterfaceId::try_from(&rpc_id)?;
+    let id = req.id.ok_or(CarbideError::InvalidArgument(
+        "at least one ID must be provided to find_dpa_interfaces_by_ids".to_string(),
+    ))?;
 
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
     const DB_TXN_NAME: &str = "set_dpa_network_observation_status";

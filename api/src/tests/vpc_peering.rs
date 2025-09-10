@@ -15,13 +15,10 @@ use crate::{
     tests::common::api_fixtures::{create_managed_host, create_test_env},
 };
 use ::rpc::uuid::{machine::MachineId, vpc::VpcId};
-use rpc::{
-    Uuid,
-    forge::{
-        ManagedHostNetworkConfigRequest, VpcPeeringCreationRequest, VpcPeeringDeletionRequest,
-        VpcPeeringList, VpcPeeringSearchFilter, VpcPeeringsByIdsRequest, VpcVirtualizationType,
-        forge_server::Forge,
-    },
+use rpc::forge::{
+    ManagedHostNetworkConfigRequest, VpcPeeringCreationRequest, VpcPeeringDeletionRequest,
+    VpcPeeringList, VpcPeeringSearchFilter, VpcPeeringsByIdsRequest, VpcVirtualizationType,
+    forge_server::Forge,
 };
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
@@ -73,7 +70,7 @@ async fn get_vpc_peerings(
     vpc_id: VpcId,
 ) -> Result<Response<VpcPeeringList>, Status> {
     let find_ids_request = Request::new(VpcPeeringSearchFilter {
-        vpc_id: Some(vpc_id.into()),
+        vpc_id: Some(vpc_id),
     });
     let ids = env
         .api
@@ -99,8 +96,8 @@ async fn test_create_vpc_peering(pool: PgPool) -> Result<(), Box<dyn std::error:
     let vpc_id_2 = find_vpc_id_by_name(&env, "test vpc 2").await?;
 
     let vpc_peering_request = Request::new(VpcPeeringCreationRequest {
-        vpc_id: Some(vpc_id_1.into()),
-        peer_vpc_id: Some(vpc_id_2.into()),
+        vpc_id: Some(vpc_id_1),
+        peer_vpc_id: Some(vpc_id_2),
     });
 
     let response = env.api.create_vpc_peering(vpc_peering_request).await;
@@ -121,8 +118,8 @@ async fn test_vpc_peering_full(pool: PgPool) -> Result<(), Box<dyn std::error::E
     let vpc_id_3 = find_vpc_id_by_name(&env, "test vpc 3").await?;
 
     let vpc_peering_request_12 = Request::new(VpcPeeringCreationRequest {
-        vpc_id: Some(vpc_id_1.into()),
-        peer_vpc_id: Some(vpc_id_2.into()),
+        vpc_id: Some(vpc_id_1),
+        peer_vpc_id: Some(vpc_id_2),
     });
     let response_12 = env.api.create_vpc_peering(vpc_peering_request_12).await;
     assert!(response_12.is_ok());
@@ -130,15 +127,15 @@ async fn test_vpc_peering_full(pool: PgPool) -> Result<(), Box<dyn std::error::E
 
     // Recreate should fail
     let vpc_peering_request_12 = Request::new(VpcPeeringCreationRequest {
-        vpc_id: Some(vpc_id_1.into()),
-        peer_vpc_id: Some(vpc_id_2.into()),
+        vpc_id: Some(vpc_id_1),
+        peer_vpc_id: Some(vpc_id_2),
     });
     let response_12 = env.api.create_vpc_peering(vpc_peering_request_12).await;
     assert!(response_12.is_err());
 
     let vpc_peering_request_13 = Request::new(VpcPeeringCreationRequest {
-        vpc_id: Some(vpc_id_1.into()),
-        peer_vpc_id: Some(vpc_id_3.into()),
+        vpc_id: Some(vpc_id_1),
+        peer_vpc_id: Some(vpc_id_3),
     });
     let response_13 = env.api.create_vpc_peering(vpc_peering_request_13).await;
     assert!(response_13.is_ok());
@@ -173,15 +170,15 @@ async fn test_vpc_peering_full(pool: PgPool) -> Result<(), Box<dyn std::error::E
 
     // Recreate
     let vpc_peering_request_12 = Request::new(VpcPeeringCreationRequest {
-        vpc_id: Some(vpc_id_1.into()),
-        peer_vpc_id: Some(vpc_id_2.into()),
+        vpc_id: Some(vpc_id_1),
+        peer_vpc_id: Some(vpc_id_2),
     });
     let response_12 = env.api.create_vpc_peering(vpc_peering_request_12).await;
     assert!(response_12.is_ok());
 
     let vpc_peering_request_13 = Request::new(VpcPeeringCreationRequest {
-        vpc_id: Some(vpc_id_1.into()),
-        peer_vpc_id: Some(vpc_id_3.into()),
+        vpc_id: Some(vpc_id_1),
+        peer_vpc_id: Some(vpc_id_3),
     });
     let _ = env.api.create_vpc_peering(vpc_peering_request_13).await;
 
@@ -191,9 +188,7 @@ async fn test_vpc_peering_full(pool: PgPool) -> Result<(), Box<dyn std::error::E
     let vpc_delete_response = env
         .api
         .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
-            id: Some(rpc::Uuid {
-                value: vpc_id_1.to_string(),
-            }),
+            id: Some(vpc_id_1),
         }))
         .await;
     assert!(vpc_delete_response.is_ok());
@@ -217,16 +212,16 @@ async fn test_vpc_peering_constraint(pool: PgPool) -> Result<(), Box<dyn std::er
     let vpc_id_2 = find_vpc_id_by_name(&env, "test vpc 2").await?;
 
     let vpc_peering_request_12 = Request::new(VpcPeeringCreationRequest {
-        vpc_id: Some(vpc_id_1.into()),
-        peer_vpc_id: Some(vpc_id_2.into()),
+        vpc_id: Some(vpc_id_1),
+        peer_vpc_id: Some(vpc_id_2),
     });
     let response_12 = env.api.create_vpc_peering(vpc_peering_request_12).await;
     assert!(response_12.is_ok());
 
     // Create should fail for same pair of VPC in different order
     let vpc_peering_request_21 = Request::new(VpcPeeringCreationRequest {
-        vpc_id: Some(vpc_id_2.into()),
-        peer_vpc_id: Some(vpc_id_1.into()),
+        vpc_id: Some(vpc_id_2),
+        peer_vpc_id: Some(vpc_id_1),
     });
     let response_21 = env.api.create_vpc_peering(vpc_peering_request_21).await;
     assert!(response_21.is_err());
@@ -235,16 +230,16 @@ async fn test_vpc_peering_constraint(pool: PgPool) -> Result<(), Box<dyn std::er
 
     // Create should fail if two VPC ids provided are identical
     let dup_vpc_id_request = Request::new(VpcPeeringCreationRequest {
-        vpc_id: Some(vpc_id_1.into()),
-        peer_vpc_id: Some(vpc_id_1.into()),
+        vpc_id: Some(vpc_id_1),
+        peer_vpc_id: Some(vpc_id_1),
     });
     let response = env.api.create_vpc_peering(dup_vpc_id_request).await;
     assert!(response.is_err());
 
     // Test foreign key constraint: create should fail if either VPC id does not exist in 'vpcs' table
     let fake_vpc_id_request = Request::new(VpcPeeringCreationRequest {
-        vpc_id: Some(vpc_id_1.into()),
-        peer_vpc_id: Some(fake_vpc_id.into()),
+        vpc_id: Some(vpc_id_1),
+        peer_vpc_id: Some(fake_vpc_id),
     });
     let response = env.api.create_vpc_peering(fake_vpc_id_request).await;
     assert!(response.is_err());
@@ -256,7 +251,7 @@ async fn create_vpc_peering(
     env: &TestEnv,
     vtype1: VpcVirtualizationType,
     vtype2: VpcVirtualizationType,
-) -> Result<(Uuid, Uuid, u32, u32, MachineId), Box<dyn std::error::Error>> {
+) -> Result<(VpcId, VpcId, u32, u32, MachineId), Box<dyn std::error::Error>> {
     let (vpc_id, vpc_vni, segment_id, peer_vpc_id, peer_vpc_vni, _peer_segment_id) = env
         .create_vpc_and_peer_vpc_with_tenant_segments(vtype1, vtype2)
         .await;
@@ -269,8 +264,8 @@ async fn create_vpc_peering(
 
     // Creating VPC peering between two VPCs
     let vpc_peering_request = Request::new(VpcPeeringCreationRequest {
-        vpc_id: Some(vpc_id.clone()),
-        peer_vpc_id: Some(peer_vpc_id.clone()),
+        vpc_id: Some(vpc_id),
+        peer_vpc_id: Some(peer_vpc_id),
     });
     let _ = env.api.create_vpc_peering(vpc_peering_request).await?;
 
@@ -278,7 +273,7 @@ async fn create_vpc_peering(
     let instance_network = rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some((segment_id).into()),
+            network_segment_id: Some(segment_id),
             network_details: None,
             device: None,
             device_instance: 0,
@@ -406,7 +401,7 @@ async fn test_vpc_peering_deletion_upon_vpc_deletion(
     )
     .await?;
 
-    let get_response = get_vpc_peerings(&env, VpcId::try_from(vpc_id.clone())?).await;
+    let get_response = get_vpc_peerings(&env, vpc_id).await;
     assert!(get_response.is_ok());
     let vpc_peering_list = get_response.unwrap().into_inner();
     assert_eq!(vpc_peering_list.vpc_peerings.len(), 1);
@@ -426,14 +421,12 @@ async fn test_vpc_peering_deletion_upon_vpc_deletion(
     let vpc_delete_response = env
         .api
         .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
-            id: Some(rpc::Uuid {
-                value: peer_vpc_id.clone().to_string(),
-            }),
+            id: Some(peer_vpc_id),
         }))
         .await;
     assert!(vpc_delete_response.is_ok());
 
-    let get_response = get_vpc_peerings(&env, VpcId::try_from(vpc_id.clone())?).await;
+    let get_response = get_vpc_peerings(&env, vpc_id).await;
     assert!(get_response.is_ok());
     let vpc_peering_list = get_response.unwrap().into_inner();
     assert_eq!(vpc_peering_list.vpc_peerings.len(), 0);

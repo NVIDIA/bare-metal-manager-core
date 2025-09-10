@@ -399,7 +399,7 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
         .await
         .map_err(|e| DatabaseError::txn_begin("UUID search", e))?;
 
-    if let Ok(ns_id) = NetworkSegmentId::try_from(u.clone()) {
+    if let Ok(ns_id) = NetworkSegmentId::from_str(&u.value) {
         let segments = NetworkSegment::find_by(
             &mut txn,
             ObjectColumnFilter::List(network_segment::IdColumn, &[ns_id]),
@@ -414,7 +414,7 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
         }
     }
 
-    if let Ok(instance_id) = InstanceId::try_from(u.clone()) {
+    if let Ok(instance_id) = InstanceId::from_str(&u.value) {
         let instances = Instance::find(
             &mut txn,
             ObjectColumnFilter::One(instance::IdColumn, &instance_id),
@@ -425,7 +425,7 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
         }
     }
 
-    if let Ok(mi_id) = MachineInterfaceId::try_from(u.clone()) {
+    if let Ok(mi_id) = MachineInterfaceId::from_str(&u.value) {
         if db::machine_interface::find_one(&mut txn, mi_id)
             .await
             .is_ok()
@@ -434,21 +434,21 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
         }
     }
 
-    if let Ok(vpc_id) = VpcId::try_from(u.clone()) {
+    if let Ok(vpc_id) = VpcId::from_str(&u.value) {
         let vpcs = Vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
         if vpcs.len() == 1 {
             return Ok(Some(rpc::UuidType::Vpc));
         }
     }
 
-    if let Ok(id) = DpaInterfaceId::from_str(&u.clone().value) {
+    if let Ok(id) = DpaInterfaceId::from_str(&u.value) {
         let dpas = DpaInterface::find_by_ids(&mut txn, &[id], false).await?;
         if dpas.len() == 1 {
             return Ok(Some(rpc::UuidType::DpaInterfaceId));
         }
     }
 
-    if let Ok(domain_id) = DomainId::try_from(u.clone()) {
+    if let Ok(domain_id) = DomainId::from_str(&u.value) {
         let domains = Domain::find_by(
             &mut txn,
             ObjectColumnFilter::One(domain::IdColumn, &domain_id),

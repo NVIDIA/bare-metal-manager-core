@@ -340,7 +340,7 @@ impl Vpc {
 impl From<Vpc> for rpc::Vpc {
     fn from(src: Vpc) -> Self {
         rpc::Vpc {
-            id: Some(src.id.into()),
+            id: Some(src.id),
             version: src.version.version_string(),
             name: src.metadata.name.clone(),
             tenant_organization_id: src.tenant_organization_id,
@@ -387,10 +387,7 @@ impl TryFrom<rpc::VpcCreationRequest> for NewVpc {
             None => DEFAULT_NETWORK_VIRTUALIZATION_TYPE,
             Some(v) => v.try_into()?,
         };
-        let id = match value.id {
-            Some(v) => VpcId::try_from(v)?,
-            None => VpcId::from(uuid::Uuid::new_v4()),
-        };
+        let id = value.id.unwrap_or_else(|| uuid::Uuid::new_v4().into());
 
         // If Metadata isn't passed or empty, then use the old name field
         let use_legacy_name = if let Some(metadata) = &value.metadata {
@@ -458,10 +455,7 @@ impl TryFrom<rpc::VpcUpdateRequest> for UpdateVpc {
         })?;
 
         Ok(UpdateVpc {
-            id: value
-                .id
-                .ok_or(CarbideError::MissingArgument("id"))?
-                .try_into()?,
+            id: value.id.ok_or(CarbideError::MissingArgument("id"))?,
             network_security_group_id: value
                 .network_security_group_id
                 .map(|nsg_id| nsg_id.parse())
@@ -494,10 +488,7 @@ impl TryFrom<rpc::VpcUpdateVirtualizationRequest> for UpdateVpcVirtualization {
         };
 
         Ok(UpdateVpcVirtualization {
-            id: value
-                .id
-                .ok_or(CarbideError::MissingArgument("id"))?
-                .try_into()?,
+            id: value.id.ok_or(CarbideError::MissingArgument("id"))?,
             if_version_match,
             network_virtualization_type,
         })

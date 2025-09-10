@@ -28,6 +28,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".google.protobuf.Duration", "crate::Duration")
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
         .extern_path(".common.MachineId", "crate::uuid::machine::MachineId")
+        .extern_path(".common.DomainId", "crate::uuid::domain::DomainId")
+        .extern_path(".common.MachineInterfaceId", "crate::uuid::machine::MachineInterfaceId")
+        .extern_path(".common.VpcId", "crate::uuid::vpc::VpcId")
+        .extern_path(".common.VpcPrefixId", "crate::uuid::vpc::VpcPrefixId")
+        .extern_path(".common.VpcPeeringId", "crate::uuid::vpc_peering::VpcPeeringId")
+        .extern_path(".common.IBPartitionId", "crate::uuid::infiniband::IBPartitionId")
+        .extern_path(".common.InstanceId", "crate::uuid::instance::InstanceId")
+        .extern_path(".common.NetworkSegmentId", "crate::uuid::network::NetworkSegmentId")
+        .extern_path(".common.DpaInterfaceId", "crate::uuid::dpa_interface::DpaInterfaceId")
+        .extern_path(".common.NetworkPrefixId", "crate::uuid::network::NetworkPrefixId")
+
         .include_file("prost_common.rs")
         .type_attribute(".health", "#[derive(serde::Serialize)]")
         .type_attribute(
@@ -600,10 +611,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         proto_files: vec!["proto/forge.proto".to_string()],
         include_paths: vec!["proto".to_string()],
         generated_types_path_within_crate: "protos".to_string(),
-        extern_paths: vec![(
-            ".common.MachineId".to_string(),
-            "crate::uuid::machine::MachineId".to_string(),
-        )],
+        extern_paths: vec![
+            (".common.MachineId", "crate::uuid::machine::MachineId"),
+            (".common.DomainId", "crate::uuid::domain::DomainId"),
+            (
+                ".common.MachineInterfaceId",
+                "crate::uuid::machine::MachineInterfaceId",
+            ),
+            (".common.VpcId", "crate::uuid::vpc::VpcId"),
+            (".common.VpcPrefixId", "crate::uuid::vpc::VpcPrefixId"),
+            (
+                ".common.VpcPeeringId",
+                "crate::uuid::vpc_peering::VpcPeeringId",
+            ),
+            (
+                ".common.IBPartitionId",
+                "crate::uuid::infiniband::IBPartitionId",
+            ),
+            (".common.InstanceId", "crate::uuid::instance::InstanceId"),
+            (
+                ".common.NetworkSegmentId",
+                "crate::uuid::network::NetworkSegmentId",
+            ),
+            (
+                ".common.DpaInterfaceId",
+                "crate::uuid::dpa_interface::DpaInterfaceId",
+            ),
+            (
+                ".common.NetworkPrefixId",
+                "crate::uuid::network::NetworkPrefixId",
+            ),
+        ],
     })?;
 
     client_wrapper_generator.write_rpc_client_wrapper("src/protos/forge_api_client.rs")?;

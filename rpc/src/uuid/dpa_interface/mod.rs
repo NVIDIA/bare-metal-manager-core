@@ -17,26 +17,24 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
 use sqlx::{FromRow, Type};
 
+use crate::grpc_uuid_message;
 #[cfg(feature = "sqlx")]
 use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq)]
+
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, Default, Ord, PartialOrd,
+)]
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct DpaInterfaceId(pub uuid::Uuid);
+
+grpc_uuid_message!(DpaInterfaceId);
 
 pub const NULL_DPA_INTERFACE_ID: DpaInterfaceId = DpaInterfaceId(uuid::Uuid::nil());
 
 impl From<DpaInterfaceId> for uuid::Uuid {
     fn from(id: DpaInterfaceId) -> Self {
         id.0
-    }
-}
-
-impl From<DpaInterfaceId> for crate::common::Uuid {
-    fn from(id: DpaInterfaceId) -> Self {
-        crate::common::Uuid {
-            value: id.0.to_string(),
-        }
     }
 }
 
@@ -52,13 +50,6 @@ impl FromStr for DpaInterfaceId {
         Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
             RpcDataConversionError::InvalidUuid("DpaInterfaceId", input.to_string())
         })?))
-    }
-}
-
-impl TryFrom<&crate::common::Uuid> for DpaInterfaceId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: &crate::common::Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
     }
 }
 

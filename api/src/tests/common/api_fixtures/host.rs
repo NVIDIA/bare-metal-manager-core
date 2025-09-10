@@ -23,6 +23,7 @@ use crate::tests::common::api_fixtures::{
 };
 use ::rpc::uuid::machine::MachineId;
 use rpc::machine_discovery::AttestKeyInfo;
+use rpc::uuid::machine::MachineInterfaceId;
 use rpc::{
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
     forge::{DhcpDiscovery, forge_agent_control_response::Action, forge_server::Forge},
@@ -43,7 +44,7 @@ pub async fn host_discover_dhcp(
     env: &TestEnv,
     host_config: &ManagedHostConfig,
     dpu_machine_id: &MachineId,
-) -> rpc::Uuid {
+) -> MachineInterfaceId {
     let mut txn = env.pool.begin().await.unwrap();
     let loopback_ip = super::dpu::loopback_ip(&mut txn, dpu_machine_id).await;
     let predicted_host = db::machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine_id)
@@ -85,7 +86,7 @@ pub async fn host_discover_dhcp(
 pub async fn host_discover_machine(
     env: &TestEnv,
     host_config: &ManagedHostConfig,
-    machine_interface_id: rpc::Uuid,
+    machine_interface_id: MachineInterfaceId,
 ) -> MachineId {
     let mut discovery_info = DiscoveryInfo::try_from(HardwareInfo::from(host_config)).unwrap();
 

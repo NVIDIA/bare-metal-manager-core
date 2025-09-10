@@ -20,14 +20,13 @@ use prost::encoding::{DecodeContext, WireType};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
-use std::convert::TryFrom;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::{fmt::Write, ops::Deref, str::FromStr};
-use tonic::Status;
 
 static MACHINE_ID_PREFIX: &str = "fm100";
 
+use crate::grpc_uuid_message;
 #[cfg(feature = "sqlx")]
 use sqlx::{
     encode::IsNull,
@@ -45,6 +44,8 @@ use sqlx::{
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MachineInterfaceId(pub uuid::Uuid);
+
+grpc_uuid_message!(MachineInterfaceId);
 
 impl From<MachineInterfaceId> for uuid::Uuid {
     fn from(id: MachineInterfaceId) -> Self {
@@ -70,49 +71,6 @@ impl FromStr for MachineInterfaceId {
 impl fmt::Display for MachineInterfaceId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-impl From<MachineInterfaceId> for crate::common::Uuid {
-    fn from(val: MachineInterfaceId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<crate::common::Uuid> for MachineInterfaceId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: crate::common::Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<&crate::common::Uuid> for MachineInterfaceId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: &crate::common::Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<crate::common::Uuid>> for MachineInterfaceId {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<crate::common::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
-        let Some(input_uuid) = msg else {
-            // TODO(chet): Maybe this isn't the right place for this, since
-            // depending on the proto message, the field name can differ (which
-            // should actually probably be standardized anyway), or we can just
-            // take a similar approach to ::InvalidUuid can say "field of type"?
-            return Err(eyre::eyre!("missing interface_id argument").into());
-        };
-        Ok(Self::try_from(input_uuid)?)
-    }
-}
-
-impl MachineInterfaceId {
-    pub fn from_grpc(msg: Option<crate::common::Uuid>) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad grpc interface ID: {e}")))
     }
 }
 

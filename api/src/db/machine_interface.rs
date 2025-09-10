@@ -32,6 +32,7 @@ use crate::model::machine::MachineInterfaceSnapshot;
 use crate::{CarbideError, CarbideResult, db};
 use ::rpc::uuid::machine::MachineId;
 use ::rpc::uuid::{domain::DomainId, machine::MachineInterfaceId, network::NetworkSegmentId};
+use rpc::uuid::network::NetworkPrefixId;
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
 const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";
@@ -450,7 +451,7 @@ pub async fn create(
 pub async fn allocate_svi_ip(
     txn: &mut PgConnection,
     segment: &NetworkSegment,
-) -> CarbideResult<(uuid::Uuid, IpAddr)> {
+) -> CarbideResult<(NetworkPrefixId, IpAddr)> {
     let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedAdminNetworkIpResolver {
         segment_id: segment.id,
         busy_ips: vec![],

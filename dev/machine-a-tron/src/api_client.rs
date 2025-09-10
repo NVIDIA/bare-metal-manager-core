@@ -7,7 +7,8 @@ use rpc::forge::{
     ConfigSetting, ExpectedMachine, MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
-use rpc::uuid::machine::MachineId;
+use rpc::uuid::instance::InstanceId;
+use rpc::uuid::machine::{MachineId, MachineInterfaceId};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 #[derive(thiserror::Error, Debug)]
@@ -26,7 +27,7 @@ type ClientApiResult<T> = Result<T, ClientApiError>;
 
 // Simple wrapper around the inputs to discover_machine so that callers can see the field names
 pub struct MockDiscoveryData {
-    pub machine_interface_id: rpc::Uuid,
+    pub machine_interface_id: MachineInterfaceId,
     pub network_interface_macs: Vec<String>,
     pub product_serial: Option<String>,
     pub chassis_serial: Option<String>,
@@ -52,7 +53,7 @@ pub struct DpuNetworkStatusArgs<'a> {
     pub network_config_version: String,
     pub instance_network_config_version: Option<String>,
     pub instance_config_version: Option<String>,
-    pub instance_id: Option<rpc::Uuid>,
+    pub instance_id: Option<InstanceId>,
     pub interfaces: Vec<rpc::forge::InstanceInterfaceStatusObservation>,
     pub machine_config: &'a MachineConfig,
 }
@@ -93,10 +94,10 @@ impl ApiClient {
 
     pub async fn get_machine_interface(
         &self,
-        id: &str,
+        id: MachineInterfaceId,
     ) -> ClientApiResult<rpc::forge::InterfaceList> {
         let interface_search_query = rpc::forge::InterfaceSearchQuery {
-            id: Some(id.to_string().into()),
+            id: Some(id),
             ip: None,
         };
         let out = self
@@ -289,23 +290,26 @@ impl ApiClient {
                 ))
             })?;
 
-        if network_segment_ids.network_segments_ids.is_empty() {
-            return Err(ClientApiError::ConfigError(format!(
-                "network segment: {network_segment_name} not found."
-            )));
-        } else if network_segment_ids.network_segments_ids.len() >= 2 {
+        if network_segment_ids.network_segments_ids.len() >= 2 {
             tracing::warn!(
                 "Network segments from previous runs of machine-a-tron have not been cleaned up. Suggested to start again after cleaning db."
             );
         }
-        let network_segment_id = network_segment_ids.network_segments_ids.first();
+        let Some(network_segment_id) = network_segment_ids.network_segments_ids.into_iter().next()
+        else {
+            return Err(ClientApiError::ConfigError(format!(
+                "network segment: {network_segment_name} not found."
+            )));
+        };
 
         let interface_config = rpc::forge::InstanceInterfaceConfig {
             function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
-            network_segment_id: network_segment_id.cloned(),
-            network_details: network_segment_id
-                .cloned()
-                .map(rpc::forge::instance_interface_config::NetworkDetails::SegmentId),
+            network_segment_id: Some(network_segment_id),
+            network_details: Some(
+                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+                    network_segment_id,
+                ),
+            ),
             device: None,
             device_instance: 0,
             virtual_function_id: None,
@@ -397,7 +401,7 @@ impl ApiClient {
                 self.0
                     .create_network_segment(rpc::forge::NetworkSegmentCreationRequest {
                         id: None,
-                        vpc_id: vpc_id_list.vpc_ids.first().cloned(),
+                        vpc_id: vpc_id_list.vpc_ids.first().copied(),
                         name: format!("subnet_{subnet_count}"),
                         segment_type: rpc::forge::NetworkSegmentType::Tenant.into(),
                         prefixes: vec![rpc::forge::NetworkPrefix {
@@ -494,7 +498,7 @@ impl ApiClient {
     pub async fn get_pxe_instructions(
         &self,
         arch: rpc::forge::MachineArchitecture,
-        interface_id: rpc::Uuid,
+        interface_id: MachineInterfaceId,
     ) -> ClientApiResult<PxeInstructions> {
         self.0
             .get_pxe_instructions(rpc::forge::PxeInstructionRequest {

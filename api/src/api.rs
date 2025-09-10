@@ -653,10 +653,7 @@ impl Forge for Api {
         };
 
         let machine_discovery_info = request.into_inner();
-
-        let interface_id = machine_discovery_info
-            .machine_interface_id
-            .and_then(|id| MachineInterfaceId::try_from(id).ok());
+        let interface_id = machine_discovery_info.machine_interface_id;
 
         let discovery_data = machine_discovery_info
             .discovery_data
@@ -1408,20 +1405,7 @@ impl Forge for Api {
         let rpc::InterfaceSearchQuery { id, ip } = request.into_inner();
 
         let mut interfaces: Vec<rpc::MachineInterface> = match (id, ip) {
-            (Some(id), _) if id.value.chars().count() > 0 => match MachineInterfaceId::try_from(id)
-            {
-                Ok(uuid) => vec![
-                    db::machine_interface::find_one(&mut txn, uuid)
-                        .await?
-                        .into(),
-                ],
-                Err(_) => {
-                    return Err(CarbideError::internal(
-                        "Could not marshall an ID from the request".to_string(),
-                    )
-                    .into());
-                }
-            },
+            (Some(id), _) => vec![db::machine_interface::find_one(&mut txn, id).await?.into()],
             (None, Some(ip)) => match Ipv4Addr::from_str(ip.as_ref()) {
                 Ok(ip) => {
                     match db::machine_interface::find_by_ip(&mut txn, IpAddr::V4(ip)).await? {
@@ -1448,12 +1432,6 @@ impl Forge for Api {
                     .collect_vec(),
                 Err(error) => return Err(error.into()),
             },
-            _ => {
-                return Err(CarbideError::internal(
-                    "Could not find an ID or IP in the request".to_string(),
-                )
-                .into());
-            }
         };
 
         // Link BMC interface to its machine, for carbide-web and admin-cli.
@@ -1508,15 +1486,7 @@ impl Forge for Api {
             return Err(CarbideError::MissingArgument("delete interface.interface_id").into());
         };
 
-        let interface = match MachineInterfaceId::try_from(id) {
-            Ok(uuid) => db::machine_interface::find_one(&mut txn, uuid).await?,
-            Err(_) => {
-                return Err(CarbideError::internal(
-                    "Could not marshall an ID from the request".to_string(),
-                )
-                .into());
-            }
-        };
+        let interface = db::machine_interface::find_one(&mut txn, id).await?;
 
         // There should not be any machine associated with this interface.
         if let Some(machine_id) = interface.machine_id {
@@ -2786,7 +2756,7 @@ impl Forge for Api {
 
     async fn get_machine_boot_override(
         &self,
-        request: tonic::Request<::rpc::common::Uuid>,
+        request: tonic::Request<MachineInterfaceId>,
     ) -> Result<tonic::Response<rpc::MachineBootOverride>, tonic::Status> {
         crate::handlers::boot_override::get(self, request).await
     }
@@ -2800,7 +2770,7 @@ impl Forge for Api {
 
     async fn clear_machine_boot_override(
         &self,
-        request: tonic::Request<::rpc::common::Uuid>,
+        request: tonic::Request<MachineInterfaceId>,
     ) -> Result<tonic::Response<()>, Status> {
         crate::handlers::boot_override::clear(self, request).await
     }

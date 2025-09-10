@@ -400,7 +400,7 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
             .collect();
 
         rpc::forge::DpaInterface {
-            id: Some(src.id.into()),
+            id: Some(src.id),
             created: Some(src.created.into()),
             updated: Some(src.updated.into()),
             deleted: src.deleted.map(|t| t.into()),

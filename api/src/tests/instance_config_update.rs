@@ -159,7 +159,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: None,
                 config: Some(updated_config_1.clone()),
                 metadata: Some(updated_metadata_1.clone()),
@@ -195,7 +195,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     env.api
         .update_instance_phone_home_last_contact(tonic::Request::new(
             rpc::forge::InstancePhoneHomeLastContactRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
             },
         ))
         .await
@@ -268,7 +268,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: Some(initial_config_version.version_string()),
                 config: Some(updated_config_2.clone()),
                 metadata: Some(updated_metadata_2.clone()),
@@ -292,7 +292,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: Some(updated_config_version.version_string()),
                 config: Some(updated_config_2.clone()),
                 metadata: Some(updated_metadata_2.clone()),
@@ -389,7 +389,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: None,
                 config: Some(invalid_os_config),
                 metadata: Some(initial_metadata.clone()),
@@ -414,7 +414,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: None,
                 config: Some(config_with_updated_tenant),
                 metadata: Some(initial_metadata.clone()),
@@ -445,7 +445,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .interfaces
         .push(rpc::forge::InstanceInterfaceConfig {
             function_type: rpc::forge::InterfaceFunctionType::Virtual as _,
-            network_segment_id: Some(NetworkSegmentId::from(uuid::Uuid::new_v4()).into()),
+            network_segment_id: Some(NetworkSegmentId::from(uuid::Uuid::new_v4())),
             network_details: None,
             device: None,
             device_instance: 0u32,
@@ -455,7 +455,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: None,
                 config: Some(config_with_updated_network),
                 metadata: Some(initial_metadata.clone()),
@@ -476,7 +476,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
             vendor: None,
             device: "MT2910 Family [ConnectX-7]".to_string(),
             device_instance: 0,
-            ib_partition_id: Some(IBPartitionId::from(uuid::Uuid::new_v4()).into()),
+            ib_partition_id: Some(IBPartitionId::from(uuid::Uuid::new_v4())),
             function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
             virtual_function_id: None,
         }],
@@ -485,7 +485,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: None,
                 config: Some(config_with_updated_ib),
                 metadata: Some(initial_metadata.clone()),
@@ -510,7 +510,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: None,
                 config: Some(duplicated_keysets_config),
                 metadata: Some(initial_metadata.clone()),
@@ -544,7 +544,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: None,
                 config: Some(maxed_keysets_config),
                 metadata: Some(initial_metadata.clone()),
@@ -564,7 +564,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
             .api
             .update_instance_config(tonic::Request::new(
                 rpc::forge::InstanceConfigUpdateRequest {
-                    instance_id: tinstance.id().into(),
+                    instance_id: Some(tinstance.id),
                     if_version_match: None,
                     config: Some(valid_config.clone()),
                     metadata: Some(invalid_metadata.clone()),
@@ -612,7 +612,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
         id: None,
         prefix: ip_prefix.into(),
         name: "Test VPC prefix".into(),
-        vpc_id: Some(vpc_id.into()),
+        vpc_id: Some(vpc_id),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env
@@ -625,7 +625,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
     let mut network = single_interface_network_config(segment_id);
     network.interfaces.iter_mut().for_each(|x| {
         x.network_segment_id = None;
-        x.network_details = response.id.clone().map(NetworkDetails::VpcPrefixId);
+        x.network_details = response.id.map(NetworkDetails::VpcPrefixId);
     });
     let initial_config = rpc::InstanceConfig {
         tenant: Some(default_tenant_config()),
@@ -678,7 +678,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: None,
                 config: Some(updated_config_1.clone()),
                 metadata: Some(updated_metadata_1.clone()),
@@ -734,7 +734,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         id: None,
         prefix: ip_prefix.into(),
         name: "Test VPC prefix".into(),
-        vpc_id: Some(vpc_id.into()),
+        vpc_id: Some(vpc_id),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env
@@ -748,7 +748,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
-            network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+            network_details: response.id.map(NetworkDetails::VpcPrefixId),
             device: None,
             device_instance: 0,
             virtual_function_id: None,
@@ -796,7 +796,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
                 network_segment_id: None,
-                network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+                network_details: response.id.map(NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
@@ -804,7 +804,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
-                network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+                network_details: response.id.map(NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
@@ -826,7 +826,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: None,
                 config: Some(updated_config_1.clone()),
                 metadata: Some(updated_metadata_1.clone()),
@@ -858,7 +858,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
-            network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+            network_details: response.id.map(NetworkDetails::VpcPrefixId),
             device: None,
             device_instance: 0,
             virtual_function_id: None,
@@ -879,7 +879,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: None,
                 config: Some(updated_config_1.clone()),
                 metadata: Some(updated_metadata_1.clone()),
@@ -916,7 +916,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
         id: None,
         prefix: ip_prefix.into(),
         name: "Test VPC prefix".into(),
-        vpc_id: Some(vpc_id.into()),
+        vpc_id: Some(vpc_id),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env
@@ -930,7 +930,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
-            network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+            network_details: response.id.map(NetworkDetails::VpcPrefixId),
             device: None,
             device_instance: 0,
             virtual_function_id: None,
@@ -971,7 +971,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
     // Trigger instance deletion.
     env.api
         .release_instance(tonic::Request::new(rpc::InstanceReleaseRequest {
-            id: tinstance.id().into(),
+            id: Some(tinstance.id),
             issue: None,
             is_repair_tenant: None,
         }))
@@ -983,7 +983,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
                 network_segment_id: None,
-                network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+                network_details: response.id.map(NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
@@ -991,7 +991,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
-                network_details: response.id.clone().map(NetworkDetails::VpcPrefixId),
+                network_details: response.id.map(NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
@@ -1013,7 +1013,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
         env.api
             .update_instance_config(tonic::Request::new(
                 rpc::forge::InstanceConfigUpdateRequest {
-                    instance_id: tinstance.id().into(),
+                    instance_id: Some(tinstance.id),
                     if_version_match: None,
                     config: Some(updated_config_1.clone()),
                     metadata: Some(updated_metadata_1.clone()),

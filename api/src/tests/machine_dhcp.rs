@@ -116,10 +116,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .unwrap()
         .into_inner();
 
-    assert_eq!(
-        response.segment_id.unwrap(),
-        (env.admin_segment.unwrap()).into()
-    );
+    assert_eq!(response.segment_id.unwrap(), (env.admin_segment.unwrap()));
 
     assert_eq!(response.mac_address, mac_address);
     assert_eq!(response.subdomain_id.unwrap(), env.domain.into());
@@ -174,10 +171,7 @@ async fn test_multiple_machines_dhcp_with_api(
             .unwrap()
             .into_inner();
 
-        assert_eq!(
-            response.segment_id.unwrap(),
-            (env.admin_segment.unwrap()).into()
-        );
+        assert_eq!(response.segment_id.unwrap(), (env.admin_segment.unwrap()));
 
         assert_eq!(response.mac_address, mac);
         assert_eq!(response.subdomain_id.unwrap(), env.domain.into());
@@ -209,7 +203,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
-                network_segment_id: Some((segment_id_1).into()),
+                network_segment_id: Some(segment_id_1),
                 network_details: None,
                 device: None,
                 device_instance: 0u32,
@@ -217,7 +211,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
-                network_segment_id: Some((segment_id_2).into()),
+                network_segment_id: Some(segment_id_2),
                 network_details: None,
                 device: None,
                 device_instance: 0u32,
@@ -337,11 +331,9 @@ async fn machine_interface_discovery_persists_vendor_strings(
     let mac_address = MacAddress::from_str("ab:cd:ff:ff:ff:ff").unwrap();
 
     let response = dhcp_with_vendor(&env, mac_address, Some("vendor1".to_string())).await;
-    let interface_id: MachineInterfaceId = response
+    let interface_id = response
         .machine_interface_id
-        .expect("machine_interface_id must be set")
-        .try_into()
-        .unwrap();
+        .expect("machine_interface_id must be set");
     assert_vendor_strings_equal(&pool, &interface_id, &["vendor1"]).await;
 
     let _ = dhcp_with_vendor(&env, mac_address, Some("vendor2".to_string())).await;

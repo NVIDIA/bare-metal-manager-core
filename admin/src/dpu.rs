@@ -586,7 +586,6 @@ pub async fn show_dpu_network_config(
                 "Instance ID",
                 config
                     .instance_id
-                    .clone()
                     .map(|x| x.to_string())
                     .unwrap_or_default()
             ]);

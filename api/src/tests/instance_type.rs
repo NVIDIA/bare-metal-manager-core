@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::uuid::instance::InstanceId;
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
 use tonic::Code;
@@ -442,7 +441,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .unwrap();
 
     // Create an instance for the machine.
-    let instance_id: InstanceId = env
+    let instance_id = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
@@ -465,8 +464,6 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .unwrap()
         .into_inner()
         .id
-        .unwrap()
-        .try_into()
         .unwrap();
 
     advance_created_instance_into_ready_state(&env, &tmp_mh).await;
@@ -671,7 +668,7 @@ async fn test_instance_type_associate(
     assert!(err.message().contains("expected InstanceTypeId"));
 
     // Create an instance for the machine.
-    let instance_id: InstanceId = env
+    let instance_id = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
@@ -694,8 +691,6 @@ async fn test_instance_type_associate(
         .unwrap()
         .into_inner()
         .id
-        .unwrap()
-        .try_into()
         .unwrap();
 
     advance_created_instance_into_ready_state(&env, &tmp_mh).await;

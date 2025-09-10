@@ -24,6 +24,7 @@ use crate::model::machine::{
 use crate::tests::common::api_fixtures::RpcInstance;
 use crate::tests::common::api_fixtures::TestManagedHost;
 use ::rpc::uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
+use rpc::uuid::vpc::VpcPrefixId;
 use rpc::{
     InstanceReleaseRequest, Timestamp,
     forge::{forge_server::Forge, instance_interface_config::NetworkDetails},
@@ -98,7 +99,7 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
         if self.config.tenant.is_none() {
             self.config.tenant = Some(self.tenant);
         }
-        let instance_id: InstanceId = self
+        let instance_id = self
             .env
             .api
             .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
@@ -113,9 +114,7 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
             .expect("Create instance failed.")
             .into_inner()
             .id
-            .expect("Missing instance ID")
-            .try_into()
-            .unwrap();
+            .expect("Missing instance ID");
 
         advance_created_instance_into_ready_state(self.env, self.mh).await;
         let tinstance = TestInstance {
@@ -129,7 +128,7 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
 }
 
 pub struct TestInstance<'a, 'b> {
-    id: InstanceId,
+    pub id: InstanceId,
     env: &'a TestEnv,
     mh: &'b TestManagedHost,
 }
@@ -137,10 +136,6 @@ pub struct TestInstance<'a, 'b> {
 type Txn<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
 impl<'a, 'b> TestInstance<'a, 'b> {
-    pub fn id(&self) -> &InstanceId {
-        &self.id
-    }
-
     pub async fn db_instance(&self, txn: &mut Txn<'_>) -> InstanceSnapshot {
         db::instance::Instance::find_by_id(txn, self.id)
             .await
@@ -153,7 +148,7 @@ impl<'a, 'b> TestInstance<'a, 'b> {
             .env
             .api
             .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery {
-                id: Some(self.id.into()),
+                id: Some(self.id),
                 label: None,
             }))
             .await
@@ -184,8 +179,8 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
     rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(segment_id.into()),
-            network_details: Some(NetworkDetails::SegmentId(segment_id.into())),
+            network_segment_id: Some(segment_id),
+            network_details: Some(NetworkDetails::SegmentId(segment_id)),
             device: None,
             device_instance: 0,
             virtual_function_id: None,
@@ -202,8 +197,8 @@ pub fn interface_network_config_with_devices(
         .zip(segment_ids)
         .map(|(dl, segment_id)| rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some((*segment_id).into()),
-            network_details: Some(NetworkDetails::SegmentId((*segment_id).into())),
+            network_segment_id: Some(*segment_id),
+            network_details: Some(NetworkDetails::SegmentId(*segment_id)),
             device: Some(dl.device.clone()),
             device_instance: dl.device_instance as u32,
             virtual_function_id: None,
@@ -213,7 +208,7 @@ pub fn interface_network_config_with_devices(
 }
 
 pub fn single_interface_network_config_with_vpc_prefix(
-    prefix_id: rpc::Uuid,
+    prefix_id: VpcPrefixId,
 ) -> rpc::InstanceNetworkConfig {
     rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
@@ -328,7 +323,7 @@ pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &TestM
 pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestManagedHost) {
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
-            id: Some(instance_id.into()),
+            id: Some(instance_id),
             issue: None,
             is_repair_tenant: None,
         }))
@@ -352,7 +347,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
     handle_delete_post_bootingwithdiscoveryimage(env, mh).await;
 
     assert!(
-        env.find_instances(Some(instance_id.into()))
+        env.find_instances(Some(instance_id))
             .await
             .instances
             .is_empty()

@@ -28,7 +28,7 @@ use tonic::Request;
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
     let segment = api
         .find_ib_partitions(Request::new(rpc::forge::IbPartitionQuery {
-            id: Some(ib_partition_id.into()),
+            id: Some(ib_partition_id),
             search_config: Some(IbPartitionSearchConfig {
                 include_history: false,
             }),
@@ -109,7 +109,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
             rpc::forge::InstanceIbInterfaceConfig {
                 function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
-                ib_partition_id: Some(ib_partition_id.into()),
+                ib_partition_id: Some(ib_partition_id),
                 device: "MT2910 Family [ConnectX-7]".to_string(),
                 vendor: None,
                 device_instance: 1,
@@ -117,7 +117,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
             rpc::forge::InstanceIbInterfaceConfig {
                 function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
-                ib_partition_id: Some(ib_partition_id.into()),
+                ib_partition_id: Some(ib_partition_id),
                 device: "MT27800 Family [ConnectX-5]".to_string(),
                 vendor: None,
                 device_instance: 0,
@@ -213,7 +213,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         assert_eq!(iface.device, "MT2910 Family [ConnectX-7]");
         assert_eq!(iface.vendor, None);
         assert_eq!(iface.device_instance, 1);
-        assert_eq!(iface.ib_partition_id, Some(ib_partition_id.into()));
+        assert_eq!(iface.ib_partition_id, Some(ib_partition_id));
     } else {
         panic!("ib configuration is incorrect.");
     }
@@ -233,7 +233,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         assert_eq!(iface.device, "MT27800 Family [ConnectX-5]");
         assert_eq!(iface.vendor, None);
         assert_eq!(iface.device_instance, 0);
-        assert_eq!(iface.ib_partition_id, Some(ib_partition_id.into()));
+        assert_eq!(iface.ib_partition_id, Some(ib_partition_id));
     } else {
         panic!("ib configuration is incorrect.");
     }
@@ -334,7 +334,7 @@ async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPoo
             ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
                 function_type: rpc::forge::InterfaceFunctionType::Physical as _,
                 virtual_function_id: None,
-                ib_partition_id: Some(ib_partition_id.into()),
+                ib_partition_id: Some(ib_partition_id),
                 device: "MT2910 Family [ConnectX-7]".to_string(),
                 vendor: None,
                 device_instance: 10, // not enough devices
@@ -379,7 +379,7 @@ async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
             ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
                 function_type: rpc::forge::InterfaceFunctionType::Physical as _,
                 virtual_function_id: None,
-                ib_partition_id: Some(ib_partition_id.into()),
+                ib_partition_id: Some(ib_partition_id),
                 device: "MT28908  Family [ConnectX-6]".to_string(), // no ib devices
                 vendor: None,
                 device_instance: 0,
@@ -425,7 +425,7 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
                 rpc::forge::InstanceIbInterfaceConfig {
                     function_type: rpc::forge::InterfaceFunctionType::Physical as _,
                     virtual_function_id: None,
-                    ib_partition_id: Some(ib_partition_id.into()),
+                    ib_partition_id: Some(ib_partition_id),
                     device: "MT2910 Family [ConnectX-7]".to_string(), // no ib devices
                     vendor: None,
                     device_instance: 0,
@@ -433,7 +433,7 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
                 rpc::forge::InstanceIbInterfaceConfig {
                     function_type: rpc::forge::InterfaceFunctionType::Physical as _,
                     virtual_function_id: None,
-                    ib_partition_id: Some(ib_partition_id.into()),
+                    ib_partition_id: Some(ib_partition_id),
                     device: "MT2910 Family [ConnectX-7]".to_string(), // no ib devices
                     vendor: None,
                     device_instance: 0,
@@ -480,7 +480,7 @@ async fn test_can_not_create_instance_with_inconsistent_tenant(pool: sqlx::PgPoo
                 rpc::forge::InstanceIbInterfaceConfig {
                     function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
                     virtual_function_id: None,
-                    ib_partition_id: Some(ib_partition_id.into()),
+                    ib_partition_id: Some(ib_partition_id),
                     device: "MT2910 Family [ConnectX-7]".to_string(),
                     vendor: None,
                     device_instance: 1,
@@ -488,7 +488,7 @@ async fn test_can_not_create_instance_with_inconsistent_tenant(pool: sqlx::PgPoo
                 rpc::forge::InstanceIbInterfaceConfig {
                     function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
                     virtual_function_id: None,
-                    ib_partition_id: Some(ib_partition_id.into()),
+                    ib_partition_id: Some(ib_partition_id),
                     device: "MT27800 Family [ConnectX-5]".to_string(),
                     vendor: None,
                     device_instance: 0,
@@ -570,7 +570,7 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
                 rpc::forge::InstanceIbInterfaceConfig {
                     function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
                     virtual_function_id: None,
-                    ib_partition_id: Some(ib_partition_id.into()),
+                    ib_partition_id: Some(ib_partition_id),
                     device: device_name.clone(),
                     vendor: None,
                     device_instance: 0,
@@ -579,7 +579,7 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
                 rpc::forge::InstanceIbInterfaceConfig {
                     function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
                     virtual_function_id: None,
-                    ib_partition_id: Some(ib_partition_id.into()),
+                    ib_partition_id: Some(ib_partition_id),
                     device: device_name.clone(),
                     vendor: None,
                     device_instance: 1,
@@ -669,7 +669,6 @@ pub async fn try_allocate_instance(
         .await?;
 
     let instance = instance.into_inner();
-    let instance_id =
-        uuid::Uuid::try_from(instance.id.clone().expect("Missing instance ID")).unwrap();
+    let instance_id = uuid::Uuid::from(instance.id.expect("Missing instance ID"));
     Ok((instance_id, instance))
 }

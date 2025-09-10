@@ -244,7 +244,7 @@ pub struct NewDomain {
 impl From<Domain> for rpc::Domain {
     fn from(src: Domain) -> Self {
         rpc::Domain {
-            id: Some(src.id.into()),
+            id: Some(src.id),
             name: src.name,
             created: Some(src.created.into()),
             updated: Some(src.updated.into()),

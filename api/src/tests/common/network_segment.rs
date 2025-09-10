@@ -14,7 +14,6 @@ use crate::api::Api;
 use crate::db::network_segment_state_history::NetworkSegmentStateHistory;
 use ::rpc::uuid::network::NetworkSegmentId;
 use ::rpc::uuid::vpc::VpcId;
-use rpc::Uuid;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     NetworkSegment, NetworkSegmentCreationRequest, NetworkSegmentSearchConfig, NetworkSegmentType,
@@ -39,7 +38,7 @@ impl NetworkSegmentHelper {
             svi_ip: None,
         }];
         let inner = NetworkSegmentCreationRequest {
-            vpc_id: Some(vpc_id.into()),
+            vpc_id: Some(vpc_id),
             name: "TEST_SEGMENT".into(),
             subdomain_id: None,
             mtu: Some(1500),
@@ -62,7 +61,7 @@ pub async fn create_network_segment_with_api(
     env: &TestEnv,
     use_subdomain: bool,
     use_vpc: bool,
-    id: Option<Uuid>,
+    id: Option<NetworkSegmentId>,
     segment_type: i32,
     num_reserved: i32,
 ) -> rpc::forge::NetworkSegment {
@@ -114,7 +113,7 @@ pub async fn create_network_segment_with_api(
 pub async fn get_segment_state(api: &Api, segment_id: NetworkSegmentId) -> rpc::forge::TenantState {
     let segment = api
         .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
-            id: Some(segment_id.into()),
+            id: Some(segment_id),
             search_config: Some(NetworkSegmentSearchConfig {
                 include_history: false,
                 include_num_free_ips: false,
@@ -134,7 +133,7 @@ pub async fn get_segments(
     search_config: Option<NetworkSegmentSearchConfig>,
 ) -> rpc::forge::NetworkSegmentList {
     api.find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
-        id: Some(segment_id.into()),
+        id: Some(segment_id),
         search_config,
     }))
     .await

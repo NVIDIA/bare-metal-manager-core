@@ -9,7 +9,7 @@ use lazy_static::lazy_static;
 use rcgen::{CertifiedKey, generate_simple_self_signed};
 use reqwest::{ClientBuilder, StatusCode};
 use rpc::forge::MachineArchitecture;
-use rpc::uuid::machine::MachineId;
+use rpc::uuid::machine::{MachineId, MachineInterfaceId};
 use std::collections::HashSet;
 use std::path::Path;
 use tempfile::TempDir;
@@ -79,7 +79,7 @@ pub fn get_validation_id(response: &ForgeAgentControlResponse) -> Option<rpc::co
 pub async fn send_pxe_boot_request(
     app_context: &MachineATronContext,
     arch: MachineArchitecture,
-    interface_id: rpc::Uuid,
+    interface_id: MachineInterfaceId,
     forward_ip: Option<String>,
 ) -> Result<PxeResponse, PxeError> {
     let pxe_script: String =

@@ -6,6 +6,8 @@ use std::{
 };
 
 use ipnetwork::Ipv4Network;
+use rpc::errors::RpcDataConversionError;
+use rpc::uuid::machine::MachineInterfaceId;
 use rpc::{InterfaceFunctionType, forge::ManagedHostNetworkConfigResponse};
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +34,8 @@ pub enum DhcpDataError {
     ParameterMissing(&'static str),
     #[error("DhcpDataError: IpNetworkError: {0}")]
     IpNetworkError(#[from] ipnetwork::IpNetworkError),
+    #[error("DhcpDataError: RpcDataConversionError: {0}")]
+    RpcConversion(#[from] RpcDataConversionError),
 }
 
 impl Default for DhcpConfig {
@@ -73,7 +77,7 @@ type CircuitId = String;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostConfig {
-    pub host_interface_id: String,
+    pub host_interface_id: MachineInterfaceId,
     // BTreeMap is needed because we want ordered map. Due to unordered nature of HashMap, the
     // serialized output was changing very frequently and it was causing dpu-agent to restart dhcp-server
     // very frequently although no config was changed.
@@ -133,7 +137,8 @@ impl HostConfig {
         Ok(HostConfig {
             host_interface_id: value
                 .host_interface_id
-                .ok_or(DhcpDataError::ParameterMissing("HostInterfaceId"))?,
+                .ok_or(DhcpDataError::ParameterMissing("HostInterfaceId"))?
+                .parse()?,
             host_ip_addresses,
         })
     }
@@ -161,7 +166,7 @@ const DHCP_TIMESTAMP_FILE_DPU: &str =
 const DHCP_TIMESTAMP_FILE_TEST: &str = "/tmp/timestamps.json";
 #[derive(Serialize, Deserialize)]
 pub struct DhcpTimestamps {
-    timestamps: HashMap<String, String>,
+    timestamps: HashMap<MachineInterfaceId, String>,
 
     #[serde(skip)]
     path: DhcpTimestampsFilePath,
@@ -199,11 +204,11 @@ impl DhcpTimestamps {
         }
     }
 
-    pub fn add_timestamp(&mut self, host_id: String, timestamp: String) {
+    pub fn add_timestamp(&mut self, host_id: MachineInterfaceId, timestamp: String) {
         self.timestamps.insert(host_id, timestamp);
     }
 
-    pub fn get_timestamp(&self, host_id: &String) -> Option<&String> {
+    pub fn get_timestamp(&self, host_id: &MachineInterfaceId) -> Option<&String> {
         self.timestamps.get(host_id)
     }
 
@@ -246,8 +251,8 @@ impl Default for DhcpTimestamps {
 }
 
 impl IntoIterator for DhcpTimestamps {
-    type Item = (String, String);
-    type IntoIter = std::collections::hash_map::IntoIter<String, String>;
+    type Item = (MachineInterfaceId, String);
+    type IntoIter = std::collections::hash_map::IntoIter<MachineInterfaceId, String>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.timestamps.into_iter()

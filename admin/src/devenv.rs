@@ -1,15 +1,12 @@
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use forge_network::ip::prefix::Ipv4Network;
-use rpc::{
-    Uuid,
-    forge::{PrefixMatchType, Vpc, VpcPrefixCreationRequest, VpcPrefixSearchQuery},
-};
-use serde::{Deserialize, Serialize};
-
 use crate::{
     cfg::cli_options::{DevEnvApplyConfig, NetworkChoice},
     rpc::ApiClient,
 };
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use forge_network::ip::prefix::Ipv4Network;
+use rpc::forge::{PrefixMatchType, Vpc, VpcPrefixCreationRequest, VpcPrefixSearchQuery};
+use rpc::uuid::network::NetworkSegmentId;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct DevEnvConfig {
@@ -28,13 +25,11 @@ async fn get_or_create_vpc(api_client: &ApiClient) -> CarbideCliResult<Vpc> {
         vpc
     } else {
         // If VPC does not exists, create new.
-        let vpc_id = ::rpc::Uuid {
-            value: uuid::Uuid::new_v4().to_string(),
-        };
+        let vpc_id = uuid::Uuid::new_v4().into();
         let vpc = api_client.create_vpc(DEVENV_VPC_NAME, vpc_id).await?;
         println!(
             "Created VPC with ID: {}, name: {}",
-            vpc.id.clone().map(|x| x.value).unwrap(),
+            vpc.id.unwrap(),
             vpc.metadata
                 .as_ref()
                 .map(|x| x.name.clone())
@@ -60,21 +55,19 @@ async fn handle_overlay_segment_creation(
         if let Some(ns) = network_segment.network_segments.first() {
             println!(
                 "Found network segment id: {}, name: {} for prefix: {}",
-                ns.id.clone().map(|x| x.value).unwrap(),
+                ns.id.unwrap(),
                 ns.name,
                 ns.prefixes.first().unwrap().prefix
             );
             continue;
         }
 
-        let ns_id = ::rpc::Uuid {
-            value: uuid::Uuid::new_v4().to_string(),
-        };
+        let ns_id: NetworkSegmentId = uuid::Uuid::new_v4().into();
 
         let ns = api_client
             .create_network_segment(
                 ns_id,
-                vpc.id.clone(),
+                vpc.id,
                 name,
                 network.to_string(),
                 network.nth(1).map(|x| x.to_string()),
@@ -83,7 +76,7 @@ async fn handle_overlay_segment_creation(
 
         println!(
             "Created network segment id: {}, name: {} for prefix: {}",
-            ns.id.clone().map(|x| x.value).unwrap(),
+            ns.id.unwrap(),
             ns.name,
             ns.prefixes.first().unwrap().prefix
         );
@@ -115,7 +108,7 @@ async fn handle_overlay_vpc_prefix_creation(
     for network in overlay_networks {
         let vpc_prefix_name = format!("overlay_prefix_{network}");
         let query = VpcPrefixSearchQuery {
-            vpc_id: vpc.id.clone(),
+            vpc_id: vpc.id,
             tenant_prefix_id: None,
             name: Some(vpc_prefix_name.clone()),
             prefix_match: Some(network.to_string()),
@@ -135,12 +128,10 @@ async fn handle_overlay_vpc_prefix_creation(
         }
 
         let new_prefix = VpcPrefixCreationRequest {
-            id: Some(Uuid {
-                value: uuid::Uuid::new_v4().to_string(),
-            }),
+            id: Some(uuid::Uuid::new_v4().into()),
             prefix: network.to_string(),
             name: vpc_prefix_name,
-            vpc_id: vpc.id.clone(),
+            vpc_id: vpc.id,
         };
         let vpc_prefix = api_client
             .0

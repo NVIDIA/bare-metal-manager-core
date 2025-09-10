@@ -465,8 +465,6 @@ mod tests {
     use hyper_util::rt::TokioExecutor;
     use uuid::uuid;
 
-    use ::rpc::Uuid;
-
     use crate::periodic_config_fetcher::{IBDeviceConfig, IBInstanceConfig, InstanceMetadata};
 
     use super::*;
@@ -530,7 +528,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_metadata_parameter_public_ipv4_category() {
         let metadata = InstanceMetadata {
-            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            instance_id: Some(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8").into()),
             machine_id: Some(
                 "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
                     .parse()
@@ -641,7 +639,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_metadata_parameter_user_data_category() {
         let metadata = InstanceMetadata {
-            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            instance_id: Some(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8").into()),
             machine_id: Some(
                 "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
                     .parse()
@@ -687,7 +685,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_ib_devices() {
         let metadata = InstanceMetadata {
-            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            instance_id: Some(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8").into()),
             machine_id: Some(
                 "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
                     .parse()
@@ -737,7 +735,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_incorrect_ib_device() {
         let metadata = InstanceMetadata {
-            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            instance_id: Some(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8").into()),
             machine_id: Some(
                 "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
                     .parse()
@@ -777,7 +775,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_ib_instances() {
         let metadata = InstanceMetadata {
-            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            instance_id: Some(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8").into()),
             machine_id: Some(
                 "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
                     .parse()
@@ -824,7 +822,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_ib_instance() {
         let metadata = InstanceMetadata {
-            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            instance_id: Some(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8").into()),
             machine_id: Some(
                 "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
                     .parse()
@@ -836,9 +834,7 @@ mod tests {
             ib_devices: Some(vec![IBDeviceConfig {
                 pf_guid: "guid".to_string(),
                 instances: vec![IBInstanceConfig {
-                    ib_partition_id: Some(Uuid::from(uuid!(
-                        "67e55044-10b1-426f-9247-bb680e5fe0c8"
-                    ))),
+                    ib_partition_id: Some("67e55044-10b1-426f-9247-bb680e5fe0c8".parse().unwrap()),
                     ib_guid: Some("test-guid1".to_string()),
                     lid: 0,
                 }],
@@ -866,7 +862,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_ib_instance_not_all_attributes() {
         let metadata = InstanceMetadata {
-            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            instance_id: Some(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8").into()),
             machine_id: Some(
                 "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
                     .parse()
@@ -906,7 +902,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_incorrect_ib_instance() {
         let metadata = InstanceMetadata {
-            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            instance_id: Some(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8").into()),
             machine_id: Some(
                 "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
                     .parse()
@@ -946,7 +942,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_ib_instance_attribute() {
         let metadata = InstanceMetadata {
-            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            instance_id: Some(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8").into()),
             machine_id: Some(
                 "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
                     .parse()
@@ -986,7 +982,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_ib_instance_nonexistent_attribute() {
         let metadata = InstanceMetadata {
-            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            instance_id: Some(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8").into()),
             machine_id: Some(
                 "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
                     .parse()
@@ -1026,7 +1022,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_instance_id() {
         let metadata = InstanceMetadata {
-            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            instance_id: Some(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8").into()),
             machine_id: Some(
                 "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg"
                     .parse()

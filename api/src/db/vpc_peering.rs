@@ -103,7 +103,7 @@ impl VpcPeering {
 
     pub async fn find_by_ids(
         txn: &mut PgConnection,
-        ids: Vec<Uuid>,
+        ids: Vec<VpcPeeringId>,
     ) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * FROM vpc_peerings WHERE id=ANY($1)";
         let vpc_peering_list = sqlx::query_as::<_, VpcPeering>(query)
@@ -115,7 +115,10 @@ impl VpcPeering {
         Ok(vpc_peering_list)
     }
 
-    pub async fn delete(txn: &mut PgConnection, vpc_peer_id: Uuid) -> Result<Self, DatabaseError> {
+    pub async fn delete(
+        txn: &mut PgConnection,
+        vpc_peer_id: VpcPeeringId,
+    ) -> Result<Self, DatabaseError> {
         let query = "DELETE FROM vpc_peerings WHERE id=$1 RETURNING *";
         let vpc_peering = sqlx::query_as::<_, VpcPeering>(query)
             .bind(vpc_peer_id)
@@ -229,9 +232,9 @@ impl From<VpcPeering> for rpc::VpcPeering {
             peer_vpc_id,
         } = db_vpc_peering;
 
-        let id = Some(id.into());
-        let vpc_id = Some(vpc_id.into());
-        let peer_vpc_id = Some(peer_vpc_id.into());
+        let id = Some(id);
+        let vpc_id = Some(vpc_id);
+        let peer_vpc_id = Some(peer_vpc_id);
 
         Self {
             id,

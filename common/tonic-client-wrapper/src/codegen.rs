@@ -51,8 +51,8 @@ pub struct Config {
     pub extern_paths: Vec<(ProtobufType, RustType)>,
 }
 
-pub type ProtobufType = String;
-pub type RustType = String;
+pub type ProtobufType = &'static str;
+pub type RustType = &'static str;
 
 pub struct CodeGenerator {
     inner_rpc_client_type: TokenStream,
@@ -60,7 +60,7 @@ pub struct CodeGenerator {
     proto_fds: Vec<FileDescriptorProto>,
     generated_types_path_within_crate: TokenStream,
     message_types: HashMap<String, MessageWithPackage>,
-    pub extern_paths: HashMap<ProtobufType, RustType>,
+    extern_paths: HashMap<ProtobufType, RustType>,
 }
 
 impl CodeGenerator {
@@ -257,7 +257,7 @@ impl CodeGenerator {
             return Ok(None);
         }
 
-        if self.extern_paths.contains_key(&qualified_name) {
+        if self.extern_paths.contains_key(qualified_name.as_str()) {
             // Nor do we create them for extern types
             return Ok(None);
         }
@@ -442,7 +442,7 @@ impl CodeGenerator {
         }
 
         if let Some(extern_type) = self.extern_paths.get(t) {
-            return Ok(extern_type.to_owned());
+            return Ok(extern_type.to_string());
         }
 
         let components = t
@@ -515,10 +515,7 @@ mod tests {
                     .to_string(),
             ],
             include_paths: vec![proto_dir.path().to_string_lossy().to_string()],
-            extern_paths: vec![(
-                ".ExternType".to_string(),
-                "crate::CustomExternType".to_string(),
-            )],
+            extern_paths: vec![(".ExternType", "crate::CustomExternType")],
         };
 
         CodeGenerator::new(cfg).expect("Could not build CodeGenerator")

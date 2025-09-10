@@ -12,6 +12,7 @@
 use ::rpc::{
     forge as rpc,
     forge_tls_client::{self, ApiConfig, ForgeClientConfig},
+    uuid::machine::MachineInterfaceId,
 };
 
 pub(crate) mod cloud_init;
@@ -24,7 +25,7 @@ pub struct RpcContext;
 impl RpcContext {
     async fn get_pxe_instructions(
         arch: rpc::MachineArchitecture,
-        machine_interface_id: uuid::Uuid,
+        interface_id: MachineInterfaceId,
         url: &str,
         client_config: &ForgeClientConfig,
     ) -> Result<String, String> {
@@ -32,12 +33,9 @@ impl RpcContext {
         let mut client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
             .await
             .map_err(|err| err.to_string())?;
-        let interface_id = Some(::rpc::common::Uuid {
-            value: machine_interface_id.to_string(),
-        });
         let request = tonic::Request::new(rpc::PxeInstructionRequest {
             arch: arch as i32,
-            interface_id: interface_id.clone(),
+            interface_id: Some(interface_id),
         });
         client
             .get_pxe_instructions(request)

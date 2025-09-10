@@ -21,10 +21,7 @@ mod vendor_class;
 
 use std::{error::Error, net::SocketAddr, sync::Arc};
 
-use ::rpc::{
-    Uuid,
-    forge::{DhcpDiscovery, DhcpRecord},
-};
+use ::rpc::forge::{DhcpDiscovery, DhcpRecord};
 use cache::CacheEntry;
 use chrono::Utc;
 use command_line::{Args, ServerMode};
@@ -250,15 +247,9 @@ impl Test {
                     .parse()
                     .unwrap(),
             ),
-            machine_interface_id: Some(Uuid {
-                value: "0fd6e9a3-06fc-4a22-ad29-aca299677b00".to_string(),
-            }),
-            segment_id: Some(Uuid {
-                value: "55a2d74e-f9e1-49d5-bf99-be05171a5d75".to_string(),
-            }),
-            subdomain_id: Some(Uuid {
-                value: "56a2d74e-f9e1-49d5-bf99-be05171a5d75".to_string(),
-            }),
+            machine_interface_id: Some("0fd6e9a3-06fc-4a22-ad29-aca299677b00".parse().unwrap()),
+            segment_id: Some("55a2d74e-f9e1-49d5-bf99-be05171a5d75".parse().unwrap()),
+            subdomain_id: Some("56a2d74e-f9e1-49d5-bf99-be05171a5d75".parse().unwrap()),
             fqdn: "seventeen-connecticut.dev3.frg.nvidia.com".to_string(),
             mac_address: "b8:3f:d2:90:9a:12".to_string(),
             address: "10.217.132.204".to_string(),
@@ -335,10 +326,7 @@ async fn process(
     // Tell forge-dpu-agent that an IP has been requested for this interface.
     if let Some(host_config) = config.host_config {
         let mut dhcp_timestamps = dhcp_timestamps.lock().await;
-        dhcp_timestamps.add_timestamp(
-            host_config.host_interface_id.clone(),
-            Utc::now().to_rfc3339(),
-        );
+        dhcp_timestamps.add_timestamp(host_config.host_interface_id, Utc::now().to_rfc3339());
         if let Err(e) = dhcp_timestamps.write() {
             tracing::error!(
                 "Failed writing to {}: {e}",

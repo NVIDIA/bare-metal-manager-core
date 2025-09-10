@@ -28,7 +28,7 @@ async fn test_create_and_delete_vpc_prefix(pool: PgPool) -> Result<(), Box<dyn s
         id: None,
         prefix: ip_prefix.into(),
         name: "Test VPC prefix".into(),
-        vpc_id: Some(vpc_id.into()),
+        vpc_id: Some(vpc_id),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env.api.create_vpc_prefix(request).await;
@@ -65,7 +65,7 @@ async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::
         id: None,
         prefix: ip_prefix.into(),
         name: "Test VPC prefix".into(),
-        vpc_id: Some(vpc_id.into()),
+        vpc_id: Some(vpc_id),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env.api.create_vpc_prefix(request).await;
@@ -75,7 +75,7 @@ async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::
         id: None,
         prefix: overlapping_ip_prefix.into(),
         name: "Overlapping VPC prefix".into(),
-        vpc_id: Some(vpc_id.into()),
+        vpc_id: Some(vpc_id),
     };
     let request = Request::new(overlapping_vpc_prefix);
     let response = env.api.create_vpc_prefix(request).await;
@@ -108,7 +108,7 @@ async fn test_invalid_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::erro
             id: None,
             prefix: prefix.into(),
             name: description.into(),
-            vpc_id: Some(vpc_id.into()),
+            vpc_id: Some(vpc_id),
         };
         let request = Request::new(bad_vpc_prefix);
         let response = env.api.create_vpc_prefix(request).await;
@@ -134,13 +134,13 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
         id: None,
         prefix: p1.into(),
         name: "VPC prefix p1".into(),
-        vpc_id: Some(vpc_id.into()),
+        vpc_id: Some(vpc_id),
     };
     let create_p2 = VpcPrefixCreationRequest {
         id: None,
         prefix: p2.into(),
         name: "VPC prefix p2".into(),
-        vpc_id: Some(vpc_id.into()),
+        vpc_id: Some(vpc_id),
     };
     let p1_request = Request::new(create_p1);
     let p2_request = Request::new(create_p2);
@@ -154,14 +154,11 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
         .into_inner();
 
     // Search for each prefix by exact prefix match.
-    for (prefix, vpc_prefix_id) in [
-        (p1.prefix.as_str(), p1.id.clone()),
-        (p2.prefix.as_str(), p2.id.clone()),
-    ] {
+    for (prefix, vpc_prefix_id) in [(p1.prefix.as_str(), p1.id), (p2.prefix.as_str(), p2.id)] {
         dbg!(&vpc_prefix_id);
         dbg!(vpc_id);
         let prefix_query = VpcPrefixSearchQuery {
-            vpc_id: Some(vpc_id.into()),
+            vpc_id: Some(vpc_id),
             tenant_prefix_id: None,
             name: None,
             prefix_match: Some(prefix.into()),
@@ -186,13 +183,13 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
     // Search for each prefix by an address it contains.
     for (prefix, vpc_prefix_id) in [
         // A bare address should be treated the same as an explicit /32.
-        ("192.0.2.85", p1.id.clone()),
-        ("192.0.2.170/32", p2.id.clone()),
+        ("192.0.2.85", p1.id),
+        ("192.0.2.170/32", p2.id),
     ] {
         dbg!(&vpc_prefix_id);
         dbg!(vpc_id);
         let prefix_query = VpcPrefixSearchQuery {
-            vpc_id: Some(vpc_id.into()),
+            vpc_id: Some(vpc_id),
             tenant_prefix_id: None,
             name: None,
             prefix_match: Some(prefix.into()),
@@ -218,7 +215,7 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
     // both of them.
     let prefix = "192.0.2.0/24";
     let prefix_query = VpcPrefixSearchQuery {
-        vpc_id: Some(vpc_id.into()),
+        vpc_id: Some(vpc_id),
         tenant_prefix_id: None,
         name: None,
         prefix_match: Some(prefix.into()),
@@ -229,17 +226,9 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
     let vpc_prefix_id_list = search_response
         .expect("Couldn't execute VPC prefix search")
         .into_inner();
-    let returned_vpc_prefix_ids: Vec<_> = vpc_prefix_id_list
-        .vpc_prefix_ids
-        .into_iter()
-        .map(|uuid| uuid.value)
-        .collect();
+    let returned_vpc_prefix_ids = vpc_prefix_id_list.vpc_prefix_ids;
     for expected_vpc_prefix in [&p1, &p2] {
-        let expected_id = expected_vpc_prefix
-            .id
-            .as_ref()
-            .map(|uuid| uuid.value.clone())
-            .unwrap();
+        let expected_id = expected_vpc_prefix.id.unwrap();
         let expected_prefix = expected_vpc_prefix.prefix.as_str();
         assert!(
             returned_vpc_prefix_ids.contains(&expected_id),

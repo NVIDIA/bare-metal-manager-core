@@ -17,17 +17,14 @@ use crate::db;
 use crate::db::DatabaseError;
 use crate::db::machine_boot_override::MachineBootOverride;
 use ::rpc::uuid::machine::MachineInterfaceId;
-use tonic::Status;
 
 pub(crate) async fn get(
     api: &Api,
-    request: tonic::Request<::rpc::common::Uuid>,
+    request: tonic::Request<MachineInterfaceId>,
 ) -> Result<tonic::Response<rpc::MachineBootOverride>, tonic::Status> {
     crate::api::log_request_data(&request);
 
-    let request = request.into_inner();
-    let machine_interface_id = MachineInterfaceId::try_from(request.clone())
-        .map_err(|_e| Status::invalid_argument(format!("bad input uuid: {request}")))?;
+    let machine_interface_id = request.into_inner();
 
     let mut txn = api
         .database_connection
@@ -102,13 +99,11 @@ pub(crate) async fn set(
 
 pub(crate) async fn clear(
     api: &Api,
-    request: tonic::Request<::rpc::common::Uuid>,
+    request: tonic::Request<MachineInterfaceId>,
 ) -> Result<tonic::Response<()>, tonic::Status> {
     crate::api::log_request_data(&request);
 
-    let request = request.into_inner();
-    let machine_interface_id = MachineInterfaceId::try_from(request.clone())
-        .map_err(|_e| Status::invalid_argument(format!("bad input uuid: {request}")))?;
+    let machine_interface_id = request.into_inner();
 
     const DB_TXN_NAME: &str = "clear_machine_boot_override";
     let mut txn = api

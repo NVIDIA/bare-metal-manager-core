@@ -14,14 +14,13 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
     net::IpAddr,
-    str::FromStr,
 };
 
 use crate::db::instance_address::InstanceAddress;
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentType};
 use crate::errors::CarbideResult;
+use crate::model::ConfigValidationError;
 use crate::model::machine::Machine;
-use crate::{db::network_prefix::NetworkPrefixId, model::ConfigValidationError};
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::uuid::instance::InstanceId;
 #[cfg(test)]
@@ -30,6 +29,8 @@ use ::rpc::uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
+use rpc::uuid::network::NetworkPrefixId;
+use rpc::uuid::vpc::VpcPrefixId;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeMap};
 use sqlx::PgConnection;
 
@@ -190,7 +191,7 @@ impl InstanceNetworkConfig {
     /// Returns a network configuration for a single physical interface
     #[cfg(test)]
     pub fn for_vpc_prefix_id(
-        vpc_prefix_id: uuid::Uuid,
+        vpc_prefix_id: VpcPrefixId,
         _dpu_machine_id: Option<MachineId>,
     ) -> Self {
         Self {
@@ -553,11 +554,12 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                 // send network_segment_id.
                 // This is old model. Let's use network segment id as such.
                 // TODO: This should be removed in future.
-                let ns_id = NetworkSegmentId::try_from(iface.network_segment_id.ok_or(
-                    RpcDataConversionError::MissingArgument(
-                        "InstanceInterfaceConfig::network_segment_id",
-                    ),
-                )?)?;
+                let ns_id =
+                    iface
+                        .network_segment_id
+                        .ok_or(RpcDataConversionError::MissingArgument(
+                            "InstanceInterfaceConfig::network_segment_id",
+                        ))?;
 
                 // And then we'll populate network_details from that as well.
                 (Some(NetworkDetails::NetworkSegment(ns_id)), Some(ns_id))
@@ -596,7 +598,7 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
             // Update network segment id based on network details.
             let network_details: Option<rpc::forge::instance_interface_config::NetworkDetails> =
                 iface.network_details.map(|x| x.into());
-            let network_segment_id: Option<rpc::Uuid> = iface.network_segment_id.map(|x| x.into());
+            let network_segment_id = iface.network_segment_id;
 
             let (device, device_instance) = match iface.device_locator {
                 Some(dl) => (Some(dl.device), dl.device_instance as u32),
@@ -704,7 +706,7 @@ pub fn validate_interface_function_ids<
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NetworkDetails {
     NetworkSegment(NetworkSegmentId),
-    VpcPrefixId(uuid::Uuid),
+    VpcPrefixId(VpcPrefixId),
 }
 
 impl From<NetworkDetails> for rpc::forge::instance_interface_config::NetworkDetails {
@@ -716,7 +718,7 @@ impl From<NetworkDetails> for rpc::forge::instance_interface_config::NetworkDeta
                 )
             }
             NetworkDetails::VpcPrefixId(uuid) => {
-                rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(uuid.into())
+                rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(uuid)
             }
         }
     }
@@ -727,14 +729,10 @@ impl TryFrom<rpc::forge::instance_interface_config::NetworkDetails> for NetworkD
         value: rpc::forge::instance_interface_config::NetworkDetails,
     ) -> Result<Self, Self::Error> {
         Ok(match value {
-            rpc::forge::instance_interface_config::NetworkDetails::SegmentId(uuid) => {
-                let ns_id = NetworkSegmentId::try_from(uuid)?;
+            rpc::forge::instance_interface_config::NetworkDetails::SegmentId(ns_id) => {
                 NetworkDetails::NetworkSegment(ns_id)
             }
-            rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(uuid) => {
-                let vpc_prefix_id = uuid::Uuid::from_str(&uuid.value).map_err(|_| {
-                    RpcDataConversionError::InvalidUuid("VpcPrefixId", uuid.to_string())
-                })?;
+            rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(vpc_prefix_id) => {
                 NetworkDetails::VpcPrefixId(vpc_prefix_id)
             }
         })
@@ -998,7 +996,7 @@ mod tests {
         let config = rpc::InstanceNetworkConfig {
             interfaces: vec![rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as _,
-                network_segment_id: Some(NetworkSegmentId::from(BASE_SEGMENT_ID).into()),
+                network_segment_id: Some(NetworkSegmentId::from(BASE_SEGMENT_ID)),
                 network_details: None,
                 device: None,
                 device_instance: 0u32,
@@ -1036,7 +1034,7 @@ mod tests {
         for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
             interfaces.push(rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as _,
-                network_segment_id: Some(offset_segment_id(vfid + 1).into()),
+                network_segment_id: Some(offset_segment_id(vfid + 1)),
                 network_details: None,
                 device: None,
                 device_instance: 0u32,
@@ -1120,9 +1118,9 @@ mod tests {
                 network_segment_id: None,
                 virtual_function_id: None,
                 network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(rpc::Uuid {
-                        value: offset_segment_id(0).to_string(),
-                    }),
+                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+                        offset_segment_id(0),
+                    ),
                 ),
                 device: None,
                 device_instance: 0u32,
@@ -1132,9 +1130,9 @@ mod tests {
                 network_segment_id: None,
                 virtual_function_id: Some(0),
                 network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(rpc::Uuid {
-                        value: offset_segment_id(1).to_string(),
-                    }),
+                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+                        offset_segment_id(1),
+                    ),
                 ),
                 device: None,
                 device_instance: 0u32,
@@ -1144,9 +1142,9 @@ mod tests {
                 network_segment_id: None,
                 virtual_function_id: Some(1),
                 network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(rpc::Uuid {
-                        value: offset_segment_id(2).to_string(),
-                    }),
+                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+                        offset_segment_id(2),
+                    ),
                 ),
                 device: None,
                 device_instance: 0u32,
@@ -1156,9 +1154,9 @@ mod tests {
                 network_segment_id: None,
                 virtual_function_id: Some(2),
                 network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(rpc::Uuid {
-                        value: offset_segment_id(3).to_string(),
-                    }),
+                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+                        offset_segment_id(3),
+                    ),
                 ),
                 device: None,
                 device_instance: 0u32,

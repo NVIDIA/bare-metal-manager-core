@@ -10,10 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use lru::LruCache;
-use rpc::{
-    Uuid,
-    forge::{DhcpDiscovery, DhcpRecord},
-};
+use rpc::forge::{DhcpDiscovery, DhcpRecord};
+use rpc::uuid::machine::MachineInterfaceId;
 use tonic::async_trait;
 use utils::models::dhcp::InterfaceInfo;
 
@@ -25,13 +23,11 @@ use crate::{
 #[derive(Debug)]
 pub struct Dpu {}
 
-fn from_host_conf(value: &InterfaceInfo, interface_id: &str) -> DhcpRecord {
+fn from_host_conf(value: &InterfaceInfo, interface_id: MachineInterfaceId) -> DhcpRecord {
     // Fill only needed fields. Rest are left empty or none.
     DhcpRecord {
         machine_id: None,
-        machine_interface_id: Some(Uuid {
-            value: interface_id.to_string(),
-        }),
+        machine_interface_id: Some(interface_id),
         segment_id: None,
         subdomain_id: None,
         fqdn: value.fqdn.clone(),
@@ -75,7 +71,7 @@ impl DhcpMode for Dpu {
             ));
         };
 
-        Ok(from_host_conf(ip_details, &host_config.host_interface_id))
+        Ok(from_host_conf(ip_details, host_config.host_interface_id))
     }
 
     /// Here circuit is interface name. This is what dhcp-relay used to fill.

@@ -88,6 +88,7 @@ use crate::tests::common::api_fixtures::{
     TestEnv, create_managed_host_with_ek, update_time_params,
 };
 use ::rpc::uuid::vpc::VpcPrefixId;
+use rpc::uuid::network::NetworkSegmentId;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
@@ -461,7 +462,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     // from delete_instance()
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
-            id: tinstance.id().into(),
+            id: Some(tinstance.id),
             issue: None,
             is_repair_tenant: None,
         }))
@@ -653,7 +654,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     // end of handle_delete_post_bootingwithdiscoveryimage()
 
     assert!(
-        env.find_instances(tinstance.id().into())
+        env.find_instances(Some(tinstance.id))
             .await
             .instances
             .is_empty()
@@ -882,7 +883,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
-                network_segment_id: Some((segment_id_1).into()),
+                network_segment_id: Some(segment_id_1),
                 network_details: None,
                 device: None,
                 device_instance: 0u32,
@@ -890,7 +891,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
-                network_segment_id: Some((segment_id_2).into()),
+                network_segment_id: Some(segment_id_2),
                 network_details: None,
                 device: None,
                 device_instance: 0u32,
@@ -1108,13 +1109,12 @@ async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConn
         network_security_group_id: None,
     };
 
-    let instance_id = uuid::Uuid::new_v4();
-    let rpc_instance_id: rpc::Uuid = instance_id.into();
+    let instance_id: InstanceId = uuid::Uuid::new_v4().into();
 
     let instance = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: Some(rpc_instance_id.clone()),
+            instance_id: Some(instance_id),
             machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(config),
@@ -1129,10 +1129,10 @@ async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConn
         .expect("Create instance failed.")
         .into_inner();
 
-    assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
+    assert_eq!(instance.id, Some(instance_id));
 
-    let instance = env.one_instance(instance_id.into()).await;
-    assert_eq!(instance.inner().id.as_ref(), Some(&rpc_instance_id));
+    let instance = env.one_instance(instance_id).await;
+    assert_eq!(instance.inner().id, Some(instance_id));
 }
 
 #[crate::sqlx_test]
@@ -1184,15 +1184,11 @@ async fn test_instance_deletion_before_provisioning_finishes(
         rpc::TenantState::Provisioning
     );
 
-    let instance_id: InstanceId = instance
-        .id
-        .expect("Missing instance ID")
-        .try_into()
-        .unwrap();
+    let instance_id = instance.id.expect("Missing instance ID");
 
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
-            id: Some(instance_id.into()),
+            id: Some(instance_id),
             issue: None,
             is_repair_tenant: None,
         }))
@@ -1229,7 +1225,7 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
     for i in 0..2 {
         env.api
             .release_instance(tonic::Request::new(InstanceReleaseRequest {
-                id: tinstance.id().into(),
+                id: Some(tinstance.id),
                 issue: None,
                 is_repair_tenant: None,
             }))
@@ -1246,7 +1242,7 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
     let err = env
         .api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
-            id: tinstance.id().into(),
+            id: Some(tinstance.id),
             issue: None,
             is_repair_tenant: None,
         }))
@@ -1256,7 +1252,7 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
     let err_msg = err.message();
     assert_eq!(
         err.message(),
-        format!("instance not found: {}", tinstance.id()),
+        format!("instance not found: {}", tinstance.id),
         "Error message is: {}",
         err_msg
     );
@@ -1279,13 +1275,12 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
         network_security_group_id: None,
     };
 
-    let instance_id = uuid::Uuid::new_v4();
-    let rpc_instance_id: rpc::Uuid = instance_id.into();
+    let instance_id: InstanceId = uuid::Uuid::new_v4().into();
 
     let instance = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: Some(rpc_instance_id.clone()),
+            instance_id: Some(instance_id),
             machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(config.clone()),
@@ -1299,12 +1294,12 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
         .await
         .expect("Create instance failed.")
         .into_inner();
-    assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
+    assert_eq!(instance.id, Some(instance_id));
 
     let result = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: Some(rpc_instance_id.clone()),
+            instance_id: Some(instance_id),
             machine_id: host_machine_id_2.into(),
             instance_type_id: None,
             config: Some(config),
@@ -1363,7 +1358,7 @@ async fn test_instance_cloud_init_metadata(
         panic!("The value for metadata should not have been None");
     };
 
-    assert_eq!(metadata.instance_id, tinstance.id().to_string());
+    assert_eq!(metadata.instance_id, tinstance.id.to_string());
 
     txn.commit().await.unwrap();
     tinstance.delete().await;
@@ -1405,7 +1400,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .get(pf_segment)
         .expect("Could not find matching interface_prefixes entry for pf_segment from ip_addrs.");
 
-    let pf_gw = NetworkPrefix::find(&mut txn, pf_segment.into())
+    let pf_gw = NetworkPrefix::find(&mut txn, *pf_segment)
         .await
         .ok()
         .and_then(|pfx| pfx.gateway_cidr())
@@ -1506,7 +1501,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         "UPDATE instances SET network_config_version=$1 WHERE id = $2::uuid returning id",
     )
     .bind(next_config_version.version_string())
-    .bind(tinstance.id())
+    .bind(tinstance.id)
     .fetch_one(&mut *txn)
     .await
     .unwrap();
@@ -1697,7 +1692,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
-                network_segment_id: Some((segment_id_1).into()),
+                network_segment_id: Some(segment_id_1),
                 network_details: None,
                 device: None,
                 device_instance: 0u32,
@@ -1705,7 +1700,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
-                network_segment_id: Some((segment_id_2).into()),
+                network_segment_id: Some(segment_id_2),
                 network_details: None,
                 device: None,
                 device_instance: 0u32,
@@ -1763,10 +1758,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(
-        tinstance.id().to_string(),
-        address_by_prefix.instance_id.to_string()
-    );
+    assert_eq!(tinstance.id, address_by_prefix.instance_id);
 
     txn.commit().await.unwrap();
 
@@ -1902,13 +1894,12 @@ async fn test_create_instance_with_allow_unhealthy_machine_true(
     )
     .await;
 
-    let instance_id = uuid::Uuid::new_v4();
-    let rpc_instance_id: rpc::Uuid = instance_id.into();
+    let instance_id: InstanceId = uuid::Uuid::new_v4().into();
 
     let instance = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: Some(rpc_instance_id.clone()),
+            instance_id: Some(instance_id),
             machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(rpc::InstanceConfig {
@@ -1930,10 +1921,10 @@ async fn test_create_instance_with_allow_unhealthy_machine_true(
         .expect("Create instance failed.")
         .into_inner();
 
-    assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
+    assert_eq!(instance.id, Some(instance_id));
 
     let instance = env.find_instances(instance.id).await.instances.remove(0);
-    assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
+    assert_eq!(instance.id, Some(instance_id));
 }
 
 #[crate::sqlx_test]
@@ -1969,7 +1960,7 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
     env.api
         .update_instance_phone_home_last_contact(tonic::Request::new(
             rpc::forge::InstancePhoneHomeLastContactRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
             },
         ))
         .await
@@ -1995,7 +1986,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
 
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
-            id: tinstance.id().into(),
+            id: Some(tinstance.id),
             issue: None,
             is_repair_tenant: None,
         }))
@@ -2089,13 +2080,12 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
         network_security_group_id: None,
     };
 
-    let instance_id = uuid::Uuid::new_v4();
-    let rpc_instance_id: rpc::Uuid = instance_id.into();
+    let instance_id: InstanceId = uuid::Uuid::new_v4().into();
 
     let err = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: Some(rpc_instance_id.clone()),
+            instance_id: Some(instance_id),
             machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(config),
@@ -2149,13 +2139,12 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
         network_security_group_id: None,
     };
 
-    let instance_id = uuid::Uuid::new_v4();
-    let rpc_instance_id: rpc::Uuid = instance_id.into();
+    let instance_id: InstanceId = uuid::Uuid::new_v4().into();
 
     let err = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
-            instance_id: Some(rpc_instance_id.clone()),
+            instance_id: Some(instance_id),
             machine_id: host_machine_id.into(),
             instance_type_id: None,
             config: Some(config),
@@ -2272,9 +2261,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
             function_type: 0,
             network_segment_id: None,
             network_details: Some(
-                rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(
-                    vpc_prefix_id.into(),
-                ),
+                rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(vpc_prefix_id),
             ),
             device: None,
             device_instance: 0u32,
@@ -2378,9 +2365,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     let vpc_prefix = env
         .api
         .get_vpc_prefixes(tonic::Request::new(rpc::forge::VpcPrefixGetRequest {
-            vpc_prefix_ids: vec![rpc::Uuid {
-                value: vpc_prefix_id.to_string(),
-            }],
+            vpc_prefix_ids: vec![vpc_prefix_id],
         }))
         .await
         .unwrap()
@@ -2393,18 +2378,16 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     let tinstance = mh
         .instance_builer(&env)
-        .network(single_interface_network_config_with_vpc_prefix(rpc::Uuid {
-            value: vpc_prefix_id.to_string(),
-        }))
+        .network(single_interface_network_config_with_vpc_prefix(
+            vpc_prefix_id,
+        ))
         .build()
         .await;
 
     let vpc_prefix = env
         .api
         .get_vpc_prefixes(tonic::Request::new(rpc::forge::VpcPrefixGetRequest {
-            vpc_prefix_ids: vec![rpc::Uuid {
-                value: vpc_prefix_id.to_string(),
-            }],
+            vpc_prefix_ids: vec![vpc_prefix_id],
         }))
         .await
         .unwrap()
@@ -2486,7 +2469,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     }
     assert_eq!(
         network_config_no_addresses,
-        InstanceNetworkConfig::for_vpc_prefix_id(vpc_prefix_id.into(), Some(mh.dpu().id))
+        InstanceNetworkConfig::for_vpc_prefix_id(vpc_prefix_id, Some(mh.dpu().id))
     );
 
     assert!(!fetched_instance.observations.network.is_empty());
@@ -2600,9 +2583,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     let vpc_prefix = env
         .api
         .get_vpc_prefixes(tonic::Request::new(rpc::forge::VpcPrefixGetRequest {
-            vpc_prefix_ids: vec![rpc::Uuid {
-                value: vpc_prefix_id.to_string(),
-            }],
+            vpc_prefix_ids: vec![vpc_prefix_id],
         }))
         .await
         .unwrap()
@@ -2642,7 +2623,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .await
         .unwrap()
         .into_inner();
-    let vpc_id: ::rpc::uuid::vpc::VpcId = vpc.id.as_ref().unwrap().clone().try_into().unwrap();
+    let vpc_id = vpc.id.unwrap();
     let vpc_prefix_id = create_tenant_overlay_prefix(&env, vpc_id).await;
 
     let mut txn = env.db_txn().await;
@@ -3033,7 +3014,7 @@ async fn test_allocate_and_update_with_network_security_group(
         good_network_security_group_id
     );
 
-    let instance_id = i.id.unwrap().clone();
+    let instance_id = i.id.unwrap();
 
     // Now update to remove the NSG attachment.
     let i = env
@@ -3049,7 +3030,7 @@ async fn test_allocate_and_update_with_network_security_group(
                     storage: None,
                     network_security_group_id: None,
                 }),
-                instance_id: Some(instance_id.clone()),
+                instance_id: Some(instance_id),
                 metadata: Some(rpc::forge::Metadata {
                     name: "newinstance".to_string(),
                     description: "desc".to_string(),
@@ -3079,7 +3060,7 @@ async fn test_allocate_and_update_with_network_security_group(
                     storage: None,
                     network_security_group_id: bad_network_security_group_id.clone(),
                 }),
-                instance_id: Some(instance_id.clone()),
+                instance_id: Some(instance_id),
                 metadata: Some(rpc::forge::Metadata {
                     name: "newinstance".to_string(),
                     description: "desc".to_string(),
@@ -3104,7 +3085,7 @@ async fn test_allocate_and_update_with_network_security_group(
                     storage: None,
                     network_security_group_id: good_network_security_group_id.clone(),
                 }),
-                instance_id: Some(instance_id.clone()),
+                instance_id: Some(instance_id),
                 metadata: Some(rpc::forge::Metadata {
                     name: "newinstance".to_string(),
                     description: "desc".to_string(),
@@ -3164,7 +3145,7 @@ async fn test_network_details_migration(
                 network: Some(rpc::InstanceNetworkConfig {
                     interfaces: vec![rpc::InstanceInterfaceConfig {
                         function_type: rpc::InterfaceFunctionType::Physical as i32,
-                        network_segment_id: Some(segment_id.into()),
+                        network_segment_id: Some(segment_id),
                         network_details: None,
                         device: None,
                         device_instance: 0,
@@ -3214,7 +3195,7 @@ async fn test_network_details_migration(
     let i = env
         .api
         .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
-            instance_ids: vec![i1_id.clone()],
+            instance_ids: vec![i1_id],
         }))
         .await
         .unwrap()
@@ -3226,7 +3207,7 @@ async fn test_network_details_migration(
     // Check that the instance actually has the ID we expect
     assert_eq!(
         i.config.clone().unwrap().network.unwrap().interfaces[0].network_segment_id,
-        Some(segment_id.into())
+        Some(segment_id)
     );
 
     // We expect that we've cleared the value with our raw query.
@@ -3250,7 +3231,7 @@ async fn test_network_details_migration(
                         network_segment_id: None,
                         network_details: Some(
                             rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                                segment_id.into(),
+                                segment_id,
                             ),
                         ),
                         device: None,
@@ -3280,12 +3261,12 @@ async fn test_network_details_migration(
     // Check that the instance actually has the ID we expect
     assert_eq!(
         i.config.clone().unwrap().network.unwrap().interfaces[0].network_details,
-        Some(rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id.into()))
+        Some(rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id))
     );
 
     assert_eq!(
         i.config.unwrap().network.unwrap().interfaces[0].network_segment_id,
-        Some(segment_id.into())
+        Some(segment_id)
     );
 
     // Create an instance with vpc-prefix
@@ -3297,7 +3278,7 @@ async fn test_network_details_migration(
             id: None,
             prefix: ip_prefix.into(),
             name: "Test VPC prefix".into(),
-            vpc_id: Some(vpc_id.into()),
+            vpc_id: Some(vpc_id),
         }))
         .await
         .unwrap()
@@ -3318,7 +3299,7 @@ async fn test_network_details_migration(
                         network_segment_id: None,
                         network_details: Some(
                             rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(
-                                vpc_prefix_id.clone(),
+                                vpc_prefix_id,
                             ),
                         ),
                         device: None,
@@ -3362,8 +3343,8 @@ async fn test_network_details_migration(
 
     // Now go see if the instances are all still in an expected state.
 
-    validate_post_migration_instance_network_config(&env, i1_id, Some(segment_id.into())).await;
-    validate_post_migration_instance_network_config(&env, i2_id, Some(segment_id.into())).await;
+    validate_post_migration_instance_network_config(&env, i1_id, Some(segment_id)).await;
+    validate_post_migration_instance_network_config(&env, i2_id, Some(segment_id)).await;
     validate_post_migration_instance_network_config(&env, i3_id, None).await;
 
     Ok(())
@@ -3371,8 +3352,8 @@ async fn test_network_details_migration(
 
 pub async fn validate_post_migration_instance_network_config(
     env: &TestEnv,
-    instance_id: rpc::common::Uuid,
-    segment_id: Option<rpc::common::Uuid>,
+    instance_id: InstanceId,
+    segment_id: Option<NetworkSegmentId>,
 ) {
     let i = env
         .api
@@ -3392,7 +3373,7 @@ pub async fn validate_post_migration_instance_network_config(
         Some(id) => {
             assert_eq!(
                 i.config.clone().unwrap().network.unwrap().interfaces[0].network_details,
-                Some(rpc::forge::instance_interface_config::NetworkDetails::SegmentId(id.clone()))
+                Some(rpc::forge::instance_interface_config::NetworkDetails::SegmentId(id))
             );
 
             assert_eq!(
@@ -3460,9 +3441,7 @@ async fn test_allocate_and_update_network_config_instance(
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
             network_details: Some(
-                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                    segment_id2.into(),
-                ),
+                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id2),
             ),
             device: None,
             device_instance: 0,
@@ -3578,9 +3557,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
                 network_segment_id: None,
                 network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                        segment_id.into(),
-                    ),
+                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id),
                 ),
                 device: None,
                 device_instance: 0,
@@ -3590,9 +3567,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
                 network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                        segment_id2.into(),
-                    ),
+                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id2),
                 ),
                 device: None,
                 device_instance: 0,
@@ -3698,7 +3673,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         id: None,
         prefix: ip_prefix.into(),
         name: "Test VPC prefix".into(),
-        vpc_id: Some(vpc_id.into()),
+        vpc_id: Some(vpc_id),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env
@@ -3715,7 +3690,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .clone()
                     .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
@@ -3726,7 +3700,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .clone()
                     .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
@@ -3737,7 +3710,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .clone()
                     .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
@@ -3748,7 +3720,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .clone()
                     .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
@@ -3813,7 +3784,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .clone()
                     .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
@@ -3824,7 +3794,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .clone()
                     .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
@@ -3836,7 +3805,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .clone()
                     .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
@@ -3859,7 +3827,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: None,
                 config: Some(updated_config_1.clone()),
                 metadata: Some(updated_metadata_1.clone()),
@@ -3973,9 +3941,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
             network_details: Some(
-                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                    segment_id2.into(),
-                ),
+                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id2),
             ),
             device: None,
             device_instance: 0,
@@ -4081,7 +4047,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         id: None,
         prefix: ip_prefix.into(),
         name: "Test VPC prefix".into(),
-        vpc_id: Some(vpc_id.into()),
+        vpc_id: Some(vpc_id),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env
@@ -4097,7 +4063,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
             network_segment_id: None,
             network_details: response
                 .id
-                .clone()
                 .map(::rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
             device: None,
             device_instance: 0,
@@ -4143,7 +4108,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .clone()
                     .map(::rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
@@ -4154,7 +4118,6 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .clone()
                     .map(::rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
@@ -4185,7 +4148,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: Some(tinstance.id),
                 if_version_match: None,
                 config: Some(updated_config_1.clone()),
                 metadata: Some(updated_metadata_1.clone()),
@@ -4286,7 +4249,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
                 network_segment_id: None,
                 network_details: Some(
                     rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(
-                        vpc_prefix_id.into(),
+                        vpc_prefix_id,
                     ),
                 ),
                 device: Some("BlueField SoC".to_string()),
@@ -4298,7 +4261,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
                 network_segment_id: None,
                 network_details: Some(
                     rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(
-                        vpc_prefix_id.into(),
+                        vpc_prefix_id,
                     ),
                 ),
                 device: Some("BlueField SoC".to_string()),
@@ -4436,11 +4399,7 @@ async fn test_instance_release_backward_compatibility(_: PgPoolOptions, options:
         .expect("Failed to allocate instance");
 
     let instance = instance_result.into_inner();
-    let instance_id = instance
-        .id
-        .as_ref()
-        .expect("Instance ID should be present")
-        .clone();
+    let instance_id = *instance.id.as_ref().expect("Instance ID should be present");
 
     // Test backward compatibility: simulate an older client that doesn't know about
     // the new enhanced instance release fields (issue reporting and repair tenant flag).
@@ -4453,7 +4412,7 @@ async fn test_instance_release_backward_compatibility(_: PgPoolOptions, options:
     let release_response = env
         .api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
-            id: Some(instance_id.clone()),
+            id: Some(instance_id),
             issue: None,            // Exactly what older clients produce
             is_repair_tenant: None, // Exactly what older clients produce
         }))
@@ -4571,17 +4530,13 @@ async fn test_instance_release_repair_tenant(_: PgPoolOptions, options: PgConnec
             .expect("Failed to allocate instance");
 
         let instance = instance_result.into_inner();
-        let instance_id = instance
-            .id
-            .as_ref()
-            .expect("Instance ID should be present")
-            .clone();
+        let instance_id = *instance.id.as_ref().expect("Instance ID should be present");
 
         // Test enhanced instance release with repair tenant flag
         let release_response = env
             .api
             .release_instance(tonic::Request::new(InstanceReleaseRequest {
-                id: Some(instance_id.clone()),
+                id: Some(instance_id),
                 issue: None, // No issue reported
                 is_repair_tenant: Some(is_repair_tenant),
             }))
@@ -4674,11 +4629,7 @@ async fn test_instance_release_combined_enhancements(_: PgPoolOptions, options: 
         .expect("Failed to allocate instance");
 
     let instance = instance_result.into_inner();
-    let instance_id = instance
-        .id
-        .as_ref()
-        .expect("Instance ID should be present")
-        .clone();
+    let instance_id = *instance.id.as_ref().expect("Instance ID should be present");
 
     // Test enhanced instance release with both features enabled
     let issue = Issue {
@@ -4690,7 +4641,7 @@ async fn test_instance_release_combined_enhancements(_: PgPoolOptions, options: 
     let release_response = env
         .api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
-            id: Some(instance_id.clone()),
+            id: Some(instance_id),
             issue: Some(issue),
             is_repair_tenant: Some(true), // This is a repair tenant reporting an issue
         }))
@@ -4783,7 +4734,7 @@ async fn test_instance_release_auto_repair_enabled(_: PgPoolOptions, options: Pg
     let release_response = env
         .api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
-            id: Some(instance_id.clone()),
+            id: Some(instance_id),
             issue: Some(Issue {
                 category: IssueCategory::Hardware as i32,
                 summary: "Memory DIMM failure detected".to_string(),
@@ -4899,7 +4850,7 @@ async fn test_instance_release_repair_tenant_successful_completion(
     let _release_response = env
         .api
         .release_instance(tonic::Request::new(rpc::InstanceReleaseRequest {
-            id: Some(instance_id.clone()),
+            id: Some(instance_id),
             issue: Some(Issue {
                 category: IssueCategory::Hardware as i32,
                 summary: "Hardware failure detected".to_string(),
@@ -4955,7 +4906,7 @@ async fn test_instance_release_repair_tenant_successful_completion(
     let _repair_release_response = env
         .api
         .release_instance(tonic::Request::new(rpc::InstanceReleaseRequest {
-            id: Some(instance_id.clone()),
+            id: Some(instance_id),
             issue: None,                  // No new issues - repair was successful
             is_repair_tenant: Some(true), // Repair tenant
         }))

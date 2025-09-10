@@ -40,6 +40,7 @@ use crate::{
 use ::rpc::uuid::machine::MachineId;
 use libredfish::{OData, PCIeDevice, model::oem::nvidia_dpu::NicMode};
 use mac_address::MacAddress;
+use rpc::uuid::machine::MachineInterfaceId;
 use rpc::{
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
     forge::{DhcpDiscovery, forge_server::Forge},
@@ -289,7 +290,7 @@ pub async fn create_machine_inventory(env: &TestEnv, machine_id: MachineId) {
 /// Uses the `discover_dhcp` API to discover a DPU with a certain MAC address
 ///
 /// Returns the created `machine_interface_id`
-pub async fn dpu_discover_dhcp(env: &TestEnv, mac_address: &str) -> rpc::Uuid {
+pub async fn dpu_discover_dhcp(env: &TestEnv, mac_address: &str) -> MachineInterfaceId {
     let response = env
         .api
         .discover_dhcp(Request::new(DhcpDiscovery {
@@ -313,7 +314,7 @@ pub async fn dpu_discover_dhcp(env: &TestEnv, mac_address: &str) -> rpc::Uuid {
 pub async fn dpu_discover_machine(
     env: &TestEnv,
     dpu_config: &DpuConfig,
-    machine_interface_id: rpc::Uuid,
+    machine_interface_id: MachineInterfaceId,
 ) -> rpc::uuid::machine::MachineId {
     let response = env
         .api

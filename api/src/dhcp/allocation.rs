@@ -22,6 +22,7 @@ use crate::{
     },
 };
 use ::rpc::uuid::instance::InstanceId;
+use rpc::uuid::network::NetworkPrefixId;
 
 #[async_trait::async_trait]
 pub trait UsedIpResolver {
@@ -57,7 +58,7 @@ pub enum DhcpError {
 // Trying to decouple from NetworkSegment as much as possible.
 #[derive(Debug)]
 pub struct Prefix {
-    id: uuid::Uuid,
+    id: NetworkPrefixId,
     prefix: IpNetwork,
     gateway: Option<IpAddr>,
     num_reserved: i32,
@@ -187,7 +188,7 @@ impl IpAllocator {
 impl Iterator for IpAllocator {
     // The Item is a tuple that returns the prefix ID and the
     // allocated network for that prefix.
-    type Item = (uuid::Uuid, CarbideResult<IpNetwork>);
+    type Item = (NetworkPrefixId, CarbideResult<IpNetwork>);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.prefixes.is_empty() {
@@ -467,7 +468,7 @@ mod tests {
 
     #[test]
     fn test_ip_allocation() {
-        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let prefix_length = 32;
         let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
@@ -510,7 +511,7 @@ mod tests {
 
     #[test]
     fn test_ip_allocation_ipv6_fail() {
-        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
                 id: prefix_id,
@@ -529,8 +530,8 @@ mod tests {
 
     #[test]
     fn test_ip_allocation_ipv4_and_6() {
-        let prefix_id1 = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
-        let prefix_id2 = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1201");
+        let prefix_id1 = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
+        let prefix_id2 = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1201").into();
         let prefix_length = 32;
         let mut allocator = IpAllocator {
             prefixes: vec![
@@ -563,7 +564,7 @@ mod tests {
 
     #[test]
     fn test_ip_allocation_prefix_exhausted() {
-        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
                 id: prefix_id,
@@ -585,7 +586,7 @@ mod tests {
     }
     #[test]
     fn test_ip_allocation_broadcast_address_is_excluded() {
-        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
                 id: prefix_id,
@@ -600,7 +601,7 @@ mod tests {
     }
     #[test]
     fn test_ip_allocation_network_broadcast_address_is_excluded() {
-        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let prefix_length = 32;
         let allocator = IpAllocator {
             prefixes: vec![Prefix {
@@ -618,7 +619,7 @@ mod tests {
     }
     #[test]
     fn test_ip_allocation_with_used_ips() {
-        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let prefix_length = 32;
         let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
@@ -654,7 +655,7 @@ mod tests {
     // should need to skip to the next valid /30, which
     // ends up being .168/30.
     fn test_ip_allocation_with_used_networks() {
-        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let prefix = IpNetwork::V4("10.217.4.0/24".parse().unwrap());
         let prefix_length = 30;
         let mut allocator = IpAllocator {
@@ -700,7 +701,7 @@ mod tests {
     // to test_ip_allocation_with_used_networks above, except
     // used_ips are actually /30.
     fn test_ip_allocation_with_used_fnn_networks() {
-        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let prefix = IpNetwork::V4("10.217.4.0/24".parse().unwrap());
         let prefix_length = 30;
         let mut allocator = IpAllocator {
