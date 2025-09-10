@@ -41,6 +41,7 @@ pub mod network_security_group;
 pub mod network_segment;
 pub mod os;
 pub mod power_manager;
+pub mod redfish;
 pub mod resource_pool;
 pub mod site_explorer;
 pub mod sku;

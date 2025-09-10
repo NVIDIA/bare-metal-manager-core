@@ -21,10 +21,9 @@ use libredfish::{
 };
 use sqlx::PgConnection;
 use std::net::IpAddr;
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc};
 use utils::HostPortPair;
 
-use crate::api::log_request_data;
 use crate::{
     CarbideError, CarbideResult,
     db::{self},
@@ -634,89 +633,10 @@ pub async fn did_dpu_finish_booting(
     }
 }
 
-pub async fn redfish_browse(
-    api: &crate::api::Api,
-    request: tonic::Request<::rpc::forge::RedfishBrowseRequest>,
-) -> Result<tonic::Response<::rpc::forge::RedfishBrowseResponse>, tonic::Status> {
-    log_request_data(&request);
-
-    let request = request.into_inner();
-    let uri: http::Uri = match request.uri.clone().parse() {
-        Ok(uri) => uri,
-        Err(err) => {
-            return Err(CarbideError::internal(format!("Parsing uri failed: {err}")).into());
-        }
-    };
-
-    let bmc_metadata_request = tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
-        machine_id: None,
-        bmc_endpoint_request: Some(rpc::forge::BmcEndpointRequest {
-            ip_address: uri.host().map(|x| x.to_string()).unwrap_or_default(),
-            mac_address: None,
-        }),
-        role: rpc::forge::UserRoles::Administrator.into(),
-        request_type: rpc::forge::BmcRequestType::Ipmi.into(),
-    });
-
-    let metadata = crate::handlers::bmc_metadata::get(api, bmc_metadata_request)
-        .await?
-        .into_inner();
-
-    let http_client = {
-        let builder = reqwest::Client::builder();
-        let builder = builder
-            .danger_accept_invalid_certs(true)
-            .redirect(reqwest::redirect::Policy::limited(5))
-            .connect_timeout(std::time::Duration::from_secs(5)) // Limit connections to 5 seconds
-            .timeout(std::time::Duration::from_secs(60)); // Limit the overall request to 60 seconds
-
-        match builder.build() {
-            Ok(client) => client,
-            Err(err) => {
-                tracing::error!(%err, "build_http_client");
-                return Err(CarbideError::internal(format!("Http building failed: {err}")).into());
-            }
-        }
-    };
-
-    let response = match http_client
-        .request(http::Method::GET, request.uri.to_string())
-        .basic_auth(metadata.user.clone(), Some(metadata.password.clone()))
-        .send()
-        .await
-    {
-        Ok(response) => response,
-        Err(e) => {
-            return Err(CarbideError::internal(format!("Http request failed: {e:?}")).into());
-        }
-    };
-
-    let headers = response
-        .headers()
-        .iter()
-        .map(|(x, y)| {
-            (
-                x.to_string(),
-                String::from_utf8_lossy(y.as_bytes()).to_string(),
-            )
-        })
-        .collect::<HashMap<String, String>>();
-
-    let status = response.status();
-    let text = response.text().await.map_err(|e| {
-        CarbideError::internal(format!(
-            "Error reading response body: {e}, Status: {status}"
-        ))
-    })?;
-
-    Ok(tonic::Response::new(::rpc::forge::RedfishBrowseResponse {
-        text,
-        headers,
-    }))
-}
-
 #[cfg(test)]
 pub mod test_support {
+    use std::collections::HashMap;
+
     use super::*;
     use libredfish::{
         Assembly, Chassis, Collection, EnabledDisabled, JobState, NetworkAdapter, PowerState,

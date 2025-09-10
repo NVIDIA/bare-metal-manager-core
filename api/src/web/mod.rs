@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -46,6 +47,7 @@ use tower_http::normalize_path::NormalizePath;
 
 use crate::CarbideError;
 use crate::api::Api;
+use crate::auth::{AuthContext, Principal};
 use crate::cfg::file::CarbideConfig;
 
 mod attestation;
@@ -71,6 +73,7 @@ mod network_device;
 mod network_security_group;
 mod network_segment;
 mod network_status;
+mod redfish_actions;
 mod redfish_browser;
 mod resource_pool;
 mod search;
@@ -133,7 +136,7 @@ pub(crate) struct Oauth2Layer {
     http_client: reqwest::Client,
     private_cookiejar_key: Key,
     allowed_access_groups_filter: String,
-    allowed_access_groups_ids: Vec<String>,
+    allowed_access_groups_ids_to_name: HashMap<String, String>,
 }
 
 /// All the URLs in the admin interface. Nested under /admin in api.rs.
@@ -162,17 +165,20 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             )?;
 
             // Grab the details for which groups are allowed to access the web UI.
-            let allowed_access_groups_ids = env::var(ALLOWED_ACCESS_GROUPS_ID_LIST_ENV)
+            let allowed_groups = env::var(ALLOWED_ACCESS_GROUPS_LIST_ENV)
+                .unwrap_or(DEFAULT_ALLOWED_ACCESS_GROUPS_LIST.to_string());
+            let allowed_access_groups_names = allowed_groups.split(",");
+            let allowed_access_groups_filter = allowed_access_groups_names
+                .clone()
+                .map(|s| format!("\"displayName:{}\"", s.to_lowercase()))
+                .join(" OR ");
+            let allowed_access_groups_ids_to_name = env::var(ALLOWED_ACCESS_GROUPS_ID_LIST_ENV)
                 .unwrap_or(DEFAULT_ALLOWED_ACCESS_GROUPS_ID_LIST.to_string())
                 .split(",")
                 .map(|s| s.to_lowercase())
+                .zip(allowed_access_groups_names)
+                .map(|(id, name)| (id, name.to_string()))
                 .collect();
-
-            let allowed_access_groups_filter = env::var(ALLOWED_ACCESS_GROUPS_LIST_ENV)
-                .unwrap_or(DEFAULT_ALLOWED_ACCESS_GROUPS_LIST.to_string())
-                .split(",")
-                .map(|s| format!("\"displayName:{}\"", s.to_lowercase()))
-                .join(" OR ");
 
             // Build the  OAuth2 client.
             let client = BasicClient::new(ClientId::new(
@@ -211,7 +217,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 client,
                 private_cookiejar_key,
                 allowed_access_groups_filter,
-                allowed_access_groups_ids,
+                allowed_access_groups_ids_to_name,
                 http_client,
             })
         }
@@ -394,6 +400,11 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/vpc.json", get(vpc::show_all_json))
             .route("/vpc/{vpc_id}", get(vpc::detail))
             .route("/redfish-browser", get(redfish_browser::query))
+            .route("/redfish-actions", get(redfish_actions::query))
+            .route("/redfish-browser/request", post(redfish_actions::request))
+            .route("/redfish-browser/approve", post(redfish_actions::approve))
+            .route("/redfish-browser/apply", post(redfish_actions::apply))
+            .route("/redfish-browser/cancel", post(redfish_actions::cancel))
             .route("/search", get(search::find))
             .route("/sku", get(sku::show_html))
             .route("/sku.json", get(sku::show_all_json))
@@ -439,7 +450,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
 pub async fn auth_oauth2(
     Host(hostname): Host,
     headers: HeaderMap,
-    req: Request<AxumBody>,
+    mut req: Request<AxumBody>,
     next: Next,
 ) -> Result<Response, StatusCode> {
     // Remove the port (this matters on localhost) since a cookie for localhost:1079
@@ -476,6 +487,19 @@ pub async fn auth_oauth2(
         &headers,
         oauth_extension_layer.private_cookiejar_key.clone(),
     );
+
+    // Add an auth context (mocking grpc certificate auth context) if we have a unique name.
+    let unique_name = cookiejar.get("unique_name");
+    let group = cookiejar.get("group_name");
+    if let Some((unique_name, group)) = unique_name.zip(group) {
+        let extensions = req.extensions_mut();
+        // Extend auth context if it exists.
+        let auth_context: &mut AuthContext = extensions.get_or_insert_default();
+        auth_context.principals.push(Principal::from_web_cookie(
+            unique_name.value().to_string(),
+            group.value().to_string(),
+        ));
+    }
 
     // If it exists, do we still want to accept it?
     if let Some(c) = cookiejar.get("sid").map(|cookie| cookie.value().to_owned()) {

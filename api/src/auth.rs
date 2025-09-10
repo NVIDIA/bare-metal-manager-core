@@ -9,7 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::cfg::file::{AllowedCertCriteria, CertComponent};
+use crate::{
+    CarbideError,
+    cfg::file::{AllowedCertCriteria, CertComponent},
+};
 use asn1_rs::PrintableString;
 use middleware::CertDescriptionMiddleware;
 use oid_registry::Oid;
@@ -26,12 +29,12 @@ pub mod spiffe_id; // public for doctests
 // Various properties of a user gleaned from the presented certificate
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExternalUserInfo {
-    // Organiztion of the user, currently unused except for reporting
-    org: Option<String>,
+    // Organization of the user, currently unused except for reporting
+    pub org: Option<String>,
     // Group of the user, which determines their permissions
-    group: String,
-    // Name of the user, currently unused except for reporting
-    user: Option<String>,
+    pub group: String,
+    // Name of the user, used as identifier in applying redfish changes.
+    pub user: Option<String>,
 }
 
 impl ExternalUserInfo {
@@ -131,6 +134,10 @@ impl Principal {
             }
             Principal::Anonymous => true,
         }
+    }
+
+    pub fn from_web_cookie(user: String, group: String) -> Self {
+        Principal::ExternalUser(ExternalUserInfo::new(None, group, Some(user)))
     }
 }
 
@@ -335,6 +342,20 @@ impl AuthContext {
             _ => None,
         })
     }
+
+    pub fn get_external_user_info(&self) -> Option<&ExternalUserInfo> {
+        self.principals.iter().find_map(|p| match p {
+            Principal::ExternalUser(external_user_info)
+                if external_user_info
+                    .user
+                    .as_ref()
+                    .is_some_and(|u| !u.is_empty()) =>
+            {
+                Some(external_user_info)
+            }
+            _ => None,
+        })
+    }
 }
 
 impl Default for AuthContext {
@@ -346,6 +367,22 @@ impl Default for AuthContext {
             principals,
             authorization,
         }
+    }
+}
+
+pub fn external_user_info<T>(
+    request: &tonic::Request<T>,
+) -> Result<ExternalUserInfo, CarbideError> {
+    if let Some(external_user_info) = request
+        .extensions()
+        .get::<AuthContext>()
+        .and_then(|auth_context| auth_context.get_external_user_info())
+    {
+        Ok(external_user_info.clone())
+    } else {
+        Err(CarbideError::ClientCertificateMissingInformation(
+            "external user info".to_string(),
+        ))
     }
 }
 

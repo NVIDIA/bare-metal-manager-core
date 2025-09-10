@@ -492,6 +492,12 @@ service Forge {
   rpc TpmDeleteCaCert(TpmCaCertId) returns (google.protobuf.Empty);
 
   rpc RedfishBrowse(RedfishBrowseRequest) returns (RedfishBrowseResponse);
+  rpc RedfishListActions(RedfishListActionsRequest) returns (RedfishListActionsResponse);
+  rpc RedfishCreateAction(RedfishCreateActionRequest) returns (RedfishCreateActionResponse);
+  rpc RedfishApproveAction(RedfishActionID) returns (RedfishApproveActionResponse);
+  rpc RedfishApplyAction(RedfishActionID) returns (RedfishApplyActionResponse);
+  rpc RedfishCancelAction(RedfishActionID) returns (RedfishCancelActionResponse);
+
   rpc UfmBrowse(UfmBrowseRequest) returns (UfmBrowseResponse);
 
   rpc GetDesiredFirmwareVersions(GetDesiredFirmwareVersionsRequest) returns (GetDesiredFirmwareVersionsResponse);
@@ -4455,6 +4461,67 @@ message RedfishBrowseResponse {
   // Response in JSON String
   string text = 1;
   map<string, string> headers = 2;
+}
+
+message RedfishListActionsRequest {
+  optional string machine_ip = 4;
+}
+
+message RedfishListActionsResponse {
+  repeated RedfishAction actions = 1;
+}
+
+message RedfishAction {
+  int64 request_id = 1;
+  string requester = 2;
+  repeated string approvers = 3;
+  repeated google.protobuf.Timestamp approver_dates = 4;
+  repeated string machine_ips = 5;
+  repeated string board_serials = 6;
+  // The url target of the POST request.
+  string target = 7;
+  // The Redfish action name.
+  string action = 8;
+  // The json-encoded parameters to the Redfish action.
+  string parameters = 9;
+  optional google.protobuf.Timestamp applied_at = 10;
+  optional string applier = 11;
+  repeated OptionalRedfishActionResult results = 12;
+}
+
+message OptionalRedfishActionResult {
+  optional RedfishActionResult result = 1;
+}
+
+message RedfishActionResult {
+  map<string, string> headers = 1;
+  string status = 2;
+  string body = 3;
+  google.protobuf.Timestamp completed_at = 4;
+}
+
+message RedfishCreateActionRequest {
+  repeated string ips = 1;
+  string action = 2;
+  string target = 3;
+  string parameters = 4;
+}
+
+message RedfishCreateActionResponse {
+  int64 request_id = 1;
+}
+
+message RedfishActionID {
+  int64 request_id = 1;
+}
+
+message RedfishApproveActionResponse {
+}
+
+message RedfishApplyActionResponse {
+}
+
+message RedfishCancelActionResponse {
 }
 
 message UfmBrowseRequest {

@@ -49,6 +49,7 @@ pub mod network_segment_state_history;
 pub mod power_manager;
 pub mod predicted_machine_interface;
 pub mod queries;
+pub mod redfish_actions;
 pub mod resource_pool;
 pub mod resource_record;
 pub mod route_servers;

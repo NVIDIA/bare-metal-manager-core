@@ -275,10 +275,10 @@ impl MachineStateMachine {
             live_state.machine_ip = self.machine_ip();
             live_state.bmc_ip = self.bmc_ip();
             live_state.installed_os = self.installed_os();
-            if let Some(machine_id) = self.machine_id() {
-                if live_state.observed_machine_id.as_ref() != Some(machine_id) {
-                    live_state.observed_machine_id = Some(*machine_id)
-                }
+            if let Some(machine_id) = self.machine_id()
+                && live_state.observed_machine_id.as_ref() != Some(machine_id)
+            {
+                live_state.observed_machine_id = Some(*machine_id)
             }
             live_state.state_string = self.state.to_string();
             live_state.booted_os = self.booted_os();
