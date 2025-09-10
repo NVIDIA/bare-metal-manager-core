@@ -533,7 +533,7 @@ pub async fn allocate_port_guid(
     let mut guids: Vec<String> = Vec::new();
     for request in &mut updated_ib_config.ib_interfaces {
         tracing::debug!(
-            "reqest IB device:{}, device_instance:{}",
+            "request IB device:{}, device_instance:{}",
             request.device.clone(),
             request.device_instance
         );

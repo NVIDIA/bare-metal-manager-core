@@ -193,8 +193,6 @@ impl InstanceConfig {
     ///
     /// This check validates that certain unchangeable fields never change. These include
     /// - Tenant ID
-    /// - Ethernet network configuration
-    /// - InfiniBand network configuration
     pub fn verify_update_allowed_to(
         &self,
         new_config: &InstanceConfig,

@@ -37,16 +37,16 @@ impl InstanceInfinibandConfig {
             device_instance: u32,
         }
 
-        let mut used_segment_ids = HashSet::new();
+        let mut used_devices = HashSet::new();
         for iface in self.ib_interfaces.iter() {
             let ib_key = IbDeviceKey {
                 device: iface.device.clone(),
                 device_instance: iface.device_instance,
             };
 
-            if !used_segment_ids.insert(ib_key) {
+            if !used_devices.insert(ib_key) {
                 return Err(ConfigValidationError::InvalidValue(format!(
-                    "IB interface {} {} is reused",
+                    "IB interface {} {} is configured more than once",
                     iface.device, iface.device_instance
                 )));
             }
@@ -54,21 +54,24 @@ impl InstanceInfinibandConfig {
         Ok(())
     }
 
-    pub fn verify_update_allowed_to(&self, new_config: &Self) -> Result<(), ConfigValidationError> {
-        // Remove all service-generated properties before validating the config
+    pub fn verify_update_allowed_to(
+        &self,
+        _new_config: &Self,
+    ) -> Result<(), ConfigValidationError> {
+        Ok(())
+    }
+
+    /// Returns whether the configuration has been modified by a tenant
+    /// To get an accurate asessment, the values that are not assignable by the tenant
+    /// are not included in the comparison.
+    pub fn is_ib_config_update_requested(&self, new_config: &Self) -> bool {
         let mut current = self.clone();
         for iface in &mut current.ib_interfaces {
             iface.guid = None;
             iface.pf_guid = None;
         }
 
-        if current != *new_config {
-            return Err(ConfigValidationError::ConfigCanNotBeModified(
-                "infiniband".to_string(),
-            ));
-        }
-
-        Ok(())
+        current != *new_config
     }
 }
 

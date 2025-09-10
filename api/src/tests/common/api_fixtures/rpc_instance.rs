@@ -56,6 +56,17 @@ impl RpcInstance {
         self.0.config_version.parse::<ConfigVersion>().unwrap()
     }
 
+    pub fn ib_config_version(&self) -> ConfigVersion {
+        self.0.ib_config_version.parse::<ConfigVersion>().unwrap()
+    }
+
+    pub fn network_config_version(&self) -> ConfigVersion {
+        self.0
+            .network_config_version
+            .parse::<ConfigVersion>()
+            .unwrap()
+    }
+
     pub fn metadata(&self) -> &rpc::Metadata {
         self.0.metadata.as_ref().unwrap()
     }

@@ -10,8 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::{HashMap, HashSet};
+
 use crate::cfg::file::IBFabricConfig;
-use crate::ib::{DEFAULT_IB_FABRIC_NAME, Filter, IBFabricManager};
+use crate::ib::{DEFAULT_IB_FABRIC_NAME, Filter, IBFabric, IBFabricManager};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::{api::Api, model::machine::ManagedHostState};
@@ -100,9 +102,6 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     assert!(machine.ib_status.as_ref().is_some());
     assert_eq!(machine.ib_status.as_ref().unwrap().ib_interfaces.len(), 6);
 
-    let mut ib_ifaces = discovery_info.infiniband_interfaces.clone();
-    ib_ifaces.sort_by_key(|iface| iface.pci_properties.as_ref().unwrap().slot().to_string());
-
     // select the second MT2910 Family [ConnectX-7] and the first MT27800 Family [ConnectX-5] which are sorted by slots
     let ib_config = rpc::forge::InstanceInfinibandConfig {
         ib_interfaces: vec![
@@ -126,23 +125,9 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     };
 
     // Check which GUIDs these device/device_instance combinations should map to
-    let guid_cx7 = ib_ifaces
-        .iter()
-        .filter(|iface| {
-            iface.pci_properties.as_ref().unwrap().description() == "MT2910 Family [ConnectX-7]"
-        })
-        .nth(1)
-        .unwrap()
-        .guid
-        .clone();
-    let guid_cx5 = ib_ifaces
-        .iter()
-        .find(|iface| {
-            iface.pci_properties.as_ref().unwrap().description() == "MT27800 Family [ConnectX-5]"
-        })
-        .unwrap()
-        .guid
-        .clone();
+    let machine_guids = guids_by_device(&machine);
+    let guid_cx7 = machine_guids.get("MT2910 Family [ConnectX-7]").unwrap()[1].clone();
+    let guid_cx5 = machine_guids.get("MT27800 Family [ConnectX-5]").unwrap()[0].clone();
 
     let (tinstance, instance) =
         create_instance_with_ib_config(&env, &mh, ib_config.clone(), segment_id).await;
@@ -197,26 +182,13 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
     assert_eq!(instance, check_instance);
 
-    let ib_config = check_instance.config().infiniband();
-    assert_eq!(ib_config.ib_interfaces.len(), 2);
+    let applied_ib_config = check_instance.config().infiniband();
+    assert_eq!(*applied_ib_config, ib_config);
 
     let ib_status = check_instance.status().infiniband();
     assert_eq!(ib_status.configs_synced(), rpc::SyncState::Synced);
     assert_eq!(ib_status.ib_interfaces.len(), 2);
 
-    if let Some(iface) = ib_config.ib_interfaces.first() {
-        assert_eq!(
-            iface.function_type,
-            rpc::forge::InterfaceFunctionType::Physical as i32
-        );
-        assert_eq!(iface.virtual_function_id, None);
-        assert_eq!(iface.device, "MT2910 Family [ConnectX-7]");
-        assert_eq!(iface.vendor, None);
-        assert_eq!(iface.device_instance, 1);
-        assert_eq!(iface.ib_partition_id, Some(ib_partition_id));
-    } else {
-        panic!("ib configuration is incorrect.");
-    }
     if let Some(iface) = ib_status.ib_interfaces.first() {
         assert_eq!(iface.pf_guid, Some(guid_cx7.clone()));
         assert_eq!(iface.guid, Some(guid_cx7.clone()));
@@ -224,19 +196,6 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         panic!("ib configuration is incorrect.");
     }
 
-    if let Some(iface) = ib_config.ib_interfaces.get(1) {
-        assert_eq!(
-            iface.function_type,
-            rpc::forge::InterfaceFunctionType::Physical as i32
-        );
-        assert_eq!(iface.virtual_function_id, None);
-        assert_eq!(iface.device, "MT27800 Family [ConnectX-5]");
-        assert_eq!(iface.vendor, None);
-        assert_eq!(iface.device_instance, 0);
-        assert_eq!(iface.ib_partition_id, Some(ib_partition_id));
-    } else {
-        panic!("ib configuration is incorrect.");
-    }
     if let Some(iface) = ib_status.ib_interfaces.get(1) {
         assert_eq!(iface.pf_guid, Some(guid_cx5.clone()));
         assert_eq!(iface.guid, Some(guid_cx5.clone()));
@@ -250,6 +209,12 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         .connect(DEFAULT_IB_FABRIC_NAME)
         .await
         .unwrap();
+    verify_pkey_guids(
+        ib_conn.clone(),
+        &[(pkey_u16, vec![guid_cx5.clone(), guid_cx7.clone()])],
+    )
+    .await;
+
     let ports = ib_conn
         .find_ib_port(Some(Filter {
             guids: None,
@@ -267,18 +232,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     tinstance.delete().await;
 
     // Check whether the IB ports are still bound to the partition
-    let ports = ib_conn
-        .find_ib_port(Some(Filter {
-            guids: None,
-            pkey: Some(pkey_u16),
-            state: None,
-        }))
-        .await
-        .unwrap();
-    assert!(
-        ports.is_empty(),
-        "IB ports have not been removed for pkey {hex_pkey}"
-    );
+    verify_pkey_guids(ib_conn.clone(), &[(pkey_u16, vec![])]).await;
     assert_eq!(
         env.test_meter
             .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
@@ -445,8 +399,8 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
 
     let error = result.expect_err("expected allocation to fail").to_string();
     assert!(
-        error.contains("is reused"),
-        "Error message should contain 'is reused', but is {error}"
+        error.contains("is configured more than once"),
+        "Error message should contain 'is configured more than once', but is {error}"
     );
 }
 
@@ -499,9 +453,11 @@ async fn test_can_not_create_instance_with_inconsistent_tenant(pool: sqlx::PgPoo
     .await;
 
     let error = result.expect_err("expected allocation to fail").to_string();
+    let expected_err =
+        format!("IB Partition {ib_partition_id} is not owned by the tenant {DEFAULT_TENANT}",);
     assert!(
-        error.contains("instance inconsistent with the tenant"),
-        "Error message should contain 'instance inconsistent with the tenant', but is {error}"
+        error.contains(&expected_err),
+        "Error message should contain '{expected_err}', but is {error}"
     );
 }
 
@@ -642,6 +598,432 @@ async fn test_ib_skip_update_infiniband_status(pool: sqlx::PgPool) {
     assert!(machine.infiniband_status_observation.as_ref().is_none());
 }
 
+#[crate::sqlx_test]
+async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        mtu: crate::ib::IBMtu(2),
+        rate_limit: crate::ib::IBRateLimit(10),
+        max_partition_per_tenant: 16,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+    let segment_id: rpc::uuid::network::NetworkSegmentId =
+        env.create_vpc_and_tenant_segment().await;
+
+    let (ib_partition1_id, ib_partition1) = create_ib_partition(
+        &env,
+        "test_ib_partition1".to_string(),
+        DEFAULT_TENANT.to_string(),
+    )
+    .await;
+    let hex_pkey1 = ib_partition1.status.as_ref().unwrap().pkey().to_string();
+    let pkey1_u16: u16 = u16::from_str_radix(
+        hex_pkey1
+            .strip_prefix("0x")
+            .expect("Pkey needs to be in hex format"),
+        16,
+    )
+    .expect("Failed to parse string to integer");
+    let (ib_partition2_id, ib_partition2) = create_ib_partition(
+        &env,
+        "test_ib_partition2".to_string(),
+        DEFAULT_TENANT.to_string(),
+    )
+    .await;
+    let hex_pkey2 = ib_partition2.status.as_ref().unwrap().pkey().to_string();
+    let pkey2_u16: u16 = u16::from_str_radix(
+        hex_pkey2
+            .strip_prefix("0x")
+            .expect("Pkey needs to be in hex format"),
+        16,
+    )
+    .expect("Failed to parse string to integer");
+
+    let mh = create_managed_host(&env).await;
+    let machine = mh.host().rpc_machine().await;
+
+    assert_eq!(&machine.state, "Ready");
+    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let machine_guids = guids_by_device(&machine);
+    assert_eq!(discovery_info.infiniband_interfaces.len(), 6);
+    assert!(machine.ib_status.as_ref().is_some());
+    assert_eq!(machine.ib_status.as_ref().unwrap().ib_interfaces.len(), 6);
+
+    // select the second MT2910 Family [ConnectX-7] and the first MT27800 Family [ConnectX-5] which are sorted by slots
+    let ib_config = rpc::forge::InstanceInfinibandConfig {
+        ib_interfaces: vec![
+            rpc::forge::InstanceIbInterfaceConfig {
+                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                virtual_function_id: None,
+                ib_partition_id: Some(ib_partition1_id),
+                device: "MT2910 Family [ConnectX-7]".to_string(),
+                vendor: None,
+                device_instance: 0,
+            },
+            rpc::forge::InstanceIbInterfaceConfig {
+                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                virtual_function_id: None,
+                ib_partition_id: Some(ib_partition2_id),
+                device: "MT2910 Family [ConnectX-7]".to_string(),
+                vendor: None,
+                device_instance: 1,
+            },
+        ],
+    };
+
+    // Check which GUIDs these device/device_instance combinations should map to
+    let guid_cx7_1 = machine_guids.get("MT2910 Family [ConnectX-7]").unwrap()[0].clone();
+    let guid_cx7_2 = machine_guids.get("MT2910 Family [ConnectX-7]").unwrap()[1].clone();
+    let guid_cx5_1 = machine_guids.get("MT27800 Family [ConnectX-5]").unwrap()[0].clone();
+
+    let (tinstance, instance) =
+        create_instance_with_ib_config(&env, &mh, ib_config.clone(), segment_id).await;
+
+    let machine = mh.host().rpc_machine().await;
+    assert_eq!(&machine.state, "Assigned/Ready");
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_missing_pkeys_count")
+            .unwrap(),
+        "0"
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_unexpected_pkeys_count")
+            .unwrap(),
+        "0"
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_unknown_pkeys_count")
+            .unwrap(),
+        "0"
+    );
+    assert_eq!(
+        env.test_meter
+            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+        vec![
+            (
+                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
+                "0".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
+                "2".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"error\"}"
+                    .to_string(),
+                "0".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}"
+                    .to_string(),
+                "0".to_string()
+            )
+        ]
+    );
+
+    let check_instance = tinstance.rpc_instance().await;
+    assert_eq!(instance.machine_id(), mh.id);
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
+    assert_eq!(instance, check_instance);
+    let initial_config_version = instance.config_version();
+    let initial_ib_config_version = instance.ib_config_version();
+    let initial_network_config_version = instance.network_config_version();
+
+    let applied_ib_config = check_instance.config().infiniband();
+    assert_eq!(*applied_ib_config, ib_config);
+
+    let ib_status = check_instance.status().infiniband();
+    assert_eq!(ib_status.configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(ib_status.ib_interfaces.len(), 2);
+
+    if let Some(iface) = ib_status.ib_interfaces.first() {
+        assert_eq!(iface.pf_guid, Some(guid_cx7_1.clone()));
+        assert_eq!(iface.guid, Some(guid_cx7_1.clone()));
+    } else {
+        panic!("ib configuration is incorrect.");
+    }
+
+    if let Some(iface) = ib_status.ib_interfaces.get(1) {
+        assert_eq!(iface.pf_guid, Some(guid_cx7_2.clone()));
+        assert_eq!(iface.guid, Some(guid_cx7_2.clone()));
+    } else {
+        panic!("ib configuration is incorrect.");
+    }
+
+    // Check if ports have been registered at UFM
+    let ib_conn = env
+        .ib_fabric_manager
+        .connect(DEFAULT_IB_FABRIC_NAME)
+        .await
+        .unwrap();
+    verify_pkey_guids(
+        ib_conn.clone(),
+        &[
+            (pkey1_u16, vec![guid_cx7_1.clone()]),
+            (pkey2_u16, vec![guid_cx7_2.clone()]),
+        ],
+    )
+    .await;
+
+    // Update the IB config. This deletes one interface, and adds another one
+    let ib_config2 = rpc::forge::InstanceInfinibandConfig {
+        ib_interfaces: vec![
+            rpc::forge::InstanceIbInterfaceConfig {
+                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                virtual_function_id: None,
+                ib_partition_id: Some(ib_partition2_id),
+                device: "MT2910 Family [ConnectX-7]".to_string(),
+                vendor: None,
+                device_instance: 1,
+            },
+            rpc::forge::InstanceIbInterfaceConfig {
+                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                virtual_function_id: None,
+                ib_partition_id: Some(ib_partition2_id),
+                device: "MT27800 Family [ConnectX-5]".to_string(),
+                vendor: None,
+                device_instance: 0,
+            },
+        ],
+    };
+
+    let mut new_config = instance.config().inner().clone();
+    new_config.infiniband = Some(ib_config2.clone());
+
+    let instance = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: instance.id().into(),
+                if_version_match: None,
+                config: Some(new_config.clone()),
+                metadata: Some(instance.metadata().clone()),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    let instance_status = instance.status.as_ref().unwrap();
+    assert_eq!(instance_status.configs_synced(), rpc::SyncState::Pending);
+    assert_eq!(
+        instance_status.tenant.as_ref().unwrap().state(),
+        rpc::TenantState::Configuring
+    );
+
+    let applied_ib_config = instance
+        .config
+        .as_ref()
+        .unwrap()
+        .infiniband
+        .as_ref()
+        .unwrap();
+    assert_eq!(*applied_ib_config, ib_config2);
+
+    let ib_status = instance_status.infiniband.as_ref().unwrap();
+    assert_eq!(ib_status.configs_synced(), rpc::SyncState::Pending);
+    assert_eq!(ib_status.ib_interfaces.len(), 2);
+
+    if let Some(iface) = ib_status.ib_interfaces.first() {
+        assert_eq!(iface.pf_guid, Some(guid_cx7_2.clone()));
+        assert_eq!(iface.guid, Some(guid_cx7_2.clone()));
+    } else {
+        panic!("ib configuration is incorrect.");
+    }
+
+    if let Some(iface) = ib_status.ib_interfaces.get(1) {
+        assert_eq!(iface.pf_guid, Some(guid_cx5_1.clone()));
+        assert_eq!(iface.guid, Some(guid_cx5_1.clone()));
+    } else {
+        panic!("ib configuration is incorrect.");
+    }
+
+    // DPU needs to acknowledge the newest config version
+    mh.network_configured(&env).await;
+
+    // First IB partition fabric monitor iteration detects the desync and fixes it
+    env.run_ib_fabric_monitor_iteration().await;
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machine_ib_status_updates_count")
+            .unwrap(),
+        "0"
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_missing_pkeys_count")
+            .unwrap(),
+        "1"
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_unexpected_pkeys_count")
+            .unwrap(),
+        "1"
+    );
+    assert_eq!(
+        env.test_meter
+            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+        vec![
+            (
+                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
+                "0".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
+                "3".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"error\"}"
+                    .to_string(),
+                "0".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}"
+                    .to_string(),
+                "1".to_string()
+            )
+        ]
+    );
+    verify_pkey_guids(
+        ib_conn.clone(),
+        &[
+            (pkey1_u16, vec![]),
+            (pkey2_u16, vec![guid_cx7_2.clone(), guid_cx5_1.clone()]),
+        ],
+    )
+    .await;
+
+    // Second IB partition fabric monitor reports no desync
+    env.run_ib_fabric_monitor_iteration().await;
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machine_ib_status_updates_count")
+            .unwrap(),
+        "1"
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_missing_pkeys_count")
+            .unwrap(),
+        "0"
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_ib_monitor_machines_with_unexpected_pkeys_count")
+            .unwrap(),
+        "0"
+    );
+    assert_eq!(
+        env.test_meter
+            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+        vec![
+            (
+                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
+                "0".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
+                "3".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"error\"}"
+                    .to_string(),
+                "0".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}"
+                    .to_string(),
+                "1".to_string()
+            )
+        ]
+    );
+
+    // Instance shows ready state again
+    let instance = tinstance.rpc_instance().await;
+    let instance_status = instance.status();
+    assert_eq!(instance_status.configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(instance_status.tenant(), rpc::TenantState::Ready);
+    let new_config_version = instance.config_version();
+    let new_ib_config_version = instance.ib_config_version();
+    let new_network_config_version = instance.network_config_version();
+    assert_eq!(
+        new_config_version.version_nr(),
+        initial_config_version.version_nr() + 1
+    );
+    assert_eq!(
+        new_ib_config_version.version_nr(),
+        initial_ib_config_version.version_nr() + 1
+    );
+    assert_eq!(new_network_config_version, initial_network_config_version);
+
+    let applied_ib_config = instance.config().infiniband();
+    assert_eq!(*applied_ib_config, ib_config2);
+
+    let ib_status = instance_status.infiniband();
+    assert_eq!(ib_status.configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(ib_status.ib_interfaces.len(), 2);
+
+    if let Some(iface) = ib_status.ib_interfaces.first() {
+        assert_eq!(iface.pf_guid, Some(guid_cx7_2.clone()));
+        assert_eq!(iface.guid, Some(guid_cx7_2.clone()));
+    } else {
+        panic!("ib configuration is incorrect.");
+    }
+
+    if let Some(iface) = ib_status.ib_interfaces.get(1) {
+        assert_eq!(iface.pf_guid, Some(guid_cx5_1.clone()));
+        assert_eq!(iface.guid, Some(guid_cx5_1.clone()));
+    } else {
+        panic!("ib configuration is incorrect.");
+    }
+
+    tinstance.delete().await;
+
+    // Check whether all partition bindings have been removed
+    verify_pkey_guids(
+        ib_conn.clone(),
+        &[
+            (pkey1_u16, Vec::<String>::new()),
+            (pkey2_u16, Vec::<String>::new()),
+        ],
+    )
+    .await;
+    assert_eq!(
+        env.test_meter
+            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+        vec![
+            (
+                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
+                "0".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
+                "3".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"error\"}"
+                    .to_string(),
+                "0".to_string()
+            ),
+            (
+                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}"
+                    .to_string(),
+                "3".to_string()
+            )
+        ]
+    );
+}
+
 /// Tries to create an Instance using the Forge API
 /// This does not drive the instance state machine until the ready state.
 pub async fn try_allocate_instance(
@@ -671,4 +1053,46 @@ pub async fn try_allocate_instance(
     let instance = instance.into_inner();
     let instance_id = uuid::Uuid::from(instance.id.expect("Missing instance ID"));
     Ok((instance_id, instance))
+}
+
+fn guids_by_device(machine: &rpc::forge::Machine) -> HashMap<String, Vec<String>> {
+    let mut ib_ifaces = machine
+        .discovery_info
+        .as_ref()
+        .unwrap()
+        .infiniband_interfaces
+        .clone();
+    ib_ifaces.sort_by_key(|iface| iface.pci_properties.as_ref().unwrap().slot().to_string());
+
+    let mut guids: HashMap<String, Vec<String>> = HashMap::new();
+    for iface in ib_ifaces.iter() {
+        let device = iface
+            .pci_properties
+            .as_ref()
+            .unwrap()
+            .description()
+            .to_string();
+        guids.entry(device).or_default().push(iface.guid.clone());
+    }
+
+    guids
+}
+
+async fn verify_pkey_guids(
+    ib_conn: std::sync::Arc<dyn IBFabric>,
+    pkey_to_guids: &[(u16, Vec<String>)],
+) {
+    for (pkey_u16, expected_guids) in pkey_to_guids {
+        let ports = ib_conn
+            .find_ib_port(Some(Filter {
+                guids: None,
+                pkey: Some(*pkey_u16),
+                state: None,
+            }))
+            .await
+            .unwrap();
+        let actual_guids: HashSet<String> = ports.into_iter().map(|port| port.guid).collect();
+        let expected_guids: HashSet<String> = expected_guids.iter().cloned().collect();
+        assert_eq!(actual_guids, expected_guids);
+    }
 }
