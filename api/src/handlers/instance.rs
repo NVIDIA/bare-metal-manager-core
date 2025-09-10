@@ -931,6 +931,13 @@ pub(crate) async fn update_operating_system(
 
     log_machine_id(&instance.machine_id);
 
+    if instance.deleted.is_some() {
+        return Err(CarbideError::InvalidArgument(
+            "Configuration for a terminating instance can not be changed".to_string(),
+        )
+        .into());
+    }
+
     let expected_version = match request.if_version_match {
         Some(version) => version.parse().map_err(CarbideError::from)?,
         None => instance.config_version,
@@ -1015,6 +1022,18 @@ pub(crate) async fn update_instance_config(
         kind: "instance",
         id: instance_id.to_string(),
     })?;
+
+    if mh_snapshot
+        .instance
+        .as_ref()
+        .map(|instance| instance.deleted.is_some())
+        .unwrap_or(true)
+    {
+        return Err(CarbideError::InvalidArgument(
+            "Configuration for a terminating instance can not be changed".to_string(),
+        )
+        .into());
+    }
 
     // Check whether the update is allowed
     instance
