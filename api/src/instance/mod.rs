@@ -399,7 +399,7 @@ pub async fn allocate_instance(
     let storage_config_version = ConfigVersion::initial();
     let config_version = ConfigVersion::initial();
 
-    tenant_consistent_check(
+    validate_ib_partition_ownership(
         &mut txn,
         &request.config.tenant.tenant_organization_id,
         &request.config.infiniband,
@@ -550,29 +550,33 @@ pub async fn allocate_instance(
 }
 
 /// check whether the tenant of instance is consistent with the tenant of the ib partition
-pub async fn tenant_consistent_check(
+pub async fn validate_ib_partition_ownership(
     txn: &mut PgConnection,
     instance_tenant: &TenantOrganizationId,
     ib_config: &InstanceInfinibandConfig,
 ) -> CarbideResult<()> {
-    for ib_instance_config in ib_config.ib_interfaces.iter() {
+    let partition_ids: HashSet<_> = ib_config
+        .ib_interfaces
+        .iter()
+        .map(|iface| iface.ib_partition_id)
+        .collect();
+
+    for partition_id in partition_ids.iter() {
         let ib_partitions = IBPartition::find_by(
             txn,
-            ObjectColumnFilter::One(ib_partition::IdColumn, &ib_instance_config.ib_partition_id),
+            ObjectColumnFilter::One(ib_partition::IdColumn, partition_id),
             IBPartitionSearchConfig::default(),
         )
         .await?;
         let ib_partition = ib_partitions
             .first()
             .ok_or(ConfigValidationError::invalid_value(format!(
-                "IB partition {} is not created",
-                ib_instance_config.ib_partition_id
+                "IB partition {partition_id} is not created"
             )))?;
 
         if ib_partition.config.tenant_organization_id != *instance_tenant {
             return Err(CarbideError::InvalidArgument(format!(
-                "The tenant {} of instance inconsistent with the tenant {} of ib partition",
-                instance_tenant, ib_partition.config.tenant_organization_id
+                "IB Partition {partition_id} is not owned by the tenant {instance_tenant}",
             )));
         }
     }

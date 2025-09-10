@@ -17,7 +17,7 @@ use common::api_fixtures::{
     instance::{default_tenant_config, single_interface_network_config},
 };
 
-use ::rpc::uuid::{infiniband::IBPartitionId, network::NetworkSegmentId};
+use ::rpc::uuid::network::NetworkSegmentId;
 use config_version::ConfigVersion;
 use rpc::forge::{forge_server::Forge, instance_interface_config::NetworkDetails};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -467,36 +467,6 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     assert!(
         err.message()
             .starts_with("Invalid value: Missing Physical Function")
-    );
-
-    // The infiniband configuration of an instance can not be updated
-    let mut config_with_updated_ib = valid_config.clone();
-    config_with_updated_ib.infiniband = Some(rpc::forge::InstanceInfinibandConfig {
-        ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
-            vendor: None,
-            device: "MT2910 Family [ConnectX-7]".to_string(),
-            device_instance: 0,
-            ib_partition_id: Some(IBPartitionId::from(uuid::Uuid::new_v4())),
-            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
-            virtual_function_id: None,
-        }],
-    });
-    let err = env
-        .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(tinstance.id),
-                if_version_match: None,
-                config: Some(config_with_updated_ib),
-                metadata: Some(initial_metadata.clone()),
-            },
-        ))
-        .await
-        .expect_err("New infiniband configuration should not be accepted");
-    assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    assert_eq!(
-        err.message(),
-        "Configuration value cannot be modified: infiniband"
     );
 
     // Try to update to duplicated tenant keyset IDs

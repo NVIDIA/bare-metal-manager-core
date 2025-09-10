@@ -1,11 +1,5 @@
-use crate::db::ib_partition::IBPartition;
-use crate::handlers::utils::convert_and_log_machine_id;
-use crate::ib::IBFabricManager;
-use crate::model::ConfigValidationError;
-use crate::model::instance::config::network::{InstanceNetworkConfig, NetworkDetails};
-use crate::model::instance::snapshot::InstanceSnapshot;
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -18,20 +12,36 @@ use crate::model::instance::snapshot::InstanceSnapshot;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::db::{
     self, DatabaseError,
+    ib_partition::{self, IBPartition},
     instance::{DeleteInstance, Instance},
     machine::MachineSearchConfig,
     managed_host::LoadSnapshotOptions,
     network_security_group,
 };
-use crate::instance::{InstanceAllocationRequest, allocate_instance, allocate_network};
-use crate::model::instance::config::InstanceConfig;
-use crate::model::instance::config::tenant_config::TenantConfig;
-use crate::model::machine::{InstanceState, ManagedHostState, ManagedHostStateSnapshot};
-use crate::model::metadata::Metadata;
-use crate::model::os::OperatingSystem;
-use crate::redfish::RedfishAuth;
-use crate::resource_pool::common::CommonPools;
-use crate::{CarbideError, CarbideResult};
+use crate::{
+    CarbideError, CarbideResult,
+    handlers::utils::convert_and_log_machine_id,
+    ib::IBFabricManager,
+    instance::{
+        InstanceAllocationRequest, allocate_instance, allocate_network,
+        validate_ib_partition_ownership,
+    },
+    model::{
+        ConfigValidationError,
+        instance::config::{
+            InstanceConfig,
+            infiniband::InstanceInfinibandConfig,
+            network::{InstanceNetworkConfig, NetworkDetails},
+            tenant_config::TenantConfig,
+        },
+        instance::snapshot::InstanceSnapshot,
+        machine::{InstanceState, ManagedHostState, ManagedHostStateSnapshot},
+        metadata::Metadata,
+        os::OperatingSystem,
+    },
+    redfish::RedfishAuth,
+    resource_pool::common::CommonPools,
+};
 use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
 use ::rpc::uuid::infiniband::IBPartitionId;
 use ::rpc::uuid::instance::InstanceId;
@@ -1060,6 +1070,13 @@ pub(crate) async fn update_instance_config(
         &mut txn,
     )
     .await?;
+
+    // Checks if the instance IB configuration was updated
+    // If yes - assign devices (GUIDs) to the new configuration, update
+    // the database and increment the IB version number
+    update_instance_infiniband_config(&mh_snapshot, &instance, &mut config.infiniband, &mut txn)
+        .await?;
+
     Instance::update_config(&mut txn, instance.id, expected_version, config, metadata).await?;
 
     let mh_snapshot = db::managed_host::load_snapshot(
@@ -1148,6 +1165,61 @@ async fn update_instance_network_config(
         &instance.config.network,
         &updated_network_config,
         txn,
+    )
+    .await?;
+
+    Ok(())
+}
+
+async fn update_instance_infiniband_config(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    instance: &InstanceSnapshot,
+    ib_config: &mut InstanceInfinibandConfig,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), CarbideError> {
+    if !instance
+        .config
+        .infiniband
+        .is_ib_config_update_requested(ib_config)
+    {
+        return Ok(());
+    }
+
+    if !matches!(
+        mh_snapshot.managed_state,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        }
+    ) {
+        return Err(ConfigValidationError::InvalidState.into());
+    }
+
+    if instance.deleted.is_some() {
+        return Err(ConfigValidationError::InstanceDeletionIsRequested.into());
+    }
+
+    validate_ib_partition_ownership(
+        txn,
+        &instance.config.tenant.tenant_organization_id,
+        ib_config,
+    )
+    .await?;
+
+    // Allocate GUID for infiniband interfaces/ports.
+    let ib_config_with_ports =
+        ib_partition::allocate_port_guid(txn, instance.id, ib_config, &mh_snapshot.host_snapshot)
+            .await?;
+
+    *ib_config = ib_config_with_ports;
+
+    // Persist the GUID for Infiniband configuration.
+    // We need to increment the version number.
+    Instance::update_ib_config(
+        txn,
+        instance.id,
+        instance.ib_config_version,
+        ib_config,
+        true,
     )
     .await?;
 
