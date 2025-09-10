@@ -72,6 +72,12 @@ pub static REGISTRIES: Lazy<Vec<mlxconfig_variables::MlxVariableRegistry>> = Laz
                 .read_only(false)
                 .spec(mlxconfig_variables::MlxVariableSpec::builder().enum_type().with_options(vec!["DEVICE_DEFAULT".to_string(), "FIXED_VALUE".to_string(), "RTT_REQUEST".to_string()]).build())
                 .build(),
+            mlxconfig_variables::MlxConfigVariable::builder()
+                .name("PCI_DOWNSTREAM_PORT_OWNER".to_string())
+                .description("Identifies the owner of the respective PCI Downstream Port.".to_string())
+                .read_only(false)
+                .spec(mlxconfig_variables::MlxVariableSpec::builder().enum_array().with_options(vec!["DEVICE_DEFAULT".to_string(), "EMBEDDED_CPU".to_string(), "HOST_0".to_string(), "HOST_1".to_string(), "HOST_2".to_string(), "HOST_3".to_string(), "HOST_4".to_string(), "HOST_5".to_string(), "HOST_6".to_string(), "HOST_7".to_string()]).with_size(16).build())
+                .build(),
         ])
         .build(),
 ]

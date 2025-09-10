@@ -16,6 +16,7 @@ members = [
     "common/logfmt",
     "common/metrics-endpoint",
     "common/mlxconfig/registry",
+    "common/mlxconfig/runner",
     "common/mlxconfig/variables",
     "common/mqttea",
     "common/secrets",
@@ -104,5 +105,5 @@ overflow-checks = true  # Add some extra assurance during development
 
 [workspace.lints.clippy]
 cloned_instead_of_copied = "warn"
-redundant_clone  = "warn"
+redundant_clone = "warn"
 large_stack_arrays = "warn"

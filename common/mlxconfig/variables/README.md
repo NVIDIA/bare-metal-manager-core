@@ -27,8 +27,8 @@ Strongly-typed enum defining all supported variable types:
 - **Simple types**: `Boolean`, `Integer`, `String`, `Binary`, `Bytes`, `Array`, `Opaque`
 - **Enum types**: `Enum { options }` - choice from predefined values
 - **Preset types**: `Preset { max_preset }` - numbered presets (0 to max)
-- **Array types**: `BooleanArray`, `IntegerArray`, `BinaryArray` - fixed-size arrays
-- **Complex arrays**: `EnumArray` - arrays of enum values
+- **Array types**: `BooleanArray`, `IntegerArray`, `BinaryArray` - fixed-size arrays with sparse support
+- **Complex arrays**: `EnumArray` - arrays of enum values with sparse support
 
 ### Configuration Values (`MlxConfigValue`)
 
@@ -38,6 +38,19 @@ Typed values that pair configuration variables with their actual data:
 - **Value**: Strongly-typed value that matches the variable's spec
 - **Validation**: Automatic type and constraint validation
 - **Display**: Built-in formatting for user interfaces
+
+### Sparse Array Support
+
+All array types (`BooleanArray`, `IntegerArray`, `EnumArray`, `BinaryArray`) support **sparse arrays** where individual
+indices can be unset (`None`). This enables partial configuration updates where only specific array positions need to be
+modified while leaving others unchanged.
+
+**Key benefits:**
+
+- **Partial updates**: Configure only specific array indices without affecting others
+- **Efficient storage**: Unset values don't consume unnecessary space
+- **Clear semantics**: `None` explicitly indicates "no value set" vs. a default value
+- **Flexible input**: Accept both dense arrays (converted automatically) and explicit sparse arrays
 
 ### Hardware Registries (`MlxVariableRegistry`)
 
@@ -82,7 +95,7 @@ let power_var = registry.get_variable("power_mode").unwrap();
 let turbo_value = turbo_var.with(true) ?;                   // Boolean
 let freq_value = freq_var.with(2400) ?;                     // Integer  
 let power_value = power_var.with("high") ?;                 // Enum (with option validation)
-let array_value = bool_array_var.with(vec![true, false]) ?; // Boolean array
+let array_value = bool_array_var.with(vec![true, false]) ?; // Boolean array (dense)
 
 // Display values
 println!("Turbo: {}", turbo_value);     // "true"
@@ -90,44 +103,79 @@ println!("Frequency: {}", freq_value);  // "2400"
 println!("Power: {}", power_value);     // "high"
 ```
 
+### Sparse Array Creation
+
+Arrays support both dense and sparse formats:
+
+```rust
+use mlxconfig_variables::*;
+
+let gpio_var = registry.get_variable("gpio_modes").unwrap(); // EnumArray { size: 8 }
+
+// Dense array - all positions set (automatically converted to sparse format internally)
+let dense_value = gpio_var.with(vec![
+    "input", "output", "input", "output",
+    "input", "output", "input", "output"
+]) ?;
+
+// Sparse array - only some positions set
+let sparse_value = gpio_var.with(vec![
+    Some("input".to_string()),
+    None,                    // Position 1 unset
+    Some("output".to_string()),
+    None,                    // Position 3 unset  
+    Some("input".to_string()),
+    None, None, None         // Positions 5-7 unset
+]) ?;
+
+// String parsing with sparse notation
+let from_strings = gpio_var.with(vec![
+    "input", "-", "output", "",  // "-" or empty means None
+    "input", "-", "-", "-"
+]) ?;
+
+// Display shows unset positions as "-"
+println!("{}", sparse_value); // "[input, -, output, -, input, -, -, -]"
+```
+
 ### String Parsing for `mlxconfig` JSON Integration
 
 The system natively handles string input from `mlxconfig` JSON responses, with automatic parsing based on
 variable types:
 
-```
+```rust
 // From JSON - everything comes as strings
 let json_response = r#"{
   "enable_turbo": "true",
   "cpu_frequency": "2400", 
   "power_mode": "high",
-  "gpio_modes": ["input", "output", "bidirectional"]
+  "gpio_modes": ["input", "-", "output", "bidirectional", "-", "-", "-", "-"]
 }"#;
 
-let data: serde_json::Value = serde_json::from_str(json_response)?;
+let data: serde_json::Value = serde_json::from_str(json_response) ?;
 let registry = registries::get("my_registry").unwrap();
 
 // Process JSON values
 for (var_name, json_value) in data.as_object().unwrap() {
- if let Some(variable) = registry.get_variable(var_name) {
-  let config_value = match json_value {
-   // Single string values - automatic type conversion.
-   serde_json::Value::String(s) => {
-   variable.with(s.clone())?  // Boolean, Integer, Enum, etc.
-  }
+if let Some(variable) = registry.get_variable(var_name) {
+let config_value = match json_value {
+// Single string values - automatic type conversion.
+serde_json::Value::String(s) => {
+variable.with(s.clone())?  // Boolean, Integer, Enum, etc.
+}
 
-  // Array values - parse each string element.
-  serde_json::Value::Array(arr) => {
-   let strings: Vec = arr.iter()
-   .filter_map( | v | v.as_str())
-   .map(String::from)
-   .collect();
-   variable.with(strings)?  // BooleanArray, IntegerArray, etc.
-  }
-  _ => continue,
-  };
-  println ! ("Set {}: {}", config_value.name(), config_value);
- }
+// Array values - parse each string element, handle sparse notation.
+serde_json::Value::Array(arr) => {
+let strings: Vec < String > = arr.iter()
+.filter_map( | v | v.as_str())
+.map(String::from)
+.collect();
+variable.with(strings) ?  // Sparse arrays supported
+}
+_ => continue,
+};
+println ! ("Set {}: {}", config_value.name(), config_value);
+}
 }
 ```
 
@@ -156,12 +204,18 @@ The system intelligently parses strings based on variable specifications:
 
 - Hex parsing with or without prefix: `"0x1a2b3c"`, `"1A2B3C"`
 
-#### Array Variables
+#### Array Variables (with Sparse Support)
 
-- **BooleanArray**: `["true", "0", "yes", "disabled"]` → `[true, false, true, false]`
-- **IntegerArray**: `["42", "-123", "0"]` → `[42, -123, 0]`
-- **EnumArray**: `["input", "output"]` → validated enum array
-- **BinaryArray**: `["0x1a2b", "3c4d"]` → `[[0x1a, 0x2b], [0x3c, 0x4d]]`
+- **BooleanArray**: `["true", "0", "-", "disabled"]` → `[Some(true), Some(false), None, Some(false)]`
+- **IntegerArray**: `["42", "-", "0"]` → `[Some(42), None, Some(0)]`
+- **EnumArray**: `["input", "", "output"]` → `[Some("input"), None, Some("output")]`
+- **BinaryArray**: `["0x1a2b", "-", "3c4d"]` → `[Some([0x1a, 0x2b]), None, Some([0x3c, 0x4d])]`
+
+**Sparse Array Notation:**
+
+- `"-"` (dash) indicates an unset position (`None`)
+- `""` (empty string) also indicates an unset position (`None`)
+- Any other value is parsed according to the array element type
 
 ### Comprehensive Error Handling
 
@@ -180,76 +234,90 @@ let result = power_var.with("invalid");
 let result = array_var.with(vec!["true", "false"]);  // Expected size: 4
 // Error: "Array size mismatch: expected 4, got 2"
 
-// Range validation
-let result = preset_var.with("15");  // Max preset: 10
-// Error: "Preset value 15 exceeds maximum 10"
+// Sparse array enum validation
+let result = enum_array_var.with(vec![Some("valid".to_string()), Some("invalid".to_string())]);
+// Error: "Invalid enum option 'invalid' at position 1, allowed: [valid, other]"
 ```
 
 ## Builder Patterns
 
 All types include builder patterns for clean construction:
 
-```
+```rust
 use mlxconfig_variables::*;
 
 // Build a simple boolean variable
 let variable = MlxConfigVariable::builder()
-    .name("turbo_enabled")
-    .description("Enable turbo boost mode")
-    .read_only(false)
-    .spec(
-        MlxVariableSpec::builder()
-            .boolean()
-            .build()
-    )
-    .build();
+.name("turbo_enabled")
+.description("Enable turbo boost mode")
+.read_only(false)
+.spec(
+MlxVariableSpec::builder()
+.boolean()
+.build()
+)
+.build();
 
 // Build an enum variable
 let power_mode = MlxConfigVariable::builder()
-    .name("power_mode")
-    .description("Power management setting")
-    .read_only(false)
-    .spec(
-        MlxVariableSpec::builder()
-            .enum_type()
-            .with_options(vec!["low", "medium", "high"])
-            .build()
-    )
-    .build();
+.name("power_mode")
+.description("Power management setting")
+.read_only(false)
+.spec(
+MlxVariableSpec::builder()
+.enum_type()
+.with_options(vec!["low", "medium", "high"])
+.build()
+)
+.build();
+
+// Build a sparse-capable enum array variable
+let gpio_modes = MlxConfigVariable::builder()
+.name("gpio_pin_modes")
+.description("GPIO pin mode configuration")
+.read_only(false)
+.spec(
+MlxVariableSpec::builder()
+.enum_array()
+.with_options(vec!["input", "output", "bidirectional"])
+.with_size(8)  // 8 positions, some may be unset
+.build()
+)
+.build();
 
 // Build a registry with constraints
 let registry = MlxVariableRegistry::builder()
-    .name("Bluefield3 Registry")
-    .variables(vec![variable, power_mode])
-    .with_device_types(vec!["Bluefield3"])
-    .with_part_numbers(vec!["900-9D3D4-00EN-HA0"])
-    .build();
+.name("Bluefield3 Registry")
+.variables(vec![variable, power_mode, gpio_modes])
+.with_device_types(vec!["Bluefield3"])
+.with_part_numbers(vec!["900-9D3D4-00EN-HA0"])
+.build();
 ```
 
 ## Constraint Validation
 
 The crate provides runtime validation of device compatibility:
 
-```
+```rust
 use mlxconfig_variables::*;
 
 let device = DeviceInfo::new()
-    .with_device_type("Bluefield3")
-    .with_part_number("900-9D3D4-00EN-HA0")
-    .with_fw_version("32.41.130");
+.with_device_type("Bluefield3")
+.with_part_number("900-9D3D4-00EN-HA0")
+.with_fw_version("32.41.130");
 
-let result = registry.validate_compatibility(&device);
+let result = registry.validate_compatibility( & device);
 
 match result {
-    ConstraintValidationResult::Valid => {
-        println!("Device is compatible!");
-    },
-    ConstraintValidationResult::Invalid { reasons } => {
-        println!("Incompatible: {:?}", reasons);
-    },
-    ConstraintValidationResult::Unconstrained => {
-        println!("No constraints - universally compatible");
-    }
+ConstraintValidationResult::Valid => {
+println ! ("Device is compatible!");
+},
+ConstraintValidationResult::Invalid { reasons } => {
+println ! ("Incompatible: {:?}", reasons);
+},
+ConstraintValidationResult::Unconstrained => {
+println ! ("No constraints - universally compatible");
+}
 }
 ```
 
@@ -270,13 +338,14 @@ variables:
     read_only: false
     spec:
       type: "integer"
-  - name: "power_mode"
-    description: "Power management mode"
+  - name: "gpio_pin_modes"
+    description: "GPIO pin mode configuration (supports sparse arrays)"
     read_only: false
     spec:
-      type: "enum"
+      type: "enum_array"
       config:
-        options: [ "low", "medium", "high" ]
+        options: [ "input", "output", "bidirectional" ]
+        size: 8
 ```
 
 ## Dependencies
@@ -294,13 +363,13 @@ Add to your `Cargo.toml` (assuming you're going into `common/`):
 mlxconfig_variables = { path = "../common/mlxconfig/variables" }
 ```
 
-## Complete Example: `mlxconfig` JSON Integration
+## Complete Example: `mlxconfig` JSON Integration with Sparse Arrays
 
 ```rust
 use mlxconfig_variables::*;
 use mlxconfig_registry::registries;
 
-fn process_mlx_response(json: &str) -> Result<Vec, Box> {
+fn process_mlx_response(json: &str) -> Result<Vec<MlxConfigValue>, Box<dyn std::error::Error>> {
     let data: serde_json::Value = serde_json::from_str(json)?;
     let registry = registries::get("my_hardware_registry")?;
     let mut values = Vec::new();
@@ -310,11 +379,11 @@ fn process_mlx_response(json: &str) -> Result<Vec, Box> {
             let config_value = match json_value {
                 serde_json::Value::String(s) => variable.with(s.clone())?,
                 serde_json::Value::Array(arr) => {
-                    let strings: Vec = arr.iter()
+                    let strings: Vec<String> = arr.iter()
                         .filter_map(|v| v.as_str())
                         .map(String::from)
                         .collect();
-                    variable.with(strings)?
+                    variable.with(strings)?  // Supports sparse arrays via "-" notation
                 }
                 _ => continue,
             };
@@ -331,14 +400,18 @@ fn process_mlx_response(json: &str) -> Result<Vec, Box> {
 
     Ok(values)
 }
+
+// Example JSON with sparse array data
+let json = r#"{
+    "enable_turbo": "true",
+    "gpio_modes": ["input", "-", "output", "", "bidirectional", "-", "-", "-"],
+    "sensor_readings": ["42", "38", "-", "41", "-", "39"]
+}"#;
+
+let values = process_mlx_response(json) ?;
+// gpio_modes becomes: [Some("input"), None, Some("output"), None, Some("bidirectional"), None, None, None]
+// sensor_readings becomes: [Some(42), Some(38), None, Some(41), None, Some(39)]
 ```
-
-This crate is designed to be used by:
-
-- **build.rs** to generate static registries at compile time
-- **Runtime applications** that need to validate device compatibility
-- **CLI tools** that work with configuration data
-- **Libraries** that work with configuring Mellanox devices
 
 ## Architecture Notes
 
@@ -351,9 +424,12 @@ This crate is the foundation layer that provides:
 5. **Zero-cost abstractions** with compile-time guarantees
 6. **String parsing integration** for seamless `mlxconfig` JSON compatibility
 7. **Context-aware conversion** that handles the same input differently based on variable specifications
+8. **Sparse array support** for efficient partial configuration updates
 
 The value creation system eliminates the need for manual type conversion and validation, providing a clean, intuitive
-API that "just works" with both strongly-typed Rust values and string data from `mlxconfig` JSON responses.
+API that "just works" with both strongly-typed Rust values and string data from `mlxconfig` JSON responses. The sparse
+array feature enables efficient partial updates where only specific array indices need modification, making it ideal
+for hardware configuration scenarios where you want to change specific settings without affecting others.
 
 The types defined here are consumed by `mlxconfig-registry` for compile-time embedding, as well as components like
 the `forge-dpu-agent`, `scout`, and `carbide-api`.

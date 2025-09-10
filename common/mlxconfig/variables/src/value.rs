@@ -24,7 +24,7 @@ use std::fmt;
 // MlxConfigValue defines a typed value for an mlxconfig variable.
 // It contains both the variable definition and the actual value,
 // ensuring type safety and providing validation context.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MlxConfigValue {
     // The variable backing this value, which includes
     // the underlying spec for the value type.
@@ -36,7 +36,8 @@ pub struct MlxConfigValue {
 
 // MlxValueType defines the actual typed values that can be stored
 // for mlxconfig variables. Each variant corresponds to their
-// respective MlxVariableSpec types.
+// respective MlxVariableSpec types. Array types use Vec<Option<T>>
+// to support sparse arrays where some indices may be unset.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum MlxValueType {
@@ -48,10 +49,11 @@ pub enum MlxValueType {
     Array(Vec<String>), // TODO(chet): Do I still need this?
     Enum(String),       // In this case the string is the selected enum.
     Preset(u8),
-    BooleanArray(Vec<bool>),
-    IntegerArray(Vec<i64>),
-    EnumArray(Vec<String>), // Selected values for each index.
-    BinaryArray(Vec<Vec<u8>>),
+    // Array types support sparse arrays with Option<T> for partial configuration
+    BooleanArray(Vec<Option<bool>>),
+    IntegerArray(Vec<Option<i64>>),
+    EnumArray(Vec<Option<String>>), // Selected values for each index.
+    BinaryArray(Vec<Option<Vec<u8>>>),
     Opaque(Vec<u8>), // Just stores raw bytes for opaque types.
 }
 
@@ -183,6 +185,7 @@ impl MlxConfigValue {
             }
             // For boolean arrays, make sure the list of values
             // matches the expected size of the array per the spec.
+            // Note: sparse arrays use Option<bool> so we validate array length.
             (MlxVariableSpec::BooleanArray { size }, MlxValueType::BooleanArray(values)) => {
                 if values.len() == *size {
                     Ok(())
@@ -195,6 +198,7 @@ impl MlxConfigValue {
             }
             // For integer arrays, make sure the list of values
             // matches the expected size of the array per the spec.
+            // Note: sparse arrays use Option<i64> so we validate array length.
             (MlxVariableSpec::IntegerArray { size }, MlxValueType::IntegerArray(values)) => {
                 if values.len() == *size {
                     Ok(())
@@ -216,20 +220,23 @@ impl MlxConfigValue {
                 }
 
                 // ..and then validate that each option value provided
-                // is an allowed option per the spec.
+                // is an allowed option per the spec. Skip None values (sparse support).
                 for (pos, value) in values.iter().enumerate() {
-                    if !options.contains(value) {
-                        return Err(MlxValueError::InvalidEnumArrayOption {
-                            position: pos,
-                            value: value.clone(),
-                            allowed: options.clone(),
-                        });
+                    if let Some(enum_value) = value {
+                        if !options.contains(enum_value) {
+                            return Err(MlxValueError::InvalidEnumArrayOption {
+                                position: pos,
+                                value: enum_value.clone(),
+                                allowed: options.clone(),
+                            });
+                        }
                     }
                 }
                 Ok(())
             }
             // For binary arrays, make sure the list of values
             // matches the expected size of the array per the spec.
+            // Note: sparse arrays use Option<Vec<u8>> so we validate array length.
             (MlxVariableSpec::BinaryArray { size }, MlxValueType::BinaryArray(values)) => {
                 if values.len() == *size {
                     Ok(())
@@ -286,22 +293,36 @@ impl MlxConfigValue {
             MlxValueType::Array(arr) => format!("[{}]", arr.join(", ")),
             MlxValueType::Enum(option) => option.clone(),
             MlxValueType::Preset(preset) => format!("preset_{preset}"),
+            // Sparse array display: show None values as "-" or similar
             MlxValueType::BooleanArray(arr) => format!(
                 "[{}]",
                 arr.iter()
-                    .map(|b| b.to_string())
+                    .map(|opt| opt
+                        .map(|b| b.to_string())
+                        .unwrap_or_else(|| "-".to_string()))
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
             MlxValueType::IntegerArray(arr) => format!(
                 "[{}]",
                 arr.iter()
-                    .map(|i| i.to_string())
+                    .map(|opt| opt
+                        .map(|i| i.to_string())
+                        .unwrap_or_else(|| "-".to_string()))
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            MlxValueType::EnumArray(arr) => format!("[{}]", arr.join(", ")),
-            MlxValueType::BinaryArray(arr) => format!("[{} binary values]", arr.len()),
+            MlxValueType::EnumArray(arr) => format!(
+                "[{}]",
+                arr.iter()
+                    .map(|opt| opt.as_ref().map(|s| s.as_str()).unwrap_or("-"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            MlxValueType::BinaryArray(arr) => {
+                let set_count = arr.iter().filter(|opt| opt.is_some()).count();
+                format!("[{} binary values, {} set]", arr.len(), set_count)
+            }
             MlxValueType::Opaque(bytes) => format!("opaque({} bytes)", bytes.len()),
         }
     }
@@ -341,7 +362,7 @@ impl IntoMlxValue for bool {
 
 // Implement IntoMlxValue for i64, which gives
 // us back an MlxValueType::Integer with the provided
-// i64.
+// i64, or converts to other types as appropriate.
 impl IntoMlxValue for i64 {
     fn into_mlx_value_for_spec(
         self,
@@ -349,6 +370,30 @@ impl IntoMlxValue for i64 {
     ) -> Result<MlxValueType, MlxValueError> {
         match spec {
             MlxVariableSpec::Integer => Ok(MlxValueType::Integer(self)),
+            MlxVariableSpec::Preset { max_preset } => {
+                // Convert i64 to u8 for "preset" values.
+                if self < 0 {
+                    return Err(MlxValueError::TypeMismatch {
+                        expected: "non-negative integer for preset".to_string(),
+                        got: format!("{self}"),
+                    });
+                }
+                if self > u8::MAX as i64 {
+                    return Err(MlxValueError::TypeMismatch {
+                        expected: "integer <= 255 for preset".to_string(),
+                        got: format!("{self}"),
+                    });
+                }
+                let preset_val = self as u8;
+                if preset_val <= *max_preset {
+                    Ok(MlxValueType::Preset(preset_val))
+                } else {
+                    Err(MlxValueError::PresetOutOfRange {
+                        value: preset_val,
+                        max_allowed: *max_preset,
+                    })
+                }
+            }
             _ => Err(MlxValueError::TypeMismatch {
                 expected: format!("{spec:?}"),
                 got: "i64".to_string(),
@@ -569,8 +614,36 @@ impl IntoMlxValue for Vec<u8> {
 
 // Implement IntoMlxValue for Vec<bool>, which will validate
 // the input array matches the required length of the
-// underlying spec.
+// underlying spec and convert to sparse array format.
 impl IntoMlxValue for Vec<bool> {
+    fn into_mlx_value_for_spec(
+        self,
+        spec: &MlxVariableSpec,
+    ) -> Result<MlxValueType, MlxValueError> {
+        match spec {
+            MlxVariableSpec::BooleanArray { size } => {
+                if self.len() == *size {
+                    // Convert to sparse array format
+                    let sparse_array: Vec<Option<bool>> = self.into_iter().map(Some).collect();
+                    Ok(MlxValueType::BooleanArray(sparse_array))
+                } else {
+                    Err(MlxValueError::ArraySizeMismatch {
+                        expected: *size,
+                        got: self.len(),
+                    })
+                }
+            }
+            _ => Err(MlxValueError::TypeMismatch {
+                expected: format!("{spec:?}"),
+                got: "Vec<bool>".to_string(),
+            }),
+        }
+    }
+}
+
+// Implement IntoMlxValue for Vec<Option<bool>> to support
+// direct sparse array input for boolean arrays.
+impl IntoMlxValue for Vec<Option<bool>> {
     fn into_mlx_value_for_spec(
         self,
         spec: &MlxVariableSpec,
@@ -588,7 +661,7 @@ impl IntoMlxValue for Vec<bool> {
             }
             _ => Err(MlxValueError::TypeMismatch {
                 expected: format!("{spec:?}"),
-                got: "Vec<bool>".to_string(),
+                got: "Vec<Option<bool>>".to_string(),
             }),
         }
     }
@@ -596,8 +669,36 @@ impl IntoMlxValue for Vec<bool> {
 
 // Implement IntoMlxValue for Vec<i64>, which will validate
 // the input array matches the required length of the
-// underlying spec.
+// underlying spec and convert to sparse array format.
 impl IntoMlxValue for Vec<i64> {
+    fn into_mlx_value_for_spec(
+        self,
+        spec: &MlxVariableSpec,
+    ) -> Result<MlxValueType, MlxValueError> {
+        match spec {
+            MlxVariableSpec::IntegerArray { size } => {
+                if self.len() == *size {
+                    // Convert to sparse array format
+                    let sparse_array: Vec<Option<i64>> = self.into_iter().map(Some).collect();
+                    Ok(MlxValueType::IntegerArray(sparse_array))
+                } else {
+                    Err(MlxValueError::ArraySizeMismatch {
+                        expected: *size,
+                        got: self.len(),
+                    })
+                }
+            }
+            _ => Err(MlxValueError::TypeMismatch {
+                expected: format!("{spec:?}"),
+                got: "Vec<i64>".to_string(),
+            }),
+        }
+    }
+}
+
+// Implement IntoMlxValue for Vec<Option<i64>> to support
+// direct sparse array input for integer arrays.
+impl IntoMlxValue for Vec<Option<i64>> {
     fn into_mlx_value_for_spec(
         self,
         spec: &MlxVariableSpec,
@@ -615,7 +716,7 @@ impl IntoMlxValue for Vec<i64> {
             }
             _ => Err(MlxValueError::TypeMismatch {
                 expected: format!("{spec:?}"),
-                got: "Vec<i64>".to_string(),
+                got: "Vec<Option<i64>>".to_string(),
             }),
         }
     }
@@ -663,22 +764,27 @@ impl IntoMlxValue for Vec<String> {
                     });
                 }
 
-                let mut bool_values = Vec::new();
+                let mut sparse_array = Vec::with_capacity(*size);
                 for (pos, s) in self.iter().enumerate() {
                     let trimmed = s.trim().to_lowercase();
-                    let bool_val = match trimmed.as_str() {
-                        "true" | "1" | "yes" | "on" | "enabled" => true,
-                        "false" | "0" | "no" | "off" | "disabled" => false,
-                        _ => {
-                            return Err(MlxValueError::TypeMismatch {
-                                expected: "boolean string in array".to_string(),
-                                got: format!("'{s}' at position {pos}"),
-                            })
-                        }
-                    };
-                    bool_values.push(bool_val);
+                    if trimmed == "-" || trimmed.is_empty() {
+                        // Support sparse array notation: "-" or empty means None
+                        sparse_array.push(None);
+                    } else {
+                        let bool_val = match trimmed.as_str() {
+                            "true" | "1" | "yes" | "on" | "enabled" => true,
+                            "false" | "0" | "no" | "off" | "disabled" => false,
+                            _ => {
+                                return Err(MlxValueError::TypeMismatch {
+                                    expected: "boolean string in array".to_string(),
+                                    got: format!("'{s}' at position {pos}"),
+                                })
+                            }
+                        };
+                        sparse_array.push(Some(bool_val));
+                    }
                 }
-                Ok(MlxValueType::BooleanArray(bool_values))
+                Ok(MlxValueType::BooleanArray(sparse_array))
             }
 
             MlxVariableSpec::IntegerArray { size } => {
@@ -689,19 +795,24 @@ impl IntoMlxValue for Vec<String> {
                     });
                 }
 
-                let mut int_values = Vec::new();
+                let mut sparse_array = Vec::with_capacity(*size);
                 for (pos, s) in self.iter().enumerate() {
                     let trimmed = s.trim();
-                    let int_val =
-                        trimmed
-                            .parse::<i64>()
-                            .map_err(|_| MlxValueError::TypeMismatch {
-                                expected: "integer string in array".to_string(),
-                                got: format!("'{s}' at position {pos}"),
-                            })?;
-                    int_values.push(int_val);
+                    if trimmed == "-" || trimmed.is_empty() {
+                        // Support sparse array notation: "-" or empty means None
+                        sparse_array.push(None);
+                    } else {
+                        let int_val =
+                            trimmed
+                                .parse::<i64>()
+                                .map_err(|_| MlxValueError::TypeMismatch {
+                                    expected: "integer string in array".to_string(),
+                                    got: format!("'{s}' at position {pos}"),
+                                })?;
+                        sparse_array.push(Some(int_val));
+                    }
                 }
-                Ok(MlxValueType::IntegerArray(int_values))
+                Ok(MlxValueType::IntegerArray(sparse_array))
             }
 
             MlxVariableSpec::EnumArray { options, size } => {
@@ -712,19 +823,25 @@ impl IntoMlxValue for Vec<String> {
                     });
                 }
 
-                let mut enum_values = Vec::new();
+                let mut sparse_array = Vec::with_capacity(*size);
                 for (pos, s) in self.iter().enumerate() {
-                    let trimmed = s.trim().to_string();
-                    if !options.contains(&trimmed) {
-                        return Err(MlxValueError::InvalidEnumArrayOption {
-                            position: pos,
-                            value: trimmed,
-                            allowed: options.clone(),
-                        });
+                    let trimmed = s.trim();
+                    if trimmed == "-" || trimmed.is_empty() {
+                        // Support sparse array notation: "-" or empty means None
+                        sparse_array.push(None);
+                    } else {
+                        let enum_value = trimmed.to_string();
+                        if !options.contains(&enum_value) {
+                            return Err(MlxValueError::InvalidEnumArrayOption {
+                                position: pos,
+                                value: enum_value,
+                                allowed: options.clone(),
+                            });
+                        }
+                        sparse_array.push(Some(enum_value));
                     }
-                    enum_values.push(trimmed);
                 }
-                Ok(MlxValueType::EnumArray(enum_values))
+                Ok(MlxValueType::EnumArray(sparse_array))
             }
 
             MlxVariableSpec::BinaryArray { size } => {
@@ -735,22 +852,28 @@ impl IntoMlxValue for Vec<String> {
                     });
                 }
 
-                let mut binary_values = Vec::new();
+                let mut sparse_array = Vec::with_capacity(*size);
                 for (pos, s) in self.iter().enumerate() {
                     let trimmed = s.trim();
-                    let hex_str = if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
-                        &trimmed[2..]
+                    if trimmed == "-" || trimmed.is_empty() {
+                        // Support sparse array notation: "-" or empty means None
+                        sparse_array.push(None);
                     } else {
-                        trimmed
-                    };
+                        let hex_str = if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
+                            &trimmed[2..]
+                        } else {
+                            trimmed
+                        };
 
-                    let bytes = hex::decode(hex_str).map_err(|_| MlxValueError::TypeMismatch {
-                        expected: "hex string in array".to_string(),
-                        got: format!("'{s}' at position {pos}"),
-                    })?;
-                    binary_values.push(bytes);
+                        let bytes =
+                            hex::decode(hex_str).map_err(|_| MlxValueError::TypeMismatch {
+                                expected: "hex string in array".to_string(),
+                                got: format!("'{s}' at position {pos}"),
+                            })?;
+                        sparse_array.push(Some(bytes));
+                    }
                 }
-                Ok(MlxValueType::BinaryArray(binary_values))
+                Ok(MlxValueType::BinaryArray(sparse_array))
             }
 
             // Single value types should not accept arrays
@@ -774,10 +897,76 @@ impl IntoMlxValue for Vec<&str> {
     }
 }
 
+// Implement IntoMlxValue for Vec<Option<String>> to support
+// direct sparse array input for enum arrays.
+impl IntoMlxValue for Vec<Option<String>> {
+    fn into_mlx_value_for_spec(
+        self,
+        spec: &MlxVariableSpec,
+    ) -> Result<MlxValueType, MlxValueError> {
+        match spec {
+            MlxVariableSpec::EnumArray { options, size } => {
+                if self.len() != *size {
+                    return Err(MlxValueError::ArraySizeMismatch {
+                        expected: *size,
+                        got: self.len(),
+                    });
+                }
+
+                // Validate all Some values are valid enum options
+                for (pos, opt_value) in self.iter().enumerate() {
+                    if let Some(value) = opt_value {
+                        if !options.contains(value) {
+                            return Err(MlxValueError::InvalidEnumArrayOption {
+                                position: pos,
+                                value: value.clone(),
+                                allowed: options.clone(),
+                            });
+                        }
+                    }
+                }
+                Ok(MlxValueType::EnumArray(self))
+            }
+            _ => Err(MlxValueError::TypeMismatch {
+                expected: format!("{spec:?}"),
+                got: "Vec<Option<String>>".to_string(),
+            }),
+        }
+    }
+}
+
 // Implement IntoMlxValue for Vec<Vec<u8>>, which makes
 // sure the array is the required length based on the spec,
-// and then populates.
+// and then populates as a dense array (converts to sparse format).
 impl IntoMlxValue for Vec<Vec<u8>> {
+    fn into_mlx_value_for_spec(
+        self,
+        spec: &MlxVariableSpec,
+    ) -> Result<MlxValueType, MlxValueError> {
+        match spec {
+            MlxVariableSpec::BinaryArray { size } => {
+                if self.len() == *size {
+                    // Convert to sparse array format
+                    let sparse_array: Vec<Option<Vec<u8>>> = self.into_iter().map(Some).collect();
+                    Ok(MlxValueType::BinaryArray(sparse_array))
+                } else {
+                    Err(MlxValueError::ArraySizeMismatch {
+                        expected: *size,
+                        got: self.len(),
+                    })
+                }
+            }
+            _ => Err(MlxValueError::TypeMismatch {
+                expected: format!("{spec:?}"),
+                got: "Vec<Vec<u8>>".to_string(),
+            }),
+        }
+    }
+}
+
+// Implement IntoMlxValue for Vec<Option<Vec<u8>>> to support
+// direct sparse array input for binary arrays.
+impl IntoMlxValue for Vec<Option<Vec<u8>>> {
     fn into_mlx_value_for_spec(
         self,
         spec: &MlxVariableSpec,
@@ -795,8 +984,46 @@ impl IntoMlxValue for Vec<Vec<u8>> {
             }
             _ => Err(MlxValueError::TypeMismatch {
                 expected: format!("{spec:?}"),
-                got: "Vec<Vec<u8>>".to_string(),
+                got: "Vec<Option<Vec<u8>>>".to_string(),
             }),
+        }
+    }
+}
+
+impl MlxValueType {
+    pub fn is_array_type(&self) -> bool {
+        matches!(
+            self,
+            MlxValueType::BooleanArray(_)
+                | MlxValueType::IntegerArray(_)
+                | MlxValueType::EnumArray(_)
+                | MlxValueType::BinaryArray(_)
+        )
+    }
+
+    pub fn get_set_indices(&self) -> Option<Vec<usize>> {
+        fn extract_indices<T>(values: &[Option<T>]) -> Vec<usize> {
+            values
+                .iter()
+                .enumerate()
+                .filter_map(
+                    |(index, opt)| {
+                        if opt.is_some() {
+                            Some(index)
+                        } else {
+                            None
+                        }
+                    },
+                )
+                .collect()
+        }
+
+        match self {
+            MlxValueType::BooleanArray(values) => Some(extract_indices(values)),
+            MlxValueType::IntegerArray(values) => Some(extract_indices(values)),
+            MlxValueType::EnumArray(values) => Some(extract_indices(values)),
+            MlxValueType::BinaryArray(values) => Some(extract_indices(values)),
+            _ => None,
         }
     }
 }

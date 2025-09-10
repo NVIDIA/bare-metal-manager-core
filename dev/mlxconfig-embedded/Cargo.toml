@@ -5,7 +5,7 @@ edition = "2021"
 description = "Example CLI tool for working with the mlxconfig_registry/variables crates."
 
 [[bin]]
-name = "mlxconfig_embedded"
+name = "mlxconfig-embedded"
 path = "src/main.rs"
 
 [dependencies]
@@ -16,4 +16,5 @@ regex = "1.10"
 clap = { version = "4.0", features = ["derive"] }
 prettytable-rs = "^0.10"
 mlxconfig-registry = { path = "../../common/mlxconfig/registry" }
+mlxconfig-runner = { path = "../../common/mlxconfig/runner" }
 mlxconfig-variables = { path = "../../common/mlxconfig/variables" }

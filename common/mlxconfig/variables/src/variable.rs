@@ -21,7 +21,7 @@ use crate::spec::MlxVariableSpec;
 use crate::{IntoMlxValue, MlxConfigValue, MlxValueError};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MlxConfigVariable {
     pub name: String,
     pub description: String,

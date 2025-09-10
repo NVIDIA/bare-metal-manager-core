@@ -17,8 +17,9 @@
 // make building a little cleaner.
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", content = "config", rename_all = "snake_case")]
 pub enum MlxVariableSpec {
     Boolean,
@@ -235,6 +236,38 @@ impl EnumArrayBuilder {
         MlxVariableSpec::EnumArray {
             options: self.options.unwrap_or_default(),
             size: self.size.unwrap_or(1),
+        }
+    }
+}
+
+impl fmt::Display for MlxVariableSpec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MlxVariableSpec::Boolean => write!(f, "Boolean"),
+            MlxVariableSpec::Integer => write!(f, "Integer"),
+            MlxVariableSpec::String => write!(f, "String"),
+            MlxVariableSpec::Binary => write!(f, "Binary"),
+            MlxVariableSpec::Bytes => write!(f, "Bytes"),
+            MlxVariableSpec::Array => write!(f, "Array"),
+            MlxVariableSpec::Enum { options } => {
+                write!(f, "Enum [{}]", options.join(", "))
+            }
+            MlxVariableSpec::Preset { max_preset } => {
+                write!(f, "Preset (max: {max_preset})")
+            }
+            MlxVariableSpec::BooleanArray { size } => {
+                write!(f, "BooleanArray[{size}]")
+            }
+            MlxVariableSpec::IntegerArray { size } => {
+                write!(f, "IntegerArray[{size}]")
+            }
+            MlxVariableSpec::EnumArray { options, size } => {
+                write!(f, "EnumArray[{size}] [{}]", options.join(", "))
+            }
+            MlxVariableSpec::BinaryArray { size } => {
+                write!(f, "BinaryArray[{size}]")
+            }
+            MlxVariableSpec::Opaque => write!(f, "Opaque"),
         }
     }
 }
