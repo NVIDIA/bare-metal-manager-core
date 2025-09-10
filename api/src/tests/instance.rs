@@ -5061,7 +5061,7 @@ async fn test_can_not_update_instance_config_after_deletion(
 
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
-            id: tinstance.id().into(),
+            id: tinstance.id.into(),
             issue: None,
             is_repair_tenant: None,
         }))
@@ -5077,7 +5077,7 @@ async fn test_can_not_update_instance_config_after_deletion(
         .api
         .update_instance_operating_system(tonic::Request::new(
             rpc::forge::InstanceOperatingSystemUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: tinstance.id.into(),
                 if_version_match: None,
                 os: Some(updated_os.clone()),
             },
@@ -5097,7 +5097,7 @@ async fn test_can_not_update_instance_config_after_deletion(
         .api
         .update_instance_config(tonic::Request::new(
             rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id().into(),
+                instance_id: tinstance.id.into(),
                 if_version_match: None,
                 config: Some(updated_config.clone()),
                 metadata: Some(metadata),
