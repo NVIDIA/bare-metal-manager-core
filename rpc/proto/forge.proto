@@ -1652,6 +1652,9 @@ message Instance {
   // come from pools defined by InstanceTypes.
   optional string instance_type_id = 4;
 
+  // TPM EK certificate in base64 format
+  optional string tpm_ek_certificate = 5;
+
   // The desired configuration on the instance
   InstanceConfig config = 103;
 

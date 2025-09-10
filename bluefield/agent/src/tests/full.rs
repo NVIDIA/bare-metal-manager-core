@@ -669,6 +669,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         ib_config_version: "V1-T1748645613333260".to_string(),
         config_version: "V1-T1748645613333260".to_string(),
         storage_config_version: "V1-T1748645613333260".to_string(),
+        tpm_ek_certificate: None,
     };
 
     let netconf = rpc::forge::ManagedHostNetworkConfigResponse {

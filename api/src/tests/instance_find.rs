@@ -14,8 +14,10 @@ use crate::db::network_segment::NetworkSegment;
 use crate::tests::common::api_fixtures::{
     create_managed_host, create_test_env, instance::default_tenant_config,
 };
+
 use ::rpc::forge as rpc;
 use ::rpc::uuid::instance::InstanceId;
+use base64::prelude::*;
 use rpc::forge_server::Forge;
 
 #[crate::sqlx_test]
@@ -352,6 +354,10 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
         let instance = instances_copy.remove(0);
         let instance_id = instance.id.unwrap();
         assert!(instance_id_list.instance_ids.contains(&instance_id));
+        assert!(instance.tpm_ek_certificate.is_some());
+        BASE64_STANDARD
+            .decode(instance.tpm_ek_certificate.unwrap())
+            .unwrap();
     }
 }
 
