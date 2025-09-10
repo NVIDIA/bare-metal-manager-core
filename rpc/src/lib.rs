@@ -499,6 +499,15 @@ impl FromStr for forge::OperatingSystem {
     }
 }
 
+impl FromStr for forge::InstanceInfinibandConfig {
+    type Err = RpcDataConversionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s)
+            .map_err(|e| RpcDataConversionError::JsonConversionFailure(e.to_string()))
+    }
+}
+
 /*  ****************************************************** */
 // Serialization/deserialization helpers for network
 // security group enums to let admin CLI callers describe

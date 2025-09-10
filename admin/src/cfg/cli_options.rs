@@ -1,4 +1,5 @@
 use clap::builder::BoolishValueParser;
+use rpc::InstanceInfinibandConfig;
 use std::collections::HashMap;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -62,7 +63,7 @@ pub struct CliOptions {
         long,
         value_hint = ValueHint::Username,
         value_name = "USERNAME",
-        help = "Never should be used against a production site. Use this flag only if you undrestand the impacts of inconsistencies with cloud db."
+        help = "Never should be used against a production site. Use this flag only if you understand the impacts of inconsistencies with cloud db."
     )]
     pub cloud_unsafe_op: Option<String>,
 
@@ -1793,6 +1794,8 @@ pub enum Instance {
     Allocate(AllocateInstance),
     #[clap(about = "Update instance OS")]
     UpdateOS(UpdateInstanceOS),
+    #[clap(about = "Update instance IB configuration")]
+    UpdateIbConfig(UpdateIbConfig),
 }
 
 /// ShowInstance is used for `cli instance show` configuration,
@@ -1924,6 +1927,19 @@ pub struct UpdateInstanceOS {
         value_name = "OS_JSON"
     )]
     pub os: OperatingSystem,
+}
+
+#[derive(Parser, Debug)]
+pub struct UpdateIbConfig {
+    #[clap(short, long, required(true))]
+    pub instance: InstanceId,
+    #[clap(
+        long,
+        required(true),
+        help = "IB configuration in JSON format",
+        value_name = "IB_JSON"
+    )]
+    pub config: InstanceInfinibandConfig,
 }
 
 #[derive(Parser, Debug)]

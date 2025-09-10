@@ -596,7 +596,14 @@ async fn main() -> color_eyre::Result<()> {
                 }
 
                 match api_client
-                    .update_instance_os(update_request, config.cloud_unsafe_op)
+                    .update_instance_config_with(
+                        update_request.instance,
+                        |config| {
+                            config.os = Some(update_request.os);
+                        },
+                        |_metadata| {},
+                        config.cloud_unsafe_op,
+                    )
                     .await
                 {
                     Ok(i) => {
@@ -604,6 +611,36 @@ async fn main() -> color_eyre::Result<()> {
                     }
                     Err(e) => {
                         tracing::info!("update-os failed with {} ", e);
+                    }
+                };
+            }
+            Instance::UpdateIbConfig(update_request) => {
+                if config.cloud_unsafe_op.is_none() {
+                    return Err(CarbideCliError::GenericError(
+                        "Operation not allowed due to potential inconsistencies with cloud database.".to_owned(),
+                    )
+                    .into());
+                }
+
+                match api_client
+                    .update_instance_config_with(
+                        update_request.instance,
+                        |config| {
+                            config.infiniband = Some(update_request.config);
+                        },
+                        |_metadata| {},
+                        config.cloud_unsafe_op,
+                    )
+                    .await
+                {
+                    Ok(i) => {
+                        tracing::info!(
+                            "update-ib-config was successful. Updated instance: {:?}",
+                            i
+                        );
+                    }
+                    Err(e) => {
+                        tracing::info!("update-ib-config failed with {} ", e);
                     }
                 };
             }
