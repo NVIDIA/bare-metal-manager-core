@@ -123,15 +123,40 @@ fn test_preset_value() {
 fn test_boolean_array_creation() {
     let var = create_test_variable("test_bool_array", MlxVariableSpec::BooleanArray { size: 4 });
 
-    // Vec<bool> gets automatically validated for size.
+    // Vec<bool> gets automatically validated for size and converted to sparse format.
     let valid_value = var.with(vec![true, false, true, false]).unwrap();
     assert_eq!(
         valid_value.value,
-        MlxValueType::BooleanArray(vec![true, false, true, false])
+        MlxValueType::BooleanArray(vec![Some(true), Some(false), Some(true), Some(false)])
     );
 
     // Wrong size gets caught.
     let invalid_result = var.with(vec![true, false]);
+    assert!(invalid_result.is_err());
+}
+
+// test_sparse_boolean_array_creation tests creating sparse boolean arrays
+// where some indices are unset (None).
+#[test]
+fn test_sparse_boolean_array_creation() {
+    let var = create_test_variable(
+        "test_sparse_bool_array",
+        MlxVariableSpec::BooleanArray { size: 4 },
+    );
+
+    // Vec<Option<bool>> for sparse arrays
+    let sparse_value = var.with(vec![Some(true), None, Some(false), None]).unwrap();
+    assert_eq!(
+        sparse_value.value,
+        MlxValueType::BooleanArray(vec![Some(true), None, Some(false), None])
+    );
+
+    // Display should show "-" for None values
+    let display = sparse_value.to_display_string();
+    assert_eq!(display, "[true, -, false, -]");
+
+    // Wrong size gets caught
+    let invalid_result = var.with(vec![Some(true), None]);
     assert!(invalid_result.is_err());
 }
 
@@ -153,9 +178,9 @@ fn test_enum_array_creation() {
     assert_eq!(
         valid_value.value,
         MlxValueType::EnumArray(vec![
-            "input".to_string(),
-            "output".to_string(),
-            "input".to_string()
+            Some("input".to_string()),
+            Some("output".to_string()),
+            Some("input".to_string())
         ])
     );
 
@@ -170,6 +195,111 @@ fn test_enum_array_creation() {
         }
         _ => panic!("Expected InvalidEnumArrayOption error"),
     }
+}
+
+// test_sparse_enum_array_creation tests creating sparse enum arrays
+// where some indices are unset (None).
+#[test]
+fn test_sparse_enum_array_creation() {
+    let var = create_test_variable(
+        "test_sparse_enum_array",
+        MlxVariableSpec::EnumArray {
+            options: vec![
+                "input".to_string(),
+                "output".to_string(),
+                "bidirectional".to_string(),
+            ],
+            size: 4,
+        },
+    );
+
+    // Vec<Option<String>> for sparse arrays
+    let sparse_value = var
+        .with(vec![
+            Some("input".to_string()),
+            None,
+            Some("output".to_string()),
+            None,
+        ])
+        .unwrap();
+
+    assert_eq!(
+        sparse_value.value,
+        MlxValueType::EnumArray(vec![
+            Some("input".to_string()),
+            None,
+            Some("output".to_string()),
+            None
+        ])
+    );
+
+    // Display should show "-" for None values
+    let display = sparse_value.to_display_string();
+    assert_eq!(display, "[input, -, output, -]");
+
+    // Validation should still work for Some values
+    let invalid_result = var.with(vec![
+        Some("input".to_string()),
+        Some("invalid".to_string()),
+        None,
+        None,
+    ]);
+    assert!(invalid_result.is_err());
+}
+
+// test_integer_array_creation tests creating integer arrays with sparse support.
+#[test]
+fn test_integer_array_creation() {
+    let var = create_test_variable("test_int_array", MlxVariableSpec::IntegerArray { size: 3 });
+
+    // Dense array (Vec<i64>) gets converted to sparse format
+    let dense_value = var.with(vec![42i64, -123, 0]).unwrap();
+    assert_eq!(
+        dense_value.value,
+        MlxValueType::IntegerArray(vec![Some(42), Some(-123), Some(0)])
+    );
+
+    // Sparse array (Vec<Option<i64>>)
+    let sparse_value = var.with(vec![Some(42), None, Some(0)]).unwrap();
+    assert_eq!(
+        sparse_value.value,
+        MlxValueType::IntegerArray(vec![Some(42), None, Some(0)])
+    );
+
+    // Display should show "-" for None values
+    let display = sparse_value.to_display_string();
+    assert_eq!(display, "[42, -, 0]");
+
+    // Wrong size gets caught
+    let invalid_result = var.with(vec![1i64, 2]);
+    assert!(invalid_result.is_err());
+}
+
+// test_binary_array_creation tests creating binary arrays with sparse support.
+#[test]
+fn test_binary_array_creation() {
+    let var = create_test_variable(
+        "test_binary_array",
+        MlxVariableSpec::BinaryArray { size: 2 },
+    );
+
+    // Dense array (Vec<Vec<u8>>) gets converted to sparse format
+    let dense_value = var.with(vec![vec![0x1a, 0x2b], vec![0x3c, 0x4d]]).unwrap();
+    assert_eq!(
+        dense_value.value,
+        MlxValueType::BinaryArray(vec![Some(vec![0x1a, 0x2b]), Some(vec![0x3c, 0x4d])])
+    );
+
+    // Sparse array (Vec<Option<Vec<u8>>>)
+    let sparse_value = var.with(vec![Some(vec![0x1a, 0x2b]), None]).unwrap();
+    assert_eq!(
+        sparse_value.value,
+        MlxValueType::BinaryArray(vec![Some(vec![0x1a, 0x2b]), None])
+    );
+
+    // Display should show count including sparse info
+    let display = sparse_value.to_display_string();
+    assert_eq!(display, "[2 binary values, 1 set]");
 }
 
 // test_type_mismatch makes sure we can't create a new variable
@@ -190,7 +320,7 @@ fn test_type_mismatch() {
     }
 }
 
-// test_contextual_string_handling tests the ame string input,
+// test_contextual_string_handling tests the same string input,
 // and verifies different behavior based on spec.
 #[test]
 fn test_contextual_string_handling() {
@@ -361,7 +491,7 @@ fn test_string_parsing_for_single_values() {
 // as expected. mlxconfig returns all values as strings when
 // working with --json, so we need to make sure this works
 // as part of deserializing the JSON payloads. This one is
-// specifically for testing arrays.
+// specifically for testing arrays, including sparse array support.
 #[test]
 fn test_vec_string_parsing_for_array_values() {
     // Generic string array.
@@ -382,9 +512,11 @@ fn test_vec_string_parsing_for_array_values() {
         ])
     ); // trimmed
 
-    // Boolean array parsing.
+    // Boolean array parsing with sparse support.
     let bool_array_var =
         create_test_variable("test_bool_array", MlxVariableSpec::BooleanArray { size: 4 });
+
+    // Dense array
     let result = bool_array_var
         .with(vec![
             "true".to_string(),
@@ -395,7 +527,21 @@ fn test_vec_string_parsing_for_array_values() {
         .unwrap();
     assert_eq!(
         result.value,
-        MlxValueType::BooleanArray(vec![true, false, true, false])
+        MlxValueType::BooleanArray(vec![Some(true), Some(false), Some(true), Some(false)])
+    );
+
+    // Sparse array with "-" notation
+    let sparse_result = bool_array_var
+        .with(vec![
+            "true".to_string(),
+            "-".to_string(),
+            "false".to_string(),
+            "".to_string(), // empty string also means None
+        ])
+        .unwrap();
+    assert_eq!(
+        sparse_result.value,
+        MlxValueType::BooleanArray(vec![Some(true), None, Some(false), None])
     );
 
     // Wrong size.
@@ -413,13 +559,27 @@ fn test_vec_string_parsing_for_array_values() {
         ])
         .is_err());
 
-    // Integer array parsing.
+    // Integer array parsing with sparse support.
     let int_array_var =
         create_test_variable("test_int_array", MlxVariableSpec::IntegerArray { size: 3 });
+
+    // Dense array
     let result = int_array_var
         .with(vec!["42".to_string(), "-123".to_string(), "0".to_string()])
         .unwrap();
-    assert_eq!(result.value, MlxValueType::IntegerArray(vec![42, -123, 0]));
+    assert_eq!(
+        result.value,
+        MlxValueType::IntegerArray(vec![Some(42), Some(-123), Some(0)])
+    );
+
+    // Sparse array with "-" notation
+    let sparse_result = int_array_var
+        .with(vec!["42".to_string(), "-".to_string(), "0".to_string()])
+        .unwrap();
+    assert_eq!(
+        sparse_result.value,
+        MlxValueType::IntegerArray(vec![Some(42), None, Some(0)])
+    );
 
     // Wrong size.
     assert!(int_array_var
@@ -435,7 +595,7 @@ fn test_vec_string_parsing_for_array_values() {
         ])
         .is_err());
 
-    // Enum array parsing.
+    // Enum array parsing with sparse support.
     let enum_array_var = create_test_variable(
         "test_enum_array",
         MlxVariableSpec::EnumArray {
@@ -444,22 +604,45 @@ fn test_vec_string_parsing_for_array_values() {
                 "output".to_string(),
                 "bidirectional".to_string(),
             ],
-            size: 3,
+            size: 4,
         },
     );
+
+    // Dense array
     let result = enum_array_var
         .with(vec![
             "input".to_string(),
             " output ".to_string(),
             "bidirectional".to_string(),
+            "input".to_string(),
         ])
         .unwrap();
     assert_eq!(
         result.value,
         MlxValueType::EnumArray(vec![
+            Some("input".to_string()),
+            Some("output".to_string()),
+            Some("bidirectional".to_string()),
+            Some("input".to_string())
+        ])
+    );
+
+    // Sparse array with "-" notation
+    let sparse_result = enum_array_var
+        .with(vec![
             "input".to_string(),
+            "-".to_string(),
             "output".to_string(),
-            "bidirectional".to_string()
+            "".to_string(), // empty string also means None
+        ])
+        .unwrap();
+    assert_eq!(
+        sparse_result.value,
+        MlxValueType::EnumArray(vec![
+            Some("input".to_string()),
+            None,
+            Some("output".to_string()),
+            None
         ])
     );
 
@@ -473,6 +656,7 @@ fn test_vec_string_parsing_for_array_values() {
         "input".to_string(),
         "invalid".to_string(),
         "output".to_string(),
+        "input".to_string(),
     ]);
     assert!(result.is_err());
     match result.unwrap_err() {
@@ -488,11 +672,13 @@ fn test_vec_string_parsing_for_array_values() {
         _ => panic!("Expected InvalidEnumArrayOption error"),
     }
 
-    // Binary array parsing.
+    // Binary array parsing with sparse support.
     let binary_array_var = create_test_variable(
         "test_binary_array",
         MlxVariableSpec::BinaryArray { size: 3 },
     );
+
+    // Dense array
     let result = binary_array_var
         .with(vec![
             "0x1a2b".to_string(),
@@ -502,7 +688,24 @@ fn test_vec_string_parsing_for_array_values() {
         .unwrap();
     assert_eq!(
         result.value,
-        MlxValueType::BinaryArray(vec![vec![0x1a, 0x2b], vec![0x3c, 0x4d], vec![0x5e, 0x6f]])
+        MlxValueType::BinaryArray(vec![
+            Some(vec![0x1a, 0x2b]),
+            Some(vec![0x3c, 0x4d]),
+            Some(vec![0x5e, 0x6f])
+        ])
+    );
+
+    // Sparse array with "-" notation
+    let sparse_result = binary_array_var
+        .with(vec![
+            "0x1a2b".to_string(),
+            "-".to_string(),
+            "3c4d".to_string(),
+        ])
+        .unwrap();
+    assert_eq!(
+        sparse_result.value,
+        MlxValueType::BinaryArray(vec![Some(vec![0x1a, 0x2b]), None, Some(vec![0x3c, 0x4d])])
     );
 
     // Wrong size.
@@ -534,4 +737,323 @@ fn test_vec_string_parsing_for_array_values() {
     assert!(enum_var
         .with(vec!["low".to_string(), "high".to_string()])
         .is_err());
+}
+
+// test_sparse_array_validation tests that sparse arrays properly validate
+// their Some values while ignoring None values.
+#[test]
+fn test_sparse_array_validation() {
+    // Test enum array validation with sparse values
+    let enum_array_var = create_test_variable(
+        "test_sparse_validation",
+        MlxVariableSpec::EnumArray {
+            options: vec!["valid1".to_string(), "valid2".to_string()],
+            size: 3,
+        },
+    );
+
+    // Valid sparse array - None values should be ignored during validation
+    let valid_sparse = enum_array_var
+        .with(vec![
+            Some("valid1".to_string()),
+            None,
+            Some("valid2".to_string()),
+        ])
+        .unwrap();
+
+    assert_eq!(
+        valid_sparse.value,
+        MlxValueType::EnumArray(vec![
+            Some("valid1".to_string()),
+            None,
+            Some("valid2".to_string())
+        ])
+    );
+
+    // Invalid sparse array - Some values still need to be validated
+    let invalid_sparse = enum_array_var.with(vec![
+        Some("valid1".to_string()),
+        None,
+        Some("invalid".to_string()),
+    ]);
+
+    assert!(invalid_sparse.is_err());
+    match invalid_sparse.unwrap_err() {
+        MlxValueError::InvalidEnumArrayOption {
+            position, value, ..
+        } => {
+            assert_eq!(position, 2);
+            assert_eq!(value, "invalid");
+        }
+        _ => panic!("Expected InvalidEnumArrayOption error"),
+    }
+}
+
+// test_display_formatting_sparse_arrays tests that sparse arrays display
+// correctly with "-" for None values.
+#[test]
+fn test_display_formatting_sparse_arrays() {
+    // Boolean array display
+    let bool_var = create_test_variable(
+        "test_bool_display",
+        MlxVariableSpec::BooleanArray { size: 3 },
+    );
+    let bool_value = bool_var.with(vec![Some(true), None, Some(false)]).unwrap();
+    assert_eq!(bool_value.to_display_string(), "[true, -, false]");
+
+    // Integer array display
+    let int_var = create_test_variable(
+        "test_int_display",
+        MlxVariableSpec::IntegerArray { size: 4 },
+    );
+    let int_value = int_var.with(vec![Some(42), None, Some(-10), None]).unwrap();
+    assert_eq!(int_value.to_display_string(), "[42, -, -10, -]");
+
+    // Enum array display
+    let enum_var = create_test_variable(
+        "test_enum_display",
+        MlxVariableSpec::EnumArray {
+            options: vec!["option1".to_string(), "option2".to_string()],
+            size: 3,
+        },
+    );
+    let enum_value = enum_var
+        .with(vec![
+            Some("option1".to_string()),
+            None,
+            Some("option2".to_string()),
+        ])
+        .unwrap();
+    assert_eq!(enum_value.to_display_string(), "[option1, -, option2]");
+
+    // Binary array display shows count information
+    let binary_var = create_test_variable(
+        "test_binary_display",
+        MlxVariableSpec::BinaryArray { size: 4 },
+    );
+    let binary_value = binary_var
+        .with(vec![Some(vec![0x1a]), None, Some(vec![0x2b, 0x3c]), None])
+        .unwrap();
+    assert_eq!(binary_value.to_display_string(), "[4 binary values, 2 set]");
+}
+
+// test_mixed_dense_and_sparse_operations tests that we can work with both
+// dense arrays (automatically converted to sparse) and explicit sparse arrays.
+#[test]
+fn test_mixed_dense_and_sparse_operations() {
+    let bool_var = create_test_variable("test_mixed", MlxVariableSpec::BooleanArray { size: 3 });
+
+    // Dense input - gets converted to sparse internally
+    let dense_value = bool_var.with(vec![true, false, true]).unwrap();
+    assert_eq!(
+        dense_value.value,
+        MlxValueType::BooleanArray(vec![Some(true), Some(false), Some(true)])
+    );
+
+    // Sparse input - used directly
+    let sparse_value = bool_var.with(vec![Some(true), None, Some(true)]).unwrap();
+    assert_eq!(
+        sparse_value.value,
+        MlxValueType::BooleanArray(vec![Some(true), None, Some(true)])
+    );
+
+    // Both should display properly
+    assert_eq!(dense_value.to_display_string(), "[true, false, true]");
+    assert_eq!(sparse_value.to_display_string(), "[true, -, true]");
+}
+
+#[test]
+fn test_is_array_type_boolean_array() {
+    let array_value = MlxValueType::BooleanArray(vec![Some(true), None, Some(false)]);
+    assert!(array_value.is_array_type());
+}
+
+#[test]
+fn test_is_array_type_integer_array() {
+    let array_value = MlxValueType::IntegerArray(vec![Some(42), None, Some(100)]);
+    assert!(array_value.is_array_type());
+}
+
+#[test]
+fn test_is_array_type_enum_array() {
+    let array_value = MlxValueType::EnumArray(vec![
+        Some("option1".to_string()),
+        None,
+        Some("option2".to_string()),
+    ]);
+    assert!(array_value.is_array_type());
+}
+
+#[test]
+fn test_is_array_type_binary_array() {
+    let array_value =
+        MlxValueType::BinaryArray(vec![Some(vec![0x01, 0x02]), None, Some(vec![0x03, 0x04])]);
+    assert!(array_value.is_array_type());
+}
+
+#[test]
+fn test_is_array_type_non_arrays() {
+    let test_cases = vec![
+        MlxValueType::Boolean(true),
+        MlxValueType::Integer(42),
+        MlxValueType::String("test".to_string()),
+        MlxValueType::Enum("option".to_string()),
+        MlxValueType::Preset(5),
+        MlxValueType::Binary(vec![0x01, 0x02]),
+        MlxValueType::Bytes(vec![0x01, 0x02]),
+        MlxValueType::Array(vec!["item1".to_string(), "item2".to_string()]),
+        MlxValueType::Opaque(vec![0x01, 0x02]),
+    ];
+
+    for value in test_cases {
+        assert!(
+            !value.is_array_type(),
+            "Expected {value:?} to not be an array type",
+        );
+    }
+}
+
+#[test]
+fn test_get_set_indices_boolean_array() {
+    let array_value = MlxValueType::BooleanArray(vec![
+        Some(true),  // index 0
+        None,        // index 1 - not set
+        Some(false), // index 2
+        None,        // index 3 - not set
+        Some(true),  // index 4
+    ]);
+
+    let indices = array_value.get_set_indices().unwrap();
+    assert_eq!(indices, vec![0, 2, 4]);
+}
+
+#[test]
+fn test_get_set_indices_integer_array() {
+    let array_value = MlxValueType::IntegerArray(vec![
+        None,      // index 0 - not set
+        Some(42),  // index 1
+        Some(100), // index 2
+        None,      // index 3 - not set
+    ]);
+
+    let indices = array_value.get_set_indices().unwrap();
+    assert_eq!(indices, vec![1, 2]);
+}
+
+#[test]
+fn test_get_set_indices_enum_array() {
+    let array_value = MlxValueType::EnumArray(vec![
+        Some("option1".to_string()), // index 0
+        Some("option2".to_string()), // index 1
+        None,                        // index 2 - not set
+        Some("option3".to_string()), // index 3
+    ]);
+
+    let indices = array_value.get_set_indices().unwrap();
+    assert_eq!(indices, vec![0, 1, 3]);
+}
+
+#[test]
+fn test_get_set_indices_binary_array() {
+    let array_value = MlxValueType::BinaryArray(vec![
+        Some(vec![0x01, 0x02]), // index 0
+        None,                   // index 1 - not set
+        None,                   // index 2 - not set
+        Some(vec![0x03, 0x04]), // index 3
+    ]);
+
+    let indices = array_value.get_set_indices().unwrap();
+    assert_eq!(indices, vec![0, 3]);
+}
+
+#[test]
+fn test_get_set_indices_all_none() {
+    let array_value = MlxValueType::BooleanArray(vec![None, None, None]);
+    let indices = array_value.get_set_indices().unwrap();
+    assert!(indices.is_empty());
+}
+
+#[test]
+fn test_get_set_indices_all_some() {
+    let array_value = MlxValueType::IntegerArray(vec![Some(1), Some(2), Some(3), Some(4)]);
+    let indices = array_value.get_set_indices().unwrap();
+    assert_eq!(indices, vec![0, 1, 2, 3]);
+}
+
+#[test]
+fn test_get_set_indices_empty_array() {
+    let array_value = MlxValueType::BooleanArray(vec![]);
+    let indices = array_value.get_set_indices().unwrap();
+    assert!(indices.is_empty());
+}
+
+#[test]
+fn test_get_set_indices_single_element() {
+    let array_value = MlxValueType::EnumArray(vec![Some("only_option".to_string())]);
+    let indices = array_value.get_set_indices().unwrap();
+    assert_eq!(indices, vec![0]);
+}
+
+#[test]
+fn test_get_set_indices_non_array_returns_none() {
+    let test_cases = vec![
+        MlxValueType::Boolean(true),
+        MlxValueType::Integer(42),
+        MlxValueType::String("test".to_string()),
+        MlxValueType::Enum("option".to_string()),
+        MlxValueType::Preset(5),
+        MlxValueType::Binary(vec![0x01, 0x02]),
+        MlxValueType::Bytes(vec![0x01, 0x02]),
+        MlxValueType::Array(vec!["item1".to_string(), "item2".to_string()]),
+        MlxValueType::Opaque(vec![0x01, 0x02]),
+    ];
+
+    for value in test_cases {
+        assert!(
+            value.get_set_indices().is_none(),
+            "Expected {value:?} to return None for get_set_indices",
+        );
+    }
+}
+
+#[test]
+fn test_get_set_indices_sparse_pattern() {
+    // Test a realistic sparse array pattern
+    let array_value = MlxValueType::EnumArray(vec![
+        Some("HOST_0".to_string()), // index 0 - set
+        None,                       // index 1 - not set
+        None,                       // index 2 - not set
+        Some("HOST_3".to_string()), // index 3 - set
+        None,                       // index 4 - not set
+        None,                       // index 5 - not set
+        Some("HOST_6".to_string()), // index 6 - set
+        None,                       // index 7 - not set
+    ]);
+
+    let indices = array_value.get_set_indices().unwrap();
+    assert_eq!(indices, vec![0, 3, 6]);
+}
+
+#[test]
+fn test_get_set_indices_maintains_order() {
+    // Ensure indices are returned in ascending order
+    let array_value = MlxValueType::IntegerArray(vec![
+        None,     // index 0
+        Some(10), // index 1
+        None,     // index 2
+        Some(30), // index 3
+        None,     // index 4
+        Some(50), // index 5
+    ]);
+
+    let indices = array_value.get_set_indices().unwrap();
+    assert_eq!(indices, vec![1, 3, 5]);
+
+    // Verify they're in ascending order
+    for window in indices.windows(2) {
+        assert!(
+            window[0] < window[1],
+            "Indices should be in ascending order"
+        );
+    }
 }

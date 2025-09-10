@@ -1,0 +1,20 @@
+[package]
+name = "mlxconfig-runner"
+version = "0.1.0"
+edition = "2021"
+description = "Pulls together the mlxconfig-{registry,variables} crates to safely execute mlxconfig commands."
+
+[dependencies]
+mlxconfig-variables = { path = "../variables" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.0", features = ["v4"] }
+hex = "0.4.3"
+thiserror = "1.0"
+regex = "1.11.2"
+backon = "1.5.2"
+wait-timeout = "0.2.1"
+
+[dev-dependencies]
+tempfile = "3.8"
+serde_json = "1.0"

@@ -1,5 +1,6 @@
-use crate::cmd::args::{Cli, Commands, OutputFormat, RegistryAction};
+use crate::cmd::args::{Cli, Commands, OutputFormat, RegistryAction, RunnerCommands};
 use mlxconfig_registry::registries;
+use mlxconfig_runner::{ExecOptions, MlxConfigRunner, MlxRunnerError, QueryResult};
 use mlxconfig_variables::{
     ConstraintValidationResult, DeviceInfo, MlxConfigVariable, MlxVariableRegistry,
     MlxVariableSpec, RegistryTargetConstraints,
@@ -8,6 +9,7 @@ use prettytable::{Cell, Row, Table};
 use regex::Regex;
 use serde_json;
 use std::fs;
+use std::time::Duration;
 
 pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
@@ -42,6 +44,25 @@ pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 cmd_registry_check(&registry_name, device_type, part_number, fw_version)?;
             }
         },
+        Some(Commands::Runner {
+            device,
+            verbose,
+            dry_run,
+            retries,
+            timeout,
+            confirm,
+            runner_command,
+        }) => {
+            // Leverage our ExecOptions builder to build some arguments
+            // using what we got from CLI arguments.
+            let options = ExecOptions::default()
+                .with_verbose(verbose)
+                .with_dry_run(dry_run)
+                .with_retries(retries)
+                .with_timeout(Some(Duration::from_secs(timeout)))
+                .with_confirm_destructive(confirm);
+            run_runner_command(&device, runner_command, options)?;
+        }
         None => {
             cmd_show_default_info();
         }
@@ -50,8 +71,8 @@ pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn cmd_version() {
-    println!("mlxconfig_embedded version 0.0.1");
-    println!("Built with embedded mlxconfig_registry definitions at compile time");
+    println!("mlxconfig-embedded version 0.0.1");
+    println!("A reference example showcasing how to work with mlxconfig-runner, mlxconfig-registry, and mlxconfig-variables.");
 }
 
 fn cmd_registry_generate(
@@ -148,7 +169,7 @@ fn cmd_registry_show(
     })?;
 
     match output_format {
-        OutputFormat::Table => show_registry_table(registry),
+        OutputFormat::AsciiTable => show_registry_table(registry),
         OutputFormat::Json => show_registry_json(registry)?,
         OutputFormat::Yaml => show_registry_yaml(registry)?,
     }
@@ -180,7 +201,6 @@ fn cmd_registry_check(
     }
 
     println!("Compatibility Check");
-    println!("======================");
     println!("Registry: '{}'", registry.name);
     println!();
     println!("Device Information:");
@@ -213,15 +233,12 @@ fn cmd_registry_check(
 
     match result {
         ConstraintValidationResult::Valid => {
-            println!("COMPATIBLE");
             println!("This device is compatible with the registry!");
         }
         ConstraintValidationResult::Unconstrained => {
-            println!("UNCONSTRAINED");
             println!("Registry has no constraints - compatible with any device");
         }
         ConstraintValidationResult::Invalid { reasons } => {
-            println!("INCOMPATIBLE");
             println!("This device is not compatible with the registry.");
             println!();
             println!("Reasons:");
@@ -235,37 +252,12 @@ fn cmd_registry_check(
 }
 
 fn cmd_show_default_info() {
-    println!("Mellanox Hardware Configuration Registry");
-    println!("=====================================");
-    let total_variables: usize = registries::get_all()
-        .iter()
-        .map(|r| r.variables.len())
-        .sum();
-
-    let constrained_registries = registries::get_all()
-        .iter()
-        .filter(|r| r.constraints.has_constraints())
-        .count();
-
-    println!("Summary:");
-    println!("  • Total registries: {}", registries::get_all().len());
-    println!("  • Total variables: {total_variables}");
-    println!("  • Constrained registries: {constrained_registries}");
-    println!(
-        "  • Universal registries: {}",
-        registries::get_all().len() - constrained_registries
-    );
-    println!();
-    println!("💡 Use --help to see available commands");
-    println!("   Use 'registry list' to see all available registries");
-    println!("   Use 'registry show <name>' to see registry details");
+    println!("Try running with --help.");
 }
 
-// Helper functions moved from main.rs
 pub fn parse_mlx_show_confs(content: &str) -> MlxVariableRegistry {
     let mut variables = Vec::new();
 
-    // More flexible regex patterns to match the MLX configuration format
     let section_re = Regex::new(r"^\s*([A-Z][A-Z0-9 _]+):$").unwrap();
     let var_re = Regex::new(r"^\s+([A-Z][A-Z0-9_]+)=<([^>]+)>\s*(.*)$").unwrap();
 
@@ -281,23 +273,24 @@ pub fn parse_mlx_show_confs(content: &str) -> MlxVariableRegistry {
             continue;
         }
 
-        // Check for section header (we track this for potential future use)
+        // Check for section header (we track this for potential future use).
         if let Some(_caps) = section_re.captures(line) {
             i += 1;
             continue;
         }
 
-        // Check for variable definition
+        // Check for variable definition.
         if let Some(caps) = var_re.captures(line) {
             let var_name = caps[1].to_string();
             let var_type_str = &caps[2];
             let mut description = caps[3].to_string();
 
-            // Look ahead for continuation lines (additional description)
+            // Look ahead for continuation lines (additional description).
             let mut j = i + 1;
             while j < lines.len() {
                 let next_line = lines[j];
-                // If next line starts with whitespace and doesn't match variable pattern, it's continuation
+                // If next line starts with whitespace and doesn't match variable
+                // pattern, it's continuation.
                 if next_line.starts_with(' ')
                     && !var_re.is_match(lines[j])
                     && !section_re.is_match(lines[j])
@@ -311,10 +304,10 @@ pub fn parse_mlx_show_confs(content: &str) -> MlxVariableRegistry {
                 }
             }
 
-            // Clean up description - remove extra whitespace and truncate if too long
+            // Clean up description -- remove extra whitespace and truncate if too long.
             description = description.split_whitespace().collect::<Vec<_>>().join(" ");
 
-            // More aggressive cleaning for problematic characters
+            // More aggressive cleaning for problematic characters.
             description = clean_description(&description);
 
             if description.len() > 120 {
@@ -327,7 +320,8 @@ pub fn parse_mlx_show_confs(content: &str) -> MlxVariableRegistry {
             variables.push(MlxConfigVariable {
                 name: var_name,
                 description,
-                read_only: false, // MLX configs are generally writable
+                // TODO(chet): Needs query integration.
+                read_only: false,
                 spec,
             });
 
@@ -338,14 +332,15 @@ pub fn parse_mlx_show_confs(content: &str) -> MlxVariableRegistry {
     }
 
     MlxVariableRegistry {
-        name: "MLX Hardware Configuration Registry".to_string(),
+        // TODO(chet): Make it so you can provide a name.
+        name: "generated_registry".to_string(),
         variables,
-        constraints: RegistryTargetConstraints::default(), // No constraints by default
+        // No constraints by default.
+        constraints: RegistryTargetConstraints::default(),
     }
 }
 
 fn clean_description(desc: &str) -> String {
-    // Just clean up whitespace - the escaping function will handle quotes
     desc.split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
@@ -354,7 +349,6 @@ fn clean_description(desc: &str) -> String {
 }
 
 fn parse_variable_type(type_str: &str) -> MlxVariableSpec {
-    // Handle specific patterns
     if type_str == "False|True" {
         return MlxVariableSpec::Enum {
             options: vec!["False".to_string(), "True".to_string()],
@@ -373,13 +367,14 @@ fn parse_variable_type(type_str: &str) -> MlxVariableSpec {
         return MlxVariableSpec::Binary;
     }
 
-    // Check if it contains pipe-separated options (enum)
+    // Check if it contains pipe-separated options, which means
+    // it's an enum.
     if type_str.contains('|') {
         let options: Vec<String> = type_str.split('|').map(|s| s.trim().to_string()).collect();
         return MlxVariableSpec::Enum { options };
     }
 
-    // Default to String for anything else
+    // Default to String for anything else.
     MlxVariableSpec::String
 }
 
@@ -391,7 +386,7 @@ pub fn registry_to_yaml(registry: &MlxVariableRegistry) -> String {
         escape_yaml_string(&registry.name)
     ));
 
-    // Add constraints section if any exist
+    // Add constraints section if any exist.
     if registry.constraints.has_constraints() {
         yaml.push_str("constraints:\n");
 
@@ -506,9 +501,10 @@ pub fn registry_to_yaml(registry: &MlxVariableRegistry) -> String {
 }
 
 fn escape_yaml_string(s: &str) -> String {
-    // For YAML double-quoted strings, we only need to escape double quotes and backslashes
-    s.replace("\\", "\\\\") // Escape backslashes first
-        .replace("\"", "\\\"") // Escape double quotes
+    // For YAML double-quoted strings, we only need to escape double quotes
+    // and backslashes.
+    s.replace("\\", "\\\\") // Escape backslashes first,
+        .replace("\"", "\\\"") // and then escape double quotes.
 }
 
 fn format_spec(spec: &MlxVariableSpec) -> String {
@@ -544,19 +540,20 @@ fn format_spec(spec: &MlxVariableSpec) -> String {
 fn show_registry_table(registry: &MlxVariableRegistry) {
     let mut table = Table::new();
 
-    // Registry name row (spans all 4 columns)
+    // Registry name row (spans all 4 columns).
     table.add_row(Row::new(vec![
         Cell::new("Registry Name"),
-        Cell::new(&registry.name).with_hspan(3), // Span across 3 columns
+        // And this one spans across 3 columns.
+        Cell::new(&registry.name).with_hspan(3),
     ]));
 
-    // Variables count row (spans all 4 columns)
+    // Variables count row (spans all 4 columns).
     table.add_row(Row::new(vec![
         Cell::new("Variables"),
         Cell::new(&registry.variables.len().to_string()).with_hspan(3),
     ]));
 
-    // Constraints row (spans all 4 columns)
+    // Constraints row (spans all 4 columns).
     let constraints_display = if registry.constraints.has_constraints() {
         match serde_json::to_string_pretty(&registry.constraints) {
             Ok(json) => json,
@@ -571,7 +568,7 @@ fn show_registry_table(registry: &MlxVariableRegistry) {
         Cell::new(&constraints_display).with_hspan(3),
     ]));
 
-    // Variables header row
+    // Variables header row.
     table.add_row(Row::new(vec![
         Cell::new("Variable Name").style_spec("Fb"),
         Cell::new("Read-Write").style_spec("Fb"),
@@ -579,12 +576,15 @@ fn show_registry_table(registry: &MlxVariableRegistry) {
         Cell::new("Description").style_spec("Fb"),
     ]));
 
-    // Add all variables
+    // ...and then add all variables.
     for variable in &registry.variables {
         let read_write = if variable.read_only { "RO" } else { "RW" };
         let var_type = format_spec(&variable.spec);
 
-        // Wrap description at 60 characters.
+        // Wrap description at 60 characters. Could probably
+        // make this configurable but since it's just a CLI
+        // reference example I don't think it's really needed
+        // for now.
         let wrapped_description = wrap_text(&variable.description, 60);
 
         table.add_row(Row::new(vec![
@@ -644,4 +644,299 @@ fn wrap_text(text: &str, width: usize) -> String {
     }
 
     result
+}
+
+// run_runner_command runs the specific runner subcommands.
+fn run_runner_command(
+    device: &str,
+    runner_command: RunnerCommands,
+    options: ExecOptions,
+) -> Result<(), MlxRunnerError> {
+    match runner_command {
+        RunnerCommands::Query {
+            registry,
+            variables,
+            format,
+        } => query_command(device, &registry, variables.as_ref(), format, options)?,
+        RunnerCommands::Set {
+            registry,
+            assignments,
+        } => set_command(device, &registry, &assignments, options)?,
+        RunnerCommands::Sync {
+            registry,
+            assignments,
+        } => sync_command(device, &registry, &assignments, options)?,
+        RunnerCommands::Compare {
+            registry,
+            assignments,
+        } => compare_command(device, &registry, &assignments, options)?,
+    }
+    Ok(())
+}
+
+// query_command executes a query, with an optional
+// list of variables to get. If unset, it will query
+// all variables configured in the provided registry.
+fn query_command(
+    device: &str,
+    registry_name: &str,
+    variables_filter: Option<&Vec<String>>,
+    format: OutputFormat,
+    options: ExecOptions,
+) -> Result<(), MlxRunnerError> {
+    let registry = get_registry(registry_name)?;
+    let runner = MlxConfigRunner::with_options(device.to_string(), registry, options.clone());
+
+    // Either query specific variables, or all.
+    let result = if let Some(var_list) = variables_filter {
+        runner.query(var_list.as_slice())?
+    } else {
+        runner.query_all()?
+    };
+
+    // ...and then output results in the specified format.
+    match format {
+        OutputFormat::AsciiTable => {
+            display_query_results_table(&result, options.verbose);
+        }
+        OutputFormat::Json => {
+            display_query_results_json(&result)?;
+        }
+        OutputFormat::Yaml => {
+            display_query_results_yaml(&result)?;
+        }
+    }
+
+    Ok(())
+}
+
+// set_command executes a `set` command to set one or
+// more key=val variable values, where the variables must
+// exist in the provided registry.
+fn set_command(
+    device: &str,
+    registry_name: &str,
+    assignments: &[String],
+    options: ExecOptions,
+) -> Result<(), MlxRunnerError> {
+    let registry = get_registry(registry_name)?;
+    let runner = MlxConfigRunner::with_options(device.to_string(), registry, options);
+
+    // Take the vec of key=val and make sure each key=val is a key=val.
+    let parsed_assignments = parse_assignments(assignments)
+        .map_err(|e| MlxRunnerError::ConstraintValidation { message: e })?;
+
+    let total = parsed_assignments.len();
+    println!("Setting {total} variables on device {device} using registry '{registry_name}':");
+    for (var, val) in &parsed_assignments {
+        println!(" - {var} = {val}");
+    }
+    println!();
+
+    runner.set(parsed_assignments)?;
+    println!("Set operation complete: {total} variables configured",);
+    Ok(())
+}
+
+// sync executes a sync (query + set) flow.
+fn sync_command(
+    device: &str,
+    registry_name: &str,
+    assignments: &[String],
+    options: ExecOptions,
+) -> Result<(), MlxRunnerError> {
+    let registry = get_registry(registry_name)?;
+    let runner = MlxConfigRunner::with_options(device.to_string(), registry, options);
+
+    let parsed_assignments = parse_assignments(assignments)
+        .map_err(|e| MlxRunnerError::ConstraintValidation { message: e })?;
+    let total = parsed_assignments.len();
+
+    println!("Syncing {total} variables on device {device} using registry '{registry_name}':");
+    for (var, val) in &parsed_assignments {
+        println!(" - {var} = {val}");
+    }
+    println!();
+
+    let sync_result = runner.sync(parsed_assignments)?;
+    println!("Sync Results:");
+    println!("{}", sync_result.summary());
+    println!();
+
+    if sync_result.changes_applied.is_empty() {
+        println!("Already in sync.");
+    } else {
+        println!("Changes applied:");
+        for change in &sync_result.changes_applied {
+            println!("  - {}", change.description());
+        }
+    }
+
+    Ok(())
+}
+
+// compare executes a comparison operation.
+fn compare_command(
+    device: &str,
+    registry_name: &str,
+    assignments: &[String],
+    options: ExecOptions,
+) -> Result<(), MlxRunnerError> {
+    let registry = get_registry(registry_name)?;
+    let runner = MlxConfigRunner::with_options(device.to_string(), registry, options);
+
+    // Parse assignments
+    let parsed_assignments = parse_assignments(assignments)
+        .map_err(|e| MlxRunnerError::ConstraintValidation { message: e })?;
+    let total = parsed_assignments.len();
+
+    println!("Comparing {total} variables on device {device} using registry '{registry_name}':");
+    for (var, val) in &parsed_assignments {
+        println!(" - {var} = {val}");
+    }
+    println!();
+
+    let comparison_result = runner.compare(parsed_assignments)?;
+    println!("Comparison Results:");
+    println!("{}", comparison_result.summary());
+    println!();
+
+    if comparison_result.planned_changes.is_empty() {
+        println!("Already in sync.");
+    } else {
+        println!("PlannedChange:");
+        for change in &comparison_result.planned_changes {
+            println!(" - {}", change.description());
+        }
+        println!();
+    }
+
+    Ok(())
+}
+
+// display_query_results_table displays query results
+// as a pretty ASCII table.
+fn display_query_results_table(result: &QueryResult, verbose: bool) {
+    if verbose {
+        println!("Query Results");
+        println!(
+            " Device: {} ({})",
+            result
+                .device_info
+                .device_type
+                .as_deref()
+                .unwrap_or("Unknown"),
+            result
+                .device_info
+                .part_number
+                .as_deref()
+                .unwrap_or("Unknown part")
+        );
+        println!(" Variables: {}", result.variable_count());
+        println!();
+    }
+
+    let mut table = Table::new();
+    table.add_row(Row::new(vec![
+        Cell::new("Variable Name"),
+        Cell::new("Modified"),
+        Cell::new("Next Value"),
+        Cell::new("Current Value"),
+        Cell::new("Default Value"),
+    ]));
+
+    for var in &result.variables {
+        // Use fun emojis because Andrew likes them.
+        let modified_icon = if var.modified { "🔄" } else { "✅" };
+
+        table.add_row(Row::new(vec![
+            Cell::new(var.name()),
+            Cell::new(modified_icon),
+            Cell::new(&var.next_value.to_display_string()),
+            Cell::new(&var.current_value.to_display_string()),
+            Cell::new(&var.default_value.to_display_string()),
+        ]));
+    }
+
+    table.printstd();
+
+    if verbose {
+        println!();
+        println!(
+            "Query complete: {} variables retrieved",
+            result.variable_count()
+        );
+    }
+}
+
+// display_query_results_json prints query results as JSON.
+fn display_query_results_json(result: &QueryResult) -> Result<(), MlxRunnerError> {
+    let json_output = serde_json::to_string_pretty(&result.variables).map_err(|e| {
+        MlxRunnerError::JsonParsing {
+            content: "query result".to_string(),
+            error: e,
+        }
+    })?;
+
+    println!("{json_output}");
+    Ok(())
+}
+
+// display_query_results_yaml prints query results as YAML.
+fn display_query_results_yaml(result: &QueryResult) -> Result<(), MlxRunnerError> {
+    let yaml_output = serde_yaml::to_string(&result.variables).map_err(|e| {
+        MlxRunnerError::ConstraintValidation {
+            message: format!("YAML serialization error: {e}"),
+        }
+    })?;
+
+    println!("{yaml_output}");
+    Ok(())
+}
+
+// get_registry gets a registry by name.
+fn get_registry(
+    registry_name: &str,
+) -> Result<mlxconfig_variables::MlxVariableRegistry, MlxRunnerError> {
+    registries::get(registry_name)
+        .cloned()
+        .ok_or_else(|| MlxRunnerError::VariableNotFound {
+            variable_name: format!("registry '{registry_name}'"),
+        })
+}
+
+// parse_assignments is used for parsing the comma-separated list
+// of key=val variable assignments for set, sync, and compare.
+pub fn parse_assignments(assignments: &[String]) -> Result<Vec<(String, String)>, String> {
+    let mut parsed = Vec::new();
+
+    for assignment in assignments {
+        let assignment = assignment.trim();
+        if assignment.is_empty() {
+            continue;
+        }
+
+        // Split on the first '=' sign.
+        let parts: Vec<&str> = assignment.splitn(2, '=').collect();
+        if parts.len() != 2 {
+            return Err(format!(
+                "Invalid assignment format: '{assignment}'. Expected 'variable=value'"
+            ));
+        }
+
+        let variable = parts[0].to_string();
+        let value = parts[1].to_string();
+
+        if variable.is_empty() {
+            return Err("Variable name cannot be empty".to_string());
+        }
+
+        parsed.push((variable, value));
+    }
+
+    if parsed.is_empty() {
+        return Err("No valid assignments found".to_string());
+    }
+
+    Ok(parsed)
 }
