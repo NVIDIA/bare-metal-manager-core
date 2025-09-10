@@ -82,6 +82,42 @@ pub enum Commands {
         #[command(subcommand)]
         runner_command: RunnerCommands,
     },
+    // Profile is for profile-based configuration management,
+    // allowing you to sync and compare YAML-defined profiles.
+    Profile {
+        // --device is the device identifier (PCI address),
+        // and defaults to 01:00.0.
+        #[arg(short, long, default_value = "01:00.0")]
+        device: String,
+
+        // --verbose enables verbose output.
+        #[arg(short, long)]
+        verbose: bool,
+
+        // --dry-run enables dry-run mode, where any destructive
+        // commands don't actually get executed.
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        // --retries is the number of retries to perform if
+        // the mlxconfig command run returns an error.
+        #[arg(short = 'r', long, default_value = "0")]
+        retries: u32,
+
+        // --timeout gives us the ability to set a timeout on
+        // the actual run of mlxconfig.
+        #[arg(short = 't', long, default_value = "30")]
+        timeout: u64,
+
+        // --confirm provides an option to require confirmation
+        // before applying changes to certain variables.
+        #[arg(short = 'c', long)]
+        confirm: bool,
+
+        // profile_command contains the profile subcommand to execute.
+        #[command(subcommand)]
+        profile_command: ProfileCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -219,5 +255,21 @@ pub enum RunnerCommands {
         // do the necessary work to make it happen.
         #[arg(required = true, value_delimiter = ',')]
         assignments: Vec<String>,
+    },
+}
+
+// ProfileCommands contains all available subcommands
+// under the `profile` command.
+#[derive(Subcommand)]
+pub enum ProfileCommands {
+    // sync synchronizes a YAML profile to the specified device.
+    Sync {
+        // yaml_path is the path to the YAML profile file.
+        yaml_path: PathBuf,
+    },
+    // compare compares a YAML profile against the current device state.
+    Compare {
+        // yaml_path is the path to the YAML profile file.
+        yaml_path: PathBuf,
     },
 }

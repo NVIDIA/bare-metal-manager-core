@@ -15,6 +15,7 @@ members = [
     "common/http-connector",
     "common/logfmt",
     "common/metrics-endpoint",
+    "common/mlxconfig/profile",
     "common/mlxconfig/registry",
     "common/mlxconfig/runner",
     "common/mlxconfig/variables",

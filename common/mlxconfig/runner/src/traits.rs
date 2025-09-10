@@ -65,6 +65,15 @@ impl MlxConfigSettable for Vec<MlxConfigValue> {
     }
 }
 
+impl MlxConfigSettable for &Vec<MlxConfigValue> {
+    fn to_config_values(
+        self,
+        _registry: &MlxVariableRegistry,
+    ) -> Result<Vec<MlxConfigValue>, MlxRunnerError> {
+        Ok(self.clone())
+    }
+}
+
 // MlxConfigSettable implementation for string-based variable
 // specifications; requires T to be cloneable and debuggable for
 // error handling.
