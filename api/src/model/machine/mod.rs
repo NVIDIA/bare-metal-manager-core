@@ -27,6 +27,9 @@ use crate::{
     state_controller::state_handler::StateHandlerError,
 };
 use ::rpc::errors::RpcDataConversionError;
+
+use base64::prelude::*;
+
 use ::rpc::uuid::{
     domain::DomainId, instance_type::InstanceTypeId, machine::MachineId,
     machine::MachineInterfaceId, machine::RpcMachineTypeWrapper, network::NetworkSegmentId,
@@ -459,6 +462,10 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
             storage_config_version: instance.storage_config_version.version_string(),
             instance_type_id: instance.instance_type_id.map(|i| i.to_string()),
             metadata: Some(instance.metadata.into()),
+            tpm_ek_certificate: snapshot.host_snapshot.hardware_info.and_then(|hi| {
+                hi.tpm_ek_certificate
+                    .map(|cert| BASE64_STANDARD.encode(cert.into_bytes()))
+            }),
         }))
     }
 }
