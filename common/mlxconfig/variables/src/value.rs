@@ -990,6 +990,74 @@ impl IntoMlxValue for Vec<Option<Vec<u8>>> {
     }
 }
 
+impl IntoMlxValue for serde_yaml::Value {
+    fn into_mlx_value_for_spec(
+        self,
+        spec: &MlxVariableSpec,
+    ) -> Result<MlxValueType, MlxValueError> {
+        match self {
+            serde_yaml::Value::Bool(b) => b.into_mlx_value_for_spec(spec),
+            serde_yaml::Value::Number(n) => {
+                match spec {
+                    MlxVariableSpec::Preset { .. } => {
+                        // For presets, convert to u8.
+                        if let Some(u) = n.as_u64() {
+                            if u <= u8::MAX as u64 {
+                                (u as u8).into_mlx_value_for_spec(spec)
+                            } else {
+                                Err(MlxValueError::TypeMismatch {
+                                    expected: "preset value (0-255)".to_string(),
+                                    got: format!("number too large: {u}"),
+                                })
+                            }
+                        } else {
+                            Err(MlxValueError::TypeMismatch {
+                                expected: "positive integer for preset".to_string(),
+                                got: "negative or invalid number".to_string(),
+                            })
+                        }
+                    }
+                    _ => {
+                        // For everything else, use i64.
+                        if let Some(i) = n.as_i64() {
+                            i.into_mlx_value_for_spec(spec)
+                        } else {
+                            Err(MlxValueError::TypeMismatch {
+                                expected: "valid integer".to_string(),
+                                got: "invalid number format".to_string(),
+                            })
+                        }
+                    }
+                }
+            }
+            serde_yaml::Value::String(s) => s.into_mlx_value_for_spec(spec),
+            serde_yaml::Value::Sequence(seq) => {
+                // Convert to Vec<String> and use existing logic.
+                let string_vec: Result<Vec<String>, _> =
+                    seq.into_iter().map(yaml_value_to_string).collect();
+                string_vec?.into_mlx_value_for_spec(spec)
+            }
+            _ => Err(MlxValueError::TypeMismatch {
+                expected: "boolean, number, string, or array".to_string(),
+                got: "unsupported YAML type".to_string(),
+            }),
+        }
+    }
+}
+
+// Helper function for the sequence conversion
+fn yaml_value_to_string(value: serde_yaml::Value) -> Result<String, MlxValueError> {
+    match value {
+        serde_yaml::Value::Bool(b) => Ok(b.to_string()),
+        serde_yaml::Value::Number(n) => Ok(n.to_string()),
+        serde_yaml::Value::String(s) => Ok(s),
+        _ => Err(MlxValueError::TypeMismatch {
+            expected: "simple value in array".to_string(),
+            got: "complex type".to_string(),
+        }),
+    }
+}
+
 impl MlxValueType {
     pub fn is_array_type(&self) -> bool {
         matches!(
@@ -1024,6 +1092,76 @@ impl MlxValueType {
             MlxValueType::EnumArray(values) => Some(extract_indices(values)),
             MlxValueType::BinaryArray(values) => Some(extract_indices(values)),
             _ => None,
+        }
+    }
+
+    // to_yaml_value converts an MlxValueType to a simple serde_yaml::Value
+    // for serialization. This extracts just the underlying data without the
+    // tagged enum wrapper, since serializing an MlxValueType on its own would
+    // give us `type` + `data` fields (which we use for registry [de]serialization,
+    // but not for profile [de]serialization).
+    pub fn to_yaml_value(&self) -> serde_yaml::Value {
+        match self {
+            MlxValueType::Boolean(b) => serde_yaml::Value::Bool(*b),
+            MlxValueType::Integer(i) => serde_yaml::Value::Number((*i).into()),
+            MlxValueType::String(s) => serde_yaml::Value::String(s.clone()),
+            MlxValueType::Enum(s) => serde_yaml::Value::String(s.clone()),
+            MlxValueType::Preset(p) => serde_yaml::Value::Number((*p as i64).into()),
+            MlxValueType::Binary(bytes)
+            | MlxValueType::Bytes(bytes)
+            | MlxValueType::Opaque(bytes) => {
+                serde_yaml::Value::String(format!("0x{}", hex::encode(bytes)))
+            }
+            MlxValueType::Array(arr) => {
+                let seq: Vec<serde_yaml::Value> = arr
+                    .iter()
+                    .map(|s| serde_yaml::Value::String(s.clone()))
+                    .collect();
+                serde_yaml::Value::Sequence(seq)
+            }
+            // Note: Reminder we convert to "-" for None values.
+            MlxValueType::BooleanArray(arr) => {
+                let seq: Vec<serde_yaml::Value> = arr
+                    .iter()
+                    .map(|opt| match opt {
+                        Some(b) => serde_yaml::Value::Bool(*b),
+                        None => serde_yaml::Value::String("-".to_string()),
+                    })
+                    .collect();
+                serde_yaml::Value::Sequence(seq)
+            }
+            MlxValueType::IntegerArray(arr) => {
+                let seq: Vec<serde_yaml::Value> = arr
+                    .iter()
+                    .map(|opt| match opt {
+                        Some(i) => serde_yaml::Value::Number((*i).into()),
+                        None => serde_yaml::Value::String("-".to_string()),
+                    })
+                    .collect();
+                serde_yaml::Value::Sequence(seq)
+            }
+            MlxValueType::EnumArray(arr) => {
+                let seq: Vec<serde_yaml::Value> = arr
+                    .iter()
+                    .map(|opt| match opt {
+                        Some(s) => serde_yaml::Value::String(s.clone()),
+                        None => serde_yaml::Value::String("-".to_string()),
+                    })
+                    .collect();
+                serde_yaml::Value::Sequence(seq)
+            }
+            MlxValueType::BinaryArray(arr) => {
+                let seq: Vec<serde_yaml::Value> = arr
+                    .iter()
+                    .map(|opt| match opt {
+                        Some(bytes) => {
+                            serde_yaml::Value::String(format!("0x{}", hex::encode(bytes)))
+                        }
+                        None => serde_yaml::Value::String("-".to_string()),
+                    })
+                    .collect();
+                serde_yaml::Value::Sequence(seq)
+            }
         }
     }
 }

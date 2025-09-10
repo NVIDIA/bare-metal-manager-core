@@ -4725,6 +4725,7 @@ name = "mlxconfig-embedded"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "mlxconfig-profile",
  "mlxconfig-registry",
  "mlxconfig-runner",
  "mlxconfig-variables",
@@ -4733,6 +4734,20 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+]
+
+[[package]]
+name = "mlxconfig-profile"
+version = "0.1.0"
+dependencies = [
+ "mlxconfig-registry",
+ "mlxconfig-runner",
+ "mlxconfig-variables",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

@@ -1,4 +1,19 @@
-use crate::cmd::args::{Cli, Commands, OutputFormat, RegistryAction, RunnerCommands};
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use crate::cmd::args::{
+    Cli, Commands, OutputFormat, ProfileCommands, RegistryAction, RunnerCommands,
+};
+use mlxconfig_profile::MlxConfigProfile;
 use mlxconfig_registry::registries;
 use mlxconfig_runner::{ExecOptions, MlxConfigRunner, MlxRunnerError, QueryResult};
 use mlxconfig_variables::{
@@ -62,6 +77,23 @@ pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .with_timeout(Some(Duration::from_secs(timeout)))
                 .with_confirm_destructive(confirm);
             run_runner_command(&device, runner_command, options)?;
+        }
+        Some(Commands::Profile {
+            device,
+            verbose,
+            dry_run,
+            retries,
+            timeout,
+            confirm,
+            profile_command,
+        }) => {
+            let options = ExecOptions::default()
+                .with_verbose(verbose)
+                .with_dry_run(dry_run)
+                .with_retries(retries)
+                .with_timeout(Some(Duration::from_secs(timeout)))
+                .with_confirm_destructive(confirm);
+            run_profile_command(&device, profile_command, options)?;
         }
         None => {
             cmd_show_default_info();
@@ -939,4 +971,85 @@ pub fn parse_assignments(assignments: &[String]) -> Result<Vec<(String, String)>
     }
 
     Ok(parsed)
+}
+
+// run_profile_command runs the specific profile subcommands.
+fn run_profile_command(
+    device: &str,
+    profile_command: ProfileCommands,
+    options: ExecOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match profile_command {
+        ProfileCommands::Sync { yaml_path } => profile_sync_command(device, &yaml_path, options)?,
+        ProfileCommands::Compare { yaml_path } => {
+            profile_compare_command(device, &yaml_path, options)?
+        }
+    }
+    Ok(())
+}
+
+// profile_sync_command loads a profile from YAML and syncs it to the device.
+fn profile_sync_command(
+    device: &str,
+    yaml_path: &std::path::Path,
+    options: ExecOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Loading profile from: {}", yaml_path.display());
+    let profile = MlxConfigProfile::from_yaml_file(yaml_path)
+        .map_err(|e| format!("Failed to load profile: {e}"))?;
+
+    println!("{}", profile.summary());
+    println!();
+
+    let sync_result = profile
+        .sync(device, Some(options))
+        .map_err(|e| format!("Profile sync failed: {e}"))?;
+
+    println!("Profile Sync Results:");
+    println!("{}", sync_result.summary());
+    println!();
+
+    if sync_result.changes_applied.is_empty() {
+        println!("Device is already in sync with profile.");
+    } else {
+        println!("Changes applied:");
+        for change in &sync_result.changes_applied {
+            println!("  • {}", change.description());
+        }
+    }
+
+    Ok(())
+}
+
+// profile_compare_command loads a profile from YAML and compares it against the device.
+fn profile_compare_command(
+    device: &str,
+    yaml_path: &std::path::Path,
+    options: ExecOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Loading profile from: {}", yaml_path.display());
+    let profile = MlxConfigProfile::from_yaml_file(yaml_path)
+        .map_err(|e| format!("Failed to load profile: {e}"))?;
+
+    println!("{}", profile.summary());
+    println!();
+
+    let comparison_result = profile
+        .compare(device, Some(options))
+        .map_err(|e| format!("Profile comparison failed: {e}"))?;
+
+    println!("Profile Comparison Results:");
+    println!("{}", comparison_result.summary());
+    println!();
+
+    if comparison_result.planned_changes.is_empty() {
+        println!("Device is already in sync with profile.");
+    } else {
+        println!("Changes needed:");
+        for change in &comparison_result.planned_changes {
+            println!("  • {}", change.description());
+        }
+    }
+
+    Ok(())
 }
