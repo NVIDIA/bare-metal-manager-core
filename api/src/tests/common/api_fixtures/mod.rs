@@ -485,11 +485,12 @@ impl TestEnv {
     }
 
     pub async fn run_ib_fabric_monitor_iteration(&self) {
-        self.ib_fabric_monitor
+        let _num_changes = self
+            .ib_fabric_monitor
             .run_single_iteration()
             .boxed()
             .await
-            .unwrap()
+            .unwrap();
     }
 
     pub async fn override_machine_state_controller_handler(&self, handler: MachineStateHandler) {

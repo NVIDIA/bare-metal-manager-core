@@ -116,12 +116,25 @@ impl IbFabricMonitor {
         let run_interval = self.fabric_manager.get_config().fabric_manager_run_interval;
 
         loop {
-            if let Err(e) = self.run_single_iteration().await {
-                tracing::warn!("IbFabricMonitor error: {}", e);
-            }
+            let sleep_interval = match self.run_single_iteration().await {
+                Ok(num_changes) => {
+                    if num_changes > 1 {
+                        // If any change has been applied to the IB fabric,
+                        // the status that has been collected in the last iteration is already outdated
+                        // Therefore run again as soon as possible.
+                        tokio::time::Duration::from_millis(1000)
+                    } else {
+                        run_interval
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("IbFabricMonitor error: {}", e);
+                    run_interval
+                }
+            };
 
             tokio::select! {
-                _ = tokio::time::sleep(run_interval) => {},
+                _ = tokio::time::sleep(sleep_interval) => {},
                 _ = &mut stop_receiver => {
                     tracing::info!("IbFabricMonitor stop was requested");
                     return;
@@ -130,7 +143,7 @@ impl IbFabricMonitor {
         }
     }
 
-    pub async fn run_single_iteration(&self) -> CarbideResult<()> {
+    pub async fn run_single_iteration(&self) -> CarbideResult<usize> {
         let mut metrics = IbFabricMonitorMetrics::new();
 
         let mut txn =
@@ -138,7 +151,7 @@ impl IbFabricMonitor {
                 CarbideError::internal(format!("Failed to create transaction: {e}"))
             })?;
 
-        if sqlx::query_scalar(Self::DB_LOCK_QUERY)
+        let num_changes = if sqlx::query_scalar(Self::DB_LOCK_QUERY)
             .fetch_one(&mut *txn)
             .await
             .unwrap_or(false)
@@ -153,7 +166,7 @@ impl IbFabricMonitor {
             let check_ib_fabrics_span = tracing::span!(
                 parent: None,
                 tracing::Level::INFO,
-                "check_ib_fabrics",
+                "check_ib_fabrics_and_apply_changes",
                 span_id,
                 otel.status_code = tracing::field::Empty,
                 otel.status_message = tracing::field::Empty,
@@ -162,7 +175,7 @@ impl IbFabricMonitor {
             );
 
             let res = self
-                .check_ib_fabrics(&mut metrics)
+                .check_ib_fabrics_and_apply_changes(&mut metrics)
                 .instrument(check_ib_fabrics_span.clone())
                 .await;
             check_ib_fabrics_span.record("num_fabrics", metrics.num_fabrics);
@@ -171,9 +184,10 @@ impl IbFabricMonitor {
                 serde_json::to_string(&metrics.fabrics).unwrap_or_default(),
             );
 
-            match &res {
-                Ok(()) => {
+            let num_changes = match &res {
+                Ok(num_changes) => {
                     check_ib_fabrics_span.record("otel.status_code", "ok");
+                    *num_changes
                 }
                 Err(e) => {
                     tracing::error!("IbFabricMonitor run failed due to: {:?}", e);
@@ -181,8 +195,9 @@ impl IbFabricMonitor {
                     // Writing this field will set the span status to error
                     // Therefore we only write it on errors
                     check_ib_fabrics_span.record("otel.status_message", format!("{e:?}"));
+                    0
                 }
-            }
+            };
 
             // Cache all other metrics that have been captured in this iteration.
             // Those will be queried by OTEL on demand
@@ -193,14 +208,21 @@ impl IbFabricMonitor {
             txn.commit().await.map_err(|e| {
                 CarbideError::internal(format!("Failed to commit transaction: {e}"))
             })?;
-        }
 
-        Ok(())
+            num_changes
+        } else {
+            0
+        };
+
+        Ok(num_changes)
     }
 
-    async fn check_ib_fabrics(&self, metrics: &mut IbFabricMonitorMetrics) -> CarbideResult<()> {
+    async fn check_ib_fabrics_and_apply_changes(
+        &self,
+        metrics: &mut IbFabricMonitorMetrics,
+    ) -> CarbideResult<usize> {
         if self.fabric_manager.get_config().manager_type == IBFabricManagerType::Disable {
-            return Ok(());
+            return Ok(0);
         }
 
         let mut conn = self
@@ -394,9 +416,7 @@ impl IbFabricMonitor {
             }
         }
 
-        let _ = num_changes;
-
-        Ok(())
+        Ok(num_changes)
     }
 
     async fn get_all_snapshots(
