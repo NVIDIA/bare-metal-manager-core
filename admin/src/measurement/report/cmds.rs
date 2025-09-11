@@ -142,7 +142,7 @@ pub async fn create_for_id(
 pub async fn delete(grpc_conn: &ApiClient, delete: &Delete) -> CarbideCliResult<MeasurementReport> {
     // Request.
     let request = DeleteMeasurementReportRequest {
-        report_id: Some(delete.report_id.into()),
+        report_id: Some(delete.report_id),
     };
 
     // Response.
@@ -165,7 +165,7 @@ pub async fn promote(
 ) -> CarbideCliResult<MeasurementBundle> {
     // Request.
     let request = PromoteMeasurementReportRequest {
-        report_id: Some(promote.report_id.into()),
+        report_id: Some(promote.report_id),
         pcr_registers: match &promote.pcr_registers {
             None => "".to_string(),
             Some(pcr_set) => pcr_set.to_string(),
@@ -191,7 +191,7 @@ pub async fn promote(
 pub async fn revoke(grpc_conn: &ApiClient, revoke: &Revoke) -> CarbideCliResult<MeasurementBundle> {
     // Request.
     let request = RevokeMeasurementReportRequest {
-        report_id: Some(revoke.report_id.into()),
+        report_id: Some(revoke.report_id),
         pcr_registers: match &revoke.pcr_registers {
             None => "".to_string(),
             Some(pcr_set) => pcr_set.to_string(),
@@ -216,7 +216,7 @@ pub async fn show_for_id(
 ) -> CarbideCliResult<MeasurementReport> {
     // Request.
     let request = ShowMeasurementReportForIdRequest {
-        report_id: Some(show_for_id.report_id.into()),
+        report_id: Some(show_for_id.report_id),
     };
 
     // Response.

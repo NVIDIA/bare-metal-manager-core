@@ -28,6 +28,7 @@ use chrono::Utc;
 use serde::Serialize;
 use std::str::FromStr;
 
+use crate::errors::RpcDataConversionError;
 #[cfg(feature = "cli")]
 use {
     crate::admin_cli::ToTable,
@@ -104,11 +105,11 @@ impl From<MeasurementJournal> for MeasurementJournalPb {
     fn from(val: MeasurementJournal) -> Self {
         let pb_state: MeasurementMachineStatePb = val.state.into();
         Self {
-            journal_id: Some(val.journal_id.into()),
+            journal_id: Some(val.journal_id),
             machine_id: val.machine_id.to_string(),
-            report_id: Some(val.report_id.into()),
-            profile_id: val.profile_id.map(|profile_id| profile_id.into()),
-            bundle_id: val.bundle_id.map(|bundle_id| bundle_id.into()),
+            report_id: Some(val.report_id),
+            profile_id: val.profile_id,
+            bundle_id: val.bundle_id,
             state: pb_state.into(),
             ts: Some(val.ts.into()),
         }
@@ -125,17 +126,15 @@ impl TryFrom<MeasurementJournalPb> for MeasurementJournal {
         let state = msg.state();
 
         Ok(Self {
-            journal_id: MeasurementJournalId::try_from(msg.journal_id)?,
+            journal_id: msg
+                .journal_id
+                .ok_or(RpcDataConversionError::MissingArgument("journal_id"))?,
             machine_id: MachineId::from_str(&msg.machine_id)?,
-            report_id: MeasurementReportId::try_from(msg.report_id)?,
-            profile_id: match msg.profile_id {
-                Some(profile_id) => Some(MeasurementSystemProfileId::try_from(profile_id)?),
-                None => None,
-            },
-            bundle_id: match msg.bundle_id {
-                Some(bundle_id) => Some(MeasurementBundleId::try_from(bundle_id)?),
-                None => None,
-            },
+            report_id: msg
+                .report_id
+                .ok_or(RpcDataConversionError::MissingArgument("report_id"))?,
+            profile_id: msg.profile_id,
+            bundle_id: msg.bundle_id,
             state: MeasurementMachineState::from(state),
             ts: chrono::DateTime::<chrono::Utc>::try_from(msg.ts.unwrap())?,
         })

@@ -62,7 +62,7 @@ impl MeasurementSystemProfile {
 impl From<MeasurementSystemProfile> for MeasurementSystemProfilePb {
     fn from(val: MeasurementSystemProfile) -> Self {
         Self {
-            profile_id: Some(val.profile_id.into()),
+            profile_id: Some(val.profile_id),
             name: val.name,
             ts: Some(val.ts.into()),
             attrs: val.attrs.iter().map(|attr| attr.clone().into()).collect(),
@@ -88,8 +88,9 @@ impl TryFrom<MeasurementSystemProfilePb> for MeasurementSystemProfile {
             .collect();
 
         Ok(Self {
-            profile_id: MeasurementSystemProfileId::try_from(msg.profile_id)
-                .map_err(|e| super::Error::RpcConversion(e.to_string()))?,
+            profile_id: msg.profile_id.ok_or(super::Error::RpcConversion(
+                "missing profile_id".to_string(),
+            ))?,
             name: msg.name.clone(),
             attrs: attrs?,
             ts: DateTime::<Utc>::try_from(msg.ts.unwrap())

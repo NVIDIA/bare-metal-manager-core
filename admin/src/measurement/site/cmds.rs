@@ -213,7 +213,7 @@ pub async fn remove_machine_by_approval_id(
     let request = RemoveMeasurementTrustedMachineRequest {
         selector: Some(
             remove_measurement_trusted_machine_request::Selector::ApprovalId(
-                by_approval_id.approval_id.into(),
+                by_approval_id.approval_id,
             ),
         ),
     };
@@ -285,7 +285,7 @@ pub async fn approve_profile(
     // Request.
     let approval_type: MeasurementApprovedTypePb = approve.approval_type.into();
     let request = AddMeasurementTrustedProfileRequest {
-        profile_id: Some(approve.profile_id.into()),
+        profile_id: Some(approve.profile_id),
         approval_type: approval_type.into(),
         pcr_registers: approve.pcr_registers.as_ref().cloned(),
         comments: approve.comments.as_ref().cloned(),
@@ -313,7 +313,7 @@ pub async fn remove_profile_by_approval_id(
     let request = RemoveMeasurementTrustedProfileRequest {
         selector: Some(
             remove_measurement_trusted_profile_request::Selector::ApprovalId(
-                by_approval_id.approval_id.into(),
+                by_approval_id.approval_id,
             ),
         ),
     };
@@ -340,7 +340,7 @@ pub async fn remove_profile_by_profile_id(
     let request = RemoveMeasurementTrustedProfileRequest {
         selector: Some(
             remove_measurement_trusted_profile_request::Selector::ProfileId(
-                by_profile_id.profile_id.into(),
+                by_profile_id.profile_id,
             ),
         ),
     };

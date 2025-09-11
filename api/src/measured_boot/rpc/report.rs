@@ -26,7 +26,6 @@ use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
 use ::rpc::uuid::machine::MachineId;
-use ::rpc::uuid::measured_boot::MeasurementReportId;
 use rpc::protos::measured_boot::list_measurement_report_request;
 use rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, CreateMeasurementReportResponse,
@@ -45,17 +44,15 @@ use std::str::FromStr;
 /// API endpoint.
 pub async fn handle_create_measurement_report(
     db_conn: &Pool<Postgres>,
-    req: &CreateMeasurementReportRequest,
+    req: CreateMeasurementReportRequest,
 ) -> Result<CreateMeasurementReportResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     let report = db::report::new_with_txn(
         &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
-            CarbideError::from(RpcDataConversionError::InvalidMachineId(
-                req.machine_id.clone(),
-            ))
+            CarbideError::from(RpcDataConversionError::InvalidMachineId(req.machine_id))
         })?,
-        &PcrRegisterValue::from_pb_vec(&req.pcr_values),
+        &PcrRegisterValue::from_pb_vec(req.pcr_values),
     )
     .await
     .map_err(|e| Status::internal(format!("report creation failed: {e}")))?;
@@ -70,12 +67,13 @@ pub async fn handle_create_measurement_report(
 /// API endpoint.
 pub async fn handle_delete_measurement_report(
     db_conn: &Pool<Postgres>,
-    req: &DeleteMeasurementReportRequest,
+    req: DeleteMeasurementReportRequest,
 ) -> Result<DeleteMeasurementReportResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     let report = db::report::delete_for_id(
         &mut txn,
-        MeasurementReportId::from_grpc(req.report_id.clone())?,
+        req.report_id
+            .ok_or(CarbideError::MissingArgument("report_id"))?,
     )
     .await
     .map_err(|e| Status::internal(format!("delete failed: {e}")))?;
@@ -90,7 +88,7 @@ pub async fn handle_delete_measurement_report(
 /// API endpoint.
 pub async fn handle_promote_measurement_report(
     db_conn: &Pool<Postgres>,
-    req: &PromoteMeasurementReportRequest,
+    req: PromoteMeasurementReportRequest,
 ) -> Result<PromoteMeasurementReportResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     let pcr_set: Option<PcrSet> =
@@ -103,7 +101,8 @@ pub async fn handle_promote_measurement_report(
 
     let report = db::report::from_id_with_txn(
         &mut txn,
-        MeasurementReportId::from_grpc(req.report_id.clone())?,
+        req.report_id
+            .ok_or(CarbideError::MissingArgument("report_id"))?,
     )
     .await
     .map_err(|e| Status::internal(format!("promotion failed fetching report: {e}")))?;
@@ -126,7 +125,7 @@ pub async fn handle_promote_measurement_report(
 /// API endpoint.
 pub async fn handle_revoke_measurement_report(
     db_conn: &Pool<Postgres>,
-    req: &RevokeMeasurementReportRequest,
+    req: RevokeMeasurementReportRequest,
 ) -> Result<RevokeMeasurementReportResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     let pcr_set: Option<PcrSet> =
@@ -139,7 +138,8 @@ pub async fn handle_revoke_measurement_report(
 
     let report = db::report::from_id_with_txn(
         &mut txn,
-        MeasurementReportId::from_grpc(req.report_id.clone())?,
+        req.report_id
+            .ok_or(CarbideError::MissingArgument("report_id"))?,
     )
     .await
     .map_err(|e| Status::internal(format!("promotion failed fetching report: {e}")))?;
@@ -162,14 +162,15 @@ pub async fn handle_revoke_measurement_report(
 /// ShowMeasurementReportForId API endpoint.
 pub async fn handle_show_measurement_report_for_id(
     db_conn: &Pool<Postgres>,
-    req: &ShowMeasurementReportForIdRequest,
+    req: ShowMeasurementReportForIdRequest,
 ) -> Result<ShowMeasurementReportForIdResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     Ok(ShowMeasurementReportForIdResponse {
         report: Some(
             db::report::from_id_with_txn(
                 &mut txn,
-                MeasurementReportId::from_grpc(req.report_id.clone())?,
+                req.report_id
+                    .ok_or(CarbideError::MissingArgument("report_id"))?,
             )
             .await
             .map_err(|e| Status::internal(format!("{e}")))?
@@ -182,16 +183,14 @@ pub async fn handle_show_measurement_report_for_id(
 /// ShowMeasurementReportsForMachine API endpoint.
 pub async fn handle_show_measurement_reports_for_machine(
     db_conn: &Pool<Postgres>,
-    req: &ShowMeasurementReportsForMachineRequest,
+    req: ShowMeasurementReportsForMachineRequest,
 ) -> Result<ShowMeasurementReportsForMachineResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     Ok(ShowMeasurementReportsForMachineResponse {
         reports: db::report::get_all_for_machine_id(
             &mut txn,
             MachineId::from_str(&req.machine_id).map_err(|_| {
-                CarbideError::from(RpcDataConversionError::InvalidMachineId(
-                    req.machine_id.clone(),
-                ))
+                CarbideError::from(RpcDataConversionError::InvalidMachineId(req.machine_id))
             })?,
         )
         .await
@@ -206,7 +205,7 @@ pub async fn handle_show_measurement_reports_for_machine(
 /// API endpoint.
 pub async fn handle_show_measurement_reports(
     db_conn: &Pool<Postgres>,
-    _req: &ShowMeasurementReportsRequest,
+    _req: ShowMeasurementReportsRequest,
 ) -> Result<ShowMeasurementReportsResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     Ok(ShowMeasurementReportsResponse {
@@ -223,28 +222,28 @@ pub async fn handle_show_measurement_reports(
 /// API endpoint.
 pub async fn handle_list_measurement_report(
     db_conn: &Pool<Postgres>,
-    req: &ListMeasurementReportRequest,
+    req: ListMeasurementReportRequest,
 ) -> Result<ListMeasurementReportResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let reports: Vec<MeasurementReportRecordPb> = match &req.selector {
+    let reports: Vec<MeasurementReportRecordPb> = match req.selector {
         Some(list_measurement_report_request::Selector::MachineId(machine_id)) => {
             get_measurement_report_records_for_machine_id(
                 &mut txn,
-                MachineId::from_str(machine_id).map_err(|_| {
-                    CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_id.clone()))
+                MachineId::from_str(&machine_id).map_err(|_| {
+                    CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_id))
                 })?,
             )
             .await
             .map_err(|e| Status::internal(format!("failed loading report records: {e}")))?
-            .iter()
-            .map(|report| report.clone().into())
+            .into_iter()
+            .map(|report| report.into())
             .collect()
         }
         None => get_all_measurement_report_records(&mut txn)
             .await
             .map_err(|e| Status::internal(format!("failed loading report records: {e}")))?
-            .iter()
-            .map(|report| report.clone().into())
+            .into_iter()
+            .map(|report| report.into())
             .collect(),
     };
     Ok(ListMeasurementReportResponse { reports })
@@ -254,11 +253,11 @@ pub async fn handle_list_measurement_report(
 /// API endpoint.
 pub async fn handle_match_measurement_report(
     db_conn: &Pool<Postgres>,
-    req: &MatchMeasurementReportRequest,
+    req: MatchMeasurementReportRequest,
 ) -> Result<MatchMeasurementReportResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     let mut reports =
-        match_latest_reports(&mut txn, &PcrRegisterValue::from_pb_vec(&req.pcr_values))
+        match_latest_reports(&mut txn, &PcrRegisterValue::from_pb_vec(req.pcr_values))
             .await
             .map_err(|e| Status::internal(format!("failure during report matching: {e}")))?;
 

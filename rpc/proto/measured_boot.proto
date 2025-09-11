@@ -28,7 +28,7 @@ import "google/protobuf/timestamp.proto";
 //             bundle that is Obsolete, Retired, or Revoked.
 
 message CreateMeasurementBundleRequest {
-  UUID profile_id = 1;
+  MeasurementSystemProfileId profile_id = 1;
   optional string name = 2;
   repeated PcrRegisterValuePb pcr_values = 3;
   MeasurementBundleStatePb state = 4;
@@ -55,7 +55,7 @@ message CreateMeasurementBundleResponse {
 
 message DeleteMeasurementBundleRequest {
   oneof selector {
-    UUID bundle_id = 1;
+    MeasurementBundleId bundle_id = 1;
     string bundle_name = 2;
   }
 }
@@ -78,7 +78,7 @@ message DeleteMeasurementBundleResponse {
 
 message RenameMeasurementBundleRequest {
   oneof selector {
-    UUID bundle_id = 1;
+    MeasurementBundleId bundle_id = 1;
     string bundle_name = 2;
   }
   string new_bundle_name = 3;
@@ -109,7 +109,7 @@ message RenameMeasurementBundleResponse {
 
 message UpdateMeasurementBundleRequest {
   oneof selector {
-    UUID bundle_id = 1;
+    MeasurementBundleId bundle_id = 1;
     string bundle_name = 2;
   }
   MeasurementBundleStatePb state = 3;
@@ -135,7 +135,7 @@ message UpdateMeasurementBundleResponse {
 
 message ShowMeasurementBundleRequest {
   oneof selector {
-    UUID bundle_id = 1;
+    MeasurementBundleId bundle_id = 1;
     string bundle_name = 2;
   }
 }
@@ -193,7 +193,7 @@ message ListMeasurementBundlesResponse {
 
 message ListMeasurementBundleMachinesRequest {
   oneof selector {
-    UUID bundle_id = 1;
+    MeasurementBundleId bundle_id = 1;
     string bundle_name = 2;
   }
 }
@@ -208,7 +208,7 @@ message ListMeasurementBundleMachinesResponse {
 }
 
 message FindClosestBundleMatchRequest{
-  UUID report_id = 1;
+  MeasurementReportId report_id = 1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -221,7 +221,7 @@ message FindClosestBundleMatchRequest{
 // journal_id: The journal ID to delete.
 
 message DeleteMeasurementJournalRequest {
-  UUID journal_id = 1;
+  MeasurementJournalId journal_id = 1;
 }
 
 // DeleteMeasurementJournalResponse is returned upon a
@@ -242,7 +242,7 @@ message DeleteMeasurementJournalResponse {
 
 message ShowMeasurementJournalRequest {
   oneof selector {
-    UUID journal_id = 1;
+    MeasurementJournalId journal_id = 1;
     string latest_for_machine_id = 2;
   }
 }
@@ -402,7 +402,7 @@ message CreateMeasurementReportResponse {
 // report_id: The report to delete.
 
 message DeleteMeasurementReportRequest {
-  UUID report_id = 1;
+  MeasurementReportId report_id = 1;
 }
 
 // DeleteMeasurementReportResponse is returned
@@ -427,7 +427,7 @@ message DeleteMeasurementReportResponse {
 //                0,1,3-5 will result in 0,1,3,4,5.
 
 message PromoteMeasurementReportRequest {
-  UUID report_id = 1;
+  MeasurementReportId report_id = 1;
   string pcr_registers = 2;
 }
 
@@ -452,7 +452,7 @@ message PromoteMeasurementReportResponse {
 //   
 
 message RevokeMeasurementReportRequest {
-  UUID report_id = 1;
+  MeasurementReportId report_id = 1;
   string pcr_registers = 2;
 }
 
@@ -471,7 +471,7 @@ message RevokeMeasurementReportResponse {
 // report_id: The report ID.
 
 message ShowMeasurementReportForIdRequest {
-  UUID report_id = 1;
+  MeasurementReportId report_id = 1;
 }
 
 // ShowMeasurementReportForIdResponse returns the selected report.
@@ -597,7 +597,7 @@ message CreateMeasurementSystemProfileResponse {
 
 message DeleteMeasurementSystemProfileRequest {
   oneof selector {
-    UUID profile_id = 1;
+    MeasurementSystemProfileId profile_id = 1;
     string profile_name = 2;
   }
 }
@@ -620,7 +620,7 @@ message DeleteMeasurementSystemProfileResponse {
 
 message RenameMeasurementSystemProfileRequest {
   oneof selector {
-    UUID profile_id = 1;
+    MeasurementSystemProfileId profile_id = 1;
     string profile_name = 2;
   }
   string new_profile_name = 3;
@@ -647,7 +647,7 @@ message RenameMeasurementSystemProfileResponse {
 
 message ShowMeasurementSystemProfileRequest {
   oneof selector {
-    UUID profile_id = 1;
+    MeasurementSystemProfileId profile_id = 1;
     string profile_name = 2;
   }
 }
@@ -705,7 +705,7 @@ message ListMeasurementSystemProfilesResponse {
 
 message ListMeasurementSystemProfileBundlesRequest {
   oneof selector {
-    UUID profile_id = 1;
+    MeasurementSystemProfileId profile_id = 1;
     string profile_name = 2;
   }
 }
@@ -716,7 +716,7 @@ message ListMeasurementSystemProfileBundlesRequest {
 // bundle_ids: A list of MeasurementBundleIds.
 
 message ListMeasurementSystemProfileBundlesResponse {
-  repeated UUID bundle_ids = 1;
+  repeated MeasurementBundleId bundle_ids = 1;
 }
 
 // ListMeasurementSystemProfileMachinesRequest is used to
@@ -729,7 +729,7 @@ message ListMeasurementSystemProfileBundlesResponse {
 
 message ListMeasurementSystemProfileMachinesRequest {
   oneof selector {
-    UUID profile_id = 1;
+    MeasurementSystemProfileId profile_id = 1;
     string profile_name = 2;
   }
 }
@@ -820,7 +820,7 @@ message AddMeasurementTrustedMachineResponse {
 
 message RemoveMeasurementTrustedMachineRequest {
   oneof selector {
-    UUID approval_id = 1;
+    MeasurementApprovedMachineId approval_id = 1;
     string machine_id = 2;
   }
 }
@@ -852,7 +852,7 @@ message RemoveMeasurementTrustedMachineResponse {
 // comments:      Optional comments for the approval.
 
 message AddMeasurementTrustedProfileRequest {
-  UUID profile_id = 1;
+  MeasurementSystemProfileId profile_id = 1;
   MeasurementApprovedTypePb approval_type = 2;
   optional string pcr_registers = 3;
   optional string comments = 4;
@@ -877,8 +877,8 @@ message AddMeasurementTrustedProfileResponse {
 
 message RemoveMeasurementTrustedProfileRequest {
   oneof selector {
-    UUID approval_id = 1;
-    UUID profile_id = 2;
+    MeasurementApprovedProfileId approval_id = 1;
+    MeasurementSystemProfileId profile_id = 2;
   }
 }
 
@@ -941,7 +941,7 @@ message ListAttestationSummaryResponse {
 
 message MachineAttestationSummaryPb{
   string machine_id = 1;
-  optional UUID bundle_id = 2;
+  optional MeasurementBundleId bundle_id = 2;
   string profile_name = 3;
   google.protobuf.Timestamp ts = 4;
 }
@@ -959,8 +959,8 @@ message MachineAttestationSummaryPb{
 // Bundles
 
 message MeasurementBundlePb {
-  UUID bundle_id = 1;
-  UUID profile_id = 2;
+  MeasurementBundleId bundle_id = 1;
+  MeasurementSystemProfileId profile_id = 2;
   string name = 3;
   MeasurementBundleStatePb state = 4;
   repeated MeasurementBundleValueRecordPb values = 5;
@@ -968,8 +968,8 @@ message MeasurementBundlePb {
 }
 
 message MeasurementBundleValueRecordPb {
-  UUID value_id = 1;
-  UUID bundle_id = 2;
+  MeasurementBundleValueId value_id = 1;
+  MeasurementBundleId bundle_id = 2;
   int32 pcr_register = 3;
   string sha_any = 4;
   google.protobuf.Timestamp ts = 5;
@@ -984,8 +984,8 @@ enum MeasurementBundleStatePb {
 }
 
 message MeasurementBundleRecordPb {
-  UUID bundle_id = 1;
-  UUID profile_id = 2;
+  MeasurementBundleId bundle_id = 1;
+  MeasurementSystemProfileId profile_id = 2;
   string name = 3;
   MeasurementBundleStatePb state = 4;
   google.protobuf.Timestamp ts = 5;
@@ -995,21 +995,21 @@ message MeasurementBundleRecordPb {
 // Journals
 
 message MeasurementJournalPb {
-  UUID journal_id = 1;
+  MeasurementJournalId journal_id = 1;
   string machine_id = 2;
-  UUID report_id = 3;
-  UUID profile_id = 4;
-  UUID bundle_id = 5;
+  MeasurementReportId report_id = 3;
+  MeasurementSystemProfileId profile_id = 4;
+  MeasurementBundleId bundle_id = 5;
   MeasurementMachineStatePb state = 6;
   google.protobuf.Timestamp ts = 7;
 }
 
 message MeasurementJournalRecordPb {
-  UUID journal_id = 1;
+  MeasurementJournalId journal_id = 1;
   string machine_id = 2;
-  UUID report_id = 3;
-  UUID profile_id = 4;
-  UUID bundle_id = 5;
+  MeasurementReportId report_id = 3;
+  MeasurementSystemProfileId profile_id = 4;
+  MeasurementBundleId bundle_id = 5;
   MeasurementMachineStatePb state = 6;
   google.protobuf.Timestamp ts = 7;
 }
@@ -1018,22 +1018,22 @@ message MeasurementJournalRecordPb {
 // Reports
 
 message MeasurementReportPb {
-  UUID report_id = 1;
+  MeasurementReportId report_id = 1;
   string machine_id = 2;
   repeated MeasurementReportValueRecordPb values = 3;
   google.protobuf.Timestamp ts = 4;
 }
 
 message MeasurementReportValueRecordPb {
-  UUID value_id = 1;
-  UUID report_id = 2;
+  MeasurementReportValueId value_id = 1;
+  MeasurementReportId report_id = 2;
   int32 pcr_register = 3;
   string sha_any = 4;
   google.protobuf.Timestamp ts = 5;
 }
 
 message MeasurementReportRecordPb {
-  UUID report_id = 1;
+  MeasurementReportId report_id = 1;
   string machine_id = 2;
   google.protobuf.Timestamp ts = 3;
 }
@@ -1042,21 +1042,21 @@ message MeasurementReportRecordPb {
 // System Profiles
 
 message MeasurementSystemProfilePb {
-  UUID profile_id = 1;
+  MeasurementSystemProfileId profile_id = 1;
   string name = 2;
   google.protobuf.Timestamp ts = 3;
   repeated MeasurementSystemProfileAttrRecordPb attrs = 4;
 }
 
 message MeasurementSystemProfileRecordPb {
-  UUID profile_id = 1;
+  MeasurementSystemProfileId profile_id = 1;
   string name = 2;
   google.protobuf.Timestamp ts = 3;
 }
 
 message MeasurementSystemProfileAttrRecordPb {
-  UUID attribute_id = 1;
-  UUID profile_id = 2;
+  MeasurementSystemProfileAttrId attribute_id = 1;
+  MeasurementSystemProfileId profile_id = 2;
   string key = 3;
   string value = 4;
   google.protobuf.Timestamp ts = 5;
@@ -1089,7 +1089,7 @@ message SiteModelPb {
 }
 
 message MeasurementApprovedMachineRecordPb {
-  UUID approval_id = 1;
+  MeasurementApprovedMachineId approval_id = 1;
   string machine_id = 2;
   MeasurementApprovedTypePb approval_type = 3;
   string pcr_registers = 4;
@@ -1098,8 +1098,8 @@ message MeasurementApprovedMachineRecordPb {
 }
 
 message MeasurementApprovedProfileRecordPb {
-  UUID approval_id = 1;
-  UUID profile_id = 2;
+  MeasurementApprovedProfileId approval_id = 1;
+  MeasurementSystemProfileId profile_id = 2;
   MeasurementApprovedTypePb approval_type = 3;
   string pcr_registers = 4;
   string comments = 5;
@@ -1126,11 +1126,37 @@ enum MeasurementMachineStatePb {
 ////////////////////////////////////////////////////////////////////////////////
 // Primitives
 
-message UUID {
-  string value = 1;
-}
-
 message KvPair {
   string key = 1;
   string value = 2;
+}
+
+// Placeholder ID types: These are not code-generated, but overridden by our own type-safe UUID wrappers. They are
+// identical to common.UUID over the wire, for backwards compatibility.
+message MeasurementSystemProfileId {
+  string value = 1;
+}
+message MeasurementSystemProfileAttrId {
+  string value = 1;
+}
+message MeasurementBundleId {
+  string value = 1;
+}
+message MeasurementBundleValueId {
+  string value = 1;
+}
+message MeasurementReportId {
+  string value = 1;
+}
+message MeasurementReportValueId {
+  string value = 1;
+}
+message MeasurementJournalId {
+  string value = 1;
+}
+message MeasurementApprovedMachineId {
+  string value = 1;
+}
+message MeasurementApprovedProfileId {
+  string value = 1;
 }

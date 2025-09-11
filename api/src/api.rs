@@ -1042,7 +1042,7 @@ impl Forge for Api {
         request: tonic::Request<rpc::ForgeScoutErrorReport>,
     ) -> Result<tonic::Response<rpc::ForgeScoutErrorReportResult>, tonic::Status> {
         log_request_data(&request);
-        let _machine_id = convert_and_log_machine_id(request.get_ref().machine_id.as_ref())?;
+        let _machine_id = convert_and_log_machine_id(request.into_inner().machine_id.as_ref())?;
 
         // `log_request_data` will already provide us the error message
         // Therefore we don't have to do anything else
@@ -2991,7 +2991,7 @@ impl Forge for Api {
         );
 
         Ok(Response::new(rpc::IsInfiniteBootEnabledResponse {
-            is_enabled: *response.get_ref(),
+            is_enabled: response.into_inner(),
         }))
     }
 
@@ -3561,9 +3561,11 @@ impl Forge for Api {
     ) -> std::result::Result<tonic::Response<rpc::AttestQuoteResponse>, tonic::Status> {
         log_request_data(&request);
 
+        let mut request = request.into_inner();
+
         // TODO: consider if this code can be turned into a templated function and reused
         // in bind_attest_key
-        let machine_id = convert_and_log_machine_id(request.get_ref().machine_id.as_ref())?;
+        let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
         const DB_TXN_NAME: &str = "machine attestation verify quote";
         let mut txn = self
@@ -3573,9 +3575,7 @@ impl Forge for Api {
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME, e))?;
 
         let ak_pub_bytes =
-            match db_attest::SecretAkPub::get_by_secret(&mut txn, &request.get_ref().credential)
-                .await?
-            {
+            match db_attest::SecretAkPub::get_by_secret(&mut txn, &request.credential).await? {
                 Some(entry) => entry.ak_pub,
                 None => {
                     return Err(Status::from(CarbideError::AttestQuoteError(
@@ -3588,33 +3588,32 @@ impl Forge for Api {
             CarbideError::AttestQuoteError(format!("Could not unmarshal AK Pub: {e}"))
         })?;
 
-        let attest = Attest::unmarshall(&request.get_ref().attestation).map_err(|e| {
+        let attest = Attest::unmarshall(&request.attestation).map_err(|e| {
             CarbideError::AttestQuoteError(format!("Could not unmarshall Attest struct: {e}"))
         })?;
 
-        let signature = Signature::unmarshall(&request.get_ref().signature).map_err(|e| {
+        let signature = Signature::unmarshall(&request.signature).map_err(|e| {
             CarbideError::AttestQuoteError(format!("Could not unmarshall Signature struct: {e}"))
         })?;
 
         // Make sure sure the signature can at least be verified
         // as valid or invalid. If it can't be verified in any
         // way at all, return an error.
-        let signature_valid =
-            attest::verify_signature(&ak_pub, &request.get_ref().attestation, &signature)
-                .inspect_err(|_| {
-                    tracing::warn!(
-                        "PCR signature verification failed (event log: {})",
-                        attest::event_log_to_string(&request.get_ref().event_log)
-                    );
-                })?;
+        let signature_valid = attest::verify_signature(&ak_pub, &request.attestation, &signature)
+            .inspect_err(|_| {
+            tracing::warn!(
+                "PCR signature verification failed (event log: {})",
+                attest::event_log_to_string(&request.event_log)
+            );
+        })?;
 
         // Make sure we can verify the the PCR hash one way
         // or another. If it can't be, return an error.
-        let pcr_hash_matches = attest::verify_pcr_hash(&attest, &request.get_ref().pcr_values)
-            .inspect_err(|_| {
+        let pcr_hash_matches =
+            attest::verify_pcr_hash(&attest, &request.pcr_values).inspect_err(|_| {
                 tracing::warn!(
                     "PCR hash verification failed (event log: {})",
-                    attest::event_log_to_string(&request.get_ref().event_log)
+                    attest::event_log_to_string(&request.event_log)
                 );
             })?;
 
@@ -3623,19 +3622,14 @@ impl Forge for Api {
         // continue (the event log goes with, since it will be
         // logged in the event of an invalid signature or PCR
         // hash mismatch).
-        attest::verify_quote_state(
-            signature_valid,
-            pcr_hash_matches,
-            &request.get_ref().event_log,
-        )?;
+        attest::verify_quote_state(signature_valid, pcr_hash_matches, &request.event_log)?;
 
         // If we've reached this point, we can now clean up
         // now ephemeral secret data from the database, and send
         // off the PCR values as a MeasurementReport.
-        db_attest::SecretAkPub::delete(&mut txn, &request.get_ref().credential).await?;
+        db_attest::SecretAkPub::delete(&mut txn, &request.credential).await?;
 
         let pcr_values: ::rpc::measured_boot::pcr::PcrRegisterValueVec = request
-            .into_inner()
             .pcr_values
             .drain(..)
             .map(hex::encode)
@@ -3721,7 +3715,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_create_system_measurement_profile(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3734,7 +3728,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_delete_measurement_system_profile(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3747,7 +3741,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_rename_measurement_system_profile(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3760,7 +3754,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_show_measurement_system_profile(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3773,7 +3767,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_show_measurement_system_profiles(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3786,7 +3780,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_list_measurement_system_profiles(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3800,7 +3794,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_list_measurement_system_profile_bundles(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3814,7 +3808,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::profile::handle_list_measurement_system_profile_machines(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3827,7 +3821,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::report::handle_create_measurement_report(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3840,7 +3834,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::report::handle_delete_measurement_report(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3853,7 +3847,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::report::handle_promote_measurement_report(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3866,7 +3860,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::report::handle_revoke_measurement_report(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3879,7 +3873,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::report::handle_show_measurement_report_for_id(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3892,7 +3886,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::report::handle_show_measurement_reports_for_machine(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3905,7 +3899,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::report::handle_show_measurement_reports(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3918,7 +3912,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::report::handle_list_measurement_report(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3931,7 +3925,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::report::handle_match_measurement_report(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3944,7 +3938,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::bundle::handle_create_measurement_bundle(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3957,7 +3951,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::bundle::handle_delete_measurement_bundle(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3970,7 +3964,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::bundle::handle_rename_measurement_bundle(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3983,7 +3977,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::bundle::handle_update_measurement_bundle(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -3996,7 +3990,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::bundle::handle_show_measurement_bundle(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4009,7 +4003,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::bundle::handle_show_measurement_bundles(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4022,7 +4016,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::bundle::handle_list_measurement_bundles(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4035,7 +4029,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::bundle::handle_list_measurement_bundle_machines(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4048,7 +4042,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::bundle::handle_find_closest_match(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4061,7 +4055,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::journal::handle_delete_measurement_journal(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4074,7 +4068,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::journal::handle_show_measurement_journal(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4087,7 +4081,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::journal::handle_show_measurement_journals(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4100,7 +4094,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::journal::handle_list_measurement_journal(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4113,7 +4107,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::machine::handle_attest_candidate_machine(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4126,7 +4120,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::machine::handle_show_candidate_machine(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4139,7 +4133,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::machine::handle_show_candidate_machines(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4152,7 +4146,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::machine::handle_list_candidate_machines(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4165,7 +4159,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::site::handle_import_site_measurements(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4178,7 +4172,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::site::handle_export_site_measurements(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4191,7 +4185,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::site::handle_add_measurement_trusted_machine(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4204,7 +4198,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::site::handle_remove_measurement_trusted_machine(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4217,7 +4211,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::site::handle_list_measurement_trusted_machines(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4230,7 +4224,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::site::handle_add_measurement_trusted_profile(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4243,7 +4237,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::site::handle_remove_measurement_trusted_profile(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4256,7 +4250,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::site::handle_list_measurement_trusted_profiles(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))
@@ -4269,7 +4263,7 @@ impl Forge for Api {
         Ok(Response::new(
             measured_boot::rpc::site::handle_list_attestation_summary(
                 &self.database_connection,
-                request.get_ref(),
+                request.into_inner(),
             )
             .await?,
         ))

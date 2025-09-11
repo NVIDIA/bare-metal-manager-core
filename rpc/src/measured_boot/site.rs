@@ -177,7 +177,7 @@ impl MachineAttestationSummaryList {
                     bundle_id: if e.bundle_id.is_none() {
                         None
                     } else {
-                        Some(e.bundle_id.unwrap().into())
+                        Some(e.bundle_id.unwrap())
                     },
                     profile_name: e.profile_name.clone(),
                     ts: Some(e.ts.into()),
@@ -191,37 +191,21 @@ impl MachineAttestationSummaryList {
 
         for pb in &val.attestation_outcomes {
             attestation_summary_list.push(MachineAttestationSummary {
-                machine_id: MachineId::from_str(&pb.machine_id).map_err(
-                    |err| {
-                        super::Error::RpcConversion(format!(
-                            "Could not deserialize ListAttestationSummaryResponse(machine_id): {err}"
-                        ))
-                    },
-                )?,
-                bundle_id: if pb.bundle_id.is_none() {
-                    None
-                } else {
-                    Some(
-                        MeasurementBundleId::from_str(&pb.bundle_id.as_ref().unwrap().value).map_err(
-                            |err| {
-                                super::Error::RpcConversion(format!(
-                                    "Could not deserialize ListAttestationSummaryResponse(bundle_id): {err}"
-                                ))
-                            },
-                        )?,
-                    )
-                },
+                machine_id: MachineId::from_str(&pb.machine_id).map_err(|err| {
+                    super::Error::RpcConversion(format!(
+                        "Could not deserialize ListAttestationSummaryResponse(machine_id): {err}"
+                    ))
+                })?,
+                bundle_id: pb.bundle_id,
                 profile_name: pb.profile_name.clone(),
                 ts: if pb.ts.is_none() {
                     chrono::DateTime::<Utc>::default()
                 } else {
-                    chrono::DateTime::<Utc>::try_from(pb.ts.unwrap()).map_err(
-                        |err| {
-                            super::Error::RpcConversion(format!(
-                                "Could not deserialize ListAttestationSummaryResponse(timestamp): {err}"
-                            ))
-                        },
-                    )?
+                    chrono::DateTime::<Utc>::try_from(pb.ts.unwrap()).map_err(|err| {
+                        super::Error::RpcConversion(format!(
+                            "Could not deserialize ListAttestationSummaryResponse(timestamp): {err}"
+                        ))
+                    })?
                 },
             });
         }

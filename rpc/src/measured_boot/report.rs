@@ -27,6 +27,7 @@ use std::str::FromStr;
 use super::pcr::PcrRegisterValue;
 #[cfg(feature = "cli")]
 use crate::admin_cli::ToTable;
+use crate::errors::RpcDataConversionError;
 
 /// MeasurementReport is a composition of a MeasurementReportRecord,
 /// whose attributes are essentially copied directly it, as well as
@@ -67,7 +68,7 @@ impl MeasurementReport {
 impl From<MeasurementReport> for MeasurementReportPb {
     fn from(val: MeasurementReport) -> Self {
         Self {
-            report_id: Some(val.report_id.into()),
+            report_id: Some(val.report_id),
             machine_id: val.machine_id.to_string(),
             values: val
                 .values
@@ -100,7 +101,9 @@ impl TryFrom<MeasurementReportPb> for MeasurementReport {
             .collect();
 
         Ok(Self {
-            report_id: MeasurementReportId::try_from(msg.report_id)?,
+            report_id: msg
+                .report_id
+                .ok_or(RpcDataConversionError::MissingArgument("report_id"))?,
             machine_id: MachineId::from_str(&msg.machine_id)?,
             values: values?,
             ts: chrono::DateTime::<chrono::Utc>::try_from(msg.ts.unwrap())?,

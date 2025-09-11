@@ -27,6 +27,7 @@ use super::filters;
 use crate::api::Api;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
+use rpc::uuid::measured_boot::MeasurementReportId;
 
 const PCR_SLOT_MAX_NUM: usize = 12;
 
@@ -98,9 +99,7 @@ pub async fn show_attestation_results(
 
     // get report
     let request = tonic::Request::new(mbprotos::ShowMeasurementReportForIdRequest {
-        report_id: Some(mbprotos::Uuid {
-            value: latest_journal.report_id.0.to_string(),
-        }),
+        report_id: Some(latest_journal.report_id),
     });
     let report = match state.show_measurement_report_for_id(request).await {
         Ok(resp) => match resp.into_inner().report {
@@ -131,12 +130,10 @@ pub async fn show_attestation_results(
     };
 
     // get the bundle if it had been set
-    let bundle = if latest_journal.bundle_id.is_some() {
+    let bundle = if let Some(bundle_id) = latest_journal.bundle_id {
         let request = tonic::Request::new(mbprotos::ShowMeasurementBundleRequest {
             selector: Some(
-                mbprotos::show_measurement_bundle_request::Selector::BundleId(mbprotos::Uuid {
-                    value: latest_journal.bundle_id.unwrap().0.to_string(),
-                }),
+                mbprotos::show_measurement_bundle_request::Selector::BundleId(bundle_id),
             ),
         });
         let bundle = match state.show_measurement_bundle(request).await {
@@ -170,9 +167,7 @@ pub async fn show_attestation_results(
     } else {
         // try fetching the closest matching bundle if the full bundle had not been set
         let request = tonic::Request::new(mbprotos::FindClosestBundleMatchRequest {
-            report_id: Some(mbprotos::Uuid {
-                value: report.report_id.0.to_string(),
-            }),
+            report_id: Some(report.report_id),
         });
         match state.find_closest_bundle_match(request).await {
             Ok(resp) => match resp.into_inner().bundle {
@@ -199,14 +194,10 @@ pub async fn show_attestation_results(
     };
 
     // get profile
-    let profile = if latest_journal.profile_id.is_some() {
+    let profile = if let Some(profile_id) = latest_journal.profile_id {
         let request = tonic::Request::new(mbprotos::ShowMeasurementSystemProfileRequest {
             selector: Some(
-                mbprotos::show_measurement_system_profile_request::Selector::ProfileId(
-                    mbprotos::Uuid {
-                        value: latest_journal.profile_id.unwrap().to_string(),
-                    },
-                ),
+                mbprotos::show_measurement_system_profile_request::Selector::ProfileId(profile_id),
             ),
         });
 
@@ -410,17 +401,18 @@ pub async fn submit_report_promotion(
         }
     }
 
+    let Some(Ok(report_id)) = params
+        .get("reportname")
+        .map(|r| r.parse::<MeasurementReportId>())
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Html("report id not found".to_string()),
+        );
+    };
+
     let request = mbprotos::PromoteMeasurementReportRequest {
-        report_id: Some(mbprotos::Uuid {
-            value: if let Some(report_id) = params.get("reportname") {
-                report_id.clone()
-            } else {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Html("report id not found".to_string()),
-                );
-            },
-        }),
+        report_id: Some(report_id),
         pcr_registers: pcr_registers_to_promote,
     };
 
@@ -431,11 +423,8 @@ pub async fn submit_report_promotion(
         Ok(resp) => match resp.into_inner().bundle {
             Some(bundle) => (
                 StatusCode::OK,
-                Html(if bundle.bundle_id.is_some() {
-                    format!(
-                        "Bundle created with bundle id {}",
-                        bundle.bundle_id.unwrap().value
-                    )
+                Html(if let Some(bundle_id) = bundle.bundle_id {
+                    format!("Bundle created with bundle id {bundle_id}")
                 } else {
                     format!("Bundle created with name {}", bundle.name)
                 }),

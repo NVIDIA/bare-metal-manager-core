@@ -23,6 +23,7 @@ use serde::Serialize;
 
 #[cfg(feature = "cli")]
 use crate::admin_cli::ToTable;
+use crate::errors::RpcDataConversionError;
 
 /// MeasurementBundle is a composition of a MeasurementBundleRecord,
 /// whose attributes are essentially copied directly it, as well as
@@ -63,8 +64,8 @@ impl From<MeasurementBundle> for MeasurementBundlePb {
     fn from(val: MeasurementBundle) -> Self {
         let pb_state: MeasurementBundleStatePb = val.state.into();
         Self {
-            bundle_id: Some(val.bundle_id.into()),
-            profile_id: Some(val.profile_id.into()),
+            bundle_id: Some(val.bundle_id),
+            profile_id: Some(val.profile_id),
             name: val.name,
             state: pb_state.into(),
             values: val
@@ -120,8 +121,12 @@ impl TryFrom<MeasurementBundlePb> for MeasurementBundle {
             .collect();
 
         Ok(Self {
-            bundle_id: MeasurementBundleId::try_from(msg.bundle_id)?,
-            profile_id: MeasurementSystemProfileId::try_from(msg.profile_id)?,
+            bundle_id: msg
+                .bundle_id
+                .ok_or(RpcDataConversionError::MissingArgument("bundle_id"))?,
+            profile_id: msg
+                .profile_id
+                .ok_or(RpcDataConversionError::MissingArgument("profile_id"))?,
             name: msg.name.clone(),
             state: MeasurementBundleState::from(state),
             values: values?,

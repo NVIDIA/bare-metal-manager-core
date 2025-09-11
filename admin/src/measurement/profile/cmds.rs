@@ -156,7 +156,7 @@ pub async fn delete(
             let profile_id: MeasurementSystemProfileId =
                 MeasurementSystemProfileId::from_str(&delete.identifier.clone())
                     .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
-            Some(delete_measurement_system_profile_request::Selector::ProfileId(profile_id.into()))
+            Some(delete_measurement_system_profile_request::Selector::ProfileId(profile_id))
         }
         IdentifierType::ForName => Some(
             delete_measurement_system_profile_request::Selector::ProfileName(
@@ -165,11 +165,9 @@ pub async fn delete(
         ),
         IdentifierType::Detect => {
             match MeasurementSystemProfileId::from_str(&delete.identifier.clone()) {
-                Ok(profile_id) => Some(
-                    delete_measurement_system_profile_request::Selector::ProfileId(
-                        profile_id.into(),
-                    ),
-                ),
+                Ok(profile_id) => {
+                    Some(delete_measurement_system_profile_request::Selector::ProfileId(profile_id))
+                }
                 Err(_) => Some(
                     delete_measurement_system_profile_request::Selector::ProfileName(
                         delete.identifier.clone(),
@@ -202,7 +200,7 @@ pub async fn rename(
         IdentifierType::ForId => {
             let profile_id = MeasurementSystemProfileId::from_str(&rename.identifier.clone())
                 .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
-            Some(rename_measurement_system_profile_request::Selector::ProfileId(profile_id.into()))
+            Some(rename_measurement_system_profile_request::Selector::ProfileId(profile_id))
         }
         IdentifierType::ForName => Some(
             rename_measurement_system_profile_request::Selector::ProfileName(
@@ -211,11 +209,9 @@ pub async fn rename(
         ),
         IdentifierType::Detect => {
             match MeasurementSystemProfileId::from_str(&rename.identifier.clone()) {
-                Ok(profile_id) => Some(
-                    rename_measurement_system_profile_request::Selector::ProfileId(
-                        profile_id.into(),
-                    ),
-                ),
+                Ok(profile_id) => {
+                    Some(rename_measurement_system_profile_request::Selector::ProfileId(profile_id))
+                }
                 Err(_) => Some(
                     rename_measurement_system_profile_request::Selector::ProfileName(
                         rename.identifier.clone(),
@@ -281,15 +277,15 @@ pub async fn show_by_id_or_name(
             let profile_id: MeasurementSystemProfileId =
                 MeasurementSystemProfileId::from_str(&identifier.clone())
                     .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
-            Some(show_measurement_system_profile_request::Selector::ProfileId(profile_id.into()))
+            Some(show_measurement_system_profile_request::Selector::ProfileId(profile_id))
         }
         IdentifierType::ForName => {
             Some(show_measurement_system_profile_request::Selector::ProfileName(identifier.clone()))
         }
         IdentifierType::Detect => match MeasurementSystemProfileId::from_str(&identifier.clone()) {
-            Ok(profile_id) => Some(
-                show_measurement_system_profile_request::Selector::ProfileId(profile_id.into()),
-            ),
+            Ok(profile_id) => {
+                Some(show_measurement_system_profile_request::Selector::ProfileId(profile_id))
+            }
             Err(_) => Some(
                 show_measurement_system_profile_request::Selector::ProfileName(identifier.clone()),
             ),
@@ -344,11 +340,7 @@ pub async fn list_bundles_for_id_or_name(
             let profile_id: MeasurementSystemProfileId =
                 MeasurementSystemProfileId::from_str(&list_bundles.identifier.clone())
                     .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
-            Some(
-                list_measurement_system_profile_bundles_request::Selector::ProfileId(
-                    profile_id.into(),
-                ),
-            )
+            Some(list_measurement_system_profile_bundles_request::Selector::ProfileId(profile_id))
         }
         IdentifierType::ForName => Some(
             list_measurement_system_profile_bundles_request::Selector::ProfileName(
@@ -359,7 +351,7 @@ pub async fn list_bundles_for_id_or_name(
             match MeasurementSystemProfileId::from_str(&list_bundles.identifier.clone()) {
                 Ok(profile_id) => Some(
                     list_measurement_system_profile_bundles_request::Selector::ProfileId(
-                        profile_id.into(),
+                        profile_id,
                     ),
                 ),
                 Err(_) => Some(
@@ -381,13 +373,7 @@ pub async fn list_bundles_for_id_or_name(
             .list_measurement_system_profile_bundles(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
-            .bundle_ids
-            .iter()
-            .map(|rec| {
-                MeasurementBundleId::try_from(rec.clone())
-                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))
-            })
-            .collect::<CarbideCliResult<Vec<MeasurementBundleId>>>()?,
+            .bundle_ids,
     ))
 }
 
@@ -404,11 +390,7 @@ pub async fn list_machines_for_id_or_name(
             let profile_id: MeasurementSystemProfileId =
                 MeasurementSystemProfileId::from_str(&list_machines.identifier.clone())
                     .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
-            Some(
-                list_measurement_system_profile_machines_request::Selector::ProfileId(
-                    profile_id.into(),
-                ),
-            )
+            Some(list_measurement_system_profile_machines_request::Selector::ProfileId(profile_id))
         }
         IdentifierType::ForName => Some(
             list_measurement_system_profile_machines_request::Selector::ProfileName(
@@ -419,7 +401,7 @@ pub async fn list_machines_for_id_or_name(
             match MeasurementSystemProfileId::from_str(&list_machines.identifier.clone()) {
                 Ok(profile_id) => Some(
                     list_measurement_system_profile_machines_request::Selector::ProfileId(
-                        profile_id.into(),
+                        profile_id,
                     ),
                 ),
                 Err(_) => Some(

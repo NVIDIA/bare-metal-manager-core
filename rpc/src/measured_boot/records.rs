@@ -27,7 +27,7 @@ use crate::protos::measured_boot::{
     MeasurementApprovedProfileRecordPb, MeasurementApprovedTypePb, MeasurementBundleRecordPb,
     MeasurementBundleStatePb, MeasurementBundleValueRecordPb, MeasurementJournalRecordPb,
     MeasurementMachineStatePb, MeasurementReportRecordPb, MeasurementReportValueRecordPb,
-    MeasurementSystemProfileAttrRecordPb, MeasurementSystemProfileRecordPb, Uuid,
+    MeasurementSystemProfileAttrRecordPb, MeasurementSystemProfileRecordPb,
 };
 use crate::uuid::DbTable;
 use crate::uuid::UuidEmptyStringError;
@@ -50,6 +50,7 @@ use crate::admin_cli::{ToTable, serde_just_print_summary};
 
 use super::pcr::PcrRegisterValue;
 
+use crate::errors::RpcDataConversionError;
 #[cfg(feature = "sqlx")]
 use sqlx::{
     postgres::PgRow,
@@ -146,9 +147,7 @@ impl DbTable for MeasurementSystemProfileRecord {
 impl From<MeasurementSystemProfileRecord> for MeasurementSystemProfileRecordPb {
     fn from(val: MeasurementSystemProfileRecord) -> Self {
         Self {
-            profile_id: Some(Uuid {
-                value: val.profile_id.to_string(),
-            }),
+            profile_id: Some(val.profile_id),
             name: val.name,
             ts: Some(val.ts.into()),
         }
@@ -160,7 +159,9 @@ impl TryFrom<MeasurementSystemProfileRecordPb> for MeasurementSystemProfileRecor
 
     fn try_from(msg: MeasurementSystemProfileRecordPb) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
-            profile_id: MeasurementSystemProfileId::try_from(msg.profile_id)?,
+            profile_id: msg
+                .profile_id
+                .ok_or(RpcDataConversionError::MissingArgument("profile_id"))?,
             name: msg.name.clone(),
             ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
         })
@@ -236,12 +237,8 @@ impl DbTable for MeasurementSystemProfileAttrRecord {
 impl From<MeasurementSystemProfileAttrRecord> for MeasurementSystemProfileAttrRecordPb {
     fn from(val: MeasurementSystemProfileAttrRecord) -> Self {
         Self {
-            attribute_id: Some(Uuid {
-                value: val.attribute_id.to_string(),
-            }),
-            profile_id: Some(Uuid {
-                value: val.profile_id.to_string(),
-            }),
+            attribute_id: Some(val.attribute_id),
+            profile_id: Some(val.profile_id),
             key: val.key,
             value: val.value,
             ts: Some(val.ts.into()),
@@ -256,8 +253,12 @@ impl TryFrom<MeasurementSystemProfileAttrRecordPb> for MeasurementSystemProfileA
         msg: MeasurementSystemProfileAttrRecordPb,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
-            attribute_id: MeasurementSystemProfileAttrId::try_from(msg.attribute_id)?,
-            profile_id: MeasurementSystemProfileId::try_from(msg.profile_id)?,
+            attribute_id: msg
+                .attribute_id
+                .ok_or(RpcDataConversionError::MissingArgument("attribute_id"))?,
+            profile_id: msg
+                .profile_id
+                .ok_or(RpcDataConversionError::MissingArgument("profile_id"))?,
             key: msg.key.clone(),
             value: msg.value.clone(),
             ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
@@ -428,13 +429,9 @@ impl From<MeasurementBundleRecord> for MeasurementBundleRecordPb {
     fn from(val: MeasurementBundleRecord) -> Self {
         let pb_state: MeasurementBundleStatePb = val.state.into();
         Self {
-            bundle_id: Some(Uuid {
-                value: val.bundle_id.to_string(),
-            }),
+            bundle_id: Some(val.bundle_id),
             name: val.name,
-            profile_id: Some(Uuid {
-                value: val.profile_id.to_string(),
-            }),
+            profile_id: Some(val.profile_id),
             state: pb_state.into(),
             ts: Some(val.ts.into()),
         }
@@ -448,8 +445,12 @@ impl TryFrom<MeasurementBundleRecordPb> for MeasurementBundleRecord {
         let state = msg.state();
 
         Ok(Self {
-            bundle_id: MeasurementBundleId::try_from(msg.bundle_id)?,
-            profile_id: MeasurementSystemProfileId::try_from(msg.profile_id)?,
+            bundle_id: msg
+                .bundle_id
+                .ok_or(RpcDataConversionError::MissingArgument("bundle_id"))?,
+            profile_id: msg
+                .profile_id
+                .ok_or(RpcDataConversionError::MissingArgument("profile_id"))?,
             name: msg.name.clone(),
             state: MeasurementBundleState::from(state),
             ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
@@ -531,12 +532,8 @@ impl From<MeasurementBundleValueRecord> for PcrRegisterValue {
 impl From<MeasurementBundleValueRecord> for MeasurementBundleValueRecordPb {
     fn from(val: MeasurementBundleValueRecord) -> Self {
         Self {
-            value_id: Some(Uuid {
-                value: val.value_id.to_string(),
-            }),
-            bundle_id: Some(Uuid {
-                value: val.bundle_id.to_string(),
-            }),
+            value_id: Some(val.value_id),
+            bundle_id: Some(val.bundle_id),
             pcr_register: val.pcr_register as i32,
             sha_any: val.sha_any,
             ts: Some(val.ts.into()),
@@ -549,8 +546,12 @@ impl TryFrom<MeasurementBundleValueRecordPb> for MeasurementBundleValueRecord {
 
     fn try_from(msg: MeasurementBundleValueRecordPb) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
-            value_id: MeasurementBundleValueId::try_from(msg.value_id)?,
-            bundle_id: MeasurementBundleId::try_from(msg.bundle_id)?,
+            value_id: msg
+                .value_id
+                .ok_or(RpcDataConversionError::MissingArgument("value_id"))?,
+            bundle_id: msg
+                .bundle_id
+                .ok_or(RpcDataConversionError::MissingArgument("bundle_id"))?,
             pcr_register: msg.pcr_register as i16,
             sha_any: msg.sha_any.clone(),
             ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
@@ -592,9 +593,7 @@ impl DbTable for MeasurementReportRecord {
 impl From<MeasurementReportRecord> for MeasurementReportRecordPb {
     fn from(val: MeasurementReportRecord) -> Self {
         Self {
-            report_id: Some(Uuid {
-                value: val.report_id.to_string(),
-            }),
+            report_id: Some(val.report_id),
             machine_id: val.machine_id.to_string(),
             ts: Some(val.ts.into()),
         }
@@ -610,7 +609,9 @@ impl TryFrom<MeasurementReportRecordPb> for MeasurementReportRecord {
         };
 
         Ok(Self {
-            report_id: MeasurementReportId::try_from(msg.report_id)?,
+            report_id: msg
+                .report_id
+                .ok_or(RpcDataConversionError::MissingArgument("report_id"))?,
             machine_id: MachineId::from_str(&msg.machine_id)?,
             ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
         })
@@ -681,12 +682,8 @@ impl From<MeasurementReportValueRecord> for PcrRegisterValue {
 impl From<MeasurementReportValueRecord> for MeasurementReportValueRecordPb {
     fn from(val: MeasurementReportValueRecord) -> Self {
         Self {
-            value_id: Some(Uuid {
-                value: val.value_id.to_string(),
-            }),
-            report_id: Some(Uuid {
-                value: val.report_id.to_string(),
-            }),
+            value_id: Some(val.value_id),
+            report_id: Some(val.report_id),
             pcr_register: val.pcr_register as i32,
             sha_any: val.sha_any,
             ts: Some(val.ts.into()),
@@ -699,8 +696,12 @@ impl TryFrom<MeasurementReportValueRecordPb> for MeasurementReportValueRecord {
 
     fn try_from(msg: MeasurementReportValueRecordPb) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
-            value_id: MeasurementReportValueId::try_from(msg.value_id)?,
-            report_id: MeasurementReportId::try_from(msg.report_id)?,
+            value_id: msg
+                .value_id
+                .ok_or(RpcDataConversionError::MissingArgument("value_id"))?,
+            report_id: msg
+                .report_id
+                .ok_or(RpcDataConversionError::MissingArgument("report_id"))?,
             pcr_register: msg.pcr_register as i16,
             sha_any: msg.sha_any.clone(),
             ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
@@ -776,11 +777,11 @@ impl From<MeasurementJournalRecord> for MeasurementJournalRecordPb {
         let pb_state: MeasurementMachineStatePb = val.state.into();
 
         Self {
-            journal_id: Some(val.journal_id.into()),
+            journal_id: Some(val.journal_id),
             machine_id: val.machine_id.to_string(),
-            report_id: Some(val.report_id.into()),
-            profile_id: val.profile_id.map(|profile_id| profile_id.into()),
-            bundle_id: val.bundle_id.map(|bundle_id| bundle_id.into()),
+            report_id: Some(val.report_id),
+            profile_id: val.profile_id,
+            bundle_id: val.bundle_id,
             state: pb_state.into(),
             ts: Some(val.ts.into()),
         }
@@ -797,17 +798,15 @@ impl TryFrom<MeasurementJournalRecordPb> for MeasurementJournalRecord {
         let state = msg.state();
 
         Ok(Self {
-            journal_id: MeasurementJournalId::try_from(msg.journal_id)?,
+            journal_id: msg
+                .journal_id
+                .ok_or(RpcDataConversionError::MissingArgument("journal_id"))?,
             machine_id: MachineId::from_str(&msg.machine_id)?,
-            report_id: MeasurementReportId::try_from(msg.report_id)?,
-            profile_id: match msg.profile_id {
-                Some(profile_id) => Some(MeasurementSystemProfileId::try_from(profile_id)?),
-                None => None,
-            },
-            bundle_id: match msg.bundle_id {
-                Some(bundle_id) => Some(MeasurementBundleId::try_from(bundle_id)?),
-                None => None,
-            },
+            report_id: msg
+                .report_id
+                .ok_or(RpcDataConversionError::MissingArgument("report_id"))?,
+            profile_id: msg.profile_id,
+            bundle_id: msg.bundle_id,
             state: MeasurementMachineState::from(state),
             ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
         })
@@ -1049,9 +1048,7 @@ impl From<MeasurementApprovedMachineRecord> for MeasurementApprovedMachineRecord
         let approval_type: MeasurementApprovedTypePb = val.approval_type.into();
 
         Self {
-            approval_id: Some(Uuid {
-                value: val.approval_id.to_string(),
-            }),
+            approval_id: Some(val.approval_id),
             machine_id: val.machine_id.to_string(),
             approval_type: approval_type.into(),
             pcr_registers: val.pcr_registers.unwrap_or("".to_string()),
@@ -1073,7 +1070,9 @@ impl TryFrom<MeasurementApprovedMachineRecordPb> for MeasurementApprovedMachineR
         let approval_type = msg.approval_type();
 
         Ok(Self {
-            approval_id: MeasurementApprovedMachineId::try_from(msg.approval_id)?,
+            approval_id: msg
+                .approval_id
+                .ok_or(RpcDataConversionError::MissingArgument("approval_id"))?,
             machine_id: TrustedMachineId::from_str(&msg.machine_id)?,
             approval_type: MeasurementApprovedType::from(approval_type),
             pcr_registers: match !msg.pcr_registers.is_empty() {
@@ -1164,12 +1163,8 @@ impl From<MeasurementApprovedProfileRecord> for MeasurementApprovedProfileRecord
         let approval_type: MeasurementApprovedTypePb = val.approval_type.into();
 
         Self {
-            approval_id: Some(Uuid {
-                value: val.approval_id.to_string(),
-            }),
-            profile_id: Some(Uuid {
-                value: val.profile_id.to_string(),
-            }),
+            approval_id: Some(val.approval_id),
+            profile_id: Some(val.profile_id),
             approval_type: approval_type.into(),
             pcr_registers: val.pcr_registers.unwrap_or("".to_string()),
             comments: val.comments.unwrap_or("".to_string()),
@@ -1186,8 +1181,12 @@ impl TryFrom<MeasurementApprovedProfileRecordPb> for MeasurementApprovedProfileR
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let approval_type = msg.approval_type();
         Ok(Self {
-            approval_id: MeasurementApprovedProfileId::try_from(msg.approval_id)?,
-            profile_id: MeasurementSystemProfileId::try_from(msg.profile_id)?,
+            approval_id: msg
+                .approval_id
+                .ok_or(RpcDataConversionError::MissingArgument("approval_id"))?,
+            profile_id: msg
+                .profile_id
+                .ok_or(RpcDataConversionError::MissingArgument("profile_id"))?,
             approval_type: MeasurementApprovedType::from(approval_type),
             pcr_registers: match !msg.pcr_registers.is_empty() {
                 true => Some(msg.pcr_registers.clone()),

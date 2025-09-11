@@ -38,6 +38,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".common.NetworkSegmentId", "crate::uuid::network::NetworkSegmentId")
         .extern_path(".common.DpaInterfaceId", "crate::uuid::dpa_interface::DpaInterfaceId")
         .extern_path(".common.NetworkPrefixId", "crate::uuid::network::NetworkPrefixId")
+        .extern_path(".measured_boot.MeasurementSystemProfileId", "crate::uuid::measured_boot::MeasurementSystemProfileId")
+        .extern_path(".measured_boot.MeasurementSystemProfileAttrId", "crate::uuid::measured_boot::MeasurementSystemProfileAttrId")
+        .extern_path(".measured_boot.MeasurementBundleId", "crate::uuid::measured_boot::MeasurementBundleId")
+        .extern_path(".measured_boot.MeasurementBundleValueId", "crate::uuid::measured_boot::MeasurementBundleValueId")
+        .extern_path(".measured_boot.MeasurementReportId", "crate::uuid::measured_boot::MeasurementReportId")
+        .extern_path(".measured_boot.MeasurementReportValueId", "crate::uuid::measured_boot::MeasurementReportValueId")
+        .extern_path(".measured_boot.MeasurementJournalId", "crate::uuid::measured_boot::MeasurementJournalId")
+        .extern_path(".measured_boot.MeasurementApprovedMachineId", "crate::uuid::measured_boot::MeasurementApprovedMachineId")
+        .extern_path(".measured_boot.MeasurementApprovedProfileId", "crate::uuid::measured_boot::MeasurementApprovedProfileId")
 
         .include_file("prost_common.rs")
         .type_attribute(".health", "#[derive(serde::Serialize)]")
@@ -640,6 +649,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             (
                 ".common.NetworkPrefixId",
                 "crate::uuid::network::NetworkPrefixId",
+            ),
+            (
+                ".measured_boot.MeasurementSystemProfileId",
+                "crate::uuid::measured_boot::MeasurementSystemProfileId",
+            ),
+            (
+                ".measured_boot.MeasurementSystemProfileAttrId",
+                "crate::uuid::measured_boot::MeasurementSystemProfileAttrId",
+            ),
+            (
+                ".measured_boot.MeasurementBundleId",
+                "crate::uuid::measured_boot::MeasurementBundleId",
+            ),
+            (
+                ".measured_boot.MeasurementBundleValueId",
+                "crate::uuid::measured_boot::MeasurementBundleValueId",
+            ),
+            (
+                ".measured_boot.MeasurementReportId",
+                "crate::uuid::measured_boot::MeasurementReportId",
+            ),
+            (
+                ".measured_boot.MeasurementReportValueId",
+                "crate::uuid::measured_boot::MeasurementReportValueId",
+            ),
+            (
+                ".measured_boot.MeasurementJournalId",
+                "crate::uuid::measured_boot::MeasurementJournalId",
+            ),
+            (
+                ".measured_boot.MeasurementApprovedMachineId",
+                "crate::uuid::measured_boot::MeasurementApprovedMachineId",
+            ),
+            (
+                ".measured_boot.MeasurementApprovedProfileId",
+                "crate::uuid::measured_boot::MeasurementApprovedProfileId",
             ),
         ],
     })?;

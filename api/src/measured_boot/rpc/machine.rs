@@ -34,17 +34,15 @@ use tonic::Status;
 /// handle_attest_candidate_machine handles the AttestCandidateMachine API endpoint.
 pub async fn handle_attest_candidate_machine(
     db_conn: &Pool<Postgres>,
-    req: &AttestCandidateMachineRequest,
+    req: AttestCandidateMachineRequest,
 ) -> Result<AttestCandidateMachineResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     let report = db::report::new_with_txn(
         &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
-            CarbideError::from(RpcDataConversionError::InvalidMachineId(
-                req.machine_id.clone(),
-            ))
+            CarbideError::from(RpcDataConversionError::InvalidMachineId(req.machine_id))
         })?,
-        &PcrRegisterValue::from_pb_vec(&req.pcr_values),
+        &PcrRegisterValue::from_pb_vec(req.pcr_values),
     )
     .await
     .map_err(|e| Status::internal(format!("failed saving measurements: {e}")))?;
@@ -58,18 +56,16 @@ pub async fn handle_attest_candidate_machine(
 /// handle_show_candidate_machine handles the ShowCandidateMachine API endpoint.
 pub async fn handle_show_candidate_machine(
     db_conn: &Pool<Postgres>,
-    req: &ShowCandidateMachineRequest,
+    req: ShowCandidateMachineRequest,
 ) -> Result<ShowCandidateMachineResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let machine = match &req.selector {
+    let machine = match req.selector {
         // Show a machine with the given ID.
         Some(show_candidate_machine_request::Selector::MachineId(machine_uuid)) => {
             db::machine::from_id_with_txn(
                 &mut txn,
-                MachineId::from_str(machine_uuid).map_err(|_| {
-                    CarbideError::from(RpcDataConversionError::InvalidMachineId(
-                        machine_uuid.clone(),
-                    ))
+                MachineId::from_str(&machine_uuid).map_err(|_| {
+                    CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_uuid))
                 })?,
             )
             .await
@@ -87,14 +83,14 @@ pub async fn handle_show_candidate_machine(
 /// handle_show_candidate_machines handles the ShowCandidateMachines API endpoint.
 pub async fn handle_show_candidate_machines(
     db_conn: &Pool<Postgres>,
-    _req: &ShowCandidateMachinesRequest,
+    _req: ShowCandidateMachinesRequest,
 ) -> Result<ShowCandidateMachinesResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     Ok(ShowCandidateMachinesResponse {
         machines: db::machine::get_all(&mut txn)
             .await
             .map_err(|e| Status::internal(format!("{e}")))?
-            .drain(..)
+            .into_iter()
             .map(|machine| machine.into())
             .collect(),
     })
@@ -103,15 +99,15 @@ pub async fn handle_show_candidate_machines(
 /// handle_list_candidate_machines handles the ListCandidateMachine API endpoint.
 pub async fn handle_list_candidate_machines(
     db_conn: &Pool<Postgres>,
-    _req: &ListCandidateMachinesRequest,
+    _req: ListCandidateMachinesRequest,
 ) -> Result<ListCandidateMachinesResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     Ok(ListCandidateMachinesResponse {
         machines: get_candidate_machine_records(&mut txn)
             .await
             .map_err(|e| Status::internal(format!("failed to read records: {e}")))?
-            .iter()
-            .map(|record| record.clone().into())
+            .into_iter()
+            .map(|record| record.into())
             .collect(),
     })
 }
