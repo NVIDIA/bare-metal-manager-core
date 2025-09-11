@@ -14,13 +14,13 @@
  * gRPC handlers for measurement journal related API calls.
  */
 
+use crate::errors::CarbideError;
 use crate::measured_boot::db;
 use crate::measured_boot::interface::journal::{
     get_measurement_journal_records, get_measurement_journal_records_for_machine_id,
 };
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use ::rpc::uuid::machine::MachineId;
-use ::rpc::uuid::measured_boot::MeasurementJournalId;
 use rpc::protos::measured_boot::{
     DeleteMeasurementJournalRequest, DeleteMeasurementJournalResponse,
     ListMeasurementJournalRequest, ListMeasurementJournalResponse, ShowMeasurementJournalRequest,
@@ -38,12 +38,13 @@ use tonic::Status;
 /// API endpoint.
 pub async fn handle_delete_measurement_journal(
     db_conn: &Pool<Postgres>,
-    req: &DeleteMeasurementJournalRequest,
+    req: DeleteMeasurementJournalRequest,
 ) -> Result<DeleteMeasurementJournalResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
     let journal = db::journal::delete_where_id(
         &mut txn,
-        MeasurementJournalId::from_grpc(req.journal_id.clone())?,
+        req.journal_id
+            .ok_or(CarbideError::MissingArgument("journal_id"))?,
     )
     .await
     .map_err(|e| Status::internal(format!("failed to delete journal: {e}")))?
@@ -59,23 +60,20 @@ pub async fn handle_delete_measurement_journal(
 /// API endpoint.
 pub async fn handle_show_measurement_journal(
     db_conn: &Pool<Postgres>,
-    req: &ShowMeasurementJournalRequest,
+    req: ShowMeasurementJournalRequest,
 ) -> Result<ShowMeasurementJournalResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    let journal = match &req.selector {
+    let journal = match req.selector {
         Some(selector) => match selector {
-            show_measurement_journal_request::Selector::JournalId(journal_uuid) => {
-                db::journal::from_id(
-                    &mut txn,
-                    MeasurementJournalId::from_grpc(Some(journal_uuid.clone()))?,
-                )
-                .await
-                .map_err(|e| Status::internal(format!("{e}")))?
+            show_measurement_journal_request::Selector::JournalId(journal_id) => {
+                db::journal::from_id(&mut txn, journal_id)
+                    .await
+                    .map_err(|e| Status::internal(format!("{e}")))?
             }
             show_measurement_journal_request::Selector::LatestForMachineId(machine_id) => {
                 match db::journal::get_latest_journal_for_id(
                     &mut txn,
-                    MachineId::from_str(machine_id).map_err(|e| {
+                    MachineId::from_str(&machine_id).map_err(|e| {
                         Status::invalid_argument(format!("Could not parse MachineId: {e}"))
                     })?,
                 )
@@ -101,7 +99,7 @@ pub async fn handle_show_measurement_journal(
 /// API endpoint.
 pub async fn handle_show_measurement_journals(
     db_conn: &Pool<Postgres>,
-    _req: &ShowMeasurementJournalsRequest,
+    _req: ShowMeasurementJournalsRequest,
 ) -> Result<ShowMeasurementJournalsResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
 
@@ -119,7 +117,7 @@ pub async fn handle_show_measurement_journals(
 /// API endpoint.
 pub async fn handle_list_measurement_journal(
     db_conn: &Pool<Postgres>,
-    req: &ListMeasurementJournalRequest,
+    req: ListMeasurementJournalRequest,
 ) -> Result<ListMeasurementJournalResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
 

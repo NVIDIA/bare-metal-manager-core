@@ -174,8 +174,8 @@ impl PcrRegisterValueVec {
 }
 
 impl PcrRegisterValue {
-    pub fn from_pb_vec(pbs: &[PcrRegisterValuePb]) -> Vec<Self> {
-        pbs.iter().map(|value| value.clone().into()).collect()
+    pub fn from_pb_vec(pbs: Vec<PcrRegisterValuePb>) -> Vec<Self> {
+        pbs.into_iter().map(|value| value.into()).collect()
     }
 
     pub fn to_pb_vec(values: &[Self]) -> Vec<PcrRegisterValuePb> {

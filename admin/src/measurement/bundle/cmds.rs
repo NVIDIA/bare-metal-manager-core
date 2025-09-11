@@ -136,7 +136,7 @@ pub async fn create_for_id(
     // Request.
     let request = CreateMeasurementBundleRequest {
         name: Some(create.name.clone()),
-        profile_id: Some(create.profile_id.into()),
+        profile_id: Some(create.profile_id),
         pcr_values: PcrRegisterValue::to_pb_vec(&create.values),
         state: state.into(),
     };
@@ -157,7 +157,7 @@ pub async fn delete(grpc_conn: &ApiClient, delete: &Delete) -> CarbideCliResult<
     // Request.
     let request = DeleteMeasurementBundleRequest {
         selector: Some(delete_measurement_bundle_request::Selector::BundleId(
-            delete.bundle_id.into(),
+            delete.bundle_id,
         )),
     };
 
@@ -180,7 +180,7 @@ pub async fn rename(grpc_conn: &ApiClient, rename: &Rename) -> CarbideCliResult<
             let bundle_id = MeasurementBundleId::from_str(&rename.identifier.clone())
                 .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
             Some(rename_measurement_bundle_request::Selector::BundleId(
-                bundle_id.into(),
+                bundle_id,
             ))
         }
         IdentifierType::ForName => Some(rename_measurement_bundle_request::Selector::BundleName(
@@ -188,7 +188,7 @@ pub async fn rename(grpc_conn: &ApiClient, rename: &Rename) -> CarbideCliResult<
         )),
         IdentifierType::Detect => match MeasurementBundleId::from_str(&rename.identifier.clone()) {
             Ok(bundle_id) => Some(rename_measurement_bundle_request::Selector::BundleId(
-                bundle_id.into(),
+                bundle_id,
             )),
             Err(_) => Some(rename_measurement_bundle_request::Selector::BundleName(
                 rename.identifier.clone(),
@@ -226,7 +226,7 @@ pub async fn set_state(
             let bundle_id = MeasurementBundleId::from_str(&set_state.identifier.clone())
                 .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
             Some(update_measurement_bundle_request::Selector::BundleId(
-                bundle_id.into(),
+                bundle_id,
             ))
         }
         IdentifierType::ForName => Some(update_measurement_bundle_request::Selector::BundleName(
@@ -235,7 +235,7 @@ pub async fn set_state(
         IdentifierType::Detect => {
             match MeasurementBundleId::from_str(&set_state.identifier.clone()) {
                 Ok(bundle_id) => Some(update_measurement_bundle_request::Selector::BundleId(
-                    bundle_id.into(),
+                    bundle_id,
                 )),
                 Err(_) => Some(update_measurement_bundle_request::Selector::BundleName(
                     set_state.identifier.clone(),
@@ -279,7 +279,7 @@ pub async fn show_by_id_or_name(
             let bundle_id = MeasurementBundleId::from_str(&identifier.clone())
                 .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
             Some(show_measurement_bundle_request::Selector::BundleId(
-                bundle_id.into(),
+                bundle_id,
             ))
         }
         IdentifierType::ForName => Some(show_measurement_bundle_request::Selector::BundleName(
@@ -287,7 +287,7 @@ pub async fn show_by_id_or_name(
         )),
         IdentifierType::Detect => match MeasurementBundleId::from_str(&identifier.clone()) {
             Ok(bundle_id) => Some(show_measurement_bundle_request::Selector::BundleId(
-                bundle_id.into(),
+                bundle_id,
             )),
             Err(_) => Some(show_measurement_bundle_request::Selector::BundleName(
                 identifier.clone(),
@@ -359,7 +359,7 @@ pub async fn list_machines(
         IdentifierType::ForId => {
             let bundle_id = MeasurementBundleId::from_str(&list_machines.identifier.clone())
                 .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
-            Some(list_measurement_bundle_machines_request::Selector::BundleId(bundle_id.into()))
+            Some(list_measurement_bundle_machines_request::Selector::BundleId(bundle_id))
         }
         IdentifierType::ForName => Some(
             list_measurement_bundle_machines_request::Selector::BundleName(
@@ -368,9 +368,9 @@ pub async fn list_machines(
         ),
         IdentifierType::Detect => {
             match MeasurementBundleId::from_str(&list_machines.identifier.clone()) {
-                Ok(bundle_id) => Some(
-                    list_measurement_bundle_machines_request::Selector::BundleId(bundle_id.into()),
-                ),
+                Ok(bundle_id) => {
+                    Some(list_measurement_bundle_machines_request::Selector::BundleId(bundle_id))
+                }
                 Err(_) => Some(
                     list_measurement_bundle_machines_request::Selector::BundleName(
                         list_machines.identifier.clone(),
@@ -408,7 +408,7 @@ pub async fn find_closest_match(
     // but this can be expanded to contain journal id also
     let request = match args {
         FindClosestMatch::Report(report_id) => FindClosestBundleMatchRequest {
-            report_id: Some(report_id.id.into()),
+            report_id: Some(report_id.id),
         },
     };
 

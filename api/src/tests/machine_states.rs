@@ -1147,7 +1147,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         .api
         .promote_measurement_report(Request::new(
             rpc::protos::measured_boot::PromoteMeasurementReportRequest {
-                report_id: Some(report.report_id.into()),
+                report_id: Some(report.report_id),
                 pcr_registers: "0,1".to_string(),
             },
         ))

@@ -88,7 +88,7 @@ pub async fn delete(
 ) -> CarbideCliResult<MeasurementJournal> {
     // Request.
     let request = DeleteMeasurementJournalRequest {
-        journal_id: Some(delete.journal_id.into()),
+        journal_id: Some(delete.journal_id),
     };
 
     // Response.
@@ -124,7 +124,7 @@ pub async fn show_by_id(
     // Request.
     let request = ShowMeasurementJournalRequest {
         selector: Some(show_measurement_journal_request::Selector::JournalId(
-            (*journal_id).into(),
+            *journal_id,
         )),
     };
 

@@ -26,14 +26,12 @@
 
 use super::DbPrimaryUuid;
 use crate::errors::RpcDataConversionError;
-use crate::protos::measured_boot::Uuid;
 use crate::uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
-use tonic::Status;
 
+use crate::grpc_uuid_message;
 #[cfg(feature = "sqlx")]
 use sqlx::{
     encode::IsNull,
@@ -122,17 +120,11 @@ impl DbPrimaryUuid for TrustedMachineId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, Default)]
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementSystemProfileId(pub uuid::Uuid);
-
-impl MeasurementSystemProfileId {
-    pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input system profile ID: {e}")))
-    }
-}
+grpc_uuid_message!(MeasurementSystemProfileId);
 
 impl From<MeasurementSystemProfileId> for uuid::Uuid {
     fn from(id: MeasurementSystemProfileId) -> Self {
@@ -162,51 +154,17 @@ impl DbPrimaryUuid for MeasurementSystemProfileId {
     }
 }
 
-impl From<MeasurementSystemProfileId> for Uuid {
-    fn from(val: MeasurementSystemProfileId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<Uuid> for MeasurementSystemProfileId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<Uuid>> for MeasurementSystemProfileId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
-        let Some(input_uuid) = msg else {
-            return Err(RpcDataConversionError::MissingArgument(
-                "MeasurementSystemProfileId",
-            ));
-        };
-        Self::try_from(input_uuid)
-    }
-}
-
 /// MeasurementSystemProfileAttrId
 ///
 /// Primary key for a measurement_system_profiles_attrs table entry, which is
 /// the table containing the attributes used to map machines to profiles.
 ///
 /// Includes code for various implementations.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default, Eq, Hash)]
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementSystemProfileAttrId(pub uuid::Uuid);
-
-impl MeasurementSystemProfileAttrId {
-    pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
-        Self::try_from(msg).map_err(|e| {
-            Status::invalid_argument(format!("bad input system profile attribute ID: {e}"))
-        })
-    }
-}
+grpc_uuid_message!(MeasurementSystemProfileAttrId);
 
 impl From<MeasurementSystemProfileAttrId> for uuid::Uuid {
     fn from(id: MeasurementSystemProfileAttrId) -> Self {
@@ -230,33 +188,6 @@ impl fmt::Display for MeasurementSystemProfileAttrId {
     }
 }
 
-impl From<MeasurementSystemProfileAttrId> for Uuid {
-    fn from(val: MeasurementSystemProfileAttrId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<Uuid> for MeasurementSystemProfileAttrId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<Uuid>> for MeasurementSystemProfileAttrId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
-        let Some(input_uuid) = msg else {
-            return Err(RpcDataConversionError::MissingArgument(
-                "MeasurementSystemProfileAttrId",
-            ));
-        };
-        Self::try_from(input_uuid)
-    }
-}
-
 /// MeasurementBundleId
 ///
 /// Primary key for a measurement_bundles table entry, where a bundle is
@@ -269,13 +200,7 @@ impl TryFrom<Option<Uuid>> for MeasurementSystemProfileAttrId {
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementBundleId(pub uuid::Uuid);
-
-impl MeasurementBundleId {
-    pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input bundle ID: {e}")))
-    }
-}
+grpc_uuid_message!(MeasurementBundleId);
 
 impl From<MeasurementBundleId> for uuid::Uuid {
     fn from(id: MeasurementBundleId) -> Self {
@@ -305,50 +230,17 @@ impl DbPrimaryUuid for MeasurementBundleId {
     }
 }
 
-impl From<MeasurementBundleId> for Uuid {
-    fn from(val: MeasurementBundleId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<Uuid> for MeasurementBundleId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<Uuid>> for MeasurementBundleId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
-        let Some(input_uuid) = msg else {
-            return Err(RpcDataConversionError::MissingArgument(
-                "MeasurementBundleId",
-            ));
-        };
-        Self::try_from(input_uuid)
-    }
-}
-
 /// MeasurementBundleValueId
 ///
 /// Primary key for a measurement_bundles_values table entry, where a value is
 /// a single measurement that is part of a measurement bundle.
 ///
 /// Includes code for various implementations.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default, Eq, Hash)]
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementBundleValueId(pub uuid::Uuid);
-
-impl MeasurementBundleValueId {
-    pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input bundle value ID: {e}")))
-    }
-}
+grpc_uuid_message!(MeasurementBundleValueId);
 
 impl From<MeasurementBundleValueId> for uuid::Uuid {
     fn from(id: MeasurementBundleValueId) -> Self {
@@ -372,33 +264,6 @@ impl fmt::Display for MeasurementBundleValueId {
     }
 }
 
-impl From<MeasurementBundleValueId> for Uuid {
-    fn from(val: MeasurementBundleValueId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<Uuid> for MeasurementBundleValueId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<Uuid>> for MeasurementBundleValueId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
-        let Some(input_uuid) = msg else {
-            return Err(RpcDataConversionError::MissingArgument(
-                "MeasurementBundleValueId",
-            ));
-        };
-        Self::try_from(input_uuid)
-    }
-}
-
 /// MeasurementReportId
 ///
 /// Primary key for a measurement_reports table entry, which contains reports
@@ -407,17 +272,11 @@ impl TryFrom<Option<Uuid>> for MeasurementBundleValueId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, Eq, Hash, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, Hash, Serialize, Deserialize, PartialEq, Default)]
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementReportId(pub uuid::Uuid);
-
-impl MeasurementReportId {
-    pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input report ID: {e}")))
-    }
-}
+grpc_uuid_message!(MeasurementReportId);
 
 impl From<MeasurementReportId> for uuid::Uuid {
     fn from(id: MeasurementReportId) -> Self {
@@ -447,50 +306,17 @@ impl DbPrimaryUuid for MeasurementReportId {
     }
 }
 
-impl From<MeasurementReportId> for Uuid {
-    fn from(val: MeasurementReportId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<Uuid> for MeasurementReportId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<Uuid>> for MeasurementReportId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
-        let Some(input_uuid) = msg else {
-            return Err(RpcDataConversionError::MissingArgument(
-                "MeasurementReportId",
-            ));
-        };
-        Self::try_from(input_uuid)
-    }
-}
-
 /// MeasurementReportValueId
 ///
 /// Primary key for a measurement_reports_values table entry, which is the
 /// backing values reported for each report into measurement_reports.
 ///
 /// Includes code for various implementations.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default, Eq, Hash)]
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementReportValueId(pub uuid::Uuid);
-
-impl MeasurementReportValueId {
-    pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input report value ID: {e}")))
-    }
-}
+grpc_uuid_message!(MeasurementReportValueId);
 
 impl From<MeasurementReportValueId> for uuid::Uuid {
     fn from(id: MeasurementReportValueId) -> Self {
@@ -514,33 +340,6 @@ impl fmt::Display for MeasurementReportValueId {
     }
 }
 
-impl From<MeasurementReportValueId> for Uuid {
-    fn from(val: MeasurementReportValueId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<Uuid> for MeasurementReportValueId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<Uuid>> for MeasurementReportValueId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
-        let Some(input_uuid) = msg else {
-            return Err(RpcDataConversionError::MissingArgument(
-                "MeasurementReportValueId",
-            ));
-        };
-        Self::try_from(input_uuid)
-    }
-}
-
 /// MeasurementJournalId
 ///
 /// Primary key for a measurement_journal table entry, which is the journal
@@ -549,17 +348,11 @@ impl TryFrom<Option<Uuid>> for MeasurementReportValueId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, Eq, Hash, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, Hash, Serialize, Deserialize, PartialEq, Default)]
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementJournalId(pub uuid::Uuid);
-
-impl MeasurementJournalId {
-    pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input journal ID: {e}")))
-    }
-}
+grpc_uuid_message!(MeasurementJournalId);
 
 impl From<MeasurementJournalId> for uuid::Uuid {
     fn from(id: MeasurementJournalId) -> Self {
@@ -589,33 +382,6 @@ impl DbPrimaryUuid for MeasurementJournalId {
     }
 }
 
-impl From<MeasurementJournalId> for Uuid {
-    fn from(val: MeasurementJournalId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<Uuid> for MeasurementJournalId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<Uuid>> for MeasurementJournalId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
-        let Some(input_uuid) = msg else {
-            return Err(RpcDataConversionError::MissingArgument(
-                "MeasurementJournalId",
-            ));
-        };
-        Self::try_from(input_uuid)
-    }
-}
-
 /// MeasurementApprovedMachineId
 ///
 /// Primary key for a measurement_approved_machines table entry, which is how
@@ -625,18 +391,11 @@ impl TryFrom<Option<Uuid>> for MeasurementJournalId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default, Eq, Hash)]
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementApprovedMachineId(pub uuid::Uuid);
-
-impl MeasurementApprovedMachineId {
-    pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
-        Self::try_from(msg).map_err(|e| {
-            Status::invalid_argument(format!("bad input trusted machine approval ID: {e}"))
-        })
-    }
-}
+grpc_uuid_message!(MeasurementApprovedMachineId);
 
 impl From<MeasurementApprovedMachineId> for uuid::Uuid {
     fn from(id: MeasurementApprovedMachineId) -> Self {
@@ -666,33 +425,6 @@ impl DbPrimaryUuid for MeasurementApprovedMachineId {
     }
 }
 
-impl From<MeasurementApprovedMachineId> for Uuid {
-    fn from(val: MeasurementApprovedMachineId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<Uuid> for MeasurementApprovedMachineId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<Uuid>> for MeasurementApprovedMachineId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
-        let Some(input_uuid) = msg else {
-            return Err(RpcDataConversionError::MissingArgument(
-                "MeasurementApprovedMachineId",
-            ));
-        };
-        Self::try_from(input_uuid)
-    }
-}
-
 /// MeasurementApprovedProfileId
 ///
 /// Primary key for a measurement_approved_profiles table entry, which is how
@@ -702,18 +434,11 @@ impl TryFrom<Option<Uuid>> for MeasurementApprovedMachineId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default, Eq, Hash)]
 #[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
 pub struct MeasurementApprovedProfileId(pub uuid::Uuid);
-
-impl MeasurementApprovedProfileId {
-    pub fn from_grpc(msg: Option<Uuid>) -> Result<Self, Status> {
-        Self::try_from(msg).map_err(|e| {
-            Status::invalid_argument(format!("bad input trusted profile approval ID: {e}"))
-        })
-    }
-}
+grpc_uuid_message!(MeasurementApprovedProfileId);
 
 impl From<MeasurementApprovedProfileId> for uuid::Uuid {
     fn from(id: MeasurementApprovedProfileId) -> Self {
@@ -740,32 +465,5 @@ impl fmt::Display for MeasurementApprovedProfileId {
 impl DbPrimaryUuid for MeasurementApprovedProfileId {
     fn db_primary_uuid_name() -> &'static str {
         "approval_id"
-    }
-}
-
-impl From<MeasurementApprovedProfileId> for Uuid {
-    fn from(val: MeasurementApprovedProfileId) -> Self {
-        Self {
-            value: val.to_string(),
-        }
-    }
-}
-
-impl TryFrom<Uuid> for MeasurementApprovedProfileId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
-        Self::from_str(msg.value.as_str())
-    }
-}
-
-impl TryFrom<Option<Uuid>> for MeasurementApprovedProfileId {
-    type Error = RpcDataConversionError;
-    fn try_from(msg: Option<Uuid>) -> Result<Self, RpcDataConversionError> {
-        let Some(input_uuid) = msg else {
-            return Err(RpcDataConversionError::MissingArgument(
-                "MeasurementApprovedProfileId",
-            ));
-        };
-        Self::try_from(input_uuid)
     }
 }
