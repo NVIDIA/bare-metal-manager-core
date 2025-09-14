@@ -1,25 +1,58 @@
 
 # Changelog
 
-## [Unreleased (v2025.09.12-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.29-rc2-0...trunk)
+## [Unreleased (v2025.09.26-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.12-rc2-0...trunk)
 
 ### Added
 
 ### Changed
 
 ### Fixed
-- fixed an issue when running FNN with a legacy admin network where the unused DPU in an instance was configured to use FNN on the admin network.
 
 ### Removed
 
 ### Internal Changes
 
-- [MR-4529](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4529): chore: tests: Added: `TestManagedHost::machine_validation_completed`
-- [MR-4532](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4532): refactor: database error handling unification in the Carbide API: errors with query.
-- [MR-4537](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4537): refactor: database error handling unification in the Carbide API: errors with transactions.
-- [MR-4540](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4540): refactor: database error handling unification in the Carbide API: errors with transactions part 2.
-- [MR-4541](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4541): refactor: database error handling unification in the Carbide API: tracking file / line using track_caller Rust feature.
+## [Unreleased (v2025.09.10-rc2-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.29-rc2-0...v2025.09.10-rc2-0)
+
+### Added
+
+- [MR-4561](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4561): Added  support for an unused feature still in development. The `mqttea` client isn't in use anywhere yet, and the MR to actually integrate with it is still in development. And even though it's not in use yet, it's still backwards compatible just in case.
+- [FORGE-6424](https://jirasw.nvidia.com/browse/FORGE-6424), [MR-4546](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4546): Added the ability to monitor the amount of changes applied via UFM APIs via a new `forge_ib_monitor_machine_ufm_changes_applied_total` metric.
+- [MR-4415](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4415): Added the ability to supress external alerts by matching the new `forge_alerts_suppressed_count` metric with hosts with the SuppressAlerts classification.
+- [MR-4533](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4533): Added the ability to enable infinite boot and check its current status for Dells, Lenovos, Vikings, and **GB200s** using `forge-admin-cli`.
+- [MR-4496](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4496): Added next state information to the `time_in_state` metric to better explain and distinguish the metric data.
+- [FORGE-6584](https://jirasw.nvidia.com/browse/FORGE-6584), [MR-4513](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4513): Added the ability to automatically trigger an AC power cycle on Lenovo machines when stuck.
+- [FORGE-6679](https://jirasw.nvidia.com/browse/FORGE-6679), [MR-4490](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4490): Added the ability for carbide to continously monitor the desired IB configuration at Carbide, the actually deployed IB configuration (GUID to pkey associations at UFM), and applies any fixes that are required to set the desired configuration.
+
+### Fixed
+
+- [5504750](https://nvbugspro.nvidia.com/bug/5504750), [MR-4559](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4559): Disables reboot in fw-check routine.
+- [5472630](https://nvbugspro.nvidia.com/bug/5472630), [MR-4549](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4549), [MR-4544](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4544): Ensured that site explorer, expected machines, and Nautobot align on the serial numbers assigned to GB200s, preventing `SerialNumberMismatch` health alerts. GB200 serial numbers can also be sourced from `/redfish/v1/Chassis/Chassis0/Assembly` now, and this MR now allows site explorer to recognize this. Previously, this chassis was ignored because it had no network adaptors.
+- [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4538](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4538): Bump libredfish to 0.29.71 to pull in a fix to setting the boot order on Lenovo SR 675 V3s.
+- [MR-4550](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4550): Fixed an issue when running FNN with a legacy admin network where the unused DPU in an instance was configured to use FNN on the admin network.
+- [5499287](https://nvbugspro.nvidia.com/bug/5499287), [MR-4542](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4542): Handles the race condition where tenant requests a instance and at the same time carbide also triggers reprovision.
+- [MR-4536](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4536): Fixed an issue with the time taken to render /admin/managed-host by reducing it's execution time from 22 seconds down to 0.6 seconds (on a database with 800 managed hosts).
+- [5486954](https://nvbugspro.nvidia.com/bug/5486954), [MR-4528](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4528): Fixed an issue where the new DPU reprovisioning flow doesn't run because of inaccurate BMC information in the database.
+- [MR-4531](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4531): GB200 firmware fixes.
+
+### Internal Changes
+
+- [MR-4535](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4535): Fix auto-deploy script so it pushes direct to forged/main.
+- [MR-4553](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4553): chore: Zero initialize forge_ib_monitor_ufm_changes_applied_total metric.
+- [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4537](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4537): refactor: database error handling unification in the Carbide API: errors with transactions.
+- [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4540](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4540): refactor: database error handling unification in the Carbide API: errors with transactions part 2.
+- [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4541](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4541): refactor: database error handling unification in the Carbide API: tracking file / line using track_caller Rust feature.
 - [MR-4548](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4548): refactor: remove unnecessary explicit conversions to CarbideError.
+
+- [FORGE-6905](https://jirasw.nvidia.com/browse/FORGE-6905), [MR-4539](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4539): chore: Add CODEOWNERS file.
+- [MR-4555](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4555): chore: Unify to a single MachineId type.
+- [FORGE-1234](https://jirasw.nvidia.com/browse/FORGE-1234), [MR-4524](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4524): Added Merge Request template.
+- [MR-4532](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4532): database error handling unification in the Carbide API: errors with query.
+- [MR-4529](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4529): chore: tests: Added: TestManagedHost::machine_validation_completed.
+- [MR-4530](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4530): Updated libredfish to trunk and fix bmc-mock to support chassis collection.
+- [5481973](https://nvbugspro.nvidia.com/bug/5481973), [MR-4519](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4519): Add check for password reset during machine lifecycle test.
+- [MR-4527](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4527): Empty commit to advance tag.
 
 ## [v2025.08.29-rc2-0](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.08.15-rc2-0...v2025.08.29-rc2-0)
 
@@ -38,8 +71,8 @@
 ### Changed
 
 - [FORGE-6725](https://jirasw.nvidia.com/browse/FORGE-6725), [MR-4450](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4450): Changed default setting for generation of SKUs to `false`.
-- [MR-4522](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4522): Split alerts out on separate lines in managed-host show cli command
-- [MR-4525](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4525) Handle GB200 not supporting lockdown for upgrades
+- [MR-4522](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4522): Split alerts out on separate lines in managed-host show cli command.
+- [MR-4525](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4525) Handle GB200 not supporting lockdown for upgrades.
 
 ### Fixed
 
