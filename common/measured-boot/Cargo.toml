@@ -7,7 +7,7 @@ authors.workspace = true
 
 [features]
 sqlx = ["dep:sqlx", "forge-uuid/sqlx"]
-cli = ["dep:prettytable-rs", "dep:eyre", "dep:clap"]
+cli = ["dep:prettytable-rs", "dep:eyre", "dep:clap", "rpc/cli"]
 
 [dependencies]
 # workspace dependencies

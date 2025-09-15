@@ -45,8 +45,8 @@ tryhard = "0.5.1"
 rustls = { workspace = true, features = ["default", "ring"] }
 async-trait = "0.1.88"
 nonempty = "0.11.0"
-clap = { version = "4.5.45", optional = true }
-sqlx = { workspace = true, optional = true }
+clap = { version = "4.5.45", features = ["derive"], optional = true }
+sqlx = { workspace = true, features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"], optional = true }
 prettytable-rs = { version = "^0.10", optional = true }
 serde_yaml = { version = "*", optional = true }
 data-encoding = "2.9.0"
