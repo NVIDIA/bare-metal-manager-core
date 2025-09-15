@@ -287,6 +287,9 @@ pub struct CarbideConfig {
     /// Auto machine repair plugin configuration
     #[serde(default)]
     pub auto_machine_repair_plugin: AutoMachineRepairPluginConfig,
+
+    /// configuration for using forge with a VM system
+    pub vmaas_config: Option<VmaasConfig>,
 }
 
 /// Parameters used by the Power config.
@@ -2162,6 +2165,18 @@ pub enum VpcPeeringPolicy {
 
     /// VPC peering is not allowed.
     None,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct VmaasConfig {
+    /// Allow VFs on instance creation.  defaults to true, but will be disabled when
+    /// using SDN to manage the instance network configuration for VMs
+    #[serde(default = "default_to_true")]
+    pub allow_instance_vf: bool,
+
+    /// Configure the DPUs to create the reps specified.
+    /// when not provided, the DPU creates the reps for the 2 physical devices and 14 virtual devices
+    pub hbn_reps: Option<String>,
 }
 
 #[cfg(test)]

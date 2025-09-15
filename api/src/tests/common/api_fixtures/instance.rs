@@ -188,6 +188,34 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
     }
 }
 
+pub fn single_interface_network_config_with_vfs(
+    segment_ids: Vec<NetworkSegmentId>,
+) -> rpc::InstanceNetworkConfig {
+    let mut segment_iter = segment_ids.into_iter().enumerate();
+    let (_function_id, segment_id) = segment_iter.next().unwrap();
+    let mut interfaces = vec![rpc::InstanceInterfaceConfig {
+        function_type: rpc::InterfaceFunctionType::Physical as i32,
+        network_segment_id: Some(segment_id),
+        network_details: Some(NetworkDetails::SegmentId(segment_id)),
+        device: None,
+        device_instance: 0,
+        virtual_function_id: None,
+    }];
+
+    interfaces.extend(
+        segment_iter.map(|(function_id, segment_id)| rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Virtual as i32,
+            network_segment_id: Some(segment_id),
+            network_details: Some(NetworkDetails::SegmentId(segment_id)),
+            device: None,
+            device_instance: 0,
+            virtual_function_id: Some(function_id as u32),
+        }),
+    );
+
+    rpc::InstanceNetworkConfig { interfaces }
+}
+
 pub fn interface_network_config_with_devices(
     segment_ids: &[NetworkSegmentId],
     device_locators: &[DeviceLocator],

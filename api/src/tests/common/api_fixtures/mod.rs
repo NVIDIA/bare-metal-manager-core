@@ -973,6 +973,7 @@ pub fn get_config() -> CarbideConfig {
             ..PowerManagerOptions::default()
         },
         auto_machine_repair_plugin: Default::default(),
+        vmaas_config: None,
     }
 }
 

@@ -3008,7 +3008,8 @@ message PxeInstructions {
 message CloudInitDiscoveryInstructions {
   MachineInterface machine_interface = 1;
   Domain domain = 2;
-  reserved 3; // used to be the update firmware flag
+  optional string hbn_reps = 3;
+
 }
 
 message CloudInitMetaData {

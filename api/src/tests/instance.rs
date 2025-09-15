@@ -18,6 +18,7 @@ use std::{
 };
 
 use crate::{
+    cfg::file::VmaasConfig,
     db::{
         self, ObjectColumnFilter,
         dpu_machine_update::DpuMachineUpdate,
@@ -51,7 +52,9 @@ use crate::{
         network_security_group::NetworkSecurityGroupStatusObservation,
     },
     network_segment::allocate::Ipv4PrefixAllocator,
-    tests::common::api_fixtures::create_managed_host_multi_dpu,
+    tests::common::api_fixtures::{
+        create_managed_host_multi_dpu, instance::single_interface_network_config_with_vfs,
+    },
 };
 use ::rpc::forge::forge_server::Forge;
 use chrono::Utc;
@@ -5110,4 +5113,102 @@ async fn test_can_not_update_instance_config_after_deletion(
         err.message(),
         "Configuration for a terminating instance can not be changed"
     );
+}
+
+#[crate::sqlx_test]
+async fn test_default_config_vf_enabled(_: PgPoolOptions, _options: PgConnectOptions) {
+    let config = get_config();
+    assert!(
+        config
+            .vmaas_config
+            .as_ref()
+            .map(|vc| vc.allow_instance_vf)
+            .unwrap_or(true)
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_instance_with_vf_when_vf_disabled(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let mut config = get_config();
+    config.vmaas_config = Some(VmaasConfig {
+        allow_instance_vf: false,
+        hbn_reps: None,
+    });
+
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+    let managed_host = create_managed_host(&env).await;
+    let segment_id = env.create_vpc_and_tenant_segments(2).await;
+
+    // Create instance configuration
+    let config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config_with_vfs(segment_id)),
+        infiniband: None,
+        storage: None,
+        network_security_group_id: None,
+    };
+
+    // Allocate an instance
+    let instance_result = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: Some(managed_host.id),
+            instance_type_id: None,
+            config: Some(config),
+            metadata: Some(rpc::Metadata {
+                name: "test-disabled-vf".to_string(),
+                description: "Testing instance creation when vf disabled".to_string(),
+                labels: Vec::new(),
+            }),
+            allow_unhealthy_machine: false,
+        }))
+        .await;
+
+    assert!(instance_result.is_err());
+}
+
+#[crate::sqlx_test]
+async fn test_instance_without_vf_when_vf_disabled(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let mut config = get_config();
+    config.vmaas_config = Some(VmaasConfig {
+        allow_instance_vf: false,
+        hbn_reps: None,
+    });
+
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+    let managed_host = create_managed_host(&env).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    // Create instance configuration
+    let config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(segment_id)),
+        infiniband: None,
+        storage: None,
+        network_security_group_id: None,
+    };
+
+    // Allocate an instance
+    let instance_result = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: Some(managed_host.id),
+            instance_type_id: None,
+            config: Some(config),
+            metadata: Some(rpc::Metadata {
+                name: "test-disabled-vf".to_string(),
+                description: "Testing instance creation when vf disabled".to_string(),
+                labels: Vec::new(),
+            }),
+            allow_unhealthy_machine: false,
+        }))
+        .await;
+
+    assert!(instance_result.is_ok());
 }

@@ -3,6 +3,9 @@ cat << \ZOF > /etc/bf.cfg
 # SFC variables
 ENABLE_BR_HBN=yes
 ENABLE_BR_SFC=yes
+{% if forge_hbn_reps %}
+BR_HBN_REPS={{ forge_hbn_reps }}
+{% endif %}
 
 {{ forge_bmc_fw_update }}
 

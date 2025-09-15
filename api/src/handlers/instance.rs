@@ -970,7 +970,16 @@ pub(crate) async fn update_instance_config(
     };
 
     // Network validation is done only if network update is requested.
-    config.validate(false).map_err(CarbideError::from)?;
+    config
+        .validate(
+            false,
+            api.runtime_config
+                .vmaas_config
+                .as_ref()
+                .map(|vc| vc.allow_instance_vf)
+                .unwrap_or(true),
+        )
+        .map_err(CarbideError::from)?;
 
     // TODO: Should a missing metadata field
     // - be an error
@@ -1064,6 +1073,11 @@ pub(crate) async fn update_instance_config(
     }
 
     update_instance_network_config(
+        api.runtime_config
+            .vmaas_config
+            .as_ref()
+            .map(|vc| vc.allow_instance_vf)
+            .unwrap_or(true),
         &instance,
         &mut config.network,
         mh_snapshot.host_snapshot.current_state(),
@@ -1106,6 +1120,7 @@ pub(crate) async fn update_instance_config(
 /// indicate the state machine to start updating network on DPUs. This function also increments
 /// network_config_version.
 async fn update_instance_network_config(
+    allow_instance_vf: bool,
     instance: &InstanceSnapshot,
     network: &mut InstanceNetworkConfig,
     mh_state: &ManagedHostState,
@@ -1142,7 +1157,9 @@ async fn update_instance_network_config(
 
     // Allocate network segment here if vpc_prefix_id is mentioned before validate.
     allocate_network(network, txn).await?;
-    network.validate().map_err(CarbideError::from)?;
+    network
+        .validate(allow_instance_vf)
+        .map_err(CarbideError::from)?;
 
     let mh_snapshot =
         db::managed_host::load_snapshot(txn, &instance.machine_id, LoadSnapshotOptions::default())
