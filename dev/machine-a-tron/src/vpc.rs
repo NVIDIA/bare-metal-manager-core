@@ -3,7 +3,7 @@ use crate::{
     tui::{UiUpdate, VpcDetails},
 };
 use ::rpc::Timestamp;
-use rpc::uuid::vpc::VpcId;
+use forge_uuid::vpc::VpcId;
 use std::fmt::Debug;
 use std::sync::Arc;
 

@@ -28,7 +28,7 @@ use crate::{
         },
     },
 };
-use ::rpc::uuid::network::NetworkSegmentId;
+use forge_uuid::network::NetworkSegmentId;
 use sqlx::PgConnection;
 use std::sync::Arc;
 

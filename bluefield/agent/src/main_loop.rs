@@ -36,13 +36,13 @@ use crate::{
     pretty_cmd, sysfs, upgrade,
 };
 use ::rpc::forge::ManagedHostNetworkConfigResponse;
-use ::rpc::uuid::machine::MachineId;
 use ::rpc::{forge as rpc, forge_tls_client};
 use eyre::WrapErr;
 use forge_certs::cert_renewal::ClientCertRenewer;
 use forge_host_support::agent_config::AgentConfig;
 use forge_network::virtualization::{DEFAULT_NETWORK_VIRTUALIZATION_TYPE, VpcVirtualizationType};
 use forge_systemd::systemd;
+use forge_uuid::machine::MachineId;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use tokio::signal::unix::{SignalKind, signal};

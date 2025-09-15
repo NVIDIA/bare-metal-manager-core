@@ -25,7 +25,7 @@ pub mod tests {
     use sha2::{Digest, Sha256};
 
     use crate::db;
-    use ::rpc::uuid::machine::MachineId;
+    use forge_uuid::machine::MachineId;
 
     use rpc::forge::TpmCaCert;
     use rpc::forge::forge_server::Forge;

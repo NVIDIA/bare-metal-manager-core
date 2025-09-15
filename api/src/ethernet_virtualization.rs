@@ -36,8 +36,8 @@ use crate::{
         network_security_group::NetworkSecurityGroup,
     },
 };
-use ::rpc::uuid::{instance::InstanceId, machine::MachineId, machine::MachineInterfaceId};
 use forge_network::virtualization::{VpcVirtualizationType, get_svi_ip};
+use forge_uuid::{instance::InstanceId, machine::MachineId, machine::MachineInterfaceId};
 
 #[derive(Default, Clone)]
 pub struct EthVirtData {

@@ -26,7 +26,7 @@ pub mod site;
 use crate::cfg::measurement::{Cmd, GlobalOptions};
 use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{ToTable, set_summary};
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 use serde::Serialize;
 
 pub async fn dispatch(

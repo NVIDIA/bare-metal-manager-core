@@ -3,9 +3,9 @@ use std::{fmt::Debug, net::Ipv4Addr};
 
 use crate::api_client::ApiClient;
 use crate::api_client::ClientApiError;
+use forge_uuid::machine::MachineInterfaceId;
 use mac_address::MacAddress;
 use rpc::forge::ManagedHostNetworkConfigResponse;
-use rpc::uuid::machine::MachineInterfaceId;
 use tokio::sync::{RwLock, mpsc, oneshot};
 
 pub type DhcpRelayResult<T> = Result<T, DhcpRelayError>;

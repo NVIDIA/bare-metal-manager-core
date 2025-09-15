@@ -15,7 +15,7 @@ pub mod network;
 pub mod storage;
 pub mod tenant_config;
 
-use ::rpc::uuid::network_security_group::{
+use forge_uuid::network_security_group::{
     NetworkSecurityGroupId, NetworkSecurityGroupIdParseError,
 };
 use serde::{Deserialize, Serialize};

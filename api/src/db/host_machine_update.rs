@@ -14,7 +14,7 @@ use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;
 use crate::model::machine::HostReprovisionRequest;
-use ::rpc::uuid::machine::{MachineId, MachineType};
+use forge_uuid::machine::{MachineId, MachineType};
 
 #[derive(Debug, FromRow)]
 pub struct HostMachineUpdate {

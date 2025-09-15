@@ -18,11 +18,11 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use forge_uuid::domain::DomainId;
+use forge_uuid::network::NetworkSegmentId;
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
-use rpc::uuid::domain::DomainId;
-use rpc::uuid::network::NetworkSegmentId;
 
 #[derive(Template)]
 #[template(path = "network_segment_show.html")]

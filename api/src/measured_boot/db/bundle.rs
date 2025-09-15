@@ -32,15 +32,15 @@ use crate::measured_boot::interface::common::pcr_register_values_to_map;
 use crate::measured_boot::interface::report::match_latest_reports;
 use crate::measured_boot::interface::{common, common::acquire_advisory_txn_lock};
 use crate::{CarbideError, CarbideResult};
-use ::rpc::measured_boot::bundle::MeasurementBundle;
-use ::rpc::measured_boot::journal::MeasurementJournal;
-use ::rpc::measured_boot::pcr::PcrRegisterValue;
-use ::rpc::measured_boot::records::{
+use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use itertools::Itertools;
+use measured_boot::bundle::MeasurementBundle;
+use measured_boot::journal::MeasurementJournal;
+use measured_boot::pcr::PcrRegisterValue;
+use measured_boot::records::{
     MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleValueRecord,
 };
-use ::rpc::uuid::machine::MachineId;
-use ::rpc::uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
-use itertools::Itertools;
 use sqlx::PgConnection;
 
 pub async fn new_with_txn(
@@ -790,7 +790,7 @@ async fn get_matching_bundles(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ::rpc::uuid::measured_boot::MeasurementBundleValueId;
+    use forge_uuid::measured_boot::MeasurementBundleValueId;
 
     const MEASUREMENT_BUNDLE_UUID_1: uuid::Uuid = uuid::Uuid::from_bytes([
         0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7,

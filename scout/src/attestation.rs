@@ -38,7 +38,7 @@ use std::vec::Vec;
 use crate::CarbideClientError;
 use ::rpc::forge as rpc;
 use ::rpc::machine_discovery as rpc_md;
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 pub(crate) fn create_context_from_path(path: &str) -> Result<Context, Box<dyn std::error::Error>> {
     let tcti = TctiNameConf::from_str(path)?;

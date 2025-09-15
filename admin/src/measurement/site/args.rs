@@ -26,11 +26,11 @@
 
 use clap::Parser;
 
-use ::rpc::measured_boot::records::MeasurementApprovedType;
-use ::rpc::uuid::measured_boot::{
+use forge_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     TrustedMachineId,
 };
+use measured_boot::records::MeasurementApprovedType;
 
 /// CmdSite provides a container for the `site` subcommand, which itself
 /// contains other subcommands for working with the site (i.e. export

@@ -14,8 +14,8 @@ use std::net::IpAddr;
 use sqlx::{FromRow, PgConnection};
 
 use super::{DatabaseError, network_segment::NetworkSegmentType};
-use ::rpc::uuid::machine::MachineId;
-use ::rpc::uuid::machine::MachineInterfaceId;
+use forge_uuid::machine::MachineId;
+use forge_uuid::machine::MachineInterfaceId;
 
 #[derive(Debug, FromRow, Clone)]
 pub struct MachineInterfaceAddress {

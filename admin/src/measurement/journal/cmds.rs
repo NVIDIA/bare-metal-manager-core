@@ -23,13 +23,13 @@ use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{
     CarbideCliError, CarbideCliResult, ToTable, cli_output, just_print_summary,
 };
-use ::rpc::measured_boot::records::MeasurementJournalRecord;
-use ::rpc::measured_boot::{bundle::MeasurementBundle, journal::MeasurementJournal};
 use ::rpc::protos::measured_boot::list_measurement_journal_request;
 use ::rpc::protos::measured_boot::show_measurement_journal_request;
 use ::rpc::protos::measured_boot::{
     DeleteMeasurementJournalRequest, ListMeasurementJournalRequest, ShowMeasurementJournalRequest,
 };
+use measured_boot::records::MeasurementJournalRecord;
+use measured_boot::{bundle::MeasurementBundle, journal::MeasurementJournal};
 use serde::Serialize;
 
 /// dispatch matches + dispatches the correct command for

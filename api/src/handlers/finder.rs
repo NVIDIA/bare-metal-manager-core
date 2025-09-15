@@ -14,7 +14,7 @@ use std::{fmt, net::IpAddr, str::FromStr};
 
 use ::rpc::protos::common as rpc_common;
 use ::rpc::protos::forge as rpc;
-use ::rpc::uuid::dpa_interface::DpaInterfaceId;
+use forge_uuid::dpa_interface::DpaInterfaceId;
 
 use crate::db;
 use crate::db::domain::{self, Domain};
@@ -34,7 +34,7 @@ use crate::{
     },
     model::resource_pool::ResourcePoolEntryState,
 };
-use ::rpc::uuid::{
+use forge_uuid::{
     domain::DomainId, instance::InstanceId, machine::MachineInterfaceId, network::NetworkSegmentId,
     vpc::VpcId,
 };

@@ -17,7 +17,7 @@ use crate::{
     cfg::cli_options::HealthOverrideTemplates, machine::get_health_report, rpc::ApiClient,
 };
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 pub async fn trigger_reprovisioning(
     host_id: MachineId,

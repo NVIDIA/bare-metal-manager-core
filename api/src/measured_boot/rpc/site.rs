@@ -23,10 +23,10 @@ use crate::measured_boot::interface::site::{
     remove_from_approved_profiles_by_approval_id, remove_from_approved_profiles_by_profile_id,
 };
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
-use ::rpc::measured_boot::records::{
+use forge_uuid::measured_boot::TrustedMachineId;
+use measured_boot::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
 };
-use ::rpc::uuid::measured_boot::TrustedMachineId;
 
 use rpc::protos::measured_boot::remove_measurement_trusted_profile_request;
 use rpc::protos::measured_boot::{
@@ -48,8 +48,8 @@ use rpc::protos::measured_boot::{
 use crate::CarbideError;
 use crate::measured_boot::db;
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::measured_boot::site::{MachineAttestationSummaryList, SiteModel};
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
+use measured_boot::site::{MachineAttestationSummaryList, SiteModel};
 use sqlx::{Pool, Postgres};
 use std::str::FromStr;
 

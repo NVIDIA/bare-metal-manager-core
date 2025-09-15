@@ -15,11 +15,11 @@ use std::time::Duration;
 use crate::db::network_segment::NetworkSegment;
 
 use crate::tests::common;
-use ::rpc::uuid::network::NetworkSegmentId;
 use common::{
     api_fixtures::{TestEnvOverrides, create_test_env, create_test_env_with_overrides},
     network_segment::{create_network_segment_with_api, get_segment_state, text_history},
 };
+use forge_uuid::network::NetworkSegmentId;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 

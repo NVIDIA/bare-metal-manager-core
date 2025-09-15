@@ -24,12 +24,12 @@ use crate::measured_boot::interface::machine::{
     get_candidate_machine_record_by_id, get_candidate_machine_records, get_candidate_machine_state,
 };
 use crate::{CarbideError, CarbideResult};
-use ::rpc::measured_boot::journal::MeasurementJournal;
-use ::rpc::measured_boot::machine::CandidateMachine;
-use ::rpc::measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
-use ::rpc::uuid::DbTable;
-use ::rpc::uuid::machine::{MachineId, MachineType};
 use chrono::Utc;
+use forge_uuid::DbTable;
+use forge_uuid::machine::{MachineId, MachineType};
+use measured_boot::journal::MeasurementJournal;
+use measured_boot::machine::CandidateMachine;
+use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 use rpc::protos::measured_boot::CandidateMachineSummaryPb;
 use serde::Serialize;
 use sqlx::{FromRow, PgConnection};

@@ -11,7 +11,7 @@
  */
 
 use crate::tests::common::api_fixtures::Api;
-use ::rpc::uuid::machine::MachineInterfaceId;
+use forge_uuid::machine::MachineInterfaceId;
 use rpc::forge::MachineArchitecture;
 use rpc::forge::PxeInstructions;
 use rpc::forge::forge_server::Forge;

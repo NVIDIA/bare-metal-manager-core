@@ -10,13 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use rpc::uuid::vpc::VpcId;
+use forge_uuid::vpc::VpcId;
 use std::time::SystemTime;
 use uuid::uuid;
 
-use ::rpc::uuid::instance::InstanceId;
-use ::rpc::uuid::machine::MachineId;
 use config_version::ConfigVersion;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
 use rpc::forge::forge_server::Forge;
 use rpc::health::HealthReport;
 use tonic::Code;

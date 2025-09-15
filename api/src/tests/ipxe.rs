@@ -6,9 +6,9 @@ use crate::{
     db::{self},
     model::machine::{DpuInitState, MachineState, ManagedHostState},
 };
-use ::rpc::uuid::machine::{MachineId, MachineInterfaceId};
 use common::api_fixtures::TestEnv;
 use common::api_fixtures::create_test_env;
+use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
 use rpc::forge::{CloudInitInstructionsRequest, DhcpDiscovery, forge_server::Forge};

@@ -19,6 +19,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tracing::warn;
 
+use forge_uuid::machine::MachineId;
 use rpc::common::MachineIdList;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
@@ -27,7 +28,6 @@ use rpc::forge::{
 };
 use rpc::machine_discovery::MemoryDevice;
 use rpc::site_explorer::{EndpointExplorationReport, ExploredEndpoint, ExploredManagedHost};
-use rpc::uuid::machine::MachineId;
 use rpc::{DiscoveryInfo, Machine, Timestamp};
 
 macro_rules! get_dmi_data_from_machine {

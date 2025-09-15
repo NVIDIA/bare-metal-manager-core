@@ -23,9 +23,6 @@ use crate::measurement::global::cmds::{IdentifierType, get_identifier};
 use crate::rpc::ApiClient;
 use ::rpc::admin_cli::cli_output;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable};
-use ::rpc::measured_boot::bundle::MeasurementBundle;
-use ::rpc::measured_boot::pcr::PcrRegisterValue;
-use ::rpc::measured_boot::records::MeasurementBundleRecord;
 use ::rpc::protos::measured_boot::{
     CreateMeasurementBundleRequest, DeleteMeasurementBundleRequest, FindClosestBundleMatchRequest,
     ListMeasurementBundleMachinesRequest, MeasurementBundleStatePb, RenameMeasurementBundleRequest,
@@ -36,8 +33,11 @@ use ::rpc::protos::measured_boot::{
     rename_measurement_bundle_request, show_measurement_bundle_request,
     update_measurement_bundle_request,
 };
-use ::rpc::uuid::machine::MachineId;
-use ::rpc::uuid::measured_boot::MeasurementBundleId;
+use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::MeasurementBundleId;
+use measured_boot::bundle::MeasurementBundle;
+use measured_boot::pcr::PcrRegisterValue;
+use measured_boot::records::MeasurementBundleRecord;
 use serde::Serialize;
 use std::str::FromStr;
 

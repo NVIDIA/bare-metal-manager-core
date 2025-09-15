@@ -16,7 +16,7 @@ use crate::api::Api;
 use crate::db;
 use crate::db::DatabaseError;
 use crate::db::machine_boot_override::MachineBootOverride;
-use ::rpc::uuid::machine::MachineInterfaceId;
+use forge_uuid::machine::MachineInterfaceId;
 
 pub(crate) async fn get(
     api: &Api,

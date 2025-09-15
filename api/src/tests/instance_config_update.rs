@@ -17,8 +17,8 @@ use common::api_fixtures::{
     instance::{default_tenant_config, single_interface_network_config},
 };
 
-use ::rpc::uuid::network::NetworkSegmentId;
 use config_version::ConfigVersion;
+use forge_uuid::network::NetworkSegmentId;
 use rpc::forge::{forge_server::Forge, instance_interface_config::NetworkDetails};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tonic::Request;

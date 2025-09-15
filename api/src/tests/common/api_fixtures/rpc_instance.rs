@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::uuid::instance::InstanceId;
-use ::rpc::uuid::machine::MachineId;
 use config_version::ConfigVersion;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
 
 // Represents Instance returned via RPC call.
 // Adds some widely used helpers.

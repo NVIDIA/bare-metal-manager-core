@@ -17,8 +17,8 @@ use crate::{
     db::{self, desired_firmware, host_machine_update::HostMachineUpdate},
     model::machine::ManagedHostStateSnapshot,
 };
-use ::rpc::uuid::machine::MachineId;
 use async_trait::async_trait;
+use forge_uuid::machine::MachineId;
 use opentelemetry::metrics::Meter;
 use sqlx::PgConnection;
 use std::{

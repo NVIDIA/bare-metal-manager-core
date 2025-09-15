@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::uuid::measured_boot::MeasurementReportId;
+use forge_uuid::measured_boot::MeasurementReportId;
 use sqlx::PgConnection;
 use std::fs;
 use std::fs::File;
@@ -23,7 +23,7 @@ use crate::model::hardware_info::TpmEkCertificate;
 use crate::model::machine::MeasuringState;
 use crate::state_controller::machine::MeasuringOutcome;
 use crate::state_controller::machine::handle_measuring_state;
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 use x509_parser::certificate::X509Certificate;
 use x509_parser::prelude::FromDer;

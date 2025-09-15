@@ -21,8 +21,8 @@ use crate::{
         network_segment::NetworkSegment,
     },
 };
-use ::rpc::uuid::instance::InstanceId;
-use rpc::uuid::network::NetworkPrefixId;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::network::NetworkPrefixId;
 
 #[async_trait::async_trait]
 pub trait UsedIpResolver {

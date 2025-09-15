@@ -27,8 +27,8 @@ use ::rpc::forge::{
     AdminForceDeleteMachineRequest, IbPartitionSearchConfig, IbPartitionStatus,
     InstancesByIdsRequest, TenantState, forge_server::Forge,
 };
-use ::rpc::uuid::infiniband::IBPartitionId;
-use ::rpc::uuid::machine::{MachineId, MachineType};
+use forge_uuid::infiniband::IBPartitionId;
+use forge_uuid::machine::{MachineId, MachineType};
 use sqlx::{PgConnection, Row};
 use std::{collections::HashSet, net::IpAddr, str::FromStr};
 use tonic::Request;
@@ -316,7 +316,7 @@ fn validate_delete_response(
 fn validate_delete_response_multi_dpu(
     response: &rpc::forge::AdminForceDeleteMachineResponse,
     host_machine_id: Option<&MachineId>,
-    dpu_machine_ids: &[rpc::uuid::machine::MachineId],
+    dpu_machine_ids: &[forge_uuid::machine::MachineId],
 ) {
     assert_eq!(
         response
@@ -603,7 +603,7 @@ async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgP
         .dpu_ids
         .clone()
         .into_iter()
-        .collect::<Vec<rpc::uuid::machine::MachineId>>();
+        .collect::<Vec<forge_uuid::machine::MachineId>>();
     assert_eq!(
         mh.dpu_ids.len(),
         2,

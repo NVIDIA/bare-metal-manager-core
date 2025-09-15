@@ -21,11 +21,9 @@ use crate::measurement::site::args::{
     RemoveProfileByProfileId, TrustedMachine, TrustedProfile,
 };
 use ::rpc::admin_cli::cli_output;
-use ::rpc::measured_boot::site::{ImportResult, SiteModel};
+use measured_boot::site::{ImportResult, SiteModel};
 
-use ::rpc::measured_boot::records::{
-    MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord,
-};
+use measured_boot::records::{MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord};
 
 use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, set_summary};

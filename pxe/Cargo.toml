@@ -16,6 +16,7 @@ forge-host-support = { path = "../common/host-support" }
 forge-tls = { path = "../common/tls" }
 forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }
+forge-uuid = { path = "../common/uuid" }
 # [end-local-dependencies]
 
 axum = { workspace = true }

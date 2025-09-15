@@ -27,10 +27,10 @@ mod tests {
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
     use crate::model::machine::ManagedHostState;
     use crate::model::metadata::Metadata;
-    use ::rpc::measured_boot::pcr::PcrRegisterValue;
-    use ::rpc::measured_boot::records::MeasurementApprovedMachineRecord;
-    use ::rpc::uuid::machine::MachineId;
-    use ::rpc::uuid::measured_boot::TrustedMachineId;
+    use forge_uuid::machine::MachineId;
+    use forge_uuid::measured_boot::TrustedMachineId;
+    use measured_boot::pcr::PcrRegisterValue;
+    use measured_boot::records::MeasurementApprovedMachineRecord;
     use rpc::protos::measured_boot as mbrpc;
     use std::str::FromStr;
 

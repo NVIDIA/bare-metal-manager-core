@@ -12,17 +12,17 @@
 
 use super::filters;
 use crate::api::Api;
-use ::rpc::uuid::machine::MachineId;
 use askama::Template;
 use axum::extract::{self, Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use forge_uuid::machine::MachineId;
+use forge_uuid::machine::MachineType;
 use health_report::HealthReport;
 use hyper::http::StatusCode;
 use rpc::forge::{
     InsertHealthReportOverrideRequest, MachinesByIdsRequest, OverrideMode,
     RemoveHealthReportOverrideRequest, forge_server::Forge,
 };
-use rpc::uuid::machine::MachineType;
 use std::{str::FromStr, sync::Arc};
 
 #[derive(Template)]

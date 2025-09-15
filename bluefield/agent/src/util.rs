@@ -10,10 +10,10 @@ use std::{
 use diff::Result as DiffResult;
 use eyre::{OptionExt, WrapErr};
 use forge_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
+use forge_uuid::machine::MachineId;
 use hickory_resolver::{Name, config::ResolverConfig};
 use hyper::service::Service;
 use resolv_conf::Config;
-use rpc::uuid::machine::MachineId;
 use rpc::{
     Instance, Timestamp,
     forge::InstancePhoneHomeLastContactRequest,

@@ -19,8 +19,8 @@ use uuid::Uuid;
 
 use crate::model::tenant::TenantOrganizationId;
 
-use ::rpc::uuid::machine::MachineId;
-use rpc::uuid::instance::InstanceId;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
 
 /// This file is just for the struct definitions and grpc proto object conversions
 /// methods are implemented in api/src/db/storage.rs and callers in api/src/storage.rs

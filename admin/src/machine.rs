@@ -21,12 +21,12 @@ use crate::{async_write, async_write_table_as_csv, async_writeln};
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
 use chrono::Utc;
+use forge_uuid::machine::MachineId;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
 };
 use prettytable::{Row, Table, row};
 use rpc::Machine;
-use rpc::uuid::machine::MachineId;
 use std::fmt::Write;
 use std::fs;
 use std::str::FromStr;

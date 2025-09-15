@@ -10,6 +10,16 @@ name = "forge-scout"
 path = "src/main.rs"
 
 [dependencies]
+
+# [local-dependencies]
+rpc = { path = "../rpc" }
+forge-host-support = { path = "../common/host-support" }
+forge-tls = { path = "../common/tls" }
+forge-version = { path = "../common/version" }
+utils = { path = "../common/utils" }
+machine-validation = { path = "../common/machine-validation" }
+forge-uuid = { path = "../common/uuid" }
+
 chrono = "0.4.34"
 clap = { workspace = true }
 eyre = "*"
@@ -36,14 +46,6 @@ reqwest = { version = "*", default-features = false, features = [
 futures-util = "0.3"
 prost-types = "0.14.1"
 x509-parser = "0.17.0"
-
-# [local-dependencies]
-rpc = { path = "../rpc" }
-forge-host-support = { path = "../common/host-support" }
-forge-tls = { path = "../common/tls" }
-forge-version = { path = "../common/version" }
-utils = { path = "../common/utils" }
-machine-validation = { path = "../common/machine-validation" }
 
 [build-dependencies]
 forge-version = { path = "../common/version" }

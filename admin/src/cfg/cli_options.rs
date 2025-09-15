@@ -20,23 +20,23 @@ use clap::{ArgGroup, Parser, ValueEnum, ValueHint};
 use ipnet::IpNet;
 use mac_address::MacAddress;
 
-use ::rpc::uuid::machine::MachineId;
-use ::rpc::uuid::vpc::{VpcId, VpcPrefixId};
 use forge_network::virtualization::VpcVirtualizationType;
 use forge_ssh::ssh::{
     DEFAULT_SSH_SESSION_TIMEOUT, DEFAULT_TCP_CONNECTION_TIMEOUT, DEFAULT_TCP_READ_TIMEOUT,
     DEFAULT_TCP_WRITE_TIMEOUT, SshConfig,
 };
+use forge_uuid::domain::DomainId;
+use forge_uuid::dpa_interface::DpaInterfaceId;
+use forge_uuid::infiniband::IBPartitionId;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
+use forge_uuid::machine::MachineInterfaceId;
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::{VpcId, VpcPrefixId};
+use forge_uuid::vpc_peering::VpcPeeringId;
 use libredfish::model::update_service::ComponentType;
 use rpc::admin_cli::OutputFormat;
 use rpc::forge::{OperatingSystem, RouteServerSourceType, SshTimeoutConfig};
-use rpc::uuid::domain::DomainId;
-use rpc::uuid::dpa_interface::DpaInterfaceId;
-use rpc::uuid::infiniband::IBPartitionId;
-use rpc::uuid::instance::InstanceId;
-use rpc::uuid::machine::MachineInterfaceId;
-use rpc::uuid::network::NetworkSegmentId;
-use rpc::uuid::vpc_peering::VpcPeeringId;
 use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
 

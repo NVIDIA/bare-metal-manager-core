@@ -14,7 +14,7 @@ use std::str::FromStr;
 
 use crate::CarbideError;
 use crate::db::{self, ObjectColumnFilter, dhcp_entry, dhcp_entry::DhcpEntry};
-use ::rpc::uuid::machine::MachineInterfaceId;
+use forge_uuid::machine::MachineInterfaceId;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use rpc::forge::ManagedHostNetworkConfigRequest;

@@ -15,7 +15,7 @@ use crate::attestation as attest;
 use forge_host_support::{
     hardware_enumeration::enumerate_hardware, registration, registration::RegistrationError,
 };
-use rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 use std::process;
 use tracing::{error, info};
 use tss_esapi::Context;

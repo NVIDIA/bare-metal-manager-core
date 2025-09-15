@@ -34,9 +34,9 @@ use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
 use crate::model::machine::{InstanceState, ManagedHostState};
 use crate::{CarbideError, ethernet_virtualization};
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::uuid::machine::MachineId;
 use ::rpc::{common as rpc_common, forge as rpc};
 use forge_network::virtualization::VpcVirtualizationType;
+use forge_uuid::machine::MachineId;
 use itertools::Itertools;
 use tonic::{Request, Response, Status};
 

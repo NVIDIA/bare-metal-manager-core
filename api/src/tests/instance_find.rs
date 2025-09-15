@@ -16,8 +16,8 @@ use crate::tests::common::api_fixtures::{
 };
 
 use ::rpc::forge as rpc;
-use ::rpc::uuid::instance::InstanceId;
 use base64::prelude::*;
+use forge_uuid::instance::InstanceId;
 use rpc::forge_server::Forge;
 
 #[crate::sqlx_test]

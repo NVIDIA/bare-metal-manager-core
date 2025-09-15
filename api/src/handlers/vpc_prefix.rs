@@ -20,7 +20,7 @@ use crate::db::vpc_prefix as db;
 use crate::db::{DatabaseError, ObjectColumnFilter};
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
-use ::rpc::uuid::vpc::VpcPrefixId;
+use forge_uuid::vpc::VpcPrefixId;
 
 pub async fn create(
     api: &Api,

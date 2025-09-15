@@ -37,10 +37,10 @@ use crate::{
         },
     },
 };
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
+use forge_uuid::machine::MachineInterfaceId;
 use libredfish::{OData, PCIeDevice, model::oem::nvidia_dpu::NicMode};
 use mac_address::MacAddress;
-use rpc::uuid::machine::MachineInterfaceId;
 use rpc::{
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
     forge::{DhcpDiscovery, forge_server::Forge},
@@ -247,7 +247,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
 pub async fn create_dpu_machine(
     env: &TestEnv,
     host_config: &ManagedHostConfig,
-) -> rpc::uuid::machine::MachineId {
+) -> forge_uuid::machine::MachineId {
     site_explorer::new_dpu(env, host_config.clone())
         .await
         .unwrap()
@@ -315,7 +315,7 @@ pub async fn dpu_discover_machine(
     env: &TestEnv,
     dpu_config: &DpuConfig,
     machine_interface_id: MachineInterfaceId,
-) -> rpc::uuid::machine::MachineId {
+) -> forge_uuid::machine::MachineId {
     let response = env
         .api
         .discover_machine(Request::new(MachineDiscoveryInfo {

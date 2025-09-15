@@ -1,5 +1,7 @@
 use crate::MachineConfig;
 use base64::prelude::*;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use mac_address::MacAddress;
 use rpc::forge::MachineType;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
@@ -7,8 +9,6 @@ use rpc::forge::{
     ConfigSetting, ExpectedMachine, MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
-use rpc::uuid::instance::InstanceId;
-use rpc::uuid::machine::{MachineId, MachineInterfaceId};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 #[derive(thiserror::Error, Debug)]

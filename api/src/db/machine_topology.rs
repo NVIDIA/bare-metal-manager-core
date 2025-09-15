@@ -23,7 +23,7 @@ use super::DatabaseError;
 use crate::CarbideResult;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::hardware_info::HardwareInfo;
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 #[cfg(test)]
 use crate::model::hardware_info::HardwareInfoV1;

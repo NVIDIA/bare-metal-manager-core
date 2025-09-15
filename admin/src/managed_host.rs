@@ -13,8 +13,9 @@
 use crate::cfg::cli_options::{ShowManagedHost, ShowPowerOptions, SortField, UpdatePowerOptions};
 use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv};
+use ::rpc::Machine;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::{Machine, uuid::machine::MachineId};
+use forge_uuid::machine::MachineId;
 use prettytable::{Cell, Row, Table};
 use rpc::forge::PowerOptions;
 use serde::Serialize;

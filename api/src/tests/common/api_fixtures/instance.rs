@@ -23,8 +23,8 @@ use crate::model::machine::{
 };
 use crate::tests::common::api_fixtures::RpcInstance;
 use crate::tests::common::api_fixtures::TestManagedHost;
-use ::rpc::uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
-use rpc::uuid::vpc::VpcPrefixId;
+use forge_uuid::vpc::VpcPrefixId;
+use forge_uuid::{instance::InstanceId, machine::MachineId, network::NetworkSegmentId};
 use rpc::{
     InstanceReleaseRequest, Timestamp,
     forge::{forge_server::Forge, instance_interface_config::NetworkDetails},

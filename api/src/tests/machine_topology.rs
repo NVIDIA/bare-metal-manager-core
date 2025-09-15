@@ -20,7 +20,7 @@ use crate::{
     model::hardware_info::{Cpu, CpuInfo, HardwareInfo, HardwareInfoV1},
     model::machine::machine_id::from_hardware_info,
 };
-use ::rpc::uuid::machine::{MachineId, MachineType};
+use forge_uuid::machine::{MachineId, MachineType};
 
 use crate::db::{ObjectColumnFilter, network_segment};
 use crate::tests::common;

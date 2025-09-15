@@ -34,8 +34,8 @@ use sqlx::{Pool, Postgres};
 
 use crate::errors::CarbideError;
 use crate::measured_boot::db::{self, bundle};
-use ::rpc::measured_boot::pcr::PcrRegisterValue;
-use ::rpc::measured_boot::records::MeasurementBundleState;
+use measured_boot::pcr::PcrRegisterValue;
+use measured_boot::records::MeasurementBundleState;
 use rpc::protos::measured_boot::delete_measurement_bundle_request;
 use rpc::protos::measured_boot::list_measurement_bundle_machines_request;
 use rpc::protos::measured_boot::rename_measurement_bundle_request;

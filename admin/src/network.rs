@@ -19,8 +19,8 @@ use serde::Deserialize;
 use super::cfg::cli_options::ShowNetwork;
 use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use rpc::uuid::domain::DomainId;
-use rpc::uuid::network::NetworkSegmentId;
+use forge_uuid::domain::DomainId;
+use forge_uuid::network::NetworkSegmentId;
 
 #[derive(Deserialize)]
 struct NetworkState {

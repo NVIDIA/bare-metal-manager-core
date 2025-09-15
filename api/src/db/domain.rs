@@ -13,8 +13,8 @@
 use super::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::{CarbideError, CarbideResult};
 use ::rpc::forge as rpc;
-use ::rpc::uuid::domain::DomainId;
 use chrono::prelude::*;
+use forge_uuid::domain::DomainId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Error, FromRow, PgConnection, Row};

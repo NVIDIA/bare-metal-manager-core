@@ -16,12 +16,12 @@
 */
 
 use crate::db::DatabaseError;
-use ::rpc::measured_boot::records::{MeasurementReportRecord, MeasurementReportValueRecord};
-use ::rpc::uuid::measured_boot::MeasurementReportId;
+use forge_uuid::measured_boot::MeasurementReportId;
+use measured_boot::records::{MeasurementReportRecord, MeasurementReportValueRecord};
 
 use crate::measured_boot::interface::common;
-use ::rpc::measured_boot::pcr::PcrRegisterValue;
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
+use measured_boot::pcr::PcrRegisterValue;
 use sqlx::{PgConnection, Postgres, QueryBuilder};
 
 /// match_latest_reports takes a list of PcrRegisterValues (i.e. register:shaXXX)

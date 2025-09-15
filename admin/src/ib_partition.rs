@@ -16,8 +16,8 @@ use super::cfg::cli_options::ShowIbPartition;
 use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
+use forge_uuid::infiniband::IBPartitionId;
 use prettytable::{Table, row};
-use rpc::uuid::infiniband::IBPartitionId;
 
 pub async fn handle_show(
     args: ShowIbPartition,

@@ -25,11 +25,11 @@ use bmc_mock::{
     POWER_CYCLE_DELAY, PowerStateQuerying, SetSystemPowerError, SetSystemPowerReq,
     SetSystemPowerResult, SystemPowerControl,
 };
+use forge_uuid::machine::MachineId;
 use rpc::forge::{
     MachineArchitecture, MachineDiscoveryResult, MachineType, ManagedHostNetworkConfigResponse,
 };
 use rpc::forge_agent_control_response::Action;
-use rpc::uuid::machine::MachineId;
 
 /// MachineStateMachine (yo dawg) models the state machine of a machine endpoint
 ///

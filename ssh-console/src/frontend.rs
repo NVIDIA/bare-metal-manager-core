@@ -17,7 +17,7 @@ use crate::bmc::message_proxy::{ExecReply, ToBmcMessage};
 use crate::config::Config;
 use crate::shutdown_handle::ShutdownHandle;
 use crate::ssh_server::ServerMetrics;
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 use lazy_static::lazy_static;
 use rpc::forge::ValidateTenantPublicKeyRequest;
 use rpc::forge_api_client::ForgeApiClient;

@@ -20,8 +20,8 @@ use axum::{Router, extract::State, response::IntoResponse, routing::get};
 use axum_template::TemplateEngine;
 use base64::Engine as _;
 use forge_host_support::agent_config;
+use forge_uuid::machine::MachineInterfaceId;
 use rpc::forge;
-use rpc::uuid::machine::MachineInterfaceId;
 
 /// Generates the content of the /etc/forge/config.toml file
 //

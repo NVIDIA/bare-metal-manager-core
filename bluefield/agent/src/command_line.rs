@@ -15,7 +15,7 @@ use clap::Parser;
 
 use crate::network_monitor::NetworkPingerType;
 use forge_network::virtualization::VpcVirtualizationType;
-use rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 #[derive(Parser)]
 #[clap(name = "forge-dpu-agent")]

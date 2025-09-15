@@ -20,10 +20,10 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use forge_uuid::machine::MachineId;
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
-use rpc::uuid::machine::MachineId;
 
 const DEFAULT_PAGE_RECORD_LIMIT: usize = 50;
 

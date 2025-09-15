@@ -24,7 +24,7 @@ use crate::db::{
 };
 use crate::model::tenant::InvalidTenantOrg;
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::uuid::{network_security_group::NetworkSecurityGroupId, vpc::VpcId};
+use forge_uuid::{network_security_group::NetworkSecurityGroupId, vpc::VpcId};
 
 pub(crate) async fn create(
     api: &Api,

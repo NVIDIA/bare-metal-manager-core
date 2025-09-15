@@ -10,6 +10,14 @@ sqlx = ["dep:sqlx"]
 cli = ["dep:clap", "dep:prettytable-rs", "dep:serde_yaml"]
 
 [dependencies]
+
+# [local-dependencies]
+forge-http-connector = { path = "../common/http-connector" }
+forge-tls = { path = "../common/tls" }
+health-report = { path = "../common/health-report" }
+tonic-client-wrapper = { path = "../common/tonic-client-wrapper", default-features = false }
+forge-uuid = { path = "../common/uuid" }
+
 chrono = { version = "0.4.34", features = ["serde"] }
 eyre = "0.6"
 hyper = { workspace = true, features = ["full"] }
@@ -41,12 +49,6 @@ clap = { version = "4.5.45", optional = true }
 sqlx = { workspace = true, optional = true }
 prettytable-rs = { version = "^0.10", optional = true }
 serde_yaml = { version = "*", optional = true }
-
-# [local-dependencies]
-forge-http-connector = { path = "../common/http-connector" }
-forge-tls = { path = "../common/tls" }
-health-report = { path = "../common/health-report" }
-tonic-client-wrapper = { path = "../common/tonic-client-wrapper", default-features = false }
 data-encoding = "2.9.0"
 sha2 = "0.10.9"
 

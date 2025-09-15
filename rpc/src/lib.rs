@@ -57,9 +57,7 @@ pub use crate::protos::site_explorer;
 
 pub mod errors;
 pub mod forge_tls_client;
-pub mod measured_boot;
 pub mod protos;
-pub mod uuid;
 
 #[cfg(feature = "cli")]
 pub mod admin_cli;
@@ -733,7 +731,7 @@ impl clap::ValueEnum for forge::RouteServerSourceType {
 mod tests {
     use self::forge::{IpxeOperatingSystem, OperatingSystem, operating_system::Variant};
     use super::*;
-    use crate::uuid::machine::MachineId;
+    use forge_uuid::machine::MachineId;
     use std::time::Duration;
 
     #[test]

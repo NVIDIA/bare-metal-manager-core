@@ -8,6 +8,9 @@ authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+
+forge-uuid = { path = "../uuid" }
+
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -22,8 +22,8 @@ use crate::cfg::cli_options::{RebootInstance, SortField};
 use crate::rpc::ApiClient;
 use crate::{async_write, async_writeln};
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::uuid::machine::MachineId;
-use rpc::uuid::instance::InstanceId;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
 
 fn convert_instance_to_nice_format(
     instance: &forgerpc::Instance,

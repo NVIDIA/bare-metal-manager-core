@@ -14,6 +14,22 @@ name = "carbide-api"
 path = "src/main.rs"
 
 [dependencies]
+
+# [local-dependencies]
+bmc-vendor = { path = "../common/bmc-vendor" }
+config-version = { path = "../common/config-version", features = ["sqlx"] }
+forge-host-support = { path = "../common/host-support", default-features = false }
+forge-network = { path = "../common/network", features = ["sqlx"] }
+forge_secrets = { path = "../common/secrets" }
+forge-version = { path = "../common/version" }
+health-report = { path = "../common/health-report" }
+logfmt = { path = "../common/logfmt" }
+rpc = { path = "../rpc", features = ["sqlx"] }
+utils = { path = "../common/utils", features = ["sqlx"] }
+forge-ssh = { path = "../common/ssh" }
+forge-uuid = { path = "../common/uuid", features = ["sqlx"] }
+measured-boot = { path = "../common/measured-boot", features = ["sqlx"] }
+
 arc-swap = "1.6"
 askama = { version = "0.12.1", features = ["serde-json"] }
 askama_escape = "0.10"
@@ -103,19 +119,6 @@ oauth2 = { version = "5", default-features = false }
 time = "0.3.36"
 asn1-rs = "0.7.0"
 ansi-to-html = { workspace = true }
-
-# [local-dependencies]
-bmc-vendor = { path = "../common/bmc-vendor" }
-config-version = { path = "../common/config-version", features = ["sqlx"] }
-forge-host-support = { path = "../common/host-support", default-features = false }
-forge-network = { path = "../common/network", features = ["sqlx"] }
-forge_secrets = { path = "../common/secrets" }
-forge-version = { path = "../common/version" }
-health-report = { path = "../common/health-report" }
-logfmt = { path = "../common/logfmt" }
-rpc = { path = "../rpc", features = ["sqlx"] }
-utils = { path = "../common/utils", features = ["sqlx"] }
-forge-ssh = { path = "../common/ssh" }
 
 [features]
 default = ["linux-build"]

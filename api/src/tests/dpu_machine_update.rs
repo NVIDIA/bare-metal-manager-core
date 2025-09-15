@@ -12,8 +12,8 @@ use crate::{
     db, db::dpu_machine_update::DpuMachineUpdate,
     model::machine::network::MachineNetworkStatusObservation,
 };
-use ::rpc::uuid::machine::MachineId;
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
+use forge_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
 use super::common::api_fixtures::TestEnv;

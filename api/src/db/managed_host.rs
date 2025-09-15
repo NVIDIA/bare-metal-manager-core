@@ -16,8 +16,8 @@
 use crate::cfg::file::HostHealthConfig;
 use crate::db::queries;
 use crate::{db::DatabaseError, model::machine::ManagedHostStateSnapshot};
-use ::rpc::uuid::machine::MachineType;
-use ::rpc::uuid::{instance::InstanceId, machine::MachineId};
+use forge_uuid::machine::MachineType;
+use forge_uuid::{instance::InstanceId, machine::MachineId};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use sqlx::PgConnection;

@@ -25,7 +25,7 @@ use rpc::forge::forge_server::Forge;
 use uuid::Uuid;
 
 use crate::api::Api;
-use ::rpc::uuid::machine::{MachineId, MachineType};
+use forge_uuid::machine::{MachineId, MachineType};
 use rpc::forge::IdentifySerialResponse;
 
 pub async fn find(

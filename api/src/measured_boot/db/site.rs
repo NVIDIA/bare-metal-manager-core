@@ -30,7 +30,7 @@ use crate::measured_boot::interface::profile::{
 use crate::measured_boot::interface::profile::{
     import_measurement_system_profiles, import_measurement_system_profiles_attrs,
 };
-use ::rpc::measured_boot::site::SiteModel;
+use measured_boot::site::SiteModel;
 use sqlx::PgConnection;
 
 /// import takes a populated SiteModel and imports it by

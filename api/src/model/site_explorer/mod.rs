@@ -11,9 +11,9 @@
  */
 use std::{collections::HashMap, fmt::Display, net::IpAddr, str::FromStr};
 
-use ::rpc::uuid::machine::{MachineId, MachineType};
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
+use forge_uuid::machine::{MachineId, MachineType};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use libredfish::RedfishError;

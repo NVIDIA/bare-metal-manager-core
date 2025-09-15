@@ -25,9 +25,9 @@ use crate::util::{create_forge_client, get_periodic_dpu_config, get_sitename};
 use ::rpc::Instance;
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::ForgeClientConfig;
-use ::rpc::uuid::infiniband::IBPartitionId;
-use ::rpc::uuid::instance::InstanceId;
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::infiniband::IBPartitionId;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
 
 pub struct PeriodicFetcherState {
     config: PeriodicConfigFetcherConfig,

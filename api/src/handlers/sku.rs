@@ -13,8 +13,8 @@ use crate::{
 };
 
 use chrono::Utc;
+use forge_uuid::machine::MachineId;
 use rpc::forge::SkuIdList;
-use rpc::uuid::machine::MachineId;
 use tonic::{Request, Response};
 
 pub(crate) async fn create(

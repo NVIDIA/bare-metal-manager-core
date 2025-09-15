@@ -24,7 +24,7 @@ use ::rpc::forge::{
     UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest, VpcCreationRequest,
     VpcSearchQuery, VpcVirtualizationType,
 };
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -34,13 +34,13 @@ use crate::cfg::cli_options::{
 };
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge_api_client::ForgeApiClient;
-use ::rpc::uuid::dpa_interface::DpaInterfaceId;
-use ::rpc::uuid::infiniband::IBPartitionId;
-use ::rpc::uuid::instance::InstanceId;
-use ::rpc::uuid::machine::MachineInterfaceId;
-use ::rpc::uuid::network::NetworkSegmentId;
-use ::rpc::uuid::vpc::VpcId;
-use ::rpc::uuid::vpc_peering::VpcPeeringId;
+use forge_uuid::dpa_interface::DpaInterfaceId;
+use forge_uuid::infiniband::IBPartitionId;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineInterfaceId;
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::VpcId;
+use forge_uuid::vpc_peering::VpcPeeringId;
 use mac_address::MacAddress;
 
 /// [`ApiClient`] is a thin wrapper around [`ForgeApiClient`], which mainly adds some convenience
@@ -363,7 +363,7 @@ impl ApiClient {
 
     pub async fn get_domains(
         &self,
-        id: Option<::rpc::uuid::domain::DomainId>,
+        id: Option<::forge_uuid::domain::DomainId>,
     ) -> CarbideCliResult<rpc::DomainList> {
         let request = rpc::DomainSearchQuery { id, name: None };
         self.0

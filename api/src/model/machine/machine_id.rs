@@ -14,7 +14,7 @@
 use crate::errors::CarbideError;
 use crate::model::hardware_info::HardwareInfo;
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::uuid::machine::{MachineId, MachineIdSource, MachineType};
+use forge_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 
@@ -110,7 +110,7 @@ pub fn try_parse_machine_id(id: &str) -> Result<MachineId, CarbideError> {
 #[cfg(test)]
 mod tests {
     use crate::model::hardware_info::TpmEkCertificate;
-    use ::rpc::uuid::machine::MACHINE_ID_LENGTH;
+    use forge_uuid::machine::MACHINE_ID_LENGTH;
 
     use super::*;
 

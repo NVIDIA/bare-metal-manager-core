@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 use crate::{CarbideError, api::log_machine_id};
 

@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use forge_uuid::machine::MachineId;
 use rpc::forge as rpcf;
 use rpc::forge::forge_server::Forge;
-use rpc::uuid::machine::MachineId;
 
 use crate::tests::common;
 use common::api_fixtures::{

@@ -35,7 +35,7 @@ use crate::{
 };
 
 use crate::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
-use ::rpc::uuid::{infiniband::IBPartitionId, instance::InstanceId};
+use forge_uuid::{infiniband::IBPartitionId, instance::InstanceId};
 
 #[derive(Copy, Clone)]
 pub struct IdColumn;

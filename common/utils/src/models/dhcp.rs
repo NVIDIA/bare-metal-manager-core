@@ -5,9 +5,10 @@ use std::{
     str::FromStr,
 };
 
+use forge_uuid::UuidConversionError;
+use forge_uuid::machine::MachineInterfaceId;
 use ipnetwork::Ipv4Network;
 use rpc::errors::RpcDataConversionError;
-use rpc::uuid::machine::MachineInterfaceId;
 use rpc::{InterfaceFunctionType, forge::ManagedHostNetworkConfigResponse};
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +37,8 @@ pub enum DhcpDataError {
     IpNetworkError(#[from] ipnetwork::IpNetworkError),
     #[error("DhcpDataError: RpcDataConversionError: {0}")]
     RpcConversion(#[from] RpcDataConversionError),
+    #[error("DhcpDataError: UuidConversionError: {0}")]
+    UuidConversion(#[from] UuidConversionError),
 }
 
 impl Default for DhcpConfig {

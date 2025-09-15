@@ -21,7 +21,7 @@ use crate::{
 
 use super::{ObjectFilter, machine::MachineSearchConfig, machine_validation_suites};
 
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, strum_macros::EnumString)]
 pub enum MachineValidationState {

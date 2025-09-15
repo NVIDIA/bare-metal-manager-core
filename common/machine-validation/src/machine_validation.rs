@@ -36,7 +36,7 @@ use crate::MachineValidationManager;
 use crate::MachineValidationOptions;
 use crate::SCHME;
 use chrono::Utc;
-use rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 pub const MAX_STRING_STD_SIZE: usize = 1024 * 1024; // 1MB in bytes;
 pub const DEFAULT_TIMEOUT: u64 = 3600;

@@ -17,13 +17,13 @@ use crate::bmc::{client, connection};
 use crate::config::Config;
 use crate::shutdown_handle::{ReadyHandle, ShutdownHandle};
 use crate::ssh_server::ServerMetrics;
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
 use futures_util::future::join_all;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Gauge, Meter, ObservableGauge};
 use rpc::forge;
 use rpc::forge_api_client::ForgeApiClient;
-use rpc::uuid::instance::InstanceId;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
@@ -313,7 +313,7 @@ impl BmcPool {
     }
 
     async fn refresh_bmcs(&mut self) -> Result<(), RefreshBmcsError> {
-        // Get all machine ID's from forge, parsing them into ::rpc::uuid::MachineId.
+        // Get all machine ID's from forge, parsing them into forge_uuid::MachineId.
         let machine_ids: HashSet<MachineId> = match &self.config.override_bmcs {
                 Some(override_bmcs) => {
                     override_bmcs

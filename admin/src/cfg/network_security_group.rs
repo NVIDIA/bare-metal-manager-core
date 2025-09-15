@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use clap::Parser;
-use rpc::uuid::instance::InstanceId;
-use rpc::uuid::vpc::VpcId;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::vpc::VpcId;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab_case")]

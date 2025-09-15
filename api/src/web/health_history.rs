@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::uuid::machine::MachineId;
 use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use forge_uuid::machine::MachineId;
 use hyper::http::StatusCode;
 use std::{str::FromStr, sync::Arc};
 

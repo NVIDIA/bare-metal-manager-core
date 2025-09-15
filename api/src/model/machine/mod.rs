@@ -30,12 +30,12 @@ use ::rpc::errors::RpcDataConversionError;
 
 use base64::prelude::*;
 
-use ::rpc::uuid::{
-    domain::DomainId, instance_type::InstanceTypeId, machine::MachineId,
-    machine::MachineInterfaceId, machine::RpcMachineTypeWrapper, network::NetworkSegmentId,
-};
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
+use forge_uuid::{
+    domain::DomainId, instance_type::InstanceTypeId, machine::MachineId,
+    machine::MachineInterfaceId, network::NetworkSegmentId,
+};
 use libredfish::{PowerState, SystemPowerControl};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
@@ -43,6 +43,7 @@ use sqlx::{Column, Row};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::ops::Deref;
 
 mod slas;
 
@@ -59,6 +60,7 @@ use crate::db::instance::InstanceSnapshotPgJson;
 use crate::db::machine::MachineSnapshotPgJson;
 use crate::db::network_segment::NetworkSegmentType;
 use crate::model::machine::health_override::HealthReportOverrides;
+use forge_uuid::machine::MachineType;
 use health_report::HealthReport;
 use rpc::forge::HealthOverrideOrigin;
 use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
@@ -840,6 +842,24 @@ impl Machine {
         }
 
         Ok((id_to_device_map, device_to_id_map))
+    }
+}
+
+pub struct RpcMachineTypeWrapper(rpc::forge::MachineType);
+
+impl From<MachineType> for RpcMachineTypeWrapper {
+    fn from(value: MachineType) -> Self {
+        RpcMachineTypeWrapper(match value {
+            MachineType::PredictedHost | MachineType::Host => rpc::forge::MachineType::Host,
+            MachineType::Dpu => rpc::forge::MachineType::Dpu,
+        })
+    }
+}
+
+impl Deref for RpcMachineTypeWrapper {
+    type Target = rpc::forge::MachineType;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

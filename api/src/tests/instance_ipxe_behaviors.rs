@@ -18,7 +18,7 @@ use crate::tests::common::api_fixtures::{
     create_managed_host,
     instance::{default_os_config, default_tenant_config, single_interface_network_config},
 };
-use ::rpc::uuid::{machine::MachineId, network::NetworkSegmentId};
+use forge_uuid::{machine::MachineId, network::NetworkSegmentId};
 
 use crate::tests::common;
 

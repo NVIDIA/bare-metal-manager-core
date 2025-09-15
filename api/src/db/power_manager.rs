@@ -9,9 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
+use forge_uuid::machine::MachineId;
 use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
 
 use crate::{

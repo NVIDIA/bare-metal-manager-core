@@ -41,7 +41,7 @@ mod daemons;
 mod dhcp;
 mod ethernet_virtualization;
 pub use ethernet_virtualization::FPath;
-use rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 pub mod duppet;
 mod frr;

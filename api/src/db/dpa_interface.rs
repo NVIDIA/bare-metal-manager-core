@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 use super::DatabaseError;
 use crate::CarbideError;
@@ -22,10 +22,10 @@ use crate::{
         DpaInterfaceNetworkStatusObservation,
     },
 };
-use ::rpc::uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use config_version::Versioned;
+use forge_uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
@@ -424,7 +424,7 @@ mod test {
         db::dpa_interface::NewDpaInterface,
         model::{machine::ManagedHostState, metadata::Metadata},
     };
-    use ::rpc::uuid::machine::MachineId;
+    use forge_uuid::machine::MachineId;
     use mac_address::MacAddress;
     use std::str::FromStr;
 

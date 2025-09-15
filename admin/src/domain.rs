@@ -17,7 +17,7 @@ use super::cfg::cli_options::ShowDomain;
 use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::{Timestamp, forge as forgerpc};
-use rpc::uuid::domain::DomainId;
+use forge_uuid::domain::DomainId;
 
 // timestamp_or_default returns a String representation of
 // the given timestamp Option, or, if the Option is None,
