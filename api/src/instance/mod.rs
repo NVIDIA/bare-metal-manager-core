@@ -392,7 +392,14 @@ pub async fn allocate_instance(
     // Validate the configuration for the instance
     // Note that this basic validation can not cross-check references
     // like `machine_id` or any `network_segments`.
-    request.config.validate(true)?;
+    request.config.validate(
+        true,
+        api.runtime_config
+            .vmaas_config
+            .as_ref()
+            .map(|vc| vc.allow_instance_vf)
+            .unwrap_or(true),
+    )?;
 
     let network_config_version = ConfigVersion::initial();
     let ib_config_version = ConfigVersion::initial();

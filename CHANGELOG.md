@@ -4,6 +4,7 @@
 ## [Unreleased (v2025.09.26-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.12-rc2-0...trunk)
 
 ### Added
+- [VMAAS-48](https://jirasw.nvidia.com/browse/VMAAS-48): add config flag to disable creation of VFs in an instance allocation or modification
 
 ### Changed
 

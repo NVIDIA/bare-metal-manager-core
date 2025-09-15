@@ -52,6 +52,7 @@ fn user_data_handler(
     machine_interface_id: MachineInterfaceId,
     machine_interface: forge::MachineInterface,
     domain: forge::Domain,
+    hbn_reps: Option<String>,
     state: State<AppState>,
 ) -> (String, HashMap<String, String>) {
     let config = state.runtime_config.clone();
@@ -71,6 +72,7 @@ fn user_data_handler(
         "forge_agent_config_b64".to_string(),
         base64::engine::general_purpose::STANDARD.encode(forge_agent_config),
     );
+
     let bmc_fw_update = state
         .engine
         .render("bmc_fw_update", HashMap::<String, String>::new())
@@ -88,6 +90,9 @@ fn user_data_handler(
         seconds_since_epoch.to_string(),
     );
 
+    if let Some(hbn_reps) = hbn_reps {
+        context.insert("forge_hbn_reps".to_string(), hbn_reps);
+    }
     ("user-data".to_string(), context)
 }
 
@@ -107,9 +112,13 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
                 discovery_instructions.domain,
             ) {
                 (Some(interface), Some(domain)) => match interface.id {
-                    Some(machine_interface_id) => {
-                        user_data_handler(machine_interface_id, interface, domain, state.clone())
-                    }
+                    Some(machine_interface_id) => user_data_handler(
+                        machine_interface_id,
+                        interface,
+                        domain,
+                        discovery_instructions.hbn_reps,
+                        state.clone(),
+                    ),
                     None => print_and_generate_generic_error(format!(
                         "The interface ID should not be null: {interface:?}"
                     )),

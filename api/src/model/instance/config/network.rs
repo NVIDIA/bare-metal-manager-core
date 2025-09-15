@@ -210,7 +210,18 @@ impl InstanceNetworkConfig {
     }
 
     /// Validates the network configuration
-    pub fn validate(&self) -> Result<(), ConfigValidationError> {
+    pub fn validate(&self, allow_instance_vf: bool) -> Result<(), ConfigValidationError> {
+        if !allow_instance_vf
+            && self
+                .interfaces
+                .iter()
+                .any(|i| matches!(i.function_id, InterfaceFunctionId::Virtual { .. }))
+        {
+            return Err(ConfigValidationError::InvalidValue(
+                "Virtual functions are disabled by site configuration".to_string(),
+            ));
+        }
+
         validate_interface_function_ids(
             &self.interfaces,
             |iface| &iface.function_id,
@@ -1077,22 +1088,26 @@ mod tests {
 
     #[test]
     fn validate_network_config() {
-        create_valid_network_config().validate().unwrap();
+        let config = create_valid_network_config();
+        config.validate(true).unwrap();
+
+        // Same config with virtual function, but virtual functions are disabled
+        assert!(config.validate(false).is_err());
 
         // Duplicate virtual function
         let mut config = create_valid_network_config();
         config.interfaces[2].function_id = InterfaceFunctionId::Virtual { id: 0 };
-        assert!(config.validate().is_err());
+        assert!(config.validate(true).is_err());
 
         // Out of bounds virtual function
         let mut config = create_valid_network_config();
         config.interfaces[2].function_id = InterfaceFunctionId::Virtual { id: 16 };
-        assert!(config.validate().is_err());
+        assert!(config.validate(true).is_err());
 
         // No physical function
         let mut config = create_valid_network_config();
         config.interfaces.swap_remove(0);
-        assert!(config.validate().is_err());
+        assert!(config.validate(true).is_err());
 
         // Missing virtual function id in between is now a valid scenario.
         // The last virtual function is ok to be missing
@@ -1100,7 +1115,7 @@ mod tests {
         config
             .interfaces
             .swap_remove(INTERFACE_VFID_MAX as usize + 1);
-        config.validate().unwrap();
+        config.validate(true).unwrap();
 
         // Duplicate network segment
         const DUPLICATE_SEGMENT_ID: uuid::Uuid =
@@ -1108,7 +1123,7 @@ mod tests {
         let mut config = create_valid_network_config();
         config.interfaces[0].network_segment_id = Some(DUPLICATE_SEGMENT_ID.into());
         config.interfaces[1].network_segment_id = Some(DUPLICATE_SEGMENT_ID.into());
-        assert!(config.validate().is_err());
+        assert!(config.validate(true).is_err());
     }
 
     fn get_rpc_instance_network_config() -> Vec<rpc::InstanceInterfaceConfig> {

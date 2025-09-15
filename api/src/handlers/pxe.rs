@@ -132,6 +132,11 @@ pub(crate) async fn get_cloud_init_instructions(
                 discovery_instructions: Some(rpc::CloudInitDiscoveryInstructions {
                     machine_interface: Some(machine_interface.into()),
                     domain: Some(domain.into()),
+                    hbn_reps: api
+                        .runtime_config
+                        .vmaas_config
+                        .as_ref()
+                        .and_then(|vc| vc.hbn_reps.clone()),
                 }),
                 metadata,
             }

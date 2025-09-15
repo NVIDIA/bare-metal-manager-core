@@ -172,13 +172,17 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
 
 impl InstanceConfig {
     /// Validates the instances configuration
-    pub fn validate(&self, validate_network: bool) -> Result<(), ConfigValidationError> {
+    pub fn validate(
+        &self,
+        validate_network: bool,
+        allow_instance_vf: bool,
+    ) -> Result<(), ConfigValidationError> {
         self.tenant.validate()?;
 
         self.os.validate()?;
 
         if validate_network {
-            self.network.validate()?;
+            self.network.validate(allow_instance_vf)?;
         }
 
         self.infiniband.validate()?;
