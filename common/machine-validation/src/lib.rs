@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::min;
 use std::time::Duration;
 
-use rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 use std::io::Write;
 
 mod errors;

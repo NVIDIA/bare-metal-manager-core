@@ -21,16 +21,16 @@ use crate::measurement::report::args::{
 };
 use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
-use ::rpc::measured_boot::bundle::MeasurementBundle;
-use ::rpc::measured_boot::pcr::PcrRegisterValue;
-use ::rpc::measured_boot::records::MeasurementReportRecord;
-use ::rpc::measured_boot::report::MeasurementReport;
 use ::rpc::protos::measured_boot::list_measurement_report_request;
 use ::rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, DeleteMeasurementReportRequest, ListMeasurementReportRequest,
     MatchMeasurementReportRequest, PromoteMeasurementReportRequest, RevokeMeasurementReportRequest,
     ShowMeasurementReportForIdRequest, ShowMeasurementReportsForMachineRequest,
 };
+use measured_boot::bundle::MeasurementBundle;
+use measured_boot::pcr::PcrRegisterValue;
+use measured_boot::records::MeasurementReportRecord;
+use measured_boot::report::MeasurementReport;
 use serde::Serialize;
 
 /// dispatch matches + dispatches the correct command for

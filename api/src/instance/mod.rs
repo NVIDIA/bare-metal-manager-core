@@ -12,8 +12,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use ::rpc::uuid::vpc::VpcPrefixId;
 use config_version::ConfigVersion;
+use forge_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use sqlx::{PgConnection, PgPool};
@@ -49,7 +49,7 @@ use crate::{
     },
 };
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::uuid::{instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId};
+use forge_uuid::{instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId};
 
 /// User parameters for creating an instance
 #[derive(Debug)]

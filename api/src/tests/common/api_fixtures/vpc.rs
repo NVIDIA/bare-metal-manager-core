@@ -13,7 +13,7 @@
 use super::TestEnv;
 use crate::tests::common::api_fixtures::instance::default_tenant_config;
 use ::rpc::forge as rpc;
-use ::rpc::uuid::vpc::VpcId;
+use forge_uuid::vpc::VpcId;
 use rpc::forge_server::Forge;
 
 pub async fn create_vpc(

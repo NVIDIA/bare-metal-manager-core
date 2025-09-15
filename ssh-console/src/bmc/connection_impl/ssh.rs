@@ -17,7 +17,7 @@ use crate::bmc::message_proxy::{
 };
 use crate::bmc::pending_output_line::PendingOutputLine;
 use crate::bmc::vendor::SshBmcVendor;
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 use opentelemetry::KeyValue;
 use ringbuf::LocalRb;
 use ringbuf::storage::Array;

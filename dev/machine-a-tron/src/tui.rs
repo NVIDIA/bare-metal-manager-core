@@ -14,11 +14,11 @@ use crate::{
     tabs::{MachinesTab, Tab},
     vpc::Vpc,
 };
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::VpcId;
 use futures::StreamExt;
 use libredfish::PowerState;
 use ratatui::{prelude::*, symbols::DOT, widgets::*};
-use rpc::uuid::network::NetworkSegmentId;
-use rpc::uuid::vpc::VpcId;
 use tokio::{
     select,
     sync::mpsc::{Receiver, Sender},

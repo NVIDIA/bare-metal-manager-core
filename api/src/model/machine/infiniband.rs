@@ -13,8 +13,8 @@
 use std::collections::HashSet;
 use std::fmt::Write;
 
-use ::rpc::uuid::infiniband::IBPartitionId;
 use chrono::{DateTime, Utc};
+use forge_uuid::infiniband::IBPartitionId;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{

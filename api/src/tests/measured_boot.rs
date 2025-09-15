@@ -20,7 +20,6 @@ pub mod tests {
     use crate::tests::common;
     use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
     use crate::tests::common::api_fixtures::host::host_discover_dhcp;
-    use ::rpc::uuid::machine::MachineId;
     use common::api_fixtures::TestEnvOverrides;
     use common::api_fixtures::create_test_env;
     use common::api_fixtures::create_test_env_with_overrides;
@@ -31,6 +30,7 @@ pub mod tests {
         EK_PUB_SERIALIZED, PCR_VALUES, PCR_VALUES_SHORT, SESSION_KEY, SIGNATURE_SERIALIZED,
         SIGNATURE_SERIALIZED_2, SIGNATURE_SERIALIZED_INVALID,
     };
+    use forge_uuid::machine::MachineId;
     use rpc::DiscoveryData;
     use rpc::DiscoveryInfo;
     use rpc::MachineDiscoveryInfo;

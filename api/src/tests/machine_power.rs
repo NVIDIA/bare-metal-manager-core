@@ -99,7 +99,7 @@ async fn test_power_manager_update_fail_since_no_maintenance_set(
 }
 
 pub async fn update_next_try_now(
-    host_id: &::rpc::uuid::machine::MachineId,
+    host_id: &::forge_uuid::machine::MachineId,
     txn: &mut sqlx::PgConnection,
 ) {
     let query = "UPDATE power_options SET 

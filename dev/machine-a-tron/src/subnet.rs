@@ -6,8 +6,8 @@ use crate::{
     config::MachineATronContext,
     tui::{SubnetDetails, UiUpdate},
 };
-use rpc::uuid::network::NetworkSegmentId;
-use rpc::uuid::vpc::VpcId;
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::VpcId;
 use tonic::Status;
 
 #[derive(Debug, Clone)]

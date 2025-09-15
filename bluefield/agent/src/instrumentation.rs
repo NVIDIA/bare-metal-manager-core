@@ -19,7 +19,7 @@ use tonic::service::AxumBody;
 
 pub mod config;
 pub use config::{get_dpu_agent_meter, get_prometheus_registry};
-use rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 pub struct AgentMetricsState {
     meter: Meter,

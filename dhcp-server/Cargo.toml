@@ -12,6 +12,14 @@ name = "forge-dhcp-server"
 path = "src/main.rs"
 
 [dependencies]
+
+# [local-dependencies]
+forge-tls = { path = "../common/tls" }
+logfmt = { path = "../common/logfmt" }
+rpc = { path = "../rpc" }
+utils = { path = "../common/utils" }
+forge-uuid = { path = "../common/uuid" }
+
 serde_yaml = "0.9.27"
 serde = { version = "1.0.190", features = ["derive"] }
 tokio = { workspace = true }
@@ -29,12 +37,6 @@ lru = "0.13.0"
 socket2 = "0.5.5"
 chrono = "0.4.38"
 futures = "*"
-
-# [local-dependencies]
-forge-tls = { path = "../common/tls" }
-logfmt = { path = "../common/logfmt" }
-rpc = { path = "../rpc" }
-utils = { path = "../common/utils" }
 
 [lints]
 workspace = true

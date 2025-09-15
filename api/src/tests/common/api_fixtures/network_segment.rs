@@ -16,12 +16,12 @@
 
 use crate::api::Api;
 use ::rpc::forge::forge_server::Forge;
-use ::rpc::uuid::network::NetworkSegmentId;
+use forge_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use std::net::{IpAddr, Ipv4Addr};
 
+use forge_uuid::vpc::VpcId;
 use lazy_static::lazy_static;
-use rpc::uuid::vpc::VpcId;
 
 lazy_static! {
     pub static ref FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY: IpNetwork =
@@ -172,7 +172,7 @@ pub async fn create_network_segment(
             .domains
             .first()
             .and_then(|d| d.id)
-            .map(::rpc::uuid::domain::DomainId::try_from)
+            .map(::forge_uuid::domain::DomainId::try_from)
             .unwrap()
             .unwrap();
 

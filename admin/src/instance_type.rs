@@ -27,7 +27,7 @@ use crate::rpc::ApiClient;
 use ::rpc::admin_cli::CarbideCliResult;
 use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge::{self as forgerpc, FindInstanceTypesByIdsRequest};
-use rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 /// Produces a table for printing a non-JSON representation of a
 /// instance type to standard out.

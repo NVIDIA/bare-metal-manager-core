@@ -21,9 +21,9 @@ use crate::model::{hardware_info::HardwareInfo, machine::ManagedHostState};
 use crate::tests::common::api_fixtures::{
     TestEnv, forge_agent_control, managed_host::ManagedHostConfig,
 };
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
+use forge_uuid::machine::MachineInterfaceId;
 use rpc::machine_discovery::AttestKeyInfo;
-use rpc::uuid::machine::MachineInterfaceId;
 use rpc::{
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
     forge::{DhcpDiscovery, forge_agent_control_response::Action, forge_server::Forge},

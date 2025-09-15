@@ -20,9 +20,9 @@ use sqlx::{Acquire, FromRow, PgConnection, Row};
 
 use super::DatabaseError;
 use crate::CarbideError;
-use ::rpc::uuid::network::NetworkPrefixId;
-use ::rpc::uuid::network::NetworkSegmentId;
-use ::rpc::uuid::vpc::{VpcId, VpcPrefixId};
+use forge_uuid::network::NetworkPrefixId;
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::{VpcId, VpcPrefixId};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkPrefix {

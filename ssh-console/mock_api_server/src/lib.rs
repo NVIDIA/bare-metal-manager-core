@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct MockHost {
-    pub machine_id: ::rpc::uuid::machine::MachineId,
+    pub machine_id: forge_uuid::machine::MachineId,
     pub instance_id: Uuid,
     pub tenant_public_key: String,
     pub sys_vendor: &'static str,

@@ -11,9 +11,9 @@
  */
 use crate::{config::RuntimeConfig, extractors::machine_architecture};
 use axum_template::engine::Engine;
+use forge_uuid::machine::MachineInterfaceId;
 use metrics_exporter_prometheus::PrometheusHandle;
 use rpc::forge::CloudInitInstructions;
-use rpc::uuid::machine::MachineInterfaceId;
 use serde::{Deserialize, Serialize};
 use tera::Tera;
 // use crate::middleware::metrics::RequestMetrics;

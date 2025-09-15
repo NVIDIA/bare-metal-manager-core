@@ -11,7 +11,7 @@
  */
 
 use ::rpc::forge as rpc;
-use ::rpc::uuid::{
+use forge_uuid::{
     domain::DomainId, machine::MachineId, machine::MachineInterfaceId, network::NetworkSegmentId,
 };
 use ipnetwork::IpNetwork;

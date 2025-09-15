@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::uuid::machine::MachineId;
 use ::rpc::{InstanceList, MachineList, site_explorer::ExploredManagedHost};
+use forge_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, hash_map::RandomState},

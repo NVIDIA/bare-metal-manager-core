@@ -14,7 +14,7 @@ use super::{
     grpcurl::{grpcurl, grpcurl_id},
     machine::wait_for_state,
 };
-use rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 use std::net::SocketAddr;
 
 pub async fn create(

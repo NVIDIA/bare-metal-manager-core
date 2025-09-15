@@ -24,7 +24,7 @@ use crate::{
         machine::{HardwareInfo, MachineInterfaceSnapshot},
     },
 };
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 lazy_static::lazy_static! {
     static ref BLOCK_STORAGE_REGEX: regex::Regex = regex::Regex::new(r"(Virtual_CDROM\d+|Virtual_SD\d+|NO_MODEL|LOGICAL_VOLUME)").unwrap();

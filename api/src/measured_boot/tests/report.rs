@@ -26,8 +26,8 @@ mod tests {
         get_all_measurement_report_records, test_support::get_all_measurement_report_value_records,
     };
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
-    use ::rpc::measured_boot::pcr::{PcrRegisterValue, parse_pcr_index_input};
-    use ::rpc::measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+    use measured_boot::pcr::{PcrRegisterValue, parse_pcr_index_input};
+    use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
     use std::collections::HashMap;
 
     // test_profile_crudl creates a new profile with 3 attributes,

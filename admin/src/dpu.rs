@@ -15,7 +15,7 @@ use std::pin::Pin;
 use ::rpc::Machine;
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::{BuildInfo, ManagedHostNetworkConfigResponse};
-use ::rpc::uuid::machine::MachineType;
+use forge_uuid::machine::MachineType;
 use prettytable::{Row, Table, format, row};
 use serde::Serialize;
 
@@ -24,7 +24,7 @@ use crate::machine::get_health_report;
 use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv};
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 pub async fn trigger_reprovisioning(
     id: MachineId,

@@ -22,8 +22,8 @@ use crate::IN_QEMU_VM;
 use crate::cfg::Options;
 use crate::client::create_forge_client;
 use crate::deprovision::cmdrun;
-use ::rpc::uuid::machine::MachineId;
 use forge_host_support::hardware_enumeration::discovery_ibs;
+use forge_uuid::machine::MachineId;
 
 fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
     let name = match efivar::efi::Variable::from_str(

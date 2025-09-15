@@ -17,7 +17,7 @@ use std::{
 
 use crate::logging::metrics_utils::SharedMetricsHolder;
 use crate::model::site_explorer::{EndpointExplorationError, MachineExpectation};
-use ::rpc::uuid::machine::MachineType;
+use forge_uuid::machine::MachineType;
 use opentelemetry::{
     KeyValue,
     metrics::{Histogram, Meter},

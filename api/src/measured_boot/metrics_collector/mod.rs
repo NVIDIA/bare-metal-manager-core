@@ -14,12 +14,12 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::oneshot;
 
 use crate::{CarbideResult, cfg::file::MeasuredBootMetricsCollectorConfig, db::DatabaseError};
-use ::rpc::measured_boot::journal::MeasurementJournal;
-use ::rpc::measured_boot::records::MeasurementBundleState;
+use measured_boot::journal::MeasurementJournal;
+use measured_boot::records::MeasurementBundleState;
 
 pub(crate) mod metrics;
 use crate::measured_boot::db;
-use ::rpc::uuid::measured_boot::MeasurementBundleId;
+use forge_uuid::measured_boot::MeasurementBundleId;
 use metrics::MeasuredBootMetricsCollectorMetrics;
 
 /// `MeasuredBootMetricsCollector` monitors the state of all measured boot data.

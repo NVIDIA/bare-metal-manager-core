@@ -21,7 +21,7 @@ use super::DatabaseError;
 use crate::db;
 use crate::model::bmc_info::BmcInfo;
 use crate::{CarbideError, CarbideResult};
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(type_name = "user_roles")]

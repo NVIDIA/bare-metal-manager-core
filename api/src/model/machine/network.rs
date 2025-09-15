@@ -12,7 +12,7 @@ use crate::{
     },
 };
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 use health_report::HealthReport;
 
 /// The network status that was last reported by the networking subsystem

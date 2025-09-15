@@ -39,7 +39,7 @@ use crate::{
         machine::MachineSearchConfig,
     },
 };
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 /// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the MachineUpdateManager will:

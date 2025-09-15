@@ -18,8 +18,8 @@ use sqlx::{Pool, Postgres};
 
 use crate::forge::MachineType;
 use crate::forge_tls_client::ForgeTlsClientError;
-use crate::uuid::instance::InstanceId;
-use crate::uuid::machine::{MachineId, MachineIdParseError};
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::{MachineId, MachineIdParseError};
 pub use output::{Destination, OutputFormat};
 
 /// SUMMARY is a global variable that is being used by a few structs which

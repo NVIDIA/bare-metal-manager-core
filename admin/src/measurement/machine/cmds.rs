@@ -15,15 +15,15 @@
 //!
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
-use ::rpc::measured_boot::pcr::PcrRegisterValue;
-use ::rpc::measured_boot::{machine::CandidateMachine, report::MeasurementReport};
 use ::rpc::protos::measured_boot::show_candidate_machine_request;
 use ::rpc::protos::measured_boot::{AttestCandidateMachineRequest, ShowCandidateMachineRequest};
+use measured_boot::pcr::PcrRegisterValue;
+use measured_boot::{machine::CandidateMachine, report::MeasurementReport};
 
 use crate::measurement::global;
 use crate::measurement::machine::args::{Attest, CmdMachine, Show};
 use crate::rpc::ApiClient;
-use ::rpc::measured_boot::records::CandidateMachineSummary;
+use measured_boot::records::CandidateMachineSummary;
 use serde::Serialize;
 
 /// dispatch matches + dispatches the correct command

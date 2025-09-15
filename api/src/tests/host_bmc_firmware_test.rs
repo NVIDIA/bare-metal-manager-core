@@ -37,11 +37,11 @@ use crate::{
     },
     preingestion_manager::PreingestionManager,
 };
-use ::rpc::uuid::machine::MachineId;
 use common::api_fixtures::{
     self, TestEnv, TestManagedHost, create_test_env_with_overrides, get_config,
     instance::TestInstance,
 };
+use forge_uuid::machine::MachineId;
 use regex::Regex;
 use rpc::forge::DhcpDiscovery;
 use rpc::forge::forge_server::Forge;

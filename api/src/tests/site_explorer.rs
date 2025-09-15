@@ -53,8 +53,8 @@ use crate::{
     site_explorer::SiteExplorer,
     state_controller::machine::handler::MachineStateHandlerBuilder,
 };
-use ::rpc::uuid::{machine::MachineId, network::NetworkSegmentId};
 use common::api_fixtures::{TestEnv, endpoint_explorer::MockEndpointExplorer};
+use forge_uuid::{machine::MachineId, network::NetworkSegmentId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;

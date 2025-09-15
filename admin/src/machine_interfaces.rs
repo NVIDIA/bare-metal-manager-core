@@ -23,8 +23,8 @@ use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use crate::cfg::cli_options::DeleteMachineInterfaces;
 use crate::rpc::ApiClient;
 use ::rpc::forge as forgerpc;
+use forge_uuid::machine::{MachineId, MachineInterfaceId};
 use prettytable::Table;
-use rpc::uuid::machine::{MachineId, MachineInterfaceId};
 
 pub async fn handle_show(
     args: ShowMachineInterfaces,

@@ -8,6 +8,14 @@ authors.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+
+# [local-dependencies]
+forge-tls = { path = "../tls" }
+logfmt = { path = "../logfmt" }
+rpc = { path = "../../rpc" }
+utils = { path = "../utils" }
+forge-uuid = { path = "../uuid" }
+
 base64 = "0.22.1"
 csv = "1.2.1"
 eyre = "*"
@@ -27,12 +35,6 @@ tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 tryhard = "0.5.1"
 uname = "0.1"
 uuid = "1.0"
-
-# [local-dependencies]
-forge-tls = { path = "../tls" }
-logfmt = { path = "../logfmt" }
-rpc = { path = "../../rpc" }
-utils = { path = "../utils" }
 serde_with = "3.12.0"
 
 [lints]

@@ -19,7 +19,7 @@ use crate::config::Config;
 use crate::io_util::{
     self, PtyAllocError, set_controlling_terminal_on_exec, write_data_to_async_fd,
 };
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 use nix::errno::Errno;
 use nix::pty::OpenptyResult;
 use nix::unistd;

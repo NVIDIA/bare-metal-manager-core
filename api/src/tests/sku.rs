@@ -1,7 +1,7 @@
 pub mod tests {
     use std::time::Duration;
 
-    use ::rpc::uuid::machine::MachineId;
+    use forge_uuid::machine::MachineId;
     use sqlx::PgConnection;
 
     use crate::{

@@ -25,8 +25,8 @@ use bmc_mock::{
     BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult,
     SystemPowerControl,
 };
+use forge_uuid::machine::MachineId;
 use rpc::forge::IdentifySerialRequest;
-use rpc::uuid::machine::MachineId;
 
 #[derive(Debug)]
 pub struct HostMachine {

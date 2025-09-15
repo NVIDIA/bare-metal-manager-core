@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use clap::Parser;
-use rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab_case")]

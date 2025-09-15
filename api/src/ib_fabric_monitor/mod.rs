@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::uuid::{infiniband::IBPartitionId, machine::MachineId};
 use chrono::Utc;
+use forge_uuid::{infiniband::IBPartitionId, machine::MachineId};
 use rpc::forge::IbPartitionSearchFilter;
 use sqlx::{PgConnection, PgPool};
 use std::{

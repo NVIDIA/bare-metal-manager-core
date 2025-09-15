@@ -10,6 +10,21 @@ name = "forge-dpu-agent"
 path = "src/main.rs"
 
 [dependencies]
+
+# [local-dependencies]
+config-version = { path = "../../common/config-version" }
+forge-certs = { path = "../certs" }
+forge-host-support = { path = "../../common/host-support" }
+forge-http-connector = { path = "../../common/http-connector" }
+forge-network = { path = "../../common/network" }
+forge-systemd = { path = "../systemd" }
+forge-tls = { path = "../../common/tls" }
+forge-version = { path = "../../common/version" }
+health-report = { path = "../../common/health-report" }
+rpc = { path = "../../rpc" }
+utils = { path = "../../common/utils" }
+forge-uuid = { path = "../../common/uuid" }
+
 arc-swap = "1.6"
 axum = { workspace = true, features = ["macros"] }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
@@ -69,19 +84,6 @@ uzers = "0.12.1"
 resolv-conf = "0.7.0"
 hickory-resolver = "0.24.0"
 version-compare = "0.2.0"
-
-# [local-dependencies]
-config-version = { path = "../../common/config-version" }
-forge-certs = { path = "../certs" }
-forge-host-support = { path = "../../common/host-support" }
-forge-http-connector = { path = "../../common/http-connector" }
-forge-network = { path = "../../common/network" }
-forge-systemd = { path = "../systemd" }
-forge-tls = { path = "../../common/tls" }
-forge-version = { path = "../../common/version" }
-health-report = { path = "../../common/health-report" }
-rpc = { path = "../../rpc" }
-utils = { path = "../../common/utils" }
 
 [build-dependencies]
 forge-version = { path = "../../common/version" }

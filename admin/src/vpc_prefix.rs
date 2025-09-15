@@ -21,7 +21,7 @@ use crate::rpc::ApiClient;
 use ::rpc::admin_cli::CarbideCliError::GenericError;
 use ::rpc::admin_cli::output::{FormattedOutput, IntoTable, OutputFormat};
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::uuid::vpc::VpcPrefixId;
+use forge_uuid::vpc::VpcPrefixId;
 use rpc::forge::{
     PrefixMatchType, VpcPrefix, VpcPrefixCreationRequest, VpcPrefixDeletionRequest,
     VpcPrefixSearchQuery,

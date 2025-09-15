@@ -20,7 +20,7 @@ use crate::model::{
         DpuLocalPorts, DpuToNetworkDeviceMap, LldpError, NetworkDevice, NetworkTopologyData,
     },
 };
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 pub struct NetworkDeviceSearchConfig {
     include_dpus: bool,

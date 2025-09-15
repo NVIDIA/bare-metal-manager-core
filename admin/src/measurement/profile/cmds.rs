@@ -22,8 +22,6 @@ use crate::measurement::profile::args::{
 };
 use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
-use ::rpc::measured_boot::profile::MeasurementSystemProfile;
-use ::rpc::measured_boot::records::MeasurementSystemProfileRecord;
 use ::rpc::protos::measured_boot::delete_measurement_system_profile_request;
 use ::rpc::protos::measured_boot::list_measurement_system_profile_bundles_request;
 use ::rpc::protos::measured_boot::list_measurement_system_profile_machines_request;
@@ -34,8 +32,10 @@ use ::rpc::protos::measured_boot::{
     ListMeasurementSystemProfileBundlesRequest, ListMeasurementSystemProfileMachinesRequest,
     RenameMeasurementSystemProfileRequest, ShowMeasurementSystemProfileRequest,
 };
-use ::rpc::uuid::machine::MachineId;
-use ::rpc::uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use measured_boot::profile::MeasurementSystemProfile;
+use measured_boot::records::MeasurementSystemProfileRecord;
 use serde::Serialize;
 use std::str::FromStr;
 

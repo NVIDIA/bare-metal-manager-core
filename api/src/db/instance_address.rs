@@ -31,9 +31,9 @@ use crate::model::instance::config::network::{
 use crate::model::machine::Machine;
 use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::{CarbideError, CarbideResult};
-use ::rpc::uuid::{instance::InstanceId, network::NetworkSegmentId};
 use forge_network::virtualization::get_host_ip;
-use rpc::uuid::network::NetworkPrefixId;
+use forge_uuid::network::NetworkPrefixId;
+use forge_uuid::{instance::InstanceId, network::NetworkSegmentId};
 
 #[derive(Debug, FromRow, Clone)]
 pub struct InstanceAddress {
@@ -603,9 +603,9 @@ mod tests {
     use super::*;
     use crate::db::network_segment::NetworkSegmentType;
     use crate::model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
-    use ::rpc::uuid::vpc::VpcId;
     use chrono::Utc;
     use config_version::{ConfigVersion, Versioned};
+    use forge_uuid::vpc::VpcId;
     use std::collections::HashMap;
     use std::str::FromStr;
     use uuid::Uuid;

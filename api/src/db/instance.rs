@@ -37,12 +37,12 @@ use crate::{
 
 use crate::db::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use ::rpc::forge as rpc;
-use ::rpc::uuid::{
+use chrono::prelude::*;
+use config_version::ConfigVersion;
+use forge_uuid::{
     instance::InstanceId, instance_type::InstanceTypeId, machine::MachineId,
     network_security_group::NetworkSecurityGroupId, vpc::VpcId,
 };
-use chrono::prelude::*;
-use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgConnection, Row, postgres::PgRow};
 

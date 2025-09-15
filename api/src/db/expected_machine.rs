@@ -21,8 +21,8 @@ use super::DatabaseError;
 use crate::CarbideError;
 use crate::CarbideResult;
 use crate::model::metadata::Metadata;
-use ::rpc::uuid::machine::MachineId;
-use ::rpc::uuid::machine::MachineInterfaceId;
+use forge_uuid::machine::MachineId;
+use forge_uuid::machine::MachineInterfaceId;
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key";
 

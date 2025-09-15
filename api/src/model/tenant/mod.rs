@@ -18,7 +18,8 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::model::metadata::Metadata;
-use ::rpc::uuid::instance::InstanceId;
+use forge_uuid::UuidConversionError;
+use forge_uuid::instance::InstanceId;
 use rpc::errors::RpcDataConversionError;
 
 #[derive(thiserror::Error, Debug)]
@@ -396,7 +397,7 @@ pub struct TenantPublicKeyValidationRequest {
 }
 
 impl TryFrom<rpc::forge::ValidateTenantPublicKeyRequest> for TenantPublicKeyValidationRequest {
-    type Error = RpcDataConversionError;
+    type Error = UuidConversionError;
     fn try_from(value: rpc::forge::ValidateTenantPublicKeyRequest) -> Result<Self, Self::Error> {
         let instance_id = InstanceId::from_str(&value.instance_id)?;
         Ok(TenantPublicKeyValidationRequest {

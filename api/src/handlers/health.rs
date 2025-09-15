@@ -21,7 +21,7 @@ use crate::{
     db::{self, DatabaseError, machine::MachineSearchConfig},
     handlers::utils::convert_and_log_machine_id,
 };
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 pub async fn record_hardware_health_report(
     api: &Api,

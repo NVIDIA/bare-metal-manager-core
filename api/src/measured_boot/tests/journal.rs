@@ -18,9 +18,9 @@
 #[cfg(test)]
 mod tests {
     use crate::measured_boot::db;
-    use ::rpc::measured_boot::records::MeasurementMachineState;
-    use ::rpc::uuid::machine::MachineId;
-    use ::rpc::uuid::measured_boot::{MeasurementReportId, MeasurementSystemProfileId};
+    use forge_uuid::machine::MachineId;
+    use forge_uuid::measured_boot::{MeasurementReportId, MeasurementSystemProfileId};
+    use measured_boot::records::MeasurementMachineState;
     use std::str::FromStr;
 
     // test_journal_crudl makes sure database constraints

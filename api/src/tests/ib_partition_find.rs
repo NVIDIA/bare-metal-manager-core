@@ -15,7 +15,7 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::tests::common::api_fixtures::{create_test_env, ib_partition::create_ib_partition};
 use ::rpc::forge as rpc;
-use ::rpc::uuid::infiniband::IBPartitionId;
+use forge_uuid::infiniband::IBPartitionId;
 use rpc::forge_server::Forge;
 
 #[crate::sqlx_test]

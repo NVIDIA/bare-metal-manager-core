@@ -1,4 +1,4 @@
-use rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 use std::fmt::Write;
 use std::path::PathBuf;
 use std::process::Command;

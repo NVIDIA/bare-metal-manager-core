@@ -12,8 +12,8 @@
 use crate::bmc::message_proxy::ToFrontendMessage;
 use crate::config::Config;
 use crate::shutdown_handle::ShutdownHandle;
-use ::rpc::uuid::machine::MachineId;
 use chrono::Utc;
+use forge_uuid::machine::MachineId;
 use russh::ChannelMsg;
 use std::borrow::Cow;
 use std::io;

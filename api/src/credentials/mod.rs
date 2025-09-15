@@ -18,7 +18,7 @@ use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialPro
 use mac_address::MacAddress;
 
 use crate::{CarbideError, CarbideResult};
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 pub struct UpdateCredentials {
     pub machine_id: MachineId,

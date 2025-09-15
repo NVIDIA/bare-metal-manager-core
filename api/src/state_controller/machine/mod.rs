@@ -20,10 +20,10 @@ use crate::{
     },
 };
 
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
-use ::rpc::measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 use eyre::eyre;
+use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 use sqlx::PgConnection;
 
 use super::state_handler::{MeasuringProblem, StateHandlerError};

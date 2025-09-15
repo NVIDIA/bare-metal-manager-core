@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 use clap::Parser;
+use forge_uuid::instance::InstanceId;
 use rpc::errors::RpcDataConversionError;
 use rpc::forge::StorageRaidLevels;
-use rpc::uuid::instance::InstanceId;
 use std::fmt;
 use std::str::FromStr;
 

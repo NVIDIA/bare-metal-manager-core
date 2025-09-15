@@ -19,8 +19,8 @@ use crate::{
     measured_boot::db,
     model::{hardware_info::HardwareInfo, machine::ManagedHostState, metadata::Metadata},
 };
-use ::rpc::measured_boot::machine::CandidateMachine;
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
+use measured_boot::machine::CandidateMachine;
 use sqlx::PgConnection;
 use std::str::FromStr;
 

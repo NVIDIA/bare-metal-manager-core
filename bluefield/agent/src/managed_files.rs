@@ -1,6 +1,6 @@
 use crate::duppet::{self, SyncOptions};
 use crate::periodic_config_fetcher::PeriodicConfigFetcher;
-use rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;

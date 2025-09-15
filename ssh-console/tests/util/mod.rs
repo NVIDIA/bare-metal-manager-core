@@ -13,9 +13,9 @@ use crate::util::ipmi_sim::IpmiSimHandle;
 use crate::util::metrics::assert_metrics;
 use crate::util::ssh_client::ConnectionConfig;
 use crate::{ADMIN_SSH_KEY_PATH, TENANT_SSH_KEY_PATH, TENANT_SSH_PUBKEY};
-use ::rpc::uuid::machine::{MachineId, MachineIdSource, MachineType};
 use bmc_mock::HostnameQuerying;
 use eyre::Context;
+use forge_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use futures::future::join_all;
 use futures_util::future::BoxFuture;
 use machine_a_tron::{MockSshServerHandle, PromptBehavior};
@@ -108,7 +108,7 @@ pub async fn run_baseline_test_environment(
     let mock_bmc_handles: Vec<(MockBmcHandle, MachineId)> =
         join_all(machines.iter().map(|bmc_type| {
             // Generate random machine ID's for each mocked host
-            let machine_id = ::rpc::uuid::machine::MachineId::new(
+            let machine_id = forge_uuid::machine::MachineId::new(
                 MachineIdSource::Tpm,
                 rand::random(),
                 match bmc_type {

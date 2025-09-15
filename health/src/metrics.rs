@@ -17,6 +17,7 @@ use std::time::SystemTime;
 use crate::HealthError;
 use base64::{Engine as _, engine::general_purpose};
 use chrono::{DateTime, Utc};
+use forge_uuid::machine::MachineId;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeSuccess, HealthReport,
 };
@@ -36,7 +37,6 @@ use opentelemetry::metrics::Meter;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use report::HealthCheck;
 use rpc::forge_api_client::ForgeApiClient;
-use rpc::uuid::machine::MachineId;
 use sha2::{Digest, Sha256};
 use tokio::sync::MutexGuard;
 

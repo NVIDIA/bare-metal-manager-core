@@ -14,7 +14,7 @@ use std::{
 
 use super::dpu_nic_firmware_metrics::DpuNicFirmwareUpdateMetrics;
 use super::machine_update_module::MachineUpdateModule;
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 
 /// DpuNicFirmwareUpdate is a module used [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager)
 /// to ensure that DPU NIC firmware matches the expected version of the carbide release.

@@ -16,8 +16,8 @@ use crate::cfg::cli_options::{SetVpcVirt, ShowVpc};
 use crate::rpc::ApiClient;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::{self as forgerpc};
+use forge_uuid::vpc::VpcId;
 use prettytable::{Table, row};
-use rpc::uuid::vpc::VpcId;
 
 pub async fn handle_show(
     args: ShowVpc,

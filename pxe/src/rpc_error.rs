@@ -16,6 +16,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use axum_client_ip::Rejection;
+use forge_uuid::UuidConversionError;
 use rpc::errors::RpcDataConversionError;
 
 pub enum PxeRequestError {
@@ -27,6 +28,7 @@ pub enum PxeRequestError {
     MalformedMachineId(String),
     MalformedBuildArch(String),
     RpcConversion(RpcDataConversionError),
+    UuidConversion(UuidConversionError),
 }
 
 impl IntoResponse for PxeRequestError {
@@ -62,6 +64,7 @@ impl Display for PxeRequestError {
                 Self::MalformedBuildArch(err) => format!("Malformed build arch: {err}"),
                 Self::MissingIp(err) => format!("Source IP is missing. Error: {err:?}"),
                 Self::RpcConversion(err) => format!("Error converting RPC data: {err:?}"),
+                Self::UuidConversion(err) => format!("Error converting RPC UUID data: {err:?}"),
             }
         )
     }

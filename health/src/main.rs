@@ -19,11 +19,11 @@ use std::time::Duration;
 
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
-use ::rpc::uuid::machine::MachineId;
 use cfg::{ConcurrencyOption, Options};
 use chrono::{DateTime, Utc};
 use eyre::Result;
 use forge_tls::client_config::ClientCert;
+use forge_uuid::machine::MachineId;
 use futures::future;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};

@@ -1,8 +1,8 @@
 use crate::db::{self, machine_topology::MachineTopology};
 use crate::tests::common;
-use ::rpc::uuid::machine::MachineId;
 use common::api_fixtures::{create_managed_host, create_test_env};
 use const_format::concatcp;
+use forge_uuid::machine::MachineId;
 use rpc::forge::{DhcpDiscovery, forge_server::Forge};
 use sqlx::{Postgres, Row};
 

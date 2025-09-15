@@ -1,6 +1,6 @@
 use std::net::Ipv4Addr;
 
-use ::rpc::uuid::{
+use forge_uuid::{
     network::NetworkSegmentId,
     vpc::{VpcId, VpcPrefixId},
 };

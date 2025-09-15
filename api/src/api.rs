@@ -97,8 +97,8 @@ use crate::{
     redfish::RedfishClientPool,
 };
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::uuid::machine::MachineInterfaceId;
-use ::rpc::uuid::machine::{MachineId, MachineType};
+use forge_uuid::machine::MachineInterfaceId;
+use forge_uuid::machine::{MachineId, MachineType};
 use utils::HostPortPair;
 
 pub struct Api {
@@ -3629,7 +3629,7 @@ impl Forge for Api {
         // off the PCR values as a MeasurementReport.
         db_attest::SecretAkPub::delete(&mut txn, &request.credential).await?;
 
-        let pcr_values: ::rpc::measured_boot::pcr::PcrRegisterValueVec = request
+        let pcr_values: ::measured_boot::pcr::PcrRegisterValueVec = request
             .pcr_values
             .drain(..)
             .map(hex::encode)

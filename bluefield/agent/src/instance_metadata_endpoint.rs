@@ -28,8 +28,8 @@ use nonzero_ext::nonzero;
 use crate::periodic_config_fetcher::InstanceMetadata;
 use crate::util::{create_forge_client, phone_home};
 use ::rpc::forge_tls_client::ForgeClientConfig;
+use forge_uuid::machine::MachineId;
 use rpc::forge::ManagedHostNetworkConfigResponse;
-use rpc::uuid::machine::MachineId;
 
 const PUBLIC_IPV4_CATEGORY: &str = "public-ipv4";
 const HOSTNAME_CATEGORY: &str = "hostname";

@@ -33,7 +33,7 @@ use crate::db::machine::MachineSearchConfig;
 use crate::db::machine_topology::MachineTopology;
 use crate::model::hardware_info::TpmEkCertificate;
 use crate::{CarbideError, db};
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 use sqlx::Postgres;
 
 pub async fn get_ek_cert_by_machine_id(
@@ -77,7 +77,7 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
         .await
         .map_err(|e| DatabaseError::txn_begin("begin backfill ek cert status", e))?;
 
-    let machines: Vec<::rpc::uuid::machine::MachineId> =
+    let machines: Vec<::forge_uuid::machine::MachineId> =
         db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
             .await?
             .iter()

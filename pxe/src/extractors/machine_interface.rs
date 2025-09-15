@@ -17,7 +17,7 @@ use axum::{
     extract::{FromRequestParts, Path, Query},
     http::request::Parts,
 };
-use rpc::uuid::machine::MachineInterfaceId;
+use forge_uuid::machine::MachineInterfaceId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -39,7 +39,7 @@ impl TryFrom<MaybeMachineInterface> for MachineInterface {
 
         let uuid = match (value.uuid, value.uuid_as_param) {
             (Some(uuid), _) => Ok(uuid),
-            (None, Some(uuid)) => uuid.parse().map_err(PxeRequestError::RpcConversion),
+            (None, Some(uuid)) => uuid.parse().map_err(PxeRequestError::UuidConversion),
             _ => Err(PxeRequestError::MissingMachineId),
         }?;
 

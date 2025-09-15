@@ -30,12 +30,14 @@ dependencies = [
  "forge-network",
  "forge-ssh",
  "forge-tls",
+ "forge-uuid",
  "forge-version",
  "forge_secrets",
  "health-report",
  "ipnet",
  "libredfish",
  "mac_address",
+ "measured-boot",
  "prettytable-rs",
  "rpc",
  "serde",
@@ -118,6 +120,7 @@ dependencies = [
  "forge-network",
  "forge-systemd",
  "forge-tls",
+ "forge-uuid",
  "forge-version",
  "futures",
  "futures-util",
@@ -304,6 +307,7 @@ dependencies = [
  "ctor 0.2.9",
  "eyre",
  "forge-tls",
+ "forge-uuid",
  "forge-version",
  "forge_secrets",
  "futures",
@@ -1305,6 +1309,7 @@ dependencies = [
  "forge-host-support",
  "forge-network",
  "forge-ssh",
+ "forge-uuid",
  "forge-version",
  "forge_secrets",
  "futures",
@@ -1327,6 +1332,7 @@ dependencies = [
  "mac_address",
  "machine-a-tron",
  "md5",
+ "measured-boot",
  "names",
  "num-bigint-dig",
  "num_cpus",
@@ -1425,6 +1431,7 @@ dependencies = [
  "clap",
  "forge-host-support",
  "forge-tls",
+ "forge-uuid",
  "forge-version",
  "http-body",
  "metrics",
@@ -2380,6 +2387,7 @@ dependencies = [
  "clap",
  "dhcproto",
  "forge-tls",
+ "forge-uuid",
  "futures",
  "ipnetwork",
  "logfmt",
@@ -2937,6 +2945,7 @@ dependencies = [
  "csv",
  "eyre",
  "forge-tls",
+ "forge-uuid",
  "ipnetwork",
  "libudev",
  "logfmt",
@@ -3027,6 +3036,22 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.14",
  "tonic 0.14.1",
+]
+
+[[package]]
+name = "forge-uuid"
+version = "0.0.1"
+dependencies = [
+ "data-encoding",
+ "eyre",
+ "prost 0.14.1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror 2.0.14",
+ "tonic 0.14.1",
+ "uuid",
 ]
 
 [[package]]
@@ -3456,6 +3481,7 @@ dependencies = [
  "clap",
  "eyre",
  "forge-tls",
+ "forge-uuid",
  "forge-version",
  "futures",
  "health-report",
@@ -4389,6 +4415,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "forge-tls",
+ "forge-uuid",
  "forge-version",
  "getopts",
  "health-report",
@@ -4478,6 +4505,7 @@ dependencies = [
  "eyre",
  "figment",
  "forge-tls",
+ "forge-uuid",
  "forge-version",
  "futures",
  "ipnetwork",
@@ -4510,6 +4538,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "forge-tls",
+ "forge-uuid",
  "futures",
  "futures-util",
  "reqwest",
@@ -4586,6 +4615,22 @@ name = "md5"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
+
+[[package]]
+name = "measured-boot"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "eyre",
+ "forge-uuid",
+ "prettytable-rs",
+ "rpc",
+ "serde",
+ "sqlx",
+ "thiserror 2.0.14",
+ "tonic 0.14.1",
+]
 
 [[package]]
 name = "memchr"
@@ -6713,6 +6758,7 @@ dependencies = [
  "eyre",
  "forge-http-connector",
  "forge-tls",
+ "forge-uuid",
  "health-report",
  "hickory-resolver",
  "hyper",
@@ -7188,6 +7234,7 @@ dependencies = [
  "eyre",
  "forge-host-support",
  "forge-tls",
+ "forge-uuid",
  "forge-version",
  "futures-util",
  "lazy_static",
@@ -7955,6 +8002,7 @@ dependencies = [
  "duration-str 0.17.0",
  "eyre",
  "forge-tls",
+ "forge-uuid",
  "futures",
  "futures-util",
  "http",
@@ -8022,6 +8070,7 @@ version = "0.1.0"
 dependencies = [
  "api-test-helper",
  "eyre",
+ "forge-uuid",
  "forge-version",
  "prost 0.14.1",
  "prost-types 0.14.1",
@@ -9293,6 +9342,7 @@ dependencies = [
  "config-version",
  "eyre",
  "forge-network",
+ "forge-uuid",
  "health-report",
  "humantime",
  "ipnetwork",

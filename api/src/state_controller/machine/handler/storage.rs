@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::uuid::{instance::InstanceId, machine::MachineId};
 use chrono::Utc;
+use forge_uuid::{instance::InstanceId, machine::MachineId};
 use sqlx::PgConnection;
 
 use crate::{

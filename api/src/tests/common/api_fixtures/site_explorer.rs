@@ -32,8 +32,8 @@ use crate::{
         site_explorer::EndpointExplorationReport,
     },
 };
-use ::rpc::uuid::machine::MachineId;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
+use forge_uuid::machine::MachineId;
 use futures_util::FutureExt;
 use health_report::HealthReport;
 use rpc::machine_discovery::AttestKeyInfo;

@@ -15,14 +15,13 @@
 use std::collections::{HashMap, HashSet};
 use std::{mem::discriminant as enum_discr, net::IpAddr, sync::Arc};
 
-use ::rpc::measured_boot::records::MeasurementMachineState;
-use ::rpc::uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
 };
+use forge_uuid::machine::MachineId;
 use futures::TryFutureExt;
 use itertools::Itertools;
 use libredfish::{
@@ -31,6 +30,7 @@ use libredfish::{
 };
 use libredfish::{EnabledDisabled, PowerState};
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
+use measured_boot::records::MeasurementMachineState;
 use sku::{handle_bom_validation_requested, handle_bom_validation_state};
 use sqlx::PgConnection;
 use tokio::{

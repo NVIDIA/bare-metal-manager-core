@@ -27,26 +27,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .extern_path(".google.protobuf.Duration", "crate::Duration")
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
-        .extern_path(".common.MachineId", "crate::uuid::machine::MachineId")
-        .extern_path(".common.DomainId", "crate::uuid::domain::DomainId")
-        .extern_path(".common.MachineInterfaceId", "crate::uuid::machine::MachineInterfaceId")
-        .extern_path(".common.VpcId", "crate::uuid::vpc::VpcId")
-        .extern_path(".common.VpcPrefixId", "crate::uuid::vpc::VpcPrefixId")
-        .extern_path(".common.VpcPeeringId", "crate::uuid::vpc_peering::VpcPeeringId")
-        .extern_path(".common.IBPartitionId", "crate::uuid::infiniband::IBPartitionId")
-        .extern_path(".common.InstanceId", "crate::uuid::instance::InstanceId")
-        .extern_path(".common.NetworkSegmentId", "crate::uuid::network::NetworkSegmentId")
-        .extern_path(".common.DpaInterfaceId", "crate::uuid::dpa_interface::DpaInterfaceId")
-        .extern_path(".common.NetworkPrefixId", "crate::uuid::network::NetworkPrefixId")
-        .extern_path(".measured_boot.MeasurementSystemProfileId", "crate::uuid::measured_boot::MeasurementSystemProfileId")
-        .extern_path(".measured_boot.MeasurementSystemProfileAttrId", "crate::uuid::measured_boot::MeasurementSystemProfileAttrId")
-        .extern_path(".measured_boot.MeasurementBundleId", "crate::uuid::measured_boot::MeasurementBundleId")
-        .extern_path(".measured_boot.MeasurementBundleValueId", "crate::uuid::measured_boot::MeasurementBundleValueId")
-        .extern_path(".measured_boot.MeasurementReportId", "crate::uuid::measured_boot::MeasurementReportId")
-        .extern_path(".measured_boot.MeasurementReportValueId", "crate::uuid::measured_boot::MeasurementReportValueId")
-        .extern_path(".measured_boot.MeasurementJournalId", "crate::uuid::measured_boot::MeasurementJournalId")
-        .extern_path(".measured_boot.MeasurementApprovedMachineId", "crate::uuid::measured_boot::MeasurementApprovedMachineId")
-        .extern_path(".measured_boot.MeasurementApprovedProfileId", "crate::uuid::measured_boot::MeasurementApprovedProfileId")
+        .extern_path(".common.MachineId", "::forge_uuid::machine::MachineId")
+        .extern_path(".common.DomainId", "::forge_uuid::domain::DomainId")
+        .extern_path(".common.MachineInterfaceId", "::forge_uuid::machine::MachineInterfaceId")
+        .extern_path(".common.VpcId", "::forge_uuid::vpc::VpcId")
+        .extern_path(".common.VpcPrefixId", "::forge_uuid::vpc::VpcPrefixId")
+        .extern_path(".common.VpcPeeringId", "::forge_uuid::vpc_peering::VpcPeeringId")
+        .extern_path(".common.IBPartitionId", "::forge_uuid::infiniband::IBPartitionId")
+        .extern_path(".common.InstanceId", "::forge_uuid::instance::InstanceId")
+        .extern_path(".common.NetworkSegmentId", "::forge_uuid::network::NetworkSegmentId")
+        .extern_path(".common.DpaInterfaceId", "::forge_uuid::dpa_interface::DpaInterfaceId")
+        .extern_path(".common.NetworkPrefixId", "::forge_uuid::network::NetworkPrefixId")
+        .extern_path(".measured_boot.MeasurementSystemProfileId", "::forge_uuid::measured_boot::MeasurementSystemProfileId")
+        .extern_path(".measured_boot.MeasurementSystemProfileAttrId", "::forge_uuid::measured_boot::MeasurementSystemProfileAttrId")
+        .extern_path(".measured_boot.MeasurementBundleId", "::forge_uuid::measured_boot::MeasurementBundleId")
+        .extern_path(".measured_boot.MeasurementBundleValueId", "::forge_uuid::measured_boot::MeasurementBundleValueId")
+        .extern_path(".measured_boot.MeasurementReportId", "::forge_uuid::measured_boot::MeasurementReportId")
+        .extern_path(".measured_boot.MeasurementReportValueId", "::forge_uuid::measured_boot::MeasurementReportValueId")
+        .extern_path(".measured_boot.MeasurementJournalId", "::forge_uuid::measured_boot::MeasurementJournalId")
+        .extern_path(".measured_boot.MeasurementApprovedMachineId", "::forge_uuid::measured_boot::MeasurementApprovedMachineId")
+        .extern_path(".measured_boot.MeasurementApprovedProfileId", "::forge_uuid::measured_boot::MeasurementApprovedProfileId")
 
         .include_file("prost_common.rs")
         .type_attribute(".health", "#[derive(serde::Serialize)]")
@@ -192,9 +192,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.IBPartitionIdList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.IBPartitionList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.PowerOptionResponse",
-            "#[derive(serde::Deserialize, serde::Serialize)]")
+                        "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute("forge.PowerOptions",
-            "#[derive(serde::Deserialize, serde::Serialize)]")
+                        "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute(
             "forge.IpxeOperatingSystem",
             "#[derive(serde::Deserialize, serde::Serialize)]",
@@ -621,70 +621,70 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         include_paths: vec!["proto".to_string()],
         generated_types_path_within_crate: "protos".to_string(),
         extern_paths: vec![
-            (".common.MachineId", "crate::uuid::machine::MachineId"),
-            (".common.DomainId", "crate::uuid::domain::DomainId"),
+            (".common.MachineId", "::forge_uuid::machine::MachineId"),
+            (".common.DomainId", "::forge_uuid::domain::DomainId"),
             (
                 ".common.MachineInterfaceId",
-                "crate::uuid::machine::MachineInterfaceId",
+                "::forge_uuid::machine::MachineInterfaceId",
             ),
-            (".common.VpcId", "crate::uuid::vpc::VpcId"),
-            (".common.VpcPrefixId", "crate::uuid::vpc::VpcPrefixId"),
+            (".common.VpcId", "::forge_uuid::vpc::VpcId"),
+            (".common.VpcPrefixId", "::forge_uuid::vpc::VpcPrefixId"),
             (
                 ".common.VpcPeeringId",
-                "crate::uuid::vpc_peering::VpcPeeringId",
+                "::forge_uuid::vpc_peering::VpcPeeringId",
             ),
             (
                 ".common.IBPartitionId",
-                "crate::uuid::infiniband::IBPartitionId",
+                "::forge_uuid::infiniband::IBPartitionId",
             ),
-            (".common.InstanceId", "crate::uuid::instance::InstanceId"),
+            (".common.InstanceId", "::forge_uuid::instance::InstanceId"),
             (
                 ".common.NetworkSegmentId",
-                "crate::uuid::network::NetworkSegmentId",
+                "::forge_uuid::network::NetworkSegmentId",
             ),
             (
                 ".common.DpaInterfaceId",
-                "crate::uuid::dpa_interface::DpaInterfaceId",
+                "::forge_uuid::dpa_interface::DpaInterfaceId",
             ),
             (
                 ".common.NetworkPrefixId",
-                "crate::uuid::network::NetworkPrefixId",
+                "::forge_uuid::network::NetworkPrefixId",
             ),
             (
                 ".measured_boot.MeasurementSystemProfileId",
-                "crate::uuid::measured_boot::MeasurementSystemProfileId",
+                "::forge_uuid::measured_boot::MeasurementSystemProfileId",
             ),
             (
                 ".measured_boot.MeasurementSystemProfileAttrId",
-                "crate::uuid::measured_boot::MeasurementSystemProfileAttrId",
+                "::forge_uuid::measured_boot::MeasurementSystemProfileAttrId",
             ),
             (
                 ".measured_boot.MeasurementBundleId",
-                "crate::uuid::measured_boot::MeasurementBundleId",
+                "::forge_uuid::measured_boot::MeasurementBundleId",
             ),
             (
                 ".measured_boot.MeasurementBundleValueId",
-                "crate::uuid::measured_boot::MeasurementBundleValueId",
+                "::forge_uuid::measured_boot::MeasurementBundleValueId",
             ),
             (
                 ".measured_boot.MeasurementReportId",
-                "crate::uuid::measured_boot::MeasurementReportId",
+                "::forge_uuid::measured_boot::MeasurementReportId",
             ),
             (
                 ".measured_boot.MeasurementReportValueId",
-                "crate::uuid::measured_boot::MeasurementReportValueId",
+                "::forge_uuid::measured_boot::MeasurementReportValueId",
             ),
             (
                 ".measured_boot.MeasurementJournalId",
-                "crate::uuid::measured_boot::MeasurementJournalId",
+                "::forge_uuid::measured_boot::MeasurementJournalId",
             ),
             (
                 ".measured_boot.MeasurementApprovedMachineId",
-                "crate::uuid::measured_boot::MeasurementApprovedMachineId",
+                "::forge_uuid::measured_boot::MeasurementApprovedMachineId",
             ),
             (
                 ".measured_boot.MeasurementApprovedProfileId",
-                "crate::uuid::measured_boot::MeasurementApprovedProfileId",
+                "::forge_uuid::measured_boot::MeasurementApprovedProfileId",
             ),
         ],
     })?;

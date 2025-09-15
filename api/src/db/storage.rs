@@ -24,8 +24,8 @@ use crate::model::storage::{
     StorageVolumeFilter, StorageVolumeHealth, StorageVolumeStatus,
 };
 use crate::model::tenant::TenantOrganizationId;
-use ::rpc::uuid::machine::MachineId;
-use rpc::uuid::instance::InstanceId;
+use forge_uuid::instance::InstanceId;
+use forge_uuid::machine::MachineId;
 
 /// actual carbide storage objects handling happens here
 /// calls go to api/src/storage.rs for nvmesh cluster mgmt api

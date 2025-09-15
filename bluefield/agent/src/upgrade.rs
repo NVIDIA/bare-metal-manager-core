@@ -20,9 +20,9 @@ use std::time::SystemTime;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use ::rpc::uuid::machine::MachineId;
 use data_encoding::BASE64;
 use eyre::WrapErr;
+use forge_uuid::machine::MachineId;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 

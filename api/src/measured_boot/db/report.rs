@@ -32,18 +32,18 @@ use crate::measured_boot::interface::{
     },
 };
 use crate::{CarbideError, CarbideResult};
-use ::rpc::measured_boot::bundle::MeasurementBundle;
-use ::rpc::measured_boot::journal::MeasurementJournal;
-use ::rpc::measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
-use ::rpc::measured_boot::records::{
+use forge_uuid::machine::MachineId;
+use forge_uuid::measured_boot::{
+    MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId, TrustedMachineId,
+};
+use measured_boot::bundle::MeasurementBundle;
+use measured_boot::journal::MeasurementJournal;
+use measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
+use measured_boot::records::{
     MeasurementApprovedType, MeasurementBundleState, MeasurementMachineState,
     MeasurementReportRecord, MeasurementReportValueRecord,
 };
-use ::rpc::measured_boot::report::MeasurementReport;
-use ::rpc::uuid::machine::MachineId;
-use ::rpc::uuid::measured_boot::{
-    MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId, TrustedMachineId,
-};
+use measured_boot::report::MeasurementReport;
 use sqlx::PgConnection;
 use std::collections::HashMap;
 

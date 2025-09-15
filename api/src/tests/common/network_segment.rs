@@ -12,8 +12,8 @@
 use super::api_fixtures::TestEnv;
 use crate::api::Api;
 use crate::db::network_segment_state_history::NetworkSegmentStateHistory;
-use ::rpc::uuid::network::NetworkSegmentId;
-use ::rpc::uuid::vpc::VpcId;
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::VpcId;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     NetworkSegment, NetworkSegmentCreationRequest, NetworkSegmentSearchConfig, NetworkSegmentType,

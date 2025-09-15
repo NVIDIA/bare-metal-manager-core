@@ -5,8 +5,8 @@ use crate::generated::forge::{
     Machine, ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse, VersionRequest,
 };
 use crate::generated::{common, forge};
+use forge_uuid::machine::MachineId;
 use forge_version::v;
-use rpc::uuid::machine::MachineId;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 

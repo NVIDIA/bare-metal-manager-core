@@ -15,7 +15,7 @@ pub use ::rpc::machine_discovery as rpc_md;
 
 use crate::CarbideError;
 use crate::{attestation as attest, db::attestation::SecretAkPub};
-use ::rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 use sqlx::PgConnection;
 use tonic::Status;
 

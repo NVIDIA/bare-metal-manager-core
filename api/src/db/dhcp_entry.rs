@@ -12,7 +12,7 @@
 use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;
-use ::rpc::uuid::machine::MachineInterfaceId;
+use forge_uuid::machine::MachineInterfaceId;
 
 ///
 /// A machine dhcp response is a representation of some booting interface by Mac Address or DUID

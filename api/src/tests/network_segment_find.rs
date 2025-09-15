@@ -15,7 +15,7 @@ use crate::tests::common::api_fixtures::{
     vpc::create_vpc,
 };
 use ::rpc::forge as rpc;
-use ::rpc::uuid::network::NetworkSegmentId;
+use forge_uuid::network::NetworkSegmentId;
 use rpc::forge_server::Forge;
 
 #[crate::sqlx_test]

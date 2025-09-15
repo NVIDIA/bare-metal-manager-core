@@ -4,8 +4,8 @@ use crate::{
 };
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use forge_network::ip::prefix::Ipv4Network;
+use forge_uuid::network::NetworkSegmentId;
 use rpc::forge::{PrefixMatchType, Vpc, VpcPrefixCreationRequest, VpcPrefixSearchQuery};
-use rpc::uuid::network::NetworkSegmentId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

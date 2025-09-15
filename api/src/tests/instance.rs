@@ -70,7 +70,7 @@ use common::api_fixtures::{
     tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED},
 };
 
-use ::rpc::uuid::{instance::InstanceId, machine::MachineId};
+use forge_uuid::{instance::InstanceId, machine::MachineId};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -87,8 +87,8 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures::{
     TestEnv, create_managed_host_with_ek, update_time_params,
 };
-use ::rpc::uuid::vpc::VpcPrefixId;
-use rpc::uuid::network::NetworkSegmentId;
+use forge_uuid::network::NetworkSegmentId;
+use forge_uuid::vpc::VpcPrefixId;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
@@ -2752,7 +2752,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
 
 async fn create_tenant_overlay_prefix(
     env: &TestEnv,
-    vpc_id: ::rpc::uuid::vpc::VpcId,
+    vpc_id: forge_uuid::vpc::VpcId,
 ) -> VpcPrefixId {
     let mut txn = env.db_txn().await;
     let vpc_prefix_id = crate::db::vpc_prefix::NewVpcPrefix {

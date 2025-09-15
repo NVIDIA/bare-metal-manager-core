@@ -12,8 +12,8 @@
 use ::rpc::{
     forge as rpc,
     forge_tls_client::{self, ApiConfig, ForgeClientConfig},
-    uuid::machine::MachineInterfaceId,
 };
+use forge_uuid::machine::MachineInterfaceId;
 
 pub(crate) mod cloud_init;
 pub(crate) mod ipxe;

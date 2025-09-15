@@ -9,8 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use ::rpc::uuid::machine::MachineType;
 use data_encoding::BASE32_DNSSEC;
+use forge_uuid::machine::MachineType;
 use std::net::IpAddr;
 
 use crate::model::hardware_info::HardwareInfo;
@@ -20,7 +20,7 @@ use crate::{
     db::{ObjectFilter, machine::MachineSearchConfig},
     model::machine::machine_id::host_id_from_dpu_hardware_info,
 };
-use ::rpc::uuid::machine::{MACHINE_ID_PREFIX_LENGTH, MachineId};
+use forge_uuid::machine::{MACHINE_ID_PREFIX_LENGTH, MachineId};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use sha2::{Digest, Sha256};

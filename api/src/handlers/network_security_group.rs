@@ -12,11 +12,11 @@
 
 use std::collections::HashSet;
 
-use ::rpc::uuid::{
-    instance::InstanceId, network_security_group::NetworkSecurityGroupId, vpc::VpcId,
-};
 use ::rpc::{errors::RpcDataConversionError, forge as rpc};
 use config_version::ConfigVersion;
+use forge_uuid::{
+    instance::InstanceId, network_security_group::NetworkSecurityGroupId, vpc::VpcId,
+};
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 

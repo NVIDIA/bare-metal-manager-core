@@ -14,7 +14,7 @@ use crate::{
     db,
     tests::common::api_fixtures::{create_managed_host, create_test_env},
 };
-use ::rpc::uuid::{machine::MachineId, vpc::VpcId};
+use forge_uuid::{machine::MachineId, vpc::VpcId};
 use rpc::forge::{
     ManagedHostNetworkConfigRequest, VpcPeeringCreationRequest, VpcPeeringDeletionRequest,
     VpcPeeringList, VpcPeeringSearchFilter, VpcPeeringsByIdsRequest, VpcVirtualizationType,

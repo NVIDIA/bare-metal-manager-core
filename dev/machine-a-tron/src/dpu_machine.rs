@@ -15,8 +15,8 @@ use crate::machine_state_machine::{LiveState, MachineStateMachine, OsImage, Pers
 use crate::tui::HostDetails;
 use crate::{MachineConfig, config::MachineATronContext, saturating_add_duration_to_instant};
 use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult};
+use forge_uuid::machine::MachineId;
 use rpc::forge::IdentifySerialRequest;
-use rpc::uuid::machine::MachineId;
 
 #[derive(Debug)]
 pub struct DpuMachine {

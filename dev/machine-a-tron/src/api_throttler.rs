@@ -1,7 +1,7 @@
 use crate::api_client::ApiClient;
 use crate::api_throttler::ApiCommand::GetMachine;
+use forge_uuid::machine::MachineId;
 use rpc::Machine;
-use rpc::uuid::machine::MachineId;
 use std::collections::{HashMap, HashSet};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Interval;

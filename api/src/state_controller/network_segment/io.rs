@@ -31,7 +31,7 @@ use crate::{
         },
     },
 };
-use ::rpc::uuid::network::NetworkSegmentId;
+use forge_uuid::network::NetworkSegmentId;
 
 /// State Controller IO implementation for network segments
 #[derive(Default, Debug)]

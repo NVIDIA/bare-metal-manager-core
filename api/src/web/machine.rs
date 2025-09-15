@@ -13,15 +13,15 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use ::rpc::uuid::machine::MachineType;
 use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
+use forge_uuid::machine::MachineId;
+use forge_uuid::machine::MachineType;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent, OverrideMode};
-use rpc::uuid::machine::MachineId;
 use serde::Deserialize;
 use utils::managed_host_display::to_time;
 

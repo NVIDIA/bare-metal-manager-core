@@ -11,7 +11,7 @@
  */
 
 use crate::grpcurl::grpcurl;
-use rpc::uuid::machine::MachineId;
+use forge_uuid::machine::MachineId;
 use std::{net::SocketAddr, thread, time};
 
 const MAX_RETRY: usize = 30; // Equal to 30s wait time
