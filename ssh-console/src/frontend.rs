@@ -378,33 +378,16 @@ impl russh::server::Handler for Handler {
     async fn pty_request(
         &mut self,
         channel: ChannelId,
-        term: &str,
-        col_width: u32,
-        row_height: u32,
-        pix_width: u32,
-        pix_height: u32,
-        modes: &[(Pty, u32)],
+        _term: &str,
+        _col_width: u32,
+        _row_height: u32,
+        _pix_width: u32,
+        _pix_height: u32,
+        _modes: &[(Pty, u32)],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         tracing::trace!(peer_addr = self.peer_addr, "pty_request");
-        if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
-            client_state
-                .bmc_connection
-                .to_bmc_msg_tx
-                .send(ToBmcMessage::ChannelMsg(ChannelMsg::RequestPty {
-                    want_reply: false,
-                    term: term.to_string(),
-                    col_width,
-                    row_height,
-                    pix_width,
-                    pix_height,
-                    terminal_modes: modes.to_vec(),
-                }))
-                .await
-                .map_err(|_| HandlerError::WritingToChannel {
-                    what: "pty request",
-                })?;
-        }
+        session.channel_success(channel)?;
         Ok(())
     }
 
