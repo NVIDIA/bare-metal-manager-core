@@ -261,14 +261,17 @@ pub enum MessageProxyError {
 
 #[derive(Debug)]
 pub enum ToBmcMessage {
+    /// Normal SSH message
     ChannelMsg(ChannelMsg),
+    /// Exec request (e.g. power reset)
     Exec {
         command: Vec<u8>,
         reply_tx: oneshot::Sender<ExecReply>,
     },
-    GetPendingLine {
-        reply_tx: oneshot::Sender<Vec<u8>>,
-    },
+    /// Message scoped to a single client (not seen by other clients or by logging), requesting
+    /// information on whether the connection is up, number of bytes received, etc. This is not sent
+    /// to the BMC but intercepted by our connection_impl.
+    EchoConnectionMessage { reply_tx: oneshot::Sender<Vec<u8>> },
 }
 
 #[derive(Debug)]

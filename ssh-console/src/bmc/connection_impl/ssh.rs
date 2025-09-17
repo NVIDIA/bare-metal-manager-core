@@ -12,11 +12,13 @@
 
 use crate::POWER_RESET_COMMAND;
 use crate::bmc::client_pool::BmcPoolMetrics;
+use crate::bmc::connection_impl::echo_connected_message;
 use crate::bmc::message_proxy::{
     ExecReply, MessageProxyError, ToBmcMessage, ToFrontendMessage, proxy_channel_message,
 };
 use crate::bmc::pending_output_line::PendingOutputLine;
 use crate::bmc::vendor::SshBmcVendor;
+use chrono::Utc;
 use forge_uuid::machine::MachineId;
 use opentelemetry::KeyValue;
 use ringbuf::LocalRb;
@@ -54,6 +56,7 @@ pub async fn spawn(
     let bmc_vendor = connection_details.bmc_vendor;
 
     let bmc_ssh_client = make_authenticated_client(&connection_details).await?;
+    let connected_since = Utc::now();
 
     // Channel to send data to/from the BMC
     let mut ssh_client_channel = bmc_ssh_client
@@ -66,6 +69,8 @@ pub async fn spawn(
     let mut output_ringbuf: LocalRb<Array<u8, 1024>> = ringbuf::LocalRb::default();
     let bmc_prompt = bmc_vendor.bmc_prompt();
     let mut prior_escape_pending = false;
+    let mut bytes_received = 0usize;
+    let mut output_last_received = None;
 
     let join_handle = tokio::spawn(async move {
         let (mut ssh_client_rx, ssh_client_tx) = ssh_client_channel.split();
@@ -83,6 +88,8 @@ pub async fn spawn(
                         if let ChannelMsg::Data { data, .. } = &msg {
                             pending_line.extend(data);
                             metrics.bmc_bytes_received_total.add(data.len() as _, metrics_attrs.as_slice());
+                            bytes_received += data.len();
+                            output_last_received = Some(Utc::now());
                             output_ringbuf.push_iter_overwrite(data.iter().copied());
                             if let Some(bmc_prompt) = bmc_prompt {
                                 if ringbuf_contains(&output_ringbuf, bmc_prompt) {
@@ -132,8 +139,8 @@ pub async fn spawn(
                                 }
                                 continue;
                             }
-                            ToBmcMessage::GetPendingLine { reply_tx } => {
-                                reply_tx.send(pending_line.get().to_vec()).ok();
+                            ToBmcMessage::EchoConnectionMessage { reply_tx } => {
+                                echo_connected_message(reply_tx, &pending_line, bytes_received, output_last_received, connected_since);
                                 continue;
                             }
                         };
