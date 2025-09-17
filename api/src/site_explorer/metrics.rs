@@ -66,6 +66,8 @@ pub struct SiteExplorationMetrics {
     pub bmc_reset_count: usize,
     /// Total amount of BMC reboots
     pub bmc_reboot_count: usize,
+    /// Total count of expected machines by SKU ID and device type
+    pub expected_machines_sku_count: HashMap<(String, String), usize>, // (sku_id, device_type)
 }
 
 impl Default for SiteExplorationMetrics {
@@ -93,6 +95,7 @@ impl SiteExplorationMetrics {
             create_machines_latency: None,
             bmc_reset_count: 0,
             bmc_reboot_count: 0,
+            expected_machines_sku_count: HashMap::new(),
         }
     }
 
@@ -155,6 +158,19 @@ impl SiteExplorationMetrics {
         *self
             .endpoint_explorations_identified_managed_hosts_overall_count
             .entry(expected)
+            .or_default() += 1;
+    }
+
+    pub fn increment_expected_machines_sku_count(
+        &mut self,
+        sku_id: Option<&str>,
+        device_type: Option<&str>,
+    ) {
+        let sku_id_key = sku_id.unwrap_or("unknown").to_string();
+        let device_type_key = device_type.unwrap_or("unknown").to_string();
+        *self
+            .expected_machines_sku_count
+            .entry((sku_id_key, device_type_key))
             .or_default() += 1;
     }
 }
@@ -411,13 +427,40 @@ impl SiteExplorerInstruments {
         }
 
         {
-            let metrics = shared_metrics;
+            let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("forge_site_explorer_bmc_reset_count")
                 .with_description("The amount of BMC resets initiated in the last SiteExplorer run")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         observer.observe(metrics.bmc_reset_count as u64, attrs);
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics;
+            meter
+                .u64_observable_gauge("forge_site_exploration_expected_machines_sku_count")
+                .with_description("The total count of expected machines by SKU ID and device type")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for ((sku_id, device_type), &count) in
+                            metrics.expected_machines_sku_count.iter()
+                        {
+                            observer.observe(
+                                count as u64,
+                                &[
+                                    attrs,
+                                    &[
+                                        KeyValue::new("sku_id", sku_id.clone()),
+                                        KeyValue::new("device_type", device_type.clone()),
+                                    ],
+                                ]
+                                .concat(),
+                            );
+                        }
                     })
                 })
                 .build();

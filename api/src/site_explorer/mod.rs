@@ -343,6 +343,7 @@ impl SiteExplorer {
                 .next(),
                 None => None,
             };
+
             let previous_health_report = machine
                 .as_ref()
                 .and_then(|machine| machine.site_explorer_health_report.as_ref());
@@ -1222,9 +1223,42 @@ impl SiteExplorer {
             .await
             .map_err(|e| DatabaseError::txn_begin(DB_TXN_NAME_2, e))?;
         let expected = ExpectedMachine::find_all(&mut txn).await?;
+
+        // Load SKU information for expected machines to record metrics
+        let sku_ids: Vec<String> = expected
+            .iter()
+            .filter_map(|em| em.data.sku_id.as_ref())
+            .cloned()
+            .collect();
+        let skus = if !sku_ids.is_empty() {
+            db::sku::find(&mut txn, &sku_ids).await?
+        } else {
+            Vec::new()
+        };
+
         txn.commit()
             .await
             .map_err(|e| DatabaseError::txn_commit(DB_TXN_NAME_2, e))?;
+
+        // Create a map of sku_id -> device_type for quick lookup
+        let sku_device_types: HashMap<String, Option<String>> = skus
+            .into_iter()
+            .map(|sku| (sku.id, sku.device_type))
+            .collect();
+
+        // Record expected machine metrics
+        for expected_machine in &expected {
+            let device_type = expected_machine
+                .data
+                .sku_id
+                .as_ref()
+                .and_then(|sku_id| sku_device_types.get(sku_id))
+                .and_then(|dt| dt.as_deref());
+            metrics.increment_expected_machines_sku_count(
+                expected_machine.data.sku_id.as_deref(),
+                device_type,
+            );
+        }
 
         let expected_count = expected.len();
         let mut unique_matched_expected_machines: HashSet<MacAddress> = HashSet::new();
@@ -2647,7 +2681,7 @@ fn get_base_mac_from_sys_image_version(sys_image_version: String) -> Result<Stri
 /// address to GUID and vice-versa is inconsistent between different platforms and operating systems.
 /// To assure that this will not cause future issues, it is required that future
 /// devices will not rely on any conversion formulas between MAC and GUID values,
-/// and that these values will be explicitly stored in the device’s nonvolatile memory.
+/// and that these values will be explicitly stored in the device's nonvolatile memory.
 ///
 /// Assumption:
 /// redfish/v1/UpdateService/FirmwareInventory/DPU_SYS_IMAGE(Version)
