@@ -1,12 +1,13 @@
-
 # Changelog
 
 ## [Unreleased (v2025.09.26-rc1-0)](https://gitlab-master.nvidia.com/nvmetal/carbide/-/compare/v2025.09.12-rc2-0...trunk)
 
 ### Added
 - [VMAAS-48](https://jirasw.nvidia.com/browse/VMAAS-48): add config flag to disable creation of VFs in an instance allocation or modification
+- [MR-4580](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4580): Added new metric `forge_site_exploration_expected_machines_sku_count` to report SKU counts based on expected machines table.
 
 ### Changed
+- [MR-4580](https://gitlab-master.nvidia.com/nvmetal/carbide/-/merge_requests/4580): Modified `forge_hosts_by_sku_count` metric to include hosts without SKU as 'unknown'.
 
 ### Fixed
 - [FORGE-6603](https://jirasw.nvidia.com/browse/FORGE-6603)[5402133](https://nvbugswb.nvidia.com/NVBugs5/redir.aspx?url=/5402133) do not ingest DPUs if they are not reporting their oob_net0 interface properly.  uses existing dpu bmc remediation to attempt recovery

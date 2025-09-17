@@ -1871,6 +1871,29 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
     let mut txn = env.pool.begin().await?;
+
+    // Create the SKU record first
+    let test_sku = crate::model::sku::Sku {
+        schema_version: 2,
+        id: "Sku1".to_string(),
+        description: "Test SKU for site explorer test".to_string(),
+        created: chrono::Utc::now(),
+        components: crate::model::sku::SkuComponents {
+            chassis: crate::model::sku::SkuComponentChassis {
+                vendor: "Vendor1".to_string(),
+                model: "Chassis1".to_string(),
+                architecture: "x86_64".to_string(),
+            },
+            cpus: vec![],
+            gpus: vec![],
+            memory: vec![],
+            infiniband_devices: vec![],
+            storage: vec![],
+        },
+        device_type: None, // This will result in "unknown" device type
+    };
+    crate::db::sku::create(&mut txn, &test_sku).await?;
+
     let mut host1_expected_machine = ExpectedMachine::create(
         &mut txn,
         HOST1_MAC.to_string().parse().unwrap(),
@@ -1880,7 +1903,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             serial_number: "host1".to_string(),
             fallback_dpu_serial_numbers: vec![],
             metadata: Metadata::new_with_default_name(),
-            sku_id: None,
+            sku_id: Some("Sku1".to_string()),
         },
     )
     .await?;
@@ -3097,6 +3120,29 @@ async fn test_machine_creation_with_sku(
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
     let mut txn = env.pool.begin().await?;
+
+    // Create the SKU record first
+    let test_sku = crate::model::sku::Sku {
+        schema_version: 2,
+        id: "Sku1".to_string(),
+        description: "Test SKU for site explorer test".to_string(),
+        created: chrono::Utc::now(),
+        components: crate::model::sku::SkuComponents {
+            chassis: crate::model::sku::SkuComponentChassis {
+                vendor: "Vendor1".to_string(),
+                model: "Chassis1".to_string(),
+                architecture: "x86_64".to_string(),
+            },
+            cpus: vec![],
+            gpus: vec![],
+            memory: vec![],
+            infiniband_devices: vec![],
+            storage: vec![],
+        },
+        device_type: None, // This will result in "unknown" device type
+    };
+    crate::db::sku::create(&mut txn, &test_sku).await?;
+
     ExpectedMachine::create(
         &mut txn,
         HOST1_MAC.to_string().parse().unwrap(),
@@ -3106,7 +3152,7 @@ async fn test_machine_creation_with_sku(
             serial_number: "host1".to_string(),
             fallback_dpu_serial_numbers: vec![HOST1_DPU_SERIAL_NUMBER.to_string()],
             metadata: Metadata::new_with_default_name(),
-            sku_id: Some("Some SKU".to_string()),
+            sku_id: Some("Sku1".to_string()),
         },
     )
     .await?;
@@ -3136,8 +3182,263 @@ async fn test_machine_creation_with_sku(
         if m.is_dpu() {
             assert_eq!(m.hw_sku, None);
         } else {
-            assert_eq!(m.hw_sku, Some("Some SKU".to_string()));
+            assert_eq!(m.hw_sku, Some("Sku1".to_string()));
         }
     }
+
+    // Verify expected machine SKU metrics
+    let expected_metrics: HashMap<String, String> = test_meter
+        .parsed_metrics("forge_site_exploration_expected_machines_sku_count")
+        .into_iter()
+        .collect();
+
+    // We should have metrics for expected machines
+    assert!(!expected_metrics.is_empty());
+    // The SKU "Sku1" has device_type=None, so it should be counted with device_type="unknown"
+    assert!(expected_metrics.contains_key("{device_type=\"unknown\",sku_id=\"Sku1\"}"));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_expected_machine_device_type_metrics(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let test_sku_gpu_id = format!("test-sku-gpu-{}", uuid::Uuid::new_v4());
+    let test_sku_no_type_id = format!("test-sku-no-type-{}", uuid::Uuid::new_v4());
+    const EXPECTED_MACHINE_1_MAC: &str = "AA:BB:CC:DD:EE:01";
+    const EXPECTED_MACHINE_2_MAC: &str = "AA:BB:CC:DD:EE:02";
+    const EXPECTED_MACHINE_3_MAC: &str = "AA:BB:CC:DD:EE:03";
+
+    // Create fake machines with network interfaces so they can be discovered
+    let mut machines = vec![
+        FakeMachine::new(EXPECTED_MACHINE_1_MAC, "Vendor1", &env.underlay_segment),
+        FakeMachine::new(EXPECTED_MACHINE_2_MAC, "Vendor2", &env.underlay_segment),
+        FakeMachine::new(EXPECTED_MACHINE_3_MAC, "Vendor3", &env.underlay_segment),
+    ];
+    machines.discover_dhcp(&env).await?;
+
+    // Create test SKUs in database
+    let mut txn = env.pool.begin().await?;
+
+    let test_sku_with_device_type = crate::model::sku::Sku {
+        schema_version: 2,
+        id: test_sku_gpu_id.clone(),
+        description: "Test GPU SKU".to_string(),
+        created: chrono::Utc::now(),
+        components: crate::model::sku::SkuComponents {
+            chassis: crate::model::sku::SkuComponentChassis {
+                vendor: format!("test_vendor_gpu_{}", uuid::Uuid::new_v4()),
+                model: format!("test_model_gpu_{}", uuid::Uuid::new_v4()),
+                architecture: "x86_64".to_string(),
+            },
+            cpus: vec![],
+            gpus: vec![],
+            memory: vec![],
+            infiniband_devices: vec![],
+            storage: vec![],
+        },
+        device_type: Some("gpu".to_string()),
+    };
+
+    let test_sku_without_device_type = crate::model::sku::Sku {
+        schema_version: 2,
+        id: test_sku_no_type_id.clone(),
+        description: "Test SKU without device type".to_string(),
+        created: chrono::Utc::now(),
+        components: crate::model::sku::SkuComponents {
+            chassis: crate::model::sku::SkuComponentChassis {
+                vendor: format!("test_vendor_no_type_{}", uuid::Uuid::new_v4()),
+                model: format!("test_model_no_type_{}", uuid::Uuid::new_v4()),
+                architecture: "x86_64".to_string(),
+            },
+            cpus: vec![],
+            gpus: vec![],
+            memory: vec![],
+            infiniband_devices: vec![],
+            storage: vec![],
+        },
+        device_type: None,
+    };
+
+    db::sku::create(&mut txn, &test_sku_with_device_type).await?;
+    db::sku::create(&mut txn, &test_sku_without_device_type).await?;
+
+    // Update the GPU SKU with device_type since create() doesn't set it
+    db::sku::update_metadata(
+        &mut txn,
+        test_sku_gpu_id.clone(),
+        None,
+        Some("gpu".to_string()),
+    )
+    .await?;
+
+    // Create expected machines with different SKU configurations
+    ExpectedMachine::create(
+        &mut txn,
+        EXPECTED_MACHINE_1_MAC.parse().unwrap(),
+        ExpectedMachineData {
+            bmc_username: "user1".to_string(),
+            bmc_password: "pass1".to_string(),
+            serial_number: "serial1".to_string(),
+            fallback_dpu_serial_numbers: vec![],
+            metadata: Metadata::new_with_default_name(),
+            sku_id: Some(test_sku_gpu_id.clone()),
+        },
+    )
+    .await?;
+
+    ExpectedMachine::create(
+        &mut txn,
+        EXPECTED_MACHINE_2_MAC.parse().unwrap(),
+        ExpectedMachineData {
+            bmc_username: "user2".to_string(),
+            bmc_password: "pass2".to_string(),
+            serial_number: "serial2".to_string(),
+            fallback_dpu_serial_numbers: vec![],
+            metadata: Metadata::new_with_default_name(),
+            sku_id: Some(test_sku_no_type_id.clone()),
+        },
+    )
+    .await?;
+
+    ExpectedMachine::create(
+        &mut txn,
+        EXPECTED_MACHINE_3_MAC.parse().unwrap(),
+        ExpectedMachineData {
+            bmc_username: "user3".to_string(),
+            bmc_password: "pass3".to_string(),
+            serial_number: "serial3".to_string(),
+            fallback_dpu_serial_numbers: vec![],
+            metadata: Metadata::new_with_default_name(),
+            sku_id: None, // No SKU
+        },
+    )
+    .await?;
+
+    txn.commit().await?;
+
+    // Set up endpoint explorer with mock results for our machines
+    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
+
+    // Mock exploration results for each machine
+    endpoint_explorer.insert_endpoint_results(vec![
+        (
+            machines[0].ip.parse().unwrap(),
+            Ok(EndpointExplorationReport {
+                endpoint_type: EndpointType::Bmc,
+                last_exploration_error: None,
+                last_exploration_latency: Some(std::time::Duration::from_millis(100)),
+                vendor: Some(bmc_vendor::BMCVendor::Dell),
+                managers: vec![],
+                systems: vec![],
+                chassis: vec![],
+                service: vec![],
+                machine_id: None,
+                versions: std::collections::HashMap::new(),
+                model: Some("test-model".to_string()),
+                forge_setup_status: None,
+                secure_boot_status: None,
+            }),
+        ),
+        (
+            machines[1].ip.parse().unwrap(),
+            Ok(EndpointExplorationReport {
+                endpoint_type: EndpointType::Bmc,
+                last_exploration_error: None,
+                last_exploration_latency: Some(std::time::Duration::from_millis(100)),
+                vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+                managers: vec![],
+                systems: vec![],
+                chassis: vec![],
+                service: vec![],
+                machine_id: None,
+                versions: std::collections::HashMap::new(),
+                model: Some("test-model".to_string()),
+                forge_setup_status: None,
+                secure_boot_status: None,
+            }),
+        ),
+        (
+            machines[2].ip.parse().unwrap(),
+            Ok(EndpointExplorationReport {
+                endpoint_type: EndpointType::Bmc,
+                last_exploration_error: None,
+                last_exploration_latency: Some(std::time::Duration::from_millis(100)),
+                vendor: Some(bmc_vendor::BMCVendor::Supermicro),
+                managers: vec![],
+                systems: vec![],
+                chassis: vec![],
+                service: vec![],
+                machine_id: None,
+                versions: std::collections::HashMap::new(),
+                model: Some("test-model".to_string()),
+                forge_setup_status: None,
+                secure_boot_status: None,
+            }),
+        ),
+    ]);
+
+    let test_meter = TestMeter::default();
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 3, // Explore our 3 machines
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(false.into()),
+        ..Default::default()
+    };
+
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        test_meter.meter(),
+        endpoint_explorer,
+        Arc::new(env.config.get_firmware_config()),
+        env.common_pools.clone(),
+    );
+
+    // Run site explorer to collect metrics
+    explorer.run_single_iteration().await.unwrap();
+
+    // Verify expected machines SKU count metrics
+    let device_type_metrics: HashMap<String, String> = test_meter
+        .parsed_metrics("forge_site_exploration_expected_machines_sku_count")
+        .into_iter()
+        .collect();
+
+    assert!(!device_type_metrics.is_empty());
+
+    // Expected machines metrics are now recorded based on both SKU ID and device type
+    // Now that we properly set device_type using update_metadata:
+    // - 1 machine with GPU SKU -> sku_id=test_sku_gpu_id, device_type="gpu"
+    // - 1 machine with no device_type SKU -> sku_id=test_sku_no_type_id, device_type="unknown"
+    // - 1 machine with no SKU -> sku_id="unknown", device_type="unknown"
+
+    // Check machine with GPU SKU
+    let gpu_sku_key = format!("{{device_type=\"gpu\",sku_id=\"{test_sku_gpu_id}\"}}");
+    assert_eq!(device_type_metrics.get(&gpu_sku_key).unwrap(), "1");
+
+    // Check machine with SKU but no device type
+    let no_type_sku_key = format!("{{device_type=\"unknown\",sku_id=\"{test_sku_no_type_id}\"}}");
+    assert_eq!(device_type_metrics.get(&no_type_sku_key).unwrap(), "1");
+
+    // Check machine with no SKU
+    assert_eq!(
+        device_type_metrics
+            .get("{device_type=\"unknown\",sku_id=\"unknown\"}")
+            .unwrap(),
+        "1"
+    );
+
+    // Verify total count by summing all device types
+    let total_count: u32 = device_type_metrics
+        .values()
+        .map(|v| v.parse::<u32>().unwrap())
+        .sum();
+    assert_eq!(total_count, 3);
+
     Ok(())
 }

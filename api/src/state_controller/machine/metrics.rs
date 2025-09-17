@@ -443,7 +443,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             meter
                 .u64_observable_gauge("forge_hosts_by_sku_count")
                 .with_description(
-                    "The amount of hosts which have assigned a particular SKU and Machine Type",
+                    "The amount of hosts by SKU and device type ('unknown' for hosts without SKU)",
                 )
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -700,13 +700,19 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 .or_default() += 1;
         }
 
-        if let Some(sku) = object_metrics.sku.clone() {
-            let device_type = object_metrics.sku_device_type.clone().unwrap_or_default();
-            *iteration_metrics
-                .hosts_by_sku
-                .entry((sku, device_type))
-                .or_default() += 1;
-        }
+        // Record SKU information for all hosts, using "unknown" for hosts without SKU
+        let sku = object_metrics
+            .sku
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+        let device_type = object_metrics
+            .sku_device_type
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+        *iteration_metrics
+            .hosts_by_sku
+            .entry((sku, device_type))
+            .or_default() += 1;
 
         for (version, count) in object_metrics.agent_versions.iter() {
             *iteration_metrics
@@ -1242,6 +1248,7 @@ mod tests {
                 (("SkuA".to_string(), "DeviceTypeA".to_string()), 2),
                 (("SkuB".to_string(), "DeviceTypeA".to_string()), 1),
                 (("SkuC".to_string(), "DeviceTypeC".to_string()), 2),
+                (("unknown".to_string(), "unknown".to_string()), 1),
             ])
         );
 

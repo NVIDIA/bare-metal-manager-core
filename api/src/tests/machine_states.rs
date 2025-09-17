@@ -651,8 +651,13 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
         );
     }
 
+    // Now that we track all hosts (including those without SKU as "unknown"),
+    // we should have SKU metrics for the created hosts
     let sku_metrics = env.test_meter.formatted_metric("forge_hosts_by_sku_count");
-    assert!(sku_metrics.is_none());
+    assert_eq!(
+        sku_metrics.unwrap(),
+        r#"{device_type="unknown",fresh="true",sku="unknown"} 2"#
+    );
 }
 
 /// Check that controller state reason is correct as we work through the states
