@@ -444,7 +444,7 @@ impl russh::server::Handler for Handler {
         client_state
             .bmc_connection
             .to_bmc_msg_tx
-            .send(ToBmcMessage::GetPendingLine {
+            .send(ToBmcMessage::EchoConnectionMessage {
                 reply_tx: pending_line_reply_tx,
             })
             .await

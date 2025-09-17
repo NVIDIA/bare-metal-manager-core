@@ -369,7 +369,7 @@ fn relay_input_to_bmc(
                                 ToBmcMessage::ChannelMsg(ChannelMsg::Data { data }) => {
                                     data.contains(&b'\r') || data.contains(&b'\n')
                                 }
-                                ToBmcMessage::GetPendingLine { reply_tx: _ } => true,
+                                ToBmcMessage::EchoConnectionMessage { reply_tx: _ } => true,
                                 ToBmcMessage::Exec { reply_tx, .. } => {
                                     reply_tx.send(ExecReply {
                                         output: b"BMC console not connected\r\n".to_vec(),

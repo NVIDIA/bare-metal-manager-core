@@ -12,6 +12,7 @@
 
 use crate::POWER_RESET_COMMAND;
 use crate::bmc::client_pool::BmcPoolMetrics;
+use crate::bmc::connection_impl::echo_connected_message;
 use crate::bmc::message_proxy::{ExecReply, ToBmcMessage, ToFrontendMessage};
 use crate::bmc::pending_output_line::PendingOutputLine;
 use crate::bmc::vendor::IPMITOOL_ESCAPE_SEQUENCE;
@@ -19,6 +20,7 @@ use crate::config::Config;
 use crate::io_util::{
     self, PtyAllocError, set_controlling_terminal_on_exec, write_data_to_async_fd,
 };
+use chrono::{DateTime, Utc};
 use forge_uuid::machine::MachineId;
 use nix::errno::Errno;
 use nix::pty::OpenptyResult;
@@ -132,6 +134,9 @@ pub async fn spawn(
         metrics,
         escape_was_pending: false,
         pending_line: PendingOutputLine::with_max_size(1024),
+        connected_since: Utc::now(),
+        bytes_received: 0,
+        output_last_received: None,
     };
 
     // Send messages to/from ipmitool in the background
@@ -263,6 +268,11 @@ struct IpmitoolMessageProxy {
     escape_was_pending: bool,
     // Keep track of the last data we saw after a newline, so that we can replay it when clients join.
     pending_line: PendingOutputLine,
+    // Keep track of bytes received, unfortunately we can't read from a Metrics object so we need to write to our own value.
+    bytes_received: usize,
+    // Keep track of when the connection started
+    connected_since: DateTime<Utc>,
+    output_last_received: Option<DateTime<Utc>>,
 }
 
 impl IpmitoolMessageProxy {
@@ -290,10 +300,13 @@ impl IpmitoolMessageProxy {
                             self.output_buf[n] = b'\0'; // null-terminate in case we need to print it later
                             // We've gotten at least one byte, we're now ready (ipmitool always outputs a message when connected.)
                             if let Some(ch) = self.ready_tx.take() {
+                                self.connected_since = Utc::now();
                                 ch.send(()).ok();
                             }
                             let data = &self.output_buf[0..n];
+                            self.output_last_received = Some(Utc::now());
                             self.metrics.bmc_bytes_received_total.add(n as _, metrics_attrs.as_slice());
+                            self.bytes_received += n;
                             self.pending_line.extend(data);
                             self.to_frontend_tx.send(ToFrontendMessage::Channel(Arc::new(ChannelMsg::Data { data: data.to_vec().into() })))
                                 .map_err(|_| ProcessLoopError::WritingToFrontendChannel)?;
@@ -418,8 +431,14 @@ impl IpmitoolMessageProxy {
                         .ok();
                 }
             },
-            ToBmcMessage::GetPendingLine { reply_tx } => {
-                reply_tx.send(self.pending_line.get().to_vec()).ok();
+            ToBmcMessage::EchoConnectionMessage { reply_tx } => {
+                echo_connected_message(
+                    reply_tx,
+                    &self.pending_line,
+                    self.bytes_received,
+                    self.output_last_received,
+                    self.connected_since,
+                );
                 return Ok(());
             }
             other => {
